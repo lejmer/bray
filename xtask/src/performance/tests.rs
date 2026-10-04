@@ -398,6 +398,7 @@ fn compilation_comparability_rejects_stale_claims_and_suppresses_winners() {
         &mut html,
         "Application compilation",
         &report.application_compilation,
+        true,
     );
 
     let html = super::html::finish(html)
@@ -1076,6 +1077,7 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
 
     PerformanceReport {
         schema_revision: SCHEMA_REVISION,
+        conformance_failures: Vec::new(),
         identity: ReportIdentity {
             corpus_revision: 1,
             corpus_sha256: bray_base::lowercase_hex(&Sha256::digest(corpus.as_bytes())),

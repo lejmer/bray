@@ -227,6 +227,15 @@ pub(in crate::performance) fn rust_executable_arguments(
         format!("linker={}", crate::path::slash_separated(linker)),
     ]);
 
+    if target.object_format() == ObjectFormat::Elf {
+        arguments.extend([
+            "-l".to_owned(),
+            "static:-bundle=gcc_eh".to_owned(),
+            "-C".to_owned(),
+            "link-arg=-static-libgcc".to_owned(),
+        ]);
+    }
+
     if target.object_format() == ObjectFormat::Coff {
         arguments.extend([
             "-C".to_owned(),
@@ -234,7 +243,10 @@ pub(in crate::performance) fn rust_executable_arguments(
         ]);
     }
 
-    if matches!(target.object_format(), ObjectFormat::Elf | ObjectFormat::MachO) {
+    if matches!(
+        target.object_format(),
+        ObjectFormat::Elf | ObjectFormat::MachO
+    ) {
         arguments.extend(["-C".to_owned(), "link-arg=-fuse-ld=lld".to_owned()]);
     }
 
@@ -797,10 +809,10 @@ pub(in crate::performance) fn elapsed_nanoseconds(started: Instant) -> u64 {
 mod tests {
     use bray_target::NativeTarget;
 
-    use super::{
-        PeerBatching, PeerLanguage, build_configuration_matches, cpp_configuration,
-        fixture_build_configuration, rust_configuration, rust_linker,
-    };
+    use super::{PeerBatching, cpp_configuration, rust_configuration, rust_linker};
+
+    #[cfg(windows)]
+    use super::{PeerLanguage, build_configuration_matches, fixture_build_configuration};
 
     #[test]
     #[cfg(windows)]
@@ -849,10 +861,43 @@ mod tests {
             )
             .expect("Unix peer configuration must build");
 
-            assert_eq!(linker.file_stem().and_then(std::ffi::OsStr::to_str), Some("clang"));
-            assert!(configuration.arguments.iter().any(|argument| argument == "link-arg=-fuse-ld=lld"));
-            assert!(configuration.arguments.iter().any(|argument| argument.starts_with("link-arg=-Wl,")));
+            assert_eq!(
+                linker.file_stem().and_then(std::ffi::OsStr::to_str),
+                Some("clang")
+            );
+
+            assert!(
+                configuration
+                    .arguments
+                    .iter()
+                    .any(|argument| argument == "link-arg=-fuse-ld=lld")
+            );
+
+            assert!(
+                configuration
+                    .arguments
+                    .iter()
+                    .any(|argument| argument.starts_with("link-arg=-Wl,"))
+            );
         }
+    }
+
+    #[test]
+    fn linux_rust_peers_select_static_unwinding_while_preserving_dynamic_os_libraries() {
+        let arguments = super::rust_executable_arguments(
+            std::path::Path::new("peer.rs"),
+            NativeTarget::X86_64LinuxGnu,
+            std::path::Path::new("clang"),
+        );
+
+        assert!(arguments.contains(&"static:-bundle=gcc_eh".to_owned()));
+        assert!(arguments.contains(&"link-arg=-static-libgcc".to_owned()));
+
+        assert!(
+            !arguments
+                .iter()
+                .any(|argument| argument.contains("+crt-static"))
+        );
     }
 
     #[test]

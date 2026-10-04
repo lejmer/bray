@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Read;
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -15,7 +14,6 @@ use bray_standard_library::StandardLibraryRoot;
 use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 use bray_tooling::load_llvm_compilation;
 
-use super::super::comparison::compare;
 use super::super::corpus::{
     BatchingPolicy, CALIBRATION_SEED_INNER_ITERATIONS, WORKLOADS, Workload,
 };
@@ -23,7 +21,7 @@ use super::super::model::{
     ArtifactKind, Observation, PeerLanguage, PeerReport, PerformanceReport, SCHEMA_REVISION,
     WorkloadBatching, WorkloadReport,
 };
-use super::super::{report, retention, statistics};
+use super::super::{retention, statistics};
 use super::comparison_build;
 use super::identity::{expected_output_digest, report_identity};
 use super::measurement::{
@@ -36,7 +34,6 @@ use super::progress;
 const USAGE: &str = "usage: cargo xtask performance \
     --output <directory> [--baseline <report.json>] [--target <triple>] \
     [--warmup <count>] [--samples <count>] [--workload <identity>]...";
-const MAX_BASELINE_REPORT_BYTES: usize = 16 * 1024 * 1024;
 
 pub(crate) fn run(arguments: impl Iterator<Item = String>) -> std::process::ExitCode {
     let result = Options::parse(arguments)
@@ -139,8 +136,9 @@ fn execute(mut options: Options) -> Result<(), String> {
 
     let optimization_artifacts = optimization_catalog.reports(&workloads);
 
-    let candidate = PerformanceReport {
+    let mut candidate = PerformanceReport {
         schema_revision: SCHEMA_REVISION,
+        conformance_failures,
         identity,
         application_compilation,
         library_compilation,
@@ -148,84 +146,10 @@ fn execute(mut options: Options) -> Result<(), String> {
         workloads,
     };
 
-    validate_candidate(&options.output, &candidate)?;
-
-    let candidate_path = options.output.join("candidate.json");
-    let candidate_html = options.output.join("candidate.html");
-
-    crate::json::write_pretty(&candidate_path, &candidate)?;
-    report::write_candidate(&candidate_html, &candidate)?;
-
-    progress::report("Candidate HTML", &candidate_html);
-
-    if let Some(path) = options.baseline {
-        progress::phase("Comparing performance reports");
-
-        let bytes = read_baseline(&path)?;
-
-        let baseline: PerformanceReport = serde_json::from_slice(&bytes)
-            .map_err(|error| format!("baseline {} is invalid: {error}", path.display()))?;
-
-        let comparison = compare(&baseline, &candidate)?;
-        let comparison_html = options.output.join("comparison.html");
-
-        crate::json::write_pretty(&options.output.join("comparison.json"), &comparison)?;
-        report::write_comparison(&comparison_html, &comparison)?;
-
-        progress::report("Comparison HTML", &comparison_html);
-    }
-
+    super::publication::publish(&options.output, options.baseline.as_deref(), &mut candidate)?;
     progress::finished(started.elapsed());
 
-    println!("{}", candidate_path.display());
-
-    if conformance_failures.is_empty() {
-        Ok(())
-    } else {
-        Err(format!(
-            "performance conformance failed after measurement:\n- {}",
-            conformance_failures.join("\n- ")
-        ))
-    }
-}
-
-fn validate_candidate(output: &Path, candidate: &PerformanceReport) -> Result<(), String> {
-    if let Err(error) = super::super::validation::validate(candidate) {
-        if let Err(write_error) =
-            crate::json::write_pretty(&output.join("candidate-unvalidated.json"), candidate)
-        {
-            return Err(format!("{error}\n{write_error}"));
-        }
-
-        return Err(error);
-    }
-
     Ok(())
-}
-
-fn read_baseline(path: &Path) -> Result<Vec<u8>, String> {
-    let file = fs::File::open(path)
-        .map_err(|error| format!("could not read baseline {}: {error}", path.display()))?;
-
-    let read_limit = u64::try_from(MAX_BASELINE_REPORT_BYTES.saturating_add(1))
-        .map_err(|_| "baseline report limit cannot be represented by this host".to_owned())?;
-
-    let mut reader = file.take(read_limit);
-    let mut bytes = Vec::new();
-
-    reader
-        .read_to_end(&mut bytes)
-        .map_err(|error| format!("could not read baseline {}: {error}", path.display()))?;
-
-    if bytes.len() > MAX_BASELINE_REPORT_BYTES {
-        return Err(format!(
-            "baseline {} exceeds the {} byte report limit",
-            path.display(),
-            MAX_BASELINE_REPORT_BYTES
-        ));
-    }
-
-    Ok(bytes)
 }
 
 fn run_workload(
@@ -405,7 +329,7 @@ fn run_workload(
         .remove(&ImplementationKey::Bray)
         .ok_or_else(|| "interleaved execution omitted Bray".to_owned())?;
 
-    let mut observations = if let Some(expected) = workload.storage_expectation(options.target) {
+    let mut observations = if workload.storage_expectation(options.target).is_some() {
         progress::workload_phase("Measuring storage work");
 
         let storage_output = output.join("storage-observation");
@@ -426,7 +350,6 @@ fn run_workload(
             &storage_output,
             &storage_output,
             &output_digest,
-            expected,
         )?
     } else {
         unavailable_storage_observations()
@@ -771,46 +694,7 @@ mod tests {
     use super::super::super::corpus::WORKLOADS;
     use super::super::super::retention;
     use super::super::options::Options;
-    use super::{audit_retention_contract, execute, validate_candidate};
-
-    #[test]
-    fn invalid_candidates_preserve_measurements_without_publishing_an_accepted_report() {
-        let directory = tempfile::tempdir().expect("diagnostic output directory");
-        let mut candidate = super::super::super::tests::report("corpus", 100, 1);
-
-        candidate.schema_revision = 0;
-
-        let error = validate_candidate(directory.path(), &candidate)
-            .expect_err("invalid candidate remains rejected");
-
-        assert!(error.contains("unsupported report schema revision"));
-
-        let bytes = std::fs::read(directory.path().join("candidate-unvalidated.json"))
-            .expect("unvalidated measurements");
-
-        let retained: super::super::super::model::PerformanceReport =
-            serde_json::from_slice(&bytes).expect("existing report format");
-
-        assert_eq!(retained.schema_revision, 0);
-        assert_eq!(retained.workloads.len(), candidate.workloads.len());
-        assert_eq!(retained.workloads[0].bray_execution, candidate.workloads[0].bray_execution);
-        assert!(!directory.path().join("candidate.json").exists());
-        assert!(!directory.path().join("candidate.html").exists());
-    }
-
-    #[test]
-    fn diagnostic_write_failure_preserves_the_validation_rejection() {
-        let directory = tempfile::tempdir().expect("diagnostic output directory");
-        let mut candidate = super::super::super::tests::report("corpus", 100, 1);
-
-        candidate.schema_revision = 0;
-
-        let error = validate_candidate(&directory.path().join("missing"), &candidate)
-            .expect_err("both failures remain visible");
-
-        assert!(error.contains("unsupported report schema revision"));
-        assert!(error.contains("could not write"));
-    }
+    use super::{audit_retention_contract, execute};
 
     #[test]
     fn retention_audit_collects_every_contract_violation() {
@@ -883,8 +767,11 @@ mod tests {
         crate::json::write_pretty(&comparison_path, &comparison)
             .unwrap_or_else(|error| panic!("comparison JSON must write: {error}"));
 
-        super::report::write_comparison(&baseline_output.join("comparison.html"), &comparison)
-            .unwrap_or_else(|error| panic!("comparison HTML must write: {error}"));
+        super::super::super::report::write_comparison(
+            &baseline_output.join("comparison.html"),
+            &comparison,
+        )
+        .unwrap_or_else(|error| panic!("comparison HTML must write: {error}"));
 
         assert_eq!(comparison.workloads.len(), 1);
         assert_eq!(comparison.workloads[0].peers.len(), 2);

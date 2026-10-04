@@ -281,7 +281,7 @@ fn build_rust_static_library_with_configuration(
         });
     }
 
-    let native_links = native_link_requirements(&output)?;
+    let native_links = native_link_requirements(&output, target)?;
 
     let archive = target_directory
         .join(target.as_str())
@@ -446,7 +446,10 @@ fn target_environment(prefix: &str, target: NativeTarget) -> String {
     format!("{prefix}_{}", target.as_str().replace('-', "_"))
 }
 
-fn native_link_requirements(output: &Output) -> Result<Vec<NativeLinkRequirement>, BuildError> {
+fn native_link_requirements(
+    output: &Output,
+    target: NativeTarget,
+) -> Result<Vec<NativeLinkRequirement>, BuildError> {
     let standard_output = String::from_utf8_lossy(&output.stdout);
     let standard_error = String::from_utf8_lossy(&output.stderr);
 
@@ -458,7 +461,34 @@ fn native_link_requirements(output: &Output) -> Result<Vec<NativeLinkRequirement
         return Err(BuildError::MissingNativeLinks);
     };
 
-    parse_native_link_arguments(arguments.split_whitespace())
+    let requirements = parse_native_link_arguments(arguments.split_whitespace())?;
+
+    Ok(requirements
+        .into_iter()
+        .map(|requirement| {
+            if target.object_format() == bray_target::ObjectFormat::Elf {
+                match requirement.name() {
+                    "gcc_s" => {
+                        return NativeLinkRequirement::new(
+                            NonEmptySharedStr::try_new("gcc_eh")
+                                .expect("unwind archive name is non-empty"),
+                            NativeLinkKind::Static,
+                        );
+                    }
+                    "stdc++" => {
+                        return NativeLinkRequirement::new(
+                            NonEmptySharedStr::try_new(requirement.name())
+                                .expect("runtime name is non-empty"),
+                            NativeLinkKind::Static,
+                        );
+                    }
+                    _ => {}
+                }
+            }
+
+            requirement
+        })
+        .collect())
 }
 
 fn parse_native_link_arguments<'a>(
@@ -622,6 +652,38 @@ mod tests {
                 crate::windows_crt::CLANG_CL_DYNAMIC_RUNTIME
             )
         );
+    }
+
+    #[test]
+    fn linux_archive_metadata_selects_static_language_and_unwind_libraries() {
+        let output = std::process::Output {
+            status: std::process::ExitStatus::default(),
+            stdout: b"note: native-static-libs: -lstdc++ -lgcc_s -lc -ldl".to_vec(),
+            stderr: Vec::new(),
+        };
+
+        let linux =
+            super::native_link_requirements(&output, bray_target::NativeTarget::X86_64LinuxGnu)
+                .expect("archive metadata");
+
+        assert_eq!(
+            linux
+                .iter()
+                .map(|link| (link.name(), link.kind()))
+                .collect::<Vec<_>>(),
+            [
+                ("stdc++", NativeLinkKind::Static),
+                ("gcc_eh", NativeLinkKind::Static),
+                ("c", NativeLinkKind::System),
+                ("dl", NativeLinkKind::System)
+            ]
+        );
+
+        let mac = super::native_link_requirements(&output, bray_target::NativeTarget::X86_64MacOs)
+            .expect("archive metadata");
+
+        assert_eq!(mac[0].kind(), NativeLinkKind::System);
+        assert_eq!(mac[1].name(), "gcc_s");
     }
 
     #[test]

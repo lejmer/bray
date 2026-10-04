@@ -62,7 +62,6 @@ pub(super) fn measure_storage(
     working_directory: &Path,
     output: &Path,
     expected_output_sha256: &str,
-    expected: StorageExpectation,
 ) -> Result<WorkloadObservations, String> {
     require_observation_symbols(linker_map, ObservationKind::Memory)?;
 
@@ -77,13 +76,6 @@ pub(super) fn measure_storage(
 
     if recorded.duration_nanoseconds.is_some() {
         return Err("memory observation execution unexpectedly recorded timing".to_owned());
-    }
-
-    if recorded.storage != expected {
-        return Err(format!(
-            "observed storage work differs from the corpus contract: expected {expected:?}, measured {:?}",
-            recorded.storage
-        ));
     }
 
     let measured = |value| Observation::Measured {

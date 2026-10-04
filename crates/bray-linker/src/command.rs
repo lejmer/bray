@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use bray_target::{NativeTarget, RelocationModel, TargetArchitecture};
 
@@ -43,7 +43,7 @@ fn gnu_compiler_arguments(
         arguments.extend(["--exec".into(), "cc".into()]);
     }
 
-    arguments.push("-pthread".into());
+    arguments.extend(["-pthread".into(), "-static-libgcc".into()]);
 
     if matches!(
         plan.policy().optimization(),
@@ -233,7 +233,7 @@ fn arguments_for_with_directory(
     push_search_paths(&mut arguments, plan, flavor, current_directory)?;
 
     for input in plan.inputs() {
-        push_input(&mut arguments, input, flavor, current_directory)?;
+        push_input(&mut arguments, input, plan, flavor, current_directory)?;
     }
 
     Ok(arguments)
@@ -543,6 +543,7 @@ fn push_search_paths(
 fn push_input(
     arguments: &mut Vec<OsString>,
     input: &LinkInput,
+    plan: &LinkPlan,
     flavor: LldFlavor,
     current_directory: Option<&Path>,
 ) -> Result<(), LldPlanError> {
@@ -562,6 +563,26 @@ fn push_input(
             }
             LldFlavor::Coff => {
                 arguments.push(prefixed("/defaultlib:", name.as_str()));
+            }
+        },
+        LinkInputSource::StaticNativeLibrary(name) => match flavor {
+            LldFlavor::Elf => arguments.push(format!("-l:lib{}.a", name.as_str()).into()),
+            LldFlavor::Coff => arguments.push(prefixed("/defaultlib:", name.as_str())),
+            LldFlavor::MachO => {
+                // Mach-O has no exact-filename -l form. Select the archive from the
+                // supplied library paths instead of allowing a dylib to take precedence.
+                let file_name = format!("lib{}.a", name.as_str());
+                let directory = current_directory.unwrap_or_else(|| Path::new("."));
+
+                let archive = plan
+                    .search_paths()
+                    .iter()
+                    .filter(|search| search.kind() == LinkSearchPathKind::Library)
+                    .map(|search| directory.join(search.path()).join(&file_name))
+                    .find(|path| path.is_file())
+                    .unwrap_or_else(|| PathBuf::from(file_name));
+
+                arguments.push(linker_visible_path(&archive, current_directory).into());
             }
         },
         LinkInputSource::Framework(name) => {
@@ -682,6 +703,257 @@ mod tests {
         LinkedArtifactRequirement, LinkedProductKind, LinkerDriverIdentity, LinkerDriverKind,
         SystemLinkerFamily,
     };
+
+    #[test]
+    fn macho_static_libraries_select_archives_even_when_a_dylib_has_search_precedence() {
+        let directory = std::env::temp_dir();
+        let shared = bray_testing::TemporaryFile::write("libfixture.dylib", &[]);
+        let archive = bray_testing::TemporaryFile::write("libfixture.a", &[]);
+
+        let mut builder = link_plan_builder();
+
+        builder.push_input(
+            crate::LinkInputSpec::try_static_native_library(
+                "fixture",
+                LinkInputProvenance::HostConfiguration,
+            )
+            .expect("static library")
+            .with_id(LinkInputId::new(0)),
+        );
+
+        for file in [shared.path(), archive.path()] {
+            let path = file
+                .parent()
+                .expect("library directory")
+                .strip_prefix(&directory)
+                .expect("relative library search path");
+
+            builder.push_search_path(
+                crate::LinkSearchPath::try_new(crate::LinkSearchPathKind::Library, path)
+                    .expect("search path"),
+            );
+        }
+
+        builder.push_output(planned_output(
+            0,
+            LinkedArtifactKind::Executable,
+            LinkedArtifactRequirement::Required,
+            "application.stage",
+        ));
+
+        builder.set_entry_point(
+            crate::test_support::executable_host_contract()
+                .native_entry()
+                .clone(),
+        );
+
+        let plan = builder.finish().expect("link plan");
+
+        for (name, expected) in [
+            (
+                "fixture",
+                archive
+                    .path()
+                    .strip_prefix(&directory)
+                    .expect("relative archive"),
+            ),
+            ("missing", std::path::Path::new("libmissing.a")),
+        ] {
+            let input = crate::LinkInputSpec::try_static_native_library(
+                name,
+                LinkInputProvenance::HostConfiguration,
+            )
+            .expect("static library")
+            .with_id(LinkInputId::new(0));
+
+            let mut arguments = Vec::new();
+
+            super::push_input(
+                &mut arguments,
+                &input,
+                &plan,
+                LldFlavor::MachO,
+                Some(&directory),
+            )
+            .expect("archive arguments");
+
+            assert_eq!(arguments, [expected.as_os_str().to_owned()]);
+        }
+    }
+
+    #[test]
+    fn static_native_requirements_select_exact_archives_for_raw_and_compiler_linkers() {
+        let mut builder = link_plan_builder();
+
+        builder.push_input(
+            crate::LinkInputSpec::try_static_native_library(
+                "stdc++",
+                LinkInputProvenance::HostConfiguration,
+            )
+            .expect("static library")
+            .with_id(LinkInputId::new(0)),
+        );
+
+        builder.push_input(
+            LinkInput::try_native_library(
+                LinkInputId::new(1),
+                "c",
+                LinkInputProvenance::TargetProfile,
+            )
+            .expect("OS library"),
+        );
+
+        builder.push_output(planned_output(
+            0,
+            LinkedArtifactKind::Executable,
+            LinkedArtifactRequirement::Required,
+            "application.stage",
+        ));
+
+        builder.set_entry_point(
+            crate::test_support::executable_host_contract()
+                .native_entry()
+                .clone(),
+        );
+
+        let plan = builder.finish().expect("link plan");
+
+        for arguments in [
+            arguments_for(&plan, LldFlavor::Elf),
+            system_arguments_for(&plan, SystemLinkerFamily::GnuCompiler, None),
+            system_arguments_for(&plan, SystemLinkerFamily::WslGnuCompiler, None),
+        ] {
+            let arguments = arguments.expect("linker arguments");
+
+            assert!(arguments.contains(&OsString::from("-l:libstdc++.a")));
+            assert!(arguments.contains(&OsString::from("-lc")));
+            assert!(!arguments.contains(&OsString::from("-lstdc++")));
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    #[ignore = "requires clang++, readelf and native process execution"]
+    fn linux_static_runtime_link_preserves_exception_cleanup_without_dynamic_runtime_dependencies()
+    {
+        use std::process::Command;
+
+        let source = bray_testing::TemporaryFile::write("probe.cpp", b"#include <stdexcept>\nint cleaned = 0; struct Guard { ~Guard(){++cleaned;} }; int main(){try {Guard guard; throw std::runtime_error(\"probe\");} catch(...) {return cleaned == 1 ? 0 : 1;}}\n");
+        let dynamic = crate::test_support::TestOutput::new("probe-dynamic");
+
+        assert!(
+            Command::new("clang++")
+                .arg(source.path())
+                .arg("-o")
+                .arg(dynamic.path())
+                .status()
+                .expect("reproduce dynamic runtime link")
+                .success()
+        );
+
+        let dynamic_dependencies = Command::new("readelf")
+            .arg("-d")
+            .arg(dynamic.path())
+            .output()
+            .expect("inspect regression reproducer");
+
+        assert!(dynamic_dependencies.status.success());
+
+        let dynamic_dependencies =
+            String::from_utf8(dynamic_dependencies.stdout).expect("ELF dependency text");
+
+        assert!(dynamic_dependencies.contains("libstdc++"));
+        assert!(dynamic_dependencies.contains("libgcc_s"));
+
+        let object = crate::test_support::TestOutput::new("probe.o");
+        let output = crate::test_support::TestOutput::new("probe");
+
+        assert!(
+            Command::new("clang++")
+                .args(["-c", "-O2"])
+                .arg(source.path())
+                .arg("-o")
+                .arg(object.path())
+                .status()
+                .expect("compile exception fixture")
+                .success()
+        );
+
+        let mut builder = link_plan_builder();
+
+        builder.push_input(link_input(
+            0,
+            object.path().to_str().expect("native object path"),
+        ));
+
+        for (index, library) in ["stdc++", "gcc_eh"].into_iter().enumerate() {
+            builder.push_input(
+                crate::LinkInputSpec::try_static_native_library(
+                    library,
+                    LinkInputProvenance::HostConfiguration,
+                )
+                .expect("runtime library")
+                .with_id(LinkInputId::new(
+                    u32::try_from(index + 1).expect("input ordinal"),
+                )),
+            );
+        }
+
+        builder.push_input(
+            LinkInput::try_native_library(
+                LinkInputId::new(3),
+                "m",
+                LinkInputProvenance::TargetProfile,
+            )
+            .expect("OS library"),
+        );
+
+        builder.push_output(planned_output(
+            0,
+            LinkedArtifactKind::Executable,
+            LinkedArtifactRequirement::Required,
+            output.path().to_str().expect("native executable path"),
+        ));
+
+        builder.set_entry_point(
+            bray_runtime_interface::BinarySymbolName::try_new("main")
+                .expect("C compiler-driver entry"),
+        );
+
+        let plan = builder.finish().expect("link plan");
+
+        let arguments = system_arguments_for(&plan, SystemLinkerFamily::GnuCompiler, None)
+            .expect("production linker arguments");
+
+        assert!(
+            Command::new("clang")
+                .args(&arguments)
+                .status()
+                .expect("link static runtime")
+                .success()
+        );
+
+        assert!(
+            Command::new(output.path())
+                .status()
+                .expect("execute exception cleanup")
+                .success()
+        );
+
+        let dependencies = Command::new("readelf")
+            .arg("-d")
+            .arg(output.path())
+            .output()
+            .expect("inspect actual ELF dependencies");
+
+        assert!(dependencies.status.success());
+
+        let dependencies = String::from_utf8(dependencies.stdout).expect("ELF dependency text");
+
+        assert!(dependencies.contains("libc.so"));
+        assert!(!dependencies.contains("libstdc++"), "{dependencies}");
+        assert!(!dependencies.contains("libgcc_s"), "{dependencies}");
+    }
 
     #[test]
     fn elf_arguments_preserve_deterministic_plan_order() {

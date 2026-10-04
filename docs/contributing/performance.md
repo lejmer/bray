@@ -79,4 +79,17 @@ reference](performance-reference.md#report-measurements) when changing these exp
 Keep [timing and memory observations](performance-reference.md#timing-and-memory-observation) separate, and preserve
 cross-language validation and comparability rules when adding or changing a workload.
 
+Completed measurements that fail runtime linkage, retention, or storage conformance still publish `candidate.json` and
+`candidate.html`, and a requested comparison with a structurally valid, compatible baseline. These reports show the
+failures and observed dynamic dependencies, disable candidate winner highlighting, and qualify size and peer comparisons
+as observations rather than accepted conformance. The command exits unsuccessfully if either compared report fails
+conformance. Malformed or incomplete measurements, invalid provenance, and incompatible comparison identities remain
+hard errors and never produce a comparison. Structurally invalid candidates are preserved only as
+`candidate-unvalidated.json`. Reports carry the conformance failures with the measurements.
+
+Linux application runtime dependencies are static for Bray, Rust, and C++. Provider metadata selects the C++ runtime
+archive and static GCC unwinder, and native product planning preserves those static requirements through linking.
+Operating-system libraries may remain dynamic. This linkage contract does not establish the competitive runtime footprint
+goals tracked by BRA-404.
+
 Return to [repository tasks](xtask.md) to choose another workflow.

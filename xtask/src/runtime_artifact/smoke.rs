@@ -217,6 +217,10 @@ pub(super) fn compile_c_smoke(
         .arg(&source)
         .args(archives);
 
+    if target.object_format() == bray_target::ObjectFormat::Elf {
+        command.arg("-static-libgcc");
+    }
+
     for directory in archives
         .iter()
         .filter_map(|archive| archive.parent())
@@ -230,6 +234,13 @@ pub(super) fn compile_c_smoke(
             && link.kind() == NativeLinkKind::System
             && link.name().eq_ignore_ascii_case("ucrt")
         {
+            continue;
+        }
+
+        if target.object_format() == bray_target::ObjectFormat::Elf
+            && link.kind() == NativeLinkKind::Static
+        {
+            command.arg(format!("-l:lib{}.a", link.name()));
             continue;
         }
 

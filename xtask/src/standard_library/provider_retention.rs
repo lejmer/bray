@@ -161,6 +161,10 @@ fn link_fixture(
         .arg("-o")
         .arg(&executable);
 
+    if target.object_format() == ObjectFormat::Elf {
+        command.args(["-static-libstdc++", "-static-libgcc"]);
+    }
+
     if target.object_format() != ObjectFormat::Coff {
         command.arg("-pthread");
     }
@@ -187,6 +191,11 @@ fn append_native_links(
     links: &[NativeLinkRequirement],
 ) -> Result<(), BuildError> {
     for link in links {
+        if format == ObjectFormat::Elf && link.kind() == NativeLinkKind::Static {
+            command.arg(format!("-l:lib{}.a", link.name()));
+            continue;
+        }
+
         match (format, link.kind()) {
             (
                 ObjectFormat::Coff | ObjectFormat::Elf | ObjectFormat::MachO,

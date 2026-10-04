@@ -27,6 +27,7 @@ pub(super) const STORAGE_OBSERVATION_SCOPE: &str =
 pub(super) struct PerformanceReport {
     pub schema_revision: u32,
     pub identity: ReportIdentity,
+    pub conformance_failures: Vec<String>,
     pub application_compilation: CompilationComparisonReport,
     pub library_compilation: CompilationComparisonReport,
     pub optimization_artifacts: Vec<OptimizationArtifactReport>,
@@ -363,6 +364,8 @@ pub(super) struct ComparisonReport {
     pub schema_revision: u32,
     pub baseline_identity: ReportIdentity,
     pub candidate_identity: ReportIdentity,
+    pub baseline_conformance_failures: Vec<String>,
+    pub candidate_conformance_failures: Vec<String>,
     pub application_compilation: BTreeMap<CompilationLanguage, MetricComparison>,
     pub library_compilation: BTreeMap<CompilationLanguage, MetricComparison>,
     pub workloads: Vec<WorkloadComparison>,

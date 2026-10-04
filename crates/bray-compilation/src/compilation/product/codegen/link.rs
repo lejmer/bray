@@ -584,7 +584,10 @@ pub(super) fn native_link_input(
     let diagnostic_provenance = provenance.clone();
 
     let input = match requirement.kind() {
-        NativeLinkKind::Dynamic | NativeLinkKind::Static | NativeLinkKind::System => {
+        NativeLinkKind::Static => {
+            LinkInputSpec::try_static_native_library(requirement.name(), provenance)
+        }
+        NativeLinkKind::Dynamic | NativeLinkKind::System => {
             LinkInputSpec::try_native_library(requirement.name(), provenance)
         }
         NativeLinkKind::Framework => LinkInputSpec::try_framework(requirement.name(), provenance),
