@@ -237,6 +237,11 @@ fn reuse_fixed_cells(
         CompilationFactKey::SemanticDiagnostics
     );
 
+    reuse!(
+        execution_guarantee_diagnostics,
+        CompilationFactKey::ExecutionGuaranteeDiagnostics
+    );
+
     reuse!(declared_units, CompilationFactKey::DeclaredUnits);
 
     reuse!(check_diagnostics, CompilationFactKey::CheckDiagnostics);
@@ -349,6 +354,7 @@ fn reuse_mapped_cells(
 
     updated.symbol_semantics = previous.symbol_semantics.updated(reusable);
     updated.discovery_symbol_semantics = previous.discovery_symbol_semantics.updated(reusable);
+    updated.source_outputs = previous.source_outputs.updated(reusable);
 
     reuse!(bound_units, |key| CompilationFactKey::BoundUnit(
         key.clone()

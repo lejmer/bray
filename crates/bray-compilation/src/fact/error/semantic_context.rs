@@ -240,6 +240,12 @@ fn push_fact_context(
 
             "checked_body_behavior"
         }
+        Fact::SourceOutputUnit(unit) => {
+            push_bound_unit_key(fields, unit);
+
+            "source_output_unit"
+        }
+        Fact::ExecutionGuaranteeDiagnostics => "execution_guarantee_diagnostics",
         Fact::LoweredUnit(unit) => {
             push_bound_unit_key(fields, unit);
 

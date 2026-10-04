@@ -572,11 +572,18 @@ impl Compilation {
                         .and_then(CallableSymbolId::try_from_any)
                         .expect("declared callable body must have a callable owner");
 
-                    let contracts = binder
-                        .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(
-                            callable,
-                        ))
-                        .map_err(super::binder::binding_query_error)?;
+                    let output = self.published_source_output(key, cancellation)?;
+
+                    let contracts = match output
+                        .and_then(|output| output.callable_contract.as_ref().map(Arc::clone))
+                    {
+                        Some(contracts) => contracts,
+                        None => binder
+                            .resolve_symbol_query(
+                                SymbolQueryRequest::<CallableContractsQuery>::new(callable),
+                            )
+                            .map_err(super::binder::binding_query_error)?,
+                    };
 
                     let ordinal = *callable_order
                         .get(&callable)
@@ -605,7 +612,7 @@ impl Compilation {
         }
 
         let coherence = self.implementation_coherence_diagnostics(cancellation)?;
-        let execution_guarantees = self.execution_guarantee_diagnostics(source_graph)?;
+        let execution_guarantees = self.execution_guarantee_diagnostics()?;
         let callable_overloads = self.callable_overload_diagnostics(cancellation)?;
         let foreign_callables = self.foreign_callable_diagnostics(cancellation)?;
         let product = self.product_semantics_with_cancellation(cancellation)?;
@@ -615,7 +622,7 @@ impl Compilation {
                 .chain(sources.iter())
                 .chain([
                     coherence,
-                    &execution_guarantees,
+                    execution_guarantees,
                     callable_overloads,
                     foreign_callables,
                     product.diagnostics(),
@@ -628,11 +635,16 @@ impl Compilation {
         })
     }
 
-    fn semantic_unit_diagnostic_work(
+    pub(in crate::compilation) fn semantic_unit_diagnostic_work(
         &self,
         key: &BoundUnitKey,
         cancellation: &CancellationToken,
     ) -> Result<(Vec<DiagnosticBag>, Vec<UnitDiagnosticOrder>), FactQueryError> {
+        if let Some(output) = self.published_source_output(key, cancellation)? {
+            // Diagnostic publication owns the shared bags and small nested-unit inventory.
+            return Ok((output.diagnostics.to_vec(), output.nested.to_vec()));
+        }
+
         let (bound, sources) = match self
             .semantic_unit_diagnostic_sources(key.clone(), cancellation)
         {
@@ -969,7 +981,7 @@ fn ordered_diagnostic_collections<'diagnostic>(
         .collect()
 }
 
-type UnitDiagnosticOrder = (
+pub(in crate::compilation) type UnitDiagnosticOrder = (
     bray_source::SourceId,
     bray_source::TextRange,
     BoundUnitKind,

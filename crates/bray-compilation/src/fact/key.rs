@@ -507,6 +507,8 @@ pub(crate) enum CompilationFactKey {
     CheckedBodyBehavior(BoundUnitKey),
     /// The lowering result for one exact checked semantic unit.
     LoweredUnit(BoundUnitKey),
+    /// Completed source checks and raw MIR required by an output consumer.
+    SourceOutputUnit(BoundUnitKey),
     /// One exact backend artifact contribution requested from a code generation unit.
     CodegenArtifact(Arc<CodegenArtifactQueryKey>),
     /// One optimized concrete MIR body for exact instance and generation policy.
@@ -583,6 +585,8 @@ pub(crate) enum CompilationFactKey {
     PackageInterfaceExportBundle,
     /// Binding and semantic-analysis diagnostics for the source package.
     SemanticDiagnostics,
+    /// Whole-package execution-guarantee diagnostics for this immutable compilation.
+    ExecutionGuaranteeDiagnostics,
     /// Parsed syntax for one source unit.
     SourceUnitSyntax(SourceId),
     /// Semantic source references grouped by target for one source unit.
@@ -650,6 +654,7 @@ impl CompilationFactKey {
             | Self::BodySemantics(key)
             | Self::CheckedBodyBehavior(key)
             | Self::LoweredUnit(key)
+            | Self::SourceOutputUnit(key)
             | Self::DeclaredValueTypeTemplates(key)
             | Self::ExpressionSemantics(key)
             | Self::ProvisionalExpressionSemantics(key)
@@ -696,6 +701,7 @@ impl CompilationFactKey {
             | Self::ImportedSymbolSkeleton
             | Self::PackageInterfaceExportBundle
             | Self::SemanticDiagnostics
+            | Self::ExecutionGuaranteeDiagnostics
             | Self::SourceUnitSyntax(_)
             | Self::SourceReferenceIndex(_)
             | Self::SymbolGraph

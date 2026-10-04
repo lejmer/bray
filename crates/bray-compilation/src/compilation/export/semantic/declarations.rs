@@ -67,11 +67,25 @@ pub(super) fn export_callable_semantics(
         return Err(incomplete(symbol));
     }
 
-    let result_dependencies = binder
-        .resolve_symbol_query(SymbolQueryRequest::<
-            bray_symbols::CallableResultDependenciesQuery,
-        >::new(callable))
-        .map_err(super::super::binding_query_export_error)?;
+    let output = compilation
+        .declared_unit_key(symbol, bray_bound_tree::BoundUnitKind::CallableBody)
+        .map_err(super::super::fact_query_export_error)?
+        .map(|key| compilation.published_source_output(&key, &compilation.state.cancellation))
+        .transpose()
+        .map_err(super::super::fact_query_export_error)?
+        .flatten();
+
+    let result_dependencies = match output
+        .as_ref()
+        .and_then(|output| output.result_dependencies.as_ref())
+    {
+        Some(dependencies) => Arc::clone(dependencies),
+        None => binder
+            .resolve_symbol_query(SymbolQueryRequest::<
+                bray_symbols::CallableResultDependenciesQuery,
+            >::new(callable))
+            .map_err(super::super::binding_query_export_error)?,
+    };
 
     if result_dependencies.diagnostics().has_errors() {
         return Err(incomplete(symbol));
@@ -83,9 +97,14 @@ pub(super) fn export_callable_semantics(
         *result_dependencies.value(),
     )?);
 
-    let contracts = match compilation
+    let completed_contract = output
+        .as_ref()
+        .and_then(|output| output.callable_contract.as_ref())
+        .map(Arc::clone);
+
+    let contracts = match completed_contract.or(compilation
         .published_callable_contract(callable, &compilation.state.cancellation)
-        .map_err(super::super::fact_query_export_error)?
+        .map_err(super::super::fact_query_export_error)?)
     {
         Some(contracts) => contracts,
         None => binder

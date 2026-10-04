@@ -164,6 +164,7 @@ pub(in crate::compilation) struct CompilationState {
     >,
     pub(in crate::compilation) semantic_diagnostics:
         FactCell<crate::compilation::diagnostics::SemanticDiagnosticPublication>,
+    pub(in crate::compilation) execution_guarantee_diagnostics: FactCell<DiagnosticBag>,
     pub(in crate::compilation) symbol_semantics: CompilationSymbolSemantics,
     pub(in crate::compilation) discovery_symbol_semantics: CompilationSymbolSemantics,
     pub(in crate::compilation) bound_units: UnitQueryCache<BoundUnit>,
@@ -183,6 +184,7 @@ pub(in crate::compilation) struct CompilationState {
     pub(in crate::compilation) body_semantics: UnitQueryCache<CheckedBodySemantics>,
     pub(in crate::compilation) checked_body_behaviors: UnitQueryCache<CheckedBodyBehavior>,
     pub(in crate::compilation) lowered_units: UnitQueryCache<Option<bray_lowering::LoweredUnit>>,
+    pub(in crate::compilation) source_outputs: crate::compilation::source_output::SourceOutputs,
     pub(in crate::compilation) codegen: Option<CodegenConfiguration>,
     pub(in crate::compilation) codegen_artifacts:
         FactCellMap<crate::fact::CodegenArtifactQueryKey, Arc<CodegenOutcome>>,

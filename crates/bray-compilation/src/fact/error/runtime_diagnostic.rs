@@ -434,6 +434,8 @@ pub(super) fn compilation_fact_kind(value: &CompilationFactKey) -> &'static str 
         Value::CertifiedExecution(_) => "certified_execution",
         Value::BodySemantics(_) => "body_semantics",
         Value::CheckedBodyBehavior(_) => "checked_body_behavior",
+        Value::SourceOutputUnit(_) => "source_output_unit",
+        Value::ExecutionGuaranteeDiagnostics => "execution_guarantee_diagnostics",
         Value::LoweredUnit(_) => "lowered_unit",
         Value::CodegenArtifact(_) => "codegen_artifact",
         Value::OptimizedMir(_) => "optimized_mir",

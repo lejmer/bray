@@ -396,6 +396,9 @@ impl Compilation {
             .or_else(|| request.artifact(ArtifactKind::PackageNativeImplementation))
             .is_some();
 
+        let package_interface = self
+            .product_interface_artifacts(requires_interface, requires_implementation, cancellation);
+
         let diagnostics = cancellation
             .check()
             .and_then(|()| self.check_diagnostics_with_cancellation(cancellation))
@@ -409,16 +412,14 @@ impl Compilation {
                 )
             })?;
 
-        let package_interface = self
-            .product_interface_artifacts(requires_interface, requires_implementation, cancellation)
-            .map_err(|kind| {
-                ProductEmissionError::new(
-                    kind,
-                    diagnostics.clone(),
-                    request.product(),
-                    request.target(),
-                )
-            })?;
+        let package_interface = package_interface.map_err(|kind| {
+            ProductEmissionError::new(
+                kind,
+                diagnostics.clone(),
+                request.product(),
+                request.target(),
+            )
+        })?;
 
         Ok(ProductEmissionPreparation {
             package_interface: package_interface.interface,

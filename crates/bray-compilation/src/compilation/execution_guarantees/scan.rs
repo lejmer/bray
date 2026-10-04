@@ -9,7 +9,25 @@ use crate::compilation::{Compilation, ProductSourceGraph};
 impl Compilation {
     pub(in crate::compilation) fn execution_guarantee_diagnostics(
         &self,
+    ) -> Result<&DiagnosticBag, crate::fact::FactQueryError> {
+        self.state
+            .execution_guarantee_diagnostics
+            .get_or_compute_requested(
+                &self.state.fact_runtime,
+                crate::fact::CompilationFactKey::ExecutionGuaranteeDiagnostics,
+                &self.state.cancellation,
+                |cancellation| {
+                    let source_graph = self.product_source_graph()?;
+
+                    self.compute_execution_guarantee_diagnostics(source_graph, cancellation)
+                },
+            )
+    }
+
+    fn compute_execution_guarantee_diagnostics(
+        &self,
         source_graph: &ProductSourceGraph,
+        cancellation: &crate::fact::CancellationToken,
     ) -> Result<DiagnosticBag, crate::fact::FactQueryError> {
         if self.syntax_tree_result().diagnostics().has_errors() {
             return Ok(
@@ -17,7 +35,6 @@ impl Compilation {
             );
         }
 
-        let cancellation = &self.state.cancellation;
         let mut checked_clauses = std::collections::BTreeSet::new();
         let mut diagnostics = DiagnosticBag::new();
 
@@ -30,20 +47,34 @@ impl Compilation {
                 continue;
             }
 
-            // Family expansion retains the shared identity independently of the inventory.
-            for bound in self.bound_unit_family_with_cancellation(root.clone(), cancellation)? {
-                let declaration =
-                    self.execution_declaration(bound.value().key().source().syntax())?;
+            let mut pending = vec![root.clone()];
+
+            while let Some(key) = pending.pop() {
+                cancellation.check()?;
+
+                let nested = match self.published_source_output(&key, cancellation)? {
+                    Some(output) => output
+                        .nested
+                        .iter()
+                        .map(|(_, _, _, key)| key.clone())
+                        .collect(),
+                    None => self
+                        .bound_unit_with_cancellation(key.clone(), cancellation)?
+                        .result()
+                        .value()
+                        .nested_units()
+                        .to_vec(),
+                };
+
+                pending.extend(nested.into_iter().rev());
+
+                let declaration = self.execution_declaration(key.source().syntax())?;
 
                 checked_clauses.extend(declaration.value().clauses().iter().copied());
 
                 if !declaration.value().clauses().is_empty() {
                     // Aggregate diagnostics and retain the immutable key beyond this bound-unit borrow.
-                    diagnostics.add_range(
-                        self.execution_properties(bound.value().key().clone())?
-                            .diagnostics()
-                            .clone(),
-                    );
+                    diagnostics.add_range(self.execution_properties(key)?.diagnostics().clone());
                 }
             }
         }
