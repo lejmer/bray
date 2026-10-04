@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use bray_target::{NativeTarget, RelocationModel, TargetArchitecture};
 
@@ -233,7 +233,7 @@ fn arguments_for_with_directory(
     push_search_paths(&mut arguments, plan, flavor, current_directory)?;
 
     for input in plan.inputs() {
-        push_input(&mut arguments, input, flavor, current_directory)?;
+        push_input(&mut arguments, input, plan, flavor, current_directory)?;
     }
 
     Ok(arguments)
@@ -543,6 +543,7 @@ fn push_search_paths(
 fn push_input(
     arguments: &mut Vec<OsString>,
     input: &LinkInput,
+    plan: &LinkPlan,
     flavor: LldFlavor,
     current_directory: Option<&Path>,
 ) -> Result<(), LldPlanError> {
@@ -567,7 +568,22 @@ fn push_input(
         LinkInputSource::StaticNativeLibrary(name) => match flavor {
             LldFlavor::Elf => arguments.push(format!("-l:lib{}.a", name.as_str()).into()),
             LldFlavor::Coff => arguments.push(prefixed("/defaultlib:", name.as_str())),
-            LldFlavor::MachO => return Err(LldPlanError::UnsupportedStaticNativeLibrary),
+            LldFlavor::MachO => {
+                // Mach-O has no exact-filename -l form. Select the archive from the
+                // supplied library paths instead of allowing a dylib to take precedence.
+                let file_name = format!("lib{}.a", name.as_str());
+                let directory = current_directory.unwrap_or_else(|| Path::new("."));
+
+                let archive = plan
+                    .search_paths()
+                    .iter()
+                    .filter(|search| search.kind() == LinkSearchPathKind::Library)
+                    .map(|search| directory.join(search.path()).join(&file_name))
+                    .find(|path| path.is_file())
+                    .unwrap_or_else(|| PathBuf::from(file_name));
+
+                arguments.push(linker_visible_path(&archive, current_directory).into());
+            }
         },
         LinkInputSource::Framework(name) => {
             if flavor != LldFlavor::MachO {
@@ -654,7 +670,6 @@ pub(super) enum LldPlanError {
     UnsupportedCompanionOutput,
     UnsupportedDebugPolicy,
     UnsupportedFramework,
-    UnsupportedStaticNativeLibrary,
     UnsupportedLinkModel,
     MissingArgumentValue,
     NonUnicodeArgument,
@@ -688,6 +703,83 @@ mod tests {
         LinkedArtifactRequirement, LinkedProductKind, LinkerDriverIdentity, LinkerDriverKind,
         SystemLinkerFamily,
     };
+
+    #[test]
+    fn macho_static_libraries_select_archives_even_when_a_dylib_has_search_precedence() {
+        let directory = std::env::temp_dir();
+        let shared = bray_testing::TemporaryFile::write("libfixture.dylib", &[]);
+        let archive = bray_testing::TemporaryFile::write("libfixture.a", &[]);
+
+        let mut builder = link_plan_builder();
+
+        builder.push_input(
+            crate::LinkInputSpec::try_static_native_library(
+                "fixture",
+                LinkInputProvenance::HostConfiguration,
+            )
+            .expect("static library")
+            .with_id(LinkInputId::new(0)),
+        );
+
+        for file in [shared.path(), archive.path()] {
+            let path = file
+                .parent()
+                .expect("library directory")
+                .strip_prefix(&directory)
+                .expect("relative library search path");
+
+            builder.push_search_path(
+                crate::LinkSearchPath::try_new(crate::LinkSearchPathKind::Library, path)
+                    .expect("search path"),
+            );
+        }
+
+        builder.push_output(planned_output(
+            0,
+            LinkedArtifactKind::Executable,
+            LinkedArtifactRequirement::Required,
+            "application.stage",
+        ));
+
+        builder.set_entry_point(
+            crate::test_support::executable_host_contract()
+                .native_entry()
+                .clone(),
+        );
+
+        let plan = builder.finish().expect("link plan");
+
+        for (name, expected) in [
+            (
+                "fixture",
+                archive
+                    .path()
+                    .strip_prefix(&directory)
+                    .expect("relative archive"),
+            ),
+            ("missing", std::path::Path::new("libmissing.a")),
+        ] {
+            let input = crate::LinkInputSpec::try_static_native_library(
+                name,
+                LinkInputProvenance::HostConfiguration,
+            )
+            .expect("static library")
+            .with_id(LinkInputId::new(0));
+
+            let mut arguments = Vec::new();
+
+            super::push_input(
+                &mut arguments,
+                &input,
+                &plan,
+                LldFlavor::MachO,
+                Some(&directory),
+            )
+            .expect("archive arguments");
+
+            assert_eq!(arguments, [expected.as_os_str().to_owned()]);
+        }
+    }
 
     #[test]
     fn static_native_requirements_select_exact_archives_for_raw_and_compiler_linkers() {
