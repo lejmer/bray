@@ -13,7 +13,6 @@ use bray_runtime_interface::{RuntimeAbiRole, RuntimeRoleSourceBinding};
 use bray_standard_library::{PackageSourceAuthority, StandardLibraryRoot};
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
-use sha2::{Digest as _, Sha256};
 
 #[derive(Clone, Copy)]
 pub(super) enum BrayRuntimeComponent {
@@ -73,15 +72,16 @@ pub(super) fn cache_identity(
     target: NativeTarget,
     output: &Path,
     input: &str,
+    archives: &[std::path::PathBuf],
 ) -> Result<Option<String>, String> {
     let workspace = root.join("runtime");
 
     let graph = load_project_graph(&workspace)
         .map_err(|error| format!("could not load bootstrap project: {error:?}"))?;
 
-    let mut identity = Sha256::new();
+    let mut paths = archives.to_vec();
 
-    identity.update(input);
+    paths.push(output.join(super::command::METADATA_FILE_NAME));
 
     for component in BrayRuntimeComponent::ALL {
         let (_, product) = selected_product(&graph, target, component)?;
@@ -96,17 +96,11 @@ pub(super) fn cache_identity(
 
             let path = output.join(name);
 
-            match bray_base::sha256_file(&path) {
-                Ok(artifact) => identity.update(artifact),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-                Err(error) => {
-                    return Err(format!("could not hash {}: {error}", path.display()));
-                }
-            }
+            paths.push(path);
         }
     }
 
-    Ok(Some(bray_base::lowercase_hex(&identity.finalize())))
+    super::reuse::content_identity(input, &paths)
 }
 
 /// Builds the trusted bootstrap and its selected native dependencies for a Rust host.

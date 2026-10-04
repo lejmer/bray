@@ -23,7 +23,7 @@ use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 
 const USAGE: &str = "usage: cargo xtask runtime-artifact \
     <build --output <directory> [--target <triple>] [--profile <profile>] | smoke-test>";
-const METADATA_FILE_NAME: &str = "bray-runtime.brayrt";
+pub(super) const METADATA_FILE_NAME: &str = "bray-runtime.brayrt";
 const RUNTIME_IDENTITY: &str = "bray.runtime.reference";
 const PANIC_ABI: &str = "bray.panic.unwind";
 const SCHEDULER_CAPABILITIES: [RuntimeCapability; 6] = [
@@ -121,6 +121,8 @@ pub(crate) fn build_for_readiness(target: NativeTarget, output: &Path) -> Result
 }
 
 fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, CommandError> {
+    DirectoryPublication::recover(output).map_err(CommandError::Publication)?;
+
     let root = workspace::root().map_err(CommandError::Workspace)?;
 
     let sources = crate::input_identity::WorkspaceSources::load(&root)
@@ -130,7 +132,7 @@ fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, 
 
     let standard_library_input = crate::input_identity::input_digest(
         &root,
-        None,
+        &[target],
         crate::input_identity::Component::StandardLibrary,
         &[],
         &[&standard_library_source],
@@ -140,7 +142,7 @@ fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, 
 
     let input = crate::input_identity::input_digest(
         &root,
-        Some(target),
+        &[target],
         crate::input_identity::Component::Runtime,
         &[profile, &standard_library_input],
         &[],
@@ -156,14 +158,13 @@ fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, 
         .map(|component| component.archive.clone())
         .collect::<Vec<_>>();
 
-    let existing_identity = super::bootstrap::cache_identity(&root, target, output, &input)
+    let existing_identity = super::bootstrap::cache_identity(&root, target, output, &input, &expected_archives)
         .map_err(CommandError::Bootstrap)?;
 
     if let Some(identity) = existing_identity
         && super::reuse::current(
             output,
             &existing_package.metadata,
-            &expected_archives,
             &identity,
         )
         .map_err(CommandError::InputIdentity)?
@@ -181,7 +182,10 @@ fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, 
 
     build_contents(target, publication.contents(), profile, producer)?;
 
-    let identity = super::bootstrap::cache_identity(&root, target, publication.contents(), &input)
+    let archives = package(publication.contents(), target).components.into_iter()
+        .map(|component| component.archive).collect::<Vec<_>>();
+
+    let identity = super::bootstrap::cache_identity(&root, target, publication.contents(), &input, &archives)
         .map_err(CommandError::Bootstrap)?
         .ok_or_else(|| CommandError::Bootstrap("bootstrap artifacts are missing".to_owned()))?;
 

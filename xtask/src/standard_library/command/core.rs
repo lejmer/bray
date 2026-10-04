@@ -234,13 +234,13 @@ fn build_product_bundle(
     targets: &[TargetIdentity],
     profile: Option<&BuildProfileOptions>,
 ) -> Result<PathBuf, BuildError> {
-    let input = super::reuse::input_identity(source)?;
-
-    if profile.is_none() && super::reuse::current(output, &input, targets)? {
+    if profile.is_none() && super::reuse::current(output, targets, |targets| super::reuse::input_identity(source, targets))? {
         crate::progress::message("Reusing standard library bundle");
 
         return Ok(output.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME));
     }
+
+    let input = super::reuse::input_identity(source, targets)?;
 
     let publication = DirectoryPublication::begin(output, "bray-standard-library-")
         .map_err(BuildError::Publication)?;

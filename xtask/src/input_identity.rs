@@ -9,7 +9,7 @@ use sha2::{Digest as _, Sha256};
 
 const CACHE_FORMAT_REVISION: u8 = 1;
 pub(crate) const INPUT_IDENTITY_FILE_NAME: &str = "input.sha256";
-const ROOT_INPUTS: &[&str] = &[".cargo/config.toml", "Cargo.toml", "xtask/Cargo.toml"];
+const ROOT_INPUTS: &[&str] = &[".cargo/config.toml", "Cargo.toml", "Cargo.lock", "xtask/Cargo.toml"];
 const COMMON_SOURCE_INPUTS: &[&str] = &[
     "toolchains",
     "xtask/src/bundle.rs",
@@ -18,6 +18,7 @@ const COMMON_SOURCE_INPUTS: &[&str] = &[
     "xtask/src/native_symbols.rs",
     "xtask/src/path.rs",
     "xtask/src/input_identity.rs",
+    "xtask/src/preparation_tools.rs",
     "xtask/src/progress.rs",
     "xtask/src/workspace.rs",
 ];
@@ -52,6 +53,12 @@ const BUILD_ENVIRONMENT_NAMES: &[&str] = &[
     "CFLAGS",
     "CXX",
     "CXXFLAGS",
+    "COMPILER_PATH",
+    "CPATH",
+    "C_INCLUDE_PATH",
+    "CPLUS_INCLUDE_PATH",
+    "GCC_EXEC_PREFIX",
+    "LIBRARY_PATH",
     "DEVELOPER_DIR",
     "INCLUDE",
     "LIB",
@@ -221,7 +228,7 @@ impl WorkspaceSources {
 
 pub(crate) fn input_digest(
     root: &Path,
-    target: Option<NativeTarget>,
+    targets: &[NativeTarget],
     component: Component,
     configuration: &[&str],
     additional_inputs: &[&Path],
@@ -233,9 +240,11 @@ pub(crate) fn input_digest(
 
     hash_text(&mut digest, component.identity());
 
-    if let Some(target) = target {
+    for target in targets {
         hash_text(&mut digest, target.as_str());
     }
+
+    hash_text(&mut digest, &crate::preparation_tools::digest(root, targets)?);
 
     for value in configuration {
         hash_text(&mut digest, value);
@@ -248,10 +257,7 @@ pub(crate) fn input_digest(
     hash_command_identity(&mut digest, "rustc", "Rust compiler")?;
     hash_command_identity(&mut digest, "cargo", "Cargo")?;
 
-    for (name, value) in build_environment() {
-        hash_text(&mut digest, &name);
-        hash_text(&mut digest, &value);
-    }
+    hash_build_environment(&mut digest);
 
     for input in COMMON_SOURCE_INPUTS.iter().chain(component.source_inputs()) {
         hash_path(&mut digest, root, &root.join(input))?;
@@ -291,8 +297,8 @@ pub(crate) fn input_digest(
 pub(crate) fn stored_digest_matches(output: &Path, expected: &str) -> Result<bool, String> {
     let path = output.join(INPUT_IDENTITY_FILE_NAME);
 
-    match fs::read_to_string(&path) {
-        Ok(actual) => Ok(actual == expected),
+    match fs::read(&path) {
+        Ok(actual) => Ok(actual == expected.as_bytes()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(format!("could not read {}: {error}", path.display())),
     }
@@ -397,6 +403,13 @@ fn build_environment() -> Vec<(String, String)> {
     environment
 }
 
+pub(crate) fn hash_build_environment(digest: &mut Sha256) {
+    for (name, value) in build_environment() {
+        hash_text(digest, &name);
+        hash_text(digest, &value);
+    }
+}
+
 #[derive(Deserialize)]
 struct CargoMetadata {
     packages: Vec<CargoPackage>,
@@ -437,8 +450,55 @@ struct CargoDependencyKind {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    use sha2::Digest as _;
 
     use super::{CargoPackage, WorkspaceSources};
+
+    #[test]
+    fn stored_identity_rejects_missing_truncated_and_non_utf8_records() {
+        let directory = tempfile::tempdir().expect("cache directory");
+        let expected = "a".repeat(64);
+
+        assert!(!super::stored_digest_matches(directory.path(), &expected).expect("cache miss"));
+
+        for bytes in [&b""[..], &b"short"[..], &[255][..]] {
+            std::fs::write(directory.path().join(super::INPUT_IDENTITY_FILE_NAME), bytes).expect("record");
+            assert!(!super::stored_digest_matches(directory.path(), &expected).expect("corrupt cache miss"));
+        }
+
+        super::write_digest(directory.path(), &expected).expect("publish identity");
+
+        assert!(super::stored_digest_matches(directory.path(), &expected).expect("cache hit"));
+        assert!(!super::stored_digest_matches(directory.path(), &"b".repeat(64)).expect("changed input"));
+    }
+
+    #[test]
+    fn input_content_and_names_invalidate_without_timestamp_dependence() {
+        let directory = tempfile::tempdir().expect("source root");
+        let path = directory.path().join("source");
+
+        std::fs::write(&path, b"first").expect("source");
+
+        let hash = || {
+            let mut digest = sha2::Sha256::new();
+
+            super::hash_path(&mut digest, directory.path(), directory.path()).expect("source hash");
+
+            bray_base::lowercase_hex(&digest.finalize())
+        };
+
+        let before = hash();
+
+        std::fs::write(&path, b"other").expect("changed content");
+
+        let changed = hash();
+
+        assert_ne!(before, changed);
+
+        std::fs::rename(&path, directory.path().join("renamed")).expect("renamed source");
+
+        assert_ne!(changed, hash());
+    }
 
     #[test]
     fn package_closure_retains_local_and_registry_dependencies() {

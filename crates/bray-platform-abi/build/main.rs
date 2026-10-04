@@ -43,6 +43,8 @@ const TZDATA_FILES: &[&str] = &[
 ];
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=BRAY_NATIVE_TOOLCHAIN_IDENTITY");
+
     let manifest = PathBuf::from(
         env::var_os("CARGO_MANIFEST_DIR")
             .unwrap_or_else(|| panic!("Cargo must provide CARGO_MANIFEST_DIR")),
