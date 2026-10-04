@@ -1,6 +1,5 @@
-use std::ops::Range;
-
 use super::common::{SemanticDecodeContext, read_count, write_count};
+use super::index::RecordTableFrame;
 use crate::decode::wire_error;
 use crate::wire::{WireEncoder, WireReader};
 use crate::{
@@ -10,7 +9,7 @@ use crate::{
 
 pub(super) struct RecordTable<'bytes> {
     payload: &'bytes [u8],
-    ranges: Vec<Range<usize>>,
+    entries: &'bytes [u8],
     section: InterfaceSectionTag,
 }
 
@@ -20,84 +19,45 @@ impl<'bytes> RecordTable<'bytes> {
         context: &mut SemanticDecodeContext,
         section: InterfaceSectionTag,
     ) -> Result<Self, InterfaceValidationError> {
-        let validation = InterfaceValidationContext::Section(section);
+        let table_offset = reader.position();
         let count = read_count(reader, context.limits(), InterfaceLimit::RecordCount)?;
 
-        let mut ranges = context.allocate_items(reader, count)?;
-        let mut expected_offset = 0_usize;
+        let minimum_length = count.saturating_mul(std::mem::size_of::<u32>());
 
-        for index in 0..count {
-            let record_context = InterfaceValidationContext::Record {
-                section,
-                index: index as u64,
-            };
-
-            let raw_offset = reader.read_u32().map_err(wire_error(
-                record_context,
-                InterfaceValidationField::RecordOffset,
-            ))?;
-
-            let offset = usize::try_from(raw_offset).map_err(|_| {
-                numeric_overflow(
-                    record_context,
-                    InterfaceValidationField::RecordOffset,
-                    u64::from(raw_offset),
-                )
-            })?;
-
-            let raw_length = reader.read_u32().map_err(wire_error(
-                record_context,
-                InterfaceValidationField::RecordLength,
-            ))?;
-
-            let length = usize::try_from(raw_length).map_err(|_| {
-                numeric_overflow(
-                    record_context,
-                    InterfaceValidationField::RecordLength,
-                    u64::from(raw_length),
-                )
-            })?;
-
-            if offset != expected_offset {
-                return Err(InterfaceValidationError::Malformed {
-                    context: record_context,
-                    cause: InterfaceMalformedCause::OrderingViolation {
-                        field: InterfaceValidationField::RecordOffset,
-                        previous: expected_offset as u64,
-                        actual: offset as u64,
-                    },
-                });
-            }
-
-            let end = offset
-                .checked_add(length)
-                .ok_or(InterfaceValidationError::Malformed {
-                    context: record_context,
-                    cause: InterfaceMalformedCause::RangeOverflow {
-                        offset: offset as u64,
-                        length: length as u64,
-                    },
-                })?;
-
-            ranges.push(offset..end);
-
-            expected_offset = end;
+        if minimum_length > reader.remaining() {
+            return Err(InterfaceValidationError::Truncated {
+                context: context.validation(),
+                field: InterfaceValidationField::Value,
+                offset: reader.position() as u64,
+                expected_length: minimum_length as u64,
+                actual_length: reader.remaining() as u64,
+            });
         }
 
-        let payload = reader.read_bytes(expected_offset).map_err(wire_error(
-            validation,
-            InterfaceValidationField::RecordPayload,
-        ))?;
+        let validate = || validate_table_frame(*reader, count, section);
+
+        let frame = match context.record_index() {
+            Some(index) => index.table(section, table_offset, validate)?,
+            None => validate()?,
+        };
+
+        let entries = reader
+            .read_bytes(count.saturating_mul(8))
+            .expect("validated semantic table entries must fit their immutable section");
+
+        let payload = reader
+            .read_bytes(frame.payload_length)
+            .expect("validated semantic table payload must fit its immutable section");
 
         Ok(Self {
             payload,
-            ranges,
+            entries,
             section,
         })
     }
 
     pub(super) fn len(&self) -> usize {
-        self.ranges.len()
+        self.entries.len() / 8
     }
 
     pub(super) fn record(&self, index: u32) -> Result<&'bytes [u8], InterfaceValidationError> {
@@ -114,28 +74,34 @@ impl<'bytes> RecordTable<'bytes> {
             )
         })?;
 
-        let range = self
-            .ranges
-            .get(index)
-            .ok_or(InterfaceValidationError::Malformed {
+        if index >= self.len() {
+            return Err(InterfaceValidationError::Malformed {
                 context: validation,
                 cause: InterfaceMalformedCause::InvalidReference {
                     field: InterfaceValidationField::Index,
                     index: index as u64,
-                    available: self.ranges.len() as u64,
+                    available: self.len() as u64,
                 },
-            })?;
+            });
+        }
 
-        self.payload
-            .get(range.clone())
-            .ok_or(InterfaceValidationError::Malformed {
-                context: validation,
-                cause: InterfaceMalformedCause::InvalidReference {
-                    field: InterfaceValidationField::RecordPayload,
-                    index: range.start as u64,
-                    available: self.payload.len() as u64,
-                },
-            })
+        let mut entry = WireReader::new(&self.entries[index * 8..(index + 1) * 8]);
+
+        let offset = usize::try_from(
+            entry
+                .read_u32()
+                .expect("validated record offset must remain readable"),
+        )
+        .expect("validated record offset must remain representable");
+
+        let length = usize::try_from(
+            entry
+                .read_u32()
+                .expect("validated record length must remain readable"),
+        )
+        .expect("validated record length must remain representable");
+
+        Ok(&self.payload[offset..offset + length])
     }
 
     pub(super) fn decode<T>(
@@ -193,6 +159,79 @@ impl<'bytes> RecordTable<'bytes> {
 
         Ok(values)
     }
+}
+
+fn validate_table_frame(
+    mut reader: WireReader<'_>,
+    count: usize,
+    section: InterfaceSectionTag,
+) -> Result<RecordTableFrame, InterfaceValidationError> {
+    let mut expected_offset = 0_usize;
+
+    for index in 0..count {
+        let record_context = InterfaceValidationContext::Record {
+            section,
+            index: index as u64,
+        };
+
+        let raw_offset = reader.read_u32().map_err(wire_error(
+            record_context,
+            InterfaceValidationField::RecordOffset,
+        ))?;
+
+        let offset = usize::try_from(raw_offset).map_err(|_| {
+            numeric_overflow(
+                record_context,
+                InterfaceValidationField::RecordOffset,
+                u64::from(raw_offset),
+            )
+        })?;
+
+        let raw_length = reader.read_u32().map_err(wire_error(
+            record_context,
+            InterfaceValidationField::RecordLength,
+        ))?;
+
+        let length = usize::try_from(raw_length).map_err(|_| {
+            numeric_overflow(
+                record_context,
+                InterfaceValidationField::RecordLength,
+                u64::from(raw_length),
+            )
+        })?;
+
+        if offset != expected_offset {
+            return Err(InterfaceValidationError::Malformed {
+                context: record_context,
+                cause: InterfaceMalformedCause::OrderingViolation {
+                    field: InterfaceValidationField::RecordOffset,
+                    previous: expected_offset as u64,
+                    actual: offset as u64,
+                },
+            });
+        }
+
+        let end = offset
+            .checked_add(length)
+            .ok_or(InterfaceValidationError::Malformed {
+                context: record_context,
+                cause: InterfaceMalformedCause::RangeOverflow {
+                    offset: offset as u64,
+                    length: length as u64,
+                },
+            })?;
+
+        expected_offset = end;
+    }
+
+    reader.read_bytes(expected_offset).map_err(wire_error(
+        InterfaceValidationContext::Section(section),
+        InterfaceValidationField::RecordPayload,
+    ))?;
+
+    Ok(RecordTableFrame {
+        payload_length: expected_offset,
+    })
 }
 
 const fn numeric_overflow(
@@ -294,10 +333,87 @@ pub(super) fn encode_record_table<T>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::{RecordTable, encode_record_table};
     use crate::semantic::codec::common::SemanticDecodeContext;
     use crate::wire::{WireEncoder, WireReader};
     use crate::{InterfaceValidationError, InterfaceValidationLimits};
+
+    #[test]
+    fn record_addressing_does_not_allocate_duplicate_ranges() {
+        let mut encoder = WireEncoder::new();
+
+        encode_record_table(
+            &mut encoder,
+            &(0..1_000_u32).collect::<Vec<_>>(),
+            |encoder, value| {
+                encoder.write_u32(*value);
+            },
+        );
+
+        let limits = InterfaceValidationLimits::default().with_decoded_allocation(0);
+        let index = Arc::new(crate::semantic::SemanticRecordIndex::default());
+
+        for _ in 0..2 {
+            let mut reader = WireReader::new(encoder.bytes());
+            let mut context = SemanticDecodeContext::with_index(limits, Arc::clone(&index));
+
+            let table = RecordTable::read_from(
+                &mut reader,
+                &mut context,
+                crate::InterfaceSectionTag::SemanticTypes,
+            )
+            .unwrap_or_else(|error| panic!("wire addressing must not allocate: {error:?}"));
+
+            assert_eq!(table.record(999), Ok(&999_u32.to_le_bytes()[..]));
+            assert!(table.record(1_000).is_err());
+            assert_eq!(reader.finish(), Ok(()));
+        }
+    }
+
+    #[test]
+    fn cached_table_framing_preserves_every_truncation_error() {
+        let mut encoder = WireEncoder::new();
+
+        encode_record_table(&mut encoder, &[11_u32, 22_u32], |encoder, value| {
+            encoder.write_u32(*value);
+        });
+
+        let limits = InterfaceValidationLimits::default();
+
+        for length in 0..encoder.bytes().len() {
+            let bytes = &encoder.bytes()[..length];
+            let mut reader = WireReader::new(bytes);
+            let mut context = SemanticDecodeContext::new(limits);
+
+            let expected = RecordTable::read_from(
+                &mut reader,
+                &mut context,
+                crate::InterfaceSectionTag::SemanticTypes,
+            )
+            .map(|_| ());
+
+            assert!(expected.is_err());
+
+            let index = Arc::new(crate::semantic::SemanticRecordIndex::default());
+
+            for _ in 0..2 {
+                let mut reader = WireReader::new(bytes);
+                let mut context = SemanticDecodeContext::with_index(limits, Arc::clone(&index));
+
+                assert_eq!(
+                    RecordTable::read_from(
+                        &mut reader,
+                        &mut context,
+                        crate::InterfaceSectionTag::SemanticTypes,
+                    )
+                    .map(|_| ()),
+                    expected
+                );
+            }
+        }
+    }
 
     #[test]
     fn record_tables_preserve_canonical_random_access() {

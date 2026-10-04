@@ -1,6 +1,8 @@
 use bray_symbols::InterfaceSymbolId;
 
-use super::super::{bundle, declaration as codec, template as template_codec};
+use super::super::{
+    bundle, declaration as codec, directory as directory_codec, template as template_codec,
+};
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::{
     InterfaceSectionTag, InterfaceSemanticRecord, InterfaceSemanticRecordKind, InterfaceSemantics,
@@ -50,7 +52,6 @@ pub(super) fn decode_predicate_definition(
     sections: &[ValidatedInterfaceSection<'_>],
     surface: &PackageInterfaceSurface,
     owner: InterfaceSymbolId,
-    limits: InterfaceValidationLimits,
     mut context: SemanticDecodeContext,
     directory: &[InterfaceSemanticRecord],
 ) -> Result<InterfaceSemantics, InterfaceValidationError> {
@@ -73,7 +74,7 @@ pub(super) fn decode_predicate_definition(
 
     // Parameter types may reach the complete semantic value graph.
     if !definition.parameters().is_empty() {
-        return bundle::decode_semantics(sections, surface, limits);
+        return bundle::decode_semantics_with_context(sections, surface, context.restart());
     }
 
     if definition.owner() != &owner {
@@ -87,11 +88,22 @@ pub(super) fn decode_predicate_definition(
     let section = bundle::required_section(sections, InterfaceSectionTag::DeclarationTemplates)?;
     let tables = template_codec::decode_template_tables(section, &mut context)?;
 
-    validate_declaration_template_directory(directory, tables.declaration_templates.len())?;
+    let validate_templates =
+        || validate_declaration_template_directory(directory, tables.declaration_templates.len());
 
-    let template_records = directory.iter().filter(|entry| {
-        entry.owner() == &owner && entry.kind() == InterfaceSemanticRecordKind::DeclarationTemplate
-    });
+    match context.record_index() {
+        Some(index) => index
+            .declaration_templates
+            .get_or_init(validate_templates)
+            .clone()?,
+        None => validate_templates()?,
+    }
+
+    let template_records = directory_codec::records_for_owner(
+        directory,
+        &owner,
+        InterfaceSemanticRecordKind::DeclarationTemplate,
+    );
 
     let mut predicate_template_count = 0_usize;
 
@@ -162,11 +174,9 @@ fn declaration_record(
     owner: &InterfaceSymbolReference,
     kind: InterfaceSemanticRecordKind,
 ) -> Result<u32, InterfaceValidationError> {
-    let mut entries = directory.iter().filter(|entry| {
-        entry.owner() == owner
-            && entry.kind() == kind
-            && entry.section() == InterfaceSectionTag::DeclarationSemantics
-    });
+    let mut entries = directory_codec::records_for_owner(directory, owner, kind)
+        .iter()
+        .filter(|entry| entry.section() == InterfaceSectionTag::DeclarationSemantics);
 
     let Some(entry) = entries.next() else {
         return Err(crate::semantic::codec::invalid_value(

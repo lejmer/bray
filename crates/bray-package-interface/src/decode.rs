@@ -64,7 +64,7 @@ pub(crate) const fn map_wire_error(
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct DecodeBudget {
     limits: InterfaceValidationLimits,
     allocated: u64,
@@ -82,6 +82,30 @@ impl DecodeBudget {
 
     pub(crate) const fn limits(&self) -> InterfaceValidationLimits {
         self.limits
+    }
+
+    pub(crate) fn include(&mut self, other: &Self) -> Result<(), InterfaceValidationError> {
+        assert_eq!(
+            self.limits, other.limits,
+            "shared semantic addressing must use the input's limits"
+        );
+
+        let allocated = self.allocated.saturating_add(other.allocated);
+
+        let external_references = self
+            .external_references
+            .saturating_add(other.external_references);
+
+        self.limits
+            .check(InterfaceLimit::DecodedAllocation, allocated)?;
+
+        self.limits
+            .check(InterfaceLimit::ExternalReferenceCount, external_references)?;
+
+        self.allocated = allocated;
+        self.external_references = external_references;
+
+        Ok(())
     }
 
     pub(crate) fn allocate_items<T>(

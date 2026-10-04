@@ -218,6 +218,7 @@ pub(super) fn read_external_key(
 pub(crate) struct SemanticDecodeContext {
     budget: DecodeBudget,
     validation: InterfaceValidationContext,
+    index: Option<Arc<super::index::SemanticRecordIndex>>,
 }
 
 impl SemanticDecodeContext {
@@ -225,6 +226,41 @@ impl SemanticDecodeContext {
         Self {
             budget: DecodeBudget::new(limits),
             validation: InterfaceValidationContext::Artifact,
+            index: None,
+        }
+    }
+
+    pub(crate) fn with_index(
+        limits: InterfaceValidationLimits,
+        index: Arc<super::index::SemanticRecordIndex>,
+    ) -> Self {
+        Self {
+            budget: DecodeBudget::new(limits),
+            validation: InterfaceValidationContext::Artifact,
+            index: Some(index),
+        }
+    }
+
+    pub(super) fn record_index(&self) -> Option<&Arc<super::index::SemanticRecordIndex>> {
+        self.index.as_ref()
+    }
+
+    pub(super) fn into_budget(self) -> DecodeBudget {
+        self.budget
+    }
+
+    pub(super) fn include_budget(
+        &mut self,
+        budget: &DecodeBudget,
+    ) -> Result<(), InterfaceValidationError> {
+        self.budget.include(budget)
+    }
+
+    pub(super) fn restart(self) -> Self {
+        Self {
+            budget: DecodeBudget::new(self.limits()),
+            validation: InterfaceValidationContext::Artifact,
+            index: self.index,
         }
     }
 
