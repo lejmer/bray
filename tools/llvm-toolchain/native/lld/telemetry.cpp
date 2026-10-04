@@ -613,8 +613,12 @@ llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> read_cache_entry(
         return llvm::errorToErrorCode(opened.takeError());
 
     llvm::sys::fs::file_t descriptor = *opened;
-    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> buffer =
-        llvm::MemoryBuffer::getOpenFile(descriptor, path, -1, false);
+    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> buffer = llvm::MemoryBuffer::getOpenFile(
+        descriptor,
+        path,
+        -1,
+        false
+    );
 
     const std::error_code close_error = llvm::sys::fs::closeFile(descriptor);
 

@@ -29,7 +29,9 @@ static Instruction* getSingleSinkUser(Instruction* I)
 
         if (SingleUser && SingleUser != User)
             return nullptr;
+
         SingleUser = User;
+
         ++NumUsers;
     }
 
@@ -55,19 +57,23 @@ static std::optional<BasicBlock*> getOptionalSinkBlockForInst(Instruction* I, Do
             return std::nullopt;
 
         Instruction* UserInst = cast<Instruction>(User);
+
         // Special handling for Phi nodes - get the block the use occurs in.
         BasicBlock* UserBB = UserInst->getParent();
+
         if (PHINode* PN = dyn_cast<PHINode>(UserInst))
             UserBB = PN->getIncomingBlock(U);
+
         // Bail out if we have uses in different blocks. We don't do any
         // sophisticated analysis (i.e finding NearestCommonDominator of these
         // use blocks).
         if (UserParent && UserParent != UserBB)
             return std::nullopt;
+
         UserParent = UserBB;
 
         // Make sure these checks are done only once, naturally we do the checks
-        // the first time we get the userparent, this will save compile time.
+        // the first time we get the user parent, this will save compile time.
         if (NumUsers == 0)
         {
             // Try sinking to another block. If that block is unreachable, then do
@@ -76,6 +82,7 @@ static std::optional<BasicBlock*> getOptionalSinkBlockForInst(Instruction* I, Do
                 return std::nullopt;
 
             auto* Term = UserParent->getTerminator();
+
             // See if the user is one of our successors that has only one
             // predecessor, so that we don't have to split the critical edge.
             // Another option where we can sink is a block that ends with a
@@ -108,12 +115,12 @@ static bool isSinkableInstruction(Instruction* I, BasicBlock* DestBlock, TargetL
 
     // Do not sink static or dynamic alloca instructions. Static allocas must
     // remain in the entry block, and dynamic allocas must not be sunk in between
-    // a stacksave / stackrestore pair, which would incorrectly shorten its
+    // a stack-save / stack-restore pair, which would incorrectly shorten its
     // lifetime.
     if (isa<AllocaInst>(I))
         return false;
 
-    // Do not sink into catchswitch blocks.
+    // Do not sink into catch-switch blocks.
     if (isa<CatchSwitchInst>(DestBlock->getTerminator()))
         return false;
 
@@ -124,7 +131,7 @@ static bool isSinkableInstruction(Instruction* I, BasicBlock* DestBlock, TargetL
             return false;
     }
 
-    // Unless we can prove that the memory write isn't visibile except on the
+    // Unless we can prove that the memory write isn't visible except on the
     // path we're sinking to, we must bail.
     if (I->mayWriteToMemory())
     {
@@ -149,10 +156,12 @@ static bool canSinkInstruction(Instruction* I, BasicBlock* DestBlock, TargetLibr
         // successor block.
         if (DestBlock->getUniquePredecessor() != I->getParent())
             return false;
+
         for (BasicBlock::iterator Scan = std::next(I->getIterator()), E = I->getParent()->end();
              Scan != E; ++Scan)
         {
             ++NumSinkMemoryChecks;
+
             if (Scan->mayWriteToMemory())
                 return false;
         }
@@ -169,22 +178,31 @@ bool InstCombinerImpl::tryToSinkInstruction(Instruction* I, BasicBlock* DestBloc
     BasicBlock* OriginalDest = DestBlock;
     SmallPtrSet<Instruction*, 16> Members;
     Members.insert(I);
+
     // Selected writers already satisfy SoleWriteToDeadLocal and move in this batch.
     // Only stationary writes can block the remaining producer reads.
     DenseMap<BasicBlock*, Instruction*> LastWrites;
+
     auto LastWrite = [&](BasicBlock* Block)
     {
         auto [Position, Inserted] = LastWrites.try_emplace(Block, nullptr);
+
         if (Inserted)
+        {
             for (Instruction& Inst : *Block)
             {
                 ++NumSinkMemoryChecks;
+
                 if (Inst.mayWriteToMemory() && !Members.contains(&Inst))
                     Position->second = &Inst;
             }
+        }
+
         return Position->second;
     };
+
     SmallVector<Instruction*, 8> Chain{I};
+
     // Explicit visit counters must continue to control one instruction at a time.
     if (!DebugCounter::isCounterSet(VisitCounter))
     {
@@ -192,14 +210,22 @@ bool InstCombinerImpl::tryToSinkInstruction(Instruction* I, BasicBlock* DestBloc
         {
             if (User->getParent() != DestBlock)
                 break;
+
             auto NextBlock = getOptionalSinkBlockForInst(User, DT);
-            if (!NextBlock || (*NextBlock)->getUniquePredecessor() != DestBlock ||
-                !canSinkInstruction(User, *NextBlock, TLI))
+
+            if (
+                !NextBlock ||
+                (*NextBlock)->getUniquePredecessor() != DestBlock ||
+                !canSinkInstruction(User, *NextBlock, TLI)
+            )
                 break;
+
             if (LastWrite(DestBlock) != nullptr)
                 break;
+
             Chain.push_back(User);
             Members.insert(User);
+
             DestBlock = *NextBlock;
         }
     }
@@ -209,47 +235,66 @@ bool InstCombinerImpl::tryToSinkInstruction(Instruction* I, BasicBlock* DestBloc
         SmallVector<Instruction*, 8> Prefix;
         Instruction* First = I;
         BasicBlock* FirstDest = OriginalDest;
+
         bool Blocked = false;
         bool LaterWrites = false;
+
         while (true)
         {
             Instruction* Producer = nullptr;
+
             for (Value* Operand : First->operand_values())
             {
                 auto* Candidate = dyn_cast<Instruction>(Operand);
+
                 if (!Candidate)
                     continue;
+
                 BasicBlock* Source = Candidate->getParent();
                 BasicBlock* FirstBlock = First->getParent();
+
                 if (Source != FirstBlock && FirstBlock->getUniquePredecessor() != Source)
                     continue;
+
                 BasicBlock* CheckDest = Source == FirstBlock ? FirstDest : FirstBlock;
+
                 if (!isSinkableInstruction(Candidate, CheckDest, TLI))
                     continue;
+
                 if (Candidate->mayReadFromMemory() &&
                     !Candidate->hasMetadata(LLVMContext::MD_invariant_load))
                 {
                     Instruction* Write = LastWrite(Source);
-                    if (LaterWrites || (Write && Candidate->comesBefore(Write)) ||
-                        (Source != FirstBlock && LastWrite(FirstBlock)))
+
+                    if (
+                        LaterWrites ||
+                        (Write && Candidate->comesBefore(Write)) ||
+                        (Source != FirstBlock && LastWrite(FirstBlock))
+                    )
                         continue;
                 }
+
                 if (getSingleSinkUser(Candidate) != First || (Producer && Producer != Candidate))
                 {
                     Blocked = true;
                     break;
                 }
+
                 Producer = Candidate;
             }
+
             if (!Producer || Blocked)
                 break;
+
             if (Producer->getParent() != First->getParent())
             {
                 LaterWrites |= LastWrite(First->getParent()) != nullptr;
                 FirstDest = First->getParent();
             }
+
             Prefix.push_back(Producer);
             Members.insert(Producer);
+
             auto Write = LastWrites.find(Producer->getParent());
 
             if (Write != LastWrites.end() && Write->second == Producer)
@@ -268,25 +313,34 @@ bool InstCombinerImpl::tryToSinkInstruction(Instruction* I, BasicBlock* DestBloc
                     }
                 }
             }
+
             First = Producer;
         }
+
         for (Instruction* Node : Chain)
         {
             if (Node == I)
                 continue;
+
             for (Value* Operand : Node->operand_values())
             {
                 auto* Candidate = dyn_cast<Instruction>(Operand);
-                if (Candidate && !Members.contains(Candidate) &&
+
+                if (
+                    Candidate &&
+                    !Members.contains(Candidate) &&
                     Candidate->getParent() == Node->getParent() &&
-                    isSinkableInstruction(Candidate, DestBlock, TLI))
+                    isSinkableInstruction(Candidate, DestBlock, TLI)
+                )
                     Blocked = true;
             }
         }
+
         if (Blocked)
         {
             Chain.clear();
             Chain.push_back(I);
+
             DestBlock = OriginalDest;
         }
         else
@@ -298,6 +352,7 @@ bool InstCombinerImpl::tryToSinkInstruction(Instruction* I, BasicBlock* DestBloc
     auto Move = [&](Instruction* I)
     {
         BasicBlock* SrcBlock = I->getParent();
+
         I->dropDroppableUses(
             [&](const Use* U)
             {
@@ -309,11 +364,13 @@ bool InstCombinerImpl::tryToSinkInstruction(Instruction* I, BasicBlock* DestBloc
                 }
                 return false;
             });
+
         /// FIXME: We could remove droppable uses that are not dominated by
         /// the new position.
 
         BasicBlock::iterator InsertPos = DestBlock->getFirstInsertionPt();
         I->moveBefore(*DestBlock, InsertPos);
+
         ++NumSunkInst;
 
         // Also sink all related debug uses from the source basic block. Otherwise we
@@ -322,10 +379,17 @@ bool InstCombinerImpl::tryToSinkInstruction(Instruction* I, BasicBlock* DestBloc
         // mark the location undef: we know it was supposed to receive a new location
         // here, but that computation has been sunk.
         SmallVector<DbgVariableRecord*, 2> DbgVariableRecords;
+
         findDbgUsers(I, DbgVariableRecords);
+
         if (!DbgVariableRecords.empty())
-            tryToSinkInstructionDbgVariableRecords(I, InsertPos, SrcBlock, DestBlock,
-                                                   DbgVariableRecords);
+            tryToSinkInstructionDbgVariableRecords(
+                I,
+                InsertPos,
+                SrcBlock,
+                DestBlock,
+                DbgVariableRecords
+            );
 
         // PS: there are numerous flaws with this behaviour, not least that right now
         // assignments can be re-ordered past other assignments to the same variable
@@ -336,16 +400,22 @@ bool InstCombinerImpl::tryToSinkInstruction(Instruction* I, BasicBlock* DestBloc
         // LLVM-IR, however it depends on the instruction-referencing CodeGen backend
         // being used for more architectures.
     };
+
     for (Instruction* Moved : llvm::reverse(Chain))
     {
         Move(Moved);
+
         if (Moved != I)
         {
             Worklist.push(Moved);
+
             for (Use& Operand : Moved->operands())
+            {
                 if (auto* Producer = dyn_cast<Instruction>(Operand.get()))
                     Worklist.push(Producer);
+            }
         }
     }
+
     return true;
 }

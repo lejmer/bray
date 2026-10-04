@@ -130,7 +130,9 @@ std::unique_ptr<llvm::Module> optimize(const std::string& source, llvm::LLVMCont
     auto error = builder.parsePassPipeline(passes, "function(instcombine)");
 
     require(!error, "InstCombine test pipeline must be available");
+
     passes.run(*module, modules);
+
     require(!llvm::verifyModule(*module, &llvm::errs()), "optimized LLVM module must verify");
 
     return module;
@@ -154,13 +156,16 @@ void checkChain(unsigned count, const std::string& attributes, Barrier barrier, 
     NumSinkMemoryChecks = 0;
 
     auto actual = optimize(fixture(count, attributes, barrier, false, prefix), context);
+
     const auto moves = NumSunkInst.getValue();
     const auto memoryChecks = NumSinkMemoryChecks.getValue();
+
     auto expected = optimize(fixture(count, attributes, barrier, true, prefix), context);
 
     require(moves <= count * 2, "chain sinking must perform linear work");
     require(memoryChecks <= count * 12, "chain memory checks must perform linear work");
     require(moves != 0, "test-only LLVM work statistics must be enabled");
+
     const std::string actualIR = printed(*actual);
     const std::string expectedIR = printed(*expected);
 
@@ -168,6 +173,7 @@ void checkChain(unsigned count, const std::string& attributes, Barrier barrier, 
     {
         const auto mismatch =
             std::mismatch(actualIR.begin(), actualIR.end(), expectedIR.begin(), expectedIR.end());
+
         const auto offset = mismatch.first - actualIR.begin();
 
         llvm::errs() << "fixture: " << attributes << " count=" << count
@@ -197,13 +203,17 @@ void checkDeadLocalWriter()
 
     source.insert(
         0,
-        "declare i32 @writer(i32, ptr captures(none)) nounwind willreturn memory(argmem: write)\n");
+        "declare i32 @writer(i32, ptr captures(none)) nounwind willreturn memory(argmem: write)\n"
+    );
+
     source.insert(source.find("block0:\n") + 8, "  %local = alloca i32, align 4\n");
 
     const std::string original = "call i32 @step(i32 %seed, ptr noalias %context)";
 
-    source.replace(source.find(original), original.size(),
-                   "call i32 @writer(i32 %seed, ptr %local)");
+    source.replace(
+        source.find(original), original.size(),
+        "call i32 @writer(i32 %seed, ptr %local)"
+    );
 
     llvm::LLVMContext context;
 
@@ -212,14 +222,24 @@ void checkDeadLocalWriter()
     auto module = optimize(source, context);
     const auto moves = NumSunkInst.getValue();
 
-    require(moves != 0 && moves <= count * 2,
-            "dead-local producer chains must perform linear work");
+    require(
+        moves != 0 && moves <= count * 2,
+        "dead-local producer chains must perform linear work"
+    );
 
     for (const llvm::BasicBlock& block : *module->getFunction("chain"))
+    {
         for (const llvm::Instruction& instruction : block)
+        {
             if (llvm::isa<llvm::CallBase>(instruction))
-                require(block.getName() == "block1000",
-                        "dead-local writers must follow their consumers");
+            {
+                require(
+                    block.getName() == "block1000",
+                    "dead-local writers must follow their consumers"
+                );
+            }
+        }
+    }
 }
 
 void checkSinkAnchors(unsigned uses, bool assumption, bool successor)
