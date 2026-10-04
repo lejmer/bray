@@ -1955,6 +1955,7 @@ dependencies = [
  "bray-target",
  "bray-test-protocol",
  "bray-tooling",
+ "cc",
  "inkwell",
  "object",
  "quote",

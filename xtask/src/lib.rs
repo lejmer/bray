@@ -18,6 +18,7 @@ mod native_toolchain;
 mod package_interface;
 mod path;
 mod performance;
+mod preparation_tools;
 mod progress;
 mod readiness;
 mod runtime_artifact;

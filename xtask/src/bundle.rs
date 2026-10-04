@@ -101,10 +101,23 @@ pub(crate) struct DirectoryPublication {
     destination: PathBuf,
     staging: tempfile::TempDir,
     work: PathBuf,
+    previous: PathBuf,
     _lock: PublicationLock,
 }
 
 impl DirectoryPublication {
+    pub(crate) fn recover(destination: &Path) -> Result<(), DirectoryPublicationError> {
+        let previous = previous_directory(destination)?;
+
+        if previous.exists() {
+            let _lock = PublicationLock::acquire(destination)?;
+
+            recover_previous(destination, &previous)?;
+        }
+
+        Ok(())
+    }
+
     pub(crate) fn begin(
         destination: &Path,
         prefix: &str,
@@ -115,6 +128,9 @@ impl DirectoryPublication {
             .map_err(|error| DirectoryPublicationError::write(parent, error))?;
 
         let lock = PublicationLock::acquire(destination)?;
+        let previous = previous_directory(destination)?;
+
+        recover_previous(destination, &previous)?;
 
         let staging = tempfile::Builder::new()
             .prefix(prefix)
@@ -130,11 +146,20 @@ impl DirectoryPublication {
 
         fs::create_dir(&work).map_err(|error| DirectoryPublicationError::write(&work, error))?;
 
+        if previous.exists() {
+            let obsolete = staging.path().join("abandoned-previous");
+
+            rename_directory(&previous, &obsolete).map_err(|error| {
+                DirectoryPublicationError::publish(&previous, &obsolete, error)
+            })?;
+        }
+
         Ok(Self {
             contents,
             destination: destination.to_path_buf(),
             staging,
             work,
+            previous,
             _lock: lock,
         })
     }
@@ -148,7 +173,7 @@ impl DirectoryPublication {
     }
 
     pub(crate) fn publish(self) -> Result<PathBuf, DirectoryPublicationError> {
-        let previous = self.staging.path().join("previous");
+        let previous = &self.previous;
         let replaces_existing = self.destination.exists();
 
         if replaces_existing {
@@ -166,20 +191,49 @@ impl DirectoryPublication {
                 let rollback =
                     DirectoryPublicationError::publish(&previous, &self.destination, error);
 
-                let preserved_staging = self.staging.keep();
-
                 return Err(DirectoryPublicationError::Rollback {
                     publication: Box::new(publication),
                     rollback: Box::new(rollback),
-                    preserved_staging,
+                    preserved_previous: previous.to_path_buf(),
                 });
             }
 
             return Err(publication);
         }
 
+        if replaces_existing {
+            let obsolete = self.staging.path().join("previous");
+
+            rename_directory(previous, &obsolete).map_err(|error| {
+                DirectoryPublicationError::publish(previous, &obsolete, error)
+            })?;
+        }
+
         Ok(self.destination)
     }
+}
+
+fn previous_directory(destination: &Path) -> Result<PathBuf, DirectoryPublicationError> {
+    let name = destination.file_name().ok_or_else(|| {
+        DirectoryPublicationError::write(destination, std::io::Error::new(ErrorKind::InvalidInput, "destination has no file name"))
+    })?;
+
+    let mut previous = OsString::from(".");
+
+    previous.push(name);
+    previous.push(".previous");
+
+    Ok(destination.with_file_name(previous))
+}
+
+fn recover_previous(destination: &Path, previous: &Path) -> Result<(), DirectoryPublicationError> {
+    if !destination.exists() && previous.exists() {
+        rename_directory(previous, destination).map_err(|error| {
+            DirectoryPublicationError::publish(previous, destination, error)
+        })?;
+    }
+
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -189,7 +243,7 @@ pub(crate) enum DirectoryPublicationError {
     Rollback {
         publication: Box<Self>,
         rollback: Box<Self>,
-        preserved_staging: PathBuf,
+        preserved_previous: PathBuf,
     },
     Io {
         action: &'static str,
@@ -235,11 +289,11 @@ impl fmt::Display for DirectoryPublicationError {
             Self::Rollback {
                 publication,
                 rollback,
-                preserved_staging,
+                preserved_previous,
             } => write!(
                 formatter,
                 "{publication}. Restoring the previous directory also failed: {rollback}. The previous directory is preserved under {}",
-                preserved_staging.display()
+                preserved_previous.display()
             ),
             Self::Io {
                 action,
@@ -317,6 +371,81 @@ mod tests {
         DirectoryPublication, DirectoryPublicationError, NativeBuildOptionsBuilder,
         NativeBuildOptionsError,
     };
+
+    #[test]
+    fn process_restart_reuses_published_contents_after_interrupted_preparation() {
+        let directory = tempfile::tempdir().expect("publication root");
+        let output = directory.path().join("bundle");
+
+        let child = |mode: &str| {
+            std::process::Command::new(std::env::current_exe().expect("test executable"))
+                .args(["--exact", "bundle::tests::publication_child", "--ignored", "--nocapture"])
+                .env("BRAY_PUBLICATION_TEST_OUTPUT", &output)
+                .env("BRAY_PUBLICATION_TEST_MODE", mode)
+                .status().expect("publication subprocess")
+        };
+
+        assert!(child("interrupt").success());
+        assert!(!output.exists());
+        assert!(child("publish").success());
+
+        assert_eq!(std::fs::read(output.join("complete")).expect("published artifact"), b"complete");
+
+        assert!(child("interrupt").success());
+
+        assert_eq!(std::fs::read(output.join("complete")).expect("retained artifact"), b"complete");
+        assert!(!output.join("partial").exists());
+        assert!(child("publish").success());
+
+        assert!(child("interrupt-replacement").success());
+        assert!(!output.exists());
+        assert!(child("recover").success());
+
+        assert_eq!(std::fs::read(output.join("complete")).expect("recovered previous bundle"), b"complete");
+
+        assert!(child("interrupt-after-publication").success());
+        assert!(child("recover").success());
+        assert_eq!(std::fs::read(output.join("new")).expect("new published bundle retained"), b"new");
+        assert!(child("publish").success());
+    }
+
+    #[test]
+    #[ignore = "invoked in a separate process by the publication recovery test"]
+    fn publication_child() {
+        let output = PathBuf::from(std::env::var_os("BRAY_PUBLICATION_TEST_OUTPUT").expect("test output"));
+        let mode = std::env::var("BRAY_PUBLICATION_TEST_MODE").expect("test mode");
+
+        if mode == "recover" {
+            DirectoryPublication::recover(&output).expect("recover publication");
+            assert!(output.join("complete").is_file());
+
+            return;
+        }
+
+        let publication = DirectoryPublication::begin(&output, "interrupted-publication-").expect("begin publication");
+
+        if mode == "interrupt" {
+            std::fs::write(publication.contents().join("partial"), b"partial").expect("partial artifact");
+
+            // Exit without destructors, like an interrupted preparation process.
+            std::process::exit(0);
+        }
+
+        if mode.starts_with("interrupt-") {
+            std::fs::write(publication.contents().join("complete"), b"complete").expect("new complete artifact");
+            std::fs::rename(&publication.destination, &publication.previous).expect("move previous bundle");
+
+            if mode == "interrupt-after-publication" {
+                std::fs::write(publication.contents().join("new"), b"new").expect("new marker");
+                std::fs::rename(&publication.contents, &publication.destination).expect("publish replacement");
+            }
+
+            std::process::exit(0);
+        }
+
+        std::fs::write(publication.contents().join("complete"), b"complete").expect("complete artifact");
+        publication.publish().expect("publish complete bundle");
+    }
 
     #[test]
     fn native_build_options_require_an_output() {

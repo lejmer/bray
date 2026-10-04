@@ -201,7 +201,7 @@ fn build_rust_static_library_with_options(
 }
 
 #[derive(Clone, Copy)]
-enum NativeCompilation {
+pub(crate) enum NativeCompilation {
     Object,
     ThinLto,
 }
@@ -263,6 +263,11 @@ fn build_rust_static_library_with_configuration(
     command.args(["--print", "native-static-libs"]);
     configure_c_toolchain(&mut command, root, target, native_compilation);
 
+    let identity = crate::preparation_tools::provider_digest(root, target, native_compilation)
+        .map_err(BuildError::CompilerSupport)?;
+
+    command.env(crate::preparation_tools::PROVIDER_IDENTITY_ENVIRONMENT, identity);
+
     let output = command.output().map_err(BuildError::Cargo)?;
 
     if !output.status.success() {
@@ -312,7 +317,7 @@ fn rust_static_library_file_name(target: NativeTarget, package: &str) -> String 
     name
 }
 
-fn configure_c_toolchain(
+pub(crate) fn configure_c_toolchain(
     command: &mut Command,
     root: &Path,
     target: NativeTarget,
@@ -442,7 +447,7 @@ fn native_tools(target: NativeTarget) -> NativeTools {
     }
 }
 
-fn target_environment(prefix: &str, target: NativeTarget) -> String {
+pub(crate) fn target_environment(prefix: &str, target: NativeTarget) -> String {
     format!("{prefix}_{}", target.as_str().replace('-', "_"))
 }
 

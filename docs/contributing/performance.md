@@ -21,7 +21,8 @@ output directory. Open the HTML report to inspect results and retain the JSON re
 Progress goes to standard error. The only standard output line is the `candidate.json` path.
 
 The first run prepares a target-specific toolchain under Cargo's target directory. Later runs reuse it when the
-compiler, Cargo lockfile, runtime, temporal provider, standard library, and target are unchanged. Changing report
+compiler producer, Cargo lockfile, runtime, temporal provider, standard library, target, and resolved native tools are
+unchanged. Preparation identities fingerprint selected tool contents, including replacements at the same path. Changing report
 options does not rebuild that toolchain. Follow the [artifact storage rules](build-artifacts.md) when working across
 checkouts.
 
