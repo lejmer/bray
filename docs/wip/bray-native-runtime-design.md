@@ -4,7 +4,7 @@ This is a research proposal. It has not changed the language, runtime implementa
 
 The [language notes](bray-runtime-language-notes.md) and [consumer notes](bray-runtime-consumer-notes.md) support the recommendations below. This document records step 2 of the [delivery strategy](https://linear.app/bray-lang/document/bray-native-runtime-and-platform-delivery-plan-46623e2d308d).
 
-Every design choice must satisfy correctness, execution speed, binary size and compiler speed. [Decision 12](#12-correctness-execution-speed-binary-size-and-compiler-speed-govern-the-design) records these requirements and the evidence needed during implementation.
+Evaluate every design choice for correctness, execution speed, binary size and compiler speed. [Decision 12](#12-correctness-execution-speed-binary-size-and-compiler-speed-govern-the-design) records the destination requirements and when to apply performance gates. The [cost review](bray-runtime-cost-review.md) checks the agreed architecture against these requirements.
 
 ## Agreed decisions
 
@@ -108,9 +108,11 @@ Evaluate these requirements while choosing ownership, storage, synchronization, 
 
 Compiler-enforced guarantees also have a cost. Share and reuse analysis results where their validity permits it. Avoid repeated dependency analysis, descriptor reconstruction and generated adapters that duplicate equivalent work. Measure clean and incremental compilation, including optimization and linking. Faster checking that shifts extra work into code generation or linking does not meet the total build-time goal.
 
-Measure representative native consumers during the existing migration steps. Compare equivalent behavior on the same target with recorded toolchain versions and comparable build settings. Include small synchronous programs and constrained hardware alongside async and loaded-provider consumers. Record execution latency or throughput, linked code and data size, peak memory and compilation time where relevant. Inspect emitted code and link maps to explain costs. Use the current Bray implementation as a regression baseline and Rust or C++ equivalents as external comparisons.
+Measure representative native consumers when the relevant paths can run and meaningful comparisons are possible. Compare equivalent behavior on the same target with recorded toolchain versions and comparable build settings. Include small synchronous programs and constrained hardware alongside async and loaded-provider consumers. Record execution latency or throughput, linked code and data size, peak memory and compilation time where relevant. Inspect emitted code and link maps to explain costs. Use the current Bray implementation as a regression baseline and Rust or C++ equivalents as external comparisons.
 
-Make tradeoffs explicit. An improvement in one measure does not excuse an unexplained regression in another. If a mechanism prevents these goals, reconsider the mechanism and any language rule that requires it. Resolve performance and size problems during migration instead of postponing them to a final optimization phase. This adds evidence to the planned consumers without requiring a separate prototype for each decision.
+These are architecture and destination requirements, not a requirement for every intermediate issue to match Rust or C++. Gate performance and size where meaningful evidence is available. A prerequisite change may temporarily regress a measure when its improvement depends on later work that the change enables. Record the reason, the enabling dependency and the stage where the cost can be evaluated or removed. Architecture can finish before performance tuning. Architecture reasoning must still account for the costs and leave a credible path to the destination requirements.
+
+Make tradeoffs explicit. If a mechanism prevents the destination requirements, reconsider the mechanism and any language rule that requires it. Do not reject a necessary migration step solely because later dependent work is unfinished. This adds evidence where useful without requiring a separate prototype or benchmark for every decision.
 
 ## Recommendation
 
@@ -139,7 +141,7 @@ These names describe runtime implementation concepts expressed through ordinary 
 
 Use direct typed borrows inside a host, attachment or activation when the enclosing lifetime is provable. Short lock or atomic capabilities govern access to shared storage through anchored views. Runtime synchronization guards must end before arbitrary callbacks or suspension. Existing library guards show how to express this in Bray.
 
-Limit erasure to heterogeneous frames and payloads and native transfers. An immutable descriptor contains exact layout, initialized-state operations, dependencies and callbacks, and retains its provider dependency. Activation should not rebuild compiler model objects, symbol strings or vectors. Use trait views when their ordinary operations suffice. Generate concrete descriptor operations for protected representations and heterogeneous disposal that trait views cannot express.
+Limit erasure to heterogeneous frames and payloads and native transfers. An immutable descriptor contains exact layout, initialized-state operations, dependencies and callbacks. A live provider dependency must cover the descriptor and callbacks throughout use. An enclosing owner can supply that dependency without a separately retained lease for each descriptor. Activation should not rebuild compiler model objects, symbol strings or vectors. Use trait views when their ordinary operations suffice. Generate concrete descriptor operations for protected representations and heterogeneous disposal that trait views cannot express.
 
 ## Contracts required by the ownership design
 
@@ -161,6 +163,8 @@ Formation validates external bindings and transitive provider requirements, secu
 
 Following decision 2, keep one resident Bray service owner for each group of products that exchange owned values. It lives outside the unloadable images whose callbacks it protects. Independent schedulers borrow this domain and retain separate workers, budgets and execution authority. Synchronous products use it without an async runtime. An embedding host supplies an explicit binding. An image-local cached fallback would violate that ownership model.
 
+Sharing a service domain does not require a shared lock or service call for every move, local admission or borrowed access. Use already secured local backing where its contracts permit it. Independently surviving users still retain the backing and services they need. Internal borrows do not require foreign-handle lookup or a new retained owner when the enclosing owner already proves the lifetime.
+
 Foreign handles need a validated table with load and epoch identities that never repeat, plus invalidation at terminal release. Internal paths borrow stable hosts directly. The resident caller retains the last provider lease until image code and all its local destruction have returned. Otherwise an unload callback could unmap the code executing it. Because Bray `with` exits before body-local destruction, keep that lease in an enclosing owner or release it after an inner scope finishes. An entry capability alone cannot establish this ordering.
 
 Decision 3 requires whole-product retention. An external owner that can reach provider code or storage delays static cleanup and unloading. An escaped provider-dependent panic report keeps its product available until disposal. Align BRA-501's code-only cleanup expectation and `docs/design/cleanup-storage-and-reports.md` with this rule. Do not add a code-only exception.
@@ -177,7 +181,7 @@ Decision 6 requires physical cleanup backing throughout ownership. One compiler 
 
 The allowance covers the actual mandatory path. That includes activation and control storage, concrete finalizer frames and results, typed incident backing, report and wait links, and bounded callback outcomes. It also covers host detachment acknowledgements and terminal infrastructure that must work when allocation is denied. Application finalizer allocations remain fallible. The guarantee does not cover unlimited explicit retries.
 
-Use caller or enclosing storage when the live shape is known. Give erased and recursive state and escaping payloads separately owned backing. Owners with non-overlapping lifetimes may share storage, but an outstanding result or report prevents reuse of its region. Recursive ownership carries each child's local allowance. Every new dynamic obligation secures its own additional needs before becoming live.
+Use caller or enclosing storage when the live shape is known. Erased and recursive state and escaping payloads need backing that preserves their actual lifetime and address requirements. Use separately owned backing when enclosing or coallocated storage cannot satisfy those requirements. Erasure alone does not require a separate heap allocation. Owners with non-overlapping lifetimes may share storage, but an outstanding result or report prevents reuse of its region. Recursive ownership carries each child's local allowance. Every new dynamic obligation secures its own additional needs before becoming live.
 
 Activation turns a reserved region into one active owner. Rejection leaves the reservation intact. Source discharge releases unused allowance and logical accounting. Backing transferred into an activation or report remains owned until its last typed or erased user resolves. Epoch identity prevents a reused address from authorizing stale activation or disposal.
 
@@ -189,7 +193,7 @@ Return admission failure through caller-owned storage before publication. An all
 
 Generated code owns source control flow, initialized-state tracking, separate task broadcast and resolution, direct-await composition and protected frame operations. Bray runtime code owns admission, stable activation backing, dispatch, waits, cancellation state, terminal publication, observation and infrastructure. A generated ABI adapter establishes the execution authority supplied by its role. Source cannot declare itself authorized to run on a lane.
 
-Decision 7 gives each started task one control record. Short synchronization governs transitions among ready, running, waiting and terminal states. Dispatch acquires execution authority under the transition lock, calls source outside it, then commits suspension or terminal state. Queue entries retain enough storage authority for dispatch. They do not create a second source resolution owner.
+Decision 7 gives each started task one control record. Dispatch acquires execution authority through a valid state transition, calls source, then commits suspension or terminal state. Synchronize state that is shared across threads. Thread-confined state needs no transition lock when confinement is established, including the absence of concurrent foreign wake access. Call source outside synchronization guards. Queue entries retain enough storage authority for dispatch. They do not create a second source resolution owner.
 
 Cancellation requests and cleanup shielding have explicit scoped state. Requests wake eligible suspended work. Storage reclamation waits for completion. Generated lexical cleanup finishes before terminal publication. Observation establishes the completion visibility edge and transfers one result, followed by host payload and static cleanup. Main stays on main. Origin-thread dependencies pin work to the exact attachment, while other state can migrate across compatible lanes.
 
@@ -220,7 +224,7 @@ A step may need several PRs. Each PR should exercise a real consumer and identif
 5. Replace lane, event, timer and worker services. Prove wake races, cancellation withdrawal, affinity, queued execution limits, main-thread progress and worker-thread static cleanup. Remove linked Rust scheduler, cancellation, event and platform code as each service switches to Bray.
 6. Replace test-host policy and finish packaging. Implement protocol, capture, serial execution and timeouts in Bray. Delete adapter partitioning, Rust common support and runtime platform artifacts when no produced consumer needs them. Audit all six target artifacts and run native fixtures on available target hosts. Cross-compilation alone cannot prove target runtime behavior.
 
-For each implementation PR, record its consumer, ownership invariants, rejection and terminal cases, linked Rust functions and objects removed, and compiler gaps to resolve. Record relevant execution, size and compilation evidence under decision 12 as consumers migrate. Temporary Rust tests can remain outside produced programs as behavior references while Bray fixtures take over their coverage. Remove superseded production implementations as consumers switch.
+For each implementation PR, record its consumer, ownership invariants, rejection and terminal cases, linked Rust functions and objects removed, and compiler gaps to resolve. Record execution, size and compilation evidence when meaningful comparisons are possible under decision 12. Explain temporary regressions and their enabling dependencies. Temporary Rust tests can remain outside produced programs as behavior references while Bray fixtures take over their coverage. Remove superseded production implementations as consumers switch.
 
 ## Decisions still needing acceptance
 

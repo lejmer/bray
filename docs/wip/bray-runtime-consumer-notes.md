@@ -8,7 +8,7 @@ Both research rounds are complete for host formation and cleanup admission. The 
 
 The inventory covers generated executable, library and test entry, product and thread statics, provider loading and retirement, reports, typed errors, mandatory admission, frames, tasks, cancellation, wakes, workers, shutdown, platform bindings and packaging.
 
-Evaluate each migrated consumer for execution speed, linked code and data size, memory use and compilation cost under [decision 12](bray-native-runtime-design.md#12-correctness-execution-speed-binary-size-and-compiler-speed-govern-the-design). Use current Bray as a regression baseline and equivalent Rust or C++ consumers for external comparisons. Include small synchronous programs and constrained targets. Correct behavior alone does not establish an acceptable design.
+Reason about execution speed, linked code and data size, memory use and compilation cost under [decision 12](bray-native-runtime-design.md#12-correctness-execution-speed-binary-size-and-compiler-speed-govern-the-design). Measure and gate when comparisons are meaningful. Use current Bray as a regression baseline and equivalent Rust or C++ consumers for external comparisons, including small synchronous programs and constrained targets. Necessary prerequisite steps may temporarily regress performance. Record their enabling dependencies. The [cost review](bray-runtime-cost-review.md) evaluates the agreed architecture before implementation measurements exist.
 
 ## Evidence and scope
 

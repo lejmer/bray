@@ -10,7 +10,7 @@ The language research and consumer research are complete for this design scope. 
 
 Keep future entries brief and linked to their sources. Separate specification requirements, implementation evidence and design decisions.
 
-The user's design requirements include correctness, execution speed competitive with Rust or C++, minimal binaries for constrained hardware, and compilation no slower than current rustc, preferably faster. Evaluate language and compiler mechanisms against all four requirements. [Decision 12](bray-native-runtime-design.md#12-correctness-execution-speed-binary-size-and-compiler-speed-govern-the-design) records the comparison requirements. These requirements need measurement. They are not current performance findings.
+The user's destination requirements include correctness, execution speed competitive with Rust or C++, minimal binaries for constrained hardware, and compilation no slower than current rustc, preferably faster. Reason about all four while designing. Gate where meaningful measurements are possible. Prerequisite steps may temporarily regress performance when later improvements depend on them. [Decision 12](bray-native-runtime-design.md#12-correctness-execution-speed-binary-size-and-compiler-speed-govern-the-design) records this distinction. These are requirements, not current performance findings.
 
 ## Accessibility and runtime authority
 
