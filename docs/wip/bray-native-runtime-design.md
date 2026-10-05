@@ -38,7 +38,7 @@ Align BRA-501's code-only cleanup expectations and conflicting design text with 
 
 Build bootstrap from Bray's existing low-level OS bindings, with explicitly supplied startup storage. Establish thread attachment and cleanup services before using higher-level APIs that depend on them. In particular, public thread APIs cannot initialize the runtime services they already require.
 
-Bootstrap follows ordinary Bray ownership, lifecycle and cleanup-capacity checks. Existing private compiler roles validate declaration contracts and ABI boundaries. Runtime source receives no blanket exemption, and this decision adds no source-language feature.
+Bootstrap follows ordinary Bray ownership, lifecycle and cleanup-capacity checks. Existing compiler-validated runtime and platform roles establish the required contracts and ABI boundaries. Runtime source receives no blanket exemption, and this decision adds no source-language feature.
 
 Verify typed bootstrap owners, role lowering and TLS destructor entry during the planned synchronous-host replacement. Resolve recursive entry and admission dependencies there, with no separate experiment stage.
 
@@ -58,11 +58,23 @@ Allocations performed by application finalizers remain ordinary fallible operati
 
 ### 7. Started tasks have one control record and one source resolution owner
 
-Use one private Bray control record per started task. One source owner holds the responsibility to resolve the task, and its result transfers exactly once. Scheduler entries and wake registrations retain the storage needed for safe dispatch and notification without acquiring another source resolution obligation.
+Use one internal Bray control record per started task. One source owner holds the responsibility to resolve the task, and its result transfers exactly once. Scheduler entries and wake registrations retain the storage needed for safe dispatch and notification without acquiring another source resolution obligation.
 
 The compiler supplies frame layout and generated cleanup operations. The Bray control record manages scheduling, cancellation, waits and terminal state. Direct await stays within the current run and creates no additional task control record. Keep backing live through the last activation, result or retained internal user.
 
-Remove duplicated task state and descriptor graphs across task, run and scheduler representations. Preserve existing protected source task semantics through ordinary private Bray runtime code. Verify this architecture during the planned frame and task replacement.
+Remove duplicated task state and descriptor graphs across task, run and scheduler representations. Preserve existing protected source task semantics through ordinary internal Bray runtime code. Verify this architecture during the planned frame and task replacement.
+
+### 8. Internal access does not establish runtime authority
+
+Bray declarations and fields are public by default. The visibility modifiers are `public` and `internal`. Explicit internal-use acknowledgement permits access outside the intended scope. It does not establish ownership, validity, synchronization, trusted guarantees or compiler-role authority.
+
+Every runtime guarantee must hold when safe source explicitly acknowledges internal access. Ordinary source records remain accessible under those rules. A record's name, copied ordinary fields or a state flag cannot establish the witness conditions required to operate on live runtime storage. Construction must establish those conditions or preserve them through valid owned fields. Relevant mutation invalidates affected guarantees, and subsequent operations must establish or receive the conditions they require.
+
+Internal low-level helpers must check their requirements or expose them in their callable and lifecycle contracts. `uses(...)` grants implementation capabilities without imposing caller obligations by itself. Preserve trusted requirements through wrappers, callbacks and lifecycle operations. Bind witness guarantees to their live owners, storage identities, epochs and scoped capabilities.
+
+Compiler-protected representations such as `Task<T>` and `PanicReport` remain a separate language mechanism. Ordinary runtime types receive no extra representation protection. Build metadata and compiler validation establish runtime roles, regardless of declaration visibility or spelling.
+
+During the planned migrations, verify that internal acknowledgement alone cannot authorize duplicate result transfer, stale storage use or invalid task transitions. Treat missing compiler enforcement as an implementation gap to resolve there.
 
 ## Recommendation
 
@@ -70,13 +82,13 @@ I recommend building the runtime around Bray's ordinary ownership, dependency, l
 
 The destination has no project-owned Rust or custom non-Bray runtime and platform code linked into produced programs. The pinned temporal provider remains the exception. Rust can remain in compiler, build and test coordination tools outside those programs.
 
-The Bray specification can express the required data structures. Existing source already implements owners, `Uninit<T>`, anchored access, atomics, synchronization, native thread creation and TLS keys. Use small native consumers to expose missing compiler lowering or private contracts, then fix those gaps alongside the consumers. This gives us a way to start writing the host in Bray now.
+The Bray specification can express the required data structures. Existing source already implements owners, `Uninit<T>`, anchored access, atomics, synchronization, native thread creation and TLS keys. Use small native consumers to expose missing compiler lowering or runtime role contracts, then fix those gaps alongside the consumers. This gives us a way to start writing the host in Bray now.
 
 Some boundaries still need shared identity and synchronization. Reference counting can support independently surviving owners at erased or foreign lifetime boundaries. A Bray borrow cannot govern a C caller's lifetime. That does not require copying the Rust object graph, `Arc` and `Weak` families, `Pin`, `Any`, descriptor reconstruction, poisoned-lock errors, duplicate registries or eager pools.
 
 ## Ownership boundaries
 
-These names describe private concepts. They propose no new public API or compiler-known source types.
+These names describe runtime implementation concepts expressed through ordinary Bray types and contracts. They add no compiler-known source types. Their invariants must hold under explicit internal access, as required by decision 8.
 
 | Owner or capability | Obligation | Expression in Bray |
 | --- | --- | --- |
@@ -92,6 +104,18 @@ These names describe private concepts. They propose no new public API or compile
 Use direct typed borrows inside a host, attachment or activation when the enclosing lifetime is provable. Short lock or atomic capabilities govern access to shared storage through anchored views. Runtime synchronization guards must end before arbitrary callbacks or suspension. Existing library guards show how to express this in Bray.
 
 Limit erasure to heterogeneous frames and payloads and native transfers. An immutable descriptor contains exact layout, initialized-state operations, dependencies and callbacks, and retains its provider dependency. Activation should not rebuild compiler model objects, symbol strings or vectors. Use trait views when their ordinary operations suffice. Generate concrete descriptor operations for protected representations and heterogeneous disposal that trait views cannot express.
+
+## Contracts required by the ownership design
+
+| Runtime operation | Required guarantee |
+| --- | --- |
+| Construct or adopt an owner | Transfer real resource ownership and establish or preserve the required witness conditions. Field names and ordinary representation values alone establish no trusted guarantee. |
+| Access backing through an anchored view | Hold live authority for the exact allocation, initialized epoch, layout and allowed aliases. Copying an address establishes none of these conditions. |
+| Resume a task or consume its result | Hold the matching execution or resolution authority and state conditions. A task identifier or state flag alone grants neither. |
+| Change shared state | Acquire the required synchronization capability and preserve or re-establish affected conditions. A lock does not by itself prove that every written state is valid. |
+| Resolve a foreign handle or invoke a callback | Validate the external identity and acquire the required retained owners and attachment. Invoke unchecked operations only under their declared caller requirements. |
+
+These are requirements for the proposed source implementation, not claims that all compiler checks already work. [Visibility](../language/declarations/visibility-and-reachability.md), [Witnesses](../language/contracts-and-trust/trusted-witness-values.md), [Caller obligations](../language/contracts-and-trust/trusted-caller-obligations.md), [Obligation propagation](../language/contracts-and-trust/obligation-propagation.md), [Protected representation](../language/compiler-known-and-standard-library/protected-representation.md).
 
 ## Host formation and provider lifetime
 
