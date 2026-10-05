@@ -64,6 +64,7 @@ The [delivery strategy](https://linear.app/bray-lang/document/bray-native-runtim
 
 ## Open implementation questions
 
+- Apply [decision 1](bray-native-runtime-design.md#1-cleanup-eligibility-does-not-require-a-blocking-wait) to host shutdown. A dependency makes cleanup ineligible without requiring a blocking wait. The runtime API must preserve pending cleanup ownership and prevent a caller from waiting for an owner it can release only after shutdown returns. Retention granularity remains open.
 - Can role-bound bootstrap code use typed noncopy owners and borrows without recursive foreign-entry wrapping or admitting its own cleanup through the service it is creating? Define private-role handling before implementing the source. Function spelling cannot exempt ordinary source from checks.
 - Does compiled dependency metadata preserve provider, static and attachment roots through erasure and incident callbacks? The specification requires teardown across dynamically connected products. The current single-product counter path does not prove that behavior.
 - The inventory covers required contracts, principal callers and representative fixtures. It does not cover every Rust helper or platform binding. Resolve compiler and runtime gaps through native consumers in the implementation sequence.

@@ -66,7 +66,7 @@ Keep future entries brief and linked to their sources. Separate specification re
 - Which obligations fit typed owners and dependency-anchored borrows? Which erased or foreign transfers need a private runtime protocol?
 - Which formation and bootstrap cycles require raw target operations before higher-level library entry becomes available?
 - Which fairness, registry and retention policies do consumers require?
-- The static and root chapters say any external root reaching provider storage or code prevents cleanup and unload. BRA-501 permits static cleanup while escaped report or code owners remain. Consumer tracing must resolve this conflict before the design selects a lifetime rule.
+- [Decision 1](bray-native-runtime-design.md#1-cleanup-eligibility-does-not-require-a-blocking-wait) establishes cleanup eligibility without a mandatory blocking wait. The static and root chapters need wording changes. Their whole-product retention rule also conflicts with BRA-501's code-only retention. The precise retention granularity remains open.
 - Low-level bootstrap text describes reverse registered TLS cleanup. The static specification requires dependency order with structural ties. Apply the static semantics and check the consumer requirements before clarifying the wording.
 
 ## Coverage and reading limits

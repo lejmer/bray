@@ -4,6 +4,18 @@ This is a research proposal. It has not changed the language, runtime implementa
 
 The [language notes](bray-runtime-language-notes.md) and [consumer notes](bray-runtime-consumer-notes.md) support the recommendations below. This document records step 2 of the [delivery strategy](https://linear.app/bray-lang/document/bray-native-runtime-and-platform-delivery-plan-46623e2d308d).
 
+## Agreed decisions
+
+### 1. Cleanup eligibility does not require a blocking wait
+
+Cleanup must preserve every live dependency. An unresolved dependency prevents cleanup from beginning, but does not require a blocking wait.
+
+The language defines cleanup legality through existing dependency and lifecycle contracts. The runtime defines how a caller requests shutdown and retains responsibility when cleanup cannot begin. Those operations can use ordinary Bray types. This decision introduces no new compiler-known owner or outcome type and makes no language-wide deadlock guarantee.
+
+A shutdown call that waits for a report which its caller can dispose of only after the call returns creates a circular wait. The host contract must avoid that cycle. A shutdown attempt that returns the unresolved owner is one proposed API, still under discussion. Pending cleanup keeps an explicit owner, execution capacity and error-reporting responsibility.
+
+Implementation must replace mandatory external-root waiting in the static and root shutdown chapters with cleanup eligibility. The precise retention granularity and shutdown API remain open. This decision alone does not accept whole-product retention or the illustrative `ProductOwner` and `ShutdownAttempt` types.
+
 ## Recommendation
 
 I recommend building the runtime around Bray's ordinary ownership, dependency, lifecycle, storage and capability contracts. Implement product hosts, attachments, cleanup admission, activations, tasks and reporting policy in Bray. The compiler supplies checked cleanup plans, adapters for protected representations and immutable descriptors. Explicit target ABI bindings supply OS operations.
@@ -43,9 +55,9 @@ Keep one resident Bray service owner for the shared host and admission domain, o
 
 Foreign handles need a validated table with load and epoch identities that never repeat, plus invalidation at terminal release. Internal paths borrow stable hosts directly. The resident caller retains the last provider lease until image code and all its local destruction have returned. Otherwise an unload callback could unmap the code executing it. Because Bray `with` exits before body-local destruction, keep that lease in an enclosing owner or release it after an inner scope finishes. An entry capability alone cannot establish this ordering.
 
-I recommend the specification's whole-product retention rule. An external owner that can reach provider code or storage delays static cleanup and unloading. An escaped panic report keeps its product available until disposal. BRA-501's code-only cleanup expectation and `docs/design/cleanup-storage-and-reports.md` conflict with the static and root chapters. Align them if this design is accepted. Any future code-only exception would need a checked contract proving that every message and disposal operation is independent of provider statics.
+Whole-product retention remains a proposal. Under that rule, an external owner that can reach provider code or storage delays static cleanup and unloading. An escaped panic report keeps its product available until disposal. BRA-501's code-only cleanup expectation and `docs/design/cleanup-storage-and-reports.md` conflict with the static and root chapters. Resolve the retention granularity before aligning them. A code-only exception would need a checked contract proving that every message and disposal operation is independent of provider statics.
 
-This choice can keep product resources alive for the lifetime of a small report. I prefer that cost to assuming cleanup code cannot touch statics. It gives symbols, callbacks, reports and storage the same dependency rule. Closure still rejects new source entry immediately. Existing owners retain the operations they need to complete disposal.
+Whole-product retention can keep product resources alive for the lifetime of a small report. It gives symbols, callbacks, reports and storage the same dependency rule. Decision 1 separates retention from a mandatory wait. Entry closure still rejects new source entry immediately, while existing owners retain the operations they need to complete disposal. The runtime shutdown API must preserve responsibility for cleanup when external roots keep a domain ineligible.
 
 Freeze the teardown set before closing admission. External roots block the domains they reach. Static-owned edges inside the set determine consumer-before-provider order. Check cycles and admission before publishing dynamically installed provider edges. Incidents created during teardown are internal terminal work. Drain them before their dependencies become unavailable, and exclude them from external-root waits that would block teardown on itself. Cleanup publishes no new escaping roots.
 
@@ -93,7 +105,7 @@ The test coordinator may remain host-side Rust. Everything linked into a test pr
 
 A step may need several PRs. Each PR should exercise a real consumer and identify the Rust code it removes. This sequence keeps the dependency order of the delivery strategy.
 
-1. Settle lifetime semantics and bootstrap role lowering. Keep specification-level product retention and align conflicting design text and fixtures. Prove a typed role-bound Bray owner and TLS destructor entry without recursive trampolines or admission through the service being created. This establishes the first implementation prerequisite.
+1. Settle lifetime semantics and bootstrap role lowering. Apply decision 1, settle retention granularity and the runtime shutdown ownership contract, then align conflicting specification text, design text and fixtures. Prove a typed role-bound Bray owner and TLS destructor entry without recursive trampolines or admission through the service being created. This establishes the first implementation prerequisite.
 2. Replace the synchronous host. Produce an executable that uses Bray resident product formation, ordinary owner cleanup, panic and failure reporting, exact-thread statics and shutdown, with mandatory backing for those owners. Remove its linked Rust product, synchronous-root, attachment and report-rendering paths. Use link-map and archive-member evidence to prove that it links no project-owned Rust. Establish this before completing the async scheduler migration.
 3. Replace formation and admission for a real loaded provider. Exercise two independent loads, statics, archive and imported-MIR contributions, escaped reports and typed errors, last callback return and reload. Run terminal disposal with allocation denied. Remove the Rust product registry, retention and static-admission code used by that consumer. Extend compiler metadata for physical cleanup backing as needed.
 4. Replace frame and task execution. Prove that direct await creates no child task. Exercise erased and recursive activations, start, join, cancel and abnormal payload cleanup with secured backing, one terminal owner and separate broadcast and resolution. Remove Rust `NativeFrame`, `NativeRun`, task control records and the `Any` bridge from that execution path.
@@ -104,7 +116,7 @@ For each implementation PR, record its consumer, ownership invariants, rejection
 
 ## Decisions still needing acceptance
 
-- Whole-product retention for external report and code owners changes BRA-501 fixture expectations and may retain resources longer. Accept the lifetime rule before aligning code and specification design documents.
+- Retention granularity and the runtime shutdown ownership API remain open after decision 1. Whole-product retention for external report and code owners would change BRA-501 fixture expectations and may retain resources longer.
 - A shared admission service domain should remain independent of scheduler identity. Multiple loaded products need explicit binding to it.
 - Concrete backing sizes, handle-table representation, locks and worker counts remain implementation choices constrained by consumers. The proposal adds no generic reference-counted container framework.
 
