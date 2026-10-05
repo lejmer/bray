@@ -428,6 +428,7 @@ mod tests {
             primary: 0, head: 128, tail: 136, count: 144, reserved: 152, consume: 160,
         });
     }
+
     thread_local! {
         static PROVIDER_REFERENCES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
         static PROVIDER_EVENTS: std::cell::RefCell<Vec<&'static str>> = const { std::cell::RefCell::new(Vec::new()) };
@@ -436,17 +437,21 @@ mod tests {
     extern "C" fn retain_provider(_: usize) {
         PROVIDER_REFERENCES.with(|count| count.set(count.get() + 1));
     }
+
     extern "C" fn release_provider(_: usize) {
         PROVIDER_REFERENCES.with(|count| count.set(count.get() - 1));
         PROVIDER_EVENTS.with_borrow_mut(|events| events.push("provider release"));
     }
+
     extern "C" fn provider_references(_: usize) -> usize {
         PROVIDER_REFERENCES.get()
     }
+
     extern "C" fn release_message(_: usize, _: usize, _: &mut crate::NativeRunOutcome) {
         assert_eq!(PROVIDER_REFERENCES.get(), 2);
         PROVIDER_EVENTS.with_borrow_mut(|events| events.push("backing release"));
     }
+
     extern "C" fn consume_last_primary(
         report: &mut NativePanicReport,
         _: bool,
@@ -456,6 +461,7 @@ mod tests {
         drop(primary);
 
         assert_eq!(PROVIDER_REFERENCES.get(), 1);
+
         PROVIDER_EVENTS.with_borrow_mut(|events| events.push("consumer return"));
 
         crate::NativeRuntimeStatus::SUCCESS
