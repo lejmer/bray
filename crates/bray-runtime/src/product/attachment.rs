@@ -33,6 +33,19 @@ pub(super) fn attach_current_thread(product: usize) -> NativeProductHostObservat
     // registry first so it remains alive until that scope has finished during native thread exit.
     initialize_thread_static_registry();
 
+    // Initialize the platform's exit callbacks before the TLS value that owns their scope.
+    // Synchronous products do not otherwise enter an execution runtime during formation.
+    let scope = if bray_platform::current_runtime_thread().is_none() {
+        match bray_platform::RuntimeThreadScope::enter() {
+            Ok(scope) => Some(scope),
+            Err(_) => {
+                return observation_with_status(product, NativeProductHostStatus::INVALID_ARGUMENT);
+            }
+        }
+    } else {
+        None
+    };
+
     let inserted = FOREIGN_ATTACHMENTS.with(|attachments| {
         let mut attachments = attachments.borrow_mut();
 
@@ -46,12 +59,8 @@ pub(super) fn attach_current_thread(product: usize) -> NativeProductHostObservat
             return Some(false);
         }
 
-        if bray_platform::current_runtime_thread().is_none() && attachments.scope.is_none() {
-            let Ok(scope) = bray_platform::RuntimeThreadScope::enter() else {
-                return None;
-            };
-
-            attachments.scope = Some(scope);
+        if scope.is_some() {
+            attachments.scope = scope;
         }
 
         attachments.products.insert(product, 1);

@@ -35,6 +35,10 @@ internal struct PanicReportData
     mut message_length: usize;
     mut copy_message: RawPointer<u8>;
     mut release_message: RawPointer<u8>;
+    mut provider_context: usize;
+    mut provider_retain: RawPointer<u8>;
+    mut provider_release: RawPointer<u8>;
+    mut provider_references: RawPointer<u8>;
     mut outgoing_head: usize;
     mut outgoing_tail: usize;
     mut outgoing_count: usize;

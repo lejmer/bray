@@ -2,11 +2,28 @@
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <threads.h>
 
 #define CONCURRENT_THREAD_COUNT 32
 #define CONCURRENT_RECORDS_PER_THREAD 256
+
+static _Noreturn void no_product_static(size_t index)
+{
+    (void)index;
+    abort();
+}
+
+/* This foreign consumer owns an empty, process-resident product. The reusable
+   observation provider contributes to that product, just like the Rust smoke hosts. */
+uintptr_t bray_linked_product_host[16] = {
+    [0] = 1,
+    [5] = (uintptr_t)no_product_static,
+    [9] = 1,
+};
+
+_Static_assert(sizeof(bray_linked_product_host) == 128, "native product host layout");
 
 extern void bray_runtime_memory_observation_begin(void);
 extern void bray_runtime_memory_allocation_observation(size_t bytes);

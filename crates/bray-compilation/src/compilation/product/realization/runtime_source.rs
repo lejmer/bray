@@ -11,7 +11,7 @@ const BYTE_POINTER: AbiField = AbiField::Pointer(RepresentationRole::ScalarU8);
 const U32: AbiField = AbiField::Scalar(RepresentationRole::ScalarU32);
 const U64: AbiField = AbiField::Scalar(RepresentationRole::ScalarU64);
 const USIZE: AbiField = AbiField::Scalar(RepresentationRole::ScalarUsize);
-const PANIC_REPORT_FIELDS: [AbiField; 19] = {
+const PANIC_REPORT_FIELDS: [AbiField; NATIVE_PANIC_REPORT_FIELDS.len()] = {
     let mut fields = [AbiField::RawPointer; NATIVE_PANIC_REPORT_FIELDS.len()];
     let mut index = 0;
 

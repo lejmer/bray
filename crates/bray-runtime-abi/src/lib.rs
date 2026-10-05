@@ -10,6 +10,7 @@ mod panic;
 mod platform;
 mod process;
 mod product;
+mod provider;
 mod records;
 mod run_result;
 mod runtime;
@@ -27,16 +28,18 @@ pub use platform::{
     NativePlatformText,
 };
 pub use process::{NativePlatformChildRequest, NativePlatformExitStatus};
+pub use provider::{NativeProviderOwner, NativeProviderReference, NativeProviderRelease, NativeProviderRetain, NativeProviderReferences};
 pub use product::{
     NativeCleanupIncident, NativeCleanupIncidentDestroyCallback,
     NativeCleanupIncidentReportCallback, NativeProductHostDescriptor, NativeProductHostObservation,
     NativeProductHostOperation, NativeProductHostState, NativeProductHostStatus,
-    NativeProductIdentity, NativeStaticAccessCallback, NativeStaticCleanupCallback,
+    NativeProductIdentity, NativeProductBinding, NativeStaticAccessCallback, NativeStaticCleanupCallback,
     NativeStaticDuration, NativeStaticFinalizer, NativeStaticFinalizerExecution,
     NativeStaticFinalizerResolveCallback, NativeStaticFinalizerStartCallback,
     NativeStaticFinalizerStatus, NativeStaticHostEntry, NativeStaticIdentity,
     NativeStaticTransitionCallback, NativeThreadStaticCleanupRegistration, NativeTypeIdentity,
     PRODUCT_HOST_ABI_VERSION,
+    PRODUCT_HOST_SERVICES, PRODUCT_EXECUTION_SERVICES, PRODUCT_UNLOADABLE,
 };
 pub use records::{NativeReportRecords, NativeReportSegment};
 pub use run_result::NativeRunResultLayout;

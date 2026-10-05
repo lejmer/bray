@@ -78,6 +78,66 @@ async func fail_async_cleanup() -> Result<unit, i32>
     return Error(314159265);
 }
 
+internal struct EscapedReportProbe
+{
+    internal mut state: i32;
+
+    finalize()
+    {
+        if self.state == 0
+        {
+            self.state = 1;
+            panic("escaped provider report");
+        }
+    }
+
+    destruct() {}
+}
+
+internal static ESCAPED_REPORT_PROBE: EscapedReportProbe = EscapedReportProbe
+{
+    state = 123789456
+};
+
+internal struct EscapedCleanupError
+{
+    value: i32;
+
+    destruct()
+    {
+        panic("escaped provider error destruction");
+    }
+}
+
+internal struct EscapedErrorProbe
+{
+    internal mut state: i32;
+
+    finalize() -> Result<unit, EscapedCleanupError>
+    {
+        if self.state == 0
+        {
+            self.state = 1;
+
+            return Error(
+                EscapedCleanupError
+                {
+                    value = 27
+                }
+            );
+        }
+
+        return Ok(unit);
+    }
+
+    destruct() {}
+}
+
+internal static ESCAPED_ERROR_PROBE: EscapedErrorProbe = EscapedErrorProbe
+{
+    state = 456789123
+};
+
 func read_counter() -> i32
 {
     return SHARED_COUNTER;
@@ -85,9 +145,10 @@ func read_counter() -> i32
 
 func main() -> i32
 {
-    if read_counter() == 42 && contribution_counter_value() == 42 && ZERO_VALUE == 0 && GENERIC_VALUE<1> == 1 &&
-        GENERIC_VALUE<2> == 2 && THREAD_ANSWER == 42 && CLEANUP_PROBE.state == 135791113 && ASYNC_CLEANUP_PROBE.state ==
-        975318642 && ASYNC_FAILING_CLEANUP_PROBE.state == 864209753
+    if ESCAPED_REPORT_PROBE.state == 123789456 && ESCAPED_ERROR_PROBE.state == 456789123 && read_counter() == 42 &&
+        contribution_counter_value() == 42 && ZERO_VALUE == 0 && GENERIC_VALUE<1> == 1 && GENERIC_VALUE<2> == 2 &&
+        THREAD_ANSWER == 42 && CLEANUP_PROBE.state == 135791113 && ASYNC_CLEANUP_PROBE.state == 975318642 &&
+        ASYNC_FAILING_CLEANUP_PROBE.state == 864209753
     {
         return 42;
     }

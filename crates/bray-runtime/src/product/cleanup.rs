@@ -13,6 +13,16 @@ pub(super) struct StaticAdmission {
     source: usize,
 }
 
+pub(super) fn with_product_cleanup_runtime<T>(
+    runtime: Option<&crate::native::RetainedRuntime>,
+    callback: impl FnOnce() -> T,
+) -> (T, Option<CleanupIncident>) {
+    match runtime {
+        Some(runtime) => crate::native::with_retained_static_cleanup_runtime(runtime, callback),
+        None => (callback(), None),
+    }
+}
+
 impl Drop for StaticAdmission {
     fn drop(&mut self) {
         crate::outgoing::OutgoingRecords::discharge_source(self.source);

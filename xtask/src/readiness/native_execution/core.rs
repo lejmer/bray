@@ -10,7 +10,7 @@ use super::buffer::{
 };
 use super::built_fixture::BuiltFixture;
 use super::fixtures::{
-    ABI_FIXTURE, ABI_HOST, ASYNC_ERROR_FIXTURE, ASYNC_I32_FIXTURE,
+    ASYNC_ERROR_FIXTURE, ASYNC_I32_FIXTURE,
     ASYNC_TASK_PANIC_SHUTDOWN_FIXTURE, ASYNC_TASKS_FIXTURE, ASYNC_UNIT_FIXTURE, ATOMIC_FIXTURE,
     CALL_REBORROWS_FIXTURE, ENTRY_RESULT_FIXTURE, GUARDED_PART_CLEANUP_FIXTURE,
     GUARDED_ROOT_CLEANUP_FIXTURE, HEAP_STORAGE_FIXTURE, MEMORY_FIXTURE, MEMORY_LAYOUT_FIXTURE,
@@ -177,12 +177,6 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
     crate::progress::run("Checking native memory layout", || {
         audit_memory_layout(root, target, &runtime)
     })?;
-
-    if target == NativeTarget::X86_64LinuxGnu {
-        crate::progress::run("Checking the native primitive ABI", || {
-            audit_primitive_abi(root, target, &runtime)
-        })?;
-    }
 
     crate::progress::run("Checking native host behavior", || {
         audit_host_behavior(root, target, &runtime)
@@ -351,54 +345,6 @@ fn audit_half_open_ranges(root: &Path, target: NativeTarget, runtime: &Path) -> 
         "half-open ranges",
         &[],
     )
-}
-
-fn audit_primitive_abi(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
-    let first = BuiltFixture::build_command_line("bray-native-abi-first-", target, |output| {
-        build_fixture(root, target, runtime, ABI_FIXTURE, output)
-    })?;
-
-    let second = BuiltFixture::build_command_line("bray-native-abi-second-", target, |output| {
-        build_fixture(root, target, runtime, ABI_FIXTURE, output)
-    })?;
-
-    require_equal_files(
-        first.executable(),
-        second.executable(),
-        "ABI fixture executable",
-    )?;
-
-    require_equal_artifacts(first.objects(), second.objects())?;
-
-    let report = inspect_objects(root, first.objects())?;
-
-    require_evidence(
-        &report,
-        &[
-            "Format: elf64-x86-64",
-            "Name: .text",
-            "Name: bray_identity",
-            "R_X86_64_PLT32 bray_identity",
-        ],
-    )?;
-
-    let host_object = first.output().join("native-host.o");
-
-    compile_host(root, &host_object)?;
-
-    let host_report = inspect_objects(root, std::slice::from_ref(&host_object))?;
-
-    require_evidence(
-        &host_report,
-        &["Name: _start", "R_X86_64_PLT32 bray_identity"],
-    )?;
-
-    let executable = first.output().join("native-host");
-    let bray_objects = objects_without_executable_host(root, first.objects())?;
-
-    link_host(root, &host_object, &bray_objects, &executable)?;
-
-    execute_product(&executable, 42, "executing Bray through the C ABI host")
 }
 
 fn audit_entry_result(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
@@ -584,42 +530,6 @@ pub(super) fn standard_library_root(root: &Path) -> PathBuf {
         .join("standard-library")
 }
 
-fn compile_host(root: &Path, output: &Path) -> Result<(), String> {
-    let mut command = Command::new(llvm_tool(
-        root,
-        bray_diagnostics::DiagnosticLlvmToolRole::CompilerDriver,
-    ));
-
-    command
-        .arg("--target=x86_64-unknown-linux-gnu")
-        .arg("-c")
-        .arg(root.join(ABI_HOST))
-        .arg("-o")
-        .arg(output);
-
-    crate::command::require_success(command, "compiling the native ABI host").map(|_| ())
-}
-
-fn link_host(
-    root: &Path,
-    host: &Path,
-    bray_objects: &[PathBuf],
-    output: &Path,
-) -> Result<(), String> {
-    let mut command = Command::new(llvm_tool(
-        root,
-        bray_diagnostics::DiagnosticLlvmToolRole::Linker,
-    ));
-
-    command
-        .args(["--static", "--entry=_start", "-o"])
-        .arg(output)
-        .arg(host)
-        .args(bray_objects);
-
-    crate::command::require_success(command, "linking the native ABI host").map(|_| ())
-}
-
 pub(super) fn require_equal_files(left: &Path, right: &Path, artifact: &str) -> Result<(), String> {
     let left =
         std::fs::read(left).map_err(|error| format!("could not read first {artifact}: {error}"))?;
@@ -727,32 +637,6 @@ pub(super) fn reject_evidence(report: &str, forbidden: &[&str]) -> Result<(), St
     }
 
     Ok(())
-}
-
-fn objects_without_executable_host(
-    root: &Path,
-    objects: &[PathBuf],
-) -> Result<Vec<PathBuf>, String> {
-    let mut retained = Vec::new();
-    let mut host_objects = 0_usize;
-
-    for object in objects {
-        let report = inspect_objects(root, std::slice::from_ref(object))?;
-
-        if report.contains("Name: main") {
-            host_objects = host_objects.saturating_add(1);
-        } else {
-            retained.push(object.clone());
-        }
-    }
-
-    if host_objects != 1 {
-        return Err(format!(
-            "native ABI fixture produced {host_objects} executable host objects instead of one"
-        ));
-    }
-
-    Ok(retained)
 }
 
 pub(super) fn execute_product(

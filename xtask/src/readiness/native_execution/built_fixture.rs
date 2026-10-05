@@ -6,7 +6,7 @@ use super::core::{executable_path, native_output, object_files};
 
 pub(super) struct BuiltFixture {
     executable: bray_emitter::PublishedArtifact,
-    output: tempfile::TempDir,
+    _output: tempfile::TempDir,
     objects: Vec<PathBuf>,
 }
 
@@ -57,14 +57,10 @@ impl BuiltFixture {
         let objects = object_files(output.path(), target)?;
 
         Ok(Self {
-            output,
+            _output: output,
             executable,
             objects,
         })
-    }
-
-    pub(super) fn output(&self) -> &Path {
-        self.output.path()
     }
 
     pub(super) fn executable(&self) -> &Path {
@@ -93,12 +89,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("test object must write: {error:?}"));
 
         let fixture = BuiltFixture {
-            output,
+            _output: output,
             executable,
             objects: vec![object],
         };
 
-        assert!(fixture.output().is_dir());
+        assert!(fixture._output.path().is_dir());
         assert!(fixture.executable().is_file());
         assert!(fixture.objects()[0].is_file());
 

@@ -20,6 +20,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Ok(None)
             }
             MirHostOperation::MaterializeStatic { place } => {
+                self.form_product_host()?;
+
                 let _ = self.place(place)?;
 
                 Ok(None)
@@ -102,6 +104,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         execution: RootExecution,
         runtime: bray_ir::MirRuntimeReference,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        self.form_product_host()?;
+
         self.begin_memory_observation()?;
 
         if self.host_role_implementation(runtime) == RuntimeRoleImplementation::CompilerLowering
@@ -733,7 +737,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(())
     }
 
-    fn translate_compiler_shutdown(
+    pub(in crate::translation::unit) fn translate_compiler_shutdown(
         &mut self,
         status: inkwell::values::IntValue<'context>,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {

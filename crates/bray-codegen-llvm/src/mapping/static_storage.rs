@@ -2,6 +2,7 @@ mod boundary;
 mod constant;
 mod finalization;
 mod host;
+mod incident;
 mod storage;
 
 pub(super) use storage::declare_static_storages;

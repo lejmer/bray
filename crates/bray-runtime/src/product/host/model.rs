@@ -1,12 +1,13 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use bray_runtime_abi::{
-    NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostState,
-    NativeProductHostStatus, NativeProductIdentity, NativeRuntimeStatus,
-    NativeStaticCleanupCallback, NativeStaticDuration, NativeStaticFinalizer, NativeStaticIdentity,
-    NativeStaticTransitionCallback,
+    NativeProductBinding, NativeProductHostDescriptor, NativeProductHostObservation,
+    NativeProductHostState, NativeProductHostStatus, NativeProductIdentity, NativeProviderOwner,
+    NativeRuntimeStatus, NativeStaticCleanupCallback, NativeStaticDuration, NativeStaticFinalizer,
+    NativeStaticIdentity, NativeStaticTransitionCallback,
 };
 
 pub(super) const MAXIMUM_STATIC_ENTRIES: usize = 1_000_000;
@@ -14,6 +15,7 @@ pub(super) const MAXIMUM_STATIC_ENTRIES: usize = 1_000_000;
 // Loaded products share one process registry so archive and shared-library hosts coordinate with
 // exact-thread attachments owned by the same runtime.
 pub(super) static PRODUCT_HOSTS: OnceLock<Mutex<BTreeMap<usize, ProductHost>>> = OnceLock::new();
+static NEXT_LOAD: AtomicUsize = AtomicUsize::new(1);
 
 thread_local! {
     pub(super) static THREAD_STATICS: RefCell<ThreadStaticRegistry> =
@@ -39,8 +41,15 @@ pub(super) struct ProductCleanup {
 
 pub(super) struct ProductHost {
     pub(super) identity: NativeProductIdentity,
-    pub(super) runtime: crate::native::RetainedRuntime,
+    pub(super) descriptor_address: usize,
+    pub(super) runtime: Option<crate::native::RetainedRuntime>,
     pub(super) state: NativeProductHostState,
+    pub(super) formation_failure: Option<NativeProductHostStatus>,
+    pub(super) binding: Option<NativeProductBinding>,
+    pub(super) provider: NativeProviderOwner,
+    pub(super) provider_roots: usize,
+    pub(super) provider_calls: usize,
+    pub(super) provider_revision: usize,
     pub(super) active_entries: usize,
     pub(super) external_roots: usize,
     pub(super) thread_attachments: usize,
@@ -56,6 +65,36 @@ pub(super) struct ProductHost {
 }
 
 impl ProductHost {
+    pub(super) fn failed(
+        identity: NativeProductIdentity,
+        failure: NativeProductHostStatus,
+    ) -> Self {
+        Self {
+            identity,
+            descriptor_address: 0,
+            runtime: None,
+            state: NativeProductHostState::FAILED,
+            formation_failure: Some(failure),
+            binding: None,
+            provider: NativeProviderOwner::resident(),
+            provider_roots: 0,
+            provider_calls: 0,
+            provider_revision: 0,
+            active_entries: 0,
+            external_roots: 0,
+            thread_attachments: 0,
+            worker_attachments: 0,
+            initialized_statics: 0,
+            cleaned_statics: 0,
+            cleanup_incidents: 0,
+            last_incident: NativeStaticIdentity::new([0; 32]),
+            cleanup_running: false,
+            cleanup_blocked: false,
+            statics: Vec::new(),
+            cleanups: Vec::new(),
+        }
+    }
+
     pub(super) fn observation(
         &self,
         status: NativeProductHostStatus,
@@ -88,7 +127,7 @@ impl ProductHost {
 
 pub(super) struct PendingCleanup {
     pub(super) product: usize,
-    pub(super) runtime: crate::native::RetainedRuntime,
+    pub(super) runtime: Option<crate::native::RetainedRuntime>,
     pub(super) statics: Vec<ProductCleanup>,
 }
 
@@ -182,7 +221,26 @@ pub(in crate::product) fn initialize_thread_static_registry() {
 }
 
 pub(super) fn product_key(descriptor: &NativeProductHostDescriptor) -> usize {
-    std::ptr::from_ref(descriptor) as usize
+    let existing = descriptor.load_identity();
+
+    if existing != 0 {
+        return existing;
+    }
+
+    let supplied = descriptor.binding().load_identity();
+
+    if supplied > isize::MAX as usize && supplied != usize::MAX {
+        return descriptor.assign_load_identity(supplied);
+    }
+
+    let identity = NEXT_LOAD
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+            next.checked_add(1)
+                .filter(|next| *next <= isize::MAX as usize)
+        })
+        .expect("process product load identities must not be exhausted");
+
+    descriptor.assign_load_identity(identity)
 }
 
 pub(super) fn runtime_status(status: NativeProductHostStatus) -> NativeRuntimeStatus {

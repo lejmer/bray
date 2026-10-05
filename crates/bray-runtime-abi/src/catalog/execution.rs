@@ -249,6 +249,16 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [ControlProductHost]
             }
+            ProductProviderRetention {
+                "Retain the formed product provider through transferred backing and callback disposal.", "product_provider_retention",
+                native: (PRODUCT_PROVIDER_RETENTION_SYMBOL = "bray_runtime_product_provider_retention", [Pointer, Pointer] -> U32),
+                service: Host,
+                call_hook: (),
+                compiler: Bray [] -> Void,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
             RootCancellationRequest {
                 "Request cancellation of the root run from its host.", "root_cancellation_request",
                 native: (ROOT_CANCELLATION_REQUEST_SYMBOL = "bray_runtime_root_cancellation_request", [U64] -> U32),

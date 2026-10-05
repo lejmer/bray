@@ -16,6 +16,17 @@ use crate::{
     TaskControlBlock, TaskRegistration, current_task_execution_context,
 };
 
+// Rust tests consume the reusable Bray provider in a process-resident native product.
+#[expect(unsafe_code, reason = "the native test host supplies the final linked descriptor symbol")]
+#[unsafe(no_mangle)]
+static bray_linked_product_host: bray_runtime_abi::NativeProductHostDescriptor =
+    bray_runtime_abi::NativeProductHostDescriptor::new(
+        bray_runtime_abi::NativeProductIdentity::new([0; 32]), no_product_static, 0);
+
+extern "C" fn no_product_static(_: usize) -> bray_runtime_abi::NativeStaticHostEntry {
+    unreachable!("the Rust test host has no generated static entries")
+}
+
 pub(crate) fn admit_task() -> crate::TaskAdmission {
     crate::TaskAdmission::new().expect("test task outgoing storage must be admitted")
 }

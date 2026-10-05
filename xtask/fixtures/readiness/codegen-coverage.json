@@ -28,8 +28,8 @@
       "name": "ExecutableHost",
       "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen-llvm/src/backend.rs",
-        "symbol": "MirUnitKind::ExecutableHost"
+        "path": "crates/bray-codegen-llvm/src/translation/unit/core.rs",
+        "symbol": "translate_instances"
       }
     }
   ],
@@ -342,6 +342,14 @@
     }
   ],
   "host_operations": [
+    {
+      "name": "InitializeRuntime",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/host.rs",
+        "symbol": "MirHostOperation::InitializeRuntime"
+      }
+    },
     {
       "name": "MaterializeStatic",
       "disposition": "translated",
@@ -668,7 +676,7 @@
     },
     {
       "name": "MirOperand",
-      "variants": ["Value", "Constant", "Immediate", "Copy", "Move"],
+      "variants": ["Value", "Constant", "ConstantTerm", "Immediate", "Copy", "Move"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/value.rs",
         "symbol": "pub(super) fn operand"
@@ -860,15 +868,15 @@
         "path": "crates/bray-codegen/src/mapping/model/core.rs",
         "symbol": "CodegenSymbolKey::Runtime"
       },
-      "test": "runtime_roles_use_exact_typed_symbol_mappings"
+      "test": "every_native_call_accepts_and_returns_logical_values_on_every_target"
     },
     {
       "name": "protected frame descriptors",
       "production": {
-        "path": "crates/bray-codegen/src/runtime.rs",
-        "symbol": "ProtectedAsyncFrameMetadata"
+        "path": "crates/bray-codegen-llvm/src/translation/frame/core.rs",
+        "symbol": "translate_protected_instance"
       },
-      "test": "protected_frames_require_exact_descriptor_metadata"
+      "test": "asynchronous_executable_hosts_emit_complete_deterministic_native_units"
     },
     {
       "name": "inactive frame and task boundaries",

@@ -168,6 +168,7 @@ struct StaticWire {
     dependencies: Vec<String>,
     requires_host: bool,
     requires_main_thread: bool,
+    requires_execution: bool,
 }
 
 impl StaticWire {
@@ -184,6 +185,7 @@ impl StaticWire {
                 .collect(),
             requires_host: value.requires_host(),
             requires_main_thread: value.requires_main_thread(),
+            requires_execution: value.requires_execution(),
         }
     }
 
@@ -207,7 +209,8 @@ impl StaticWire {
                 .collect::<Result<Vec<_>, _>>()?,
             self.requires_host,
             self.requires_main_thread,
-        ))
+        )
+        .with_execution_requirement(self.requires_execution))
     }
 }
 

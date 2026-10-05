@@ -160,8 +160,10 @@ fn require_hello_world_output(
     if let Some(target) = progress_target {
         let finished = finished_progress(target)?;
 
+        let normalized = progress.split_whitespace().collect::<Vec<_>>().join(" ");
+
         if !progress.contains("Building example.hello/application [debug]")
-            || !progress.contains(&finished)
+            || !normalized.contains(&finished)
         {
             return Err(format!(
                 "{operation} omitted expected build progress: {progress:?}"

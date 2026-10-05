@@ -13,6 +13,7 @@ pub struct NativeStatic {
     dependencies: Arc<[[u8; 32]]>,
     requires_host: bool,
     requires_main_thread: bool,
+    requires_execution: bool,
 }
 
 impl NativeStatic {
@@ -39,7 +40,20 @@ impl NativeStatic {
             dependencies: dependencies.into(),
             requires_host,
             requires_main_thread,
+            requires_execution: false,
         }
+    }
+
+    /// Records selected asynchronous cleanup's execution-service demand.
+    pub const fn with_execution_requirement(mut self, requires_execution: bool) -> Self {
+        self.requires_execution = requires_execution;
+
+        self
+    }
+
+    /// Returns whether final cleanup requires independent execution services.
+    pub const fn requires_execution(&self) -> bool {
+        self.requires_execution
     }
 
     /// Returns the native static-host entry symbol.

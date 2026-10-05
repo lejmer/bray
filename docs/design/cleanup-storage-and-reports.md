@@ -39,6 +39,15 @@ The existing product dependency and lifecycle model supplies ordering and cycle 
 initialization planner. Failed formation keeps the services needed to clean up its accepted state, while independently
 live providers remain valid. Lazy source initialization retains its ordinary timing.
 
+Artifact identity identifies reusable code. A load generation identifies one formed image and remains stable through
+failure and closure. Its admitted service binding cannot be replaced by a cached or image-local fallback. Retirement
+invalidates that generation before the host releases the image, so a later load cannot inherit its binding or lifecycle.
+
+Provider residency is distinct from static lifetime. A moved report or typed cleanup error retains its originating code,
+data and callback closure without postponing ordinary static cleanup. Final disposal keeps that closure resident through
+callback return. Successful retirement transfers its last formation reference to the native caller, which releases it
+after returning from image code. Residency operations belong to the native host and protect the selected provider closure.
+
 ## Resident services and execution contexts
 
 Typed native symbols route generated calls to the selected runtime components. Component metadata distinguishes host

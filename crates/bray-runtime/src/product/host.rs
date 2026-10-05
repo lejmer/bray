@@ -1,3 +1,4 @@
+mod formation;
 mod model;
 mod operations;
 mod thread;
@@ -11,3 +12,5 @@ pub(crate) use operations::{
     control, host_failure, register_thread_static, thread_attachment_identity,
 };
 pub(crate) use thread::drain_product_thread_statics;
+
+pub(crate) use formation::retain_provider;

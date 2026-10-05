@@ -233,7 +233,6 @@ fn apply_linkage(
 
     if mapping.linkage() == CodegenLinkage::LinkOnce
         && defines_symbol
-        && target.machine().object_format() == bray_target::ObjectFormat::Coff
     {
         crate::comdat::attach_any(
             module,
@@ -862,7 +861,7 @@ mod tests {
     }
 
     #[test]
-    fn coff_link_once_definitions_use_comdat_linkage() {
+    fn link_once_definitions_use_supported_comdat_linkage() {
         let fixture = codegen_request();
         let mapping = &fixture.request().mappings().symbols()[0];
 
@@ -873,24 +872,26 @@ mod tests {
             mapping.signature().clone(),
         );
 
-        let target = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
-        let context = Context::create();
-        let module = context.create_module("coff-link-once");
+        for native_target in [NativeTarget::X86_64WindowsMsvc, NativeTarget::X86_64LinuxGnu] {
+            let target = CodegenTarget::for_native(native_target);
+            let context = Context::create();
+            let module = context.create_module("link-once");
 
-        let function = module.add_function(
-            link_once.name().as_str(),
-            context.void_type().fn_type(&[], false),
-            None,
-        );
+            let function = module.add_function(
+                link_once.name().as_str(),
+                context.void_type().fn_type(&[], false),
+                None,
+            );
 
-        assert_eq!(
-            apply_linkage(&module, function, &link_once, &target, true),
-            Ok(())
-        );
+            assert_eq!(
+                apply_linkage(&module, function, &link_once, &target, true),
+                Ok(())
+            );
 
-        assert_eq!(function.get_linkage(), Linkage::WeakODR);
+            assert_eq!(function.get_linkage(), Linkage::WeakODR);
 
-        assert!(module.print_to_string().to_string().contains("comdat any"));
+            assert!(module.print_to_string().to_string().contains("comdat any"));
+        }
     }
 
     #[test]

@@ -31,6 +31,28 @@ pub(super) struct StaticFinalizerCallbacks<'context> {
     pub(super) resolve: FunctionValue<'context>,
 }
 
+pub(super) fn declare_product_host_descriptor<'context>(
+    module: &Module<'context>,
+    product_host: &CodegenProductHostMapping,
+    types: &LlvmTypeMappings<'context, '_>,
+) -> Result<GlobalValue<'context>, CodegenFailure> {
+    let descriptor_type = product_host_descriptor_type(
+        types.context(),
+        pointer_type(types)?,
+        usize_type(types)?,
+    );
+
+    Ok(module
+        .get_global(product_host.descriptor_symbol().as_str())
+        .unwrap_or_else(|| {
+            module.add_global(
+                descriptor_type,
+                None,
+                product_host.descriptor_symbol().as_str(),
+            )
+        }))
+}
+
 pub(super) fn declare_thread_static_registration<'context>(
     module: &Module<'context>,
     product_host: &CodegenProductHostMapping,
@@ -41,17 +63,7 @@ pub(super) fn declare_thread_static_registration<'context>(
 ) -> Result<GlobalValue<'context>, CodegenFailure> {
     let context = types.context();
     let usize = usize_type(types)?;
-    let descriptor_type = product_host_descriptor_type(context, pointer, usize);
-
-    let descriptor = module
-        .get_global(product_host.descriptor_symbol().as_str())
-        .unwrap_or_else(|| {
-            module.add_global(
-                descriptor_type,
-                None,
-                product_host.descriptor_symbol().as_str(),
-            )
-        });
+    let descriptor = declare_product_host_descriptor(module, product_host, types)?;
 
     let entry = product_host
         .statics()
@@ -274,15 +286,7 @@ pub(super) fn declare_product_host<'context>(
     let usize = usize_type(types)?;
     let descriptor_type = product_host_descriptor_type(context, pointer, usize);
 
-    let descriptor = module
-        .get_global(product_host.descriptor_symbol().as_str())
-        .unwrap_or_else(|| {
-            module.add_global(
-                descriptor_type,
-                None,
-                product_host.descriptor_symbol().as_str(),
-            )
-        });
+    let descriptor = declare_product_host_descriptor(module, product_host, types)?;
 
     if !product_host.is_final_image() || product_host.owner() != mappings.unit() {
         return Ok(());
@@ -299,12 +303,60 @@ pub(super) fn declare_product_host<'context>(
         types.target().machine().object_format(),
     )?;
 
+    let consumer = module
+        .get_function("bray_runtime_report_consumer")
+        .unwrap_or_else(|| {
+            module.add_function(
+                "bray_runtime_report_consumer",
+                pointer.fn_type(&[], false),
+                None,
+            )
+        });
+
+    let domain = consumer
+        .as_global_value()
+        .as_pointer_value()
+        .const_to_int(usize);
+
+    let provider_type = crate::native::provider_owner_type(context, types.target());
+
+    let binding_type = context.struct_type(
+        &[
+            context.i32_type().into(),
+            context.i32_type().into(),
+            usize.into(),
+            usize.into(),
+            provider_type.into(),
+        ],
+        false,
+    );
+
+    let binding = binding_type.const_named_struct(&[
+        context
+            .i32_type()
+            .const_int(u64::from(bray_runtime_abi::PRODUCT_HOST_ABI_VERSION), false)
+            .into(),
+        context
+            .i32_type()
+            .const_int(
+                u64::from(product_host.required_services() & !bray_runtime_abi::PRODUCT_UNLOADABLE),
+                false,
+            )
+            .into(),
+        domain.into(),
+        usize.const_zero().into(),
+        provider_type.const_zero().into(),
+    ]);
+
     let descriptor_initializer = descriptor_type.const_named_struct(&[
         context
             .i32_type()
             .const_int(u64::from(bray_runtime_abi::PRODUCT_HOST_ABI_VERSION), false)
             .into(),
-        context.i32_type().const_zero().into(),
+        context
+            .i32_type()
+            .const_int(u64::from(product_host.required_services()), false)
+            .into(),
         product_identity_value(context, product_host.identity()).into(),
         static_entry.as_global_value().as_pointer_value().into(),
         usize
@@ -314,9 +366,12 @@ pub(super) fn declare_product_host<'context>(
                 false,
             )
             .into(),
+        usize.const_zero().into(),
+        domain.into(),
+        binding.into(),
     ]);
 
-    descriptor.set_constant(true);
+    descriptor.set_constant(false);
     descriptor.set_initializer(&descriptor_initializer);
     descriptor.set_linkage(Linkage::External);
 
@@ -566,6 +621,22 @@ fn product_host_descriptor_type<'context>(
     pointer: PointerType<'context>,
     usize: IntType<'context>,
 ) -> StructType<'context> {
+    let provider = context.struct_type(
+        &[usize.into(), pointer.into(), pointer.into(), pointer.into()],
+        false,
+    );
+
+    let binding = context.struct_type(
+        &[
+            context.i32_type().into(),
+            context.i32_type().into(),
+            usize.into(),
+            usize.into(),
+            provider.into(),
+        ],
+        false,
+    );
+
     context.struct_type(
         &[
             context.i32_type().into(),
@@ -573,6 +644,9 @@ fn product_host_descriptor_type<'context>(
             product_identity_type(context).into(),
             pointer.into(),
             usize.into(),
+            usize.into(),
+            usize.into(),
+            binding.into(),
         ],
         false,
     )

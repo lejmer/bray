@@ -680,7 +680,8 @@ mod tests {
             [[2; 32]],
             true,
             true,
-        );
+        )
+        .with_execution_requirement(true);
 
         let unit = NativeUnit::new(
             digest(b"object"),

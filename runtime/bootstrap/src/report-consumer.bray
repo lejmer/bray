@@ -11,6 +11,8 @@ internal struct ReportOutcome
     mut report: PanicReportData;
 }
 
+internal callable ProviderRelease = @abi(c) trusted func(pos context: usize);
+
 internal callable ReportConsumer = @abi(c) trusted func(
     pos pointer: RawPointer<PanicReportData>,
     pos reporting: bool
@@ -46,6 +48,10 @@ internal func report_primary_value(pos report: PanicReportData) -> ReportPrimary
         message_length = report.message_length,
         copy_message = report.copy_message,
         release_message = report.release_message,
+        provider_context = report.provider_context,
+        provider_retain = report.provider_retain,
+        provider_release = report.provider_release,
+        provider_references = report.provider_references,
     };
 }
 
@@ -72,6 +78,17 @@ trusted internal func release_primary(pos primary: &ReportPrimary) -> ReportOutc
         );
 
         trusted release(primary.message, primary.message_length, output);
+    }
+
+    if !std.memory.is_null<u8>(primary.provider_release)
+    {
+        let pointer: RawPointer<ProviderRelease> = trusted std.memory.reinterpret<ProviderRelease, u8>(
+            primary.provider_release
+        );
+
+        let release: ProviderRelease = trusted std.memory.callable_from_pointer<ProviderRelease>(pointer);
+
+        trusted release(primary.provider_context);
     }
 
     return outcome;

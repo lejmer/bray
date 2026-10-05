@@ -48,6 +48,10 @@ typedef struct ProductHostObservation
     uintptr_t cleaned_statics;
     uintptr_t cleanup_incidents;
     uint8_t last_incident[32];
+    uintptr_t retired_provider_context;
+    void *retired_provider_retain;
+    void *retired_provider_release;
+    void *retired_provider_references;
 } ProductHostObservation;
 
 typedef struct SourceAnchor
@@ -71,6 +75,10 @@ struct PanicReport
     uintptr_t message_length;
     uint32_t (*copy_message)(uintptr_t, uintptr_t, uint8_t*, uintptr_t);
     void (*release_message)(uintptr_t, uintptr_t, RunOutcome*);
+    uintptr_t provider_context;
+    void (*provider_retain)(uintptr_t);
+    void (*provider_release)(uintptr_t);
+    uintptr_t (*provider_references)(uintptr_t);
     uintptr_t head;
     uintptr_t tail;
     uintptr_t count;
@@ -85,8 +93,8 @@ struct RunOutcome
     PanicReport report;
 };
 
-_Static_assert(sizeof(PanicReport) == 136, "native report layout");
-_Static_assert(sizeof(RunOutcome) == 152, "native outcome layout");
+_Static_assert(sizeof(PanicReport) == 168, "native report layout");
+_Static_assert(sizeof(RunOutcome) == 184, "native outcome layout");
 
 extern uint32_t bray_runtime_initialization(uintptr_t worker_capacity, uintptr_t timer_capacity);
 
@@ -128,6 +136,19 @@ uint32_t bray_runtime_substrate_shutdown(void)
     return 0;
 }
 
+// This smoke host's code and data stay resident for the complete process.
+uintptr_t bray_linked_product_host[16];
+
+uint32_t bray_runtime_product_provider_retention(void *descriptor, uintptr_t *owner)
+{
+    (void)descriptor;
+
+    for (size_t index = 0; index < 4; index += 1)
+        owner[index] = 0;
+
+    return 0;
+}
+
 ProductHostObservation bray_runtime_product_host_control(void* descriptor, uint32_t operation)
 {
     (void)descriptor;
@@ -152,6 +173,10 @@ typedef struct PanicPrimary
     uintptr_t message_length;
     uint32_t (*copy_message)(uintptr_t, uintptr_t, uint8_t*, uintptr_t);
     void (*release_message)(uintptr_t, uintptr_t, RunOutcome*);
+    uintptr_t provider_context;
+    void (*provider_retain)(uintptr_t);
+    void (*provider_release)(uintptr_t);
+    uintptr_t (*provider_references)(uintptr_t);
 } PanicPrimary;
 
 uint32_t bray_runtime_substrate_report_primary(const PanicPrimary* primary)

@@ -13,7 +13,7 @@ pub use super::export::{
     bray_runtime_event, bray_runtime_frame_completion_move, bray_runtime_join_registration,
     bray_runtime_main_thread_lane_drive, bray_runtime_main_thread_lane_startup,
     bray_runtime_panic_propagation, bray_runtime_panic_report_destruction,
-    bray_runtime_panic_reporting, bray_runtime_product_host_control,
+    bray_runtime_panic_reporting, bray_runtime_product_host_control, bray_runtime_product_provider_retention,
     bray_runtime_root_cancellation_request, bray_runtime_root_completion_resolution,
     bray_runtime_root_execution, bray_runtime_root_terminal_observation,
     bray_runtime_substrate_initialization, bray_runtime_substrate_report_primary,

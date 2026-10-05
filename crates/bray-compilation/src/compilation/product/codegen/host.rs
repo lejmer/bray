@@ -27,7 +27,19 @@ impl Compilation {
         native_statics: &[bray_native_artifact::NativeStatic],
         target: &CodegenTarget,
     ) -> Result<Option<CodegenProductHostMapping>, NativeProductPlanningError> {
-        if entries.is_empty() && native_statics.is_empty() {
+        let roles = mappings
+            .iter()
+            .flat_map(CodegenMappings::symbols)
+            .filter_map(|symbol| match symbol.key() {
+                bray_codegen::CodegenSymbolKey::Runtime(runtime) => Some(runtime.role()),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+
+        if entries.is_empty()
+            && native_statics.is_empty()
+            && !roles.iter().copied().any(publishes_native_report)
+        {
             return Ok(None);
         }
 
@@ -164,7 +176,29 @@ impl Compilation {
                 control_symbol,
                 statics,
             )
-            .expect("ordered static host contributions must form a valid product mapping"),
+            .expect("ordered static host contributions must form a valid product mapping")
+            .with_services(
+                bray_runtime_abi::PRODUCT_HOST_SERVICES
+                    | if roles
+                        .iter()
+                        .any(|role| role.service_class() == Some(RuntimeServiceClass::Execution))
+                        || mappings
+                            .iter()
+                            .flat_map(CodegenMappings::static_storages)
+                            .filter_map(bray_codegen::CodegenStaticStorageMapping::finalization)
+                            .any(|finalization| {
+                                finalization.execution()
+                                    == bray_symbols::CallableExecution::Asynchronous
+                            })
+                        || native_statics
+                            .iter()
+                            .any(bray_native_artifact::NativeStatic::requires_execution)
+                    {
+                        bray_runtime_abi::PRODUCT_EXECUTION_SERVICES
+                    } else {
+                        0
+                    },
+            ),
         ))
     }
 
@@ -501,6 +535,78 @@ pub(super) fn native_static_host_entries(
         .collect()
 }
 
+pub(super) fn native_static_contributions(
+    product_host: Option<&CodegenProductHostMapping>,
+    host_statics: &[super::super::realization::ProductStaticHostEntry],
+    native_statics: &[bray_native_artifact::NativeStatic],
+    mappings: &[CodegenMappings],
+) -> Vec<bray_native_artifact::NativeStatic> {
+    product_host
+        .iter()
+        .flat_map(|host| host.statics())
+        .map(|entry| {
+            let local = host_statics.iter().find(|local| {
+                super::super::realization::generated_identity("static_host", local.key())
+                    == entry.identity().bytes()
+            });
+
+            let native = native_statics
+                .iter()
+                .find(|native| native.identity() == entry.identity().bytes());
+
+            let requires_main_thread = local
+                .is_some_and(|local| local.requires_main_thread_cleanup())
+                || native.is_some_and(|native| native.requires_main_thread());
+
+            let requires_host = local.is_some_and(|local| local.requires_host())
+                || native.is_some_and(|native| native.requires_host());
+
+            let requires_execution = native.is_some_and(|native| native.requires_execution())
+                || local.is_some_and(|local| {
+                    mappings
+                        .iter()
+                        .flat_map(bray_codegen::CodegenMappings::static_storages)
+                        .find(|mapping| mapping.instance() == local.key())
+                        .and_then(bray_codegen::CodegenStaticStorageMapping::finalization)
+                        .is_some_and(|finalization| {
+                            finalization.execution()
+                                == bray_symbols::CallableExecution::Asynchronous
+                        })
+                });
+
+            let order_key = local
+                .map(|local| local.order_key())
+                .or_else(|| native.map(|native| native.order_key()))
+                .expect("retained static must have a structural cleanup key");
+
+            bray_native_artifact::NativeStatic::new(
+                bray_base::NonEmptySharedStr::try_new(entry.host_symbol().as_str())
+                    .expect("host symbol must be nonempty"),
+                entry.identity().bytes(),
+                std::sync::Arc::from(order_key),
+                entry.duration(),
+                entry.dependencies().iter().map(|identity| identity.bytes()),
+                requires_host,
+                requires_main_thread,
+            )
+            .with_execution_requirement(requires_execution)
+        })
+        .collect::<Vec<_>>()
+}
+
+fn publishes_native_report(role: RuntimeAbiRole) -> bool {
+    role.contract().effects()
+        .contains(&bray_runtime_interface::RuntimeRoleContractEffect::ConstructPanicReport)
+        || role.native_signature().is_some_and(|signature| {
+            matches!(
+                signature.result(),
+                bray_runtime_interface::RuntimeAbiType::PanicReport
+                    | bray_runtime_interface::RuntimeAbiType::RunOutcome
+                    | bray_runtime_interface::RuntimeAbiType::FrameProgress
+            )
+        })
+}
+
 pub(super) fn native_host_runtime_roles(
     reachability: Option<&ConcreteCodegenReachability>,
     statics: &[super::super::realization::ProductStaticHostEntry],
@@ -512,8 +618,13 @@ pub(super) fn native_host_runtime_roles(
         .filter_map(NativeDemand::role)
         .collect::<BTreeSet<_>>();
 
-    if !statics.is_empty() || !native_statics.is_empty() {
+    if !statics.is_empty()
+        || !native_statics.is_empty()
+        || roles.iter().copied().any(publishes_native_report)
+    {
         roles.insert(RuntimeAbiRole::ProductHostControl);
+        roles.insert(RuntimeAbiRole::ProductProviderRetention);
+        roles.insert(RuntimeAbiRole::ReportConsumer);
     }
 
     if statics

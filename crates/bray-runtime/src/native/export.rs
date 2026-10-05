@@ -56,6 +56,17 @@ native_export! {
 }
 
 native_export! {
+    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
+    #[cfg_attr(test, unsafe(no_mangle))]
+    pub extern "C" fn bray_runtime_product_provider_retention(
+        descriptor: &NativeProductHostDescriptor,
+        destination: &mut bray_runtime_abi::NativeProviderOwner,
+    ) -> NativeRuntimeStatus {
+        contain_status(|| crate::product::retain_provider(descriptor, destination))
+    }
+}
+
+native_export! {
     pub extern "C" fn resident_thread_static_cleanup_registration(
         registration: &NativeThreadStaticCleanupRegistration,
     ) -> NativeRuntimeStatus {

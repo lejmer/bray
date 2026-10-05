@@ -1,7 +1,9 @@
 mod abi;
 mod core;
+mod provider;
 
 pub(crate) use abi::runtime_attributes;
+pub(crate) use provider::{invoke_product_control, provider_owner_type, retain_product_provider};
 
 pub(crate) use core::{
     declare_runtime_function, frame_operation_function, frame_operation_type,

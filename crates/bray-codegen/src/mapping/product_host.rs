@@ -78,6 +78,7 @@ pub struct CodegenProductHostMapping {
     control_symbol: BinarySymbolName,
     statics: Arc<[CodegenProductHostStatic]>,
     final_image: bool,
+    required_services: u32,
 }
 
 impl CodegenProductHostMapping {
@@ -141,6 +142,7 @@ impl CodegenProductHostMapping {
             control_symbol,
             statics: statics.into(),
             final_image: false,
+            required_services: bray_runtime_abi::PRODUCT_HOST_SERVICES,
         })
     }
 
@@ -150,6 +152,16 @@ impl CodegenProductHostMapping {
 
         self
     }
+
+    /// Carries the selected program's service demand and image lifetime to the backend.
+    pub const fn with_services(mut self, required_services: u32) -> Self {
+        self.required_services = required_services;
+
+        self
+    }
+
+    /// Returns demanded native service classes and whether the image can be unloaded.
+    pub const fn required_services(&self) -> u32 { self.required_services }
 
     /// Returns whether this is the complete descriptor rather than a library contribution.
     pub const fn is_final_image(&self) -> bool {

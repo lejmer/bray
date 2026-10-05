@@ -47,6 +47,15 @@ native_adapter! {
 }
 
 native_adapter! {
+    pub extern "C" fn bray_runtime_product_provider_retention(
+        descriptor: &NativeProductHostDescriptor,
+        destination: &mut bray_runtime_abi::NativeProviderOwner,
+    ) -> NativeRuntimeStatus {
+        implementation::bray_runtime_product_provider_retention(descriptor, destination)
+    }
+}
+
+native_adapter! {
     pub extern "C" fn bray_runtime_thread_static_cleanup_registration(
         registration: &NativeThreadStaticCleanupRegistration,
     ) -> NativeRuntimeStatus {

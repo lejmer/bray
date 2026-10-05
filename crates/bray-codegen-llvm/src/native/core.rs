@@ -568,6 +568,7 @@ pub(super) fn runtime_value_type<'context>(
                     usize.into(),
                     usize.into(),
                     context.i8_type().array_type(32).into(),
+                    super::provider_owner_type(context, target).into(),
                 ],
                 false,
             )
@@ -625,10 +626,18 @@ mod tests {
 
             let data = machine.target_data();
 
-            assert_eq!(data.get_store_size(&report), 136);
+            assert_eq!(data.get_store_size(&report), 168);
             assert_eq!(data.get_abi_alignment(&report), 8);
 
-            for (element, offset) in [(5, 24), (8, 48), (9, 56), (10, 64), (18, 128)] {
+            for (element, offset) in [
+                (5, 24),
+                (8, 48),
+                (9, 56),
+                (10, 64),
+                (14, 96),
+                (18, 128),
+                (22, 160),
+            ] {
                 assert_eq!(data.offset_of_element(&report, element), Some(offset));
             }
         }

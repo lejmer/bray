@@ -88,6 +88,44 @@ pub(super) fn translate<'context, 'request>(
 
     initialize_indirect_result(&builder, symbol, trampoline, types)?;
 
+    if let Some(host) = request.mappings().product_host() {
+        let observation = crate::native::invoke_product_control(
+            context,
+            module,
+            &builder,
+            request.target(),
+            host,
+            request.unit().target().runtime_abi(),
+            bray_runtime_abi::NativeProductHostOperation::ACQUIRE_ENTRY,
+        )?;
+
+        let status = super::support::extract_value(&builder, observation, 0)?.into_int_value();
+
+        let admitted = llvm(builder.build_int_compare(
+            inkwell::IntPredicate::EQ,
+            status,
+            status.get_type().const_zero(),
+            "callback.product.admitted",
+        ))?;
+
+        let continued = context.append_basic_block(trampoline, "callback.product.admitted");
+        let denied = context.append_basic_block(trampoline, "callback.product.closed");
+
+        llvm(builder.build_conditional_branch(admitted, continued, denied))?;
+        builder.position_at_end(denied);
+
+        match result_type {
+            Some(result) => {
+                llvm(builder.build_return(Some(&result.const_zero())))?;
+            }
+            None => {
+                llvm(builder.build_return(None))?;
+            }
+        }
+
+        builder.position_at_end(continued);
+    }
+
     let callback = declare_callback(
         context,
         module,
@@ -131,6 +169,18 @@ pub(super) fn translate<'context, 'request>(
     .expect("checked MIR translation requires an established mapping or value");
 
     resolve_callback_outcome(context, module, request, &builder, trampoline, outcome)?;
+
+    if let Some(host) = request.mappings().product_host() {
+        let _ = crate::native::invoke_product_control(
+            context,
+            module,
+            &builder,
+            request.target(),
+            host,
+            request.unit().target().runtime_abi(),
+            bray_runtime_abi::NativeProductHostOperation::RELEASE_ENTRY,
+        )?;
+    }
 
     match result_field {
         Some(field) => {

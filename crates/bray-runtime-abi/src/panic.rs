@@ -228,6 +228,7 @@ pub struct NativePanicPrimary {
     source: NativeSourceAnchor,
     cause: NativePanicCause,
     message: NativePanicMessage,
+    provider: crate::NativeProviderOwner,
 }
 
 impl NativePanicPrimary {
@@ -241,6 +242,7 @@ impl NativePanicPrimary {
             cause,
             source,
             message,
+            provider: crate::NativeProviderOwner::resident(),
         }
     }
 
@@ -282,6 +284,11 @@ impl NativePanicPrimary {
     /// Releases message backing and returns any failure contained by its provider.
     pub fn release_message(&mut self) -> crate::NativeRunOutcome {
         self.message.release()
+    }
+
+    /// Transfers residency of the message and release operations with this primary.
+    pub fn retain_provider(&mut self, provider: crate::NativeProviderOwner) {
+        self.provider = provider;
     }
 }
 
@@ -369,11 +376,19 @@ impl NativePanicReport {
 
     /// Consumes live ownership exactly once, reporting it when requested.
     pub fn consume(&mut self, report: bool) -> NativeRuntimeStatus {
+        // The consumer can dispose the last primary. Keep its code resident until it returns.
+        let _provider = self.primary.provider.retain();
+
         self.consume
             .take()
             .map_or(NativeRuntimeStatus::SUCCESS, |consume| {
                 consume(self, report)
             })
+    }
+
+    /// Retains the admitted originating provider through report movement and disposal.
+    pub fn retain_provider(&mut self, provider: crate::NativeProviderOwner) {
+        self.primary.retain_provider(provider);
     }
 }
 
@@ -405,12 +420,81 @@ mod tests {
             address: 0, length: 8, copy: 16, release: 24,
         });
 
-        assert_abi_layout!(NativePanicPrimary, size: 96, align: 8, fields: {
-            source: 0, cause: 56, message: 64,
+        assert_abi_layout!(NativePanicPrimary, size: 128, align: 8, fields: {
+            source: 0, cause: 56, message: 64, provider: 96,
         });
 
-        assert_abi_layout!(NativePanicReport, size: 136, align: 8, fields: {
-            primary: 0, head: 96, tail: 104, count: 112, reserved: 120, consume: 128,
+        assert_abi_layout!(NativePanicReport, size: 168, align: 8, fields: {
+            primary: 0, head: 128, tail: 136, count: 144, reserved: 152, consume: 160,
         });
+    }
+    thread_local! {
+        static PROVIDER_REFERENCES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+        static PROVIDER_EVENTS: std::cell::RefCell<Vec<&'static str>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    extern "C" fn retain_provider(_: usize) {
+        PROVIDER_REFERENCES.with(|count| count.set(count.get() + 1));
+    }
+    extern "C" fn release_provider(_: usize) {
+        PROVIDER_REFERENCES.with(|count| count.set(count.get() - 1));
+        PROVIDER_EVENTS.with_borrow_mut(|events| events.push("provider release"));
+    }
+    extern "C" fn provider_references(_: usize) -> usize {
+        PROVIDER_REFERENCES.get()
+    }
+    extern "C" fn release_message(_: usize, _: usize, _: &mut crate::NativeRunOutcome) {
+        assert_eq!(PROVIDER_REFERENCES.get(), 2);
+        PROVIDER_EVENTS.with_borrow_mut(|events| events.push("backing release"));
+    }
+    extern "C" fn consume_last_primary(
+        report: &mut NativePanicReport,
+        _: bool,
+    ) -> crate::NativeRuntimeStatus {
+        let (primary, _, _, _, _) = report.take_parts();
+
+        drop(primary);
+
+        assert_eq!(PROVIDER_REFERENCES.get(), 1);
+        PROVIDER_EVENTS.with_borrow_mut(|events| events.push("consumer return"));
+
+        crate::NativeRuntimeStatus::SUCCESS
+    }
+
+    #[test]
+    fn final_primary_release_keeps_provider_alive_until_consumer_returns() {
+        let reference = crate::NativeProviderReference::new(
+            1,
+            retain_provider,
+            release_provider,
+            provider_references,
+        );
+
+        let mut primary = NativePanicPrimary::new(
+            crate::NativePanicCause::MESSAGE,
+            NativeSourceAnchor::unavailable(),
+            NativePanicMessage::new(0, 0, None, Some(release_message)),
+        );
+
+        primary.retain_provider(reference.retain().unwrap());
+
+        let mut report = NativePanicReport::new(primary, consume_last_primary);
+
+        assert_eq!(PROVIDER_REFERENCES.get(), 1);
+        assert!(report.consume(false).is_success());
+        assert_eq!(PROVIDER_REFERENCES.get(), 0);
+
+        assert_eq!(
+            PROVIDER_EVENTS.with_borrow_mut(std::mem::take),
+            [
+                "backing release",
+                "provider release",
+                "consumer return",
+                "provider release"
+            ]
+        );
+
+        assert!(report.consume(false).is_success());
+        assert!(PROVIDER_EVENTS.with_borrow(|events| events.is_empty()));
     }
 }

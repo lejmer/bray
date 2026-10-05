@@ -4,7 +4,8 @@ use bray_runtime_abi::{
 };
 
 // These declarations bind the compiler-owned trusted Bray provider. The private callers
-// transfer only live, exclusively owned handles and keep the linked image resident.
+// transfer only live, exclusively owned handles. Formation and transferred primary ownership
+// retain the linked provider closure through final callback return.
 #[expect(
     unsafe_code,
     reason = "the linked Bray provider supplies the record ownership ABI"

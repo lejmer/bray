@@ -218,7 +218,16 @@ impl Compilation {
             },
         )?;
 
-        let product_host = product_host.map(|host| host.with_final_image(final_image));
+        let product_host = product_host.map(|host| {
+            let services = host.required_services()
+                | if final_image && semantic.value().kind() == ProductKind::Library {
+                    bray_runtime_abi::PRODUCT_UNLOADABLE
+                } else {
+                    0
+                };
+
+            host.with_final_image(final_image).with_services(services)
+        });
 
         // Each unit mapping independently retains the Arc-backed product-host contract.
         let mappings = mappings
@@ -310,43 +319,12 @@ impl Compilation {
             .map(|mapping| mapping.instance().clone())
             .collect::<BTreeSet<_>>();
 
-        let native_statics = product_host
-            .iter()
-            .flat_map(|host| host.statics())
-            .map(|entry| {
-                let local = host_statics.iter().find(|local| {
-                    super::super::realization::generated_identity("static_host", local.key())
-                        == entry.identity().bytes()
-                });
-
-                let native = native_statics
-                    .iter()
-                    .find(|native| native.identity() == entry.identity().bytes());
-
-                let requires_main_thread = local
-                    .is_some_and(|local| local.requires_main_thread_cleanup())
-                    || native.is_some_and(|native| native.requires_main_thread());
-
-                let requires_host = local.is_some_and(|local| local.requires_host())
-                    || native.is_some_and(|native| native.requires_host());
-
-                let order_key = local
-                    .map(|local| local.order_key())
-                    .or_else(|| native.map(|native| native.order_key()))
-                    .expect("retained static must have a structural cleanup key");
-
-                bray_native_artifact::NativeStatic::new(
-                    bray_base::NonEmptySharedStr::try_new(entry.host_symbol().as_str())
-                        .expect("host symbol must be nonempty"),
-                    entry.identity().bytes(),
-                    Arc::from(order_key),
-                    entry.duration(),
-                    entry.dependencies().iter().map(|identity| identity.bytes()),
-                    requires_host,
-                    requires_main_thread,
-                )
-            })
-            .collect::<Vec<_>>();
+        let native_statics = super::host::native_static_contributions(
+            product_host.as_ref(),
+            &host_statics,
+            &native_statics,
+            &mappings,
+        );
 
         Ok(NativeProductPlan {
             backend,
@@ -2371,11 +2349,16 @@ mod tests {
             assert_eq!(identities(&first), identities(&second));
 
             if source != CONCRETE_GENERIC_SOURCE {
-                let storage_identities = first.units().iter()
-                    .flat_map(|unit| unit.instances().iter().map(|instance| {
-                        unit.compatibility(instance.key()).unwrap()
-                            .native_storage_dependencies_identity()
-                    }))
+                let storage_identities = first
+                    .units()
+                    .iter()
+                    .flat_map(|unit| {
+                        unit.instances().iter().map(|instance| {
+                            unit.compatibility(instance.key())
+                                .unwrap()
+                                .native_storage_dependencies_identity()
+                        })
+                    })
                     .filter(|identity| *identity != [0; 32])
                     .collect::<BTreeSet<_>>();
 
@@ -2429,7 +2412,8 @@ mod tests {
                 )
                 .expect("native emission request must validate");
 
-                let inputs = crate::ProductEmissionInputs::new(&outputs).with_native_codegen(native);
+                let inputs =
+                    crate::ProductEmissionInputs::new(&outputs).with_native_codegen(native);
 
                 let result = compilation
                     .emit_product(request, inputs)
@@ -2459,7 +2443,8 @@ mod tests {
             );
 
             if source == CONCRETE_GENERIC_SOURCE {
-                let changed_source = CONCRETE_GENERIC_SOURCE.replace("return count;", "return 12345;");
+                let changed_source =
+                    CONCRETE_GENERIC_SOURCE.replace("return count;", "return 12345;");
 
                 let (changed_backend, changed_compilation) =
                     codegen_compilation_for_product(&changed_source, ProductKind::Library);
@@ -2716,36 +2701,82 @@ mod tests {
             )
             .unwrap_or_else(|error| panic!("direct checked calls must realize: {error:?}"));
 
-        let artifacts = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
-        let ir = artifacts.iter().map(|artifact| std::str::from_utf8(artifact).unwrap()).collect::<String>();
+        let artifacts =
+            generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
 
-        assert!(ir.contains("call.outcome.state"), "checked calls must remain in the emitted IR: {ir}");
-        assert!(!ir.contains("call.outcome.report"), "direct propagation must not copy the report: {ir}");
+        let ir = artifacts
+            .iter()
+            .map(|artifact| std::str::from_utf8(artifact).unwrap())
+            .collect::<String>();
+
+        assert!(
+            ir.contains("call.outcome.state"),
+            "checked calls must remain in the emitted IR: {ir}"
+        );
+
+        assert!(
+            !ir.contains("call.outcome.report"),
+            "direct propagation must not copy the report: {ir}"
+        );
 
         let options = plan.options().with_optimization(OptimizationLevel::None);
 
-        let artifacts = generated_artifacts_of_kind_with_options(&backend, &plan, BackendArtifactKind::BackendIr, &options);
-        let ir = artifacts.iter().map(|artifact| std::str::from_utf8(artifact).unwrap()).collect::<String>();
+        let artifacts = generated_artifacts_of_kind_with_options(
+            &backend,
+            &plan,
+            BackendArtifactKind::BackendIr,
+            &options,
+        );
 
-        assert!(!ir.contains("call.outcome.report"), "unoptimized propagation must not copy the report: {ir}");
-        assert!(!ir.lines().any(|line| line.trim() == "unreachable"), "bypassed propagation blocks must not be emitted: {ir}");
+        let ir = artifacts
+            .iter()
+            .map(|artifact| std::str::from_utf8(artifact).unwrap())
+            .collect::<String>();
+
+        assert!(
+            !ir.contains("call.outcome.report"),
+            "unoptimized propagation must not copy the report: {ir}"
+        );
+
+        assert!(
+            !ir.lines().any(|line| line.trim() == "unreachable"),
+            "bypassed propagation blocks must not be emitted: {ir}"
+        );
 
         let mut shared_returns = 0;
 
         for function in ir.split("\ndefine ").skip(1) {
-            let count = function.lines().take_while(|line| *line != "}")
+            let count = function
+                .lines()
+                .take_while(|line| *line != "}")
                 .filter(|line| line.starts_with("outcome.propagated:"))
                 .count();
 
-            assert!(count <= 1, "propagation exits must share one epilogue: {function}");
+            assert!(
+                count <= 1,
+                "propagation exits must share one epilogue: {function}"
+            );
+
             shared_returns += count;
         }
 
-        assert!(shared_returns >= 3, "void, scalar and indirect callers must emit their shared epilogues: {ir}");
+        assert!(
+            shared_returns >= 3,
+            "void, scalar and indirect callers must emit their shared epilogues: {ir}"
+        );
 
-        assert!(plan.mappings().iter().flat_map(|mappings| mappings.symbols()).any(|symbol| {
-            matches!(symbol.signature().result(), CodegenResultMapping::Indirect { .. })
-        }), "the fixture must exercise an indirect result");
+        assert!(
+            plan.mappings()
+                .iter()
+                .flat_map(|mappings| mappings.symbols())
+                .any(|symbol| {
+                    matches!(
+                        symbol.signature().result(),
+                        CodegenResultMapping::Indirect { .. }
+                    )
+                }),
+            "the fixture must exercise an indirect result"
+        );
     }
 
     #[test]
@@ -2878,7 +2909,9 @@ mod tests {
                         compilation
                             .codegen_partition_compatibility(
                                 instance,
-                                reachability.instance(instance.key()).expect("retained instance must be concrete"),
+                                reachability
+                                    .instance(instance.key())
+                                    .expect("retained instance must be concrete"),
                                 &test_product_identity(),
                                 &roots,
                                 &cancellation,
@@ -3564,7 +3597,9 @@ mod tests {
                 compilation
                     .codegen_partition_compatibility(
                         instance,
-                        reachability.instance(instance.key()).expect("retained instance must be concrete"),
+                        reachability
+                            .instance(instance.key())
+                            .expect("retained instance must be concrete"),
                         &test_product_identity(),
                         &roots,
                         &cancellation,
@@ -5122,11 +5157,27 @@ func main() { let value: i32 = example.dependency.templates.hot(1); }
 
         for instance in imported {
             let first = compilation
-                .codegen_partition_compatibility(instance, reachability.instance(instance.key()).expect("retained instance must be concrete"), &first_product, &roots, &cancellation)
+                .codegen_partition_compatibility(
+                    instance,
+                    reachability
+                        .instance(instance.key())
+                        .expect("retained instance must be concrete"),
+                    &first_product,
+                    &roots,
+                    &cancellation,
+                )
                 .expect("imported compatibility must resolve");
 
             let other = compilation
-                .codegen_partition_compatibility(instance, reachability.instance(instance.key()).expect("retained instance must be concrete"), &other_product, &roots, &cancellation)
+                .codegen_partition_compatibility(
+                    instance,
+                    reachability
+                        .instance(instance.key())
+                        .expect("retained instance must be concrete"),
+                    &other_product,
+                    &roots,
+                    &cancellation,
+                )
                 .expect("imported compatibility must resolve");
 
             assert_eq!(first, other);
@@ -6149,7 +6200,9 @@ public func invoke<T>(pos value: T)
         assert_eq!(product_instances, 2);
         assert_eq!(thread_instances, 0);
 
-        assert!(plan.product_host().is_none());
+        let host = plan.product_host().expect("checked arithmetic requires report residency");
+
+        assert!(host.statics().is_empty());
 
         assert!(
             generated_artifacts(&backend, &plan)
@@ -6641,6 +6694,16 @@ public func invoke<T>(pos value: T)
         assert!(!plans[0].product_host().unwrap().is_final_image());
         assert!(plans[1].product_host().unwrap().is_final_image());
 
+        assert_eq!(
+            plans[0].product_host().unwrap().required_services(),
+            bray_runtime_abi::PRODUCT_HOST_SERVICES,
+        );
+
+        assert_eq!(
+            plans[1].product_host().unwrap().required_services(),
+            bray_runtime_abi::PRODUCT_HOST_SERVICES | bray_runtime_abi::PRODUCT_UNLOADABLE,
+        );
+
         assert!(
             plans[0]
                 .preservation_roots()
@@ -6686,7 +6749,15 @@ public func invoke<T>(pos value: T)
             )
             .expect("shared library runtime roles must select their implementation");
 
-        assert!(plan.product_host().is_none());
+        let host = plan.product_host().expect("escaping reports require a provider binding");
+
+        assert!(host.statics().is_empty());
+
+        assert_eq!(
+            host.required_services(),
+            bray_runtime_abi::PRODUCT_HOST_SERVICES | bray_runtime_abi::PRODUCT_UNLOADABLE,
+        );
+
         assert!(plan.link().is_some());
     }
 
@@ -7939,7 +8010,12 @@ public func invoke<T>(pos value: T)
                     }) {
                         ordinary.insert(name);
                     } else {
-                        assert!(unit.compatibility(instance.key()).expect("helper user metadata must resolve").native_selection_boundary());
+                        assert!(
+                            unit.compatibility(instance.key())
+                                .expect("helper user metadata must resolve")
+                                .native_selection_boundary()
+                        );
+
                         user_symbol = Some(name);
                     }
                 }
@@ -7986,9 +8062,10 @@ public func invoke<T>(pos value: T)
     #[test]
     fn library_publication_preserves_named_native_dependencies() {
         for callable in [false, true] {
-        let mut source = String::from("trusted module app;\n");
+            let mut source = String::from("trusted module app;\n");
 
-        source.push_str(if callable { r#"
+            source.push_str(if callable {
+                r#"
             @link(name = "native")
             @symbol(name = "native_a")
             @abi(c)
@@ -7997,62 +8074,83 @@ public func invoke<T>(pos value: T)
             @symbol(name = "native_b")
             @abi(c)
             extern trusted func NATIVE_B() -> i32 uses(foreign_call);
-        "# } else { r#"
+        "#
+            } else {
+                r#"
             @link(name = "native")
             @symbol(name = "native_a")
             extern trusted static NATIVE_A: i32;
             @link(name = "native")
             @symbol(name = "native_b")
             extern trusted static NATIVE_B: i32;
-        "# });
+        "#
+            });
 
-        for (storage, suffix) in [("NATIVE_A", "a"), ("NATIVE_B", "b")] {
-            for index in 0..4 {
-                source.push_str(&if callable {
-                    format!(r#"
+            for (storage, suffix) in [("NATIVE_A", "a"), ("NATIVE_B", "b")] {
+                for index in 0..4 {
+                    source.push_str(&if callable {
+                        format!(
+                            r#"
                         trusted func get_{suffix}_{index}() -> i32 uses(foreign_call)
                         {{
                             return trusted {storage}();
                         }}
-                    "#)
-                } else {
-                    format!(r#"
+                    "#
+                        )
+                    } else {
+                        format!(
+                            r#"
                         trusted func get_{suffix}_{index}() -> RawPointer<i32>
                         {{
                             return {storage};
                         }}
-                    "#)
-                });
+                    "#
+                        )
+                    });
+                }
             }
-        }
 
-        let target = NativeTarget::X86_64LinuxGnu;
+            let target = NativeTarget::X86_64LinuxGnu;
 
-        let (backend, plan) = runtime_native_plan_for_sources_target(
-            &[&source],
-            ProductKind::Library,
-            SelectedTarget::for_native(target),
-            &[NativeLinkRequirement::new(
-                NonEmptySharedStr::try_new("native").unwrap(),
-                NativeLinkKind::Dynamic,
-            )],
-        );
+            let (backend, plan) = runtime_native_plan_for_sources_target(
+                &[&source],
+                ProductKind::Library,
+                SelectedTarget::for_native(target),
+                &[NativeLinkRequirement::new(
+                    NonEmptySharedStr::try_new("native").unwrap(),
+                    NativeLinkKind::Dynamic,
+                )],
+            );
 
-        assert!(plan.units().iter().any(|unit| unit.instances().len() > 1));
+            assert!(plan.units().iter().any(|unit| unit.instances().len() > 1));
 
-        let mut selected = BTreeSet::new();
+            let mut selected = BTreeSet::new();
 
-        for bytes in generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendBitcode) {
-            let summary = bray_codegen_llvm::inspect_bitcode_unit_summary(&bytes, target).unwrap();
+            for bytes in
+                generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendBitcode)
+            {
+                let summary =
+                    bray_codegen_llvm::inspect_bitcode_unit_summary(&bytes, target).unwrap();
 
-            let references = summary.references().iter().filter_map(|symbol| symbol.identity().name())
-                .filter(|name| matches!(*name, "native_a" | "native_b")).collect::<BTreeSet<_>>();
+                let references = summary
+                    .references()
+                    .iter()
+                    .filter_map(|symbol| symbol.identity().name())
+                    .filter(|name| matches!(*name, "native_a" | "native_b"))
+                    .collect::<BTreeSet<_>>();
 
-            assert!(references.len() <= 1, "unrelated named native providers must not share a publication unit");
-            selected.extend(references.into_iter().map(str::to_owned));
-        }
+                assert!(
+                    references.len() <= 1,
+                    "unrelated named native providers must not share a publication unit"
+                );
 
-        assert_eq!(selected, BTreeSet::from(["native_a".to_owned(), "native_b".to_owned()]));
+                selected.extend(references.into_iter().map(str::to_owned));
+            }
+
+            assert_eq!(
+                selected,
+                BTreeSet::from(["native_a".to_owned(), "native_b".to_owned()])
+            );
         }
     }
 
@@ -9160,7 +9258,9 @@ define void @{symbol}(ptr %out) {{
                 compilation
                     .codegen_partition_compatibility(
                         instance,
-                        reachability.instance(instance.key()).expect("retained instance must be concrete"),
+                        reachability
+                            .instance(instance.key())
+                            .expect("retained instance must be concrete"),
                         &test_product_identity(),
                         &roots,
                         cancellation,

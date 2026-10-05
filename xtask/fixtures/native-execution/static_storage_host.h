@@ -7,6 +7,7 @@
 enum product_host_operation
 {
     PRODUCT_HOST_FORM = 0,
+    PRODUCT_HOST_RETIRE = 12,
     PRODUCT_HOST_ACQUIRE_ENTRY = 1,
     PRODUCT_HOST_RELEASE_ENTRY = 2,
     PRODUCT_HOST_ACQUIRE_EXTERNAL = 3,
@@ -19,6 +20,14 @@ enum product_host_operation
 
 typedef struct
 {
+    uintptr_t context;
+    void (*retain)(uintptr_t context);
+    void (*release)(uintptr_t context);
+    size_t (*references)(uintptr_t context);
+} provider_reference;
+
+typedef struct
+{
     uint32_t status;
     uint32_t state;
     size_t active_entries;
@@ -28,6 +37,7 @@ typedef struct
     size_t cleaned_statics;
     size_t cleanup_incidents;
     uint8_t last_incident[32];
+    provider_reference retired_provider;
 } product_host_observation;
 
 typedef product_host_observation (*product_host_control)(uint32_t operation);

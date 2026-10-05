@@ -79,7 +79,7 @@ fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) 
     let runtime = product_hosts()
         .lock()
         .ok()
-        .and_then(|hosts| hosts.get(&product).map(|host| host.runtime.clone()));
+        .and_then(|hosts| hosts.get(&product).and_then(|host| host.runtime.clone()));
 
     let cleanup = || {
         for mut entry in entries {
@@ -103,7 +103,7 @@ fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) 
 
     let (_, runtime_incidents) = match runtime.as_ref() {
         Some(runtime) => crate::native::with_retained_static_cleanup_runtime(runtime, cleanup),
-        None => crate::native::with_static_cleanup_runtime(cleanup),
+        None => (cleanup(), None),
     };
 
     let Some(owner) = owner else {

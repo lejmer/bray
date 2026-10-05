@@ -75,6 +75,7 @@ pub(crate) fn run_static_finalizer(
     incidents
 }
 
+#[cfg(test)]
 pub(crate) fn with_static_cleanup_runtime<T>(
     callback: impl FnOnce() -> T,
 ) -> (T, Option<OwnedCleanupIncident>) {
