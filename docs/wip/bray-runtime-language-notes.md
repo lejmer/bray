@@ -64,7 +64,7 @@ Keep future entries brief and linked to their sources. Separate specification re
 ## Questions to resolve
 
 - Which obligations fit typed owners and dependency-anchored borrows? Which erased or foreign transfers need a private runtime protocol?
-- Which formation and bootstrap cycles require raw target operations before higher-level library entry becomes available?
+- [Decision 4](bray-native-runtime-design.md#4-bootstrap-uses-target-bindings-and-explicit-startup-storage) uses low-level target bindings and explicit startup storage before higher-level library entry becomes available. Trace remaining formation and admission cycles during synchronous-host implementation.
 - Which fairness, registry and retention policies do consumers require?
 - [Decision 1](bray-native-runtime-design.md#1-cleanup-eligibility-does-not-require-a-blocking-wait) establishes cleanup eligibility without a mandatory blocking wait. The static and root chapters need wording changes. [Decision 3](bray-native-runtime-design.md#3-provider-dependencies-retain-the-whole-product) keeps their whole-product retention rule and requires alignment of BRA-501's conflicting code-only retention.
 - Low-level bootstrap text describes reverse registered TLS cleanup. The static specification requires dependency order with structural ties. Apply the static semantics and check the consumer requirements before clarifying the wording.

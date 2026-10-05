@@ -34,6 +34,14 @@ Verify this behavior in the planned loaded-provider migration tests. Repeated pl
 
 Align BRA-501's code-only cleanup expectations and conflicting design text with this decision. Preserve the language's dependency rule when refining report representation.
 
+### 4. Bootstrap uses target bindings and explicit startup storage
+
+Build bootstrap from Bray's existing low-level OS bindings, with explicitly supplied startup storage. Establish thread attachment and cleanup services before using higher-level APIs that depend on them. In particular, public thread APIs cannot initialize the runtime services they already require.
+
+Bootstrap follows ordinary Bray ownership, lifecycle and cleanup-capacity checks. Existing private compiler roles validate declaration contracts and ABI boundaries. Runtime source receives no blanket exemption, and this decision adds no source-language feature.
+
+Verify typed bootstrap owners, role lowering and TLS destructor entry during the planned synchronous-host replacement. Resolve recursive entry and admission dependencies there, with no separate experiment stage.
+
 ## Recommendation
 
 I recommend building the runtime around Bray's ordinary ownership, dependency, lifecycle, storage and capability contracts. Implement product hosts, attachments, cleanup admission, activations, tasks and reporting policy in Bray. The compiler supplies checked cleanup plans, adapters for protected representations and immutable descriptors. Explicit target ABI bindings supply OS operations.
@@ -123,7 +131,7 @@ The test coordinator may remain host-side Rust. Everything linked into a test pr
 
 A step may need several PRs. Each PR should exercise a real consumer and identify the Rust code it removes. This sequence keeps the dependency order of the delivery strategy.
 
-1. Apply agreed lifetime semantics and settle bootstrap role lowering. Apply decisions 1 and 3, settle the runtime shutdown ownership contract, then align conflicting specification text, design text and fixtures. Prove a typed role-bound Bray owner and TLS destructor entry without recursive trampolines or admission through the service being created. This establishes the first implementation prerequisite.
+1. Apply agreed lifetime and bootstrap decisions. Apply decisions 1, 3 and 4, settle the runtime shutdown ownership contract, then align conflicting specification text, design text and fixtures. Prove a typed role-bound Bray owner and TLS destructor entry without recursive trampolines or admission through the service being created. This establishes the first implementation prerequisite.
 2. Replace the synchronous host. Produce an executable that uses Bray resident product formation, ordinary owner cleanup, panic and failure reporting, exact-thread statics and shutdown, with mandatory backing for those owners. Remove its linked Rust product, synchronous-root, attachment and report-rendering paths. Use link-map and archive-member evidence to prove that it links no project-owned Rust. Establish this before completing the async scheduler migration.
 3. Replace formation and admission for a real loaded provider. Exercise two independent loads, statics, archive and imported-MIR contributions, escaped reports and typed errors, last callback return and reload. Include repeated plugin reloads with independently preserved diagnostic history and resource release, plus intentional retention of provider-dependent payloads. Run terminal disposal with allocation denied. Remove the Rust product registry, retention and static-admission code used by that consumer. Extend compiler metadata for physical cleanup backing as needed.
 4. Replace frame and task execution. Prove that direct await creates no child task. Exercise erased and recursive activations, start, join, cancel and abnormal payload cleanup with secured backing, one terminal owner and separate broadcast and resolution. Remove Rust `NativeFrame`, `NativeRun`, task control records and the `Any` bridge from that execution path.
