@@ -1,0 +1,4 @@
+interface:
+  display_name: "Babysit PR"
+  short_description: "Get a PR ready to merge. Use when asked to babysit, watch, or follow a PR."
+  default_prompt: "Always use $babysit-pr when babysitting a PR."

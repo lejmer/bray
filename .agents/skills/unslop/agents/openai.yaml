@@ -1,0 +1,4 @@
+interface:
+  display_name: "Unslop"
+  short_description: "Cut AI tells from any writing. Must always apply."
+  default_prompt: "Always use $unslop when writing text for a project or responding to the user."
