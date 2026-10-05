@@ -226,9 +226,29 @@ A step may need several PRs. Each PR should exercise a real consumer and identif
 
 For each implementation PR, record its consumer, ownership invariants, rejection and terminal cases, linked Rust functions and objects removed, and compiler gaps to resolve. Record execution, size and compilation evidence when meaningful comparisons are possible under decision 12. Explain temporary regressions and their enabling dependencies. Temporary Rust tests can remain outside produced programs as behavior references while Bray fixtures take over their coverage. Remove superseded production implementations as consumers switch.
 
+## Shutdown lifecycle proposal awaiting agreement
+
+The user supports preserving caller ownership when shutdown is blocked, subject to settling the complete lifecycle first. This section is a proposal, not an agreed decision. It defines ownership behavior without choosing exact type or method names.
+
+The caller's owner holds the graceful shutdown obligation. The resident host owns the live product storage and an admitted fallback cleanup obligation from formation. These roles share one terminal cleanup state and cannot execute cleanup twice. That distinction permits abnormal abandonment of the caller's graceful obligation without abandoning product resources. Formation must secure the fallback's storage, reporting and execution requirements before publishing the owner.
+
+An explicit shutdown attempt closes new entry and checks cleanup eligibility. If external dependencies prevent cleanup, it returns a retryable status and preserves the caller's unresolved owner. It does not wait for those dependencies to disappear. When cleanup is eligible, the host can perform its terminal cleanup, including asynchronous work where required.
+
+Normal scope exit follows the existing Bray finalization rules. A pending, possibly fallible implicit finalizer is rejected. The caller must explicitly complete shutdown, transfer the unresolved owner to a valid enclosing owner, or use an explicit ownership transfer into the admitted fallback. A blocked attempt does not establish completion. Wrapping the owner in a result or nullable value preserves its obligation.
+
+During panic or cancellation, attempt the same finalizer under the ordinary cleanup rules. A blocked or failed attempt becomes a cleanup incident. Abandon the caller's graceful obligation and destroy its control owner synchronously. The resident host retains its already admitted fallback obligation, product storage and provider dependencies. The destructor releases the caller's ownership without creating a new asynchronous obligation or letting a borrow from the destroyed owner escape.
+
+Dependency release can make fallback cleanup eligible. Dispatch it through the bound execution services with the required affinity. Keep those services and reporting live until cleanup completes. No helper thread or periodic polling service is required. This is valid only when the binding provides continued execution for the required work. A binding that cannot preserve that capability cannot admit this fallback. The service's own shutdown must preserve unresolved ownership rather than discard pending products or wait on dependencies held by its caller.
+
+Once terminal static cleanup begins, failed finalizers produce incidents and use the existing terminal abandonment rules. Continue eligible cleanup and destroy each initialized static once. A cleanup failure can remain observable even when checked postconditions establish that shutdown completed. Do not return new escaping provider-dependent incidents from a product already being torn down. Drain internal incidents while their dependencies remain available.
+
+Use the existing host record and secured terminal backing for the fallback. Avoid a separate allocation or general deferred-work framework for every source owner. Verify the ownership transfer, abnormal destruction, continued execution and exact-thread cleanup during the planned host and provider migrations. The allocation and execution costs remain subject to decision 12.
+
+[Finalization](../language/lifecycle/finalization.md), [Scope exit](../language/lifecycle/scope-exits-panics-and-cancellation.md), [Destruction](../language/lifecycle/destruction.md), [Static cleanup](../language/declarations/static-storage-declarations.md).
+
 ## Decisions still needing acceptance
 
-- The runtime shutdown ownership API remains open after decision 1. Decision 11 requires checking existing library operations before proposing an independent diagnostic representation or conversion API for decision 3.
+- The shutdown lifecycle proposal above remains open after decision 1. The user has not committed to the shutdown API. Decision 11 requires checking existing library operations before proposing an independent diagnostic representation or conversion API for decision 3.
 - Concrete backing sizes, handle-table representation, locks and worker counts remain implementation choices constrained by consumers. The proposal adds no generic reference-counted container framework.
 
 The source research supports trying this design. It does not prove a completed native implementation. The implementation sequence must expose missing compiler support. This research ran no tests or performance measurements and changed no runtime code or Linear issues.
