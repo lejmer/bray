@@ -4,6 +4,8 @@ This is a research proposal. It has not changed the language, runtime implementa
 
 The [language notes](bray-runtime-language-notes.md) and [consumer notes](bray-runtime-consumer-notes.md) support the recommendations below. This document records step 2 of the [delivery strategy](https://linear.app/bray-lang/document/bray-native-runtime-and-platform-delivery-plan-46623e2d308d).
 
+Every design choice must satisfy correctness, execution speed, binary size and compiler speed. [Decision 12](#12-correctness-execution-speed-binary-size-and-compiler-speed-govern-the-design) records these requirements and the evidence needed during implementation.
+
 ## Agreed decisions
 
 ### 1. Cleanup eligibility does not require a blocking wait
@@ -98,6 +100,18 @@ Implement diagnostic preservation as an explicitly called library operation if e
 
 Lazy initialization reduces resource use but does not prove that unused code and data are absent from a binary. Avoid unconditional registrations and descriptor references that retain optional implementations. Verify emitted code and data through link maps and archive-member inspection for consumers with and without the optional operations. Make these checks part of the planned migrations.
 
+### 12. Correctness, execution speed, binary size and compiler speed govern the design
+
+Correctness alone does not make a design acceptable. Bray programs must compete with equivalent Rust and C++ programs in execution speed. Minimize linked code and data so programs remain practical on integrated hardware with limited resources. Compiler speed must be no slower than current rustc on comparable workloads, with faster compilation as the goal. These are requirements for the destination, not measured claims about the current implementation.
+
+Evaluate these requirements while choosing ownership, storage, synchronization, compiler metadata and generated operations. Account for allocations, indirection, atomic operations, contention, frame size and work on ordinary execution paths. Secure mandatory cleanup backing without assuming a heap allocation for every owner or reserving unused maximum-sized structures. Consider code duplication and metadata size when choosing specialization or erasure.
+
+Compiler-enforced guarantees also have a cost. Share and reuse analysis results where their validity permits it. Avoid repeated dependency analysis, descriptor reconstruction and generated adapters that duplicate equivalent work. Measure clean and incremental compilation, including optimization and linking. Faster checking that shifts extra work into code generation or linking does not meet the total build-time goal.
+
+Measure representative native consumers during the existing migration steps. Compare equivalent behavior on the same target with recorded toolchain versions and comparable build settings. Include small synchronous programs and constrained hardware alongside async and loaded-provider consumers. Record execution latency or throughput, linked code and data size, peak memory and compilation time where relevant. Inspect emitted code and link maps to explain costs. Use the current Bray implementation as a regression baseline and Rust or C++ equivalents as external comparisons.
+
+Make tradeoffs explicit. An improvement in one measure does not excuse an unexplained regression in another. If a mechanism prevents these goals, reconsider the mechanism and any language rule that requires it. Resolve performance and size problems during migration instead of postponing them to a final optimization phase. This adds evidence to the planned consumers without requiring a separate prototype for each decision.
+
 ## Recommendation
 
 I recommend building the runtime around Bray's ordinary ownership, dependency, lifecycle, storage and capability contracts. Implement product hosts, attachments, cleanup admission, activations, tasks and reporting policy in Bray. The compiler supplies checked cleanup plans, adapters for protected representations and immutable descriptors. Explicit target ABI bindings supply OS operations.
@@ -167,7 +181,7 @@ Use caller or enclosing storage when the live shape is known. Give erased and re
 
 Activation turns a reserved region into one active owner. Rejection leaves the reservation intact. Source discharge releases unused allowance and logical accounting. Backing transferred into an activation or report remains owned until its last typed or erased user resolves. Epoch identity prevents a reused address from authorizing stale activation or disposal.
 
-Pooling is optional. Start with typed allocations and fixed local regions where they fit. Retain slab reuse where measured costs justify it. A process-wide credit counter or emergency pool does not prove that every live frame and typed error has physical backing. The admission domain remains bound across ordinary moves. Public values need no new domain parameter or fallible rebinding.
+Choose caller, enclosing, coallocated or pooled backing from the required lifetimes and measured costs. Pooling is optional. Evaluate allocation frequency, locality, reserved memory and linked support before choosing it. A process-wide credit counter or emergency pool does not prove that every live frame and typed error has physical backing. The admission domain remains bound across ordinary moves. Public values need no new domain parameter or fallible rebinding.
 
 Return admission failure through caller-owned storage before publication. An allocation-failure report can use an inline header and static message without allocating again. Bootstrap code uses explicit target allocation, raw layout and atomics. Its terminal cleanup needs must be empty or already supplied. Ordinary runtime source receives the same capacity and lifecycle checks as other Bray source. Exempting the whole runtime would make its allocation guarantee circular.
 
@@ -206,7 +220,7 @@ A step may need several PRs. Each PR should exercise a real consumer and identif
 5. Replace lane, event, timer and worker services. Prove wake races, cancellation withdrawal, affinity, queued execution limits, main-thread progress and worker-thread static cleanup. Remove linked Rust scheduler, cancellation, event and platform code as each service switches to Bray.
 6. Replace test-host policy and finish packaging. Implement protocol, capture, serial execution and timeouts in Bray. Delete adapter partitioning, Rust common support and runtime platform artifacts when no produced consumer needs them. Audit all six target artifacts and run native fixtures on available target hosts. Cross-compilation alone cannot prove target runtime behavior.
 
-For each implementation PR, record its consumer, ownership invariants, rejection and terminal cases, linked Rust functions and objects removed, and compiler gaps to resolve. Temporary Rust tests can remain outside produced programs as behavior references while Bray fixtures take over their coverage. Remove superseded production implementations as consumers switch.
+For each implementation PR, record its consumer, ownership invariants, rejection and terminal cases, linked Rust functions and objects removed, and compiler gaps to resolve. Record relevant execution, size and compilation evidence under decision 12 as consumers migrate. Temporary Rust tests can remain outside produced programs as behavior references while Bray fixtures take over their coverage. Remove superseded production implementations as consumers switch.
 
 ## Decisions still needing acceptance
 

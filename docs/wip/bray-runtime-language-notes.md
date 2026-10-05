@@ -10,6 +10,8 @@ The language research and consumer research are complete for this design scope. 
 
 Keep future entries brief and linked to their sources. Separate specification requirements, implementation evidence and design decisions.
 
+The user's design requirements include correctness, execution speed competitive with Rust or C++, minimal binaries for constrained hardware, and compilation no slower than current rustc, preferably faster. Evaluate language and compiler mechanisms against all four requirements. [Decision 12](bray-native-runtime-design.md#12-correctness-execution-speed-binary-size-and-compiler-speed-govern-the-design) records the comparison requirements. These requirements need measurement. They are not current performance findings.
+
 ## Accessibility and runtime authority
 
 - Bray has no `private` visibility. Declarations and fields are public by default. `internal` permits outside access through explicit acknowledgement such as `using internal`. Acknowledgement is lexical, applies to the named path and does not propagate through re-exports. It grants no ownership or trusted authority. [Visibility](../language/declarations/visibility-and-reachability.md).
