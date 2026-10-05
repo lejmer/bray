@@ -67,7 +67,7 @@ Keep future entries brief and linked to their sources. Separate specification re
 - [Decision 4](bray-native-runtime-design.md#4-bootstrap-uses-target-bindings-and-explicit-startup-storage) uses low-level target bindings and explicit startup storage before higher-level library entry becomes available. Trace remaining formation and admission cycles during synchronous-host implementation.
 - Which fairness, registry and retention policies do consumers require?
 - [Decision 1](bray-native-runtime-design.md#1-cleanup-eligibility-does-not-require-a-blocking-wait) establishes cleanup eligibility without a mandatory blocking wait. The static and root chapters need wording changes. [Decision 3](bray-native-runtime-design.md#3-provider-dependencies-retain-the-whole-product) keeps their whole-product retention rule and requires alignment of BRA-501's conflicting code-only retention.
-- Low-level bootstrap text describes reverse registered TLS cleanup. The static specification requires dependency order with structural ties. Apply the static semantics and check the consumer requirements before clarifying the wording.
+- [Decision 5](bray-native-runtime-design.md#5-thread-local-and-product-statics-use-dependency-cleanup-order) applies dependency order and deterministic structural ties to thread-local and product statics. Correct the low-level bootstrap chapter's conflicting reverse-registration wording. Thread-local cleanup remains on its owning thread.
 
 ## Coverage and reading limits
 
