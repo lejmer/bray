@@ -14,7 +14,7 @@ The language defines cleanup legality through existing dependency and lifecycle 
 
 A shutdown call that waits for a report which its caller can dispose of only after the call returns creates a circular wait. The host contract must avoid that cycle. A shutdown attempt that returns the unresolved owner is one proposed API, still under discussion. Pending cleanup keeps an explicit owner, execution capacity and error-reporting responsibility.
 
-Implementation must replace mandatory external-root waiting in the static and root shutdown chapters with cleanup eligibility. The precise retention granularity and shutdown API remain open. This decision alone does not accept whole-product retention or the illustrative `ProductOwner` and `ShutdownAttempt` types.
+Implementation must replace mandatory external-root waiting in the static and root shutdown chapters with cleanup eligibility. Decision 3 settles retention granularity. The shutdown API remains open, including the illustrative `ProductOwner` and `ShutdownAttempt` types.
 
 ### 2. Products that exchange owners share cleanup admission services
 
@@ -23,6 +23,16 @@ Products that exchange owned values bind to one cleanup admission service domain
 Each scheduler retains its own workers, execution limits, budgets and thread affinity. Synchronous products can use the shared service without a scheduler. Unrelated hosts can have separate service owners. The agreement does not require one process-wide service.
 
 Implement the service in ordinary Bray code. Loaded products receive an explicit host binding. Concrete backing layout, synchronization and pooling remain implementation choices.
+
+### 3. Provider dependencies retain the whole product
+
+An owner that depends on a provider keeps that provider's code and product statics alive until the dependency ends. Apply the same rule to reports, symbols, callbacks and borrowed data. There is no code-only exception or selective static-cleanup proof. Decision 1 still applies, so retention makes cleanup ineligible without requiring a blocking wait.
+
+Independent diagnostic preservation is required runtime behavior. A caller must be able to preserve diagnostic information as independently owned data, dispose of the original provider-dependent report and release its provider dependency. A typed payload that still needs provider code continues to retain the product. This uses ordinary Bray ownership and library operations. The diagnostic representation and conversion API remain implementation choices.
+
+Verify this behavior in the planned loaded-provider migration tests. Repeated plugin loads and unloads must release plugin resources while independently owned diagnostic history remains available. Deliberately retained provider-dependent payloads must keep the product alive. These are acceptance requirements for the existing implementation sequence, not a separate prototype prerequisite.
+
+Align BRA-501's code-only cleanup expectations and conflicting design text with this decision. Preserve the language's dependency rule when refining report representation.
 
 ## Recommendation
 
@@ -63,7 +73,7 @@ Following decision 2, keep one resident Bray service owner for each group of pro
 
 Foreign handles need a validated table with load and epoch identities that never repeat, plus invalidation at terminal release. Internal paths borrow stable hosts directly. The resident caller retains the last provider lease until image code and all its local destruction have returned. Otherwise an unload callback could unmap the code executing it. Because Bray `with` exits before body-local destruction, keep that lease in an enclosing owner or release it after an inner scope finishes. An entry capability alone cannot establish this ordering.
 
-Whole-product retention remains a proposal. Under that rule, an external owner that can reach provider code or storage delays static cleanup and unloading. An escaped panic report keeps its product available until disposal. BRA-501's code-only cleanup expectation and `docs/design/cleanup-storage-and-reports.md` conflict with the static and root chapters. Resolve the retention granularity before aligning them. A code-only exception would need a checked contract proving that every message and disposal operation is independent of provider statics.
+Decision 3 requires whole-product retention. An external owner that can reach provider code or storage delays static cleanup and unloading. An escaped provider-dependent panic report keeps its product available until disposal. Align BRA-501's code-only cleanup expectation and `docs/design/cleanup-storage-and-reports.md` with this rule. Do not add a code-only exception.
 
 Whole-product retention can keep product resources alive for the lifetime of a small report. It gives symbols, callbacks, reports and storage the same dependency rule. Decision 1 separates retention from a mandatory wait. Entry closure still rejects new source entry immediately, while existing owners retain the operations they need to complete disposal. The runtime shutdown API must preserve responsibility for cleanup when external roots keep a domain ineligible.
 
@@ -113,9 +123,9 @@ The test coordinator may remain host-side Rust. Everything linked into a test pr
 
 A step may need several PRs. Each PR should exercise a real consumer and identify the Rust code it removes. This sequence keeps the dependency order of the delivery strategy.
 
-1. Settle lifetime semantics and bootstrap role lowering. Apply decision 1, settle retention granularity and the runtime shutdown ownership contract, then align conflicting specification text, design text and fixtures. Prove a typed role-bound Bray owner and TLS destructor entry without recursive trampolines or admission through the service being created. This establishes the first implementation prerequisite.
+1. Apply agreed lifetime semantics and settle bootstrap role lowering. Apply decisions 1 and 3, settle the runtime shutdown ownership contract, then align conflicting specification text, design text and fixtures. Prove a typed role-bound Bray owner and TLS destructor entry without recursive trampolines or admission through the service being created. This establishes the first implementation prerequisite.
 2. Replace the synchronous host. Produce an executable that uses Bray resident product formation, ordinary owner cleanup, panic and failure reporting, exact-thread statics and shutdown, with mandatory backing for those owners. Remove its linked Rust product, synchronous-root, attachment and report-rendering paths. Use link-map and archive-member evidence to prove that it links no project-owned Rust. Establish this before completing the async scheduler migration.
-3. Replace formation and admission for a real loaded provider. Exercise two independent loads, statics, archive and imported-MIR contributions, escaped reports and typed errors, last callback return and reload. Run terminal disposal with allocation denied. Remove the Rust product registry, retention and static-admission code used by that consumer. Extend compiler metadata for physical cleanup backing as needed.
+3. Replace formation and admission for a real loaded provider. Exercise two independent loads, statics, archive and imported-MIR contributions, escaped reports and typed errors, last callback return and reload. Include repeated plugin reloads with independently preserved diagnostic history and resource release, plus intentional retention of provider-dependent payloads. Run terminal disposal with allocation denied. Remove the Rust product registry, retention and static-admission code used by that consumer. Extend compiler metadata for physical cleanup backing as needed.
 4. Replace frame and task execution. Prove that direct await creates no child task. Exercise erased and recursive activations, start, join, cancel and abnormal payload cleanup with secured backing, one terminal owner and separate broadcast and resolution. Remove Rust `NativeFrame`, `NativeRun`, task control records and the `Any` bridge from that execution path.
 5. Replace lane, event, timer and worker services. Prove wake races, cancellation withdrawal, affinity, queued execution limits, main-thread progress and worker-thread static cleanup. Remove linked Rust scheduler, cancellation, event and platform code as each service switches to Bray.
 6. Replace test-host policy and finish packaging. Implement protocol, capture, serial execution and timeouts in Bray. Delete adapter partitioning, Rust common support and runtime platform artifacts when no produced consumer needs them. Audit all six target artifacts and run native fixtures on available target hosts. Cross-compilation alone cannot prove target runtime behavior.
@@ -124,7 +134,7 @@ For each implementation PR, record its consumer, ownership invariants, rejection
 
 ## Decisions still needing acceptance
 
-- Retention granularity and the runtime shutdown ownership API remain open after decision 1. Whole-product retention for external report and code owners would change BRA-501 fixture expectations and may retain resources longer.
+- The runtime shutdown ownership API and independent diagnostic representation remain open after decisions 1 and 3.
 - Concrete backing sizes, handle-table representation, locks and worker counts remain implementation choices constrained by consumers. The proposal adds no generic reference-counted container framework.
 
 The source research supports trying this design. It does not prove a completed native implementation. The implementation sequence must expose missing compiler support. This research ran no tests or performance measurements and changed no runtime code or Linear issues.
