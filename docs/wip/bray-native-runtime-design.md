@@ -56,6 +56,14 @@ Storage may come from an enclosing frame, a combined allocation, separately owne
 
 Allocations performed by application finalizers remain ordinary fallible operations. The guarantee covers the runtime's mandatory cleanup work. Verify secured backing in the planned host, provider and frame migration tests, including cleanup with allocation denied.
 
+### 7. Started tasks have one control record and one source resolution owner
+
+Use one private Bray control record per started task. One source owner holds the responsibility to resolve the task, and its result transfers exactly once. Scheduler entries and wake registrations retain the storage needed for safe dispatch and notification without acquiring another source resolution obligation.
+
+The compiler supplies frame layout and generated cleanup operations. The Bray control record manages scheduling, cancellation, waits and terminal state. Direct await stays within the current run and creates no additional task control record. Keep backing live through the last activation, result or retained internal user.
+
+Remove duplicated task state and descriptor graphs across task, run and scheduler representations. Preserve existing protected source task semantics through ordinary private Bray runtime code. Verify this architecture during the planned frame and task replacement.
+
 ## Recommendation
 
 I recommend building the runtime around Bray's ordinary ownership, dependency, lifecycle, storage and capability contracts. Implement product hosts, attachments, cleanup admission, activations, tasks and reporting policy in Bray. The compiler supplies checked cleanup plans, adapters for protected representations and immutable descriptors. Explicit target ABI bindings supply OS operations.
@@ -121,7 +129,7 @@ Return admission failure through caller-owned storage before publication. An all
 
 Generated code owns source control flow, initialized-state tracking, separate task broadcast and resolution, direct-await composition and protected frame operations. Bray runtime code owns admission, stable activation backing, dispatch, waits, cancellation state, terminal publication, observation and infrastructure. A generated ABI adapter establishes the execution authority supplied by its role. Source cannot declare itself authorized to run on a lane.
 
-Give each task one control record. Short synchronization governs transitions among ready, running, waiting and terminal states. Dispatch acquires execution authority under the transition lock, calls source outside it, then commits suspension or terminal state. Queue entries retain enough storage authority for dispatch. They do not create a second source resolution owner.
+Decision 7 gives each started task one control record. Short synchronization governs transitions among ready, running, waiting and terminal states. Dispatch acquires execution authority under the transition lock, calls source outside it, then commits suspension or terminal state. Queue entries retain enough storage authority for dispatch. They do not create a second source resolution owner.
 
 Cancellation requests and cleanup shielding have explicit scoped state. Requests wake eligible suspended work. Storage reclamation waits for completion. Generated lexical cleanup finishes before terminal publication. Observation establishes the completion visibility edge and transfers one result, followed by host payload and static cleanup. Main stays on main. Origin-thread dependencies pin work to the exact attachment, while other state can migrate across compatible lanes.
 
