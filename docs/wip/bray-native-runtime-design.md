@@ -28,7 +28,7 @@ Implement the service in ordinary Bray code. Loaded products receive an explicit
 
 An owner that depends on a provider keeps that provider's code and product statics alive until the dependency ends. Apply the same rule to reports, symbols, callbacks and borrowed data. There is no code-only exception or selective static-cleanup proof. Decision 1 still applies, so retention makes cleanup ineligible without requiring a blocking wait.
 
-Independent diagnostic preservation is required runtime behavior. A caller must be able to preserve diagnostic information as independently owned data, dispose of the original provider-dependent report and release its provider dependency. A typed payload that still needs provider code continues to retain the product. This uses ordinary Bray ownership and library operations. The diagnostic representation and conversion API remain implementation choices.
+Independent diagnostic preservation must be available to callers that need diagnostic history after provider release. A caller must be able to preserve diagnostic information as independently owned data, dispose of the original provider-dependent report and release its provider dependency. A typed payload that still needs provider code continues to retain the product. This uses ordinary Bray ownership and optional library operations under decision 11. Reuse existing report access or formatting operations where they suffice. A dedicated diagnostic representation or conversion API has not been agreed.
 
 Verify this behavior in the planned loaded-provider migration tests. Repeated plugin loads and unloads must release plugin resources while independently owned diagnostic history remains available. Deliberately retained provider-dependent payloads must keep the product alive. These are acceptance requirements for the existing implementation sequence, not a separate prototype prerequisite.
 
@@ -89,6 +89,14 @@ Represent a pending wait with an ordinary Bray registration owner. Cancellation 
 Remember a wake that arrives while its task is running, and coalesce repeated wakes without losing pending work. A cancellation request does not establish completion. Keep task storage live until execution completes and every outstanding storage user resolves.
 
 Internal access grants no additional authority over registrations or task storage. Enforce the owner and state contracts from decision 8. Preserve the existing public task operations. Verify cancellation races, callback lifetime and wakes during execution in the planned event and scheduler migration.
+
+### 11. Unused optional services stay out of produced programs
+
+Programs must link only the runtime and library support their reachable behavior requires. Preserve mandatory ownership, cleanup and reporting guarantees. Keep optional diagnostic preservation, symbol lookup and history storage out of programs that do not use them. Provider retention alone must not pull in diagnostic conversion or storage for diagnostic history.
+
+Implement diagnostic preservation as an explicitly called library operation if existing operations cannot satisfy the consumer. Ordinary report handling must not automatically create independent snapshots. Do not add a dedicated representation or framework without a consumer requirement that existing operations cannot express.
+
+Lazy initialization reduces resource use but does not prove that unused code and data are absent from a binary. Avoid unconditional registrations and descriptor references that retain optional implementations. Verify emitted code and data through link maps and archive-member inspection for consumers with and without the optional operations. Make these checks part of the planned migrations.
 
 ## Recommendation
 
@@ -202,7 +210,7 @@ For each implementation PR, record its consumer, ownership invariants, rejection
 
 ## Decisions still needing acceptance
 
-- The runtime shutdown ownership API and independent diagnostic representation remain open after decisions 1 and 3.
+- The runtime shutdown ownership API remains open after decision 1. Decision 11 requires checking existing library operations before proposing an independent diagnostic representation or conversion API for decision 3.
 - Concrete backing sizes, handle-table representation, locks and worker counts remain implementation choices constrained by consumers. The proposal adds no generic reference-counted container framework.
 
 The source research supports trying this design. It does not prove a completed native implementation. The implementation sequence must expose missing compiler support. This research ran no tests or performance measurements and changed no runtime code or Linear issues.
