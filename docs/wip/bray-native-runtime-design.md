@@ -48,6 +48,14 @@ Thread-local statics follow the same dependency rule as product statics. If clea
 
 Registration order has no semantic significance. Correct the bootstrap chapter's reverse-registration wording to match the static specification. Preserve dependency precedence across domains, with no universal completion order for independent domains.
 
+### 6. Cleanup admission secures actual backing before ownership begins
+
+Secure the actual storage required for mandatory cleanup before each new obligation becomes live. Preserve its allowance through ownership transfers. A possible typed cleanup error needs enough correctly aligned backing, and mandatory activation, result transfer and incident preservation must work when further allocation fails. Bookkeeping credits alone do not establish that backing exists.
+
+Storage may come from an enclosing frame, a combined allocation, separately owned regions or a pool. This decision requires no separate heap allocation per value. Moves and wrapping preserve existing allowances without charging twice. Aggregates admit only their additional local obligations, and transferred backing stays live until its last user resolves.
+
+Allocations performed by application finalizers remain ordinary fallible operations. The guarantee covers the runtime's mandatory cleanup work. Verify secured backing in the planned host, provider and frame migration tests, including cleanup with allocation denied.
+
 ## Recommendation
 
 I recommend building the runtime around Bray's ordinary ownership, dependency, lifecycle, storage and capability contracts. Implement product hosts, attachments, cleanup admission, activations, tasks and reporting policy in Bray. The compiler supplies checked cleanup plans, adapters for protected representations and immutable descriptors. Explicit target ABI bindings supply OS operations.
@@ -97,7 +105,7 @@ Decision 5 requires compiler-provided dependency order and structural tie keys w
 
 ## Cleanup admission and backing
 
-One compiler cleanup description determines legality, effects, symbolic storage needs and generated actions. Concrete specialization adds layout without changing action selection. Each new local obligation admits its additional allowance before publication. Children already carry theirs. Construction failure leaves initialized inputs and their allowances owned. A completion proof cannot release capacity that later mutation may need again.
+Decision 6 requires physical cleanup backing throughout ownership. One compiler cleanup description determines legality, effects, symbolic storage needs and generated actions. Concrete specialization adds layout without changing action selection. Each new local obligation admits its additional allowance before publication. Children already carry theirs. Construction failure leaves initialized inputs and their allowances owned. A completion proof cannot release capacity that later mutation may need again.
 
 The allowance covers the actual mandatory path. That includes activation and control storage, concrete finalizer frames and results, typed incident backing, report and wait links, and bounded callback outcomes. It also covers host detachment acknowledgements and terminal infrastructure that must work when allocation is denied. Application finalizer allocations remain fallible. The guarantee does not cover unlimited explicit retries.
 
