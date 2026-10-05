@@ -76,6 +76,12 @@ Compiler-protected representations such as `Task<T>` and `PanicReport` remain a 
 
 During the planned migrations, verify that internal acknowledgement alone cannot authorize duplicate result transfer, stale storage use or invalid task transitions. Treat missing compiler enforcement as an implementation gap to resolve there.
 
+### 9. Execution limits count running tasks, not every live task
+
+Storage admission governs capacity for live task backing. Execution limits govern simultaneous execution. Queue excess ready tasks, and release an execution slot when a task suspends so eligible children and other tasks can run. Queued and suspended tasks retain their admitted backing and ownership obligations.
+
+Preserve the specification's distinction between runtime execution limits and explicit algorithm budgets. Replace the current Rust interpretation that caps registered task count as an execution quota. Verify queuing, suspension and compatible-lane progress in the planned scheduler migration.
+
 ## Recommendation
 
 I recommend building the runtime around Bray's ordinary ownership, dependency, lifecycle, storage and capability contracts. Implement product hosts, attachments, cleanup admission, activations, tasks and reporting policy in Bray. The compiler supplies checked cleanup plans, adapters for protected representations and immutable descriptors. Explicit target ABI bindings supply OS operations.
@@ -159,7 +165,7 @@ Cancellation requests and cleanup shielding have explicit scoped state. Requests
 
 Waits observe, register and recheck around a commit point. Cancellation withdraws uncommitted registrations. Committed notifications retain their targets until callbacks return. Coalesce repeated wakes and preserve a wake that arrives while the task runs. Reserve mandatory waiter and queue links before they become necessary. Callbacks and disposal run outside collection locks. Source task handles keep their existing API without raw wake, poll or detach operations.
 
-Start with one scheduler implementation, per-compatible-lane ready queues, ordered deadlines and explicit worker owners. Preserve public channel and budget FIFO contracts. Choose internal queue and worker policies from consumer needs. Separate task storage failure from the hard quota on simultaneous execution. Excess ready tasks queue. Workers and reactor resources initialize when reachable work needs them, with explicit creation and limit policies.
+Start with one scheduler implementation, per-compatible-lane ready queues, ordered deadlines and explicit worker owners. Preserve public channel and budget FIFO contracts. Choose internal queue and worker policies from consumer needs. Decision 9 separates task storage admission from the hard quota on simultaneous execution. Excess ready tasks queue, and suspended tasks release execution slots while retaining backing. Workers and reactor resources initialize when reachable work needs them, with explicit creation and limit policies.
 
 Worker bootstrap uses target thread and TLS operations below public `std.thread`. It must establish run and event services before public wrappers can use them. Synchronous roots use the same host, attachment and report owners without a scheduler. Shutdown keeps the allocator, incident sink, lanes, loaders and providers live through static cleanup. Attachment acknowledgements precede worker join and final release. These operations must avoid self-join and run outside host locks.
 
