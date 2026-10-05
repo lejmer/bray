@@ -82,6 +82,14 @@ Storage admission governs capacity for live task backing. Execution limits gover
 
 Preserve the specification's distinction between runtime execution limits and explicit algorithm budgets. Replace the current Rust interpretation that caps registered task count as an execution quota. Verify queuing, suspension and compatible-lane progress in the planned scheduler migration.
 
+### 10. Wait registrations transfer ownership at notification commit
+
+Represent a pending wait with an ordinary Bray registration owner. Cancellation before notification commit withdraws the registration. Once notification commits, delivery retains the target storage until the callback returns. Run callbacks outside collection locks.
+
+Remember a wake that arrives while its task is running, and coalesce repeated wakes without losing pending work. A cancellation request does not establish completion. Keep task storage live until execution completes and every outstanding storage user resolves.
+
+Internal access grants no additional authority over registrations or task storage. Enforce the owner and state contracts from decision 8. Preserve the existing public task operations. Verify cancellation races, callback lifetime and wakes during execution in the planned event and scheduler migration.
+
 ## Recommendation
 
 I recommend building the runtime around Bray's ordinary ownership, dependency, lifecycle, storage and capability contracts. Implement product hosts, attachments, cleanup admission, activations, tasks and reporting policy in Bray. The compiler supplies checked cleanup plans, adapters for protected representations and immutable descriptors. Explicit target ABI bindings supply OS operations.
@@ -163,7 +171,7 @@ Decision 7 gives each started task one control record. Short synchronization gov
 
 Cancellation requests and cleanup shielding have explicit scoped state. Requests wake eligible suspended work. Storage reclamation waits for completion. Generated lexical cleanup finishes before terminal publication. Observation establishes the completion visibility edge and transfers one result, followed by host payload and static cleanup. Main stays on main. Origin-thread dependencies pin work to the exact attachment, while other state can migrate across compatible lanes.
 
-Waits observe, register and recheck around a commit point. Cancellation withdraws uncommitted registrations. Committed notifications retain their targets until callbacks return. Coalesce repeated wakes and preserve a wake that arrives while the task runs. Reserve mandatory waiter and queue links before they become necessary. Callbacks and disposal run outside collection locks. Source task handles keep their existing API without raw wake, poll or detach operations.
+Decision 10 governs wait registration ownership and notification commit. Waits observe, register and recheck around that commit point. Reserve mandatory waiter and queue links before they become necessary. Callbacks and disposal run outside collection locks. Source task handles keep their existing API without raw wake, poll or detach operations.
 
 Start with one scheduler implementation, per-compatible-lane ready queues, ordered deadlines and explicit worker owners. Preserve public channel and budget FIFO contracts. Choose internal queue and worker policies from consumer needs. Decision 9 separates task storage admission from the hard quota on simultaneous execution. Excess ready tasks queue, and suspended tasks release execution slots while retaining backing. Workers and reactor resources initialize when reachable work needs them, with explicit creation and limit policies.
 
