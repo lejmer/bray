@@ -16,6 +16,14 @@ A shutdown call that waits for a report which its caller can dispose of only aft
 
 Implementation must replace mandatory external-root waiting in the static and root shutdown chapters with cleanup eligibility. The precise retention granularity and shutdown API remain open. This decision alone does not accept whole-product retention or the illustrative `ProductOwner` and `ShutdownAttempt` types.
 
+### 2. Products that exchange owners share cleanup admission services
+
+Products that exchange owned values bind to one cleanup admission service domain. An owned error or report keeps valid cleanup backing through transfer and eventual disposal. The binding remains stable across ordinary moves, and the service stays live while transferred backing depends on it.
+
+Each scheduler retains its own workers, execution limits, budgets and thread affinity. Synchronous products can use the shared service without a scheduler. Unrelated hosts can have separate service owners. The agreement does not require one process-wide service.
+
+Implement the service in ordinary Bray code. Loaded products receive an explicit host binding. Concrete backing layout, synchronization and pooling remain implementation choices.
+
 ## Recommendation
 
 I recommend building the runtime around Bray's ordinary ownership, dependency, lifecycle, storage and capability contracts. Implement product hosts, attachments, cleanup admission, activations, tasks and reporting policy in Bray. The compiler supplies checked cleanup plans, adapters for protected representations and immutable descriptors. Explicit target ABI bindings supply OS operations.
@@ -51,7 +59,7 @@ Immutable product metadata supplies the completed static order, required service
 
 Formation validates external bindings and transitive provider requirements, secures host and static cleanup backing, constructs the complete host, then publishes entry availability. Rollback owns every accepted input and provider dependency. Static materialization remains constant initialization. Formation does not run a user's lazy initializer. The compiler validates generated inputs, so the runtime needs no second planner for them. Entry still checks external bindings.
 
-Keep one resident Bray service owner for the shared host and admission domain, outside the unloadable images whose callbacks it protects. Independent schedulers borrow this domain and retain separate workers, budgets and execution authority. Synchronous products use it without an async runtime. An embedding host supplies an explicit binding. An image-local cached fallback would violate that ownership model.
+Following decision 2, keep one resident Bray service owner for each group of products that exchange owned values. It lives outside the unloadable images whose callbacks it protects. Independent schedulers borrow this domain and retain separate workers, budgets and execution authority. Synchronous products use it without an async runtime. An embedding host supplies an explicit binding. An image-local cached fallback would violate that ownership model.
 
 Foreign handles need a validated table with load and epoch identities that never repeat, plus invalidation at terminal release. Internal paths borrow stable hosts directly. The resident caller retains the last provider lease until image code and all its local destruction have returned. Otherwise an unload callback could unmap the code executing it. Because Bray `with` exits before body-local destruction, keep that lease in an enclosing owner or release it after an inner scope finishes. An entry capability alone cannot establish this ordering.
 
@@ -117,7 +125,6 @@ For each implementation PR, record its consumer, ownership invariants, rejection
 ## Decisions still needing acceptance
 
 - Retention granularity and the runtime shutdown ownership API remain open after decision 1. Whole-product retention for external report and code owners would change BRA-501 fixture expectations and may retain resources longer.
-- A shared admission service domain should remain independent of scheduler identity. Multiple loaded products need explicit binding to it.
 - Concrete backing sizes, handle-table representation, locks and worker counts remain implementation choices constrained by consumers. The proposal adds no generic reference-counted container framework.
 
 The source research supports trying this design. It does not prove a completed native implementation. The implementation sequence must expose missing compiler support. This research ran no tests or performance measurements and changed no runtime code or Linear issues.
