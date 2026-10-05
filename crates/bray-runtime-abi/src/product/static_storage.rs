@@ -449,6 +449,7 @@ mod tests {
             std::mem::align_of::<usize>()
         );
     }
+
     #[test]
     fn typed_incidents_retain_their_native_provider_record() {
         assert_abi_layout!(NativeCleanupIncident, size: 144, align: 8, fields: {
