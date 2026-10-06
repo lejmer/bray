@@ -17,13 +17,13 @@ fn imported_constant_templates_preserve_materialization_checks() {
     let provider = compilation(
         r#"
         module api;
-        public struct Guard
+        struct Guard
         {
-            public value: i32;
+            value: i32;
             destruct() { panic("cleanup"); }
         }
-        public const TEXT: string = "ready";
-        public const func same<T>(pos value: T) -> T { return value; }
+        const TEXT: string = "ready";
+        const func same<T>(pos value: T) -> T { return value; }
     "#,
     );
 
@@ -66,7 +66,7 @@ fn public_constant_callables_round_trip_as_implementation_bodies() {
         r#"
             module math;
 
-            public const func selected(pos value: i32) -> i32
+            const func selected(pos value: i32) -> i32
             {
                 return value;
             }
@@ -180,16 +180,16 @@ fn generic_constant_type_members_export_forwarded_self_results() {
         r#"
             module types;
 
-            public struct Container<T>
+            struct Container<T>
             {
                 internal value: T?;
 
-                public static const func empty() -> Self
+                static const func empty() -> Self
                 {
                     return internal make_empty<T>();
                 }
 
-                public static const func empty_with<U>() -> Self?
+                static const func empty_with<U>() -> Self?
                 {
                     return internal make_empty<T>();
                 }
@@ -220,11 +220,11 @@ fn generic_constant_type_members_can_call_generic_constant_helpers() {
         r#"
             module values;
 
-            public struct Cell<T>
+            struct Cell<T>
             {
-                public marker: usize;
+                marker: usize;
 
-                public static const func empty() -> Self
+                static const func empty() -> Self
                 {
                     return internal empty_cell<T>();
                 }

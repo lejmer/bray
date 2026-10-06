@@ -8,7 +8,7 @@ fn returned_values_preserve_imported_generic_dependencies() {
         r#"
             module api;
 
-            public func same<T>(pos value: &T) -> &T
+            func same<T>(pos value: &T) -> &T
             {
                 return value;
             }
@@ -70,12 +70,12 @@ fn returned_assignments_and_errors_survive_interfaces() {
         r#"
             module api;
 
-            public struct Holder
+            struct Holder
             {
                 mut value: &bool;
             }
 
-            public func replace(pos first: &bool, pos second: &bool) -> Holder
+            func replace(pos first: &bool, pos second: &bool) -> Holder
             {
                 let mut result = Holder { value = first };
                 result.value = second;
@@ -83,7 +83,7 @@ fn returned_assignments_and_errors_survive_interfaces() {
                 return result;
             }
 
-            public func forward(pos input: Result<bool, &bool>) -> Result<bool, &bool>
+            func forward(pos input: Result<bool, &bool>) -> Result<bool, &bool>
             {
                 let value = try input;
 
@@ -148,7 +148,7 @@ fn returned_borrow_alias_assignments_survive_interfaces() {
         r#"
             module api;
 
-            public func same<T>(pos value: &mut T) -> &mut T
+            func same<T>(pos value: &mut T) -> &mut T
             {
                 return value;
             }
@@ -201,15 +201,15 @@ fn returned_borrow_alias_assignments_survive_interfaces() {
 #[test]
 fn implicit_call_reborrows_preserve_source_and_imported_parameter_modes() {
     let declaration = r#"
-public func touch<T>(pos value: &mut T)
+func touch<T>(pos value: &mut T)
 {
 }
 
-public func take<T>(pos value: T)
+func take<T>(pos value: T)
 {
 }
 
-public func same(pos value: &mut bool) -> &mut bool
+func same(pos value: &mut bool) -> &mut bool
 {
     return value;
 }
@@ -308,7 +308,7 @@ fn returned_values_preserve_default_wrapper_dependencies_in_interfaces() {
         r#"
             module api;
 
-            public struct Holder
+            struct Holder
             {
                 value: &bool;
             }
@@ -321,7 +321,7 @@ fn returned_values_preserve_default_wrapper_dependencies_in_interfaces() {
                 };
             }
 
-            public func choose(pos transient: &bool, pos anchor: &bool, value: Holder = wrap(transient, anchor)) -> Holder
+            func choose(pos transient: &bool, pos anchor: &bool, value: Holder = wrap(transient, anchor)) -> Holder
             {
                 return value;
             }
@@ -402,7 +402,7 @@ fn storage_projection_guarantees_survive_generic_interfaces() {
             &r#"
                 module api;
 
-                        public func project<T>(pos value: BORROWbox T) -> BORROWT executes(pure, total)
+                        func project<T>(pos value: BORROWbox T) -> BORROWT executes(pure, total)
                         {
                             return match value
                             {

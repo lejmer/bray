@@ -18,8 +18,8 @@ fn imported_callable_static_access_orders_local_cleanup() {
     let provider = compilation(
         r#"
         module api;
-        public static ROOT: i32 = 1;
-        public func read_root()
+        static ROOT: i32 = 1;
+        func read_root()
         {
             let value = ROOT;
             value;
@@ -82,12 +82,12 @@ fn imported_static_initializer_preserves_helper_static_access() {
     let provider = compilation(
         r#"
         module api;
-        public static ROOT: i32 = 1;
-        public const func read_root() -> i32
+        static ROOT: i32 = 1;
+        const func read_root() -> i32
         {
             return ROOT;
         }
-        public static COPY: i32 = read_root();
+        static COPY: i32 = read_root();
     "#,
     );
 
@@ -138,12 +138,12 @@ fn imported_runtime_default_preserves_helper_static_access() {
     let provider = compilation(
         r#"
         module api;
-        public static ROOT: i32 = 1;
-        public func read_root() -> i32
+        static ROOT: i32 = 1;
+        func read_root() -> i32
         {
             return ROOT;
         }
-        public func with_default(pos value: i32 = read_root())
+        func with_default(pos value: i32 = read_root())
         {
             value;
         }
@@ -205,9 +205,9 @@ fn imported_finalizers_use_verified_entry_conditions() {
     let provider = compilation(
         r#"
         module api;
-        public struct Value<T>
+        struct Value<T>
         {
-            public ready: bool;
+            ready: bool;
             payload: T;
 
             finalize()
@@ -272,14 +272,14 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
         r#"
             module types;
 
-            public struct Guard
+            struct Guard
             {
                 destruct()
                 {
                 }
             }
 
-            public union Choice
+            union Choice
             {
                 Pair(pos left: Guard, pos right: Guard);
             }
@@ -437,16 +437,16 @@ fn public_static_initializers_round_trip_as_checked_source_templates() {
         r#"
             module app;
 
-            public static Root: i32 = 1;
+            static Root: i32 = 1;
 
-            public static Alias: &i32 = &Root;
+            static Alias: &i32 = &Root;
 
-            public static Generic<const N: i32>: i32
+            static Generic<const N: i32>: i32
                 with(true) = N;
 
-            public static Selected: &i32 = &Generic<1>;
+            static Selected: &i32 = &Generic<1>;
 
-            @thread_local public static ThreadValue: i32 = 2;
+            @thread_local static ThreadValue: i32 = 2;
         "#,
     );
 
@@ -524,7 +524,7 @@ fn generic_container_lifecycle_bodies_publish_executable_templates() {
         r#"
             module app;
 
-            public struct Boxed<T>
+            struct Boxed<T>
             {
                 value: T;
 
@@ -560,24 +560,24 @@ fn aggregate_static_initializers_export_for_source_independent_consumers() {
         r#"
         module api;
 
-        public struct Pair
+        struct Pair
         {
-            public first: i32;
-            public second: i32;
+            first: i32;
+            second: i32;
         }
 
-        public struct State
+        struct State
         {
-            public nested: Pair;
-            public marker: i32;
+            nested: Pair;
+            marker: i32;
         }
 
-        public struct AtomicState
+        struct AtomicState
         {
-            public value: core.atomic.Atomic<u32>;
+            value: core.atomic.Atomic<u32>;
         }
 
-        public static Stored: State = State
+        static Stored: State = State
         {
             marker = 39,
             nested = Pair
@@ -587,7 +587,7 @@ fn aggregate_static_initializers_export_for_source_independent_consumers() {
             }
         };
 
-        public static Generic<const N: i32>: State
+        static Generic<const N: i32>: State
             with(true) = State
         {
             marker = N + 2,
@@ -598,7 +598,7 @@ fn aggregate_static_initializers_export_for_source_independent_consumers() {
             }
         };
 
-        public static Atomic: AtomicState = AtomicState
+        static Atomic: AtomicState = AtomicState
         {
             value = core.atomic.initialize<u32>(0)
         };

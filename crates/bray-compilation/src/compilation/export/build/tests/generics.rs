@@ -21,7 +21,7 @@ fn imported_generic_references_preserve_declared_argument_counts() {
         r#"
         module api;
 
-        public func identity<T, U>(pos value: T, pos other: U) -> T
+        func identity<T, U>(pos value: T, pos other: U) -> T
         {
             return value;
         }
@@ -79,14 +79,14 @@ fn generic_application_recovery_preserves_imported_parameter_counts() {
         r#"
         module api;
 
-        public struct Boxed<T>
+        struct Boxed<T>
         {
             value: T;
         }
 
-        public callable action<T> = func(pos value: T) -> T;
+        callable action<T> = func(pos value: T) -> T;
 
-        public trait Marker<T>
+        trait Marker<T>
         {
         }
     "#,
@@ -132,7 +132,7 @@ fn abstract_trait_results_survive_package_interfaces() {
         r#"
         module api;
 
-        public trait Project
+        trait Project
         {
             func project() -> &bool;
 
@@ -142,7 +142,7 @@ fn abstract_trait_results_survive_package_interfaces() {
             }
         }
 
-        public func forward<T>(pos value: &T, pos repeat: bool = false) -> &bool with(T: Project)
+        func forward<T>(pos value: &T, pos repeat: bool = false) -> &bool with(T: Project)
         {
             if repeat
             {
@@ -152,7 +152,7 @@ fn abstract_trait_results_survive_package_interfaces() {
             return value.project();
         }
 
-        public func forward_loop<T>(pos value: &T, pos repeat: bool = false) -> &bool with(T: Project)
+        func forward_loop<T>(pos value: &T, pos repeat: bool = false) -> &bool with(T: Project)
         {
             let mut current: &T = value;
             let mut pending = repeat;
@@ -247,7 +247,7 @@ fn type_owned_callable_overloads_round_trip_through_package_interfaces() {
         r#"
             module app;
 
-            public struct Value<T>
+            struct Value<T>
             {
                 stored: T;
 
@@ -300,11 +300,11 @@ fn generic_trait_implementations_round_trip_through_package_interfaces() {
         r#"
             module app;
 
-            public trait Base
+            trait Base
             {
             }
 
-            public trait Extension
+            trait Extension
             {
             }
 
@@ -339,24 +339,24 @@ fn public_callable_and_type_semantics_round_trip_without_source() {
         r#"
             module app;
 
-            public struct Boxed<T>
+            struct Boxed<T>
             {
                 value: T;
             }
 
-            public union Maybe<T>
+            union Maybe<T>
             {
                 Some(value: T);
                 None;
             }
 
-            public func identity<T>(pos value: T) -> T
+            func identity<T>(pos value: T) -> T
                 with(true)
             {
                 return value;
             }
 
-            public func count(pos value: i32 = 1) -> usize
+            func count(pos value: i32 = 1) -> usize
                 requires(value > 0)
             {
                 return 1;
@@ -417,33 +417,33 @@ fn exported_callable_and_type_semantics_intern_without_provider_source() {
         r#"
             module app;
 
-            public struct Boxed<T>
+            struct Boxed<T>
             {
                 value: T;
             }
 
-            public trait Provides
+            trait Provides
             {
                 type Item;
             }
 
-            public impl Boxed<i32>
+            impl Boxed<i32>
             {
                 type Local = i32;
             }
 
-            public impl Boxed<i32>(Provides)
+            impl Boxed<i32>(Provides)
             {
                 type Item = i32;
             }
 
-            public func count(pos value: i32 = 1) -> usize requires(value > 0)
+            func count(pos value: i32 = 1) -> usize requires(value > 0)
             {
                 return 1;
             }
 
-            public static ProductValue: i32 = 1;
-            @thread_local public static ThreadValue: i32 = 2;
+            static ProductValue: i32 = 1;
+            @thread_local static ThreadValue: i32 = 2;
         "#,
     );
 
@@ -585,24 +585,24 @@ fn imported_generic_type_members_reuse_the_receiver_substitution() {
         r#"
             module types;
 
-            public struct Factory<T>
+            struct Factory<T>
             {
-                public static func empty() -> Self
+                static func empty() -> Self
                 {
                     panic("fixture");
                 }
 
-                public static func identity<U>(pos value: U) -> U
+                static func identity<U>(pos value: U) -> U
                 {
                     return value;
                 }
             }
 
-            public struct Guard<T>
+            struct Guard<T>
             {
                 internal value: T;
 
-                public mut func get() -> &mut T
+                mut func get() -> &mut T
                 {
                     panic("fixture");
                 }
@@ -705,17 +705,17 @@ fn named_callable_contract_applications_export_in_public_signatures() {
 fn member_access_distinguishes_trait_applications_from_value_arguments() {
     let declarations = r#"
         @copy
-        public struct Flag
+        struct Flag
         {
             value: bool;
         }
 
-        public trait Reader<T>
+        trait Reader<T>
         {
             func read() -> T;
         }
 
-        public impl FlagReader = Flag(Reader<bool>)
+        impl FlagReader = Flag(Reader<bool>)
         {
             func read() -> bool
             {
@@ -723,12 +723,12 @@ fn member_access_distinguishes_trait_applications_from_value_arguments() {
             }
         }
 
-        public func identity(pos value: Flag) -> Flag
+        func identity(pos value: Flag) -> Flag
         {
             return value;
         }
 
-        public func generic_identity<T>(pos value: T) -> T
+        func generic_identity<T>(pos value: T) -> T
         {
             return value;
         }

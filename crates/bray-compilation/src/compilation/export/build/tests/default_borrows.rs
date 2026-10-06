@@ -77,17 +77,17 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
         module api;
 
         @copy
-        public struct Holder
+        struct Holder
         {
             value: &bool;
         }
 
-        public func choose(pos first: bool, second: &bool = &first) -> &bool
+        func choose(pos first: bool, second: &bool = &first) -> &bool
         {
             return second;
         }
 
-        public func choose_generic<T>(pos first: T, second: &T = &first) -> &T
+        func choose_generic<T>(pos first: T, second: &T = &first) -> &T
         {
             return second;
         }
@@ -100,91 +100,91 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
             };
         }
 
-        public func wrap(pos first: bool, second: Holder = holder(&first)) -> Holder
+        func wrap(pos first: bool, second: Holder = holder(&first)) -> Holder
         {
             return second;
         }
 
-        public func chain(pos first: bool, second: &bool = &first, third: &bool = second) -> &bool
+        func chain(pos first: bool, second: &bool = &first, third: &bool = second) -> &bool
         {
             return third;
         }
 
-        public func forward(pos first: &bool, second: &bool = first, third: &bool = second) -> &bool
+        func forward(pos first: &bool, second: &bool = first, third: &bool = second) -> &bool
         {
             return third;
         }
 
-        public func forward_holder(pos first: Holder, second: Holder = first) -> Holder
+        func forward_holder(pos first: Holder, second: Holder = first) -> Holder
         {
             return second;
         }
 
-        public struct Flag
+        struct Flag
         {
             value: bool;
         }
 
         @copy
-        public struct Wrapper
+        struct Wrapper
         {
             flag: &Flag;
         }
 
         impl Wrapper
         {
-            public consume func selected(second: &bool = &self.flag.value) -> &bool
+            consume func selected(second: &bool = &self.flag.value) -> &bool
             {
                 return second;
             }
 
-            public consume func slot(second: &&Flag = &self.flag) -> &&Flag
+            consume func slot(second: &&Flag = &self.flag) -> &&Flag
             {
                 return second;
             }
         }
 
-        public func borrow_wrapped(pos first: Wrapper, second: &bool = &first.flag.value) -> &bool
+        func borrow_wrapped(pos first: Wrapper, second: &bool = &first.flag.value) -> &bool
         {
             return second;
         }
 
-        public func borrow_wrapped_slot(pos first: Wrapper, second: &&Flag = &first.flag) -> &&Flag
+        func borrow_wrapped_slot(pos first: Wrapper, second: &&Flag = &first.flag) -> &&Flag
         {
             return second;
         }
 
-        public func read_default(pos first: Flag, second: &Flag = &first) -> bool
+        func read_default(pos first: Flag, second: &Flag = &first) -> bool
         {
             return second.value;
         }
 
-        public func borrow_field(pos first: &Flag, second: &bool = &first.value) -> &bool
+        func borrow_field(pos first: &Flag, second: &bool = &first.value) -> &bool
         {
             return second;
         }
 
-        public func borrow_slot(pos first: &bool, second: &&bool = &first) -> &&bool
+        func borrow_slot(pos first: &bool, second: &&bool = &first) -> &&bool
         {
             return second;
         }
 
-        public func borrow_index(pos first: &[bool; 1], second: &bool = &first[0]) -> &bool
+        func borrow_index(pos first: &[bool; 1], second: &bool = &first[0]) -> &bool
         {
             return second;
         }
 
-        public func borrow_slice(pos first: &[bool; 1], second: &[bool] = &first[..]) -> &[bool]
+        func borrow_slice(pos first: &[bool; 1], second: &[bool] = &first[..]) -> &[bool]
         {
             return second;
         }
 
-        public func borrow_owned_index(pos first: [bool; 1], second: &bool = &first[0]) -> &bool
+        func borrow_owned_index(pos first: [bool; 1], second: &bool = &first[0]) -> &bool
         {
             return second;
         }
 
-        public func borrow_array_slot(
+        func borrow_array_slot(
             pos first: &[bool; 1],
             second: &&[bool; 1] = &first,
         ) -> &&[bool; 1]
@@ -192,7 +192,7 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
             return second;
         }
 
-        public func observe(pos first: bool, second: &bool = &first)
+        func observe(pos first: bool, second: &bool = &first)
         {
         }
 
@@ -201,7 +201,7 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
             return true;
         }
 
-        public func evaluate(pos first: bool, second: bool = ignore_borrow(&first)) -> bool
+        func evaluate(pos first: bool, second: bool = ignore_borrow(&first)) -> bool
         {
             return second;
         }
@@ -347,7 +347,7 @@ fn runtime_defaults_reborrow_array_targets() {
     ] {
         let declaration = format!(
             r#"
-                public func choose(pos first: {input}, second: {result} = {expression}) -> {result}
+                func choose(pos first: {input}, second: {result} = {expression}) -> {result}
                 {{
                     return second;
                 }}
@@ -394,17 +394,17 @@ fn runtime_defaults_preserve_permanent_literal_borrows() {
         r#"
         module api;
 
-        public func text(value: &string = &"default text") -> &string
+        func text(value: &string = &"default text") -> &string
         {
             return value;
         }
 
-        public struct Text
+        struct Text
         {
             value: &string = &"field text";
         }
 
-        public union Choice
+        union Choice
         {
             Text(value: &string = &"payload text");
         }
@@ -444,7 +444,7 @@ fn imported_runtime_default_keeps_its_borrowed_result_type() {
         r#"
         module api;
 
-        public func observe(first: bool, second: &bool = &first)
+        func observe(first: bool, second: &bool = &first)
         {
         }
     "#,
@@ -512,16 +512,16 @@ fn imported_runtime_default_keeps_its_borrowed_result_type() {
 #[test]
 fn mutable_default_results_allow_field_writes() {
     let declarations = r#"
-        public struct Item { mut value: bool; public mut func clear() { self.value = false; } }
-        public struct Readonly { value: bool; }
-        public struct Values { mut item: Item; }
+        struct Item { mut value: bool; mut func clear() { self.value = false; } }
+        struct Readonly { value: bool; }
+        struct Values { mut item: Item; }
         impl Values(MutableElementIndex<i32>) {
             type Output = Item;
             mut func index(pos selector: &i32) -> &mut Item { return &mut self.item; }
         }
-        public func direct(pos value: &mut Item) -> &mut Item { return value; }
-        public func defaulted(pos value: &mut Item, selected: &mut Item = value) -> &mut Item { return selected; }
-        public func indexed(pos values: &mut Values, pos selector: i32, selected: &mut Item = &mut values[selector]) -> &mut Item { return selected; }
+        func direct(pos value: &mut Item) -> &mut Item { return value; }
+        func defaulted(pos value: &mut Item, selected: &mut Item = value) -> &mut Item { return selected; }
+        func indexed(pos values: &mut Values, pos selector: i32, selected: &mut Item = &mut values[selector]) -> &mut Item { return selected; }
     "#;
 
     let provider = compilation(&format!("module api;\n{declarations}"));

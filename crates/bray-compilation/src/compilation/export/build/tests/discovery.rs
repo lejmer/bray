@@ -280,12 +280,12 @@ fn parallel_interface_discovery_preserves_encoded_identity() {
         r#"
             module app.first;
 
-            public struct Boxed<T>
+            struct Boxed<T>
             {
                 value: T;
             }
 
-            public func first(pos value: Boxed<i32>) -> Boxed<i32>
+            func first(pos value: Boxed<i32>) -> Boxed<i32>
             {
                 return value;
             }
@@ -293,7 +293,7 @@ fn parallel_interface_discovery_preserves_encoded_identity() {
         r#"
             module app.second;
 
-            public func second(pos value: app.first.Boxed<i32>) -> app.first.Boxed<i32>
+            func second(pos value: app.first.Boxed<i32>) -> app.first.Boxed<i32>
             {
                 return value;
             }

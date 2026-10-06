@@ -31,7 +31,7 @@ fn execution_guarantees_reject_malformed_interface_evidence() {
             {
             }
 
-            public func root()
+            func root()
                 executes(pure, total)
             {
                 helper();
@@ -196,7 +196,7 @@ fn execution_guarantees_survive_provider_consumer_compilation() {
                 return true;
             }
 
-            public func guarded(pos flag: bool) -> bool
+            func guarded(pos flag: bool) -> bool
                 when(flag)
                 {
                     executes(pure, total)
@@ -213,7 +213,7 @@ fn execution_guarantees_survive_provider_consumer_compilation() {
                 }
             }
 
-            public func root() -> bool
+            func root() -> bool
                 executes(total)
             {
                 return helper<bool>();
@@ -269,7 +269,7 @@ fn execution_guarantees_preserve_imported_trait_requirements() {
         r#"
             module api;
 
-            public trait Readable
+            trait Readable
             {
                 func read(pos flag: bool) -> bool
                     when(flag)
@@ -324,9 +324,9 @@ fn execution_guarantees_preserve_selected_predicate_guards() {
         r#"
             module api;
 
-            public predicate ready(flag: bool) = flag;
+            predicate ready(flag: bool) = flag;
 
-            public func guarded(pos flag: bool)
+            func guarded(pos flag: bool)
                 executes(total)
                 requires(ready(flag))
             {
@@ -367,7 +367,7 @@ fn execution_guarantees_round_trip_and_reject_result_as_an_entry_guard() {
         r#"
             module api;
 
-            public func checked(pos flag: bool) -> bool
+            func checked(pos flag: bool) -> bool
                 when(flag)
                 {
                     executes(pure, total)
@@ -435,7 +435,7 @@ fn execution_guarantees_retain_foreign_trust_and_caller_obligations() {
             @link(name = "c")
             @abi(c)
             @symbol(name = "foreign_truth")
-            public extern trusted func asserted() -> bool
+            extern trusted func asserted() -> bool
                 executes(total)
                 uses(foreign_call);
         "#],
@@ -545,7 +545,7 @@ fn execution_guarantees_follow_transitive_provider_dependencies() {
         r#"
             module api;
 
-            public func checked()
+            func checked()
                 executes(pure, total)
             {
             }
@@ -568,7 +568,7 @@ fn execution_guarantees_follow_transitive_provider_dependencies() {
 
         using example.package.api;
 
-        public func wrapped()
+        func wrapped()
             executes(pure, total)
         {
             example.package.api.checked();

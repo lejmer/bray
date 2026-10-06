@@ -766,7 +766,7 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
                 return std.format.Options();
             }
 
-            public trusted func stream_integer(pos writer: &mut RecordingWriter, pos value: u32) -> Result<unit, std.io.IoError>
+            trusted func stream_integer(pos writer: &mut RecordingWriter, pos value: u32) -> Result<unit, std.io.IoError>
                 requires(blocking_execution())
             {
                 let mut destination: std.io.FormattingSink<RecordingWriter> = std.io.FormattingSink<RecordingWriter>(writer);

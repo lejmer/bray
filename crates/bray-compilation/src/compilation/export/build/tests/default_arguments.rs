@@ -16,13 +16,13 @@ fn imported_construction_defaults_use_the_declaring_type_specialization() {
         r#"
             module types;
 
-            public struct Value<T>
+            struct Value<T>
             {
                 marker: bool;
                 data: T? = none;
             }
 
-            public union Choice<T>
+            union Choice<T>
             {
                 Item(data: T? = none);
             }
@@ -116,27 +116,27 @@ fn qualified_union_case_and_generic_constructor_defaults_export() {
         r#"
             module app;
 
-            public union Radix
+            union Radix
             {
                 Decimal;
             }
 
-            public union Alignment
+            union Alignment
             {
                 Right;
             }
 
-            public union Sign
+            union Sign
             {
                 NegativeOnly;
             }
 
-            public union Escaping
+            union Escaping
             {
                 Raw;
             }
 
-            public struct Options
+            struct Options
             {
                 radix: Radix;
                 precision: usize?;
@@ -166,7 +166,7 @@ fn qualified_union_case_and_generic_constructor_defaults_export() {
                 }
             }
 
-            public func options_with_precision(precision: usize) -> Options
+            func options_with_precision(precision: usize) -> Options
             {
                 return Options(precision = precision);
             }
@@ -176,7 +176,7 @@ fn qualified_union_case_and_generic_constructor_defaults_export() {
                 return Options();
             }
 
-            public struct Argument<T>
+            struct Argument<T>
             {
                 value: T;
                 options: Options;
@@ -258,23 +258,23 @@ fn runtime_defaults_cannot_consume_an_earlier_owned_argument() {
 #[test]
 fn defaulted_call_member_access_infers_source_and_imported_receivers() {
     let declarations = r#"
-        public struct Flag
+        struct Flag
         {
             value: bool;
         }
 
-        public struct Holder
+        struct Holder
         {
             flag: Flag;
         }
 
         @copy
-        public struct Reference
+        struct Reference
         {
             holder: &Holder;
         }
 
-        public func projected(pos reference: Reference, flag: &Flag = &reference.holder.flag) -> &Flag
+        func projected(pos reference: Reference, flag: &Flag = &reference.holder.flag) -> &Flag
         {
             return flag;
         }

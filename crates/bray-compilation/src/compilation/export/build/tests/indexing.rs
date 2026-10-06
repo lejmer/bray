@@ -23,7 +23,7 @@ fn indexed_constant_templates_evaluate_after_import() {
     ] {
         let declaration = format!(
             r#"
-            public const func selected(pos values: [i32; 2], pos start: usize, pos end: usize) -> i32 {{
+            const func selected(pos values: [i32; 2], pos start: usize, pos end: usize) -> i32 {{
                 return {expression};
             }}
         "#
@@ -142,13 +142,13 @@ fn custom_index_templates_preserve_selected_calls_and_capabilities() {
     ] {
         let declaration = format!(
             r#"
-            public struct Item {{ mut value: bool; }}
-            public struct Values {{ mut value: Item; }}
+            struct Item {{ mut value: bool; }}
+            struct Values {{ mut value: Item; }}
             impl Values({protocol}<i32>) {{
                 type Output = Item;
                 {cap}func {method}({parameters}) -> &{cap}Item {{ return &{cap}self.value; }}
             }}
-            public func selected(pos values: &{cap}Values, pos start: i32, pos end: i32, result: &{cap}Item = &{cap}values[{selector}]) -> &{cap}Item {{ return result; }}
+            func selected(pos values: &{cap}Values, pos start: i32, pos end: i32, result: &{cap}Item = &{cap}values[{selector}]) -> &{cap}Item {{ return result; }}
         "#
         );
 
@@ -219,13 +219,13 @@ fn custom_index_templates_preserve_selected_calls_and_capabilities() {
 #[test]
 fn indexed_declaration_templates_preserve_predicates_contracts_and_statics() {
     let declarations = r#"
-        public predicate ready(values: [bool; 2]) = values[..][1];
-        public func selected(pos values: [bool; 2]) -> bool
+        predicate ready(values: [bool; 2]) = values[..][1];
+        func selected(pos values: [bool; 2]) -> bool
             requires(values[0])
             ensures(result == values[1])
         { return values[1]; }
-        public static Selected: i32 = [19, 37][1..][0];
-        @thread_local public static ThreadSelected: i32 = [19, 37][..][1];
+        static Selected: i32 = [19, 37][1..][0];
+        @thread_local static ThreadSelected: i32 = [19, 37][..][1];
     "#;
 
     let provider = compilation(&format!("module api;\n{declarations}"));
@@ -261,7 +261,7 @@ fn constrained_index_defaults_preserve_abstract_dispatch() {
     let provider = compilation(
         r#"
         module api;
-        public func selected<T>(pos values: &T, pos selector: i32, result: &T(ElementIndex<i32>).Output = &values[selector]) -> &T(ElementIndex<i32>).Output
+        func selected<T>(pos values: &T, pos selector: i32, result: &T(ElementIndex<i32>).Output = &values[selector]) -> &T(ElementIndex<i32>).Output
             with(T: ElementIndex<i32>)
         { return result; }
     "#,
