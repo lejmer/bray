@@ -81,7 +81,7 @@
   "semantics": [
     { "name": "CheckerPublication", "production": "LoweringInput::new", "test": "input_borrows_the_canonical_unit_and_matching_side_analysis" },
     { "name": "BodyBehavior", "production": "body_behavior", "test": "lowering_retains_selected_call_behavior_and_runtime_defaults" },
-    { "name": "ConstantReferences", "production": "constant_reference_values", "test": "constant_references_lower_to_closed_mir_operands" },
+    { "name": "ConstantReferences", "production": "constant_reference_operands", "test": "constant_references_lower_to_closed_mir_operands" },
     { "name": "ControlFlow", "production": "control_flow", "test": "checked_control_patterns_and_iteration_lower_to_explicit_mir" },
     { "name": "ExpressionTypes", "production": "expression_types", "test": "lowering_publishes_selected_binary_operations_and_returns" },
     { "name": "LiteralValues", "production": "literal_values", "test": "unrepresentable_literals_publish_recovery_values_and_diagnostics" },

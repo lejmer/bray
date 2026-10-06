@@ -913,7 +913,7 @@
     {
       "name": "async frame lowering",
       "production": {
-        "path": "crates/bray-compilation/src/compilation/lowering.rs",
+        "path": "crates/bray-compilation/src/compilation/lowering/query.rs",
         "symbol": "lowered_unit"
       },
       "test": "async_callables_lower_to_protected_frames_and_explicit_suspension"
