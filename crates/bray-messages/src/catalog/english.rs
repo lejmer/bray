@@ -22,7 +22,7 @@ pub(crate) use argument::{format_source_location, format_source_span, format_val
 pub(crate) use build_progress::{
     action as build_progress_action,
     fields as build_progress_fields, heading as build_progress_heading,
-    operation as build_progress_operation, percentage as build_progress_percentage,
+    operation as build_progress_operation,
     unit_count as build_progress_unit_count,
 };
 pub(crate) use compiler_defect::{INTERNAL_COMPILER_ERROR, format_internal_compiler_error};

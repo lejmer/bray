@@ -61,10 +61,6 @@ pub(crate) fn unit_count(completed: u64, total: u64) -> String {
     format!("{completed}/{total} units")
 }
 
-pub(crate) fn percentage(value: u64) -> String {
-    format!("{value}%")
-}
-
 const fn configuration_text(configuration: BuildProgressConfiguration) -> &'static str {
     match configuration {
         BuildProgressConfiguration::Debug => "debug",

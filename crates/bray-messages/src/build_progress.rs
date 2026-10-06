@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use crate::DiagnosticLocale;
 use crate::catalog::MessageCatalog;
+use crate::units;
 
 /// Structured build operation rendered in workflow progress.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -47,7 +48,7 @@ pub enum ProgressField {
     Path,
     /// Animated progress bar.
     Bar,
-    /// Localized completion percentage.
+    /// Completion percentage.
     Percentage,
     /// Localized completed and total work count.
     Count,
@@ -121,9 +122,9 @@ impl BuildProgressMessageRenderer {
         self.catalog.duration(duration)
     }
 
-    /// Renders a completion percentage.
+    /// Renders a whole-number completion percentage followed by `%`.
     pub fn percentage(self, percentage: u64) -> String {
-        self.catalog.build_progress_percentage(percentage)
+        units::percentage(percentage)
     }
 }
 
@@ -192,6 +193,7 @@ mod tests {
 
         assert_eq!(renderer.unit_count(2, 3), "2/3 units");
         assert_eq!(renderer.duration(Duration::from_millis(64)), "64 ms");
+        assert_eq!(renderer.percentage(64), "64%");
         assert!(!renderer.fields(BuildProgressLineKind::Package).is_empty());
     }
 }

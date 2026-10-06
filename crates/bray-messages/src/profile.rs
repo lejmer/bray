@@ -102,6 +102,8 @@ mod tests {
         assert!(output.contains("Elapsed"));
         assert!(output.contains("1.25 ms"));
         assert!(output.contains("Worker occupancy"));
+        assert!(output.contains("80.0% of available worker time"));
+        assert!(output.contains("0 hits (0.0%)"));
         assert!(output.contains("Query critical path"));
         assert!(output.contains("Selected runtime artifacts"));
         assert!(output.contains("bray.runtime.host"));

@@ -7,6 +7,7 @@ use bray_profile::{
 };
 
 use super::metric::{bytes, duration, grouped};
+use crate::units::percentage_ratio;
 
 const RANKED_ENTRY_LIMIT: usize = 10;
 const LABEL_WIDTH: usize = 28;
@@ -188,7 +189,7 @@ fn write_time_breakdown(output: &mut String, report: &CompilationProfileReport) 
 
 fn write_cache_summary(output: &mut String, summary: CompilationProfileSummary<'_>) {
     let totals = summary.query_totals();
-    let hit_rate = percentage(totals.cache_hits, totals.requests);
+    let hit_rate = percentage_ratio(totals.cache_hits, totals.requests);
 
     let _ = writeln!(
         output,
@@ -231,7 +232,7 @@ fn write_scheduler_summary(output: &mut String, report: &CompilationProfileRepor
         "Worker occupancy             {} of {} active at peak, {} of available worker time",
         grouped(scheduler.maximum_active_workers),
         grouped(scheduler.worker_budget),
-        percentage(scheduler.active_worker_nanoseconds, available)
+        percentage_ratio(scheduler.active_worker_nanoseconds, available)
     );
 
     let _ = writeln!(
@@ -374,7 +375,7 @@ fn write_ready_query_table(output: &mut String, summary: CompilationProfileSumma
             "  {:<NAME_WIDTH$} {:>12} {:>9} {:>12} {:>12}",
             display_name(&descriptor.name),
             grouped(statistics.cache_hits),
-            percentage(statistics.cache_hits, statistics.requests),
+            percentage_ratio(statistics.cache_hits, statistics.requests),
             duration(Duration::from_nanos(statistics.ready_value_nanoseconds)),
             duration(Duration::from_nanos(statistics.ready_value_maximum_nanoseconds))
         );
@@ -563,9 +564,9 @@ fn duration_change(before: u64, after: u64) -> String {
     }
 
     format!(
-        "{sign}{} ({sign}{:.1}%)",
+        "{sign}{} ({sign}{})",
         duration(Duration::from_nanos(magnitude)),
-        magnitude as f64 * 100.0 / before as f64
+        percentage_ratio(magnitude, before)
     )
 }
 
@@ -575,14 +576,6 @@ fn metric_value(descriptor: &CompilationProfileMetricDescriptor, value: u64) -> 
         CompilationProfileUnit::Count => grouped(value),
         CompilationProfileUnit::Nanoseconds => duration(Duration::from_nanos(value)),
     }
-}
-
-fn percentage(part: u64, total: u64) -> String {
-    if total == 0 {
-        return "0.0%".to_owned();
-    }
-
-    format!("{:.1}%", part as f64 * 100.0 / total as f64)
 }
 
 fn display_name(canonical: &str) -> String {
@@ -600,4 +593,23 @@ fn display_name(canonical: &str) -> String {
     shortened.push('…');
 
     shortened
+}
+
+#[cfg(test)]
+mod tests {
+    use super::duration_change;
+
+    #[test]
+    fn duration_changes_preserve_signed_percentages_and_zero_baselines() {
+        for (before, after, expected) in [
+            (1_000, 1_500, "+500 ns (+50.0%)"),
+            (1_500, 1_000, "-500 ns (-33.3%)"),
+            (1_000, 0, "-1 us (-100.0%)"),
+            (0, 1_000, "+1 us (new)"),
+            (0, 0, "no change"),
+            (1_000, 1_000, "no change"),
+        ] {
+            assert_eq!(duration_change(before, after), expected);
+        }
+    }
 }

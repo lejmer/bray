@@ -102,12 +102,6 @@ impl MessageCatalog {
         }
     }
 
-    pub(crate) fn build_progress_percentage(self, percentage: u64) -> String {
-        match self.locale {
-            DiagnosticLocale::English => super::english::build_progress_percentage(percentage),
-        }
-    }
-
     pub(crate) fn compiler_profile_summary(
         self,
         report: &bray_profile::CompilationProfileReport,

@@ -46,11 +46,48 @@ pub(crate) fn scaled_bytes(value: u64) -> (f64, ByteUnit) {
     (value as f64 / f64::from(scale), unit)
 }
 
+pub(crate) fn percentage(value: u64) -> String {
+    format!("{value}%")
+}
+
+pub(crate) fn percentage_ratio(part: u64, total: u64) -> String {
+    if total == 0 {
+        return "0.0%".to_owned();
+    }
+
+    format!("{:.1}%", part as f64 * 100.0 / total as f64)
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use super::{ByteUnit, DurationUnit, scaled_bytes, scaled_duration};
+    use super::{ByteUnit, DurationUnit, percentage, percentage_ratio, scaled_bytes, scaled_duration};
+
+    #[test]
+    fn completion_percentages_preserve_whole_values() {
+        assert_eq!(percentage(0), "0%");
+        assert_eq!(percentage(64), "64%");
+        assert_eq!(percentage(100), "100%");
+        assert_eq!(percentage(u64::MAX), "18446744073709551615%");
+    }
+
+    #[test]
+    fn ratio_percentages_round_to_one_decimal_and_allow_values_above_one_hundred() {
+        for (part, total, expected) in [
+            (0, 0, "0.0%"),
+            (1, 0, "0.0%"),
+            (0, 1, "0.0%"),
+            (1, 6, "16.7%"),
+            (1, 3, "33.3%"),
+            (1, 1, "100.0%"),
+            (3, 2, "150.0%"),
+            (u64::MAX, u64::MAX, "100.0%"),
+            (u64::MAX, u64::MAX / 2, "200.0%"),
+        ] {
+            assert_eq!(percentage_ratio(part, total), expected);
+        }
+    }
 
     #[test]
     fn duration_scaling_preserves_exact_boundaries_and_fractional_precision() {
