@@ -21,3 +21,15 @@ func contribution_counter_alias() -> &i32
 {
     return SHARED_ALIAS;
 }
+
+func contribution_generic_counter<const N: i32>() -> i32
+{
+    return GENERIC_VALUE<N>;
+}
+
+@abi(c)
+@symbol(name = "bray_provider_probe_read")
+func provider_probe_read(pos value: i32) -> i32
+{
+    return value + SHARED_COUNTER - 42;
+}
