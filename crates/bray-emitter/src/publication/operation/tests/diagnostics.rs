@@ -92,8 +92,17 @@ fn existing_generation_reuse_requires_manifest_permissions() {
         .artifact_path(artifact.id())
         .unwrap_or_else(|| panic!("managed artifact path must resolve"));
 
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-        .unwrap_or_else(|error| panic!("test permissions must be changed: {error}"));
+    let original_mode = std::fs::metadata(&path)
+        .unwrap_or_else(|error| panic!("test artifact metadata must be readable: {error}"))
+        .permissions()
+        .mode();
+
+    // Toggle owner-execute to preserve readability and change any umask-derived mode.
+    std::fs::set_permissions(
+        &path,
+        std::fs::Permissions::from_mode(original_mode ^ 0o100),
+    )
+    .unwrap_or_else(|error| panic!("test permissions must be changed: {error}"));
 
     let outcome = ArtifactPublisher::new(&never_cancelled)
         .publish(&plan, [contribution(&plan, b"stable", None)]);
