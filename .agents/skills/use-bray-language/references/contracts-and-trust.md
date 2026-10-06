@@ -5,6 +5,7 @@
 ## Contents
 
 - [Contract clauses](#contract-clauses)
+- [Conditional execution guarantees](#conditional-execution-guarantees)
 - [Predicates and predicate expressions](#predicates-and-predicate-expressions)
 - [Static constraints](#static-constraints)
 - [Contract reasoning](#contract-reasoning)
@@ -44,13 +45,39 @@ func reserve(pos length: usize, capacity: usize, requested: usize) -> usize
 
 Each clause accepts a comma-separated list of predicate expressions. Put every wrapped entry on its own line with a trailing comma. A short single-entry clause can remain inline.
 
-Ordinary requirements are proved from available conditions or checked at runtime when the declaration permits it. A failed runtime requirement panics. Postconditions become available only after successful normal completion and remain available while every value, storage identity, capability, and version they mention remains valid.
+Ordinary requirements are proved from available conditions or checked at runtime when the declaration permits it. A failed runtime requirement panics. Postconditions become available after normal completion, including `Result.Error`, and remain available while every value, storage identity, capability, and version they mention remains valid.
 
 `result` is the compiler-introduced postcondition binding for a declaration's normal completion value. Use it only in `ensures(...)` on a declaration that produces a value.
 
 Contract integer arithmetic uses exact mathematical semantics. The `offset + count` relation in `range_fits` therefore cannot wrap like a machine-sized runtime operation. Generated runtime checks preserve the same meaning through checked arithmetic or an equivalent rewrite.
 
 See [contract clauses](https://github.com/lejmer/bray/blob/develop/docs/language/contracts-and-trust/contract-clauses.md), [ordinary requirements and postconditions](https://github.com/lejmer/bray/blob/develop/docs/language/contracts-and-trust/preconditions-and-postconditions.md), and [contract arithmetic](https://github.com/lejmer/bray/blob/develop/docs/language/contracts-and-trust/contract-arithmetic.md).
+
+## Conditional execution guarantees
+
+`executes(pure, total)` declares independent execution properties. `when(...)` guards guarantees by conditions at execution
+entry. The ordinary body still produces the result.
+
+```bray
+func guarded_identity(pos value: bool) -> bool
+    when(value)
+    {
+        executes(pure, total)
+        ensures(result)
+    }
+{
+    return value;
+}
+```
+
+`pure` excludes runtime effects, including allocation, mutation, synchronization and suspension. `total` proves normal
+termination on valid inputs, including every returned `Result.Error`. It does not prove resource cleanup complete.
+Use checked postconditions for that state. Async guarantees apply when the body begins, with postconditions available
+after normal completion. Callers need valid entry evidence for guarded guarantees. Relevant later mutation invalidates
+affected completion facts.
+
+See [conditional execution guarantees](https://github.com/lejmer/bray/blob/develop/docs/language/contracts-and-trust/execution-guarantees.md)
+and [finalization](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/finalization.md).
 
 ## Predicates and predicate expressions
 

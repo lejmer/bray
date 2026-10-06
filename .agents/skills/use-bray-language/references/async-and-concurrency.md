@@ -8,6 +8,7 @@
 - [Awaiting and starting](#awaiting-and-starting)
 - [Task results and obligations](#task-results-and-obligations)
 - [Execution requirements and entrypoints](#execution-requirements-and-entrypoints)
+- [Product shutdown ownership](#product-shutdown-ownership)
 - [Trusted runtime boundaries](#trusted-runtime-boundaries)
 - [Cooperative cancellation](#cooperative-cancellation)
 - [Cross-run state and synchronization](#cross-run-state-and-synchronization)
@@ -194,16 +195,38 @@ async func main() -> Result<unit, ApplicationError>
 
 An async entrypoint begins on a main-thread lane. That lane satisfies `main_thread_execution()`, but it does not automatically satisfy blocking or compute execution.
 
-The entrypoint run is a product execution root. Product shutdown requests cancellation for every remaining root, resolves their structured task trees and async cleanup, then destroys represented state before the host returns or exits.
+The entrypoint run is a product execution root. Generated root cleanup resolves lexical owners before terminal
+publication. Product shutdown follows terminal observation and preserves pending ownership when dependencies block
+cleanup.
 
 See [execution requirements](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/execution-requirements.md), [execution roots and product shutdown](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/execution-roots-and-product-shutdown.md), and [entrypoints and runtime](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/entrypoints-and-runtime.md).
 
+## Product shutdown ownership
+
+Every provider dependency retains code and product statics together, including reports, symbols, callbacks and borrows.
+Entry closure rejects new work while existing owners keep completion and disposal authority. A blocked explicit shutdown
+returns a retryable status with the caller's unresolved graceful owner instead of waiting on caller-held dependencies.
+`total` return does not discharge that owner's normal finalization obligation. Follow the ordinary completion rules in
+[lifecycle](lifecycle.md#finalization-and-destruction).
+
+The resident host retains product storage and fallback cleanup admitted at formation. It shares one terminal state with
+the caller owner and preserves required services and exact-thread execution through completion. Internal teardown edges
+and incidents cannot block their own domain. Drain incidents before their dependencies become unavailable.
+
+See [shutdown ownership and normal finalization](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/execution-roots-and-product-shutdown.md#shutdown-ownership-and-normal-finalization).
+
 ## Trusted runtime boundaries
 
-Private trusted runtime declarations receive runtime or platform roles only through build metadata. Source spelling,
+Trusted runtime declarations receive runtime or platform roles only through build metadata. Source spelling,
 package identity, native symbol names, and `trusted` do not grant a role. Keep target thread storage beneath the runtime
 attachment model. The target creates, loads, stores, clears, and destroys the destructor-bearing slot. Trusted Bray owns
-attachment identities, nested entry, reverse-order cleanup, and shutdown quiescence.
+attachment identities and nested entry. TLS cleanup follows dependency order and deterministic structural ties on the
+exact attachment thread. Internal-use acknowledgement changes accessibility, not ownership, witness validity or role
+authority. Bootstrap uses explicit startup backing and cannot admit cleanup through the service being formed.
+
+The compiler owns source facts, cleanup plans, concrete layouts and immutable descriptors. Bray owns linked runtime and
+platform policy through explicit system ABIs, with the pinned temporal provider as the exception. Resolve missing ABI
+support in the compiler or target support. Native implementation gaps do not change the specified ownership contracts.
 
 Runtime and foreign callbacks return explicit completed, cancelled, or panicked outcomes. A panicked outcome transfers
 one owned `PanicReport`. Forward that handle without reconstructing it, consume it exactly once, and contain every panic

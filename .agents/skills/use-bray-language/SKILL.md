@@ -18,6 +18,9 @@ Consult the [specification concepts](https://github.com/lejmer/bray/blob/develop
 3. If syntax or behavior remains uncertain, check compiler tests and representative Bray source.
 4. Surface and resolve source conflicts or gaps before establishing a convention. Never fill them by analogy.
 
+Choose storage and APIs from Bray's ownership, dependency, lifecycle and capability contracts. Existing runtime code is
+an inventory of consumers and behavior. Check it against the specification before using it as implementation guidance.
+
 ## Load the relevant specification chapters
 
 - **Tokens, comments, literal spelling, or identifiers:** [references/lexical-grammar.md](references/lexical-grammar.md)
@@ -30,9 +33,9 @@ Consult the [specification concepts](https://github.com/lejmer/bray/blob/develop
 - **Operator use, ranges, assignment, construction, control flow, iteration, or propagation:** [references/expressions.md](references/expressions.md)
 - **Literal typing, adaptation, plain conversion, fallible conversion, or numeric conversion policy:** [references/conversions.md](references/conversions.md)
 - **Ownership, borrowing, movement, copying, or consumption:** [references/ownership-and-borrowing.md](references/ownership-and-borrowing.md)
-- **Requirements, guarantees, predicates, trust, or capabilities:** [references/contracts-and-trust.md](references/contracts-and-trust.md)
-- **Construction, destruction, finalization, scoped use, or partial values:** [references/lifecycle.md](references/lifecycle.md)
-- **Async functions, tasks, cancellation, synchronization, or atomics:** [references/async-and-concurrency.md](references/async-and-concurrency.md)
+- **Requirements, conditional execution guarantees, predicates, trust, or capabilities:** [references/contracts-and-trust.md](references/contracts-and-trust.md)
+- **Construction, destruction, finalization, cleanup backing, scoped use, or partial values:** [references/lifecycle.md](references/lifecycle.md)
+- **Async functions, tasks, cancellation, product shutdown, runtime roles, synchronization, or atomics:** [references/async-and-concurrency.md](references/async-and-concurrency.md)
 - **Compiler-known declarations, protected representations, or recognized operations:** [references/compiler-known.md](references/compiler-known.md)
 - **Test products, test entries, test assertions, or test helpers:** [references/testing.md](references/testing.md)
 - **Standard-library modules or APIs, I/O, or platform services:** [references/standard-library.md](references/standard-library.md)

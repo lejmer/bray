@@ -7,6 +7,7 @@
 - [Lifecycle model and order](#lifecycle-model-and-order)
 - [Construction](#construction)
 - [Finalization and destruction](#finalization-and-destruction)
+- [Cleanup backing](#cleanup-backing)
 - [Scoped use](#scoped-use)
 - [Lifecycle requirements in traits](#lifecycle-requirements-in-traits)
 - [Partial values and replacement](#partial-values-and-replacement)
@@ -117,11 +118,27 @@ impl Connection
 
 A `BufferedLog` flush can fail but does not suspend, so its finalizer is synchronous. A `Connection` close can suspend, so its finalizer is asynchronous.
 
-A [finalizer](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/finalization.md) receives an implicit mutable `self`, can be synchronous or asynchronous, and returns `unit` or `Result<unit, E>`. It leaves the value fully initialized. Returning `Result.Error` leaves the finalization obligation unresolved, so ordinary execution must handle, transfer, or explicitly represent that obligation before ownership can end.
+A [finalizer](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/finalization.md) receives an implicit mutable `self`, can be synchronous or asynchronous, and returns `unit` or `Result<unit, E>`. It leaves the value fully initialized. Checked postconditions determine completion even after `Result.Error`. A retryable error retains or returns the unresolved owner. A terminal error can remain observable after cleanup completes.
+
+Available facts proving `executes(pure, total)` and a known `unit` or `Ok(unit)` outcome discharge the completed whole-value
+finalizer step before optimization. Destruction, represented parts and backing release keep their obligations. `total`
+alone permits errors and proves neither cleanup completion nor safe ordinary destruction. Pending possibly fallible
+implicit finalization is rejected at normal ownership end. Complete the obligation, transfer it or explicitly adopt a
+valid fallback ownership form. Result and nullable wrappers preserve the contained obligation.
 
 A [destructor](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/destruction.md) receives an implicit consuming mutable `self`, is synchronous and infallible, and returns `unit`. It can consume or destroy represented parts. Any represented parts still initialized when it returns are then destroyed in their type-defined order.
 
 Finalization and destruction are selected from the concrete value. A trait view does not replace the type-wide lifecycle behavior.
+
+## Cleanup backing
+
+An owner secures physical backing for mandatory cleanup before its obligation becomes live. Concrete size, alignment and
+lifetime govern admission. Scalar credits alone are insufficient. A concrete type's local allowance remains uniform
+through ownership even when current-value completion evidence skips a finalizer. Moves and wrapping transfer existing
+allowances, while aggregates admit only additional local needs. Transferred activation, result or incident backing stays
+owned through its last user. Application finalizer allocations and explicit retries remain ordinarily fallible.
+
+See [cleanup capacity](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/async-representation-and-storage.md#cleanup-capacity).
 
 ## Scoped use
 
@@ -244,9 +261,9 @@ Every reachable scope exit must agree on ownership, initialization, borrows, cap
 
 Async block exit first broadcasts cancellation to unresolved tasks owned by that boundary. Lifecycle resolution then waits according to dependency order before storage and capabilities used by those tasks are released.
 
-Panic and cancellation preserve ordinary lifecycle order. Cleanup that can suspend runs in a cancellation-shielded context. If fallible finalization fails during abnormal cleanup, Bray records a suppressed cleanup incident and continues through the synchronous destructor and represented-part destruction fallback. Ordinary source-level exit must resolve the finalization error instead.
+Panic and cancellation preserve ordinary lifecycle order. Cleanup that can suspend runs in a cancellation-shielded context. If fallible finalization fails during abnormal cleanup, Bray records a suppressed cleanup incident and continues through the synchronous destructor and represented-part destruction fallback. Normal ownership end follows checked completion state and cannot silently abandon an unresolved obligation.
 
-[Product and thread-local statics](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/static-storage-declarations.md#static-lifecycle-state) use the same value-level order. Their product host or exact native-thread attachment resolves each materialized instance once in deterministic dependency order. A static that can be needed while another static cleans up remains live until that dependent cleanup finishes.
+[Product and thread-local statics](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/static-storage-declarations.md#static-lifecycle-state) use the same value-level order. Their product host or exact native-thread attachment resolves each materialized instance once in dependency order with deterministic structural ties. Registration order is not semantic. A static needed by cleanup stays live until that work and its internal incidents finish. Exact-thread cleanup stays on its attachment thread.
 
 ## Choose the lifecycle mechanism by intent
 
