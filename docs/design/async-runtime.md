@@ -10,14 +10,18 @@ The compiler recognizes the closed computation, task, run-result, panic-report, 
 Ordinary member lookup selects operations before their identities determine intrinsic handling. Syntax and method
 spelling do not select runtime behavior.
 
-Safe Bray owns public concurrency policy, channels, combinators, typed process protocols, budgets, and parallel
-algorithms. Trusted Bray owns portable low-level data structures and wrappers. Scheduler and reactor policy should also
-be trusted Bray where the language's memory, atomic, and private runtime contracts suffice. Native shims supply only
-mechanisms that the target ABI cannot expose directly, not a second ownership or cancellation system.
+Safe Bray owns public concurrency policy, channels, combinators, typed process protocols, budgets and parallel
+algorithms. Trusted Bray owns low-level data structures, scheduler and reactor policy, activation, cancellation and
+platform mechanisms through explicit system ABIs. All project-owned support linked into produced programs is Bray.
+The pinned temporal provider is the exception. Missing ABI expressiveness requires compiler or target support rather
+than a permanent custom non-Bray shim. External compiler and coordination tools may remain Rust.
 
-The runtime ABI is independent of implementation language. Private trusted source bindings associate declarations with
+The runtime ABI separates generated calls from runtime ownership. Trusted source bindings associate declarations with
 validated binary roles, while public package interfaces retain ordinary inferred contracts. The ABI is not a source
 scope, and no executor, waker, channel, or scheduler type becomes compiler-known.
+
+Internal access is an accessibility rule, not an ownership or trust boundary. Valid owners, witness conditions and scoped
+capabilities establish runtime authority. Safe internal-use acknowledgement cannot bypass those contracts.
 
 ## Checking and frame identity
 

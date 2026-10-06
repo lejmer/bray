@@ -62,6 +62,10 @@ Each [product](https://github.com/lejmer/bray/blob/develop/docs/language/modules
 
 Each activation of an executable, test, or loadable library is a distinct product instance and owns its realized product-static storage. A library compilation exposes no runtime entry point.
 
+Provider dependencies retain code and product statics together. A blocked unload returns with unresolved ownership and
+preserves resident fallback. Product instances remain live until their cleanup and dependency obligations permit release.
+See [library products](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/library-and-executable-products.md#library-products).
+
 A source-declared path is relative to the current package. If this package declares `module codec;`, another package reaches that module as `example.data.codec`. Package dependencies are selected by the build layer, while source uses their visible package paths.
 
 ## Module declarations and split modules

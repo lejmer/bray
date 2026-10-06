@@ -26,8 +26,10 @@ owner. The loader proves address existence, while the trusted wrapper remains re
 ownership, and effects. Loading a library does not alter the compiler package graph.
 
 Loaded Bray providers also retain dependencies through callable entries, callbacks, external owners, and static
-consumers. Entry closure and external-root quiescence precede cleanup and unload. Internal static dependencies order
-consumer cleanup before provider cleanup. Symbol and storage release keep their provider alive until callbacks return.
+consumers. Every dependency retains code and product statics together. Entry closure precedes the cleanup eligibility
+check. A blocked shutdown attempt returns with the unresolved caller owner, preserving admitted resident fallback rather
+than waiting for caller-held symbols or reports. Internal static dependencies order consumer cleanup before provider
+cleanup. The resident caller keeps the last provider lease until callbacks and their body-local destruction return.
 
 Dynamic-loader mechanisms and compiler-generated callback roots have separate roles. The former belong to platform
 services, while the latter reuse the runtime's synchronous-root and thread-attachment model.
@@ -54,8 +56,10 @@ declarations, with digests participating in ordinary source and artifact identit
 headers to fill missing target values. The generator owns these definitions, while target metadata validates them.
 
 Trusted Bray owns conversions, resource state, loading policy, and error adaptation. The runtime owns callback roots,
-attachment, cancellation, and panic containment. `bray-platform` provides safe host mechanisms, while isolated native
-support normalizes only irreducible ABI details. The temporal provider remains a separate third-party boundary.
+attachment, cancellation and panic containment. Target-gated Bray implements linked platform mechanisms through explicit
+OS and system ABIs. Missing ABI expressiveness requires compiler or target support, not a permanent project-owned native
+shim. The pinned temporal provider remains the third-party exception. Rust host tools can remain outside produced
+programs.
 
 ## Compilation and artifacts
 

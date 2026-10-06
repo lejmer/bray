@@ -312,6 +312,10 @@ conflicting source access until the owner is joined, cancelled, or resolved, and
 
 An extern static or dynamic-symbol reference produces a raw pointer carrying its provider root. Thread-local foreign storage also carries its exact native-thread attachment. Anchored data borrows and callable values created from those pointers preserve the same roots.
 
+Every provider dependency retains code and product statics together, including a report or typed payload. Closing entry
+preserves existing completion and disposal authority. A blocked shutdown retains unresolved ownership instead of waiting
+on caller-held dependencies. See [product shutdown](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/execution-roots-and-product-shutdown.md#shutdown-ownership-and-normal-finalization).
+
 ### Explicit callable state
 
 ```bray
