@@ -14,8 +14,6 @@ pub(super) const NULLABLE_STATE_FIXTURE: &str =
 pub(super) const PATTERN_CONDITIONS_FIXTURE: &str =
     "xtask/fixtures/native-execution/pattern-conditions.bray";
 pub(super) const ENTRY_RESULT_FIXTURE: &str = "xtask/fixtures/native-execution/entry-i32.bray";
-pub(super) const ABI_FIXTURE: &str = "xtask/fixtures/native-execution/abi-primitive.bray";
-pub(super) const ABI_HOST: &str = "xtask/fixtures/native-execution/abi-primitive-x86_64-linux.s";
 pub(super) const ASYNC_UNIT_FIXTURE: &str = "xtask/fixtures/native-execution/async-unit.bray";
 pub(super) const ASYNC_I32_FIXTURE: &str = "xtask/fixtures/native-execution/async-i32.bray";
 pub(super) const ASYNC_ERROR_FIXTURE: &str =

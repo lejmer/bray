@@ -12,3 +12,15 @@ func borrowed_counter() -> &i32
 {
     return fixture.storage.static_storage_execution.contribution_counter_alias();
 }
+
+func imported_generic_counter() -> i32
+{
+    return fixture.storage.static_storage_execution.contribution_generic_counter<19>();
+}
+
+@abi(c)
+@symbol(name = "bray_archive_provider_probe_read")
+func provider_probe_read(pos value: i32) -> i32
+{
+    return value + fixture.storage.static_storage_execution.read_counter() + imported_generic_counter() - 61;
+}

@@ -5,7 +5,7 @@ use std::process::Command;
 
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 
-use super::core::{native_output, product_output, standard_library_root};
+use super::core::{inspect_objects, native_output, product_output, standard_library_root};
 
 pub(super) fn audit_native_libraries(
     root: &Path,
@@ -72,10 +72,8 @@ pub(super) fn audit_native_libraries(
                     .file_name(case)
                     .expect("fixture product must form an executable name");
 
-            let result = product_output(
-                &output.join("fixture.application").join(executable_name),
-                "running native library lifecycle fixture",
-            )?;
+            let executable = output.join("fixture.application").join(executable_name);
+            let result = product_output(&executable, "running native library lifecycle fixture")?;
 
             if !result.status.success() || result.stdout != expected || !result.stderr.is_empty() {
                 return Err(format!(
@@ -84,11 +82,74 @@ pub(super) fn audit_native_libraries(
                 ));
             }
 
+            if case == "cross" {
+                require_selected_archive_static(root, &output, &executable)?;
+            }
+
             for (provider, consumer) in [("base", "middle"), ("middle", "application")] {
                 require_native_reuse(&output, &profiles, target, case, provider, consumer)?;
             }
         }
     }
+
+    Ok(())
+}
+
+fn require_selected_archive_static(
+    root: &Path,
+    output: &Path,
+    executable: &Path,
+) -> Result<(), String> {
+    let artifact = bray_package_interface::PackageArtifactInput::file(
+        output.join("fixture.base").join("cross.brayimpl"),
+        None,
+    )
+    .load_implementation()
+    .map_err(|error| format!("could not read static selection fixture: {error:?}"))?;
+
+    let index = artifact
+        .native_artifact()
+        .map_err(|error| format!("could not read static selection native index: {error:?}"))?
+        .expect("archive fixture must publish native units");
+
+    let statics = index
+        .units()
+        .iter()
+        .flat_map(|unit| unit.statics())
+        .collect::<BTreeSet<_>>();
+
+    let report = inspect_objects(root, &[executable.to_path_buf()])?;
+
+    for (name, expected) in [("STORED", true), ("HIDDEN_RESOURCE", false)] {
+        let symbols = statics
+            .iter()
+            .filter(|entry| {
+                entry
+                    .order_key()
+                    .windows(name.len())
+                    .any(|part| part == name.as_bytes())
+            })
+            .map(|entry| entry.symbol())
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(symbols.len(), 1, "fixture must publish one {name} static");
+
+        let symbol = symbols.first().expect("fixture static must have its symbol");
+
+        if report.contains(*symbol) != expected {
+            return Err(format!(
+                "native archive consumer expected {name} retention to be {expected}"
+            ));
+        }
+    }
+
+    let bytes = fs::metadata(executable)
+        .map_err(|error| crate::workspace::io_error("inspect", executable, error))?
+        .len();
+
+    eprintln!(
+        "native archive selection: used static retained, unused static omitted, {bytes} executable bytes"
+    );
 
     Ok(())
 }

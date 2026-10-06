@@ -186,6 +186,12 @@ fn audit_library_host(
     command.args([control, descriptor, hidden_static]);
     command.args(identities);
 
+    command.arg(if dependency.is_some() {
+        "bray_archive_provider_probe_read"
+    } else {
+        "bray_provider_probe_read"
+    });
+
     crate::command::require_success(command, "executing the native static product host").map(|_| ())
 }
 

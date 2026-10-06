@@ -496,7 +496,7 @@ static int exercise_host(
 
 int main(int argument_count, char **arguments)
 {
-    if (argument_count != 8)
+    if (argument_count != 9)
         return 60;
 
     static_identity thread_identity;
@@ -557,6 +557,12 @@ int main(int argument_count, char **arguments)
 
     if (scoped_thread_result != 0)
         return scoped_thread_result;
+
+    int32_t (*probe)(int32_t) = (int32_t (*)(int32_t))find_symbol(first_library, arguments[8]);
+
+    /* Check the C ABI parameter and result through the formed product entry. */
+    if (probe == NULL || probe(42) != 42 || probe(-17) != -17 || probe(1234567) != 1234567)
+        return 103;
 
     size_t product_static_count = 0;
     uintptr_t first_product_address = 0;
