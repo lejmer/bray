@@ -80,13 +80,53 @@ pub(super) fn audit(workspace: &RustWorkspace) -> Result<(), String> {
 }
 
 fn require_emitter_boundary(workspace: &RustWorkspace) -> Result<(), String> {
-    let manifest = workspace.read_text("crates/bray-emitter/Cargo.toml")?;
+    let dependencies = workspace.package_dependencies("crates/bray-emitter/Cargo.toml")?;
 
     for forbidden in FORBIDDEN_DEPENDENCIES {
-        if manifest.contains(forbidden) {
+        if dependencies.contains_production(forbidden) {
             return Err(format!("bray-emitter must not depend on {forbidden}"));
         }
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::workspace::tests::dependency_workspace;
+    use super::{FORBIDDEN_DEPENDENCIES, require_emitter_boundary};
+
+    #[test]
+    fn semantic_dependencies_are_allowed_only_for_emitter_development() {
+        for forbidden in FORBIDDEN_DEPENDENCIES {
+            for section in [
+                "dev-dependencies",
+                "target.'cfg(windows)'.dev-dependencies",
+                "dependencies",
+                "build-dependencies",
+                "target.'cfg(windows)'.dependencies",
+            ] {
+                let manifest = format!(
+                    r#"
+                    [dev-dependencies]
+                    fixture = "1"
+
+                    [{section}.semantic]
+                    package = "{forbidden}"
+                    version = "1"
+                "#
+                );
+
+                let (_directory, workspace) = dependency_workspace(&[("bray-emitter", &manifest)]);
+
+                let expected = if section.ends_with("dev-dependencies") {
+                    Ok(())
+                } else {
+                    Err(format!("bray-emitter must not depend on {forbidden}"))
+                };
+
+                assert_eq!(require_emitter_boundary(&workspace), expected);
+            }
+        }
+    }
 }

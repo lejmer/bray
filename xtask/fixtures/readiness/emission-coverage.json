@@ -3,7 +3,7 @@
     {
       "name": "equivalent immutable plans",
       "production": "artifacts.sort_unstable_by(|left, right| left.id().cmp(right.id()))",
-      "test": "plans_are_deterministic_and_reject_sink_collisions"
+      "test": "planning_is_deterministic_and_derives_exact_per_unit_backend_requests"
     },
     {
       "name": "reversed parallel contributions",
@@ -13,7 +13,7 @@
     {
       "name": "sink collisions",
       "production": "sink.collision_key()",
-      "test": "plans_are_deterministic_and_reject_sink_collisions"
+      "test": "planning_rejects_generated_name_collisions_and_ineligible_interfaces"
     },
     {
       "name": "hostile output paths",

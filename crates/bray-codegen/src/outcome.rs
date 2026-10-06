@@ -457,8 +457,6 @@ mod tests {
             },
         );
 
-        assert_eq!(diagnostic.kind(), DiagnosticKind::CodegenArtifactReadFailed);
-
         assert!(diagnostic.args().iter().any(|arg| matches!(
             arg.value(),
             bray_diagnostics::DiagnosticArgValue::IoErrorKind(
@@ -467,6 +465,11 @@ mod tests {
         )));
 
         assert!(diagnostic.notes().is_empty());
+
+        assert_goal_state_diagnostic_kind(
+            &DiagnosticBag::single(diagnostic),
+            DiagnosticKind::CodegenArtifactReadFailed,
+        );
     }
 
     #[test]

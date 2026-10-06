@@ -24,6 +24,14 @@ const REQUIRED_SEMANTIC_INPUTS: &[&str] = &[
     "Refinements",
 ];
 
+const FORBIDDEN_DEPENDENCIES: &[&str] = &[
+    "bray-binder",
+    "bray-bound-tree",
+    "bray-checker",
+    "bray-compilation",
+    "bray-lowering",
+];
+
 #[derive(Deserialize)]
 struct CoverageFixture {
     bound_expressions: Vec<CoverageRow>,
@@ -122,25 +130,98 @@ fn require_executable_rows(rows: &[CoverageRow], workspace: &RustWorkspace) -> R
 }
 
 fn require_codegen_boundary(workspace: &RustWorkspace) -> Result<(), String> {
-    let manifest = workspace.read_text("crates/bray-codegen/Cargo.toml")?;
+    let dependencies = workspace.package_dependencies("crates/bray-codegen/Cargo.toml")?;
 
-    for forbidden in [
-        "bray-binder",
-        "bray-bound-tree",
-        "bray-checker",
-        "bray-compilation",
-        "bray-lowering",
-    ] {
-        if manifest.contains(forbidden) {
+    for forbidden in FORBIDDEN_DEPENDENCIES {
+        if dependencies.contains_production(forbidden) {
             return Err(format!(
                 "bray-codegen must consume MIR without depending on {forbidden}"
             ));
         }
     }
 
-    if manifest.contains("bray-ir") {
+    if dependencies.contains_normal("bray-ir") {
         Ok(())
     } else {
         Err("bray-codegen must depend on bray-ir".to_owned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::workspace::tests::dependency_workspace;
+    use super::{FORBIDDEN_DEPENDENCIES, require_codegen_boundary};
+
+    #[test]
+    fn codegen_boundary_allows_semantic_fixtures_only_as_development_dependencies() {
+        for forbidden in FORBIDDEN_DEPENDENCIES {
+            for section in ["dev-dependencies", "target.'cfg(windows)'.dev-dependencies"] {
+                let manifest = format!(
+                    r#"
+                    [{section}]
+                    fixture = {{ package = "{forbidden}", version = "1" }}
+
+                    [dependencies]
+                    bray-ir.workspace = true
+                "#
+                );
+
+                let (_directory, workspace) = dependency_workspace(&[("bray-codegen", &manifest)]);
+
+                assert_eq!(require_codegen_boundary(&workspace), Ok(()));
+            }
+
+            for section in [
+                "dependencies",
+                "build-dependencies",
+                "target.'cfg(windows)'.dependencies",
+                "target.'cfg(windows)'.build-dependencies",
+            ] {
+                let manifest = format!(
+                    r#"
+                    [dependencies]
+                    bray-ir = "1"
+
+                    [dev-dependencies]
+                    semantic = {{ package = "{forbidden}", version = "1" }}
+
+                    [{section}.semantic]
+                    package = "{forbidden}"
+                    version = "1"
+                "#
+                );
+
+                let (_directory, workspace) = dependency_workspace(&[("bray-codegen", &manifest)]);
+
+                assert_eq!(
+                    require_codegen_boundary(&workspace),
+                    Err(format!(
+                        "bray-codegen must consume MIR without depending on {forbidden}"
+                    ))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn codegen_boundary_requires_a_normal_mir_dependency() {
+        for manifest in [
+            "# bray-ir\n[package.metadata.readiness]\nnote = 'bray-ir'",
+            "[dev-dependencies]\nbray-ir = '1'",
+            "[build-dependencies]\nbray-ir = '1'",
+            "[target.'cfg(windows)'.dev-dependencies]\nbray-ir = '1'",
+        ] {
+            let (_directory, workspace) = dependency_workspace(&[("bray-codegen", manifest)]);
+
+            assert_eq!(
+                require_codegen_boundary(&workspace),
+                Err("bray-codegen must depend on bray-ir".to_owned())
+            );
+        }
+
+        let (_directory, workspace) =
+            dependency_workspace(&[("bray-codegen", "[dependencies]\nmir.workspace = true")]);
+
+        assert_eq!(require_codegen_boundary(&workspace), Ok(()));
     }
 }
