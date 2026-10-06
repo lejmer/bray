@@ -1,4 +1,6 @@
-use serde::Serialize;
+use std::time::Duration;
+
+use serde::{Serialize, Serializer};
 
 use crate::tack::model::TackBuildConfiguration;
 
@@ -122,7 +124,8 @@ pub(super) struct PackageProgressReport {
     status: BuildProgressStatus,
     completed_units: u64,
     total_units: u64,
-    duration_milliseconds: u64,
+    #[serde(rename = "duration_milliseconds", serialize_with = "serialize_duration_milliseconds")]
+    duration: Duration,
 }
 
 impl PackageProgressReport {
@@ -130,7 +133,7 @@ impl PackageProgressReport {
         package: &BuildProgressPackage,
         status: BuildProgressStatus,
         completed_units: u64,
-        duration_milliseconds: u64,
+        duration: Duration,
     ) -> Self {
         Self {
             package: package.identity().to_owned(),
@@ -139,7 +142,7 @@ impl PackageProgressReport {
             status,
             completed_units,
             total_units: package.units(),
-            duration_milliseconds,
+            duration,
         }
     }
 
@@ -167,8 +170,8 @@ impl PackageProgressReport {
         self.total_units
     }
 
-    pub(super) const fn duration_milliseconds(&self) -> u64 {
-        self.duration_milliseconds
+    pub(super) const fn duration(&self) -> Duration {
+        self.duration
     }
 }
 
@@ -182,7 +185,8 @@ pub(super) struct BuildProgressReport {
     path: String,
     completed_units: u64,
     total_units: u64,
-    duration_milliseconds: u64,
+    #[serde(rename = "duration_milliseconds", serialize_with = "serialize_duration_milliseconds")]
+    duration: Duration,
     packages: Vec<PackageProgressReport>,
 }
 
@@ -190,7 +194,7 @@ impl BuildProgressReport {
     pub(super) fn new(
         plan: &BuildProgressPlan,
         status: BuildProgressStatus,
-        duration_milliseconds: u64,
+        duration: Duration,
         packages: Vec<PackageProgressReport>,
     ) -> Self {
         let completed_units = packages
@@ -207,7 +211,7 @@ impl BuildProgressReport {
             path: plan.path().to_owned(),
             completed_units,
             total_units: plan.total_units(),
-            duration_milliseconds,
+            duration,
             packages,
         }
     }
@@ -240,11 +244,15 @@ impl BuildProgressReport {
         self.total_units
     }
 
-    pub(super) const fn duration_milliseconds(&self) -> u64 {
-        self.duration_milliseconds
+    pub(super) const fn duration(&self) -> Duration {
+        self.duration
     }
 
     pub(super) fn packages(&self) -> &[PackageProgressReport] {
         &self.packages
     }
+}
+
+fn serialize_duration_milliseconds<S: Serializer>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_u64(u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
 }

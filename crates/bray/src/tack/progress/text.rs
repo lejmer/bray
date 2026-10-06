@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bray_messages::{
     BuildProgressAction as MessageAction, BuildProgressConfiguration, BuildProgressLineKind,
     BuildProgressMessageRenderer, BuildProgressOperation, ProgressField,
@@ -36,7 +38,7 @@ pub(super) fn render_line(
     path: &str,
     completed: u64,
     total: u64,
-    duration_milliseconds: u128,
+    duration: Duration,
 ) -> String {
     render_plain_line(
         messages.fields(kind),
@@ -46,7 +48,7 @@ pub(super) fn render_line(
             ProgressField::Subject => Some(subject.to_owned()),
             ProgressField::Path => Some(path.to_owned()),
             ProgressField::Count => Some(messages.unit_count(completed, total)),
-            ProgressField::Duration => Some(messages.duration(duration_milliseconds)),
+            ProgressField::Duration => Some(messages.duration(duration)),
             ProgressField::Bar | ProgressField::Percentage | ProgressField::Detail => None,
         },
     )

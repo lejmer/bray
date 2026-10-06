@@ -41,14 +41,14 @@ impl TestProgress {
 
     pub(super) fn finish_result(&mut self, result: &TestInvocationResult) {
         if self.live_results && self.reported.insert(result.identity().clone()) {
-            let milliseconds = result
+            let duration = result
                 .duration()
-                .map(|duration| duration.duration().as_millis());
+                .map(|duration| duration.duration());
 
             let line = TestReportMessageRenderer::english().live_result(
                 &identity_text(result.identity()),
                 report_outcome(result.outcome()),
-                milliseconds,
+                duration,
             );
 
             eprintln!("{line}");
@@ -299,7 +299,7 @@ fn line_style(
         String::new(),
         detail,
         empty_count,
-        move |milliseconds| messages.duration(milliseconds),
+        move |duration| messages.duration(duration),
         empty_percentage,
     )
 }

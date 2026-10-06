@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::{
     BuildProgressAction, BuildProgressConfiguration, BuildProgressLineKind, BuildProgressOperation,
     ProgressField,
@@ -61,8 +63,31 @@ pub(crate) fn unit_count(completed: u64, total: u64) -> String {
     format!("{completed}/{total} units")
 }
 
-pub(crate) fn duration(milliseconds: u128) -> String {
-    format!("{milliseconds} ms")
+// Select units at exact boundaries and truncate to three fractional digits so a
+// value below a boundary never rounds into the next unit. Integer arithmetic
+// preserves precision even for durations beyond the range of floating point.
+pub(crate) fn duration(duration: Duration) -> String {
+    let nanoseconds = duration.as_nanos();
+
+    let (scale, unit) = match nanoseconds {
+        0..1_000 => (1, "ns"),
+        1_000..1_000_000 => (1_000, "us"),
+        1_000_000..1_000_000_000 => (1_000_000, "ms"),
+        1_000_000_000..60_000_000_000 => (1_000_000_000, "s"),
+        _ => (60_000_000_000, "min"),
+    };
+
+    let whole = nanoseconds / scale;
+    let fraction = nanoseconds % scale * 1_000 / scale;
+
+    if fraction == 0 {
+        return format!("{whole} {unit}");
+    }
+
+    let fraction = format!("{fraction:03}");
+    let fraction = fraction.trim_end_matches('0');
+
+    format!("{whole}.{fraction} {unit}")
 }
 
 pub(crate) fn percentage(value: u64) -> String {

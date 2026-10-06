@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bray_diagnostics::{
     DiagnosticKind, DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticNoteKind,
     DiagnosticRelatedLocationKind, DiagnosticSuggestionKind, SeverityKind,
@@ -94,9 +96,9 @@ impl MessageCatalog {
         }
     }
 
-    pub(crate) fn build_progress_duration(self, milliseconds: u128) -> String {
+    pub(crate) fn duration(self, duration: Duration) -> String {
         match self.locale {
-            DiagnosticLocale::English => super::english::build_progress_duration(milliseconds),
+            DiagnosticLocale::English => super::english::format_duration(duration),
         }
     }
 
@@ -173,12 +175,6 @@ impl MessageCatalog {
             DiagnosticLocale::English => {
                 super::english::test_report_summary_counts(passed, failed, filtered)
             }
-        }
-    }
-
-    pub(crate) fn test_report_duration(self, milliseconds: u128) -> String {
-        match self.locale {
-            DiagnosticLocale::English => super::english::test_report_duration(milliseconds),
         }
     }
 

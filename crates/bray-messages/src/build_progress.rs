@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::DiagnosticLocale;
 use crate::catalog::MessageCatalog;
 
@@ -110,9 +112,11 @@ impl BuildProgressMessageRenderer {
         self.catalog.build_progress_unit_count(completed, total)
     }
 
-    /// Renders an elapsed duration represented in milliseconds.
-    pub fn duration(self, milliseconds: u128) -> String {
-        self.catalog.build_progress_duration(milliseconds)
+    /// Renders an elapsed duration with compact units selected from its magnitude.
+    /// English uses ns below 1 us, us below 1 ms, ms below 1 s, s below 1 min,
+    /// and min thereafter. It truncates to three decimal places and omits trailing zeros.
+    pub fn duration(self, duration: Duration) -> String {
+        self.catalog.duration(duration)
     }
 
     /// Renders a completion percentage.
@@ -123,10 +127,52 @@ impl BuildProgressMessageRenderer {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use crate::TestReportMessageRenderer;
+
     use super::{
         BuildProgressConfiguration, BuildProgressLineKind, BuildProgressMessageRenderer,
         BuildProgressOperation,
     };
+
+    #[test]
+    fn duration_units_share_exact_boundaries_and_compact_precision() {
+        let build = BuildProgressMessageRenderer::english();
+        let test = TestReportMessageRenderer::english();
+
+        for (nanoseconds, expected) in [
+            (0, "0 ns"),
+            (1, "1 ns"),
+            (999, "999 ns"),
+            (1_000, "1 us"),
+            (1_001, "1.001 us"),
+            (125_125, "125.125 us"),
+            (999_999, "999.999 us"),
+            (1_000_000, "1 ms"),
+            (1_000_001, "1 ms"),
+            (1_001_000, "1.001 ms"),
+            (1_250_000, "1.25 ms"),
+            (999_999_999, "999.999 ms"),
+            (1_000_000_000, "1 s"),
+            (1_000_000_001, "1 s"),
+            (1_001_000_000, "1.001 s"),
+            (12_340_000_000, "12.34 s"),
+            (59_999_999_999, "59.999 s"),
+            (60_000_000_000, "1 min"),
+            (60_000_000_001, "1 min"),
+            (60_060_000_000, "1.001 min"),
+            (90_000_000_000, "1.5 min"),
+            (3_600_000_000_000, "60 min"),
+        ] {
+            let duration = Duration::from_nanos(nanoseconds);
+
+            assert_eq!(build.duration(duration), expected, "{nanoseconds} ns");
+            assert_eq!(test.duration(duration), expected, "{nanoseconds} ns");
+        }
+
+        assert_eq!(build.duration(Duration::MAX), "307445734561825860.266 min");
+    }
 
     #[test]
     fn build_progress_text_and_layout_render_through_the_selected_catalog() {
@@ -143,7 +189,7 @@ mod tests {
         );
 
         assert_eq!(renderer.unit_count(2, 3), "2/3 units");
-        assert_eq!(renderer.duration(64), "64 ms");
+        assert_eq!(renderer.duration(Duration::from_millis(64)), "64 ms");
         assert!(!renderer.fields(BuildProgressLineKind::Package).is_empty());
     }
 }

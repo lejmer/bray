@@ -40,7 +40,7 @@ mod tests {
     fn english_profile_summary_is_rendered_from_structured_report() {
         let renderer = CompilerProfileMessageRenderer::english();
 
-        let report = bray_profile::CompilationProfileReport {
+        let mut report = bray_profile::CompilationProfileReport {
             schema_revision: bray_profile::COMPILATION_PROFILE_SCHEMA_REVISION,
             mode: bray_profile::CompilationProfileMode::Summary,
             context: bray_profile::CompilationProfileContext {
@@ -70,11 +70,21 @@ mod tests {
             descriptors: bray_profile::CompilationProfileDescriptorCatalog {
                 operations: Vec::new(),
                 queries: Vec::new(),
-                metrics: Vec::new(),
+                metrics: vec![bray_profile::CompilationProfileMetricDescriptor {
+                    id: 1,
+                    name: "total_wait".to_owned(),
+                    unit: bray_profile::CompilationProfileUnit::Nanoseconds,
+                    category: bray_profile::CompilationProfileCategory::Wait,
+                    aggregation: bray_profile::CompilationProfileAggregation::Sum,
+                    allowed_subjects: Vec::new(),
+                }],
             },
             operations: Vec::new(),
             queries: Vec::new(),
-            metrics: Vec::new(),
+            metrics: vec![bray_profile::CompilationProfileMetric {
+                id: 1,
+                value: 90_000_000_000,
+            }],
             runtime_artifacts: vec![bray_profile::CompilationProfileRuntimeArtifact {
                 identity: "bray.runtime.host".to_owned(),
                 bytes: 4_096,
@@ -90,11 +100,25 @@ mod tests {
 
         assert!(output.contains("Compiler profile: example/application"));
         assert!(output.contains("Elapsed"));
-        assert!(output.contains("1.250 ms"));
+        assert!(output.contains("1.25 ms"));
         assert!(output.contains("Worker occupancy"));
         assert!(output.contains("Query critical path"));
         assert!(output.contains("Selected runtime artifacts"));
         assert!(output.contains("bray.runtime.host"));
         assert!(output.contains("4.00 KiB"));
+        assert!(output.lines().find(|line| line.contains("total wait")).expect("duration metric must render").ends_with("1.5 min"));
+
+        for (nanoseconds, expected) in [
+            (125_125, "125.125 us"),
+            (999_999_999, "999.999 ms"),
+            (1_234_567_890, "1.234 s"),
+            (90_000_000_000, "1.5 min"),
+        ] {
+            report.elapsed_nanoseconds = nanoseconds;
+
+            let output = renderer.summary(&report);
+
+            assert!(output.lines().find(|line| line.starts_with("Elapsed")).expect("elapsed duration must render").ends_with(expected));
+        }
     }
 }

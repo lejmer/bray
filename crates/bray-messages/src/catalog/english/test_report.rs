@@ -68,10 +68,6 @@ pub(crate) fn summary_counts(passed: usize, failed: usize, filtered: usize) -> S
     counts
 }
 
-pub(crate) fn duration(milliseconds: u128) -> String {
-    super::build_progress::duration(milliseconds)
-}
-
 pub(crate) const fn captured_stream(standard_error: bool) -> &'static str {
     if standard_error {
         "captured stderr"
