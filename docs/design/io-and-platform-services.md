@@ -1,6 +1,6 @@
 # I/O and platform services
 
-Portable I/O combines ordinary `std` owners and policies, private trusted Bray adapters, and exact target mechanisms.
+Portable I/O combines ordinary `std` owners and policies, trusted Bray adapters and exact target mechanisms.
 The [language chapter](../language/io-and-platform-services.md) owns caller-visible behavior. Native support does not
 turn library APIs into compiler intrinsics or take over portable lifecycle policy.
 
@@ -32,18 +32,21 @@ Standard streams, files, pipes, and captured output have distinct operation and 
 streams own synchronization. Generic transfer, buffering, formatting, and native leaves do not independently add guards.
 A test host explicitly selects captured streams, rather than ordinary products probing for capture at runtime.
 
-Generated direct bindings handle representable target ABIs. Narrow shims normalize mechanisms such as macro-only APIs or
-unusual callback conventions. They do not implement portable Bray policy or expose implementation-language objects.
+Generated direct bindings handle target ABIs. Pinned SDK inputs supply macro constants and target representations.
+Compiler or target-support work resolves any ABI that Bray cannot yet express. Project-owned platform support linked
+into produced programs is Bray, with no permanent custom non-Bray shim. OS and system libraries remain explicit external
+dependencies, and the pinned temporal provider remains the third-party exception.
 
-## Private role contracts
+## Runtime role contracts
 
 Closed typed roles describe callable shape, ownership, retained borrows, completion, effects, and target requirements.
 The shared native catalog owns exact signatures and semantic records. Compiler and provider mappings derive from that
 inventory rather than maintaining a prose catalog of role numbers and layouts.
 
-Build metadata explicitly associates private declarations with roles. Validation checks identity, signature, ABI,
+Build metadata explicitly associates trusted declarations with roles. Validation checks identity, signature, ABI,
 semantic contract, and availability before safe wrappers rely on them. Public interfaces retain ordinary inferred
-contracts, without private roles becoming declaration identities or source lookup names.
+contracts, without binary roles becoming declaration identities or source lookup names. Declaration accessibility,
+including acknowledged internal access, grants no role or ownership authority.
 
 The ABI uses fixed-width values, validated buffers, resource-specific handles, and typed status categories. Providers
 retain a borrowed range only when the declared operation lifetime permits it. Variable-length results use caller-owned

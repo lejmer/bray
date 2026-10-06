@@ -20,10 +20,13 @@ static-library archive contributes demanded realizations to each final consuming
 product forms its own product instance and owns storage distinct from its executable, test, static-link, and separately
 loaded peers.
 
-Foreign ABI entries into a loaded library acquire an entry dependency on that product instance. Unload first closes new
-entries, then waits for in-flight entries and external roots that can reach product storage or code. Static-owned edges
-inside the teardown set order consumer cleanup before provider cleanup and are released by that cleanup. The host cleans
-exact-thread and product statics before releasing the loaded code and data.
+Foreign ABI entries into a loaded library acquire an entry dependency on that product instance. Every provider dependency
+retains code and product statics together. Unload first closes new entries, then checks eligibility against in-flight
+entries and external roots. A blocked explicit attempt returns with the caller's unresolved owner and preserves the
+resident host's admitted fallback. It does not wait for caller-held dependencies. Static-owned edges inside the teardown
+set order consumer cleanup before provider cleanup and are released by that cleanup. The host cleans exact-thread and
+product statics before releasing the loaded code and data, under the ordinary
+[shutdown ownership rules](../async-and-concurrency/execution-roots-and-product-shutdown.md#shutdown-ownership-and-normal-finalization).
 
 ## Product formation and provider compatibility
 

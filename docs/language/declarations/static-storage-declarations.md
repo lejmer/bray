@@ -219,6 +219,10 @@ A dependency on a dynamically loaded provider retains that provider product. An 
 registration, loaded-data view, owner, or static outside the active teardown set prevents the provider from entering
 cleanup or unloading while it can reach provider storage or code.
 
+Every provider dependency retains code and product statics together. Reports, typed payloads, symbols, callbacks and
+borrowed data follow this rule. There is no code-only retention exception or selective static-cleanup proof. Closing
+entry rejects new admission while existing owners keep the authority needed for completion and disposal.
+
 A dependent static inside the active teardown set is different. Its retained provider edge participates in cleanup
 ordering, so the consumer static is destroyed and releases the edge before provider cleanup begins. Waiting for that
 internal edge before cleaning the consumer would deadlock and is not a valid shutdown step.
@@ -380,17 +384,23 @@ A product with runtime storage follows this order:
 2. Open source and foreign entry.
 3. Execute roots and allow demand-driven thread-local static materialization on attached threads.
 4. Close new source entry, foreign entry, callback entry, and native-thread attachment for the teardown set.
-5. Resolve every in-flight run and every external root that can reach a domain in the teardown set.
-6. Clean each eligible attachment domain on its exact thread and complete detachment.
-7. Clean eligible product domains, with each consumer domain completing before a provider domain it retains.
-8. Drain cleanup incidents.
+5. Check cleanup eligibility against in-flight runs and external roots reaching domains in the teardown set.
+6. Clean each eligible attachment domain on its exact thread, drain its dependent incidents and complete detachment.
+7. Clean eligible product domains, draining dependent incidents before releasing the dependencies they need. Each consumer
+   domain completes before a provider domain it retains.
+8. Drain any remaining cleanup incidents while their required services and providers remain available.
 9. Shut down runtime lanes, platform services, loaders, and host resources that static cleanup could require.
 
-Step 5 never waits for a dependency owned by a static in the teardown set. Steps 6 and 7 destroy that consumer static
-and release its provider edge. A dependency owned outside the teardown set remains external and prevents cleanup of
-every reached provider domain until the external owner releases or transfers it.
+Step 5 does not wait for external roots to disappear. A blocked explicit shutdown attempt returns a retryable retained
+status with the caller's unresolved owner. The resident host keeps product storage and its admitted fallback duty.
+Steps 6 and 7 begin only for eligible domains. They destroy consumer statics and release internal provider edges without
+waiting on those edges beforehand. Merely transferring an external owner preserves its dependency. Cleanup remains
+blocked until that dependency ends or becomes a valid internal cleanup edge in a subsequent teardown set.
 
-The scheduler, cleanup-report sink, required execution lanes, platform substrate, allocator, and provider products
+Cleanup incidents created within the teardown set are internal terminal work. The host drains them before their
+dependencies become unavailable. They cannot become newly escaping roots that block their own domain's cleanup.
+
+The cleanup-report sink and any required scheduler, execution lanes, platform services, allocator and provider products
 remain available until all static finalization, destruction, represented-part cleanup, and incident reporting that can
 use them are complete.
 
@@ -409,8 +419,10 @@ and asynchronous work, callbacks, pinned tasks, and exact-thread-rooted dependen
 Thread-local static cleanup executes on the exact attached native thread. Detach cannot transfer that work to another
 native thread.
 
-Product teardown closes new attachments and waits for all existing attachments. If a foreign host abandons an attachment
-or ends a thread without satisfying its detach contract, graceful product unload cannot claim to have completed.
+Product teardown closes new attachments. Existing attachments prevent terminal release until their exact-thread cleanup
+and detachment complete. A blocked shutdown attempt preserves pending ownership and the services required for that work.
+If a foreign host abandons an attachment or ends a thread without satisfying its detach contract, graceful product unload
+cannot claim to have completed.
 Catastrophic process or host termination remains outside source lifecycle guarantees.
 
 ## Cleanup failures

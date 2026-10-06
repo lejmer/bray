@@ -1,17 +1,31 @@
 # Low-level runtime
 
-Low-level async runtime machinery is part of the trusted product substrate and is not a source-visible compiler-known
-package.
+Low-level runtime machinery is trusted Bray product support, not a source-visible compiler-known package. The compiler
+owns source contract checking, cleanup plans, concrete layouts and immutable descriptors. Bray owns runtime policy,
+storage ownership, activation, dispatch and reporting. Target-gated Bray code uses explicit OS and system ABIs.
+
+All project-owned runtime and platform support linked into produced programs is intended to be Bray. The pinned temporal
+provider is the exception. Compiler, build and test coordination tools may remain Rust outside produced programs.
+An ABI that Bray cannot yet express requires compiler or target support, not a permanent custom non-Bray shim.
 
 Its binary symbols, calling conventions, frame descriptors, internal operations, and versioning are outside the
 source-language contract and do not reserve Bray declaration names.
 
 ## Bootstrap thread attachment
 
-A runtime artifact may bind private trusted Bray declarations to closed runtime and platform roles through build
+A runtime artifact may bind trusted Bray declarations to closed runtime and platform roles through build
 metadata. The compiler validates the role, declaration shape, ABI, selected target, and semantic contract. A package,
 module path, declaration name, native symbol, or implementation language grants no role by itself. Ordinary source can
 spell the same declaration and receives no extra authority.
+
+Declarations and fields are public by default. Explicit internal-use acknowledgement changes accessibility only. It
+does not establish ownership, synchronization, witness validity or runtime-role authority. Runtime operations must
+preserve their contracts even when safe source acknowledges internal access.
+
+Bootstrap establishes attachment and cleanup services from explicit startup storage and low-level target operations.
+It cannot initialize a service through public operations that already require that service, or admit cleanup through
+the service being formed. Its own cleanup needs are empty or already backed. Generated entry cannot recursively wrap
+the operation that establishes its prerequisites.
 
 The bootstrap thread-storage contract has four target operations. They create a destructor-bearing key, load the
 current thread's opaque pointer, store or clear that pointer, and destroy the key after every attached thread has
@@ -19,9 +33,12 @@ quiesced. The target clears a nonzero slot before it invokes the destructor on t
 clearing a slot does not invoke the destructor, and destroying a key does not clean up another thread.
 
 The trusted runtime owns the value stored in that slot. It assigns a process-unique attachment identity, reuses the
-attachment for nested entry, and drains registered thread-static cleanup in reverse order on outermost detach or native
-thread exit. Cleanup continues after a cleanup panic, reports that incident, and never lets panic or cancellation cross
-the target destructor callback. Ordinary `@thread_local` statics still use the runtime attachment and cleanup roles.
+attachment for nested entry, and owns thread-static cleanup on outermost detach or native thread exit. Cleanup uses the
+[static lifecycle dependency graph](../declarations/static-storage-declarations.md#lifecycle-dependency-graph) and its
+deterministic structural tie order on that exact thread. Registration order is not semantic. The compiler supplies known
+within-domain order and keys, while runtime ownership handles dynamic product and attachment relationships.
+Cleanup continues after a cleanup panic, reports that incident, and never lets panic or cancellation cross the target
+destructor callback. Ordinary `@thread_local` statics still use the runtime attachment and cleanup roles.
 
 ## Panic ownership at native boundaries
 
@@ -63,6 +80,22 @@ payload-bearing variant.
 A runtime or wrapper is nonconforming if its safe surface permits data races, dangling dependencies, duplicate child-run
 ownership, unsynchronized shared mutation, leaked scoped capabilities, unresolved task, thread, or process obligations,
 unbounded hidden parallelism, or destruction of a running frame.
+
+## Implementation status
+
+These contracts describe the required architecture. The current Rust runtime and adapters do not establish delivery of
+the native Bray implementation. [BRA-553](https://linear.app/bray-lang/issue/BRA-553) owns bootstrap and host authority.
+[BRA-502](https://linear.app/bray-lang/issue/BRA-502) owns compiler-derived concrete cleanup requirements and physical
+backing. [BRA-561](https://linear.app/bray-lang/issue/BRA-561) owns compiler-produced frame descriptors and Bray activation.
+[BRA-505](https://linear.app/bray-lang/issue/BRA-505) and [BRA-506](https://linear.app/bray-lang/issue/BRA-506) supply finalizer
+and represented-ownership execution under the existing source rules.
+
+[BRA-557](https://linear.app/bray-lang/issue/BRA-557) owns dependency-ordered exact-thread cleanup.
+[BRA-555](https://linear.app/bray-lang/issue/BRA-555) supplies whole-product provider retention and replaces fixtures that
+expect code-only retention. Existing behavior checks remain enabled until that implementation supplies their replacement.
+[BRA-507](https://linear.app/bray-lang/issue/BRA-507) completes suspending host cleanup. Documentation alignment is neither
+native execution evidence nor cross-target proof. The WIP design's temporary language appendix remains until every
+native consumer is implemented.
 
 ## Navigation
 

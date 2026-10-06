@@ -37,12 +37,13 @@ transfer and task migration, and delay detachment or product shutdown while stor
 belongs only to one child thread can instead be transferred explicitly through `std.thread.start` or `std.thread.run`.
 
 Operating-system threads, child processes, parallel algorithms, channels, synchronization types, timers, task
-combinators, and other concurrency facilities are ordinary standard-library declarations implemented over private
-trusted ABI operations. They do not add compiler-known types or syntax.
+combinators, and other concurrency facilities are ordinary standard-library declarations implemented over trusted
+ABI operations. They do not add compiler-known types or syntax.
 
-Their public policy and ownership behavior are Bray source. Portable low-level internals can be trusted Bray. Only
-irreducible operating-system mechanisms require a direct platform binding or narrow native shim, and a private ABI or
-`extern` declaration does not imply that its implementation language is C or another foreign language.
+Their public policy and ownership behavior are Bray source. Trusted Bray implements low-level internals and target
+mechanisms through explicit OS and system ABIs. Missing ABI expressiveness requires compiler or target support rather
+than a permanent custom non-Bray shim. The pinned temporal provider is the exception to Bray implementation of linked
+support. An ABI or `extern` declaration does not imply that its implementation language is C or another foreign language.
 
 ## Navigation
 

@@ -159,16 +159,18 @@ or reports the outcome, and resolves that payload under the product contract.
 
 After root terminal observation, the host closes new source entries, foreign entries, callbacks, and native-thread
 attachments for the active
-[teardown set](../declarations/static-storage-declarations.md#entry-closure-and-product-cleanup). It waits for every
-in-flight entry and external root that can reach a domain in that set. A dependency owned by a static scheduled for
-cleanup is an internal lifecycle edge, not an external root. Each eligible attached native thread then cleans its
-thread-local static domain on that exact thread and detaches. The host cleans product-static domains after their
-consumer domains and before any retained provider domain.
+[teardown set](../declarations/static-storage-declarations.md#entry-closure-and-product-cleanup). In-flight entries and
+external roots determine cleanup eligibility. A blocked explicit shutdown attempt returns a retryable retained status
+and preserves the caller's unresolved shutdown owner. It does not wait for caller-held dependencies to disappear.
+A dependency owned by a static scheduled for cleanup is an internal lifecycle edge, not an external root.
+Each eligible attached native thread then cleans its thread-local static domain on that exact thread and detaches.
+The host cleans product-static domains after their consumer domains and before any retained provider domain.
 
-The mandatory cleanup-report sink, scheduler, required execution lanes, allocator, platform services, loader, and
-retained provider products remain available throughout static cleanup. The host drains static cleanup incidents, shuts
-down runtime infrastructure, resolves host-owned process resources, and returns control to the embedding environment
-only afterward.
+The mandatory cleanup-report sink and any required scheduler, execution lanes, allocator, platform services, loader and
+retained provider products remain available throughout static cleanup. The host drains static cleanup incidents before
+their dependencies become unavailable. Those incidents are internal terminal work and cannot block their own domain as
+new external roots. The host shuts down runtime infrastructure and resolves host-owned process resources only after
+cleanup and reporting complete. A blocked attempt can return control while retaining these resources and duties.
 
 The root run ends at terminal publication. Product shutdown follows terminal observation and is not part of the root
 run.
@@ -183,6 +185,49 @@ The host does not silently detach source-owned work during shutdown. A long-live
 block only by moving its owning value to a valid enclosing source owner. It cannot outlive the executable root unless an
 external process has explicitly ceased to be a child of the Bray product under a separately specified operating-system
 handoff contract.
+
+## Shutdown ownership and normal finalization
+
+The caller's shutdown owner holds the graceful obligation. The resident host owns product storage and admitted fallback
+cleanup from formation. Formation secures the fallback's backing, reporting and execution requirements before publishing
+the caller owner. Both owners use one terminal cleanup state, so cleanup and destruction cannot run twice. These are
+ordinary Bray ownership responsibilities, not additional compiler-known source types.
+
+A shutdown attempt closes admission and checks eligibility. For example, a caller-held report can retain provider code
+and statics. The attempt returns with the unresolved owner so the caller can dispose of that report and retry. It cannot
+wait for the caller to perform an operation that requires the attempt to return first. Eligible cleanup may suspend
+where its checked contract permits it. This rule adds no language-wide deadlock guarantee.
+
+Shutdown owners follow the ordinary [finalization rules](../lifecycle/finalization.md) and
+[conditional execution guarantees](../contracts-and-trust/execution-guarantees.md). Available conditions proving
+`executes(pure, total)` and a known `unit` or `Ok(unit)` outcome discharge the completed whole-value finalizer step before
+optimization. Destruction, backing release, represented parts and dependent owners keep their remaining obligations.
+
+`total` proves normal termination of an attempt, including a returned `Result.Error`. It does not prove shutdown
+completion. A retryable blocked result preserves the owner and its unresolved normal finalization obligation.
+Checked postconditions determine completion after both successful and failed operations. A reported cleanup failure can
+remain observable after terminal cleanup has completed.
+
+If the selected implicit finalizer remains possibly fallible on the available input domain, normal ownership end is
+rejected. The caller must complete shutdown, transfer the owner or explicitly adopt a valid fallback ownership form.
+Wrapping the owner in a result or nullable value preserves the obligation. A blocked return does not authorize ordinary
+destruction or abnormal abandonment.
+
+## Abnormal finalization and resident fallback
+
+Panic or cancellation cleanup attempts the same finalizer under ordinary shielding and abandonment rules. A blocked or
+failed attempt produces an owned cleanup incident. The unresolved caller graceful obligation is abandoned, and its
+control owner is destroyed synchronously. Its destructor releases ownership without creating a new asynchronous
+obligation or allowing a borrow from the destroyed owner to escape.
+
+If product cleanup remains incomplete, the resident host preserves its already-admitted fallback duty, product storage
+and provider dependencies. Dependency release can make cleanup eligible. Bound services dispatch it with the required
+affinity and remain live through reporting and completion. Retaining storage alone is insufficient. A binding that cannot
+preserve execution on the exact thread needed for cleanup cannot admit this fallback.
+
+The cleanup service's own shutdown preserves pending product ownership and cannot wait on dependencies held by its
+caller. Pending state uses the existing host record and secured terminal backing. It does not require a helper thread,
+periodic polling service or general deferred-work framework.
 
 ## Navigation
 
