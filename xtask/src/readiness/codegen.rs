@@ -300,14 +300,10 @@ fn require_backend_neutral_boundaries(workspace: &RustWorkspace) -> Result<(), S
         "crates/bray-codegen/Cargo.toml",
         "crates/bray-compilation/Cargo.toml",
     ] {
-        let contents = workspace.read_text(manifest)?;
-
-        let production_dependencies = contents
-            .split_once("[dev-dependencies]")
-            .map_or(contents.as_str(), |(production, _)| production);
+        let production_dependencies = workspace.package_dependencies(manifest)?;
 
         for forbidden in ["bray-codegen-llvm", "inkwell"] {
-            if production_dependencies.contains(forbidden) {
+            if production_dependencies.contains_production(forbidden) {
                 return Err(format!("{manifest} must not depend on {forbidden}"));
             }
         }
@@ -328,4 +324,67 @@ fn require_backend_neutral_boundaries(workspace: &RustWorkspace) -> Result<(), S
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::workspace::tests::dependency_workspace;
+    use super::require_backend_neutral_boundaries;
+
+    #[test]
+    fn backend_dependencies_are_allowed_only_for_development_in_both_consumers() {
+        for consumer in ["bray-codegen", "bray-compilation"] {
+            for forbidden in ["bray-codegen-llvm", "inkwell"] {
+                for section in [
+                    "dev-dependencies",
+                    "target.'cfg(windows)'.dev-dependencies",
+                    "dependencies",
+                    "build-dependencies",
+                    "target.'cfg(windows)'.dependencies",
+                ] {
+                    let manifest = format!(
+                        r#"
+                        [dev-dependencies]
+                        fixture = "1"
+
+                        [{section}.backend]
+                        package = "{forbidden}"
+                        version = "1"
+                    "#
+                    );
+
+                    let packages = [
+                        (
+                            "bray-codegen",
+                            if consumer == "bray-codegen" {
+                                manifest.as_str()
+                            } else {
+                                ""
+                            },
+                        ),
+                        (
+                            "bray-compilation",
+                            if consumer == "bray-compilation" {
+                                manifest.as_str()
+                            } else {
+                                ""
+                            },
+                        ),
+                    ];
+
+                    let (_directory, workspace) = dependency_workspace(&packages);
+
+                    let expected = if section.ends_with("dev-dependencies") {
+                        Ok(())
+                    } else {
+                        Err(format!(
+                            "crates/{consumer}/Cargo.toml must not depend on {forbidden}"
+                        ))
+                    };
+
+                    assert_eq!(require_backend_neutral_boundaries(&workspace), expected);
+                }
+            }
+        }
+    }
 }

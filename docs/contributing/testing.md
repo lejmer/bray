@@ -88,6 +88,10 @@ that corpus across every selected audit. Pass `native-execution` to compile Bray
 objects, and execute the linked products. Ordinary Rust test runs do not run these comparatively expensive
 repository-wide and toolchain checks.
 
+Dependency audits inspect Cargo's normal and build declarations across all targets using package identities, including
+renamed and inherited dependencies. Development-only fixtures are excluded from production boundaries. The lowering
+audit also requires `bray-ir` as a normal dependency.
+
 The native execution fixtures live under `xtask/fixtures/native-execution/`. The startup fixture verifies deterministic
 objects and executables, the expected ELF structure and direct-call relocation, and a successful process exit. The ABI
 fixture exports a Bray function under an exact C-compatible symbol. A checked-in target-native host calls that symbol

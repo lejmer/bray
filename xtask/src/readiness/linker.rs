@@ -79,10 +79,10 @@ fn require_executable_rows(rows: &[CoverageRow], workspace: &RustWorkspace) -> R
 }
 
 fn require_typed_linker_input_boundary(workspace: &RustWorkspace) -> Result<(), String> {
-    let manifest = workspace.read_text("crates/bray-linker/Cargo.toml")?;
+    let dependencies = workspace.package_dependencies("crates/bray-linker/Cargo.toml")?;
 
     for forbidden in FORBIDDEN_DEPENDENCIES {
-        if manifest.contains(forbidden) {
+        if dependencies.contains_production(forbidden) {
             return Err(format!("bray-linker must not depend on {forbidden}"));
         }
     }
@@ -104,4 +104,44 @@ fn require_typed_linker_input_boundary(workspace: &RustWorkspace) -> Result<(), 
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::workspace::tests::dependency_workspace;
+    use super::{FORBIDDEN_DEPENDENCIES, require_typed_linker_input_boundary};
+
+    #[test]
+    fn semantic_dependencies_are_allowed_only_for_linker_development() {
+        for forbidden in FORBIDDEN_DEPENDENCIES {
+            for section in [
+                "dev-dependencies",
+                "target.'cfg(windows)'.dev-dependencies",
+                "dependencies",
+                "build-dependencies",
+                "target.'cfg(windows)'.dependencies",
+            ] {
+                let manifest = format!(
+                    r#"
+                    [dev-dependencies]
+                    fixture = "1"
+
+                    [{section}.semantic]
+                    package = "{forbidden}"
+                    version = "1"
+                "#
+                );
+
+                let (_directory, workspace) = dependency_workspace(&[("bray-linker", &manifest)]);
+
+                let expected = if section.ends_with("dev-dependencies") {
+                    Ok(())
+                } else {
+                    Err(format!("bray-linker must not depend on {forbidden}"))
+                };
+
+                assert_eq!(require_typed_linker_input_boundary(&workspace), expected);
+            }
+        }
+    }
 }

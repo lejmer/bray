@@ -6,6 +6,8 @@ use quote::ToTokens;
 use serde::de::DeserializeOwned;
 use syn::visit::Visit;
 
+use super::dependencies::{CargoMetadata, PackageDependencies};
+
 pub(super) struct RustTest {
     name: String,
     path: String,
@@ -36,10 +38,19 @@ pub(super) struct RustWorkspace {
     files: BTreeMap<String, String>,
     tests: Vec<RustTest>,
     enums: BTreeMap<String, Vec<String>>,
+    dependencies: CargoMetadata,
 }
 
 impl RustWorkspace {
     pub(super) fn load(root: PathBuf) -> Result<Self, String> {
+        let root = root.canonicalize().map_err(|error| {
+            format!(
+                "could not resolve readiness workspace {}: {error}",
+                root.display()
+            )
+        })?;
+
+        let dependencies = CargoMetadata::load(&root)?;
         let mut paths = Vec::new();
 
         collect_rust_files(&root.join("crates"), &mut paths)?;
@@ -93,6 +104,7 @@ impl RustWorkspace {
             files,
             tests,
             enums,
+            dependencies,
         })
     }
 
@@ -153,6 +165,13 @@ impl RustWorkspace {
 
         std::fs::read_to_string(&path)
             .map_err(|error| format!("could not read {}: {error}", path.display()))
+    }
+
+    pub(super) fn package_dependencies(
+        &self,
+        relative: &str,
+    ) -> Result<&PackageDependencies, String> {
+        self.dependencies.package(&self.root.join(relative))
     }
 }
 
@@ -326,10 +345,57 @@ fn path_ends_with(path: &syn::Path, expected: &[&str]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use std::collections::BTreeSet;
 
-    use super::asserted_diagnostic_kinds;
+    use super::{RustWorkspace, asserted_diagnostic_kinds};
+
+    pub(in crate::readiness) fn dependency_workspace(
+        packages: &[(&str, &str)],
+    ) -> (tempfile::TempDir, RustWorkspace) {
+        let directory = tempfile::tempdir().expect("readiness dependency workspace");
+
+        std::fs::write(
+            directory.path().join("Cargo.toml"),
+            r#"
+            [workspace]
+            members = ["crates/*"]
+            resolver = "3"
+
+            [workspace.dependencies]
+            bray-ir = "1"
+            mir = { package = "bray-ir", version = "1" }
+        "#,
+        )
+        .expect("workspace manifest");
+
+        for (name, dependencies) in packages {
+            let package = directory.path().join("crates").join(name);
+
+            std::fs::create_dir_all(package.join("src")).expect("package source directory");
+            std::fs::write(package.join("src/lib.rs"), "").expect("package source");
+
+            std::fs::write(
+                package.join("Cargo.toml"),
+                format!(
+                    r#"
+                [package]
+                name = "{name}"
+                version = "0.0.0"
+                edition = "2024"
+
+                {dependencies}
+            "#
+                ),
+            )
+            .expect("package manifest");
+        }
+
+        let workspace = RustWorkspace::load(directory.path().to_owned())
+            .expect("readiness workspace must load without dependency resolution");
+
+        (directory, workspace)
+    }
 
     #[test]
     fn diagnostic_assertions_follow_exact_structured_calls() {
