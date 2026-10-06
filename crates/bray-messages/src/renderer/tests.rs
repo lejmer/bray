@@ -1,0 +1,10 @@
+mod artifacts;
+mod catalog;
+mod checker_failures;
+mod contracts;
+mod guarantees_and_patterns;
+mod managed_storage;
+mod presentation;
+mod projects;
+mod semantic_arguments;
+mod syntax_and_binding;
