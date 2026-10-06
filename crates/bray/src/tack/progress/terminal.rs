@@ -242,7 +242,7 @@ fn line_style(
         path,
         String::new(),
         move |completed, total| messages.unit_count(completed, total),
-        move |milliseconds| messages.duration(milliseconds),
+        move |duration| messages.duration(duration),
         move |percentage| messages.percentage(percentage),
     )
 }

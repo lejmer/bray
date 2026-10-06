@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::DiagnosticLocale;
 use crate::catalog::MessageCatalog;
 
@@ -95,12 +97,12 @@ impl TestReportMessageRenderer {
         self,
         identity: &str,
         outcome: TestReportOutcome,
-        milliseconds: Option<u128>,
+        duration: Option<Duration>,
     ) -> String {
         let result = self.result_operation(outcome);
 
-        match milliseconds {
-            Some(milliseconds) => format!("{result} {identity} ({})", self.duration(milliseconds)),
+        match duration {
+            Some(duration) => format!("{result} {identity} ({})", self.duration(duration)),
             None => format!("{result} {identity}"),
         }
     }
@@ -116,9 +118,13 @@ impl TestReportMessageRenderer {
             .test_report_summary_counts(passed, failed, filtered)
     }
 
-    /// Renders an elapsed duration represented in milliseconds.
-    pub fn duration(self, milliseconds: u128) -> String {
-        self.catalog.test_report_duration(milliseconds)
+    /// Renders an elapsed duration with compact units selected from its magnitude.
+    /// Uses nanoseconds below one microsecond, microseconds below one millisecond,
+    /// milliseconds below one second, seconds below one minute, and minutes thereafter.
+    /// Truncates to three decimal places and omits trailing zeros. The catalog supplies
+    /// the unit labels and numeric punctuation.
+    pub fn duration(self, duration: Duration) -> String {
+        self.catalog.duration(duration)
     }
 
     /// Renders a captured standard-stream heading.
@@ -144,8 +150,8 @@ mod tests {
         );
 
         assert_eq!(
-            renderer.live_result("std::test", TestReportOutcome::Panicked, Some(1250)),
-            "Panicked std::test (1250 ms)"
+            renderer.live_result("std::test", TestReportOutcome::Panicked, Some(std::time::Duration::from_millis(1250))),
+            "Panicked std::test (1.25 s)"
         );
 
         assert_eq!(

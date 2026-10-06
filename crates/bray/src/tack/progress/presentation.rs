@@ -39,7 +39,7 @@ pub(in crate::tack) fn terminal_line_style<Count, DurationText, Percentage>(
 ) -> ProgressStyle
 where
     Count: Clone + Fn(u64, u64) -> String + Send + Sync + 'static,
-    DurationText: Clone + Fn(u128) -> String + Send + Sync + 'static,
+    DurationText: Clone + Fn(Duration) -> String + Send + Sync + 'static,
     Percentage: Clone + Fn(u64) -> String + Send + Sync + 'static,
 {
     let color = state_color(state);
@@ -74,7 +74,7 @@ where
         .with_key(
             "duration",
             move |state: &ProgressState, writer: &mut dyn std::fmt::Write| {
-                let _ = writer.write_str(&duration(state.elapsed().as_millis()));
+                let _ = writer.write_str(&duration(state.elapsed()));
             },
         )
         .with_key(
@@ -135,10 +135,6 @@ pub(in crate::tack) fn padded(value: &str, width: usize) -> String {
     format!("{value:<width$}")
 }
 
-pub(in crate::tack) fn duration_milliseconds(duration: Duration) -> u64 {
-    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
-}
-
 pub(in crate::tack) fn empty_count(_: u64, _: u64) -> String {
     String::new()
 }
@@ -195,7 +191,7 @@ mod tests {
     fn terminal_styles_share_canonical_markers_and_spinner_frames() {
         let fields = [ProgressField::Operation, ProgressField::Subject];
         let count = |completed, total| format!("{completed}/{total}");
-        let duration = |milliseconds| format!("{milliseconds} ms");
+        let duration = |duration: std::time::Duration| format!("{} ms", duration.as_millis());
         let percentage = |value| format!("{value}%");
 
         let active = terminal_line_style(

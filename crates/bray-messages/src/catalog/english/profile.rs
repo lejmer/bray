@@ -1,9 +1,13 @@
 use std::fmt::Write;
+use std::time::Duration;
 
 use bray_profile::{
     CompilationProfileComparison, CompilationProfileMetricDescriptor, CompilationProfileReport,
     CompilationProfileSummary, CompilationProfileUnit,
 };
+
+use super::metric::{bytes, duration, grouped};
+use crate::units::percentage_ratio;
 
 const RANKED_ENTRY_LIMIT: usize = 10;
 const LABEL_WIDTH: usize = 28;
@@ -23,7 +27,7 @@ pub(crate) fn summary(report: &CompilationProfileReport) -> String {
         output,
         "{:<LABEL_WIDTH$} {}",
         "Elapsed",
-        duration(report.elapsed_nanoseconds)
+        duration(Duration::from_nanos(report.elapsed_nanoseconds))
     );
 
     write_time_breakdown(&mut output, report);
@@ -160,7 +164,7 @@ fn write_time_breakdown(output: &mut String, report: &CompilationProfileReport) 
         output,
         "{:<LABEL_WIDTH$} {}",
         "Summed worker self time",
-        duration(report.time.same_thread_self_nanoseconds)
+        duration(Duration::from_nanos(report.time.same_thread_self_nanoseconds))
     );
 
     for (label, nanoseconds) in [
@@ -173,7 +177,7 @@ fn write_time_breakdown(output: &mut String, report: &CompilationProfileReport) 
         ("  External tools", report.time.external_work_nanoseconds),
     ] {
         if nanoseconds > 0 {
-            let _ = writeln!(output, "{label:<LABEL_WIDTH$} {}", duration(nanoseconds));
+            let _ = writeln!(output, "{label:<LABEL_WIDTH$} {}", duration(Duration::from_nanos(nanoseconds)));
         }
     }
 
@@ -185,7 +189,7 @@ fn write_time_breakdown(output: &mut String, report: &CompilationProfileReport) 
 
 fn write_cache_summary(output: &mut String, summary: CompilationProfileSummary<'_>) {
     let totals = summary.query_totals();
-    let hit_rate = percentage(totals.cache_hits, totals.requests);
+    let hit_rate = percentage_ratio(totals.cache_hits, totals.requests);
 
     let _ = writeln!(
         output,
@@ -210,7 +214,7 @@ fn write_cache_summary(output: &mut String, summary: CompilationProfileSummary<'
         let _ = writeln!(
             output,
             "Ready-value access: {} across {} hits",
-            duration(totals.ready_value_nanoseconds),
+            duration(Duration::from_nanos(totals.ready_value_nanoseconds)),
             grouped(totals.cache_hits)
         );
     }
@@ -228,13 +232,13 @@ fn write_scheduler_summary(output: &mut String, report: &CompilationProfileRepor
         "Worker occupancy             {} of {} active at peak, {} of available worker time",
         grouped(scheduler.maximum_active_workers),
         grouped(scheduler.worker_budget),
-        percentage(scheduler.active_worker_nanoseconds, available)
+        percentage_ratio(scheduler.active_worker_nanoseconds, available)
     );
 
     let _ = writeln!(
         output,
         "Query critical path          {}",
-        duration(scheduler.query_critical_path_nanoseconds)
+        duration(Duration::from_nanos(scheduler.query_critical_path_nanoseconds))
     );
 
     if scheduler.ready_waves > 0 {
@@ -308,9 +312,9 @@ fn write_operation_table(output: &mut String, summary: CompilationProfileSummary
             "  {:<NAME_WIDTH$} {:>10} {:>12} {:>12} {:>12} {:>8}",
             display_name(&descriptor.name),
             grouped(statistics.executions),
-            duration(statistics.total_nanoseconds),
-            duration(statistics.self_nanoseconds),
-            duration(statistics.maximum_nanoseconds),
+            duration(Duration::from_nanos(statistics.total_nanoseconds)),
+            duration(Duration::from_nanos(statistics.self_nanoseconds)),
+            duration(Duration::from_nanos(statistics.maximum_nanoseconds)),
             grouped(statistics.maximum_active_workers)
         );
     }
@@ -337,10 +341,10 @@ fn write_query_table(output: &mut String, summary: CompilationProfileSummary<'_>
             "  {:<NAME_WIDTH$} {:>10} {:>12} {:>12} {:>12} {:>12}",
             display_name(&descriptor.name),
             grouped(statistics.evaluations),
-            duration(statistics.evaluation_nanoseconds),
-            duration(statistics.evaluation_self_nanoseconds),
-            duration(statistics.evaluation_latency.median_upper_bound_nanoseconds),
-            duration(statistics.evaluation_latency.p95_upper_bound_nanoseconds)
+            duration(Duration::from_nanos(statistics.evaluation_nanoseconds)),
+            duration(Duration::from_nanos(statistics.evaluation_self_nanoseconds)),
+            duration(Duration::from_nanos(statistics.evaluation_latency.median_upper_bound_nanoseconds)),
+            duration(Duration::from_nanos(statistics.evaluation_latency.p95_upper_bound_nanoseconds))
         );
     }
 
@@ -371,9 +375,9 @@ fn write_ready_query_table(output: &mut String, summary: CompilationProfileSumma
             "  {:<NAME_WIDTH$} {:>12} {:>9} {:>12} {:>12}",
             display_name(&descriptor.name),
             grouped(statistics.cache_hits),
-            percentage(statistics.cache_hits, statistics.requests),
-            duration(statistics.ready_value_nanoseconds),
-            duration(statistics.ready_value_maximum_nanoseconds)
+            percentage_ratio(statistics.cache_hits, statistics.requests),
+            duration(Duration::from_nanos(statistics.ready_value_nanoseconds)),
+            duration(Duration::from_nanos(statistics.ready_value_maximum_nanoseconds))
         );
     }
 }
@@ -531,8 +535,8 @@ fn write_duration_change(output: &mut String, label: &str, before: u64, after: u
     let _ = writeln!(
         output,
         "{label:<LABEL_WIDTH$} {:>12} {:>12} {:>20}",
-        duration(before),
-        duration(after),
+        duration(Duration::from_nanos(before)),
+        duration(Duration::from_nanos(after)),
         duration_change(before, after)
     );
 }
@@ -541,22 +545,10 @@ fn write_named_duration_change(output: &mut String, label: &str, before: u64, af
     let _ = writeln!(
         output,
         "  {label:<NAME_WIDTH$} {:>12} {:>12} {:>20}",
-        duration(before),
-        duration(after),
+        duration(Duration::from_nanos(before)),
+        duration(Duration::from_nanos(after)),
         duration_change(before, after)
     );
-}
-
-fn duration(nanoseconds: u64) -> String {
-    if nanoseconds >= 1_000_000_000 {
-        format!("{:.3} s", nanoseconds as f64 / 1_000_000_000.0)
-    } else if nanoseconds >= 1_000_000 {
-        format!("{:.3} ms", nanoseconds as f64 / 1_000_000.0)
-    } else if nanoseconds >= 1_000 {
-        format!("{:.3} us", nanoseconds as f64 / 1_000.0)
-    } else {
-        format!("{nanoseconds} ns")
-    }
 }
 
 fn duration_change(before: u64, after: u64) -> String {
@@ -568,54 +560,22 @@ fn duration_change(before: u64, after: u64) -> String {
     let sign = if after >= before { "+" } else { "-" };
 
     if before == 0 {
-        return format!("{sign}{} (new)", duration(magnitude));
+        return format!("{sign}{} (new)", duration(Duration::from_nanos(magnitude)));
     }
 
     format!(
-        "{sign}{} ({sign}{:.1}%)",
-        duration(magnitude),
-        magnitude as f64 * 100.0 / before as f64
+        "{sign}{} ({sign}{})",
+        duration(Duration::from_nanos(magnitude)),
+        percentage_ratio(magnitude, before)
     )
 }
 
 fn metric_value(descriptor: &CompilationProfileMetricDescriptor, value: u64) -> String {
     match descriptor.unit {
         CompilationProfileUnit::Bytes => bytes(value),
-        CompilationProfileUnit::Count | CompilationProfileUnit::Nanoseconds => grouped(value),
+        CompilationProfileUnit::Count => grouped(value),
+        CompilationProfileUnit::Nanoseconds => duration(Duration::from_nanos(value)),
     }
-}
-
-fn bytes(value: u64) -> String {
-    if value >= 1024 * 1024 {
-        format!("{:.2} MiB", value as f64 / (1024.0 * 1024.0))
-    } else if value >= 1024 {
-        format!("{:.2} KiB", value as f64 / 1024.0)
-    } else {
-        format!("{} B", grouped(value))
-    }
-}
-
-fn percentage(part: u64, total: u64) -> String {
-    if total == 0 {
-        return "0.0%".to_owned();
-    }
-
-    format!("{:.1}%", part as f64 * 100.0 / total as f64)
-}
-
-fn grouped(value: u64) -> String {
-    let digits = value.to_string();
-    let mut output = String::with_capacity(digits.len() + digits.len() / 3);
-
-    for (index, byte) in digits.bytes().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            output.push(',');
-        }
-
-        output.push(char::from(byte));
-    }
-
-    output
 }
 
 fn display_name(canonical: &str) -> String {
@@ -633,4 +593,23 @@ fn display_name(canonical: &str) -> String {
     shortened.push('…');
 
     shortened
+}
+
+#[cfg(test)]
+mod tests {
+    use super::duration_change;
+
+    #[test]
+    fn duration_changes_preserve_signed_percentages_and_zero_baselines() {
+        for (before, after, expected) in [
+            (1_000, 1_500, "+500 ns (+50.0%)"),
+            (1_500, 1_000, "-500 ns (-33.3%)"),
+            (1_000, 0, "-1 us (-100.0%)"),
+            (0, 1_000, "+1 us (new)"),
+            (0, 0, "no change"),
+            (1_000, 1_000, "no change"),
+        ] {
+            assert_eq!(duration_change(before, after), expected);
+        }
+    }
 }

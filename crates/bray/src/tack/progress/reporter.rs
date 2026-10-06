@@ -10,7 +10,7 @@ use super::model::{
     BuildProgressPackage, BuildProgressPlan, BuildProgressReport, BuildProgressStatus,
     PackageProgressReport,
 };
-use super::presentation::{duration_milliseconds, max_column_width};
+use super::presentation::max_column_width;
 use super::terminal::TerminalBuildProgress;
 use super::text::{message_action, message_configuration, render_line};
 use crate::tack::result::TackRunResult;
@@ -164,7 +164,7 @@ impl BuildProgressSession<'_> {
             package,
             status,
             completed_units,
-            duration_milliseconds(duration),
+            duration,
         );
 
         self.package_reports
@@ -206,7 +206,7 @@ impl BuildProgressSession<'_> {
         let report = BuildProgressReport::new(
             &self.plan,
             status,
-            duration_milliseconds(self.started_at.elapsed()),
+            self.started_at.elapsed(),
             package_reports,
         );
 
@@ -294,7 +294,7 @@ fn render_plain(reports: &[BuildProgressReport], verbose: bool) -> String {
                 &path,
                 package.completed_units(),
                 package.total_units(),
-                u128::from(package.duration_milliseconds()),
+                package.duration(),
             );
 
             output.push_str(&line);
@@ -325,7 +325,7 @@ fn render_plain(reports: &[BuildProgressReport], verbose: bool) -> String {
             &path,
             report.completed_units(),
             report.total_units(),
-            u128::from(report.duration_milliseconds()),
+            report.duration(),
         );
 
         output.push_str(&line);
@@ -437,13 +437,67 @@ const fn progress_status(success: bool) -> BuildProgressStatus {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use bray_diagnostics::DiagnosticBag;
     use bray_tooling::OutputFormat;
 
-    use super::WorkflowProgress;
+    use super::{WorkflowProgress, render_plain};
+    use super::super::model::{BuildProgressReport, BuildProgressStatus, PackageProgressReport};
     use crate::tack::model::TackBuildConfiguration;
     use crate::tack::progress::{BuildProgressAction, BuildProgressPackage, BuildProgressPlan};
     use crate::tack::result::TackRunResult;
+
+    #[test]
+    fn plain_progress_retains_precision_while_json_keeps_milliseconds() {
+        for (duration, expected, milliseconds) in [
+            (Duration::from_nanos(125_125), "125.125 us", 0),
+            (Duration::from_nanos(1_234_567_890), "1.234 s", 1_234),
+            (Duration::from_secs(60), "1 min", 60_000),
+            (Duration::MAX, "307445734561825860.266 min", u64::MAX),
+        ] {
+            let plan = plan();
+
+            let package = PackageProgressReport::new(
+                &plan.packages()[0],
+                BuildProgressStatus::Complete,
+                12,
+                duration,
+            );
+
+            let report = BuildProgressReport::new(
+                &plan,
+                BuildProgressStatus::Complete,
+                Duration::from_millis(61_234),
+                vec![package],
+            );
+
+            let rendered = render_plain(std::slice::from_ref(&report), false);
+
+            assert!(rendered.lines().nth(1).expect("package row must exist").ends_with(expected));
+            assert!(rendered.lines().last().expect("product row must exist").ends_with("1.02 min"));
+
+            let progress = WorkflowProgress::new(false, false);
+
+            progress.push(report);
+
+            let mut result = TackRunResult::new(
+                std::process::ExitCode::SUCCESS,
+                DiagnosticBag::new(),
+                OutputFormat::Json,
+            );
+
+            assert_eq!(progress.write_to_result(&mut result), Ok(()));
+
+            let json: serde_json::Value = serde_json::from_str(result.stdout())
+                .expect("build report must be valid JSON");
+
+            assert_eq!(json["build_progress"][0]["duration_milliseconds"], 61_234);
+            assert_eq!(json["build_progress"][0]["packages"][0]["duration_milliseconds"], milliseconds);
+            assert!(json["build_progress"][0].get("duration").is_none());
+            assert!(json["build_progress"][0]["packages"][0].get("duration").is_none());
+        }
+    }
 
     #[test]
     fn noninteractive_progress_keeps_one_summary_line_per_package() {

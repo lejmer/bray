@@ -13,6 +13,7 @@ mod rendered_diagnostic;
 mod renderer;
 mod storage_report;
 mod test_report;
+mod units;
 
 pub use storage_report::{StorageReportMessage, StorageReportMessageRenderer};
 
