@@ -182,7 +182,9 @@ impl Header(Equatable<Header>)
 ```
 
 An `@thread_local static` has one demand-initialized instance per exact native-thread attachment. Its borrows carry that
-attachment identity, and its cleanup runs on the same thread when the attachment ends.
+attachment identity, and its cleanup runs on the same thread when the attachment ends. Product and TLS static cleanup
+use dependency order with deterministic structural ties. Registration order is not semantic. See the
+[static lifecycle dependency graph](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/static-storage-declarations.md#lifecycle-dependency-graph).
 
 ### Type members and lifecycle declarations
 

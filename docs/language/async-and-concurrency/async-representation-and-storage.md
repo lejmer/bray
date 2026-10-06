@@ -56,6 +56,10 @@ the state needed to suspend cleanup, resolve dependent child runs, transfer term
 incidents. Once the obligation is established, these operations use the secured capacity even when further allocation
 fails. Ownership transfer preserves this capacity until the obligation is resolved or transferred again.
 
+Capacity is physical backing with the concrete size, alignment and lifetime required for cleanup. It includes bounded
+outgoing errors and callback outcomes, wait links, host-detachment acknowledgements and terminal reporting infrastructure
+where those are required. Scalar bookkeeping credits alone do not establish admission.
+
 If the required capacity cannot be secured, the operation fails before establishing the new obligation. Existing owners
 retain their values and cleanup capacity through failure propagation. The same rule applies to partially initialized
 values, inactive captures, and static owners.

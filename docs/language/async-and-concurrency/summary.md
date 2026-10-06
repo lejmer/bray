@@ -26,8 +26,10 @@ boxing or pinning.
 The executable host owns the root process, main thread, and root run. A synchronous main is the root run directly. An
 async main is driven as a host-owned root task on the distinguished main-thread lane. The generated root frame resolves
 source-owned tasks, threads, processes, budgets, and cleanup incidents before terminal publication. Host shutdown then
-maps the terminal record, drains reports, closes entry, reaches run quiescence, cleans exact-thread and product statics,
-and only then ends runtime infrastructure and process-scoped resources.
+maps the terminal record, drains reports and closes entry. Cleanup eligibility follows in-flight entries and external
+dependencies. A blocked explicit attempt returns with the caller's unresolved shutdown owner and preserves admitted
+resident fallback. Eligible cleanup follows dependency order and structural ties on the required exact thread, then
+ends runtime infrastructure and process-scoped resources. Every provider dependency retains code and statics together.
 
 The executable product selects one conforming runtime. `std.thread.Thread<T>`, `std.process.Process<T>`, parallel
 algorithms, channels, synchronization, checkpoints, timers, and concurrent combinators remain ordinary standard-library

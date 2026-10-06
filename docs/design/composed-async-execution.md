@@ -9,6 +9,10 @@ A run owns scheduling, cancellation, dispatch authority, and admitted wait resou
 state, captures, its continuation, result storage, and lifecycle progress. Its directly awaited child belongs to the
 same run. Parent state stays retained while that child executes.
 
+The compiler supplies control flow, initialized-state operations, concrete layouts and immutable descriptors. Bray
+owners implement activation, waits, dispatch and terminal publication over that metadata. Runtime activation does not
+rebuild descriptor graphs or source cleanup plans.
+
 The activation chain uses admitted frame storage rather than growing a separate runtime stack. Known layouts can use
 enclosing storage, while recursive or erased frames use owned indirection. Only the run's exclusive dispatcher may
 change the chain or invoke generated operations. Runtime locks are released before callbacks execute.
@@ -75,6 +79,10 @@ capacity fields or fallible rebinding.
 Providers exchange ownership through a validated shared admission domain. Frame and report storage retain their release
 provider until the last user ends, independently of the run that activated them. Inactive frames can move between
 compatible execution contexts without inheriting their original scheduler.
+
+That dependency retains provider code and product statics together. A blocked host shutdown preserves the caller's
+graceful owner and the resident host's admitted fallback instead of waiting for caller-held frames or reports. Internal
+cleanup incidents drain before dependency release and cannot introduce waits on their own teardown domain.
 
 [Cleanup storage and reports](cleanup-storage-and-reports.md) owns the admission, transfer, and provider design.
 Compiler planning remains immutable and demand-driven through existing checking, lowering, specialization, and

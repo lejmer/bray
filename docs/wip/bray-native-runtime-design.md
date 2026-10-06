@@ -4,9 +4,9 @@
 
 This document is a WIP design for implementing the runtime and platform support linked into Bray programs in Bray. It covers product hosts, thread attachments, provider lifetime, cleanup storage, task execution, reporting, native bindings and test-product support.
 
-The architecture is selected. Native implementation, compiler support and integration with the existing documentation remain incomplete. This document describes the intended design and identifies the required changes to the current specification. It does not amend the language specification by itself.
+The architecture is selected. The lifetime, shutdown, cleanup-order and implementation-boundary amendments are recorded in the authoritative language and design chapters. Native implementation and compiler support remain incomplete. This WIP records the broader design and remaining integration work. It does not amend the language specification by itself.
 
-The [language specification](../language/index.md) defines source semantics. The existing [async runtime](../design/async-runtime.md), [cleanup storage](../design/cleanup-storage-and-reports.md) and [platform services](../design/io-and-platform-services.md) documents describe the current design. The integration section below identifies conflicts that must be resolved during implementation.
+The [language specification](../language/index.md) defines source semantics. The [async runtime](../design/async-runtime.md), [cleanup storage](../design/cleanup-storage-and-reports.md) and [platform services](../design/io-and-platform-services.md) documents describe the intended architecture. The integration section below identifies the remaining implementation and documentation work.
 
 The migration follows the [native runtime and platform delivery strategy](https://linear.app/bray-lang/document/bray-native-runtime-and-platform-delivery-plan-46623e2d308d). Supporting material appears in the appendices. Appendix A is temporary and must be removed when this design is fully implemented in Bray.
 
@@ -256,16 +256,16 @@ If a selected mechanism prevents the destination requirements, reconsider the me
 
 ## Documentation integration
 
-The WIP remains separate until its changes are implemented and reviewed. Enduring architecture belongs in `docs/design/`. Observable source behavior belongs in `docs/language/`. The supporting implementation inventory is migration evidence, not a replacement specification.
+The WIP records the full migration design while implementation remains incomplete. Enduring architecture belongs in `docs/design/`. Observable source behavior belongs in `docs/language/`. The supporting implementation inventory is migration evidence, not a replacement specification. Documentation alignment does not establish native implementation or cross-target proof.
 
-| Document | Required integration |
+| Document | Integration and remaining work |
 | --- | --- |
-| [Static storage](../language/declarations/static-storage-declarations.md) and [product shutdown](../language/async-and-concurrency/execution-roots-and-product-shutdown.md) | Replace mandatory external-root waiting with cleanup eligibility and explicit retained cleanup ownership. Preserve whole-product dependencies and terminal ordering. |
-| [Low-level runtime](../language/async-and-concurrency/low-level-runtime.md) | Align thread-local cleanup with dependency order and structural ties. Remove conflicting reverse-registration wording. Preserve compiler-validated bootstrap and TLS contracts. |
-| [Cleanup storage design](../design/cleanup-storage-and-reports.md) | Replace code-only residency and Rust activation ownership with whole-product retention and Bray ownership. Describe physical backing and resident fallback cleanup. |
-| [Async runtime design](../design/async-runtime.md) and [composed execution](../design/composed-async-execution.md) | Integrate Bray control records, immutable descriptors, direct await, waits and shared-state synchronization. |
-| [Platform services design](../design/io-and-platform-services.md) and [native interoperability](../design/foreign-and-platform-interoperability.md) | Align the implementation boundary with direct Bray ABI bindings and the temporal exception. |
-| [BRA-501](https://linear.app/bray-lang/issue/BRA-501) fixtures | Replace code-only cleanup expectations with whole-product retention, retained shutdown ownership and optional independent diagnostics. |
+| [Static storage](../language/declarations/static-storage-declarations.md) and [product shutdown](../language/async-and-concurrency/execution-roots-and-product-shutdown.md) | Specify cleanup eligibility, retained graceful ownership, resident fallback and whole-product dependencies. Native consumers still need implementation. |
+| [Low-level runtime](../language/async-and-concurrency/low-level-runtime.md) | Specifies dependency order, structural ties and compiler-validated bootstrap and TLS contracts. Native exact-thread teardown remains to be implemented. |
+| [Cleanup storage design](../design/cleanup-storage-and-reports.md) | Describes whole-product retention, Bray ownership, physical backing and resident fallback. Concrete compiler support and native consumers remain incomplete. |
+| [Async runtime design](../design/async-runtime.md) and [composed execution](../design/composed-async-execution.md) | Assign Bray ownership and compiler-produced descriptors. Integrate complete control records, waits and shared-state synchronization as native consumers are implemented. |
+| [Platform services design](../design/io-and-platform-services.md) and [native interoperability](../design/foreign-and-platform-interoperability.md) | Require direct Bray ABI bindings and preserve the temporal exception. Native target implementations remain incomplete. |
+| [BRA-555](https://linear.app/bray-lang/issue/BRA-555) provider fixtures | Replace the code-only expectations from [BRA-501](https://linear.app/bray-lang/issue/BRA-501) with whole-product retention, retained shutdown ownership and optional independent diagnostics when native behavior is implemented. Keep current checks enabled until their replacement is supplied. |
 
 Existing finalization and execution guarantees provide the owner lifecycle rules. Their implementation must support this design without adding a separate runtime-specific source lifecycle policy.
 
