@@ -11,6 +11,7 @@ const OTHER_USER_FACING_CATALOG_SOURCES: &[(&str, &str)] = &[
     ("interface.rs", include_str!("interface.rs")),
     ("label.rs", include_str!("label.rs")),
     ("language_server.rs", include_str!("language_server.rs")),
+    ("metric.rs", include_str!("metric.rs")),
     ("related.rs", include_str!("related.rs")),
     ("suggestion.rs", include_str!("suggestion.rs")),
     ("test_report.rs", include_str!("test_report.rs")),

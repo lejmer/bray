@@ -119,8 +119,10 @@ impl TestReportMessageRenderer {
     }
 
     /// Renders an elapsed duration with compact units selected from its magnitude.
-    /// English uses ns below 1 us, us below 1 ms, ms below 1 s, s below 1 min,
-    /// and min thereafter. It truncates to three decimal places and omits trailing zeros.
+    /// Uses nanoseconds below one microsecond, microseconds below one millisecond,
+    /// milliseconds below one second, seconds below one minute, and minutes thereafter.
+    /// Truncates to three decimal places and omits trailing zeros. The catalog supplies
+    /// the unit labels and numeric punctuation.
     pub fn duration(self, duration: Duration) -> String {
         self.catalog.duration(duration)
     }

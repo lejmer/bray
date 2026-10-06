@@ -7,6 +7,7 @@ mod guard;
 mod interface;
 mod label;
 mod language_server;
+mod metric;
 mod profile;
 mod related;
 mod storage_report;
@@ -19,7 +20,7 @@ mod tests;
 
 pub(crate) use argument::{format_source_location, format_source_span, format_value};
 pub(crate) use build_progress::{
-    action as build_progress_action, duration as format_duration,
+    action as build_progress_action,
     fields as build_progress_fields, heading as build_progress_heading,
     operation as build_progress_operation, percentage as build_progress_percentage,
     unit_count as build_progress_unit_count,
@@ -33,6 +34,7 @@ pub(crate) use diagnostics::{
 pub(crate) use guard::{forbidden_internal_term, forbidden_ordinary_diagnostic_term};
 pub(crate) use label::{style as label_style, template as label_template};
 pub(crate) use language_server::message as language_server_message;
+pub(crate) use metric::duration as format_duration;
 pub(crate) use profile::{
     comparison as compiler_profile_comparison, summary as compiler_profile_summary,
 };

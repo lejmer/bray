@@ -6,7 +6,7 @@ use bray_profile::{
     CompilationProfileSummary, CompilationProfileUnit,
 };
 
-use super::build_progress::duration;
+use super::metric::{bytes, duration, grouped};
 
 const RANKED_ENTRY_LIMIT: usize = 10;
 const LABEL_WIDTH: usize = 28;
@@ -577,37 +577,12 @@ fn metric_value(descriptor: &CompilationProfileMetricDescriptor, value: u64) -> 
     }
 }
 
-fn bytes(value: u64) -> String {
-    if value >= 1024 * 1024 {
-        format!("{:.2} MiB", value as f64 / (1024.0 * 1024.0))
-    } else if value >= 1024 {
-        format!("{:.2} KiB", value as f64 / 1024.0)
-    } else {
-        format!("{} B", grouped(value))
-    }
-}
-
 fn percentage(part: u64, total: u64) -> String {
     if total == 0 {
         return "0.0%".to_owned();
     }
 
     format!("{:.1}%", part as f64 * 100.0 / total as f64)
-}
-
-fn grouped(value: u64) -> String {
-    let digits = value.to_string();
-    let mut output = String::with_capacity(digits.len() + digits.len() / 3);
-
-    for (index, byte) in digits.bytes().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            output.push(',');
-        }
-
-        output.push(char::from(byte));
-    }
-
-    output
 }
 
 fn display_name(canonical: &str) -> String {
