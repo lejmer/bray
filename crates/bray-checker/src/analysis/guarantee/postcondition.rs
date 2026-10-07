@@ -32,7 +32,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if !contracts
             .iter()
             .flat_map(|contract| &contract.postconditions)
-            .any(|(condition, _)| condition.inputs().iter().any(|place| place.root == input))
+            .any(|(condition, _)| condition.inputs().iter().any(|place| place.reference() == Some(input)))
         {
             return inputs;
         }

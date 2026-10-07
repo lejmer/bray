@@ -66,6 +66,8 @@ impl GenericConstraintObligationKey {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct PredicateSemanticSummary {
     dependency_contract: DependencyContractTemplateId,
+    condition: Option<crate::ConstantTermId>,
+    is_trusted: bool,
 }
 
 impl PredicateSemanticSummary {
@@ -73,7 +75,31 @@ impl PredicateSemanticSummary {
     pub const fn new(dependency_contract: DependencyContractTemplateId) -> Self {
         Self {
             dependency_contract,
+            condition: None,
+            is_trusted: false,
         }
+    }
+
+    /// Retains the checked predicate meaning and its caller trust obligation.
+    pub const fn with_condition(
+        mut self,
+        condition: Option<crate::ConstantTermId>,
+        is_trusted: bool,
+    ) -> Self {
+        self.condition = condition;
+        self.is_trusted = is_trusted;
+
+        self
+    }
+
+    /// Returns bounded predicate meaning in receiver-first callable argument order.
+    pub const fn condition(self) -> Option<crate::ConstantTermId> {
+        self.condition
+    }
+
+    /// Whether satisfying this predicate requires trusted caller evidence.
+    pub const fn is_trusted(self) -> bool {
+        self.is_trusted
     }
 
     /// Returns the portable dependencies of the predicate expression.
@@ -402,17 +428,23 @@ impl CallableContractSet {
             }
         }
 
+        let phase_behaviors = match deferred_execution_behavior {
+            Some(deferred) => super::CallablePhaseBehaviors::asynchronous(invocation_behavior, deferred),
+            None => super::CallablePhaseBehaviors::synchronous(invocation_behavior),
+        };
+
+        let phase_behaviors = if invocation_preconditions.iter().chain(&normal_completion_postconditions)
+            .filter_map(|clause| clause.predicate()).any(|predicate| predicate.is_trusted()) {
+            phase_behaviors.with_predicates(invocation_preconditions.iter().filter_map(|clause| clause.predicate()),
+                normal_completion_postconditions.iter().filter_map(|clause| clause.predicate()))
+        } else { phase_behaviors };
+
         Self {
             invocation_preconditions: shared_slice(invocation_preconditions),
             execution_contract: Default::default(),
             static_constraints: shared_slice(static_constraints),
             normal_completion_postconditions: shared_slice(normal_completion_postconditions),
-            phase_behaviors: match deferred_execution_behavior {
-                Some(deferred) => {
-                    super::CallablePhaseBehaviors::asynchronous(invocation_behavior, deferred)
-                }
-                None => super::CallablePhaseBehaviors::synchronous(invocation_behavior),
-            },
+            phase_behaviors,
         }
     }
 

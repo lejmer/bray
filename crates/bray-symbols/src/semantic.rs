@@ -30,7 +30,7 @@ pub use constant::{
     ConstantDefinition, ConstantDefinitionState, ConstantInstanceKey, ErrorConstantDefinition,
 };
 pub use contract::{
-    CallableContractTemplateQuery, CallableContractTypeQuery, CallableContractsQuery,
+    CallableContractTemplateQuery, CallableContractTypeQuery, CallableContractsQuery, CallablePredicateContractsQuery,
     CallableOverloadTemplateQuery, CallableParameterDefaultQuery,
     CallableParameterDefaultTemplateQuery, CallableResultDependenciesQuery, CallableSignatureQuery,
     ConstantDeclaredTypeQuery, ConstantDefinitionQuery, DeclarationDirectivesQuery,

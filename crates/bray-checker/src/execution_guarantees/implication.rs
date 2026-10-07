@@ -30,7 +30,7 @@ pub fn remap_execution_condition_inputs(
 ) -> ExecutionCondition {
     condition.substitute(
         &|place| {
-            let Some(root) = inputs.get(&place.root) else {
+            let Some(root) = place.reference().and_then(|reference| inputs.get(&reference)) else {
                 return ExecutionCondition::Unknown;
             };
 
@@ -45,6 +45,26 @@ pub fn remap_execution_condition_inputs(
         &ExecutionCondition::Result,
         &mut { ExecutionCondition::WORK_LIMIT },
     )
+}
+
+/// Substitutes the exact generic identities carried by normalized predicate applications.
+pub fn map_execution_condition_substitutions<E>(
+    condition: &ExecutionCondition,
+    map: &impl Fn(bray_symbols::GenericSubstitutionId) -> Result<bray_symbols::GenericSubstitutionId, E>,
+) -> Result<ExecutionCondition, E> {
+    Ok(match condition {
+        ExecutionCondition::Predicate(predicate, substitution, operands) => ExecutionCondition::predicate(
+            *predicate, map(*substitution)?, operands.iter().map(|operand|
+                map_execution_condition_substitutions(operand, map)).collect::<Result<_, _>>()?),
+        ExecutionCondition::Operation(operator, operands) => ExecutionCondition::operation(*operator,
+            operands.iter().map(|operand| map_execution_condition_substitutions(operand, map)).collect::<Result<_, _>>()?),
+        ExecutionCondition::Call(callable, operands) => ExecutionCondition::call(bray_symbols::CallableInstanceData::new(
+            callable.definition(), map(callable.substitution())?), operands.iter().map(|operand|
+                map_execution_condition_substitutions(operand, map)).collect::<Result<_, _>>()?),
+        ExecutionCondition::Field(field, value) => ExecutionCondition::field(*field,
+            map_execution_condition_substitutions(value, map)?),
+        _ => condition.clone(),
+    })
 }
 
 #[cfg(test)]

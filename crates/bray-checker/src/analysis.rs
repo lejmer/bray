@@ -6,7 +6,7 @@ mod condition;
 mod control;
 mod execution;
 mod fixed_point;
-mod guarantee;
+pub(crate) mod guarantee;
 mod id;
 mod liveness;
 mod model;

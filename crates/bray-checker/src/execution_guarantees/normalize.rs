@@ -14,6 +14,28 @@ pub fn execution_conditions(
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
 ) -> Result<Vec<ExecutionCondition>, bray_symbols::SemanticValueStoreError> {
+    Ok(predicate_conditions(unit, semantics, values)?
+        .into_iter()
+        .map(|(_, condition, _)| condition)
+        .collect())
+}
+
+/// Normalizes predicate meaning and preserves explicit trusted contract requirements.
+pub fn predicate_conditions(
+    unit: &BoundUnit,
+    semantics: &CheckedExpressionSemantics,
+    values: &SemanticValueStore,
+) -> Result<Vec<(BoundExpressionId, ExecutionCondition, bool)>, bray_symbols::SemanticValueStoreError> {
+    predicate_conditions_with_inputs(unit, semantics, values, &BTreeMap::new())
+}
+
+/// Normalizes contract type clauses using exact declaration-local input placeholders.
+pub fn predicate_conditions_with_inputs(
+    unit: &BoundUnit,
+    semantics: &CheckedExpressionSemantics,
+    values: &SemanticValueStore,
+    inputs: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+) -> Result<Vec<(BoundExpressionId, ExecutionCondition, bool)>, bray_symbols::SemanticValueStoreError> {
     let roots = match unit.root() {
         BoundUnitRoot::Expression(expression) => vec![expression],
         BoundUnitRoot::ExpressionSequence(block) => unit
@@ -32,25 +54,77 @@ pub fn execution_conditions(
 
     let literals = condition_literals(semantics, values);
 
-    Ok(roots
-        .into_iter()
-        .map(|root| {
-            expression_condition(
+    let mut pending = roots.into_iter().rev().map(|root| (root, false)).collect::<Vec<_>>();
+    let mut conditions = Vec::new();
+
+    while let Some((root, trusted)) = pending.pop() {
+        match unit.view().expression(root) {
+            Some(BoundExpression::Binary(binary)) if binary.operator() == bray_bound_tree::BoundOperator::LogicalAnd => {
+                pending.extend(binary.operands().iter().rev().map(|operand| (*operand, trusted)));
+
+                continue;
+            },
+            Some(BoundExpression::Structured(structured)) if matches!(structured.kind(),
+                bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary
+                | bray_bound_tree::BoundStructuredExpressionKind::Condition) => {
+                if let [operand] = structured.operands() {
+                    pending.push((*operand, trusted || structured.kind() == bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary));
+
+                    continue;
+                }
+            },
+            _ => {},
+        }
+
+            let condition = expression_condition(
                 unit,
                 semantics,
+                values,
                 &literals,
-                &BTreeMap::new(),
+                inputs,
                 &BTreeMap::new(),
                 root,
                 &mut { crate::ExecutionCondition::WORK_LIMIT },
-            )
-        })
-        .collect())
+            );
+
+            let is_trusted = trusted || contains_trusted_condition(unit, root);
+
+            conditions.push((root, condition, is_trusted));
+    }
+
+    Ok(conditions)
+}
+
+fn contains_trusted_condition(unit: &BoundUnit, root: BoundExpressionId) -> bool {
+    let mut pending = vec![root];
+    let mut budget = ExecutionCondition::WORK_LIMIT;
+
+    while let Some(expression) = pending.pop() {
+        let Some(remaining) = budget.checked_sub(1) else {
+            return true;
+        };
+
+        budget = remaining;
+
+        let Some(bound) = unit.view().expression(expression) else {
+            continue;
+        };
+
+        if matches!(bound, BoundExpression::Structured(expression)
+            if expression.kind() == bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary) {
+            return true;
+        }
+
+        pending.extend(bound.child_expressions());
+    }
+
+    false
 }
 
 pub(crate) fn expression_condition(
     unit: &BoundUnit,
     semantics: &CheckedExpressionSemantics,
+    values: &SemanticValueStore,
     literals: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     current: &BTreeMap<super::ExecutionPlace, ExecutionCondition>,
     evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
@@ -80,49 +154,34 @@ pub(crate) fn expression_condition(
     }
 
     if let Some(SemanticSelection::Call(call)) = semantics.selections().expression(expression) {
+        if call.implementation_hook() == Some(bray_compiler_known::ImplementationHook::RawPointerReinterpret)
+            && let [bray_bound_tree::SelectedArgument::Explicit { expression: pointer, conversion, .. }] = call.arguments()
+            && matches!(conversion.target(), bray_bound_tree::ConversionTarget::Identity) {
+            return expression_condition(unit, semantics, values, literals, current, evaluated, *pointer, budget);
+        }
+
+        if let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target()
+            && let BoundExpression::Call(bound_call) = bound
+            && semantics.types().expression(bound_call.callee()).is_some_and(|ty|
+                matches!(values.type_data(ty.ty()).as_ref(), bray_symbols::TypeData::Callable(callable)
+                    if callable.constness() == bray_symbols::CallableConstness::Constant)) {
+            let arguments = call_argument_conditions(call, unit, semantics, values, literals, current, evaluated, budget);
+
+            return ExecutionCondition::call(callable, arguments);
+        }
+
         if let bray_bound_tree::BoundCallableTarget::Predicate(predicate) = call.target() {
-            let mut arguments = Vec::new();
-
-            for argument in call.arguments() {
-                let bray_bound_tree::SelectedArgument::Explicit {
-                    expression,
-                    ordinal,
-                    conversion,
-                    ..
-                } = argument
-                else {
-                    return ExecutionCondition::Unknown;
-                };
-
-                let value = if matches!(
-                    conversion.target(),
-                    bray_bound_tree::ConversionTarget::Identity
-                        | bray_bound_tree::ConversionTarget::CallableContract
-                ) {
-                    expression_condition(
-                        unit,
-                        semantics,
-                        literals,
-                        current,
-                        evaluated,
-                        *expression,
-                        budget,
-                    )
-                } else {
-                    ExecutionCondition::Unknown
-                };
-
-                arguments.push((*ordinal, value));
-            }
-
-            arguments.sort_by_key(|(ordinal, _)| *ordinal);
+            let arguments = call_argument_conditions(call, unit, semantics, values, literals, current, evaluated, budget);
 
             return ExecutionCondition::predicate(
                 predicate.definition(),
                 predicate.substitution(),
-                arguments.into_iter().map(|(_, value)| value).collect(),
+                arguments,
             );
         }
+
+        // A runtime call has a value identity even when its contents are opaque.
+        return ExecutionCondition::Expression(expression);
     }
 
     if let Some(SemanticSelection::Predicate(predicate)) =
@@ -137,6 +196,7 @@ pub(crate) fn expression_condition(
                     expression_condition(
                         unit,
                         semantics,
+                        values,
                         literals,
                         current,
                         evaluated,
@@ -204,6 +264,7 @@ pub(crate) fn expression_condition(
             let receiver = expression_condition(
                 unit,
                 semantics,
+                values,
                 literals,
                 current,
                 evaluated,
@@ -232,7 +293,7 @@ pub(crate) fn expression_condition(
                 .iter()
                 .map(|operand| {
                     expression_condition(
-                        unit, semantics, literals, current, evaluated, *operand, budget,
+                        unit, semantics, values, literals, current, evaluated, *operand, budget,
                     )
                 })
                 .collect();
@@ -244,14 +305,26 @@ pub(crate) fn expression_condition(
                 operation.kind(),
                 bray_bound_tree::BoundStructuredExpressionKind::Condition
                     | bray_bound_tree::BoundStructuredExpressionKind::Borrow
+                    | bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary
             ) =>
         {
+            if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::Borrow
+                && let Some(operand) = operation.operands().first()
+                && let Some(place) = expression_place(unit, semantics, *operand) {
+                let value = expression_condition(unit, semantics, values, literals, current, evaluated, *operand, budget);
+
+                return if matches!(value, ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_)) {
+                    // Equal scalar contents do not identify the storage being borrowed.
+                    ExecutionCondition::Input(place)
+                } else { value };
+            }
+
             operation
                 .operands()
                 .first()
                 .map(|operand| {
                     expression_condition(
-                        unit, semantics, literals, current, evaluated, *operand, budget,
+                        unit, semantics, values, literals, current, evaluated, *operand, budget,
                     )
                 })
                 .unwrap_or(ExecutionCondition::Unknown)
@@ -295,12 +368,50 @@ pub(crate) fn expression_place(
                 fields.push(target.member());
                 expression = member.receiver();
             }
+            BoundExpression::Structured(operation)
+                if matches!(operation.kind(), bray_bound_tree::BoundStructuredExpressionKind::Borrow
+                    | bray_bound_tree::BoundStructuredExpressionKind::Condition
+                    | bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary) => {
+                expression = *operation.operands().first()?;
+            }
             _ => return None,
         }
     }
 
     None
 }
+fn call_argument_conditions(
+    call: &bray_bound_tree::SelectedCall,
+    unit: &BoundUnit,
+    semantics: &CheckedExpressionSemantics,
+    values: &SemanticValueStore,
+    literals: &BTreeMap<BoundExpressionId, ExecutionCondition>,
+    current: &BTreeMap<super::ExecutionPlace, ExecutionCondition>,
+    evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
+    budget: &mut usize,
+) -> Vec<ExecutionCondition> {
+    let mut arguments = Vec::new();
+
+    if let Some(receiver) = call.receiver() {
+        arguments.push(expression_condition(unit, semantics, values, literals, current, evaluated,
+            receiver.expression(), budget));
+    }
+
+    let mut parameters = call.arguments().iter().map(|argument| match argument {
+        bray_bound_tree::SelectedArgument::Explicit { expression, ordinal, conversion, .. }
+            if matches!(conversion.target(), bray_bound_tree::ConversionTarget::Identity
+                | bray_bound_tree::ConversionTarget::CallableContract) =>
+            (*ordinal, expression_condition(unit, semantics, values, literals, current, evaluated, *expression, budget)),
+        bray_bound_tree::SelectedArgument::Explicit { ordinal, .. }
+            | bray_bound_tree::SelectedArgument::Default { ordinal, .. } => (*ordinal, ExecutionCondition::Unknown),
+    }).collect::<Vec<_>>();
+
+    parameters.sort_by_key(|(ordinal, _)| *ordinal);
+    arguments.extend(parameters.into_iter().map(|(_, value)| value));
+
+    arguments
+}
+
 pub(crate) fn condition_literals(
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,

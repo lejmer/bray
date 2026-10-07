@@ -51,7 +51,7 @@ fn encode(
         ExecutionCondition::Input(place) => {
             let Some(ordinal) = inputs
                 .iter()
-                .position(|input| *input == place.root)
+                .position(|input| Some(*input) == place.reference())
                 .and_then(|index| u32::try_from(index).ok())
             else {
                 return Ok(None);
@@ -113,6 +113,12 @@ fn encode(
                 _ => return Ok(None),
             }
         }
+        ExecutionCondition::Call(callable, arguments) => {
+            let Some(arguments) = arguments.iter().map(|argument| encode(values, argument, inputs, boolean_type, budget))
+                .collect::<Result<Option<Vec<_>>, _>>()? else { return Ok(None); };
+
+            ConstantTermData::call(values.intern_callable_instance(*callable)?, None, arguments)
+        }
         ExecutionCondition::Predicate(predicate, substitution, arguments) => {
             let terms = arguments
                 .iter()
@@ -168,15 +174,30 @@ pub fn execution_condition_from_term(
     term: ConstantTermId,
     inputs: &[BoundReferenceTarget],
 ) -> Result<ExecutionCondition, SemanticValueStoreError> {
-    decode(values, term, inputs, &mut {
+    let inputs = inputs.iter().copied().map(super::ExecutionPlace::from).collect::<Vec<_>>();
+
+    decode(values, term, &inputs, &mut {
         ExecutionCondition::WORK_LIMIT
     })
+}
+
+/// Restores predicates carried by an opaque callable type using positional input identities.
+pub fn execution_condition_from_type_term(
+    values: &SemanticValueStore,
+    term: ConstantTermId,
+    parameter_count: usize,
+) -> Result<ExecutionCondition, SemanticValueStoreError> {
+    let inputs = (0..parameter_count).map(|index| super::ExecutionPlace::argument(
+        SymbolOrdinal::new(u32::try_from(index).expect("checked callable parameter count must fit ordinals"))
+    )).collect::<Vec<_>>();
+
+    decode(values, term, &inputs, &mut { ExecutionCondition::WORK_LIMIT })
 }
 
 fn decode(
     values: &SemanticValueStore,
     term: ConstantTermId,
-    inputs: &[BoundReferenceTarget],
+    inputs: &[super::ExecutionPlace],
     budget: &mut usize,
 ) -> Result<ExecutionCondition, SemanticValueStoreError> {
     let Some(remaining) = budget.checked_sub(1) else {
@@ -204,7 +225,7 @@ fn decode(
                 Some(index) => inputs
                     .get(index)
                     .map_or(ExecutionCondition::Unknown, |input| {
-                        ExecutionCondition::Input((*input).into())
+                        ExecutionCondition::Input(input.clone())
                     }),
                 None => ExecutionCondition::Unknown,
             }
@@ -224,6 +245,8 @@ fn decode(
                 decode(values, *right, inputs, budget)?,
             ],
         ),
+        ConstantTermData::Call { callable, arguments, .. } => ExecutionCondition::call(*values.callable_instance_data(*callable),
+            arguments.iter().map(|argument| decode(values, *argument, inputs, budget)).collect::<Result<_, _>>()?),
         ConstantTermData::PredicateCall {
             predicate,
             arguments,

@@ -228,12 +228,13 @@ fn check_callable_type_clauses(
 
         let declared = bray_checker::declared_execution_properties(node);
 
-        if !declared.value().has_requirements()
+        if declared.value().domains().iter().all(|domain| domain.properties.is_empty())
+            || (!declared.value().has_requirements()
             && declared
                 .value()
                 .domains()
                 .iter()
-                .all(|domain| domain.guards.is_empty() && domain.postconditions.is_empty())
+                .all(|domain| domain.guards.is_empty() && domain.postconditions.is_empty()))
         {
             checked.extend(declared.value().clauses().iter().copied());
             diagnostics.add_range(declared.into_parts().1);

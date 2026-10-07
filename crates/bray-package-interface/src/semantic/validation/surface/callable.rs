@@ -289,6 +289,10 @@ impl InterfaceSemantics {
                         predicate.dependency_contract.to_index(),
                         self.dependency_contracts.len(),
                     )?;
+
+                    if let Some(term) = predicate.condition {
+                        validate_index(term.to_index(), self.constant_terms.len())?;
+                    }
                 }
                 crate::InterfaceCallableContractClauseValue::TraitSatisfaction {
                     subject,
@@ -315,6 +319,20 @@ impl InterfaceSemantics {
         symbol_count: usize,
         dependency_count: usize,
     ) -> Result<(), InterfaceValidationError> {
+        for predicates in [&behavior.predicate_requirements, &behavior.predicate_guarantees] {
+            if !is_strictly_sorted(predicates) {
+                return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference));
+            }
+
+            for predicate in &**predicates {
+                validate_index(predicate.dependency_contract.to_index(), self.dependency_contracts.len())?;
+
+                if let Some(term) = predicate.condition {
+                    validate_index(term.to_index(), self.constant_terms.len())?;
+                }
+            }
+        }
+
         for requirements in [
             &behavior.effects,
             &behavior.capabilities,

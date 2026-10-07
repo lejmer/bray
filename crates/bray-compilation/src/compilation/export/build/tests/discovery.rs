@@ -276,9 +276,10 @@ fn public_module_re_exports_enter_the_interface_lookup_surface() {
 
 #[test]
 fn parallel_interface_discovery_preserves_encoded_identity() {
-    let sources = [
-        r#"
-            module app.first;
+    use std::fmt::Write;
+
+    let mut first = String::from(r#"
+            trusted module app.first;
 
             struct Boxed<T>
             {
@@ -289,16 +290,26 @@ fn parallel_interface_discovery_preserves_encoded_identity() {
             {
                 return value;
             }
-        "#,
-        r#"
-            module app.second;
+        "#);
+
+    let mut second = String::from(r#"
+            trusted module app.second;
 
             func second(pos value: app.first.Boxed<i32>) -> app.first.Boxed<i32>
             {
                 return value;
             }
-        "#,
-    ];
+        "#);
+
+    // Keep enough independently exported contracts to observe worker overlap even after
+    // the declaration queries have been warmed by body checking.
+    for index in 0..64 {
+        writeln!(first, "trusted predicate ready{index}(value: &Boxed<i32>);").unwrap();
+        writeln!(first, "func observe{index}(pos value: &Boxed<i32>) requires(trusted ready{index}(value)) {{}}").unwrap();
+        writeln!(second, "func observe{index}(pos value: &app.first.Boxed<i32>) requires(trusted app.first.ready{index}(value)) {{}}").unwrap();
+    }
+
+    let sources = [first.as_str(), second.as_str()];
 
     let serial = compilation_from_sources_with_worker_budget(sources, WorkerBudget::serial());
 

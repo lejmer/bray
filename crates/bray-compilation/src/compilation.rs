@@ -1,4 +1,5 @@
 mod behavior;
+mod trusted_contracts;
 mod binder;
 mod boundary;
 #[cfg(test)]

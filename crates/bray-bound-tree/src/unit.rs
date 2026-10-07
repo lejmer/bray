@@ -61,7 +61,7 @@ impl BoundUnitKind {
                 CheckedTemplateKind::PredicateDefinition.accepts_owner(owner)
             }
             Self::Constraint => CheckedTemplateKind::GenericConstraint.accepts_owner(owner),
-            Self::ContractClause => CheckedTemplateKind::CallableContract.accepts_owner(owner),
+            Self::ContractClause => owner.can_be_source_declared(),
             Self::TargetGate => matches!(owner, SymbolKind::Module),
         }
     }

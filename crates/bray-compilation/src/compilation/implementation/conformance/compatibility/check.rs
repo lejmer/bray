@@ -725,6 +725,9 @@ fn callable_contract_mismatch(
     fulfillment: CallableSymbolId,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<CallableContractMismatch>, FactQueryError> {
+    let signature = resolve_query!(binding_context, diagnostics, CallableSignatureQuery, requirement);
+    let input_count = signature.value().parameters().len() + usize::from(signature.value().receiver().is_some());
+
     let requirement = resolve_query!(
         binding_context,
         diagnostics,
@@ -744,6 +747,7 @@ fn callable_contract_mismatch(
         subject,
         trait_application,
         generic_substitution,
+        input_count,
         requirement.value(),
         fulfillment.value(),
     )
@@ -754,6 +758,7 @@ fn contract_set_mismatch(
     subject: bray_symbols::TypeId,
     trait_application: TraitApplicationId,
     generic_substitution: Option<GenericSubstitutionId>,
+    input_count: usize,
     requirement: &CallableContractSet,
     fulfillment: &CallableContractSet,
 ) -> Result<Option<CallableContractMismatch>, FactQueryError> {
@@ -762,6 +767,7 @@ fn contract_set_mismatch(
         subject,
         trait_application,
         generic_substitution,
+        input_count,
         requirement.invocation_preconditions(),
         fulfillment.invocation_preconditions(),
         CallableContractSurface::InvocationPreconditions,
@@ -774,6 +780,7 @@ fn contract_set_mismatch(
         subject,
         trait_application,
         generic_substitution,
+        input_count,
         requirement.static_constraints(),
         fulfillment.static_constraints(),
         CallableContractSurface::StaticConstraints,
@@ -786,6 +793,7 @@ fn contract_set_mismatch(
         subject,
         trait_application,
         generic_substitution,
+        input_count,
         requirement.normal_completion_postconditions(),
         fulfillment.normal_completion_postconditions(),
         CallableContractSurface::CompletionPostconditions,
@@ -831,6 +839,7 @@ fn contract_clause_mismatch(
     subject: bray_symbols::TypeId,
     trait_application: TraitApplicationId,
     generic_substitution: Option<GenericSubstitutionId>,
+    input_count: usize,
     requirement: &[CallableContractClause],
     fulfillment: &[CallableContractClause],
     surface: CallableContractSurface,
@@ -862,14 +871,20 @@ fn contract_clause_mismatch(
             (
                 bray_symbols::CallableContractClauseValue::Predicate(requirement),
                 bray_symbols::CallableContractClauseValue::Predicate(fulfillment),
-            ) => (!dependency_contracts_are_compatible(
+            ) => {
+                if requirement.is_trusted() != fulfillment.is_trusted()
+                    || (requirement.is_trusted() && !trusted_predicates_are_compatible(values, subject,
+                        trait_application, generic_substitution, input_count, requirement, fulfillment)?) {
+                    Some(CallableContractMismatch::PredicateCondition { surface, index })
+                } else { (!dependency_contracts_are_compatible(
                 values,
                 trait_application,
                 generic_substitution,
                 requirement.dependency_contract(),
                 fulfillment.dependency_contract(),
             )?)
-            .then_some(CallableContractMismatch::PredicateDependencies { surface, index }),
+            .then_some(CallableContractMismatch::PredicateDependencies { surface, index }) }
+            },
             (
                 bray_symbols::CallableContractClauseValue::TraitSatisfaction {
                     subject: requirement_subject,
@@ -907,6 +922,38 @@ fn contract_clause_mismatch(
     }
 
     Ok(None)
+}
+
+fn trusted_predicates_are_compatible(
+    values: &bray_symbols::SemanticValueStore,
+    subject: bray_symbols::TypeId,
+    trait_application: TraitApplicationId,
+    generic_substitution: Option<GenericSubstitutionId>,
+    input_count: usize,
+    requirement: bray_symbols::PredicateSemanticSummary,
+    fulfillment: bray_symbols::PredicateSemanticSummary,
+) -> Result<bool, FactQueryError> {
+    let (Some(required), Some(provided)) = (requirement.condition(), fulfillment.condition()) else {
+        return Ok(false);
+    };
+
+    let application = values.trait_application_data(trait_application);
+    let required = values.substitute_constant_term(required, application.substitution())?;
+
+    let required = match generic_substitution {
+        Some(substitution) => values.substitute_constant_term(required, substitution)?,
+        None => required,
+    };
+
+    let required = bray_checker::execution_condition_from_type_term(values, required, input_count)?;
+
+    let required = bray_checker::map_execution_condition_substitutions(&required, &|substitution|
+        values.substitute_contextual_self_in_substitution(substitution,
+            bray_symbols::SelfTypeContext::Trait(application.definition()), subject))?;
+
+    let provided = bray_checker::execution_condition_from_type_term(values, provided, input_count)?;
+
+    Ok(required != bray_checker::ExecutionCondition::Unknown && required == provided)
 }
 
 fn phase_behavior_mismatch(

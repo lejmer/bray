@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use bray_binder::{SymbolQueryErrorProvider, SymbolQueryProvider};
 use bray_symbols::{
-    CallableContractTemplateQuery, CallableContractTypeQuery, CallableContractsQuery,
+    CallableContractTemplateQuery, CallableContractTypeQuery, CallableContractsQuery, CallablePredicateContractsQuery,
     CallableOverloadTemplateQuery, CallableParameterDefaultQuery,
     CallableParameterDefaultTemplateQuery, CallableResultDependenciesQuery, CallableSignatureQuery,
     ConstantDeclaredTypeQuery, ConstantDefinitionQuery, DeclarationDirectivesQuery,
@@ -59,6 +59,7 @@ define_compilation_symbol_semantics! {
     callable_signatures: CallableSignatureQuery,
     callable_result_dependencies: CallableResultDependenciesQuery,
     callable_contracts: CallableContractsQuery,
+    callable_predicate_contracts: CallablePredicateContractsQuery,
     callable_contract_templates: CallableContractTemplateQuery,
     predicate_signature_templates: PredicateSignatureTemplateQuery,
     callable_contract_types: CallableContractTypeQuery,

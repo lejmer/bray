@@ -4,7 +4,6 @@ use bray_bound_tree::{
     AnyBoundNodeId, CheckedBodySemantics, CheckedExpressionSemantics, CheckedMemoryOperations,
     StoragePlan,
 };
-use bray_diagnostics::DiagnosticBag;
 
 use super::super::build::{
     ControlFlowGraphBuildOutcome, build_execution_control_flow_graph,
@@ -56,7 +55,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     let literals =
         crate::execution_guarantees::condition_literals(expressions, request.semantic_values());
 
-    let reachable = match analyze_execution_flow(
+    let (reachable, mut diagnostics) = match analyze_execution_flow(
         &graph,
         request,
         expressions,
@@ -64,22 +63,15 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         &literals,
         storage,
         contracts,
-        body.asynchronous(),
+        Some(body.asynchronous()),
     ) {
-        super::super::fixed_point::FixedPointOutcome::Complete(flow) => flow,
-        super::super::fixed_point::FixedPointOutcome::Cancelled => {
+        CheckerOutcome::Complete(flow) => flow.into_parts(),
+        CheckerOutcome::Cancelled => {
             return CheckerOutcome::Cancelled;
         }
-        super::super::fixed_point::FixedPointOutcome::ConvergenceInvariantViolated => {
-            let mut candidate = ExecutionCandidate::default();
-
-            record_failure(request, &mut candidate, request.unit().root().into());
-
-            return CheckerOutcome::complete(candidate, DiagnosticBag::new());
-        }
+        CheckerOutcome::InfrastructureFailure(error) => return CheckerOutcome::InfrastructureFailure(error),
+        CheckerOutcome::UpstreamFailure(error) => return CheckerOutcome::UpstreamFailure(error),
     };
-
-    let mut diagnostics = DiagnosticBag::new();
 
     macro_rules! checked {
         ($result:expr) => {

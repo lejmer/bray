@@ -1,7 +1,7 @@
 use super::common::{decode_tag, validate_record_count};
 use crate::semantic::codec::common::{
     SemanticDecodeContext, map_wire_error, read_count, read_symbol_reference,
-    read_symbol_references, read_u32,
+    read_symbol_references, read_optional_u32, read_u32,
 };
 use crate::semantic::codec::record::RecordTable;
 use crate::semantic::model::{
@@ -100,7 +100,7 @@ pub(super) fn decode_constraint(
         1 => Ok(InterfaceConstraint::new(
             owner,
             ordinal,
-            InterfacePredicateSummary::new(InterfaceDependencyContractId::new(read_u32(reader)?)),
+            decode_predicate_summary(reader)?,
         )),
         2 => Ok(InterfaceConstraint::trait_satisfaction(
             owner,
@@ -190,9 +190,7 @@ fn decode_callable_clauses(
             1 => InterfaceCallableContractClause::new(
                 ordinal,
                 kind,
-                InterfacePredicateSummary::new(InterfaceDependencyContractId::new(read_u32(
-                    reader,
-                )?)),
+                decode_predicate_summary(reader)?,
             ),
             2 if kind == CallableContractClauseKind::Static => {
                 InterfaceCallableContractClause::trait_satisfaction(
@@ -220,6 +218,19 @@ pub(super) fn decode_callable_behavior(
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceCallablePhaseBehavior, InterfaceValidationError> {
+    let mut predicate_sets = Vec::with_capacity(2);
+
+    for _ in 0..2 {
+        let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+        let mut predicates = context.allocate_items(reader, count)?;
+
+        for _ in 0..count {
+            predicates.push(decode_predicate_summary(reader)?);
+        }
+
+        predicate_sets.push(predicates);
+    }
+
     let effects = read_symbol_references(reader, limits, context)?;
     let capabilities = read_symbol_references(reader, limits, context)?;
     let execution_requirements = read_symbol_references(reader, limits, context)?;
@@ -260,6 +271,9 @@ pub(super) fn decode_callable_behavior(
         dependency_contract,
         current_run_cancellation,
     );
+
+    behavior.predicate_guarantees = predicate_sets.pop().expect("two phase predicate sets").into();
+    behavior.predicate_requirements = predicate_sets.pop().expect("two phase predicate sets").into();
 
     // Retain wire ordering so validation can reject duplicate or unordered promises.
     behavior.execution_properties = execution_properties.into();
@@ -639,4 +653,22 @@ mod tests {
             })
         ));
     }
+}
+
+fn decode_predicate_summary(
+    reader: &mut WireReader<'_>,
+) -> Result<InterfacePredicateSummary, InterfaceValidationError> {
+    let dependency = InterfaceDependencyContractId::new(read_u32(reader)?);
+    let condition = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
+    let raw = read_u32(reader)?;
+
+    let is_trusted = match raw {
+        0 => false,
+        1 => true,
+        _ => return Err(crate::semantic::codec::invalid_discriminant(
+            crate::InterfaceValidationField::Reference, raw,
+        )),
+    };
+
+    Ok(InterfacePredicateSummary::new(dependency).with_condition(condition, is_trusted))
 }

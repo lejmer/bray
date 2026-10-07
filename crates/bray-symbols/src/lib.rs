@@ -133,7 +133,7 @@ pub use semantic::{
     CallableCapabilityRequirement, CallableContractClause, CallableContractClauseKind,
     CallableContractClauseValue, CallableContractExpressionTemplate, CallableContractSet,
     CallableContractTemplate, CallableContractTemplateQuery, CallableContractTypeQuery,
-    CallableContractsQuery, CallableEffectRequirement, CallableExecutionContract,
+    CallableContractsQuery, CallablePredicateContractsQuery, CallableEffectRequirement, CallableExecutionContract,
     CallableExecutionDomain, CallableExecutionEvidence, CallableExecutionObligation,
     CallableExecutionOrigin, CallableExecutionRequirement, CallableExecutionTarget,
     CallableOverloadTemplateQuery, CallableParameterDefaultQuery, CallableParameterDefaultSurface,

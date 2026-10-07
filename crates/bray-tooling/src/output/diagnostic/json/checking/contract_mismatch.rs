@@ -80,6 +80,10 @@ pub(in crate::output::diagnostic::json) enum DiagnosticCallableContractMismatchJ
         surface: &'static str,
         index: u64,
     },
+    PredicateCondition {
+        surface: &'static str,
+        index: u64,
+    },
     TraitSatisfaction {
         surface: &'static str,
         index: u64,
@@ -127,6 +131,10 @@ impl DiagnosticCallableContractMismatchJson {
                 provided: callable_clause_category_key(*provided),
             },
             Mismatch::PredicateDependencies { surface, index } => Self::PredicateDependencies {
+                surface: callable_contract_surface_key(*surface),
+                index: *index,
+            },
+            Mismatch::PredicateCondition { surface, index } => Self::PredicateCondition {
                 surface: callable_contract_surface_key(*surface),
                 index: *index,
             },

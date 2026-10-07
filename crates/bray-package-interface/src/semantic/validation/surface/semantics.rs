@@ -99,10 +99,13 @@ impl InterfaceSemantics {
                 validate_symbol(&constraint.owner, symbol_count, dependency_count)?;
 
                 match constraint.kind {
-                    InterfaceConstraintKind::Predicate(predicate) => validate_index(
-                        predicate.dependency_contract.to_index(),
-                        self.dependency_contracts.len(),
-                    )?,
+                    InterfaceConstraintKind::Predicate(predicate) => {
+                        validate_index(predicate.dependency_contract.to_index(), self.dependency_contracts.len())?;
+
+                        if let Some(term) = predicate.condition {
+                            validate_index(term.to_index(), self.constant_terms.len())?;
+                        }
+                    },
                     InterfaceConstraintKind::TraitSatisfaction {
                         subject,
                         application,

@@ -89,11 +89,15 @@ impl Compilation {
                 let semantic_context =
                     semantic_unit_context(context.symbols(), bound.result().value());
 
+                let contracts = self.trusted_contract_inputs(
+                    &key, bound.result().value(), expressions.result().value(), cancellation,
+                )?;
+
                 let unit = bray_checker::CheckerUnitView::new(
                     bound.result().value(),
                     &semantic_context,
                     &context,
-                );
+                ).with_trusted_contracts(contracts.value());
 
                 let result = checker_result(DefaultBodySemanticChecker.check_body_semantics(
                     unit,
@@ -104,7 +108,9 @@ impl Compilation {
                     memory.result().value(),
                 ))?;
 
-                let (semantics, semantic_diagnostics) = result.into_parts();
+                let (semantics, mut semantic_diagnostics) = result.into_parts();
+
+                semantic_diagnostics.add_range(contracts.into_parts().1);
 
                 Ok((
                     DiagnosticResult::new(semantics, semantic_diagnostics),

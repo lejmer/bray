@@ -37,7 +37,17 @@ impl Compilation {
         )
         .map_err(FactQueryError::from)?;
 
-        Ok(signature)
+        let Some(signature) = signature else {
+            return Ok(None);
+        };
+
+        let predicates = binding_context.resolve_symbol_query(SymbolQueryRequest::<bray_symbols::CallablePredicateContractsQuery>::new(callable))
+            .map_err(binding_query_error)?;
+
+        diagnostics.add_range(predicates.diagnostics().iter().cloned());
+
+        signature.with_predicate_contracts(binding_context.semantic_values(), predicates.value(), instance.substitution())
+            .map(Some).map_err(Into::into)
     }
 }
 

@@ -2,7 +2,7 @@ use super::bundle::section;
 use super::model::EncodedSemanticSection;
 use super::value::write_tagged_id;
 use crate::semantic::codec::common::{
-    write_count, write_symbol_reference, write_symbol_references,
+    write_count, write_optional_u32, write_symbol_reference, write_symbol_references,
 };
 use crate::semantic::codec::record::encode_record_table;
 use crate::semantic::model::{
@@ -43,6 +43,8 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                 InterfaceConstraintKind::Predicate(predicate) => {
                     encoder.write_u32(1);
                     encoder.write_u32(predicate.dependency_contract.raw());
+                    write_optional_u32(encoder, predicate.condition.map(|term| term.raw()));
+                    encoder.write_u32(u32::from(predicate.is_trusted));
                 }
                 InterfaceConstraintKind::TraitSatisfaction {
                     subject,
@@ -101,6 +103,8 @@ fn encode_callable_clauses(encoder: &mut WireEncoder, clauses: &[InterfaceCallab
             InterfaceCallableContractClauseValue::Predicate(predicate) => {
                 encoder.write_u32(1);
                 encoder.write_u32(predicate.dependency_contract.raw());
+                    write_optional_u32(encoder, predicate.condition.map(|term| term.raw()));
+                    encoder.write_u32(u32::from(predicate.is_trusted));
             }
             InterfaceCallableContractClauseValue::TraitSatisfaction {
                 subject,
@@ -118,6 +122,16 @@ pub(super) fn encode_callable_behavior(
     encoder: &mut WireEncoder,
     behavior: &InterfaceCallablePhaseBehavior,
 ) {
+    for predicates in [&behavior.predicate_requirements, &behavior.predicate_guarantees] {
+        write_count(encoder, predicates.len());
+
+        for predicate in &**predicates {
+            encoder.write_u32(predicate.dependency_contract.raw());
+            write_optional_u32(encoder, predicate.condition.map(|term| term.raw()));
+            encoder.write_u32(u32::from(predicate.is_trusted));
+        }
+    }
+
     for requirements in [
         &behavior.effects,
         &behavior.capabilities,

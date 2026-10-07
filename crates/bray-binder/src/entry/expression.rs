@@ -373,6 +373,88 @@ where
     let expressions = anchored_expression_sequence(binding_context, syntax)
         .ok_or_else(|| missing_syntax(&key))?;
 
+    bind_expression_sequence(binding_context, unit, key, uses_contract_scope, has_contract_result, configure_scope, expressions)
+}
+
+/// Binds an explicit declaration-surface clause using the same contract scopes as source units.
+pub fn bind_contract_clause_expressions<C>(
+    binding_context: &C,
+    unit: BoundUnitId,
+    key: BoundUnitKey,
+    expressions: impl IntoIterator<Item = ExpressionSyntax>,
+) -> Result<BoundUnitComputation, BoundUnitBindingError<C::UpstreamError>>
+where
+    C: BindingQueryContext + ?Sized,
+    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
+{
+    let has_result = if key.source().syntax().syntax_kind() == SyntaxKind::EnsuresClause {
+        let owner = binding_context.symbols().symbol_for_key(key.declared_owner())
+            .ok_or_else(|| missing_owner(&key, None))?;
+
+        callable_normal_completion_has_value(binding_context, owner).map_err(map_query_error)?
+    } else {
+        false
+    };
+
+    let (output, root) = bind_expression_sequence(binding_context, unit, key, true, has_result,
+        |binder, scope| push_callable_inputs(binder, scope).map(|_| ()), expressions.into_iter().collect())?;
+
+    Ok(assemble_bound_unit(output, BoundUnitRoot::ExpressionSequence(root)))
+}
+
+/// Binds contract type inputs as declaration-local placeholders with stable parameter ordinals.
+pub fn bind_callable_type_clause<C>(
+    context: &C,
+    unit: BoundUnitId,
+    key: BoundUnitKey,
+    parameters: &[(bray_symbols::CallableParameterName, bray_symbols::TypeId, bray_declarations::SyntaxAnchor)],
+    result: bray_symbols::TypeId,
+    expressions: Vec<ExpressionSyntax>,
+) -> Result<(BoundUnitComputation, Vec<bray_bound_tree::BoundReferenceTarget>), BoundUnitBindingError<C::UpstreamError>>
+where C: BindingQueryContext + ?Sized,
+{
+    let has_result = key.source().syntax().syntax_kind() == SyntaxKind::EnsuresClause;
+    let mut references = Vec::with_capacity(parameters.len());
+
+    let (output, root) = bind_expression_sequence(context, unit, key, true, has_result, |binder, root| {
+        if let Some(symbol) = binder.unit().postcondition_result(root) {
+            binder.record_value_type(bray_bound_tree::BoundReferenceTarget::Local(symbol.into()), result);
+        }
+
+        for (ordinal, (name, ty, anchor)) in parameters.iter().enumerate() {
+            let ordinal = bray_symbols::SymbolOrdinal::new(u32::try_from(ordinal).expect("parameter ordinal fits compiler identity"));
+
+            let local = binder.unit_mut().push_binding(root, bray_symbols::SymbolName::try_new(name.as_str()).expect("checked callable parameter has a nonempty name"), [*anchor], Some(ordinal), anchor.is_recovered())
+                .map_err(BoundUnitBindingError::Construction)?;
+
+            binder.unit_mut().activate_local(root, local);
+
+            let reference = bray_bound_tree::BoundReferenceTarget::Local(local.into());
+
+            binder.record_value_type(reference, *ty);
+            references.push(reference);
+        }
+
+        Ok(())
+    }, expressions)?;
+
+    Ok((assemble_bound_unit(output, BoundUnitRoot::ExpressionSequence(root)), references))
+}
+
+fn bind_expression_sequence<C>(
+    binding_context: &C,
+    unit: BoundUnitId,
+    key: BoundUnitKey,
+    uses_contract_scope: bool,
+    has_contract_result: bool,
+    configure_scope: impl FnOnce(&mut Binder<'_, C>, LocalScopeId) -> Result<(), BoundUnitBindingError<C::UpstreamError>>,
+    expressions: Vec<ExpressionSyntax>,
+) -> Result<(BinderOutput, BoundBlockId), BoundUnitBindingError<C::UpstreamError>>
+where C: BindingQueryContext + ?Sized,
+{
+    let source = key.source();
+    let syntax = source.syntax();
+
     if expressions.is_empty() {
         return Err(missing_syntax(&key));
     }
@@ -383,14 +465,14 @@ where
     let mut binder = create_binder(binding_context, unit, key)?;
     let root_scope = binder.unit().root_scope();
 
-    configure_scope(&mut binder, root_scope)?;
-
     let expression_scope = if uses_contract_scope {
         push_contract_scope(&mut binder, root_scope, syntax, has_contract_result)
             .map_err(map_binding_error)?
     } else {
         root_scope
     };
+
+    configure_scope(&mut binder, expression_scope)?;
 
     let path_context = path_context(&binder, expression_scope)?;
     let error_type = error_type(binding_context)?;

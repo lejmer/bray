@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use bray_bound_tree::BoundOperator;
@@ -30,6 +30,8 @@ pub enum ExecutionCondition {
         bray_symbols::GenericSubstitutionId,
         Arc<[ExecutionCondition]>,
     ),
+    /// A checked constant callable application with stable declaration and argument identity.
+    Call(bray_symbols::CallableInstanceData, Arc<[ExecutionCondition]>),
     /// One field of an observed immutable value.
     Field(bray_symbols::AnySymbolId, Arc<ExecutionCondition>),
     /// Meaning that cannot currently be established.
@@ -40,14 +42,50 @@ impl ExecutionCondition {
     // Bound recursive normalization and implication work, including adversarial source depth.
     pub(crate) const WORK_LIMIT: usize = bray_symbols::EXECUTION_CONDITION_WORK_LIMIT;
 
-    pub(crate) fn inputs(&self) -> Vec<&super::ExecutionPlace> {
+    pub(crate) fn prove_trusted(&self, trusted: &BTreeSet<(Self, bool)>, ordinary: &BTreeSet<(Self, bool)>) -> Option<bool> {
+        if let Some(value) = self.prove(trusted, &mut { Self::WORK_LIMIT }) { return Some(value); }
+
+        let mut known = trusted.clone();
+
+        for _ in 0..Self::WORK_LIMIT {
+            let mut established = Vec::new();
+
+            for (condition, holds) in known.iter().take(Self::WORK_LIMIT) {
+                if *holds && let Self::Operation(BoundOperator::LogicalOr, operands) = condition
+                    && let [guard, postcondition] = operands.as_ref()
+                    && guard.prove(ordinary, &mut { Self::WORK_LIMIT }) == Some(false) {
+                    established.push(postcondition.clone());
+                }
+            }
+
+            let before = known.len();
+
+            for condition in established { condition.assume(true, &mut known); }
+
+            if known.len() == before { break; }
+        }
+
+        if let Self::Operation(BoundOperator::LogicalOr, operands) = self
+            && let [guard, postcondition] = operands.as_ref() {
+            if guard.prove(ordinary, &mut { Self::WORK_LIMIT }) == Some(true) { return Some(true); }
+
+            if guard.prove(ordinary, &mut { Self::WORK_LIMIT }) == Some(false) {
+                return postcondition.prove_trusted(&known, ordinary);
+            }
+        }
+
+        self.prove(&known, &mut { Self::WORK_LIMIT })
+    }
+
+    /// Returns the exact input places observed by this checked condition.
+    pub fn inputs(&self) -> Vec<&super::ExecutionPlace> {
         let mut pending = vec![self];
         let mut inputs = Vec::new();
 
         while let Some(condition) = pending.pop() {
             match condition {
                 Self::Input(place) => inputs.push(place),
-                Self::Operation(_, operands) | Self::Predicate(_, _, operands) => {
+                Self::Operation(_, operands) | Self::Predicate(_, _, operands) | Self::Call(_, operands) => {
                     pending.extend(operands.iter())
                 }
                 Self::Field(_, value) => pending.push(value),
@@ -72,6 +110,8 @@ impl ExecutionCondition {
 
         // Substitution retains immutable terms independently in the caller or exit environment.
         match self {
+            Self::Call(callable, operands) => Self::call(*callable, operands.iter()
+                .map(|operand| operand.substitute(input, result, budget)).collect()),
             Self::Predicate(predicate, substitution, operands) => Self::predicate(
                 *predicate,
                 *substitution,
@@ -105,7 +145,7 @@ impl ExecutionCondition {
                 {
                     return true;
                 }
-                Self::Operation(_, operands) | Self::Predicate(_, _, operands) => {
+                Self::Operation(_, operands) | Self::Predicate(_, _, operands) | Self::Call(_, operands) => {
                     pending.extend(operands.iter())
                 }
                 Self::Field(_, value) => pending.push(value),
@@ -114,6 +154,33 @@ impl ExecutionCondition {
         }
 
         false
+    }
+
+    pub(crate) fn observes(&self, value: &Self) -> bool {
+        let mut pending = vec![self];
+
+        while let Some(condition) = pending.pop() {
+            if condition == value {
+                return true;
+            }
+
+            match (condition, value) {
+                (Self::Input(observed), Self::Input(changed)) if observed.overlaps(changed) => return true,
+                (Self::Operation(_, operands) | Self::Predicate(_, _, operands) | Self::Call(_, operands), _) => pending.extend(operands.iter()),
+                (Self::Field(_, subject), _) => pending.push(subject),
+                _ => {}
+            }
+        }
+
+        false
+    }
+
+    pub(crate) fn call(callable: bray_symbols::CallableInstanceData, arguments: Vec<Self>) -> Self {
+        if arguments.iter().any(|argument| matches!(argument, Self::Unknown)) {
+            Self::Unknown
+        } else {
+            Self::Call(callable, arguments.into())
+        }
     }
 
     pub(crate) fn predicate(
@@ -171,6 +238,8 @@ impl ExecutionCondition {
         }
 
         match (operator, operands.as_slice()) {
+            (BoundOperator::Equal | BoundOperator::LessEqual | BoundOperator::GreaterEqual, [left, right]) if left == right => Self::Boolean(true),
+            (BoundOperator::NotEqual | BoundOperator::Less | BoundOperator::Greater, [left, right]) if left == right => Self::Boolean(false),
             (BoundOperator::Equal, [Self::Boolean(left), Self::Boolean(right)]) => {
                 Self::Boolean(left == right)
             }
@@ -243,6 +312,33 @@ impl ExecutionCondition {
         }
     }
 
+    pub(crate) fn equalities(assumptions: &BTreeSet<(Self, bool)>) -> BTreeMap<Self, Self> {
+        let mut replacements = BTreeMap::new();
+        let mut budget = Self::WORK_LIMIT;
+
+        for (condition, value) in assumptions.iter().take(Self::WORK_LIMIT) {
+            if !value { continue; }
+
+            let Self::Operation(BoundOperator::Equal, operands) = condition else { continue; };
+
+            let [left, right] = operands.as_ref() else { continue; };
+
+            if left == &Self::Unknown || right == &Self::Unknown { continue; }
+
+            let left = resolve_equality(left, &replacements, &mut budget);
+            let right = resolve_equality(right, &replacements, &mut budget);
+
+            if left < right { replacements.insert(right, left); }
+            else if right < left { replacements.insert(left, right); }
+        }
+
+        replacements
+    }
+
+    pub(crate) fn with_equalities(&self, replacements: &BTreeMap<Self, Self>) -> Self {
+        rewrite_equalities(self, replacements, &mut { Self::WORK_LIMIT })
+    }
+
     pub(crate) fn assume(self, value: bool, assumptions: &mut BTreeSet<(Self, bool)>) {
         match self {
             Self::Unknown => {}
@@ -264,4 +360,35 @@ impl ExecutionCondition {
             }
         }
     }
+}
+
+fn resolve_equality(value: &ExecutionCondition, replacements: &std::collections::BTreeMap<ExecutionCondition, ExecutionCondition>, budget: &mut usize) -> ExecutionCondition {
+    let mut value = value.clone();
+
+    while let Some(replacement) = replacements.get(&value) {
+        let Some(next) = budget.checked_sub(1) else { return ExecutionCondition::Unknown; };
+
+        *budget = next;
+        value = replacement.clone();
+    }
+
+    value
+}
+
+fn rewrite_equalities(value: &ExecutionCondition, replacements: &std::collections::BTreeMap<ExecutionCondition, ExecutionCondition>, budget: &mut usize) -> ExecutionCondition {
+    let Some(next) = budget.checked_sub(1) else { return ExecutionCondition::Unknown; };
+
+    *budget = next;
+
+    let value = resolve_equality(value, replacements, budget);
+
+    let value = match value {
+        ExecutionCondition::Field(field, base) => ExecutionCondition::field(field, rewrite_equalities(&base, replacements, budget)),
+        ExecutionCondition::Operation(operator, operands) => ExecutionCondition::operation(operator, operands.iter().map(|operand| rewrite_equalities(operand, replacements, budget)).collect()),
+        ExecutionCondition::Predicate(predicate, substitution, operands) => ExecutionCondition::predicate(predicate, substitution, operands.iter().map(|operand| rewrite_equalities(operand, replacements, budget)).collect()),
+        ExecutionCondition::Call(callable, operands) => ExecutionCondition::call(callable, operands.iter().map(|operand| rewrite_equalities(operand, replacements, budget)).collect()),
+        value => value,
+    };
+
+    resolve_equality(&value, replacements, budget)
 }

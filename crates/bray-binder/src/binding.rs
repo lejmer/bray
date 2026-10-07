@@ -15,7 +15,7 @@ mod type_expression;
 mod test_support;
 
 pub use candidate::{
-    bind_expression_candidates, bind_member_callable_template, qualified_union_variant,
+    bind_expression_candidates, bind_expression_candidates_with_syntax, bind_member_callable_template, qualified_union_variant,
 };
 pub(crate) use contract::{callable_normal_completion_has_value, push_contract_scope};
 pub use directive::{

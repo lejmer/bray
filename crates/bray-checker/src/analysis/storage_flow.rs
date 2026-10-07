@@ -1,6 +1,6 @@
 mod authority;
 mod check;
-mod copyability;
+pub(super) mod copyability;
 mod decision;
 mod model;
 

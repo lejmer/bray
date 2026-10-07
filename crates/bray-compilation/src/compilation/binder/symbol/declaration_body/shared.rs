@@ -1,7 +1,7 @@
 use crate::compilation::binder::{
     BindingQueryResult, semantic_contract_binding_error as binding_contract,
 };
-use bray_binder::BindingQueryError;
+use bray_binder::{BindingQueryContext, BindingQueryError};
 use bray_bound_tree::{
     BoundUnit, BoundUnitKey, BoundUnitRoot, CheckedBodySemantics, CheckedExpressionSemantics,
     SemanticSelection, StoragePlan,
@@ -23,8 +23,8 @@ pub(in crate::compilation::binder::symbol) struct CheckedSourceExpression {
 }
 
 pub(in crate::compilation::binder::symbol) struct CheckedSourcePredicateSequence {
-    pub(in crate::compilation::binder::symbol) dependency_contracts:
-        Vec<DependencyContractTemplateId>,
+    pub(in crate::compilation::binder::symbol) predicates:
+        Vec<bray_symbols::PredicateSemanticSummary>,
     pub(in crate::compilation::binder::symbol) execution_requirements:
         Vec<CallableExecutionRequirement>,
     pub(in crate::compilation::binder::symbol) diagnostics: DiagnosticBag,
@@ -130,7 +130,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         .bound_unit_with_cancellation(key.clone(), context.cancellation)
         .map_err(super::super::binding::binder_error)?;
 
-    let BoundUnitRoot::ExpressionSequence(root) = bound.result().value().root() else {
+    let BoundUnitRoot::ExpressionSequence(_) = bound.result().value().root() else {
         return Err(unexpected_unit_root(
             key,
             bray_bound_tree::BoundNodeKind::Block,
@@ -152,19 +152,23 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
 
     let dependencies = body.result().value().dependencies();
 
-    let block = bound.result().value().view().block(root);
+    let owner = context.symbols().symbol_for_key(key.declared_owner())
+        .expect("checked predicate clause must retain its declaration owner");
 
-    let Some(block) = block else {
-        return Err(binding_contract(
-            crate::compilation::SemanticQueryContext::Unit(key.clone()),
-            crate::compilation::SemanticQueryViolation::MissingBoundNode(root.into()),
-        ));
-    };
+    let inputs = compilation.execution_callable_inputs(owner, context.cancellation)
+        .map_err(super::super::binding::binder_error)?;
 
-    let mut dependency_contracts = Vec::new();
+    let boolean = compilation.target_property_type(bray_target::TargetPropertyKind::ScalarBool)
+        .map_err(super::super::binding::binder_error)?;
+
+    let normalized = bray_checker::predicate_conditions(
+        bound.result().value(), semantics.result().value(), context.semantic_values(),
+    ).map_err(|error| BindingQueryError::Binding(bray_binder::BindingError::SemanticValue(error)))?;
+
+    let mut predicates = Vec::new();
     let mut execution_requirements = Vec::new();
 
-    for expression in block.items().iter().filter_map(|item| item.expression()) {
+    for (expression, condition, is_trusted) in normalized {
         let contract = dependencies
             .expression(expression)
             .and_then(|contract| dependencies.contract(contract));
@@ -173,11 +177,18 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
             return Err(missing_dependency_contract(key.clone(), expression));
         };
 
-        dependency_contracts.push(portable_dependency_contract(
+        let dependency = portable_dependency_contract(
             context,
             storage.result().value(),
             contract,
-        )?);
+        )?;
+
+        let term = bray_checker::execution_condition_term(
+            context.semantic_values(), &condition, &inputs, boolean,
+        ).map_err(|error| BindingQueryError::Binding(bray_binder::BindingError::SemanticValue(error)))?;
+
+        predicates.push(bray_symbols::PredicateSemanticSummary::new(dependency)
+            .with_condition(term, is_trusted));
 
         if let Some(requirement) = execution_requirement(
             semantics
@@ -193,7 +204,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
     let diagnostics = checked_source_diagnostics(&bound, &semantics, &storage, &body);
 
     Ok(CheckedSourcePredicateSequence {
-        dependency_contracts,
+        predicates,
         execution_requirements,
         diagnostics,
     })

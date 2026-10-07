@@ -54,6 +54,8 @@ define_callable_requirement!(
 /// Caller-visible behavior and execution promises of one callable contract phase.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallablePhaseBehavior {
+    predicate_requirements: Arc<[crate::PredicateSemanticSummary]>,
+    predicate_guarantees: Arc<[crate::PredicateSemanticSummary]>,
     execution_properties: Arc<[crate::ExecutionProperty]>,
     effects: Arc<[CallableEffectRequirement]>,
     capabilities: Arc<[CallableCapabilityRequirement]>,
@@ -76,6 +78,8 @@ impl CallablePhaseBehavior {
         current_run_cancellation: CurrentRunCancellation,
     ) -> Self {
         Self {
+            predicate_requirements: Arc::new([]),
+            predicate_guarantees: Arc::new([]),
             execution_properties: Arc::new([]),
             effects: sorted_unique_shared_slice(effects),
             capabilities: sorted_unique_shared_slice(capabilities),
@@ -85,6 +89,28 @@ impl CallablePhaseBehavior {
             dependency_contract,
             current_run_cancellation,
         }
+    }
+
+    /// Attaches checked predicates in portable callable input coordinates.
+    pub fn with_predicates(
+        mut self,
+        requirements: impl IntoIterator<Item = crate::PredicateSemanticSummary>,
+        guarantees: impl IntoIterator<Item = crate::PredicateSemanticSummary>,
+    ) -> Self {
+        self.predicate_requirements = sorted_unique_shared_slice(requirements);
+        self.predicate_guarantees = sorted_unique_shared_slice(guarantees);
+
+        self
+    }
+
+    /// Returns obligations incurred before this phase begins.
+    pub fn predicate_requirements(&self) -> &[crate::PredicateSemanticSummary] {
+        &self.predicate_requirements
+    }
+
+    /// Returns guarantees established by normal completion of this phase.
+    pub fn predicate_guarantees(&self) -> &[crate::PredicateSemanticSummary] {
+        &self.predicate_guarantees
     }
 
     /// Attaches execution promises that supplied implementations must establish separately.
@@ -169,6 +195,30 @@ pub struct CallablePhaseBehaviors {
 }
 
 impl CallablePhaseBehaviors {
+    /// Preserves caller obligations through invocation and lazy body execution.
+    pub fn with_predicates(
+        mut self,
+        requirements: impl IntoIterator<Item = crate::PredicateSemanticSummary>,
+        guarantees: impl IntoIterator<Item = crate::PredicateSemanticSummary>,
+    ) -> Self {
+        let requirements = sorted_unique_shared_slice(requirements);
+        let guarantees = sorted_unique_shared_slice(guarantees);
+
+        Arc::make_mut(&mut self.invocation).predicate_requirements = Arc::clone(&requirements);
+
+        match &mut self.deferred_execution {
+            Some(body) => {
+                let body = Arc::make_mut(body);
+
+                body.predicate_requirements = requirements;
+                body.predicate_guarantees = guarantees;
+            }
+            None => Arc::make_mut(&mut self.invocation).predicate_guarantees = guarantees,
+        }
+
+        self
+    }
+
     /// Attaches promises to ordinary body execution, including deferred async execution.
     pub fn with_execution_properties(
         mut self,

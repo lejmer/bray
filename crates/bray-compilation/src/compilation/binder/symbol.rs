@@ -21,6 +21,7 @@ mod template;
 mod test_support;
 
 pub(in crate::compilation) use binding::binder_error;
+pub(in crate::compilation) use declaration_body::checked_callable_type_contracts;
 pub(in crate::compilation) use cache::CompilationSymbolSemantics;
 pub(in crate::compilation) use contract::{
     bind_declared_execution_requirements, bind_declared_trusted_capabilities,

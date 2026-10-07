@@ -83,7 +83,7 @@ where
     }
 }
 
-pub(super) struct CopyabilityResolver<'analysis, C>
+pub(in crate::analysis) struct CopyabilityResolver<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -98,7 +98,7 @@ impl<'analysis, C> CopyabilityResolver<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    pub(super) fn new(request: CheckerUnitView<'analysis, C>) -> Self {
+    pub(in crate::analysis) fn new(request: CheckerUnitView<'analysis, C>) -> Self {
         Self::for_context(request.context(), request.semantic_context())
     }
 
@@ -125,7 +125,7 @@ where
         }
     }
 
-    pub(super) fn resolve(&mut self, ty: TypeId) -> CheckerQueryResult<bool, C::UpstreamError> {
+    pub(in crate::analysis) fn resolve(&mut self, ty: TypeId) -> CheckerQueryResult<bool, C::UpstreamError> {
         if let Some(copyable) = self.cache.get(&ty) {
             return Ok(*copyable);
         }
@@ -142,7 +142,7 @@ where
         Ok(copyable)
     }
 
-    pub(super) fn into_parts(self) -> (BTreeSet<TypeId>, DiagnosticBag) {
+    pub(in crate::analysis) fn into_parts(self) -> (BTreeSet<TypeId>, DiagnosticBag) {
         let copyable = self
             .cache
             .into_iter()

@@ -721,6 +721,12 @@ fn diagnostic_callable_contract_mismatch(
                 index: diagnostic_count(index)?,
             }
         }
+        CallableContractMismatch::PredicateCondition { surface, index } => {
+            DiagnosticCallableContractMismatch::PredicateCondition {
+                surface: diagnostic_callable_contract_surface(surface),
+                index: diagnostic_count(index)?,
+            }
+        }
         CallableContractMismatch::TraitSatisfaction { surface, index } => {
             DiagnosticCallableContractMismatch::TraitSatisfaction {
                 surface: diagnostic_callable_contract_surface(surface),

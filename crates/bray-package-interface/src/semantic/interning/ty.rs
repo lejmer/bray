@@ -135,6 +135,17 @@ impl InternState {
                     return Ok(None);
                 };
 
+                // Predicate terms may depend on types resolved later in this graph pass.
+                // Defer the callable until all of its contract edges are available.
+                if std::iter::once(invocation_behavior)
+                    .chain(deferred_execution_behavior.iter())
+                    .flat_map(|behavior| behavior.predicate_requirements.iter()
+                        .chain(behavior.predicate_guarantees.iter()))
+                    .any(|predicate| self.dependency_contract_id(predicate.dependency_contract).is_none()
+                        || predicate.condition.is_some_and(|term| self.constant_term_id(term).is_none())) {
+                    return Ok(None);
+                }
+
                 let invocation_behavior =
                     self.convert_callable_behavior(invocation_behavior, symbols)?;
 

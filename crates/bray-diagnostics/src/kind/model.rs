@@ -375,6 +375,10 @@ define_diagnostic_kinds! {
     CheckingInvalidAtomicMemoryOrder,
     /// A compiler-provided memory operation lacks a required trusted guarantee.
     CheckingMissingTrustedMemoryGuarantees,
+    /// A selected call has no live evidence for its trusted caller obligation.
+    CheckingTrustedObligationNotProven,
+    /// A copy or partial move lacks a contract preserving live trusted guarantees.
+    CheckingTrustedWitnessTransferNotProven,
     /// A compiler-provided memory operation uses invalidated allocation storage.
     CheckingMemoryOperationAfterDeallocation,
     /// A compiler-provided memory read has no initialized value of the required type.
@@ -852,6 +856,8 @@ impl DiagnosticKind {
             Self::CheckingInvalidTargetControlContract => 7096,
             Self::CheckingInvalidAtomicMemoryOrder => 7097,
             Self::CheckingMissingTrustedMemoryGuarantees => 7084,
+            Self::CheckingTrustedObligationNotProven => 7123,
+            Self::CheckingTrustedWitnessTransferNotProven => 7124,
             Self::CheckingMemoryOperationAfterDeallocation => 7085,
             Self::CheckingDeallocationWithOutstandingObligations => 7086,
             Self::CheckingUninitializedRawStorage => 7087,
@@ -1252,6 +1258,8 @@ impl DiagnosticKind {
             Self::CheckingMissingTrustedMemoryGuarantees => {
                 "checking_missing_trusted_memory_guarantees"
             }
+            Self::CheckingTrustedObligationNotProven => "checking_trusted_obligation_not_proven",
+            Self::CheckingTrustedWitnessTransferNotProven => "checking_trusted_witness_transfer_not_proven",
             Self::CheckingMemoryOperationAfterDeallocation => {
                 "checking_memory_operation_after_deallocation"
             }

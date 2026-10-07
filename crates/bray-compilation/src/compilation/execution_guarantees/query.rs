@@ -18,7 +18,7 @@ use crate::compilation::{
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult};
 
 impl Compilation {
-    pub(super) fn execution_declaration(
+    pub(in crate::compilation) fn execution_declaration(
         &self,
         anchor: SyntaxAnchor,
     ) -> Result<DiagnosticResult<ExecutionDeclaration>, FactQueryError> {
@@ -27,7 +27,7 @@ impl Compilation {
         ))
     }
 
-    pub(super) fn execution_declaration_node(
+    pub(in crate::compilation) fn execution_declaration_node(
         &self,
         anchor: SyntaxAnchor,
     ) -> Result<bray_syntax::SyntaxNodeView<'_>, FactQueryError> {
@@ -180,7 +180,7 @@ impl Compilation {
                     let guards =
                         self.execution_condition_inputs(&key, &domain.guards, cancellation)?;
 
-                    let posts = self.execution_condition_inputs(
+                    let posts = self.predicate_condition_inputs(
                         &key,
                         &domain.postconditions,
                         cancellation,
@@ -188,6 +188,14 @@ impl Compilation {
 
                     diagnostics.add_range(guards.diagnostics().iter().cloned());
                     diagnostics.add_range(posts.diagnostics().iter().cloned());
+
+                    let trusted_producer = self.trusted_predicate_producer(&key)?;
+
+                    // Trusted predicate guarantees are declared sources of authority. Execution
+                    // properties and ordinary postconditions still require their independent proofs.
+                    let posts = posts.into_parts().0.into_iter().map(|(condition, trusted, span)|
+                        (if trusted && trusted_producer { bray_checker::ExecutionCondition::Boolean(true) }
+                            else { condition }, span)).collect::<Vec<_>>();
 
                     // Each domain owns its entry assumptions while sharing immutable condition operands.
                     let mut assumptions = requirements.clone();
@@ -217,14 +225,12 @@ impl Compilation {
                     }
 
                     for source in posts
-                        .value()
                         .iter()
                         .map(|(_, source)| *source)
                         .collect::<std::collections::BTreeSet<_>>()
                     {
                         // Each clause proof owns shared immutable condition terms from this normalized domain.
                         let conditions = posts
-                            .value()
                             .iter()
                             .filter(|(_, span)| *span == source)
                             .cloned()

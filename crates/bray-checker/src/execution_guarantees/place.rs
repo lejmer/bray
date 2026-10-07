@@ -6,21 +6,44 @@ use bray_symbols::AnySymbolId;
 /// An observable input or local place, including its selected field path.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ExecutionPlace {
-    pub(crate) root: BoundReferenceTarget,
+    pub(crate) root: ExecutionInput,
     pub(crate) fields: Arc<[AnySymbolId]>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) enum ExecutionInput {
+    Reference(BoundReferenceTarget),
+    Argument(bray_symbols::SymbolOrdinal),
 }
 
 impl From<BoundReferenceTarget> for ExecutionPlace {
     fn from(root: BoundReferenceTarget) -> Self {
         Self {
-            root,
+            root: ExecutionInput::Reference(root),
             fields: Arc::new([]),
         }
     }
 }
 
 impl ExecutionPlace {
+    pub(crate) fn argument(ordinal: bray_symbols::SymbolOrdinal) -> Self {
+        Self { root: ExecutionInput::Argument(ordinal), fields: Arc::new([]) }
+    }
+
+    pub(crate) const fn reference(&self) -> Option<BoundReferenceTarget> {
+        match self.root {
+            ExecutionInput::Reference(reference) => Some(reference),
+            ExecutionInput::Argument(_) => None,
+        }
+    }
     pub(crate) fn storage(
+        storage: &bray_bound_tree::StoragePlan,
+        access: bray_bound_tree::StorageAccessId,
+    ) -> Option<Self> {
+        Self::storage_owner(storage, access)?.project(storage.resolved_projections(access)?)
+    }
+
+    pub(crate) fn storage_owner(
         storage: &bray_bound_tree::StoragePlan,
         access: bray_bound_tree::StorageAccessId,
     ) -> Option<Self> {
@@ -32,7 +55,7 @@ impl ExecutionPlace {
                 .flatten()
         })?;
 
-        Self::from(root).project(storage.resolved_projections(access)?)
+        Some(Self::from(root))
     }
 
     pub(crate) fn project(

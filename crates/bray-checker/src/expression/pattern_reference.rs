@@ -223,7 +223,9 @@ where
         Some(BoundExpression::Name(name))
             if matches!(
                 name.target(),
-                BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(_))
+                BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(binding))
+                    if request.unit().key().kind() != bray_bound_tree::BoundUnitKind::ContractClause
+                        || request.unit().tree().patterns().any(|(_, pattern)| pattern.bindings().contains(&binding))
             )
     )
 }

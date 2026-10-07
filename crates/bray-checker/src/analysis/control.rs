@@ -74,7 +74,7 @@ where
                 self.build_assertion(id, expression.operands(), current)
             }
             BoundStructuredExpressionKind::TrustBoundary => {
-                self.build_trust_boundary(id, expression.operands(), current)
+                self.build_trust_boundary(id, expression.operands(), expression.blocks(), current)
             }
             BoundStructuredExpressionKind::BooleanAllFold
             | BoundStructuredExpressionKind::BooleanAnyFold => {
@@ -229,6 +229,7 @@ where
         &mut self,
         id: BoundExpressionId,
         operands: &[BoundExpressionId],
+        blocks: &[BoundBlockId],
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
         let entry = self.push_block();
@@ -240,7 +241,13 @@ where
             Some(AnalysisRefinement::TrustBoundary(id)),
         );
 
-        let current = self.build_operands(operands, entry)?;
+        let mut current = self.build_operands(operands, entry)?;
+
+        for block in blocks {
+            let Some(completion) = self.build_block(*block, current)? else { return Some(None); };
+
+            current = completion;
+        }
 
         self.push_bound(current, id.into());
 

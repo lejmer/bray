@@ -335,6 +335,51 @@ impl CallableSignature {
         }
     }
 
+    /// Retains checked trusted caller predicates independently of body-effect queries.
+    pub fn with_predicate_contracts(
+        mut self,
+        values: &SemanticValueStore,
+        clauses: &[crate::CallableContractClause],
+        substitution: crate::GenericSubstitutionId,
+    ) -> Result<Self, crate::SemanticValueStoreError> {
+        let data = values.type_data(self.callable_type);
+
+        let TypeData::Callable(callable) = data.as_ref() else {
+            panic!("checked callable signature must retain its callable type");
+        };
+
+        let mut requirements = Vec::new();
+        let mut guarantees = Vec::new();
+
+        if !clauses.iter().filter_map(|clause| clause.predicate()).any(|predicate| predicate.is_trusted()) {
+            return Ok(self);
+        }
+
+        for clause in clauses {
+            let Some(predicate) = clause.predicate() else {
+                continue;
+            };
+
+            let condition = predicate.condition().map(|condition| values.substitute_constant_term(condition, substitution)).transpose()?;
+            let dependency = values.substitute_dependency_contract(predicate.dependency_contract(), substitution)?;
+            let predicate = crate::PredicateSemanticSummary::new(dependency).with_condition(condition, predicate.is_trusted());
+
+            match clause.kind() {
+                crate::CallableContractClauseKind::Requires => requirements.push(predicate),
+                crate::CallableContractClauseKind::Ensures => guarantees.push(predicate),
+                crate::CallableContractClauseKind::Static => {},
+            }
+        }
+
+        if !requirements.is_empty() || !guarantees.is_empty() {
+            let phases = callable.phase_behaviors().clone().with_predicates(requirements, guarantees);
+
+            self.callable_type = values.intern_type(TypeData::Callable(callable.clone().with_phase_behaviors(phases)))?;
+        }
+
+        Ok(self)
+    }
+
     /// Transforms every type in the signature while preserving declaration identities and modes.
     pub fn try_map_types<E>(
         self,

@@ -90,6 +90,14 @@ pub trait CheckerRequestContext: Sync {
     /// Returns the canonical semantic values used by bound structure and queries.
     fn semantic_values(&self) -> &SemanticValueStore;
 
+    /// Returns predicate contracts checked independently of callable body effects.
+    fn callable_predicate_contracts(
+        &self,
+        _callable: bray_symbols::CallableSymbolId,
+    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<std::sync::Arc<[bray_symbols::CallableContractClause]>>, Self::UpstreamError> {
+        Ok(bray_diagnostics::DiagnosticResult::new(std::sync::Arc::new([]), bray_diagnostics::DiagnosticBag::new()))
+    }
+
     /// Returns the inferred contract retained by one callable's returned value.
     fn callable_result_dependencies(
         &self,

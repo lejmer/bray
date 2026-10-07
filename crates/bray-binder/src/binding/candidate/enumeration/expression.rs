@@ -35,6 +35,26 @@ where
         + SymbolQueryProvider<CallableParameterDefaultTemplateQuery>
         + SymbolQueryProvider<CallableOverloadTemplateQuery>,
 {
+    bind_expression_candidates_with_syntax(context, unit, expression, type_scope, None)
+}
+
+/// Enumerates selections using the exact preparsed declaration fragment for local syntax.
+pub fn bind_expression_candidates_with_syntax<C>(
+    context: &C,
+    unit: &BoundUnit,
+    expression: BoundExpressionId,
+    type_scope: &TypeExpressionScope,
+    syntax: Option<bray_syntax::SyntaxNodeView<'_>>,
+) -> BindingQueryResult<DiagnosticResult<ExpressionCandidateSet>, C::UpstreamError>
+where
+    C: BindingQueryContext,
+    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>
+        + SymbolQueryProvider<CallableContractTemplateQuery>
+        + SymbolQueryProvider<GenericDeclarationTemplateQuery>
+        + SymbolQueryProvider<PredicateSignatureTemplateQuery>
+        + SymbolQueryProvider<CallableParameterDefaultTemplateQuery>
+        + SymbolQueryProvider<CallableOverloadTemplateQuery>,
+{
     if context.is_cancelled() {
         return Err(BindingQueryError::Cancelled);
     }
@@ -58,7 +78,7 @@ where
             )
         }
         BoundExpression::Call(call) => {
-            let arguments = generic_argument_syntax(context, call.generic_arguments())?;
+            let arguments = generic_argument_syntax(context, call.generic_arguments(), syntax)?;
 
             return bind_call_candidates(
                 context,
@@ -70,7 +90,7 @@ where
             );
         }
         BoundExpression::ErrorCall(call) => {
-            let arguments = generic_argument_syntax(context, call.generic_arguments())?;
+            let arguments = generic_argument_syntax(context, call.generic_arguments(), syntax)?;
 
             return bind_call_candidates(
                 context,
@@ -143,6 +163,7 @@ where
 fn generic_argument_syntax<C>(
     context: &C,
     arguments: &[bray_bound_tree::BoundGenericArgument],
+    syntax: Option<bray_syntax::SyntaxNodeView<'_>>,
 ) -> BindingQueryResult<Vec<GenericArgumentSyntax>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
@@ -150,10 +171,25 @@ where
     arguments
         .iter()
         .map(|argument| {
-            argument
-                .syntax()
-                .find_descendant::<GenericArgumentSyntax>(context.syntax())
-                .ok_or(BindingQueryError::DependencyUnavailable)
+            if let Some(syntax) = syntax {
+                let mut found = None;
+
+                bray_syntax::walk_syntax_node(&syntax, |event| {
+                    if let bray_syntax::SyntaxWalkEvent::EnterNode(node) = event
+                        && bray_declarations::SyntaxAnchor::from_node(&node) == argument.syntax() {
+                        found = node.cast::<GenericArgumentSyntax>();
+
+                        return bray_syntax::SyntaxWalkControl::Stop;
+                    }
+
+                    bray_syntax::SyntaxWalkControl::Continue
+                });
+
+                found.ok_or(BindingQueryError::DependencyUnavailable)
+            } else {
+                argument.syntax().find_descendant::<GenericArgumentSyntax>(context.syntax())
+                    .ok_or(BindingQueryError::DependencyUnavailable)
+            }
         })
         .collect()
 }

@@ -34,6 +34,16 @@ pub trait TypeExpressionImports<Upstream = std::convert::Infallible> {
     /// Returns the imported identity skeleton when imported declaration details are required.
     fn imported_symbols(&self) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>, Upstream>;
 
+    /// Checks caller predicates carried by an explicitly contracted callable type.
+    fn callable_type_contracts(
+        &self,
+        _owner: AnySymbolId,
+        _syntax: bray_syntax::SyntaxNodeView<'_>,
+        _callable: &TypeExpressionTemplate,
+    ) -> BindingQueryResult<DiagnosticResult<bray_symbols::CallablePhaseBehaviors>, Upstream> {
+        Err(BindingQueryError::DependencyUnavailable)
+    }
+
     /// Returns the callable type named by one callable-contract declaration.
     fn callable_contract_type(
         &self,
@@ -57,6 +67,15 @@ where
         &self,
     ) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>, T::UpstreamError> {
         BindingQueryContext::imported_symbols(self)
+    }
+
+    fn callable_type_contracts(
+        &self,
+        owner: AnySymbolId,
+        syntax: bray_syntax::SyntaxNodeView<'_>,
+        callable: &TypeExpressionTemplate,
+    ) -> BindingQueryResult<DiagnosticResult<bray_symbols::CallablePhaseBehaviors>, T::UpstreamError> {
+        BindingQueryContext::callable_type_contracts(self, owner, syntax, callable)
     }
 
     fn callable_contract_type(
