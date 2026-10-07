@@ -402,9 +402,7 @@ mod tests {
 
     #[test]
     fn check_only_does_not_create_source_outputs_or_lower_bodies() {
-        let compilation = compilation(
-            IDENTITY_SOURCE,
-        );
+        let compilation = compilation(IDENTITY_SOURCE);
 
         let key = source_function_body_key(&compilation, "identity");
 
@@ -451,8 +449,7 @@ mod tests {
 
     #[test]
     fn unchanged_snapshots_share_dependency_validated_source_outputs() {
-        let source =
-            IDENTITY_SOURCE;
+        let source = IDENTITY_SOURCE;
 
         let request = CompilationRequest::new(package_identity(), vec![source_input(source, 1)]);
         let compilation = Compilation::load(request).expect("source fixture must load");
@@ -481,9 +478,7 @@ mod tests {
 
     #[test]
     fn source_outputs_are_shared_by_concurrent_demand_and_respect_cancellation() {
-        let compilation = compilation(
-            IDENTITY_SOURCE,
-        );
+        let compilation = compilation(IDENTITY_SOURCE);
 
         let key = source_function_body_key(&compilation, "identity");
 
@@ -522,14 +517,16 @@ mod tests {
 
     #[test]
     fn revised_sources_do_not_inherit_previous_output_publications() {
-        let compilation = compilation(r#"
+        let compilation = compilation(
+            r#"
             module test.package;
 
             func value() -> bool
             {
                 return true;
             }
-        "#);
+        "#,
+        );
 
         let key = source_function_body_key(&compilation, "value");
 

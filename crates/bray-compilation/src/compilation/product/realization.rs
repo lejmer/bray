@@ -32,6 +32,6 @@ pub(in crate::compilation) use names::{
     generated_frame_symbol_name, generated_identity, generated_symbol_name,
 };
 pub(in crate::compilation::product) use storage::{NativeCallableEffects, ProductStaticHostEntry};
+pub(super) use support::closed_array_length;
 #[cfg(test)]
 pub(in crate::compilation::product) use symbols::NativeBoundaryMapping;
-pub(super) use support::closed_array_length;

@@ -119,7 +119,9 @@ impl Compilation {
                 let output = self.source_output_unit(key.clone(), cancellation)?;
 
                 if output.has_errors() {
-                    return Err(CodegenPreparationError::Diagnostics(output.diagnostic_bag()));
+                    return Err(CodegenPreparationError::Diagnostics(
+                        output.diagnostic_bag(),
+                    ));
                 }
 
                 let lowered = output

@@ -251,8 +251,17 @@ mod tests {
         let imports = table.using_declarations(ModulePartId::new(0)).unwrap();
 
         assert_eq!(imports.len(), 1);
-        assert_eq!(table.declaration(imports[0]).unwrap().kind(), DeclarationKind::Using);
-        assert!(table.module_container(&crate::ModulePath::new(["app", "disabled"])).is_none());
+
+        assert_eq!(
+            table.declaration(imports[0]).unwrap().kind(),
+            DeclarationKind::Using
+        );
+
+        assert!(
+            table
+                .module_container(&crate::ModulePath::new(["app", "disabled"]))
+                .is_none()
+        );
     }
 
     #[test]

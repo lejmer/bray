@@ -266,7 +266,10 @@ fn build_rust_static_library_with_configuration(
     let identity = crate::preparation_tools::provider_digest(root, target, native_compilation)
         .map_err(BuildError::CompilerSupport)?;
 
-    command.env(crate::preparation_tools::PROVIDER_IDENTITY_ENVIRONMENT, identity);
+    command.env(
+        crate::preparation_tools::PROVIDER_IDENTITY_ENVIRONMENT,
+        identity,
+    );
 
     let output = command.output().map_err(BuildError::Cargo)?;
 

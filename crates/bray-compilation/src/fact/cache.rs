@@ -732,7 +732,9 @@ mod tests {
                 if event == FactCellTestEvent::Waiting
                     && !waiting_threads
                         .lock()
-                        .unwrap_or_else(|_| panic!("waiting-thread observations must remain available"))
+                        .unwrap_or_else(|_| {
+                            panic!("waiting-thread observations must remain available")
+                        })
                         .insert(std::thread::current().id())
                 {
                     return;

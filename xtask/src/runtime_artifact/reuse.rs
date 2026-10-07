@@ -9,7 +9,10 @@ pub(super) fn content_identity(input: &str, paths: &[PathBuf]) -> Result<Option<
     identity.update(input);
 
     for path in paths {
-        let name = path.file_name().expect("published runtime artifacts have file names").to_string_lossy();
+        let name = path
+            .file_name()
+            .expect("published runtime artifacts have file names")
+            .to_string_lossy();
 
         identity.update(name.len().to_le_bytes());
         identity.update(name.as_bytes());
@@ -24,11 +27,7 @@ pub(super) fn content_identity(input: &str, paths: &[PathBuf]) -> Result<Option<
     Ok(Some(bray_base::lowercase_hex(&identity.finalize())))
 }
 
-pub(super) fn current(
-    output: &Path,
-    metadata_path: &Path,
-    input: &str,
-) -> Result<bool, String> {
+pub(super) fn current(output: &Path, metadata_path: &Path, input: &str) -> Result<bool, String> {
     if !crate::input_identity::stored_digest_matches(output, input)? {
         return Ok(false);
     }
@@ -81,25 +80,37 @@ mod tests {
         fs::write(&implementation, b"implementation").expect("implementation");
         fs::write(&metadata, b"metadata").expect("metadata");
 
-        let identity = content_identity("inputs", &paths).expect("identity").expect("complete runtime");
+        let identity = content_identity("inputs", &paths)
+            .expect("identity")
+            .expect("complete runtime");
 
         crate::input_identity::write_digest(directory.path(), &identity).expect("publish identity");
 
-        assert!(crate::input_identity::stored_digest_matches(directory.path(), &identity).expect("hit"));
+        assert!(
+            crate::input_identity::stored_digest_matches(directory.path(), &identity).expect("hit")
+        );
 
         for path in &paths {
             let bytes = fs::read(path).expect("original bytes");
 
             fs::write(path, b"corrupt").expect("corrupt artifact");
 
-            let changed = content_identity("inputs", &paths).expect("identity").expect("files");
+            let changed = content_identity("inputs", &paths)
+                .expect("identity")
+                .expect("files");
 
-            assert!(!crate::input_identity::stored_digest_matches(directory.path(), &changed).expect("miss"));
+            assert!(
+                !crate::input_identity::stored_digest_matches(directory.path(), &changed)
+                    .expect("miss")
+            );
 
             fs::write(path, bytes).expect("restore");
         }
 
-        assert_ne!(Some(identity), content_identity("changed inputs", &paths).expect("changed identity"));
+        assert_ne!(
+            Some(identity),
+            content_identity("changed inputs", &paths).expect("changed identity")
+        );
     }
 
     #[test]

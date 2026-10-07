@@ -669,7 +669,11 @@ mod tests {
 
         let report = TestCommandReport::new(
             TestSelectionSummary::new(1, 1),
-            [TestProductReport::new(product.clone(), catalog_digest(&product), [invocation])],
+            [TestProductReport::new(
+                product.clone(),
+                catalog_digest(&product),
+                [invocation],
+            )],
         )
         .with_duration(TestDuration::from_nanoseconds(90_000_000_000));
 
@@ -678,16 +682,32 @@ mod tests {
         let text = render_report(&report, &build, OutputFormat::Text, false, false)
             .expect("test report must render");
 
-        assert!(text.lines().find(|line| line.contains("fast")).expect("test row must exist").ends_with("125.125 us"));
-        assert!(text.lines().last().expect("summary must exist").ends_with("1.5 min"));
+        assert!(
+            text.lines()
+                .find(|line| line.contains("fast"))
+                .expect("test row must exist")
+                .ends_with("125.125 us")
+        );
+
+        assert!(
+            text.lines()
+                .last()
+                .expect("summary must exist")
+                .ends_with("1.5 min")
+        );
 
         let json = render_report(&report, &build, OutputFormat::Json, false, false)
             .expect("test report must serialize");
 
-        let json: serde_json::Value = serde_json::from_str(&json).expect("test report must be valid JSON");
+        let json: serde_json::Value =
+            serde_json::from_str(&json).expect("test report must be valid JSON");
 
         assert_eq!(json["duration_nanoseconds"], 90_000_000_000_u64);
-        assert_eq!(json["products"][0]["tests"][0]["duration_nanoseconds"], 125_125);
+
+        assert_eq!(
+            json["products"][0]["tests"][0]["duration_nanoseconds"],
+            125_125
+        );
     }
 
     #[test]

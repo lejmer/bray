@@ -462,13 +462,12 @@ impl PackageInterfaceSurface {
     ) -> &[SymbolRelationship] {
         let key = (kind, owner);
 
-        let start = self.relationships.partition_point(|relationship| {
-            (relationship.kind(), relationship.owner()) < key
-        });
+        let start = self
+            .relationships
+            .partition_point(|relationship| (relationship.kind(), relationship.owner()) < key);
 
-        let end = self.relationships[start..].partition_point(|relationship| {
-            (relationship.kind(), relationship.owner()) == key
-        });
+        let end = self.relationships[start..]
+            .partition_point(|relationship| (relationship.kind(), relationship.owner()) == key);
 
         &self.relationships[start..start + end]
     }
@@ -502,7 +501,9 @@ mod tests {
     use std::collections::BTreeSet;
 
     use bray_compiler_known::CompilerKnownDeclarationKey;
-    use bray_symbols::{InterfaceSymbolId, SymbolKey, SymbolKind, SymbolRelationshipKind, SynthesizedSymbolKey};
+    use bray_symbols::{
+        InterfaceSymbolId, SymbolKey, SymbolKind, SymbolRelationshipKind, SynthesizedSymbolKey,
+    };
 
     use super::{CompilerKnownSymbolReference, MAXIMUM_COMPILER_KNOWN_KEY_COMPONENTS};
 
@@ -519,12 +520,21 @@ mod tests {
 
         kinds.insert(SymbolRelationshipKind::DefaultProvider);
 
-        for owner in surface.symbols().symbols().iter().map(|symbol| symbol.id())
+        for owner in surface
+            .symbols()
+            .symbols()
+            .iter()
+            .map(|symbol| symbol.id())
             .chain([InterfaceSymbolId::new(u32::MAX)])
         {
             for kind in kinds.iter().copied() {
-                let expected = surface.relationships().iter().copied()
-                    .filter(|relationship| relationship.kind() == kind && relationship.owner() == owner)
+                let expected = surface
+                    .relationships()
+                    .iter()
+                    .copied()
+                    .filter(|relationship| {
+                        relationship.kind() == kind && relationship.owner() == owner
+                    })
                     .collect::<Vec<_>>();
 
                 assert_eq!(surface.relationships_for(owner, kind), expected);

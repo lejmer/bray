@@ -223,8 +223,8 @@ impl Lowerer<'_> {
             Self::retained_source(&source),
             MirOperationKind::Memory(Box::new(
                 MirMemoryOperation::new(kind, operands, operand_types, result)
-                    .with_inline_assembly_symbols(inline_assembly_symbols)),
-            ),
+                    .with_inline_assembly_symbols(inline_assembly_symbols),
+            )),
             result,
         )?;
 

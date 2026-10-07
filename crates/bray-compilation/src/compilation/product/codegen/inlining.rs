@@ -1249,7 +1249,13 @@ mod tests {
                     matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_))
                 }));
 
-                assert!(graph.graph().instances().iter().all(|instance| instance.mir().is_valid()));
+                assert!(
+                    graph
+                        .graph()
+                        .instances()
+                        .iter()
+                        .all(|instance| instance.mir().is_valid())
+                );
 
                 let symbols = graph
                     .graph()
@@ -1257,7 +1263,11 @@ mod tests {
                     .iter()
                     .filter_map(|instance| {
                         match consumer
-                            .codegen_native_boundary(instance, &BTreeSet::new(), &CancellationToken::new())
+                            .codegen_native_boundary(
+                                instance,
+                                &BTreeSet::new(),
+                                &CancellationToken::new(),
+                            )
                             .expect("native boundary")
                         {
                             Some(NativeBoundaryMapping::Direct { name, .. }) => Some(name),

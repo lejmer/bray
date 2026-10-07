@@ -7,9 +7,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use rayon::{Scope, ThreadPool, ThreadPoolBuilder};
 
 use super::super::{
-    FactQueryError, FactRuntimeError, FactRuntimeFailure, HostIoFailure,
-    LocalStateFailure, QueryPriority, QueryPriorityDemand,
-    SchedulerLocalOperation, WorkerPoolKind,
+    FactQueryError, FactRuntimeError, FactRuntimeFailure, HostIoFailure, LocalStateFailure,
+    QueryPriority, QueryPriorityDemand, SchedulerLocalOperation, WorkerPoolKind,
 };
 use crate::WorkerBudget;
 use crate::profile::{CompilationProfileOutcome, ProfileOperation, ProfileSession};
@@ -220,14 +219,19 @@ impl FactScheduler {
                 return;
             }
 
-            let _active = match ActiveSchedulerGuard::enter(self.identity(), Arc::clone(&_slot.lease)) {
-                Ok(active) => active,
-                Err(error) => {
-                    record_scheduler_error(&work.error, work.next.load(Ordering::Relaxed), error);
+            let _active =
+                match ActiveSchedulerGuard::enter(self.identity(), Arc::clone(&_slot.lease)) {
+                    Ok(active) => active,
+                    Err(error) => {
+                        record_scheduler_error(
+                            &work.error,
+                            work.next.load(Ordering::Relaxed),
+                            error,
+                        );
 
-                    return;
-                }
-            };
+                        return;
+                    }
+                };
 
             self.run_indexed_lane(scope, priority, work);
         });
@@ -288,7 +292,10 @@ impl FactScheduler {
                 Ok(active
                     .iter()
                     .rev()
-                    .find(|active| active.identity == self.identity() && active.lease.held.load(Ordering::Relaxed))
+                    .find(|active| {
+                        active.identity == self.identity()
+                            && active.lease.held.load(Ordering::Relaxed)
+                    })
                     .map(|active| active.lease.priority.current()))
             })
             .map_err(|_| FactRuntimeFailure::SchedulerLocalStateUnavailable {
@@ -357,9 +364,9 @@ impl FactScheduler {
                     }
                 })?;
 
-                Ok(active
-                    .iter()
-                    .any(|active| active.identity == self.identity() && active.lease.held.load(Ordering::Relaxed)))
+                Ok(active.iter().any(|active| {
+                    active.identity == self.identity() && active.lease.held.load(Ordering::Relaxed)
+                }))
             })
             .map_err(|_| FactRuntimeFailure::SchedulerLocalStateUnavailable {
                 operation: SchedulerLocalOperation::Inspect,
@@ -377,9 +384,16 @@ impl FactScheduler {
                     }
                 })?;
 
-                Ok::<_, FactQueryError>(active.iter().rev()
-                    .find(|active| active.identity == self.identity() && active.lease.held.load(Ordering::Relaxed))
-                    .map(|active| Arc::clone(&active.lease)))
+                Ok::<_, FactQueryError>(
+                    active
+                        .iter()
+                        .rev()
+                        .find(|active| {
+                            active.identity == self.identity()
+                                && active.lease.held.load(Ordering::Relaxed)
+                        })
+                        .map(|active| Arc::clone(&active.lease)),
+                )
             })
             .map_err(|_| FactRuntimeFailure::SchedulerLocalStateUnavailable {
                 operation: SchedulerLocalOperation::Inspect,
@@ -815,19 +829,25 @@ mod tests {
 
         let second_receiver = Mutex::new(second_receiver);
 
-        let results = scheduler.run(QueryPriority::Normal, || {
-            let parent = std::thread::current().id();
+        let results =
+            scheduler
+                .run(QueryPriority::Normal, || {
+                    let parent = std::thread::current().id();
 
-            scheduler.map_indexed(QueryPriority::Normal, 2, |_| {
-                if std::thread::current().id() == parent {
-                    started_receiver.lock().unwrap().recv_timeout(Duration::from_secs(5)).unwrap();
+                    scheduler.map_indexed(QueryPriority::Normal, 2, |_| {
+                        if std::thread::current().id() == parent {
+                            started_receiver
+                                .lock()
+                                .unwrap()
+                                .recv_timeout(Duration::from_secs(5))
+                                .unwrap();
 
-                    return Vec::new();
-                }
+                            return Vec::new();
+                        }
 
-                started_sender.send(()).unwrap();
+                        started_sender.send(()).unwrap();
 
-                scheduler.map_indexed(QueryPriority::Normal, 3, |index| {
+                        scheduler.map_indexed(QueryPriority::Normal, 3, |index| {
                     match index {
                         0 => {
                             let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -847,10 +867,16 @@ mod tests {
 
                     index
                 }).unwrap()
-            })
-        }).unwrap().unwrap();
+                    })
+                })
+                .unwrap()
+                .unwrap();
 
-        assert_eq!(results.into_iter().flatten().collect::<Vec<_>>(), vec![0, 1, 2]);
+        assert_eq!(
+            results.into_iter().flatten().collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+
         assert_eq!(scheduler.slots.state().unwrap().active, 0);
     }
 
@@ -868,7 +894,12 @@ mod tests {
 
                 scheduler.map_indexed(QueryPriority::Normal, 2, |_| {
                     if std::thread::current().id() == parent {
-                        started_receiver.lock().unwrap().recv_timeout(Duration::from_secs(5)).unwrap();
+                        started_receiver
+                            .lock()
+                            .unwrap()
+                            .recv_timeout(Duration::from_secs(5))
+                            .unwrap();
+
                         return;
                     }
 
@@ -896,21 +927,32 @@ mod tests {
         let scheduler = FactScheduler::new(worker_budget(3));
         let ready = AtomicUsize::new(0);
 
-        let results = scheduler.run(QueryPriority::Interactive, || {
-            scheduler.map_indexed(QueryPriority::Interactive, 3, |index| {
-                assert_eq!(scheduler.current_priority().unwrap(), Some(QueryPriority::Interactive));
-                ready.fetch_add(1, Ordering::SeqCst);
+        let results = scheduler
+            .run(QueryPriority::Interactive, || {
+                scheduler.map_indexed(QueryPriority::Interactive, 3, |index| {
+                    assert_eq!(
+                        scheduler.current_priority().unwrap(),
+                        Some(QueryPriority::Interactive)
+                    );
 
-                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                    ready.fetch_add(1, Ordering::SeqCst);
 
-                while ready.load(Ordering::SeqCst) != 3 {
-                    assert!(std::time::Instant::now() < deadline, "interactive children must use available workers");
-                    std::thread::yield_now();
-                }
+                    let deadline = std::time::Instant::now() + Duration::from_secs(5);
 
-                index
+                    while ready.load(Ordering::SeqCst) != 3 {
+                        assert!(
+                            std::time::Instant::now() < deadline,
+                            "interactive children must use available workers"
+                        );
+
+                        std::thread::yield_now();
+                    }
+
+                    index
+                })
             })
-        }).unwrap().unwrap();
+            .unwrap()
+            .unwrap();
 
         assert_eq!(results, vec![0, 1, 2]);
         assert_eq!(scheduler.slots.state().unwrap().active, 0);

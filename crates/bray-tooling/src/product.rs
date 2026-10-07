@@ -673,7 +673,11 @@ mod tests {
 
         assert_eq!(family, bray_linker::SystemLinkerFamily::GnuCompiler);
         assert_eq!(environment, super::selected_environment(&["PATH"]));
-        assert_eq!(environment.first().map(|(_, value)| value), std::env::var_os("PATH").as_ref());
+
+        assert_eq!(
+            environment.first().map(|(_, value)| value),
+            std::env::var_os("PATH").as_ref()
+        );
     }
 
     #[test]

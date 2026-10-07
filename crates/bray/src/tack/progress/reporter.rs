@@ -160,12 +160,7 @@ impl BuildProgressSession<'_> {
 
         let status = progress_status(success);
 
-        let report = PackageProgressReport::new(
-            package,
-            status,
-            completed_units,
-            duration,
-        );
+        let report = PackageProgressReport::new(package, status, completed_units, duration);
 
         self.package_reports
             .lock()
@@ -442,8 +437,8 @@ mod tests {
     use bray_diagnostics::DiagnosticBag;
     use bray_tooling::OutputFormat;
 
-    use super::{WorkflowProgress, render_plain};
     use super::super::model::{BuildProgressReport, BuildProgressStatus, PackageProgressReport};
+    use super::{WorkflowProgress, render_plain};
     use crate::tack::model::TackBuildConfiguration;
     use crate::tack::progress::{BuildProgressAction, BuildProgressPackage, BuildProgressPlan};
     use crate::tack::result::TackRunResult;
@@ -474,8 +469,21 @@ mod tests {
 
             let rendered = render_plain(std::slice::from_ref(&report), false);
 
-            assert!(rendered.lines().nth(1).expect("package row must exist").ends_with(expected));
-            assert!(rendered.lines().last().expect("product row must exist").ends_with("1.02 min"));
+            assert!(
+                rendered
+                    .lines()
+                    .nth(1)
+                    .expect("package row must exist")
+                    .ends_with(expected)
+            );
+
+            assert!(
+                rendered
+                    .lines()
+                    .last()
+                    .expect("product row must exist")
+                    .ends_with("1.02 min")
+            );
 
             let progress = WorkflowProgress::new(false, false);
 
@@ -489,13 +497,23 @@ mod tests {
 
             assert_eq!(progress.write_to_result(&mut result), Ok(()));
 
-            let json: serde_json::Value = serde_json::from_str(result.stdout())
-                .expect("build report must be valid JSON");
+            let json: serde_json::Value =
+                serde_json::from_str(result.stdout()).expect("build report must be valid JSON");
 
             assert_eq!(json["build_progress"][0]["duration_milliseconds"], 61_234);
-            assert_eq!(json["build_progress"][0]["packages"][0]["duration_milliseconds"], milliseconds);
+
+            assert_eq!(
+                json["build_progress"][0]["packages"][0]["duration_milliseconds"],
+                milliseconds
+            );
+
             assert!(json["build_progress"][0].get("duration").is_none());
-            assert!(json["build_progress"][0]["packages"][0].get("duration").is_none());
+
+            assert!(
+                json["build_progress"][0]["packages"][0]
+                    .get("duration")
+                    .is_none()
+            );
         }
     }
 

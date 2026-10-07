@@ -150,7 +150,11 @@ mod tests {
         );
 
         assert_eq!(
-            renderer.live_result("std::test", TestReportOutcome::Panicked, Some(std::time::Duration::from_millis(1250))),
+            renderer.live_result(
+                "std::test",
+                TestReportOutcome::Panicked,
+                Some(std::time::Duration::from_millis(1250))
+            ),
             "Panicked std::test (1.25 s)"
         );
 

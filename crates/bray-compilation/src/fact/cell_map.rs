@@ -77,7 +77,9 @@ where
 
             let cell = Arc::clone(&entry.cell);
 
-            let indexed_key = state.accesses.remove(&previous_access)
+            let indexed_key = state
+                .accesses
+                .remove(&previous_access)
                 .expect("cached fact must have exactly one access identity");
 
             state.accesses.insert(access, indexed_key);
@@ -86,11 +88,7 @@ where
             return Ok(cell);
         }
 
-        reclaim_entries(
-            &mut state,
-            self.retention_limit.saturating_sub(1),
-            None,
-        );
+        reclaim_entries(&mut state, self.retention_limit.saturating_sub(1), None);
 
         let cell = Arc::new(FactCell::new());
 
@@ -137,7 +135,8 @@ where
         cells.sort_by_key(|(_, access, _)| std::cmp::Reverse(*access));
         cells.truncate(self.retention_limit);
 
-        let accesses = cells.iter()
+        let accesses = cells
+            .iter()
             .map(|(key, access, _)| (*access, Arc::clone(key)))
             .collect();
 
@@ -222,13 +221,17 @@ fn reclaim_entries<K, V>(
     K: Ord,
 {
     while state.cells.len() > retained {
-        let oldest_access = state.accesses.iter()
+        let oldest_access = state
+            .accesses
+            .iter()
             .find(|(access, key)| {
                 if Some(**access) == protected_access {
                     return false;
                 }
 
-                let entry = state.cells.get(key.as_ref())
+                let entry = state
+                    .cells
+                    .get(key.as_ref())
                     .expect("indexed access must identify a cached fact");
 
                 entry.cell.get().is_some()
@@ -240,13 +243,20 @@ fn reclaim_entries<K, V>(
             return;
         };
 
-        let key = state.accesses.remove(&oldest_access)
+        let key = state
+            .accesses
+            .remove(&oldest_access)
             .expect("selected access must remain indexed until removal");
 
-        let entry = state.cells.remove(key.as_ref())
+        let entry = state
+            .cells
+            .remove(key.as_ref())
             .expect("selected access must retain its cached fact until removal");
 
-        assert_eq!(entry.last_access, oldest_access, "fact access indexes must agree");
+        assert_eq!(
+            entry.last_access, oldest_access,
+            "fact access indexes must agree"
+        );
     }
 }
 
@@ -318,10 +328,9 @@ mod tests {
 
         let _ = cache.cell(1).expect("published fact must remain available");
 
-        let updated = cache.updated(
-            &BTreeSet::from([CompilationFactKey::SyntaxTree]),
-            |_| CompilationFactKey::SyntaxTree,
-        );
+        let updated = cache.updated(&BTreeSet::from([CompilationFactKey::SyntaxTree]), |_| {
+            CompilationFactKey::SyntaxTree
+        });
 
         assert!(cache.shares_cell_with(&updated, &1));
         assert!(cache.shares_cell_with(&updated, &2));
@@ -335,12 +344,17 @@ mod tests {
     }
 
     fn assert_access_index(cache: &FactCellMap<u32, u32>) {
-        let state = cache.state.lock().expect("test cache state must be available");
+        let state = cache
+            .state
+            .lock()
+            .expect("test cache state must be available");
 
         assert_eq!(state.cells.len(), state.accesses.len());
 
         for (key, entry) in &state.cells {
-            let indexed = state.accesses.get(&entry.last_access)
+            let indexed = state
+                .accesses
+                .get(&entry.last_access)
                 .expect("every cached key must have an access entry");
 
             assert!(Arc::ptr_eq(key, indexed));

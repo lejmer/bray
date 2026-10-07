@@ -178,7 +178,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .expect("checked MIR translation requires an established mapping or value");
 
         if let Some(incoming) = self.panic_report_context {
-            assert_eq!(context, incoming, "checked calls must reuse the incoming outcome context");
+            assert_eq!(
+                context, incoming,
+                "checked calls must reuse the incoming outcome context"
+            );
         }
 
         let ty = crate::native::run_outcome_type(self.types.context(), self.request.target());
@@ -262,10 +265,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     }
 
     pub(super) fn return_propagated_outcome(&mut self) -> Result<(), CodegenFailure> {
-        let source = self.builder.get_insert_block()
+        let source = self
+            .builder
+            .get_insert_block()
             .expect("checked MIR translation requires an established mapping or value");
 
-        assert_eq!(source.get_parent(), Some(self.function), "propagation returns must belong to their function");
+        assert_eq!(
+            source.get_parent(),
+            Some(self.function),
+            "propagation returns must belong to their function"
+        );
 
         if let Some(destination) = self.propagated_outcome_return {
             llvm(self.builder.build_unconditional_branch(destination))?;
@@ -273,7 +282,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Ok(());
         }
 
-        let destination = self.types.context().append_basic_block(self.function, "outcome.propagated");
+        let destination = self
+            .types
+            .context()
+            .append_basic_block(self.function, "outcome.propagated");
 
         // The shared epilogue has no call-site location. Keep path-specific moves and outcome stores in their routes.
         let builder = self.types.context().create_builder();
@@ -301,10 +313,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .and_then(pointer_value)
                     .expect("checked MIR translation requires an established mapping or value");
 
-                llvm(
-                    builder
-                        .build_store(destination, self.types.map(*pointee)?.const_zero()),
-                )?;
+                llvm(builder.build_store(destination, self.types.map(*pointee)?.const_zero()))?;
 
                 llvm(builder.build_return(None))?;
             }
