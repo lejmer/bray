@@ -1,7 +1,7 @@
 use super::common::{decode_tag, validate_record_count};
 use crate::semantic::codec::common::{
-    SemanticDecodeContext, map_wire_error, read_count, read_symbol_reference,
-    read_symbol_references, read_optional_u32, read_u32,
+    SemanticDecodeContext, map_wire_error, read_count, read_optional_u32, read_symbol_reference,
+    read_symbol_references, read_u32,
 };
 use crate::semantic::codec::record::RecordTable;
 use crate::semantic::model::{
@@ -272,8 +272,15 @@ pub(super) fn decode_callable_behavior(
         current_run_cancellation,
     );
 
-    behavior.predicate_guarantees = predicate_sets.pop().expect("two phase predicate sets").into();
-    behavior.predicate_requirements = predicate_sets.pop().expect("two phase predicate sets").into();
+    behavior.predicate_guarantees = predicate_sets
+        .pop()
+        .expect("two phase predicate sets")
+        .into();
+
+    behavior.predicate_requirements = predicate_sets
+        .pop()
+        .expect("two phase predicate sets")
+        .into();
 
     // Retain wire ordering so validation can reject duplicate or unordered promises.
     behavior.execution_properties = execution_properties.into();
@@ -665,9 +672,12 @@ fn decode_predicate_summary(
     let is_trusted = match raw {
         0 => false,
         1 => true,
-        _ => return Err(crate::semantic::codec::invalid_discriminant(
-            crate::InterfaceValidationField::Reference, raw,
-        )),
+        _ => {
+            return Err(crate::semantic::codec::invalid_discriminant(
+                crate::InterfaceValidationField::Reference,
+                raw,
+            ));
+        }
     };
 
     Ok(InterfacePredicateSummary::new(dependency).with_condition(condition, is_trusted))

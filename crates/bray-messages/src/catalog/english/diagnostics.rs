@@ -2679,12 +2679,16 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingTrustedWitnessTransferNotProven => MessageTemplate::new(&[
             MessageTemplatePart::Text("this "),
             MessageTemplatePart::Arg(DiagnosticArgName::ExpressionCategory),
-            MessageTemplatePart::Text(" would copy or separate a value without preserving its trusted guarantees"),
+            MessageTemplatePart::Text(
+                " would copy or separate a value without preserving its trusted guarantees",
+            ),
         ]),
         DiagnosticKind::CheckingTrustedObligationNotProven => MessageTemplate::new(&[
             MessageTemplatePart::Text("this "),
             MessageTemplatePart::Arg(DiagnosticArgName::ExpressionCategory),
-            MessageTemplatePart::Text(" requires a trusted condition that is not established by live evidence"),
+            MessageTemplatePart::Text(
+                " requires a trusted condition that is not established by live evidence",
+            ),
         ]),
         DiagnosticKind::CheckingMemoryOperationAfterDeallocation => {
             MessageTemplate::new(CHECKING_MEMORY_OPERATION_AFTER_DEALLOCATION)
@@ -3056,12 +3060,16 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         DiagnosticNoteKind::CopyContractRequirements => {
             MessageTemplate::new(NOTE_COPY_CONTRACT_REQUIREMENTS)
         }
-        DiagnosticNoteKind::TrustedObligationEvidenceRequired => MessageTemplate::new(&[
-            MessageTemplatePart::Text("establish the condition with a live trusted producer, or expose the matching requirement in the enclosing declaration"),
-        ]),
-        DiagnosticNoteKind::TrustedWitnessTransferRequired => MessageTemplate::new(&[
-            MessageTemplatePart::Text("move the complete value while preserving its dependencies, or provide an explicit copy contract that preserves its guarantees"),
-        ]),
+        DiagnosticNoteKind::TrustedObligationEvidenceRequired => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "establish the condition with a live trusted producer, or expose the matching requirement in the enclosing declaration",
+            )])
+        }
+        DiagnosticNoteKind::TrustedWitnessTransferRequired => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "move the complete value while preserving its dependencies, or provide an explicit copy contract that preserves its guarantees",
+            )])
+        }
         DiagnosticNoteKind::StoredTypeRequiresIndirection => {
             MessageTemplate::new(NOTE_STORED_TYPE_REQUIRES_INDIRECTION)
         }

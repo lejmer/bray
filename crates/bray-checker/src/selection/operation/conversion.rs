@@ -167,14 +167,26 @@ fn phase_contract_is_compatible(
     target: &bray_symbols::CallablePhaseBehavior,
 ) -> bool {
     // Removing promises compares the same immutable phase contracts without widening obligations.
-    source.clone().with_execution_properties([]).with_predicates([], [])
-        == target.clone().with_execution_properties([]).with_predicates([], [])
-        && source.predicate_requirements().iter().all(|condition| target.predicate_requirements().iter()
-            .any(|candidate| candidate.condition() == condition.condition()
-                    && candidate.is_trusted() == condition.is_trusted()))
-        && target.predicate_guarantees().iter().all(|condition| source.predicate_guarantees().iter()
-            .any(|candidate| candidate.condition() == condition.condition()
-                    && candidate.is_trusted() == condition.is_trusted()))
+    source
+        .clone()
+        .with_execution_properties([])
+        .with_predicates([], [])
+        == target
+            .clone()
+            .with_execution_properties([])
+            .with_predicates([], [])
+        && source.predicate_requirements().iter().all(|condition| {
+            target.predicate_requirements().iter().any(|candidate| {
+                candidate.condition() == condition.condition()
+                    && candidate.is_trusted() == condition.is_trusted()
+            })
+        })
+        && target.predicate_guarantees().iter().all(|condition| {
+            source.predicate_guarantees().iter().any(|candidate| {
+                candidate.condition() == condition.condition()
+                    && candidate.is_trusted() == condition.is_trusted()
+            })
+        })
         && target
             .execution_properties()
             .iter()

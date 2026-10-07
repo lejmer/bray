@@ -1259,7 +1259,9 @@ impl DiagnosticKind {
                 "checking_missing_trusted_memory_guarantees"
             }
             Self::CheckingTrustedObligationNotProven => "checking_trusted_obligation_not_proven",
-            Self::CheckingTrustedWitnessTransferNotProven => "checking_trusted_witness_transfer_not_proven",
+            Self::CheckingTrustedWitnessTransferNotProven => {
+                "checking_trusted_witness_transfer_not_proven"
+            }
             Self::CheckingMemoryOperationAfterDeallocation => {
                 "checking_memory_operation_after_deallocation"
             }

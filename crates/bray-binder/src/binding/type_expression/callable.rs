@@ -38,7 +38,8 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             super::execution::callable_execution_properties(bray_syntax::syntax_node_view(syntax)),
         )?;
 
-        let ty = self.bind_callable_predicate_contracts(bray_syntax::syntax_node_view(syntax), ty)?;
+        let ty =
+            self.bind_callable_predicate_contracts(bray_syntax::syntax_node_view(syntax), ty)?;
 
         self.check_cancellation()?;
 
@@ -252,21 +253,29 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         let mut has_predicates = false;
 
         bray_syntax::walk_direct_child_nodes(&syntax, |child| {
-            has_predicates |= matches!(child.kind(), bray_syntax::SyntaxKind::RequiresClause
-                | bray_syntax::SyntaxKind::EnsuresClause | bray_syntax::SyntaxKind::WhenClause);
+            has_predicates |= matches!(
+                child.kind(),
+                bray_syntax::SyntaxKind::RequiresClause
+                    | bray_syntax::SyntaxKind::EnsuresClause
+                    | bray_syntax::SyntaxKind::WhenClause
+            );
 
             bray_syntax::SyntaxWalkControl::SkipChildren
         });
 
         if has_predicates {
-            let contracts = self.imports.callable_type_contracts(self.owner, syntax, &ty)?;
+            let contracts = self
+                .imports
+                .callable_type_contracts(self.owner, syntax, &ty)?;
 
             let (phases, diagnostics) = contracts.into_parts();
 
             self.diagnostics.add_range(diagnostics);
 
             return match ty {
-                TypeExpressionTemplate::Callable(callable) => Ok(TypeExpressionTemplate::Callable(callable.with_phase_behaviors(phases))),
+                TypeExpressionTemplate::Callable(callable) => Ok(TypeExpressionTemplate::Callable(
+                    callable.with_phase_behaviors(phases),
+                )),
                 TypeExpressionTemplate::Resolved(ty) => {
                     let data = self.semantic_values.type_data(ty);
 
@@ -274,8 +283,10 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
                         panic!("bound callable type must retain its shape");
                     };
 
-                    self.intern_type(TypeData::Callable(callable.clone().with_phase_behaviors(phases)))
-                        .map(TypeExpressionTemplate::Resolved)
+                    self.intern_type(TypeData::Callable(
+                        callable.clone().with_phase_behaviors(phases),
+                    ))
+                    .map(TypeExpressionTemplate::Resolved)
                 }
                 _ => panic!("bound callable type must have callable shape"),
             };

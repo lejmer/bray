@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundAssignmentOperator, BoundControlTransferKind,
-    BoundExpression, BoundExpressionId, BoundReferenceTarget, CheckedExpressionSemantics,
+    AnyBoundNodeId, BoundAssignmentOperator, BoundControlTransferKind, BoundExpression,
+    BoundExpressionId, BoundReferenceTarget, CheckedExpressionSemantics,
 };
 
 use crate::execution_guarantees::{ExecutionCondition, expression_condition};
@@ -34,22 +34,38 @@ pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
 ) -> CheckerOutcome<ExecutionFlow<'a, 'view, C>, C::UpstreamError> {
     let mut copies = super::super::storage_flow::copyability::CopyabilityResolver::new(request);
 
-    for plan in storage.access_plans().iter().filter(|plan| matches!(plan.purpose(),
-        bray_bound_tree::StorageAccessPurpose::ValueTransfer | bray_bound_tree::StorageAccessPurpose::Copy)) {
-        let ty = storage.access(plan.access()).expect("checked transfer has committed storage").reached_type();
+    for plan in storage.access_plans().iter().filter(|plan| {
+        matches!(
+            plan.purpose(),
+            bray_bound_tree::StorageAccessPurpose::ValueTransfer
+                | bray_bound_tree::StorageAccessPurpose::Copy
+        )
+    }) {
+        let ty = storage
+            .access(plan.access())
+            .expect("checked transfer has committed storage")
+            .reached_type();
 
         match copies.resolve(ty) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Infrastructure(error)) => return CheckerOutcome::InfrastructureFailure(error),
-            Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
+            Err(CheckerQueryError::Infrastructure(error)) => {
+                return CheckerOutcome::InfrastructureFailure(error);
+            }
+            Err(CheckerQueryError::Upstream(error)) => {
+                return CheckerOutcome::UpstreamFailure(error);
+            }
         }
     }
 
     let (copied_types, diagnostics) = copies.into_parts();
 
     let mut invalidating = super::super::storage_invalidation::invalidating_operation_accesses(
-        request, semantics.selections(), storage, &copied_types);
+        request,
+        semantics.selections(),
+        storage,
+        &copied_types,
+    );
 
     for (expression, node) in request.unit().tree().expressions() {
         if let BoundExpression::Call(call) = node
@@ -59,33 +75,57 @@ pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
             invalidating.remove(&expression.into());
         }
 
-        if let Some(bray_bound_tree::SemanticSelection::Call(call)) = semantics.selections().expression(expression)
-            && (!matches!(call.resolution().result(), bray_bound_tree::BoundCallResult::Immediate(_))
-                || matches!(call.implementation_hook(), Some(
-                bray_compiler_known::ImplementationHook::RawAllocate
-                | bray_compiler_known::ImplementationHook::Allocate
-                | bray_compiler_known::ImplementationHook::AddressOf
-                | bray_compiler_known::ImplementationHook::AddressOfMut
-                | bray_compiler_known::ImplementationHook::RawBufferCapacity
-                | bray_compiler_known::ImplementationHook::RawBufferInitializedCount
-                | bray_compiler_known::ImplementationHook::RawBufferPointer
-                | bray_compiler_known::ImplementationHook::RawBufferSparePointer))) {
+        if let Some(bray_bound_tree::SemanticSelection::Call(call)) =
+            semantics.selections().expression(expression)
+            && (!matches!(
+                call.resolution().result(),
+                bray_bound_tree::BoundCallResult::Immediate(_)
+            ) || matches!(
+                call.implementation_hook(),
+                Some(
+                    bray_compiler_known::ImplementationHook::RawAllocate
+                        | bray_compiler_known::ImplementationHook::Allocate
+                        | bray_compiler_known::ImplementationHook::AddressOf
+                        | bray_compiler_known::ImplementationHook::AddressOfMut
+                        | bray_compiler_known::ImplementationHook::RawBufferCapacity
+                        | bray_compiler_known::ImplementationHook::RawBufferInitializedCount
+                        | bray_compiler_known::ImplementationHook::RawBufferPointer
+                        | bray_compiler_known::ImplementationHook::RawBufferSparePointer
+                )
+            ))
+        {
             // These closed operations observe existing storage or create a fresh allocation.
             // They cannot change existing owner epochs or initialized contents.
             invalidating.remove(&expression.into());
         }
     }
 
-    let targets = request.unit().tree().expressions().map(|(id, expression)|
-        (expression.origin().source_anchor().syntax(), id)).collect::<BTreeMap<_, _>>();
+    let targets = request
+        .unit()
+        .tree()
+        .expressions()
+        .map(|(id, expression)| (expression.origin().source_anchor().syntax(), id))
+        .collect::<BTreeMap<_, _>>();
 
-    let yield_targets = request.unit().tree().expressions().filter_map(|(id, expression)| {
-        let BoundExpression::ControlTransfer(transfer) = expression else { return None; };
+    let yield_targets = request
+        .unit()
+        .tree()
+        .expressions()
+        .filter_map(|(id, expression)| {
+            let BoundExpression::ControlTransfer(transfer) = expression else {
+                return None;
+            };
 
-        if transfer.kind() != BoundControlTransferKind::Yield { return None; }
+            if transfer.kind() != BoundControlTransferKind::Yield {
+                return None;
+            }
 
-        transfer.target().and_then(|target| targets.get(&target).copied()).map(|target| (id, target))
-    }).collect();
+            transfer
+                .target()
+                .and_then(|target| targets.get(&target).copied())
+                .map(|target| (id, target))
+        })
+        .collect();
 
     let domain = ExecutionFlowDomain {
         yield_targets,
@@ -97,22 +137,44 @@ pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         storage,
         contracts,
         cleanup,
-        owners: request.trusted_contracts().filter(|contracts|
-            !contracts.requirements.is_empty() || !contracts.guarantees.is_empty() || !contracts.calls.is_empty()).map(|_| {
-            bray_bound_tree::StorageScopeOwners::collect(request.unit())
-                .expect("checked bound unit must have balanced lexical scopes")
-        }),
+        owners: request
+            .trusted_contracts()
+            .filter(|contracts| {
+                !contracts.requirements.is_empty()
+                    || !contracts.guarantees.is_empty()
+                    || !contracts.calls.is_empty()
+            })
+            .map(|_| {
+                bray_bound_tree::StorageScopeOwners::collect(request.unit())
+                    .expect("checked bound unit must have balanced lexical scopes")
+            }),
         invalidating,
-        spatial_predicates: request.trusted_contracts().filter(|contracts|
-            !contracts.requirements.is_empty() || !contracts.calls.is_empty()).into_iter().flat_map(|_| [
-            "ValidRead", "ValidWrite", "AlignedFor", "DeviceValidRead", "DeviceValidWrite", "DeviceAlignedFor"])
+        spatial_predicates: request
+            .trusted_contracts()
+            .filter(|contracts| !contracts.requirements.is_empty() || !contracts.calls.is_empty())
+            .into_iter()
+            .flat_map(|_| {
+                [
+                    "ValidRead",
+                    "ValidWrite",
+                    "AlignedFor",
+                    "DeviceValidRead",
+                    "DeviceValidWrite",
+                    "DeviceAlignedFor",
+                ]
+            })
             .filter_map(|name| {
-            let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(name)
-                .expect("closed spatial predicate key must be valid");
+                let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(name)
+                    .expect("closed spatial predicate key must be valid");
 
-            request.context().available_compiler_known_symbols().provider()
-                .declaration_symbol::<bray_symbols::PredicateSymbolId>(&key).map(Into::into)
-        }).collect(),
+                request
+                    .context()
+                    .available_compiler_known_symbols()
+                    .provider()
+                    .declaration_symbol::<bray_symbols::PredicateSymbolId>(&key)
+                    .map(Into::into)
+            })
+            .collect(),
     };
 
     let states = match solve_fixed_point(graph, &domain, &request) {
@@ -123,7 +185,14 @@ pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         }
     };
 
-    CheckerOutcome::complete(ExecutionFlow { domain, states, copied_types }, diagnostics)
+    CheckerOutcome::complete(
+        ExecutionFlow {
+            domain,
+            states,
+            copied_types,
+        },
+        diagnostics,
+    )
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
@@ -166,7 +235,11 @@ pub(super) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    pub(super) fn value(&self, state: &ExecutionState, expression: BoundExpressionId) -> ExecutionCondition {
+    pub(super) fn value(
+        &self,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+    ) -> ExecutionCondition {
         expression_condition(
             self.request.unit(),
             self.semantics,
@@ -179,20 +252,42 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         )
     }
 
-    pub(super) fn storage_value(&self, state: &ExecutionState, plan: bray_bound_tree::StorageAccessPlan) -> ExecutionCondition {
+    pub(super) fn storage_value(
+        &self,
+        state: &ExecutionState,
+        plan: bray_bound_tree::StorageAccessPlan,
+    ) -> ExecutionCondition {
         let mut value = self.value(state, plan.expression());
 
-        let source = self.storage.expression_plans(plan.expression()).filter(|source|
-            source.node() == AnyBoundNodeId::Expression(plan.expression())
-                && self.storage.access_contains(source.access(), plan.access()))
-            .max_by_key(|source| self.storage.resolved_projections(source.access()).map_or(0, <[_]>::len));
+        let source = self
+            .storage
+            .expression_plans(plan.expression())
+            .filter(|source| {
+                source.node() == AnyBoundNodeId::Expression(plan.expression())
+                    && self.storage.access_contains(source.access(), plan.access())
+            })
+            .max_by_key(|source| {
+                self.storage
+                    .resolved_projections(source.access())
+                    .map_or(0, <[_]>::len)
+            });
 
-        let source_path = source.and_then(|source| self.storage.resolved_projections(source.access())).unwrap_or(&[]);
-        let path = self.storage.resolved_projections(plan.access()).and_then(|path| path.strip_prefix(source_path));
+        let source_path = source
+            .and_then(|source| self.storage.resolved_projections(source.access()))
+            .unwrap_or(&[]);
+
+        let path = self
+            .storage
+            .resolved_projections(plan.access())
+            .and_then(|path| path.strip_prefix(source_path));
 
         if let Some(path) = path {
-            for projection in path { value = value.project(*projection); }
-        } else { value = ExecutionCondition::Unknown; }
+            for projection in path {
+                value = value.project(*projection);
+            }
+        } else {
+            value = ExecutionCondition::Unknown;
+        }
 
         value
     }
@@ -241,10 +336,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.expire_trusted_scope(state, block);
             }
 
-            if self.cleanup.is_some_and(|cleanup| cleanup.scope_exits().iter().any(|plan| {
-                plan.scope() == block
-                    && plan.exit() == exit
-                    && match phase {
+            if self.cleanup.is_some_and(|cleanup| {
+                cleanup.scope_exits().iter().any(|plan| {
+                    plan.scope() == block && plan.exit() == exit && match phase {
                         super::super::model::AnalysisScopeExitPhase::TaskCancellationBroadcast => {
                             !plan.cancellation_broadcast().is_empty()
                         }
@@ -252,7 +346,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             !plan.lifecycle_resolution().is_empty()
                         }
                     }
-            })) {
+                })
+            }) {
                 state.invalidate_cleanup();
             }
 
@@ -261,13 +356,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         match operation.node() {
             AnyBoundNodeId::Expression(expression) => {
-                if self.cleanup.is_some_and(|cleanup| cleanup.replacements().iter().any(|plan| {
-                    plan.expression() == expression
-                        && matches!(
-                            plan.cleanup(),
-                            bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_)
-                        )
-                })) {
+                if self.cleanup.is_some_and(|cleanup| {
+                    cleanup.replacements().iter().any(|plan| {
+                        plan.expression() == expression
+                            && matches!(
+                                plan.cleanup(),
+                                bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_)
+                            )
+                    })
+                }) {
                     state.invalidate_cleanup();
                 }
 
@@ -278,8 +375,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         ..
                     }
                 ) {
-                    state.witness_carriers.retain(|value| !value.depends_on(expression));
-                    state.trusted_assumptions.retain(|(condition, _)| !condition.depends_on(expression));
+                    state
+                        .witness_carriers
+                        .retain(|value| !value.depends_on(expression));
+
+                    state
+                        .trusted_assumptions
+                        .retain(|(condition, _)| !condition.depends_on(expression));
 
                     state
                         .assumptions
@@ -315,9 +417,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 state.trust_boundaries.remove(&expression);
 
-                if self.request.trusted_contracts().and_then(|contracts| contracts.calls.get(&expression))
+                if self
+                    .request
+                    .trusted_contracts()
+                    .and_then(|contracts| contracts.calls.get(&expression))
                     .is_some_and(|contract| !contract.completes)
-                    && let Some(entry) = state.entries.get_mut(&expression) {
+                    && let Some(entry) = state.entries.get_mut(&expression)
+                {
                     entry.pending_execution = true;
                 }
             }
@@ -328,7 +434,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     fn expression(&self, state: &mut ExecutionState, expression: BoundExpressionId) {
         state.expressions.remove(&expression);
 
-        let value = state.pending_results.remove(&expression).unwrap_or_else(|| self.value(state, expression));
+        let value = state
+            .pending_results
+            .remove(&expression)
+            .unwrap_or_else(|| self.value(state, expression));
 
         state.expressions.insert(expression, value);
         self.invalidate(state, expression.into());
@@ -339,6 +448,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     if let Some(place) = crate::execution_guarantees::expression_place(
                         self.request.unit(),
                         self.semantics,
+                        self.request.semantic_values(),
                         *target,
                     ) {
                         let value = if assignment.operator() == BoundAssignmentOperator::Assign {
@@ -369,9 +479,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     })
                     .unwrap_or(ExecutionCondition::Unknown);
             }
-            Some(BoundExpression::ControlTransfer(transfer)) if transfer.kind() == BoundControlTransferKind::Yield => {
+            Some(BoundExpression::ControlTransfer(transfer))
+                if transfer.kind() == BoundControlTransferKind::Yield =>
+            {
                 if let Some(target) = self.yield_targets.get(&expression) {
-                    let value = transfer.operand().map(|operand| self.value(state, operand))
+                    let value = transfer
+                        .operand()
+                        .map(|operand| self.value(state, operand))
                         .unwrap_or(ExecutionCondition::Unknown);
 
                     state.pending_results.insert(*target, value);
@@ -388,26 +502,38 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         if matches!(invalidation, StorageInvalidation::All) {
             let preserves_storage = match node {
-                AnyBoundNodeId::Expression(expression) => matches!(self.semantics.selections().expression(expression),
+                AnyBoundNodeId::Expression(expression) => {
+                    matches!(self.semantics.selections().expression(expression),
                     Some(bray_bound_tree::SemanticSelection::Call(call)) if matches!(call.implementation_hook(), Some(
                         bray_compiler_known::ImplementationHook::RawPointerWrite
                         | bray_compiler_known::ImplementationHook::RawPointerRead
                         | bray_compiler_known::ImplementationHook::VolatileStore
-                        | bray_compiler_known::ImplementationHook::DeviceVolatileStore))),
+                        | bray_compiler_known::ImplementationHook::DeviceVolatileStore)))
+                }
                 _ => false,
             };
 
             let spatial = if preserves_storage {
-                state.trusted_assumptions.iter().filter(|(condition, _)| matches!(condition,
-                    ExecutionCondition::Predicate(predicate, _, _) if self.spatial_predicates.contains(predicate)))
+                state.trusted_assumptions.iter().filter(|(condition, _)| {
+                    let condition = match condition {
+                        ExecutionCondition::Trusted(condition) => condition.as_ref(),
+                        condition => condition,
+                    };
+
+                    matches!(condition, ExecutionCondition::Predicate(predicate, _, _) if self.spatial_predicates.contains(predicate))
+                })
                     .cloned().collect()
-            } else { BTreeSet::new() };
+            } else {
+                BTreeSet::new()
+            };
 
             let dependencies = if preserves_storage {
                 // Reached addresses keep their owner lifetimes even when their contents change.
                 // Retain the complete dependency chain, including intermediate address views.
                 std::mem::take(&mut state.witness_dependencies)
-            } else { BTreeMap::new() };
+            } else {
+                BTreeMap::new()
+            };
 
             state.invalidate_cleanup();
             state.trusted_assumptions = spatial;
@@ -415,14 +541,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             for (expression, _) in self.request.unit().tree().expressions() {
                 if let Some(place) = crate::execution_guarantees::expression_place(
-                    self.request.unit(), self.semantics, expression)
-                    && !place.fields.is_empty() {
+                    self.request.unit(),
+                    self.semantics,
+                    self.request.semantic_values(),
+                    expression,
+                ) && !place.projections.is_empty()
+                {
                     state.current.insert(place, ExecutionCondition::Unknown);
                 }
             }
 
             return;
         }
+
+        let StorageInvalidation::Accesses(accesses) = invalidation else {
+            unreachable!("global invalidation is handled before per-access invalidation");
+        };
 
         for (target, binding) in self.storage.bindings() {
             let access = match binding {
@@ -445,26 +579,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             };
 
-            state.invalidate_trusted_place(&crate::ExecutionPlace::from(reference));
-
-            let transfers = !self.storage.access_plans().iter().filter(|plan| plan.node() == node)
-                .any(|plan| matches!(plan.purpose(), bray_bound_tree::StorageAccessPurpose::Assignment
-                    | bray_bound_tree::StorageAccessPurpose::Initialize));
-
-            if !transfers {
-                let place = crate::ExecutionPlace::from(reference);
-                let value = place.value_in(&state.current).unwrap_or_else(|| ExecutionCondition::Input(place));
-
-                state.invalidate_trusted(&value);
-            }
-
-            let StorageInvalidation::Accesses(accesses) = invalidation else {
-                state
-                    .current
-                    .insert(reference.into(), ExecutionCondition::Unknown);
-
-                continue;
-            };
+            let transfers = !self
+                .storage
+                .access_plans()
+                .iter()
+                .filter(|plan| plan.node() == node)
+                .any(|plan| {
+                    matches!(
+                        plan.purpose(),
+                        bray_bound_tree::StorageAccessPurpose::Assignment
+                            | bray_bound_tree::StorageAccessPurpose::Initialize
+                    )
+                });
 
             for invalidated in accesses {
                 if self.storage.relationship(*invalidated, access)
@@ -476,11 +602,50 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let changed = self
                     .storage
                     .resolved_projections(*invalidated)
-                    .and_then(|path| crate::ExecutionPlace::from(reference).project(path))
+                    .and_then(|path| {
+                        // Checked constant selectors identify components independently of their occurrences.
+                        let path = path
+                            .iter()
+                            .map(|projection| {
+                                if let bray_bound_tree::StorageProjection::Element(selector) =
+                                    projection
+                                    && let Some(ExecutionCondition::Literal(value)) =
+                                        self.literals.get(selector)
+                                    && let bray_symbols::ConstantValueKind::Integer(index) =
+                                        value.kind()
+                                    && let Some(index) =
+                                        index.to_u64().and_then(|index| u32::try_from(index).ok())
+                                {
+                                    return bray_bound_tree::StorageProjection::ElementFromStart(
+                                        bray_symbols::SymbolOrdinal::new(index),
+                                    );
+                                }
+
+                                *projection
+                            })
+                            .collect::<Vec<_>>();
+
+                        crate::ExecutionPlace::from(reference).project(&path)
+                    })
                     .unwrap_or_else(|| reference.into());
 
+                state.invalidate_trusted_place(&changed);
+
+                if !transfers {
+                    let value = changed
+                        .value_in(&state.current)
+                        .unwrap_or_else(|| ExecutionCondition::Input(changed.clone()));
+
+                    state.invalidate_trusted(&value);
+                    state.invalidate_trusted(&ExecutionCondition::Input(changed.clone()));
+                }
+
                 for (place, value) in &mut state.current {
-                    if if transfers { changed.contains(place) } else { place.overlaps(&changed) } {
+                    if if transfers {
+                        changed.contains(place)
+                    } else {
+                        place.overlaps(&changed)
+                    } {
                         *value = ExecutionCondition::Unknown;
                     }
                 }
@@ -488,25 +653,52 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 state.current.insert(changed, ExecutionCondition::Unknown);
             }
 
-            if !transfers || accesses.iter().any(|access|
-                self.storage.resolved_projections(*access).is_none_or(|projections| projections.is_empty())) {
-                state.current.insert(reference.into(), ExecutionCondition::Unknown);
+            if !transfers
+                || accesses.iter().any(|access| {
+                    self.storage
+                        .resolved_projections(*access)
+                        .is_none_or(|projections| projections.is_empty())
+                })
+            {
+                state
+                    .current
+                    .insert(reference.into(), ExecutionCondition::Unknown);
             }
         }
     }
 
     fn pattern(&self, state: &mut ExecutionState, pattern: bray_bound_tree::BoundPatternId) {
-        let bound = self.request.view().pattern(pattern).expect("checked pattern must exist");
+        let bound = self
+            .request
+            .view()
+            .pattern(pattern)
+            .expect("checked pattern must exist");
 
-        let mut plans = self.storage.access_plans().iter().filter(|plan| plan.node() == pattern.into()
-            && !matches!(plan.purpose(), bray_bound_tree::StorageAccessPurpose::Projection));
+        let mut plans = self.storage.access_plans().iter().filter(|plan| {
+            plan.node() == pattern.into()
+                && !matches!(
+                    plan.purpose(),
+                    bray_bound_tree::StorageAccessPurpose::Projection
+                )
+        });
 
-        for binding in bound.bindings().iter().copied().chain(bound.entries().iter().filter_map(|entry| entry.binding())) {
-            if self.storage.binding(bray_bound_tree::StorageBindingTarget::Local(binding)).is_none() {
+        for binding in bound
+            .bindings()
+            .iter()
+            .copied()
+            .chain(bound.entries().iter().filter_map(|entry| entry.binding()))
+        {
+            if self
+                .storage
+                .binding(bray_bound_tree::StorageBindingTarget::Local(binding))
+                .is_none()
+            {
                 continue;
             }
 
-            let Some(plan) = plans.next() else { continue; };
+            let Some(plan) = plans.next() else {
+                continue;
+            };
 
             let value = self.storage_value(state, *plan);
 
@@ -533,6 +725,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
             if let Some(place) = crate::execution_guarantees::expression_place(
                 self.request.unit(),
                 self.semantics,
+                self.request.semantic_values(),
                 expression,
             ) {
                 if matches!(
@@ -576,7 +769,9 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
             }
 
             for condition in &contracts.requirements {
-                condition.clone().assume(true, &mut state.trusted_assumptions);
+                condition
+                    .clone()
+                    .assume(true, &mut state.trusted_assumptions);
             }
         }
 
@@ -667,7 +862,10 @@ fn merge(target: &mut Option<ExecutionState>, incoming: &Option<ExecutionState>)
 
     let boundaries_before = target.trust_boundaries.len();
 
-    target.trust_boundaries.retain(|boundary| incoming.trust_boundaries.contains(boundary));
+    target
+        .trust_boundaries
+        .retain(|boundary| incoming.trust_boundaries.contains(boundary));
+
     changed |= boundaries_before != target.trust_boundaries.len();
 
     target
@@ -678,16 +876,26 @@ fn merge(target: &mut Option<ExecutionState>, incoming: &Option<ExecutionState>)
 
     let before = target.witness_carriers.len();
 
-    target.witness_carriers.retain(|value| incoming.witness_carriers.contains(value));
+    target
+        .witness_carriers
+        .retain(|value| incoming.witness_carriers.contains(value));
+
     changed |= before != target.witness_carriers.len();
 
     let before = target.trusted_assumptions.len();
 
-    target.trusted_assumptions.retain(|condition| incoming.trusted_assumptions.contains(condition));
+    target
+        .trusted_assumptions
+        .retain(|condition| incoming.trusted_assumptions.contains(condition));
+
     changed |= before != target.trusted_assumptions.len();
 
     for (carrier, dependencies) in &incoming.witness_dependencies {
-        let retained = target.witness_dependencies.entry(carrier.clone()).or_default();
+        let retained = target
+            .witness_dependencies
+            .entry(carrier.clone())
+            .or_default();
+
         let before = retained.len();
 
         retained.extend(dependencies.iter().cloned());

@@ -103,8 +103,8 @@ fn encode_callable_clauses(encoder: &mut WireEncoder, clauses: &[InterfaceCallab
             InterfaceCallableContractClauseValue::Predicate(predicate) => {
                 encoder.write_u32(1);
                 encoder.write_u32(predicate.dependency_contract.raw());
-                    write_optional_u32(encoder, predicate.condition.map(|term| term.raw()));
-                    encoder.write_u32(u32::from(predicate.is_trusted));
+                write_optional_u32(encoder, predicate.condition.map(|term| term.raw()));
+                encoder.write_u32(u32::from(predicate.is_trusted));
             }
             InterfaceCallableContractClauseValue::TraitSatisfaction {
                 subject,
@@ -122,7 +122,10 @@ pub(super) fn encode_callable_behavior(
     encoder: &mut WireEncoder,
     behavior: &InterfaceCallablePhaseBehavior,
 ) {
-    for predicates in [&behavior.predicate_requirements, &behavior.predicate_guarantees] {
+    for predicates in [
+        &behavior.predicate_requirements,
+        &behavior.predicate_guarantees,
+    ] {
         write_count(encoder, predicates.len());
 
         for predicate in &**predicates {

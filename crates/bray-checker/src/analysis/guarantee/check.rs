@@ -69,7 +69,9 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         CheckerOutcome::Cancelled => {
             return CheckerOutcome::Cancelled;
         }
-        CheckerOutcome::InfrastructureFailure(error) => return CheckerOutcome::InfrastructureFailure(error),
+        CheckerOutcome::InfrastructureFailure(error) => {
+            return CheckerOutcome::InfrastructureFailure(error);
+        }
         CheckerOutcome::UpstreamFailure(error) => return CheckerOutcome::UpstreamFailure(error),
     };
 

@@ -429,15 +429,29 @@ impl CallableContractSet {
         }
 
         let phase_behaviors = match deferred_execution_behavior {
-            Some(deferred) => super::CallablePhaseBehaviors::asynchronous(invocation_behavior, deferred),
+            Some(deferred) => {
+                super::CallablePhaseBehaviors::asynchronous(invocation_behavior, deferred)
+            }
             None => super::CallablePhaseBehaviors::synchronous(invocation_behavior),
         };
 
-        let phase_behaviors = if invocation_preconditions.iter().chain(&normal_completion_postconditions)
-            .filter_map(|clause| clause.predicate()).any(|predicate| predicate.is_trusted()) {
-            phase_behaviors.with_predicates(invocation_preconditions.iter().filter_map(|clause| clause.predicate()),
-                normal_completion_postconditions.iter().filter_map(|clause| clause.predicate()))
-        } else { phase_behaviors };
+        let phase_behaviors = if invocation_preconditions
+            .iter()
+            .chain(&normal_completion_postconditions)
+            .filter_map(|clause| clause.predicate())
+            .any(|predicate| predicate.is_trusted())
+        {
+            phase_behaviors.with_predicates(
+                invocation_preconditions
+                    .iter()
+                    .filter_map(|clause| clause.predicate()),
+                normal_completion_postconditions
+                    .iter()
+                    .filter_map(|clause| clause.predicate()),
+            )
+        } else {
+            phase_behaviors
+        };
 
         Self {
             invocation_preconditions: shared_slice(invocation_preconditions),

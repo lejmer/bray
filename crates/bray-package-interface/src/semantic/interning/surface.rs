@@ -117,8 +117,14 @@ impl InternState {
                             CheckedConstraint::new(
                                 input.ordinal,
                                 PredicateSemanticSummary::new(dependency).with_condition(
-                                    predicate.condition.map(|term| self.constant_term_id(term)
-                                        .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)).transpose()?,
+                                    predicate
+                                        .condition
+                                        .map(|term| {
+                                            self.constant_term_id(term).ok_or(
+                                                InterfaceSemanticInternError::UnresolvedValueGraph,
+                                            )
+                                        })
+                                        .transpose()?,
                                     predicate.is_trusted,
                                 ),
                             )
@@ -179,8 +185,14 @@ impl InternState {
                                 clause.ordinal,
                                 clause.kind,
                                 PredicateSemanticSummary::new(dependency).with_condition(
-                                    predicate.condition.map(|term| self.constant_term_id(term)
-                                        .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)).transpose()?,
+                                    predicate
+                                        .condition
+                                        .map(|term| {
+                                            self.constant_term_id(term).ok_or(
+                                                InterfaceSemanticInternError::UnresolvedValueGraph,
+                                            )
+                                        })
+                                        .transpose()?,
                                     predicate.is_trusted,
                                 ),
                             )
@@ -240,11 +252,24 @@ impl InternState {
             .collect()
     }
 
-    fn convert_predicate(&self, predicate: crate::InterfacePredicateSummary) -> Result<PredicateSemanticSummary, InterfaceSemanticInternError> {
-        Ok(PredicateSemanticSummary::new(self.dependency_contract_id(predicate.dependency_contract)
-            .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?).with_condition(
-                predicate.condition.map(|term| self.constant_term_id(term)
-                    .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)).transpose()?, predicate.is_trusted))
+    fn convert_predicate(
+        &self,
+        predicate: crate::InterfacePredicateSummary,
+    ) -> Result<PredicateSemanticSummary, InterfaceSemanticInternError> {
+        Ok(PredicateSemanticSummary::new(
+            self.dependency_contract_id(predicate.dependency_contract)
+                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
+        )
+        .with_condition(
+            predicate
+                .condition
+                .map(|term| {
+                    self.constant_term_id(term)
+                        .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)
+                })
+                .transpose()?,
+            predicate.is_trusted,
+        ))
     }
 
     pub(super) fn convert_callable_behavior(
@@ -300,8 +325,16 @@ impl InternState {
         )
         .with_execution_properties(input.execution_properties.iter().copied())
         .with_predicates(
-            input.predicate_requirements.iter().map(|predicate| self.convert_predicate(*predicate)).collect::<Result<Vec<_>, _>>()?,
-            input.predicate_guarantees.iter().map(|predicate| self.convert_predicate(*predicate)).collect::<Result<Vec<_>, _>>()?,
+            input
+                .predicate_requirements
+                .iter()
+                .map(|predicate| self.convert_predicate(*predicate))
+                .collect::<Result<Vec<_>, _>>()?,
+            input
+                .predicate_guarantees
+                .iter()
+                .map(|predicate| self.convert_predicate(*predicate))
+                .collect::<Result<Vec<_>, _>>()?,
         ))
     }
 

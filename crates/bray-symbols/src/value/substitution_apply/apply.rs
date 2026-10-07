@@ -259,7 +259,10 @@ impl SemanticValueStore {
                     .try_with_dependency_contracts(dependencies)
                     .expect("substitution preserves callable phase contracts");
 
-                let body = callable.phase_behaviors().deferred_execution().unwrap_or_else(|| callable.phase_behaviors().invocation());
+                let body = callable
+                    .phase_behaviors()
+                    .deferred_execution()
+                    .unwrap_or_else(|| callable.phase_behaviors().invocation());
 
                 let substitute_predicate = |predicate: &crate::PredicateSemanticSummary| -> Result<_, SemanticValueStoreError> {
                     Ok(crate::PredicateSemanticSummary::new(self.substitute_dependency_contract_data(predicate.dependency_contract(), substitution)?)
@@ -267,8 +270,17 @@ impl SemanticValueStore {
                 };
 
                 let phase_behaviors = phase_behaviors.with_predicates(
-                    callable.phase_behaviors().invocation().predicate_requirements().iter().map(substitute_predicate).collect::<Result<Vec<_>, _>>()?,
-                    body.predicate_guarantees().iter().map(substitute_predicate).collect::<Result<Vec<_>, _>>()?,
+                    callable
+                        .phase_behaviors()
+                        .invocation()
+                        .predicate_requirements()
+                        .iter()
+                        .map(substitute_predicate)
+                        .collect::<Result<Vec<_>, _>>()?,
+                    body.predicate_guarantees()
+                        .iter()
+                        .map(substitute_predicate)
+                        .collect::<Result<Vec<_>, _>>()?,
                 );
 
                 TypeData::Callable(

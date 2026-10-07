@@ -52,8 +52,16 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_record_graph(
 
     builder.include_requested_semantics(&directory, kind)?;
 
-    if builder.records.callable_contracts.values().values().any(|contract|
-        !contract.execution_contract.domains.is_empty() || !contract.execution_contract.evidence.is_empty()) {
+    if builder
+        .records
+        .callable_contracts
+        .values()
+        .values()
+        .any(|contract| {
+            !contract.execution_contract.domains.is_empty()
+                || !contract.execution_contract.evidence.is_empty()
+        })
+    {
         return bundle::decode_semantics_with_context(sections, surface, builder.context.restart());
     }
 
@@ -320,35 +328,63 @@ impl<'bytes> SelectionBuilder<'bytes> {
     }
 
     fn include_callable_contract(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
-        let contract = self.tables.contracts.callables.decode(index, &mut self.context,
-            |reader, context| contract::decode_callable_contract(reader, context.limits(), context))?;
+        let contract = self.tables.contracts.callables.decode(
+            index,
+            &mut self.context,
+            |reader, context| contract::decode_callable_contract(reader, context.limits(), context),
+        )?;
 
         if contract.owner != self.owner {
-            return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference));
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
-        for clause in contract.invocation_preconditions.iter().chain(contract.static_constraints.iter())
-            .chain(contract.normal_completion_postconditions.iter()) {
+        for clause in contract
+            .invocation_preconditions
+            .iter()
+            .chain(contract.static_constraints.iter())
+            .chain(contract.normal_completion_postconditions.iter())
+        {
             match clause.value {
                 crate::InterfaceCallableContractClauseValue::Predicate(predicate) => {
-                    self.enqueue(PendingRecord::DependencyContract(predicate.dependency_contract.raw()));
+                    self.enqueue(PendingRecord::DependencyContract(
+                        predicate.dependency_contract.raw(),
+                    ));
 
-                    if let Some(term) = predicate.condition { self.enqueue(PendingRecord::ConstantTerm(term.raw())); }
+                    if let Some(term) = predicate.condition {
+                        self.enqueue(PendingRecord::ConstantTerm(term.raw()));
+                    }
                 }
-                crate::InterfaceCallableContractClauseValue::TraitSatisfaction { subject, application } => {
+                crate::InterfaceCallableContractClauseValue::TraitSatisfaction {
+                    subject,
+                    application,
+                } => {
                     self.enqueue(PendingRecord::Type(subject.raw()));
                     self.enqueue(PendingRecord::TraitApplication(application.raw()));
                 }
             }
         }
 
-        for behavior in std::iter::once(&contract.invocation_behavior).chain(contract.deferred_execution_behavior.iter()) {
-            self.enqueue(PendingRecord::DependencyContract(behavior.dependency_contract.raw()));
+        for behavior in std::iter::once(&contract.invocation_behavior)
+            .chain(contract.deferred_execution_behavior.iter())
+        {
+            self.enqueue(PendingRecord::DependencyContract(
+                behavior.dependency_contract.raw(),
+            ));
 
-            for predicate in behavior.predicate_requirements.iter().chain(behavior.predicate_guarantees.iter()) {
-                self.enqueue(PendingRecord::DependencyContract(predicate.dependency_contract.raw()));
+            for predicate in behavior
+                .predicate_requirements
+                .iter()
+                .chain(behavior.predicate_guarantees.iter())
+            {
+                self.enqueue(PendingRecord::DependencyContract(
+                    predicate.dependency_contract.raw(),
+                ));
 
-                if let Some(term) = predicate.condition { self.enqueue(PendingRecord::ConstantTerm(term.raw())); }
+                if let Some(term) = predicate.condition {
+                    self.enqueue(PendingRecord::ConstantTerm(term.raw()));
+                }
             }
         }
 
@@ -464,12 +500,14 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
         match constraint.kind {
             crate::InterfaceConstraintKind::Predicate(predicate) => {
-                self.enqueue(PendingRecord::DependencyContract(predicate.dependency_contract.raw()));
+                self.enqueue(PendingRecord::DependencyContract(
+                    predicate.dependency_contract.raw(),
+                ));
 
                 if let Some(term) = predicate.condition {
                     self.enqueue(PendingRecord::ConstantTerm(term.raw()));
                 }
-            },
+            }
             crate::InterfaceConstraintKind::TraitSatisfaction {
                 subject,
                 application,
@@ -738,9 +776,17 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
                 self.enqueue(PendingRecord::Type(result.raw()));
 
-                for behavior in std::iter::once(invocation_behavior).chain(deferred_execution_behavior.iter()) {
-                    for predicate in behavior.predicate_requirements.iter().chain(behavior.predicate_guarantees.iter()) {
-                        self.enqueue(PendingRecord::DependencyContract(predicate.dependency_contract.raw()));
+                for behavior in
+                    std::iter::once(invocation_behavior).chain(deferred_execution_behavior.iter())
+                {
+                    for predicate in behavior
+                        .predicate_requirements
+                        .iter()
+                        .chain(behavior.predicate_guarantees.iter())
+                    {
+                        self.enqueue(PendingRecord::DependencyContract(
+                            predicate.dependency_contract.raw(),
+                        ));
 
                         if let Some(term) = predicate.condition {
                             self.enqueue(PendingRecord::ConstantTerm(term.raw()));

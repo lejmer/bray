@@ -229,18 +229,29 @@ where
             return;
         };
 
-        let proven = self.request.trusted_memory_evidence()
+        let proven = self
+            .request
+            .trusted_memory_evidence()
             .is_some_and(|evidence| evidence.contains(&expression));
 
         if proven {
             if let CheckedMemoryOperationKind::Read { pointee, .. }
-                | CheckedMemoryOperationKind::VolatileRead { pointee, .. }
-                | CheckedMemoryOperationKind::UninitAssumeInitialized { element: pointee }
-                | CheckedMemoryOperationKind::UninitMove { element: pointee } = operation.kind() {
-                if let Some(pointer) = operation.arguments().first()
-                    .and_then(|argument| self.argument_storage(*argument)) {
-                    state.raw_initialized.entry(pointer).or_default().entry(pointee)
-                        .or_default().insert(expression);
+            | CheckedMemoryOperationKind::VolatileRead { pointee, .. }
+            | CheckedMemoryOperationKind::UninitAssumeInitialized { element: pointee }
+            | CheckedMemoryOperationKind::UninitMove { element: pointee } = operation.kind()
+            {
+                if let Some(pointer) = operation
+                    .arguments()
+                    .first()
+                    .and_then(|argument| self.argument_storage(*argument))
+                {
+                    state
+                        .raw_initialized
+                        .entry(pointer)
+                        .or_default()
+                        .entry(pointee)
+                        .or_default()
+                        .insert(expression);
                 }
             }
         }
@@ -249,7 +260,8 @@ where
             MemoryOperationStatus::Unreachable
         } else if state.recovered {
             MemoryOperationStatus::Recovered
-        } else if operation_requires_trust(operation.kind()) && !proven
+        } else if operation_requires_trust(operation.kind())
+            && !proven
             && !refinements
                 .iter()
                 .any(|refinement| matches!(refinement.kind(), RefinementKind::TrustBoundary(_)))

@@ -65,6 +65,13 @@ pub(crate) fn unary_operator(operation: ConstantUnaryOperation) -> bray_bound_tr
         ConstantUnaryOperation::Negate => bray_bound_tree::BoundOperator::Subtract,
         ConstantUnaryOperation::LogicalNot => bray_bound_tree::BoundOperator::LogicalNot,
         ConstantUnaryOperation::BitwiseNot => bray_bound_tree::BoundOperator::BitwiseNot,
+        ConstantUnaryOperation::PredicateTrust
+        | ConstantUnaryOperation::BorrowObservation
+        | ConstantUnaryOperation::EntryCondition => {
+            panic!(
+                "execution condition qualifiers must be handled before numeric operator evaluation"
+            )
+        }
     }
 }
 

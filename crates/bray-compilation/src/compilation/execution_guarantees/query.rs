@@ -193,9 +193,21 @@ impl Compilation {
 
                     // Trusted predicate guarantees are declared sources of authority. Execution
                     // properties and ordinary postconditions still require their independent proofs.
-                    let posts = posts.into_parts().0.into_iter().map(|(condition, trusted, span)|
-                        (if trusted && trusted_producer { bray_checker::ExecutionCondition::Boolean(true) }
-                            else { condition }, span)).collect::<Vec<_>>();
+                    let posts = posts
+                        .into_parts()
+                        .0
+                        .into_iter()
+                        .map(|(condition, trusted, span)| {
+                            (
+                                if trusted && trusted_producer {
+                                    bray_checker::ExecutionCondition::Boolean(true)
+                                } else {
+                                    condition
+                                },
+                                span,
+                            )
+                        })
+                        .collect::<Vec<_>>();
 
                     // Each domain owns its entry assumptions while sharing immutable condition operands.
                     let mut assumptions = requirements.clone();

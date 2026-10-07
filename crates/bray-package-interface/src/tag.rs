@@ -182,6 +182,9 @@ wire_tags!(ConstantUnaryOperation {
     2 => ConstantUnaryOperation::Negate,
     3 => ConstantUnaryOperation::LogicalNot,
     4 => ConstantUnaryOperation::BitwiseNot,
+    5 => ConstantUnaryOperation::PredicateTrust,
+    6 => ConstantUnaryOperation::BorrowObservation,
+    7 => ConstantUnaryOperation::EntryCondition,
 });
 
 wire_tags!(TargetSizedIntegerType {

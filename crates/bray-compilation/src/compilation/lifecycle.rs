@@ -1,7 +1,6 @@
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    CallableInstanceData, CallableSignature,
-    TypeAssociatedLifecycleSlot, TypeData, TypeId,
+    CallableInstanceData, CallableSignature, TypeAssociatedLifecycleSlot, TypeData, TypeId,
 };
 
 use super::{
@@ -64,7 +63,9 @@ impl Compilation {
         let binding = self.binding_context(cancellation)?;
 
         let mut diagnostics = surface.diagnostics().clone();
-        let resolved = self.resolve_callable_instance_signature(&binding, callable, &mut diagnostics)?;
+
+        let resolved =
+            self.resolve_callable_instance_signature(&binding, callable, &mut diagnostics)?;
 
         if resolved.is_none() && diagnostics.has_errors() {
             return Ok(DiagnosticResult::new(None, diagnostics));

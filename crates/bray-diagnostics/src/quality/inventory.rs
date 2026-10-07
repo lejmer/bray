@@ -1029,7 +1029,11 @@ impl DiagnosticKind {
             Self::CheckingMissingTrustedMemoryGuarantees => {
                 Self::quality_source(&[MemoryOperation], primary_components!(&[MemoryOperation]))
             }
-            Self::CheckingTrustedObligationNotProven | Self::CheckingTrustedWitnessTransferNotProven => Self::quality_source(&[ExpressionCategory], primary_components!(&[ExpressionCategory])),
+            Self::CheckingTrustedObligationNotProven
+            | Self::CheckingTrustedWitnessTransferNotProven => Self::quality_source(
+                &[ExpressionCategory],
+                primary_components!(&[ExpressionCategory]),
+            ),
             Self::CheckingMemoryOperationAfterDeallocation => Self::quality_source(
                 &[MemoryOperation],
                 related_components!(

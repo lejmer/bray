@@ -17,14 +17,16 @@ pub use binder::BinderDependency;
 pub use binding::{
     BindingError, CallableTypeQualifiers, TypeExpressionBinder, TypeExpressionImports,
     TypeExpressionScope, TypeParameterBinding, bind_callable_abi, bind_callable_type_directives,
-    bind_directive_template, bind_expression_candidates, bind_expression_candidates_with_syntax, bind_member_callable_template,
-    callable_execution_properties, generic_argument_count_diagnostic,
-    malformed_directive_argument_diagnostic, qualified_union_variant,
+    bind_directive_template, bind_expression_candidates, bind_expression_candidates_with_syntax,
+    bind_member_callable_template, callable_execution_properties,
+    generic_argument_count_diagnostic, malformed_directive_argument_diagnostic,
+    qualified_union_variant,
 };
 pub use bray_checker::CheckerOutcome as BindingOutcome;
 pub use entry::{
-    BoundUnitBindingError, bind_anonymous_callable, bind_callable_body, bind_constant_template,
-    bind_constraint, bind_contract_clause, bind_contract_clause_expressions, bind_callable_type_clause, bind_embedded_constant, bind_predicate_definition,
+    BoundUnitBindingError, bind_anonymous_callable, bind_callable_body, bind_callable_type_clause,
+    bind_constant_template, bind_constraint, bind_contract_clause,
+    bind_contract_clause_expressions, bind_embedded_constant, bind_predicate_definition,
     bind_runtime_default, bind_target_gate,
 };
 pub use lookup::{

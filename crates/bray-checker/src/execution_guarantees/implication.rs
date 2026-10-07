@@ -30,14 +30,17 @@ pub fn remap_execution_condition_inputs(
 ) -> ExecutionCondition {
     condition.substitute(
         &|place| {
-            let Some(root) = place.reference().and_then(|reference| inputs.get(&reference)) else {
+            let Some(root) = place
+                .reference()
+                .and_then(|reference| inputs.get(&reference))
+            else {
                 return ExecutionCondition::Unknown;
             };
 
             let mut mapped = super::ExecutionPlace::from(*root);
 
-            for field in place.fields.iter() {
-                mapped = mapped.field(*field);
+            for field in place.projections.iter() {
+                mapped = mapped.component(*field);
             }
 
             ExecutionCondition::Input(mapped)
@@ -53,18 +56,59 @@ pub fn map_execution_condition_substitutions<E>(
     map: &impl Fn(bray_symbols::GenericSubstitutionId) -> Result<bray_symbols::GenericSubstitutionId, E>,
 ) -> Result<ExecutionCondition, E> {
     Ok(match condition {
-        ExecutionCondition::Predicate(predicate, substitution, operands) => ExecutionCondition::predicate(
-            *predicate, map(*substitution)?, operands.iter().map(|operand|
-                map_execution_condition_substitutions(operand, map)).collect::<Result<_, _>>()?),
-        ExecutionCondition::Operation(operator, operands) => ExecutionCondition::operation(*operator,
-            operands.iter().map(|operand| map_execution_condition_substitutions(operand, map)).collect::<Result<_, _>>()?),
-        ExecutionCondition::Call(callable, operands) => ExecutionCondition::call(bray_symbols::CallableInstanceData::new(
-            callable.definition(), map(callable.substitution())?), operands.iter().map(|operand|
-                map_execution_condition_substitutions(operand, map)).collect::<Result<_, _>>()?),
-        ExecutionCondition::Field(field, value) => ExecutionCondition::field(*field,
-            map_execution_condition_substitutions(value, map)?),
-        ExecutionCondition::Constructed(expression, fields) => ExecutionCondition::Constructed(*expression, fields.iter().map(|(field, value)|
-            Ok((*field, map_execution_condition_substitutions(value, map)?))).collect::<Result<Vec<_>, E>>()?.into()),
+        ExecutionCondition::Trusted(value) => ExecutionCondition::Trusted(std::sync::Arc::new(
+            map_execution_condition_substitutions(value, map)?,
+        )),
+        ExecutionCondition::Borrowed(value) => {
+            map_execution_condition_substitutions(value, map)?.borrowed()
+        }
+        ExecutionCondition::Entry {
+            condition,
+            captured,
+        } => ExecutionCondition::Entry {
+            condition: std::sync::Arc::new(map_execution_condition_substitutions(condition, map)?),
+            captured: *captured,
+        },
+        ExecutionCondition::Predicate(predicate, substitution, operands) => {
+            ExecutionCondition::predicate(
+                *predicate,
+                map(*substitution)?,
+                operands
+                    .iter()
+                    .map(|operand| map_execution_condition_substitutions(operand, map))
+                    .collect::<Result<_, _>>()?,
+            )
+        }
+        ExecutionCondition::Operation(operator, operands) => ExecutionCondition::operation(
+            *operator,
+            operands
+                .iter()
+                .map(|operand| map_execution_condition_substitutions(operand, map))
+                .collect::<Result<_, _>>()?,
+        ),
+        ExecutionCondition::Call(callable, operands) => ExecutionCondition::call(
+            bray_symbols::CallableInstanceData::new(
+                callable.definition(),
+                map(callable.substitution())?,
+            ),
+            operands
+                .iter()
+                .map(|operand| map_execution_condition_substitutions(operand, map))
+                .collect::<Result<_, _>>()?,
+        ),
+        ExecutionCondition::Field(field, value) => {
+            ExecutionCondition::field(*field, map_execution_condition_substitutions(value, map)?)
+        }
+        ExecutionCondition::Constructed(expression, fields) => ExecutionCondition::Constructed(
+            *expression,
+            fields
+                .iter()
+                .map(|(field, value)| {
+                    Ok((*field, map_execution_condition_substitutions(value, map)?))
+                })
+                .collect::<Result<Vec<_>, E>>()?
+                .into(),
+        ),
         _ => condition.clone(),
     })
 }

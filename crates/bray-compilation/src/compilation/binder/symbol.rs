@@ -21,11 +21,11 @@ mod template;
 mod test_support;
 
 pub(in crate::compilation) use binding::binder_error;
-pub(in crate::compilation) use declaration_body::checked_callable_type_contracts;
 pub(in crate::compilation) use cache::CompilationSymbolSemantics;
 pub(in crate::compilation) use contract::{
     bind_declared_execution_requirements, bind_declared_trusted_capabilities,
 };
+pub(in crate::compilation) use declaration_body::checked_callable_type_contracts;
 pub(in crate::compilation) use directive::bind_module_part_directives_for_selection;
 pub(in crate::compilation) use environment::{
     generic_parameter_ids, has_visible_generic_parameters, self_type_context, type_binder,

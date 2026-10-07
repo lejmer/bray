@@ -257,6 +257,10 @@ impl OrderEncoder<'_, '_> {
                         "tuple_element",
                         [ordinal.raw().to_be_bytes().to_vec().into()],
                     ),
+                    ConstantProjectionKind::ArrayElementOrdinal(index) => term(
+                        "array_element_ordinal",
+                        [index.raw().to_be_bytes().to_vec().into()],
+                    ),
                     ConstantProjectionKind::ArrayElement(index) => {
                         term("array_element", [self.constant(index)?])
                     }
@@ -363,6 +367,9 @@ fn unary_name(operation: bray_symbols::ConstantUnaryOperation) -> &'static str {
         ConstantUnaryOperation::Negate => "negate",
         ConstantUnaryOperation::LogicalNot => "logical_not",
         ConstantUnaryOperation::BitwiseNot => "bitwise_not",
+        ConstantUnaryOperation::PredicateTrust => "predicate_trust",
+        ConstantUnaryOperation::BorrowObservation => "borrow_observation",
+        ConstantUnaryOperation::EntryCondition => "entry_condition",
     }
 }
 

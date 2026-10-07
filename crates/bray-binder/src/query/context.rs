@@ -29,7 +29,10 @@ pub trait BindingQueryContext: Send + Sync {
         _owner: AnySymbolId,
         _syntax: bray_syntax::SyntaxNodeView<'_>,
         _callable: &TypeExpressionTemplate,
-    ) -> BindingQueryResult<DiagnosticResult<bray_symbols::CallablePhaseBehaviors>, Self::UpstreamError> {
+    ) -> BindingQueryResult<
+        DiagnosticResult<bray_symbols::CallablePhaseBehaviors>,
+        Self::UpstreamError,
+    > {
         Err(crate::BindingQueryError::DependencyUnavailable)
     }
 

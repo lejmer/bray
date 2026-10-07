@@ -725,8 +725,15 @@ fn callable_contract_mismatch(
     fulfillment: CallableSymbolId,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<CallableContractMismatch>, FactQueryError> {
-    let signature = resolve_query!(binding_context, diagnostics, CallableSignatureQuery, requirement);
-    let input_count = signature.value().parameters().len() + usize::from(signature.value().receiver().is_some());
+    let signature = resolve_query!(
+        binding_context,
+        diagnostics,
+        CallableSignatureQuery,
+        requirement
+    );
+
+    let input_count =
+        signature.value().parameters().len() + usize::from(signature.value().receiver().is_some());
 
     let requirement = resolve_query!(
         binding_context,
@@ -873,18 +880,29 @@ fn contract_clause_mismatch(
                 bray_symbols::CallableContractClauseValue::Predicate(fulfillment),
             ) => {
                 if requirement.is_trusted() != fulfillment.is_trusted()
-                    || (requirement.is_trusted() && !trusted_predicates_are_compatible(values, subject,
-                        trait_application, generic_substitution, input_count, requirement, fulfillment)?) {
+                    || (requirement.is_trusted()
+                        && !trusted_predicates_are_compatible(
+                            values,
+                            subject,
+                            trait_application,
+                            generic_substitution,
+                            input_count,
+                            requirement,
+                            fulfillment,
+                        )?)
+                {
                     Some(CallableContractMismatch::PredicateCondition { surface, index })
-                } else { (!dependency_contracts_are_compatible(
-                values,
-                trait_application,
-                generic_substitution,
-                requirement.dependency_contract(),
-                fulfillment.dependency_contract(),
-            )?)
-            .then_some(CallableContractMismatch::PredicateDependencies { surface, index }) }
-            },
+                } else {
+                    (!dependency_contracts_are_compatible(
+                        values,
+                        trait_application,
+                        generic_substitution,
+                        requirement.dependency_contract(),
+                        fulfillment.dependency_contract(),
+                    )?)
+                    .then_some(CallableContractMismatch::PredicateDependencies { surface, index })
+                }
+            }
             (
                 bray_symbols::CallableContractClauseValue::TraitSatisfaction {
                     subject: requirement_subject,
@@ -933,7 +951,8 @@ fn trusted_predicates_are_compatible(
     requirement: bray_symbols::PredicateSemanticSummary,
     fulfillment: bray_symbols::PredicateSemanticSummary,
 ) -> Result<bool, FactQueryError> {
-    let (Some(required), Some(provided)) = (requirement.condition(), fulfillment.condition()) else {
+    let (Some(required), Some(provided)) = (requirement.condition(), fulfillment.condition())
+    else {
         return Ok(false);
     };
 
@@ -947,9 +966,14 @@ fn trusted_predicates_are_compatible(
 
     let required = bray_checker::execution_condition_from_type_term(values, required, input_count)?;
 
-    let required = bray_checker::map_execution_condition_substitutions(&required, &|substitution|
-        values.substitute_contextual_self_in_substitution(substitution,
-            bray_symbols::SelfTypeContext::Trait(application.definition()), subject))?;
+    let required =
+        bray_checker::map_execution_condition_substitutions(&required, &|substitution| {
+            values.substitute_contextual_self_in_substitution(
+                substitution,
+                bray_symbols::SelfTypeContext::Trait(application.definition()),
+                subject,
+            )
+        })?;
 
     let provided = bray_checker::execution_condition_from_type_term(values, provided, input_count)?;
 

@@ -1070,11 +1070,21 @@ mod tests {
         assert!(selected.iter().any(|key| key.kind()
             == bray_package_interface::InterfaceSemanticRecordKind::CallableContracts));
 
-        assert!(selected.iter().all(|key| compilation.state.imported_semantics.is_published(key)
-            .expect("selected imported records must have available cache state")));
+        assert!(selected.iter().all(|key| {
+            compilation
+                .state
+                .imported_semantics
+                .is_published(key)
+                .expect("selected imported records must have available cache state")
+        }));
 
-        assert!(compilation.state.imported_semantic_graphs.iter().all(|graph| graph.get().is_none()));
-
+        assert!(
+            compilation
+                .state
+                .imported_semantic_graphs
+                .iter()
+                .all(|graph| graph.get().is_none())
+        );
     }
 
     fn candidates(

@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use bray_bound_tree::BoundReferenceTarget;
-use bray_symbols::AnySymbolId;
+use bray_symbols::{AnySymbolId, ConstantProjectionKind};
 
-/// An observable input or local place, including its selected field path.
+/// An observable input or local place, including its selected component path.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ExecutionPlace {
     pub(crate) root: ExecutionInput,
-    pub(crate) fields: Arc<[AnySymbolId]>,
+    pub(crate) projections: Arc<[ConstantProjectionKind]>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -20,14 +20,17 @@ impl From<BoundReferenceTarget> for ExecutionPlace {
     fn from(root: BoundReferenceTarget) -> Self {
         Self {
             root: ExecutionInput::Reference(root),
-            fields: Arc::new([]),
+            projections: Arc::new([]),
         }
     }
 }
 
 impl ExecutionPlace {
     pub(crate) fn argument(ordinal: bray_symbols::SymbolOrdinal) -> Self {
-        Self { root: ExecutionInput::Argument(ordinal), fields: Arc::new([]) }
+        Self {
+            root: ExecutionInput::Argument(ordinal),
+            projections: Arc::new([]),
+        }
     }
 
     pub(crate) const fn reference(&self) -> Option<BoundReferenceTarget> {
@@ -70,6 +73,12 @@ impl ExecutionPlace {
                 bray_bound_tree::StorageProjection::ActiveUnionPayloadField { field, .. } => {
                     self = self.field((*field).into());
                 }
+                bray_bound_tree::StorageProjection::TupleElement(index) => {
+                    self = self.component(ConstantProjectionKind::TupleElement(*index));
+                }
+                bray_bound_tree::StorageProjection::ElementFromStart(index) => {
+                    self = self.component(ConstantProjectionKind::ArrayElementOrdinal(*index));
+                }
                 _ => return None,
             }
         }
@@ -81,18 +90,18 @@ impl ExecutionPlace {
         &self,
         values: &std::collections::BTreeMap<Self, super::ExecutionCondition>,
     ) -> Option<super::ExecutionCondition> {
-        for length in (0..=self.fields.len()).rev() {
+        for length in (0..=self.projections.len()).rev() {
             let prefix = Self {
                 root: self.root,
-                fields: self.fields[..length].into(),
+                projections: self.projections[..length].into(),
             };
 
             if let Some(value) = values.get(&prefix) {
-                // Field projections retain the same immutable snapshot as their containing value.
+                // Component projections retain the same immutable snapshot as their containing value.
                 let mut value = value.clone();
 
-                for field in self.fields.iter().skip(length) {
-                    value = super::ExecutionCondition::field(*field, value);
+                for projection in self.projections.iter().skip(length) {
+                    value = value.component(*projection);
                 }
 
                 return Some(value);
@@ -102,14 +111,33 @@ impl ExecutionPlace {
         None
     }
 
-    pub(crate) fn field(mut self, field: AnySymbolId) -> Self {
-        self.fields = self.fields.iter().copied().chain([field]).collect();
+    pub(crate) fn field(self, field: AnySymbolId) -> Self {
+        let projection = match field {
+            AnySymbolId::StructField(field) => ConstantProjectionKind::ProductField(field),
+            AnySymbolId::UnionPayloadField(field) => {
+                ConstantProjectionKind::UnionPayloadField(field)
+            }
+            _ => panic!(
+                "checked execution field must identify a product or union payload field: {field:?}"
+            ),
+        };
+
+        self.component(projection)
+    }
+
+    pub(crate) fn component(mut self, projection: ConstantProjectionKind) -> Self {
+        self.projections = self
+            .projections
+            .iter()
+            .copied()
+            .chain([projection])
+            .collect();
 
         self
     }
 
     pub(crate) fn contains(&self, other: &Self) -> bool {
-        self.root == other.root && other.fields.starts_with(&self.fields)
+        self.root == other.root && other.projections.starts_with(&self.projections)
     }
 
     pub(crate) fn overlaps(&self, other: &Self) -> bool {

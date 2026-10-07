@@ -125,7 +125,10 @@ where
         }
     }
 
-    pub(in crate::analysis) fn resolve(&mut self, ty: TypeId) -> CheckerQueryResult<bool, C::UpstreamError> {
+    pub(in crate::analysis) fn resolve(
+        &mut self,
+        ty: TypeId,
+    ) -> CheckerQueryResult<bool, C::UpstreamError> {
         if let Some(copyable) = self.cache.get(&ty) {
             return Ok(*copyable);
         }

@@ -360,6 +360,7 @@ impl InterfaceSemantics {
                 validate_symbol(symbol, symbol_count, dependency_count)?;
             }
             InterfaceConstantProjection::TupleElement(_)
+            | InterfaceConstantProjection::ArrayElementOrdinal(_)
             | InterfaceConstantProjection::NullableValue => {}
         }
 

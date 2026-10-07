@@ -317,7 +317,10 @@ impl<'a> SemanticExporter<'a> {
             self.dependency_contract_id(predicate.dependency_contract())?,
         )
         .with_condition(
-            predicate.condition().map(|term| self.constant_term_id(term)).transpose()?,
+            predicate
+                .condition()
+                .map(|term| self.constant_term_id(term))
+                .transpose()?,
             predicate.is_trusted(),
         ))
     }
@@ -545,8 +548,16 @@ impl<'a> SemanticExporter<'a> {
         )
         .with_execution_properties(behavior.execution_properties().iter().copied())
         .with_predicates(
-            behavior.predicate_requirements().iter().map(|predicate| self.predicate_summary(*predicate)).collect::<Result<Vec<_>, _>>()?,
-            behavior.predicate_guarantees().iter().map(|predicate| self.predicate_summary(*predicate)).collect::<Result<Vec<_>, _>>()?,
+            behavior
+                .predicate_requirements()
+                .iter()
+                .map(|predicate| self.predicate_summary(*predicate))
+                .collect::<Result<Vec<_>, _>>()?,
+            behavior
+                .predicate_guarantees()
+                .iter()
+                .map(|predicate| self.predicate_summary(*predicate))
+                .collect::<Result<Vec<_>, _>>()?,
         ))
     }
 }

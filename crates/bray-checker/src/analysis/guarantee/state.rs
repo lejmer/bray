@@ -39,17 +39,30 @@ impl Default for ExecutionState {
 
 impl ExecutionState {
     pub(super) fn is_witness(&self, value: &ExecutionCondition) -> bool {
-        self.witness_carriers.iter().any(|carrier| value.contains_value(carrier)
-            && self.trusted_assumptions.iter().any(|(condition, holds)| *holds && condition.observes(carrier)
-                && condition.prove(&self.assumptions, &mut { ExecutionCondition::WORK_LIMIT }) != Some(true)))
+        self.witness_carriers.iter().any(|carrier| {
+            value.contains_value(carrier)
+                && self.trusted_assumptions.iter().any(|(condition, holds)| {
+                    condition.observes(carrier)
+                        && condition
+                            .prove(&self.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                            != Some(*holds)
+                })
+        })
     }
 
     pub(super) fn invalidate_cleanup(&mut self) {
+        self.assumptions
+            .retain(|(condition, _)| !condition.observes_borrowed(None));
+
         self.witness_carriers.clear();
         self.witness_dependencies.clear();
         self.trusted_assumptions.clear();
 
-        for entry in self.entries.values_mut().filter(|entry| entry.pending_execution) {
+        for entry in self
+            .entries
+            .values_mut()
+            .filter(|entry| entry.pending_execution)
+        {
             entry.assumptions.clear();
             entry.trusted_assumptions.clear();
             entry.trusted_boundary = false;
@@ -57,7 +70,7 @@ impl ExecutionState {
 
         // Cleanup can mutate observations through owned capabilities, just like an opaque call.
         for (place, value) in &mut self.current {
-            if !place.fields.is_empty() {
+            if !place.projections.is_empty() {
                 *value = ExecutionCondition::Unknown;
             }
         }
@@ -75,40 +88,76 @@ impl ExecutionState {
         loop {
             let before = invalidated.len();
 
-            let components = invalidated.iter().filter_map(|value| match value {
-                ExecutionCondition::Constructed(_, fields) => Some(fields.iter().map(|(_, value)| value.clone())),
-                _ => None,
-            }).flatten().collect::<Vec<_>>();
+            let components = invalidated
+                .iter()
+                .filter_map(|value| match value {
+                    ExecutionCondition::Constructed(_, fields) => {
+                        Some(fields.iter().map(|(_, value)| value.clone()))
+                    }
+                    _ => None,
+                })
+                .flatten()
+                .collect::<Vec<_>>();
 
             invalidated.extend(components);
 
             for (carrier, dependencies) in &self.witness_dependencies {
-                if dependencies.iter().filter_map(|place| place.value_in(&self.current)).any(|dependency|
-                    invalidated.iter().any(|value| dependency.observes(value))) {
+                if dependencies
+                    .iter()
+                    .filter_map(|place| place.value_in(&self.current))
+                    .any(|dependency| invalidated.iter().any(|value| dependency.observes(value)))
+                {
                     invalidated.insert(carrier.clone());
                 }
             }
 
-            if invalidated.len() == before { break; }
+            if invalidated.len() == before {
+                break;
+            }
         }
 
-        self.witness_carriers.retain(|carrier| !invalidated.iter().any(|value| carrier.observes(value)));
+        self.assumptions.retain(|(condition, _)| {
+            !invalidated
+                .iter()
+                .any(|value| condition.observes_borrowed(Some(value)))
+        });
 
-        self.trusted_assumptions.retain(|(condition, _)|
-            !invalidated.iter().any(|value| condition.observes(value)));
+        self.witness_carriers
+            .retain(|carrier| !invalidated.iter().any(|value| carrier.observes(value)));
 
-        self.witness_dependencies.retain(|carrier, _|
-            !invalidated.iter().any(|value| carrier.observes(value)));
+        self.trusted_assumptions
+            .retain(|(condition, _)| !invalidated.iter().any(|value| condition.observes(value)));
 
-        for entry in self.entries.values_mut().filter(|entry| entry.pending_execution) {
-            entry.assumptions.retain(|(condition, _)| !invalidated.iter().any(|value| condition.observes(value)));
-            entry.trusted_assumptions.retain(|(condition, _)| !invalidated.iter().any(|value| condition.observes(value)));
+        self.witness_dependencies
+            .retain(|carrier, _| !invalidated.iter().any(|value| carrier.observes(value)));
+
+        for entry in self
+            .entries
+            .values_mut()
+            .filter(|entry| entry.pending_execution)
+        {
+            entry.assumptions.retain(|(condition, _)| {
+                !invalidated.iter().any(|value| condition.observes(value))
+            });
+
+            entry.trusted_assumptions.retain(|(condition, _)| {
+                !invalidated.iter().any(|value| condition.observes(value))
+            });
         }
     }
 
     pub(super) fn invalidate_trusted_place(&mut self, place: &crate::ExecutionPlace) {
-        let dependent = self.witness_dependencies.iter().filter(|(_, owners)|
-            owners.iter().any(|owner| owner.overlaps(place))).map(|(carrier, _)| carrier.clone()).collect::<Vec<_>>();
+        let observation = ExecutionCondition::Input(place.clone());
+
+        self.assumptions
+            .retain(|(condition, _)| !condition.observes_borrowed(Some(&observation)));
+
+        let dependent = self
+            .witness_dependencies
+            .iter()
+            .filter(|(_, owners)| owners.iter().any(|owner| owner.overlaps(place)))
+            .map(|(carrier, _)| carrier.clone())
+            .collect::<Vec<_>>();
 
         for carrier in dependent {
             self.invalidate_trusted(&carrier);

@@ -132,17 +132,27 @@ where
         let mut initializer_type = intrinsic_initializer_type(request, expression)?;
 
         if initializer_type.is_none() {
-            let initializer = components.representative(DeclaredValueTypeTerm::Expression(expression));
+            let initializer =
+                components.representative(DeclaredValueTypeTerm::Expression(expression));
+
             let mut candidates = BTreeSet::new();
 
-            for evidence in declared.evidence().iter().chain(supplemental)
-                .filter(|evidence| components.representative(evidence.term()) == initializer) {
-                if let TemplateResolution::Resolved(ty) = resolve_type_template(request, evidence.template(), &mut diagnostics)? {
+            for evidence in declared
+                .evidence()
+                .iter()
+                .chain(supplemental)
+                .filter(|evidence| components.representative(evidence.term()) == initializer)
+            {
+                if let TemplateResolution::Resolved(ty) =
+                    resolve_type_template(request, evidence.template(), &mut diagnostics)?
+                {
                     candidates.insert(ty);
                 }
             }
 
-            if candidates.len() == 1 { initializer_type = candidates.into_iter().next(); }
+            if candidates.len() == 1 {
+                initializer_type = candidates.into_iter().next();
+            }
         }
 
         let mut nullable_present_type = None;

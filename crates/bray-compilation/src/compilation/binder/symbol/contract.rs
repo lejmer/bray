@@ -13,9 +13,9 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, CallableContractClause, CallableContractClauseKind, CallableContractSet,
-    CallableContractsQuery, CallablePredicateContractsQuery, CallableExecution, CallableExecutionRequirement, CallablePhaseBehavior,
-    CallableSignatureQuery, CallableSymbolId, CallableTrust, CheckedConstraint,
-    CurrentRunCancellation, DependencyContractTemplateId, GenericConstraintSet,
+    CallableContractsQuery, CallableExecution, CallableExecutionRequirement, CallablePhaseBehavior,
+    CallablePredicateContractsQuery, CallableSignatureQuery, CallableSymbolId, CallableTrust,
+    CheckedConstraint, CurrentRunCancellation, DependencyContractTemplateId, GenericConstraintSet,
     GenericConstraintsQuery, GenericDeclarationTemplateQuery, GenericOwnerId, SymbolOrigin,
     SymbolQueryContract, SymbolQueryRequest, TrustedCapabilityRequirement,
     TrustedCapabilitySymbolId, TypeData,
@@ -28,7 +28,7 @@ use bray_syntax::{
 use super::binding::CompilationSymbolQueryEvaluator;
 use super::cache::CompilationSymbolSemantics;
 use super::declaration_body::{
-    CheckedSourcePredicateSequence, checked_source_predicate_sequence, checked_catalog_predicates,
+    CheckedSourcePredicateSequence, checked_catalog_predicates, checked_source_predicate_sequence,
     extend_dependency_contract_with_statics,
 };
 use super::environment::type_binder;
@@ -74,102 +74,197 @@ impl CompilationSymbolQueryEvaluator<CallableContractsQuery> for CompilationSymb
     }
 }
 
-impl CompilationSymbolQueryEvaluator<CallablePredicateContractsQuery> for CompilationSymbolSemantics {
+impl CompilationSymbolQueryEvaluator<CallablePredicateContractsQuery>
+    for CompilationSymbolSemantics
+{
     fn cache(&self) -> &SymbolQueryCache<CallablePredicateContractsQuery> {
         &self.callable_predicate_contracts
     }
 
-    fn bind(&self, context: &CompilationBindingContext<'_>, request: SymbolQueryRequest<CallablePredicateContractsQuery>)
-        -> BindingQueryResult<DiagnosticResult<std::sync::Arc<[CallableContractClause]>>> {
+    fn bind(
+        &self,
+        context: &CompilationBindingContext<'_>,
+        request: SymbolQueryRequest<CallablePredicateContractsQuery>,
+    ) -> BindingQueryResult<DiagnosticResult<std::sync::Arc<[CallableContractClause]>>> {
         bind_callable_predicate_contracts(context, request.owner())
     }
 }
 
-fn bind_callable_predicate_contracts(context: &CompilationBindingContext<'_>, owner: CallableSymbolId)
-    -> BindingQueryResult<DiagnosticResult<std::sync::Arc<[CallableContractClause]>>> {
+fn bind_callable_predicate_contracts(
+    context: &CompilationBindingContext<'_>,
+    owner: CallableSymbolId,
+) -> BindingQueryResult<DiagnosticResult<std::sync::Arc<[CallableContractClause]>>> {
     if let Some(address) = context.imported_semantic_address(owner.into_any())? {
         let imported = super::imported::imported_callable_contracts(context, address)?;
 
-        return Ok(DiagnosticResult::new(imported.value().invocation_preconditions().iter()
-            .chain(imported.value().normal_completion_postconditions()).copied().collect(), imported.into_parts().1));
+        return Ok(DiagnosticResult::new(
+            imported
+                .value()
+                .invocation_preconditions()
+                .iter()
+                .chain(imported.value().normal_completion_postconditions())
+                .copied()
+                .collect(),
+            imported.into_parts().1,
+        ));
     }
 
-    let clauses = with_declaration_root(context, owner.into_any(), |root| Ok(direct_contract_clauses(root)))?;
+    let clauses = with_declaration_root(context, owner.into_any(), |root| {
+        Ok(direct_contract_clauses(root))
+    })?;
+
     let mut predicates = Vec::new();
     let mut execution = Vec::new();
     let mut diagnostics = DiagnosticBag::new();
 
     for clause in clauses {
         match clause {
-            ContractClauseSyntax::Requires(clause) => bind_callable_predicates(context, owner.into_any(),
-                syntax_node_view(&clause), clause.expressions(), CallableContractClauseKind::Requires,
-                &mut predicates, &mut execution, &mut diagnostics)?,
-            ContractClauseSyntax::Ensures(clause) => bind_callable_predicates(context, owner.into_any(),
-                syntax_node_view(&clause), clause.expressions(), CallableContractClauseKind::Ensures,
-                &mut predicates, &mut execution, &mut diagnostics)?,
+            ContractClauseSyntax::Requires(clause) => bind_callable_predicates(
+                context,
+                owner.into_any(),
+                syntax_node_view(&clause),
+                clause.expressions(),
+                CallableContractClauseKind::Requires,
+                &mut predicates,
+                &mut execution,
+                &mut diagnostics,
+            )?,
+            ContractClauseSyntax::Ensures(clause) => bind_callable_predicates(
+                context,
+                owner.into_any(),
+                syntax_node_view(&clause),
+                clause.expressions(),
+                CallableContractClauseKind::Ensures,
+                &mut predicates,
+                &mut execution,
+                &mut diagnostics,
+            )?,
             ContractClauseSyntax::Uses(_) | ContractClauseSyntax::With(_) => {}
         }
     }
 
-    let groups = with_declaration_root(context, owner.into_any(), |root| Ok(conditional_postconditions(root)))?;
+    let groups = with_declaration_root(context, owner.into_any(), |root| {
+        Ok(conditional_postconditions(root))
+    })?;
 
     for (guards, clause) in groups {
         let mut entry = Vec::new();
 
         for guard in guards {
-            bind_callable_predicates(context, owner.into_any(), syntax_node_view(&guard), [guard.condition()],
-                CallableContractClauseKind::Requires, &mut entry, &mut execution, &mut diagnostics)?;
+            bind_callable_predicates(
+                context,
+                owner.into_any(),
+                syntax_node_view(&guard),
+                [guard.condition()],
+                CallableContractClauseKind::Requires,
+                &mut entry,
+                &mut execution,
+                &mut diagnostics,
+            )?;
         }
 
         let mut posts = Vec::new();
 
-        bind_callable_predicates(context, owner.into_any(), syntax_node_view(&clause), clause.expressions(),
-            CallableContractClauseKind::Ensures, &mut posts, &mut execution, &mut diagnostics)?;
+        bind_callable_predicates(
+            context,
+            owner.into_any(),
+            syntax_node_view(&clause),
+            clause.expressions(),
+            CallableContractClauseKind::Ensures,
+            &mut posts,
+            &mut execution,
+            &mut diagnostics,
+        )?;
 
         for post in posts {
             let predicate = post.predicate().expect("checked ensures is a predicate");
             let mut condition = predicate.condition();
-            let mut dependencies = context.semantic_values().dependency_contract_template_data(predicate.dependency_contract()).requirements().to_vec();
+
+            let mut dependencies = context
+                .semantic_values()
+                .dependency_contract_template_data(predicate.dependency_contract())
+                .requirements()
+                .to_vec();
 
             for guard in &entry {
                 let guard = guard.predicate().expect("checked guard is a predicate");
 
-                dependencies.extend_from_slice(context.semantic_values().dependency_contract_template_data(guard.dependency_contract()).requirements());
+                dependencies.extend_from_slice(
+                    context
+                        .semantic_values()
+                        .dependency_contract_template_data(guard.dependency_contract())
+                        .requirements(),
+                );
 
                 condition = match (guard.condition(), condition) {
                     (Some(guard), Some(post)) => {
-                        let negated = context.semantic_values().intern_constant_term(bray_symbols::ConstantTermData::Unary {
-                            operation: bray_symbols::ConstantUnaryOperation::LogicalNot, operand: guard,
-                        }).map_err(BindingQueryError::SemanticValue)?;
+                        let guard = context
+                            .semantic_values()
+                            .intern_constant_term(bray_symbols::ConstantTermData::Unary {
+                                operation: bray_symbols::ConstantUnaryOperation::EntryCondition,
+                                operand: guard,
+                            })
+                            .map_err(BindingQueryError::SemanticValue)?;
 
-                        Some(context.semantic_values().intern_constant_term(bray_symbols::ConstantTermData::Binary {
-                            operation: bray_symbols::ConstantBinaryOperation::LogicalOr, left: negated, right: post,
-                        }).map_err(BindingQueryError::SemanticValue)?)
-                    },
+                        let negated = context
+                            .semantic_values()
+                            .intern_constant_term(bray_symbols::ConstantTermData::Unary {
+                                operation: bray_symbols::ConstantUnaryOperation::LogicalNot,
+                                operand: guard,
+                            })
+                            .map_err(BindingQueryError::SemanticValue)?;
+
+                        Some(
+                            context
+                                .semantic_values()
+                                .intern_constant_term(bray_symbols::ConstantTermData::Binary {
+                                    operation: bray_symbols::ConstantBinaryOperation::LogicalOr,
+                                    left: negated,
+                                    right: post,
+                                })
+                                .map_err(BindingQueryError::SemanticValue)?,
+                        )
+                    }
                     _ => None,
                 };
             }
 
-            let dependency = context.semantic_values().intern_dependency_contract_template(
-                bray_symbols::DependencyContractTemplateData::new(dependencies)).map_err(BindingQueryError::SemanticValue)?;
+            let dependency = context
+                .semantic_values()
+                .intern_dependency_contract_template(
+                    bray_symbols::DependencyContractTemplateData::new(dependencies),
+                )
+                .map_err(BindingQueryError::SemanticValue)?;
 
-            let predicate = bray_symbols::PredicateSemanticSummary::new(dependency).with_condition(condition, predicate.is_trusted());
+            let predicate = bray_symbols::PredicateSemanticSummary::new(dependency)
+                .with_condition(condition, predicate.is_trusted());
 
-            predicates.push(CallableContractClause::new(symbol_ordinal(predicates.len())?, CallableContractClauseKind::Ensures, predicate));
+            predicates.push(CallableContractClause::new(
+                symbol_ordinal(predicates.len())?,
+                CallableContractClauseKind::Ensures,
+                predicate,
+            ));
         }
     }
 
     Ok(DiagnosticResult::new(predicates.into(), diagnostics))
 }
 
-pub(in crate::compilation::binder::symbol) fn conditional_postconditions(root: SyntaxNodeView<'_>) -> Vec<(Vec<bray_syntax::WhenClauseSyntax>, EnsuresClauseSyntax)> {
-    fn collect(clause: bray_syntax::WhenClauseSyntax, guards: &mut Vec<bray_syntax::WhenClauseSyntax>,
-        output: &mut Vec<(Vec<bray_syntax::WhenClauseSyntax>, EnsuresClauseSyntax)>) {
+pub(in crate::compilation::binder::symbol) fn conditional_postconditions(
+    root: SyntaxNodeView<'_>,
+) -> Vec<(Vec<bray_syntax::WhenClauseSyntax>, EnsuresClauseSyntax)> {
+    fn collect(
+        clause: bray_syntax::WhenClauseSyntax,
+        guards: &mut Vec<bray_syntax::WhenClauseSyntax>,
+        output: &mut Vec<(Vec<bray_syntax::WhenClauseSyntax>, EnsuresClauseSyntax)>,
+    ) {
         guards.push(clause.clone());
 
         output.extend(clause.ensures_clauses().map(|post| (guards.clone(), post)));
 
-        for nested in clause.when_clauses() { collect(nested, guards, output); }
+        for nested in clause.when_clauses() {
+            collect(nested, guards, output);
+        }
 
         guards.pop();
     }
@@ -322,7 +417,10 @@ fn bind_callable_contracts(
         Ok(direct_contract_clauses(root))
     })?;
 
-    let checked = context.resolve_symbol_query(SymbolQueryRequest::<CallablePredicateContractsQuery>::new(owner))?;
+    let checked = context.resolve_symbol_query(SymbolQueryRequest::<
+        CallablePredicateContractsQuery,
+    >::new(owner))?;
+
     let mut predicates = checked.value().to_vec();
     let mut uses_clauses = Vec::new();
     let mut diagnostics = checked.diagnostics().clone();
@@ -335,9 +433,13 @@ fn bind_callable_contracts(
 
     for clause in clauses {
         match clause {
-            ContractClauseSyntax::Requires(_) | ContractClauseSyntax::Ensures(_) => {},
+            ContractClauseSyntax::Requires(_) | ContractClauseSyntax::Ensures(_) => {}
             ContractClauseSyntax::With(clause) => bind_callable_static_constraints(
-                context, owner.into_any(), clause.expressions(), &mut predicates, &mut diagnostics,
+                context,
+                owner.into_any(),
+                clause.expressions(),
+                &mut predicates,
+                &mut diagnostics,
             )?,
             ContractClauseSyntax::Uses(clause) => uses_clauses.push(clause),
         }
@@ -492,11 +594,8 @@ pub(in crate::compilation) fn bind_declared_execution_requirements(
             continue;
         };
 
-        let checked = checked_callable_predicates(
-            context,
-            owner.into_any(),
-            syntax_node_view(&clause),
-        )?;
+        let checked =
+            checked_callable_predicates(context, owner.into_any(), syntax_node_view(&clause))?;
 
         diagnostics = diagnostics.merged(&checked.diagnostics);
         requirements.extend(checked.execution_requirements);
@@ -851,11 +950,7 @@ fn bind_callable_predicates(
     for predicate in checked.predicates {
         let ordinal = symbol_ordinal(predicates.len())?;
 
-        predicates.push(CallableContractClause::new(
-            ordinal,
-            kind,
-            predicate,
-        ));
+        predicates.push(CallableContractClause::new(ordinal, kind, predicate));
     }
 
     Ok(())
@@ -1209,19 +1304,30 @@ mod tests {
 
     #[test]
     fn conjunctive_contracts_keep_trust_on_its_exact_operand() {
-        let compilation = compilation(r#"
+        let compilation = compilation(
+            r#"
             trusted module app;
             trusted predicate live(value: u64);
             func checked(pos value: u64, ready: bool)
                 requires(ready && (trusted live(value)))
             {}
-        "#);
+        "#,
+        );
 
         let contracts = callable_contracts(&compilation, "checked");
 
-        assert!(!contracts.diagnostics().has_errors(), "{:?}", contracts.diagnostics());
+        assert!(
+            !contracts.diagnostics().has_errors(),
+            "{:?}",
+            contracts.diagnostics()
+        );
 
-        let predicates = contracts.value().invocation_preconditions().iter().filter_map(|clause| clause.predicate()).collect::<Vec<_>>();
+        let predicates = contracts
+            .value()
+            .invocation_preconditions()
+            .iter()
+            .filter_map(|clause| clause.predicate())
+            .collect::<Vec<_>>();
 
         assert_eq!(predicates.len(), 2);
         assert!(!predicates[0].is_trusted());

@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 
 use crate::semantic::model::{
-    InterfaceCallableContract, InterfaceCallableInstance, InterfaceCallableParameterDefault, InterfaceCallableSignature,
-    InterfaceCoherenceRecord, InterfaceConstantTerm, InterfaceConstantValue, InterfaceConstraint,
-    InterfaceDeclaredType, InterfaceDependencyContract, InterfaceGenericDeclaration,
-    InterfaceGenericSubstitution, InterfaceImplementationInstance, InterfaceImplementationRecord,
-    InterfaceRuntimeRequirement, InterfaceTargetPropertyDependency, InterfaceTraitApplication,
-    InterfaceType,
+    InterfaceCallableContract, InterfaceCallableInstance, InterfaceCallableParameterDefault,
+    InterfaceCallableSignature, InterfaceCoherenceRecord, InterfaceConstantTerm,
+    InterfaceConstantValue, InterfaceConstraint, InterfaceDeclaredType,
+    InterfaceDependencyContract, InterfaceGenericDeclaration, InterfaceGenericSubstitution,
+    InterfaceImplementationInstance, InterfaceImplementationRecord, InterfaceRuntimeRequirement,
+    InterfaceTargetPropertyDependency, InterfaceTraitApplication, InterfaceType,
 };
 
 pub(super) struct RecordSet<T> {

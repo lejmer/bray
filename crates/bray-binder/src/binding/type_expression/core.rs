@@ -74,7 +74,8 @@ where
         owner: AnySymbolId,
         syntax: bray_syntax::SyntaxNodeView<'_>,
         callable: &TypeExpressionTemplate,
-    ) -> BindingQueryResult<DiagnosticResult<bray_symbols::CallablePhaseBehaviors>, T::UpstreamError> {
+    ) -> BindingQueryResult<DiagnosticResult<bray_symbols::CallablePhaseBehaviors>, T::UpstreamError>
+    {
         BindingQueryContext::callable_type_contracts(self, owner, syntax, callable)
     }
 

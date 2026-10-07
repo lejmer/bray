@@ -17,10 +17,17 @@ impl Compilation {
         anchors: &[SyntaxAnchor],
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Vec<(ExecutionCondition, SourceSpan)>>, FactQueryError> {
-        let (conditions, diagnostics) = self.predicate_condition_inputs(owner, anchors, cancellation)?.into_parts();
+        let (conditions, diagnostics) = self
+            .predicate_condition_inputs(owner, anchors, cancellation)?
+            .into_parts();
 
-        Ok(DiagnosticResult::new(conditions.into_iter()
-            .map(|(condition, _, source)| (condition, source)).collect(), diagnostics))
+        Ok(DiagnosticResult::new(
+            conditions
+                .into_iter()
+                .map(|(condition, _, source)| (condition, source))
+                .collect(),
+            diagnostics,
+        ))
     }
 
     pub(in crate::compilation) fn predicate_condition_inputs(
@@ -70,7 +77,11 @@ impl Compilation {
             if clause_diagnostics.has_errors() {
                 conditions.push((ExecutionCondition::Unknown, true, span));
             } else {
-                conditions.extend(normalized.into_iter().map(|(_, condition, trusted)| (condition, trusted, span)));
+                conditions.extend(
+                    normalized
+                        .into_iter()
+                        .map(|(_, condition, trusted)| (condition, trusted, span)),
+                );
             }
 
             diagnostics.add_range(clause_diagnostics);

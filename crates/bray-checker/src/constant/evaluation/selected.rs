@@ -477,32 +477,28 @@ where
         member: &bray_bound_tree::BoundMemberAccessExpression,
         ty: TypeId,
     ) -> Result<ConstantTermId, EvaluationFailure> {
-        let selected_member = match self.input.semantic_selections().expression(expression) {
-            Some(SemanticSelection::Operation(SelectedOperation::Member(target))) => {
-                target.member()
-            }
-            _ => return Err(EvaluationFailure::invalid_expression(expression)),
-        };
+        let projection = if let Some(BoundMemberSelector::TupleElement(ordinal)) = member.selector()
+        {
+            ConstantProjectionKind::TupleElement(SymbolOrdinal::new(*ordinal))
+        } else {
+            let selected_member = match self.input.semantic_selections().expression(expression) {
+                Some(SemanticSelection::Operation(SelectedOperation::Member(target))) => {
+                    target.member()
+                }
+                _ => return Err(EvaluationFailure::invalid_expression(expression)),
+            };
 
-        if matches!(selected_member, AnySymbolId::Constant(_)) {
-            return self.evaluate_reference(expression, None, ty);
-        }
+            if matches!(selected_member, AnySymbolId::Constant(_)) {
+                return self.evaluate_reference(expression, None, ty);
+            }
 
-        let selector = member
-            .selector()
-            .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?;
-
-        let projection = match (selector, selected_member) {
-            (BoundMemberSelector::TupleElement(ordinal), _) => {
-                ConstantProjectionKind::TupleElement(SymbolOrdinal::new(*ordinal))
+            match selected_member {
+                AnySymbolId::StructField(field) => ConstantProjectionKind::ProductField(field),
+                AnySymbolId::UnionPayloadField(field) => {
+                    ConstantProjectionKind::UnionPayloadField(field)
+                }
+                _ => return Err(EvaluationFailure::invalid_expression(expression)),
             }
-            (BoundMemberSelector::Name(_), AnySymbolId::StructField(field)) => {
-                ConstantProjectionKind::ProductField(field)
-            }
-            (BoundMemberSelector::Name(_), AnySymbolId::UnionPayloadField(field)) => {
-                ConstantProjectionKind::UnionPayloadField(field)
-            }
-            _ => return Err(EvaluationFailure::invalid_expression(expression)),
         };
 
         let receiver = self.evaluate(member.receiver())?;

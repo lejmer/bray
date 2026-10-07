@@ -281,9 +281,11 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
         DiagnosticLabelKind::MemoryOperationFailure => {
             MessageTemplate::new(MEMORY_OPERATION_FAILURE)
         }
-        DiagnosticLabelKind::TrustedObligationFailure => MessageTemplate::new(&[
-            MessageTemplatePart::Text("live trusted evidence is required here"),
-        ]),
+        DiagnosticLabelKind::TrustedObligationFailure => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "live trusted evidence is required here",
+            )])
+        }
         DiagnosticLabelKind::TrustedCallable => MessageTemplate::new(&[
             MessageTemplatePart::Text("trusted requirement of "),
             MessageTemplatePart::Arg(DiagnosticArgName::DeclarationName),

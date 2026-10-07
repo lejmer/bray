@@ -297,7 +297,8 @@ where
 
         diagnostics.add_range(predicates.diagnostics().iter().cloned());
 
-        signature = signature.with_predicate_contracts(values, predicates.value(), callable_substitution)
+        signature = signature
+            .with_predicate_contracts(values, predicates.value(), callable_substitution)
             .map_err(CheckerInfrastructureError::SemanticValueStore)?;
     }
 

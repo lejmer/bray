@@ -139,10 +139,20 @@ impl InternState {
                 // Defer the callable until all of its contract edges are available.
                 if std::iter::once(invocation_behavior)
                     .chain(deferred_execution_behavior.iter())
-                    .flat_map(|behavior| behavior.predicate_requirements.iter()
-                        .chain(behavior.predicate_guarantees.iter()))
-                    .any(|predicate| self.dependency_contract_id(predicate.dependency_contract).is_none()
-                        || predicate.condition.is_some_and(|term| self.constant_term_id(term).is_none())) {
+                    .flat_map(|behavior| {
+                        behavior
+                            .predicate_requirements
+                            .iter()
+                            .chain(behavior.predicate_guarantees.iter())
+                    })
+                    .any(|predicate| {
+                        self.dependency_contract_id(predicate.dependency_contract)
+                            .is_none()
+                            || predicate
+                                .condition
+                                .is_some_and(|term| self.constant_term_id(term).is_none())
+                    })
+                {
                     return Ok(None);
                 }
 

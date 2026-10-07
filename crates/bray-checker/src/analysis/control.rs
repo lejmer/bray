@@ -244,7 +244,9 @@ where
         let mut current = self.build_operands(operands, entry)?;
 
         for block in blocks {
-            let Some(completion) = self.build_block(*block, current)? else { return Some(None); };
+            let Some(completion) = self.build_block(*block, current)? else {
+                return Some(None);
+            };
 
             current = completion;
         }

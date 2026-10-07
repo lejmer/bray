@@ -3,5 +3,7 @@ mod constructor;
 mod expression;
 mod template;
 
-pub use expression::{bind_expression_candidates, bind_expression_candidates_with_syntax, qualified_union_variant};
+pub use expression::{
+    bind_expression_candidates, bind_expression_candidates_with_syntax, qualified_union_variant,
+};
 pub use template::bind_member_callable_template;

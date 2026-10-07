@@ -1,5 +1,6 @@
 mod enumeration;
 
 pub use enumeration::{
-    bind_expression_candidates, bind_expression_candidates_with_syntax, bind_member_callable_template, qualified_union_variant,
+    bind_expression_candidates, bind_expression_candidates_with_syntax,
+    bind_member_callable_template, qualified_union_variant,
 };

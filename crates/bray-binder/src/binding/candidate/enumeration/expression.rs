@@ -176,7 +176,8 @@ where
 
                 bray_syntax::walk_syntax_node(&syntax, |event| {
                     if let bray_syntax::SyntaxWalkEvent::EnterNode(node) = event
-                        && bray_declarations::SyntaxAnchor::from_node(&node) == argument.syntax() {
+                        && bray_declarations::SyntaxAnchor::from_node(&node) == argument.syntax()
+                    {
                         found = node.cast::<GenericArgumentSyntax>();
 
                         return bray_syntax::SyntaxWalkControl::Stop;
@@ -187,7 +188,9 @@ where
 
                 found.ok_or(BindingQueryError::DependencyUnavailable)
             } else {
-                argument.syntax().find_descendant::<GenericArgumentSyntax>(context.syntax())
+                argument
+                    .syntax()
+                    .find_descendant::<GenericArgumentSyntax>(context.syntax())
                     .ok_or(BindingQueryError::DependencyUnavailable)
             }
         })

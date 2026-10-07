@@ -100,12 +100,15 @@ impl InterfaceSemantics {
 
                 match constraint.kind {
                     InterfaceConstraintKind::Predicate(predicate) => {
-                        validate_index(predicate.dependency_contract.to_index(), self.dependency_contracts.len())?;
+                        validate_index(
+                            predicate.dependency_contract.to_index(),
+                            self.dependency_contracts.len(),
+                        )?;
 
                         if let Some(term) = predicate.condition {
                             validate_index(term.to_index(), self.constant_terms.len())?;
                         }
-                    },
+                    }
                     InterfaceConstraintKind::TraitSatisfaction {
                         subject,
                         application,
@@ -211,7 +214,10 @@ impl InterfaceSemantics {
 
                     if validate_symbol_kind(&tag.variant, surface)? != SymbolKind::UnionVariant
                         || !surface
-                            .relationships_for(owner, bray_symbols::SymbolRelationshipKind::UnionVariant)
+                            .relationships_for(
+                                owner,
+                                bray_symbols::SymbolRelationshipKind::UnionVariant,
+                            )
                             .iter()
                             .any(|relationship| relationship.member() == variant)
                     {
@@ -249,7 +255,10 @@ impl InterfaceSemantics {
                     if validate_symbol_kind(dependency, surface)?
                         != SymbolKind::GenericTypeParameter
                         || !surface
-                            .relationships_for(owner, bray_symbols::SymbolRelationshipKind::GenericParameter)
+                            .relationships_for(
+                                owner,
+                                bray_symbols::SymbolRelationshipKind::GenericParameter,
+                            )
                             .iter()
                             .any(|relationship| relationship.member() == parameter)
                     {

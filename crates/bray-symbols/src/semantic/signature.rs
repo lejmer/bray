@@ -351,7 +351,11 @@ impl CallableSignature {
         let mut requirements = Vec::new();
         let mut guarantees = Vec::new();
 
-        if !clauses.iter().filter_map(|clause| clause.predicate()).any(|predicate| predicate.is_trusted()) {
+        if !clauses
+            .iter()
+            .filter_map(|clause| clause.predicate())
+            .any(|predicate| predicate.is_trusted())
+        {
             return Ok(self);
         }
 
@@ -360,21 +364,33 @@ impl CallableSignature {
                 continue;
             };
 
-            let condition = predicate.condition().map(|condition| values.substitute_constant_term(condition, substitution)).transpose()?;
-            let dependency = values.substitute_dependency_contract(predicate.dependency_contract(), substitution)?;
-            let predicate = crate::PredicateSemanticSummary::new(dependency).with_condition(condition, predicate.is_trusted());
+            let condition = predicate
+                .condition()
+                .map(|condition| values.substitute_constant_term(condition, substitution))
+                .transpose()?;
+
+            let dependency = values
+                .substitute_dependency_contract(predicate.dependency_contract(), substitution)?;
+
+            let predicate = crate::PredicateSemanticSummary::new(dependency)
+                .with_condition(condition, predicate.is_trusted());
 
             match clause.kind() {
                 crate::CallableContractClauseKind::Requires => requirements.push(predicate),
                 crate::CallableContractClauseKind::Ensures => guarantees.push(predicate),
-                crate::CallableContractClauseKind::Static => {},
+                crate::CallableContractClauseKind::Static => {}
             }
         }
 
         if !requirements.is_empty() || !guarantees.is_empty() {
-            let phases = callable.phase_behaviors().clone().with_predicates(requirements, guarantees);
+            let phases = callable
+                .phase_behaviors()
+                .clone()
+                .with_predicates(requirements, guarantees);
 
-            self.callable_type = values.intern_type(TypeData::Callable(callable.clone().with_phase_behaviors(phases)))?;
+            self.callable_type = values.intern_type(TypeData::Callable(
+                callable.clone().with_phase_behaviors(phases),
+            ))?;
         }
 
         Ok(self)

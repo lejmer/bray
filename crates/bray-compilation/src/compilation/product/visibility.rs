@@ -838,8 +838,9 @@ fn constant_term_exposes_internal(
                     )
                     .then_some(field.into());
                 }
-                ConstantProjectionKind::TupleElement(_) | ConstantProjectionKind::NullableValue => {
-                }
+                ConstantProjectionKind::TupleElement(_)
+                | ConstantProjectionKind::ArrayElementOrdinal(_)
+                | ConstantProjectionKind::NullableValue => {}
             }
         }
     }

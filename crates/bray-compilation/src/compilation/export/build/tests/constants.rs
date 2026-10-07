@@ -254,3 +254,47 @@ fn generic_constant_type_members_can_call_generic_constant_helpers() {
         .build_package_interface_export_bundle(request)
         .unwrap_or_else(|error| panic!("generic constant member export must build: {error:?}"));
 }
+
+#[test]
+fn imported_constant_tuple_projections_retain_checked_ordinals() {
+    let provider = compilation(
+        r#"
+        module api;
+        public const func first(pos value: (bool, bool)) -> bool { return value.0; }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+    let interface = encode_package_interface(bundle).unwrap();
+
+    let implementation = PackageImplementationArtifact::try_from_export_bundle(
+        &interface,
+        bundle,
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    let dependency = super::fixtures::execution_dependency(&provider)
+        .with_implementation_artifact("provider.brayimpl", Arc::new(implementation));
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+        using example.package.api;
+        const VALUE: bool = example.package.api.first((false, true));
+    "#,
+        [dependency],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
+}

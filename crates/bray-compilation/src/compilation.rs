@@ -1,5 +1,4 @@
 mod behavior;
-mod trusted_contracts;
 mod binder;
 mod boundary;
 #[cfg(test)]
@@ -20,6 +19,7 @@ mod foreign;
 mod generic_constraint;
 mod implementation;
 mod imported;
+mod trusted_contracts;
 pub use imported::diagnostic_native_artifact_cause;
 mod input;
 mod iteration;

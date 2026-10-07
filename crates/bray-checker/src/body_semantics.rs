@@ -141,8 +141,16 @@ where
             .with_upstream()
     );
 
-    let trusted = complete!(diagnostics,
-        crate::analysis::guarantee::check_trusted_contracts(request, expressions, storage, graph, None));
+    let trusted = complete!(
+        diagnostics,
+        crate::analysis::guarantee::check_trusted_contracts(
+            request,
+            expressions,
+            storage,
+            graph,
+            None
+        )
+    );
 
     let request = request.with_trusted_memory_evidence(&trusted);
 
@@ -179,11 +187,27 @@ where
         )
     );
 
-    complete!(diagnostics, crate::analysis::guarantee::check_trusted_cleanup(
-        request, expressions, storage, &asynchronous, graph));
+    complete!(
+        diagnostics,
+        crate::analysis::guarantee::check_trusted_cleanup(
+            request,
+            expressions,
+            storage,
+            &asynchronous,
+            graph
+        )
+    );
 
-    complete!(diagnostics, crate::analysis::guarantee::check_trusted_contracts(
-        request, expressions, storage, graph, Some(&asynchronous)));
+    complete!(
+        diagnostics,
+        crate::analysis::guarantee::check_trusted_contracts(
+            request,
+            expressions,
+            storage,
+            graph,
+            Some(&asynchronous)
+        )
+    );
 
     let behavior = complete!(
         diagnostics,

@@ -66,7 +66,8 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
             .invocation()
             .execution_properties()
             .contains(&ExecutionProperty::Pure)
-            || call.implementation_hook() == Some(bray_compiler_known::ImplementationHook::RawPointerReinterpret)
+            || call.implementation_hook()
+                == Some(bray_compiler_known::ImplementationHook::RawPointerReinterpret)
         {
             continue;
         }

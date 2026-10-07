@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundReferenceTarget, CheckedAsync, StorageAccessId};
+use bray_bound_tree::{
+    AnyBoundNodeId, BoundExpressionId, BoundReferenceTarget, CheckedAsync, StorageAccessId,
+};
 use bray_symbols::{
     CallableExecution, CallableInstanceData, TypeAssociatedLifecycleSlot, TypeData, TypeId,
 };
@@ -8,7 +10,10 @@ use bray_symbols::{
 use super::super::model::{AnalysisOperationKind, AnalysisScopeExitPhase};
 use super::flow::{ExecutionFlow, ExecutionFlowDomain};
 use super::state::ExecutionState;
-use crate::{CheckerQueryError, CheckerRequestContext, ExecutionCallEvidence, ExecutionCondition, ExecutionPlace};
+use crate::{
+    CheckerQueryError, CheckerRequestContext, ExecutionCallEvidence, ExecutionCondition,
+    ExecutionPlace,
+};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
     pub(super) fn candidate(
@@ -69,13 +74,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                 };
 
                 for (node, access) in targets {
-                    if let Some((callable, result, evidence)) =
-                        self.cleanup_entry(&state, access, TypeAssociatedLifecycleSlot::Finalizer, true)?
-                    {
+                    if let Some((callable, result, evidence)) = self.cleanup_entry(
+                        &state,
+                        access,
+                        TypeAssociatedLifecycleSlot::Finalizer,
+                        true,
+                    )? {
                         candidate
                             .cleanup
                             .entry((node, access))
-                            .and_modify(|(_, _, previous)| { previous.intersect(&evidence); })
+                            .and_modify(|(_, _, previous)| {
+                                previous.intersect(&evidence);
+                            })
                             .or_insert((callable, result, evidence));
                     }
 
@@ -149,15 +159,33 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
         Option<(CallableInstanceData, TypeId, ExecutionCallEvidence)>,
         CheckerQueryError<C::UpstreamError>,
     > {
-        let access_type = self.domain.storage.access(access).expect("checked cleanup has committed storage").reached_type();
+        let access_type = self
+            .domain
+            .storage
+            .access(access)
+            .expect("checked cleanup has committed storage")
+            .reached_type();
 
-        self.cleanup_place_entry(state, ExecutionPlace::storage(self.domain.storage, access), access_type, slot, require_synchronous)
+        self.cleanup_place_entry(
+            state,
+            ExecutionPlace::storage(self.domain.storage, access),
+            access_type,
+            slot,
+            require_synchronous,
+        )
     }
 
     pub(super) fn cleanup_place_entry(
-        &self, state: &ExecutionState, place: Option<ExecutionPlace>, ty: TypeId,
-        slot: TypeAssociatedLifecycleSlot, require_synchronous: bool,
-    ) -> Result<Option<(CallableInstanceData, TypeId, ExecutionCallEvidence)>, CheckerQueryError<C::UpstreamError>> {
+        &self,
+        state: &ExecutionState,
+        place: Option<ExecutionPlace>,
+        ty: TypeId,
+        slot: TypeAssociatedLifecycleSlot,
+        require_synchronous: bool,
+    ) -> Result<
+        Option<(CallableInstanceData, TypeId, ExecutionCallEvidence)>,
+        CheckerQueryError<C::UpstreamError>,
+    > {
         let request = self.domain.request;
         let selected = request.context().lifecycle_callable(ty, slot)?;
 
@@ -170,9 +198,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
         };
 
         if selected.diagnostics().has_errors()
-            || (require_synchronous && !matches!(request.semantic_values().type_data(signature.callable_type())
-                .as_ref(), TypeData::Callable(callable) if callable.execution() == CallableExecution::Synchronous)
-            )
+            || (require_synchronous
+                && !matches!(request.semantic_values().type_data(signature.callable_type())
+                .as_ref(), TypeData::Callable(callable) if callable.execution() == CallableExecution::Synchronous))
         {
             return Ok(None);
         }
@@ -181,11 +209,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
         let receiver = BoundReferenceTarget::Surface(receiver.parameter().into());
 
         for (observed, value) in &state.current {
-            if let Some(place) = &place && place.contains(observed) {
+            if let Some(place) = &place
+                && place.contains(observed)
+            {
                 let mut input = ExecutionPlace::from(receiver);
 
-                for field in observed.fields.iter().skip(place.fields.len()) {
-                    input = input.field(*field);
+                for field in observed.projections.iter().skip(place.projections.len()) {
+                    input = input.component(*field);
                 }
 
                 // The finalizer candidate retains the current immutable value snapshot.
@@ -226,8 +256,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return Some(crate::ExecutionCallEvidence {
                 trusted_boundary: !state.trust_boundaries.is_empty(),
                 pending_execution: false,
-                arguments: contract.arguments.iter().map(|(input, expression)|
-                    (crate::ExecutionPlace::from(*input), self.value(state, *expression))).collect(),
+                arguments: contract
+                    .arguments
+                    .iter()
+                    .map(|(input, expression)| {
+                        (
+                            crate::ExecutionPlace::from(*input),
+                            self.value(state, *expression),
+                        )
+                    })
+                    .collect(),
                 assumptions: state.assumptions.clone(),
                 trusted_assumptions: state.trusted_assumptions.clone(),
             });
@@ -259,13 +297,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 };
 
                 if let Some(parameter) = parameter {
-                    arguments.insert(BoundReferenceTarget::Surface((*parameter).into()).into(), value.clone());
+                    arguments.insert(
+                        BoundReferenceTarget::Surface((*parameter).into()).into(),
+                        value.clone(),
+                    );
                 }
 
-                let ordinal = ordinal.checked_add(u32::from(call.receiver().is_some()))
+                let ordinal = ordinal
+                    .checked_add(u32::from(call.receiver().is_some()))
                     .expect("selected call argument ordinal must fit receiver-first order");
 
-                arguments.insert(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal)), value);
+                arguments.insert(
+                    crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal)),
+                    value,
+                );
             }
         }
 
@@ -275,7 +320,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.value(state, receiver.expression()),
             );
 
-            arguments.insert(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)), self.value(state, receiver.expression()));
+            arguments.insert(
+                crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)),
+                self.value(state, receiver.expression()),
+            );
         }
 
         // Call evidence retains the immutable entry conditions independently of subsequent mutation.
@@ -287,29 +335,59 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             trusted_assumptions: state.trusted_assumptions.clone(),
         };
 
-        if call.implementation_hook() == Some(bray_compiler_known::ImplementationHook::RawBufferRelocate) {
-            let operands = call.arguments().iter().filter_map(|argument| match argument {
-                bray_bound_tree::SelectedArgument::Explicit { expression, .. } =>
-                    crate::execution_guarantees::expression_place(self.request.unit(), self.semantics, *expression),
-                _ => None,
-            }).collect::<Vec<_>>();
+        if call.implementation_hook()
+            == Some(bray_compiler_known::ImplementationHook::RawBufferRelocate)
+        {
+            let operands = call
+                .arguments()
+                .iter()
+                .filter_map(|argument| match argument {
+                    bray_bound_tree::SelectedArgument::Explicit { expression, .. } => {
+                        crate::execution_guarantees::expression_place(
+                            self.request.unit(),
+                            self.semantics,
+                            self.request.semantic_values(),
+                            *expression,
+                        )
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
 
             if let [source, destination] = operands.as_slice()
                 && !source.overlaps(destination)
-                && let Some(contract) = self.request.trusted_contracts().and_then(|contracts| contracts.calls.get(&expression)) {
-                let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new("NonOverlapping")
-                    .expect("closed memory predicate key must be valid");
+                && let Some(contract) = self
+                    .request
+                    .trusted_contracts()
+                    .and_then(|contracts| contracts.calls.get(&expression))
+            {
+                let key =
+                    bray_compiler_known::CompilerKnownDeclarationKey::try_new("NonOverlapping")
+                        .expect("closed memory predicate key must be valid");
 
-                let predicate = self.request.context().available_compiler_known_symbols().provider()
-                    .declaration_symbol::<bray_symbols::PredicateSymbolId>(&key).map(bray_symbols::PredicateDefinitionSymbolId::from);
+                let predicate = self
+                    .request
+                    .context()
+                    .available_compiler_known_symbols()
+                    .provider()
+                    .declaration_symbol::<bray_symbols::PredicateSymbolId>(&key)
+                    .map(bray_symbols::PredicateDefinitionSymbolId::from);
 
                 // Separate exclusive accesses to protected buffers retain separate allocation ownership.
                 // The selected intrinsic contract supplies the initialized ranges within those owners.
                 for requirement in &contract.requirements {
-                    if matches!(requirement, ExecutionCondition::Predicate(identity, _, _) if Some(*identity) == predicate) {
-                        let condition = requirement.substitute(&|place|
-                            place.value_in(&evidence.arguments).unwrap_or(ExecutionCondition::Unknown), &ExecutionCondition::Unknown,
-                            &mut { ExecutionCondition::WORK_LIMIT });
+                    if matches!(requirement, ExecutionCondition::Trusted(condition)
+                        if matches!(condition.as_ref(), ExecutionCondition::Predicate(identity, _, _) if Some(*identity) == predicate))
+                    {
+                        let condition = requirement.substitute(
+                            &|place| {
+                                place
+                                    .value_in(&evidence.arguments)
+                                    .unwrap_or(ExecutionCondition::Unknown)
+                            },
+                            &ExecutionCondition::Unknown,
+                            &mut { ExecutionCondition::WORK_LIMIT },
+                        );
 
                         condition.assume(true, &mut evidence.trusted_assumptions);
                     }
@@ -394,5 +472,4 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         state.expressions.insert(expression, result);
     }
-
 }

@@ -90,14 +90,18 @@ impl Compilation {
                     semantic_unit_context(context.symbols(), bound.result().value());
 
                 let contracts = self.trusted_contract_inputs(
-                    &key, bound.result().value(), expressions.result().value(), cancellation,
+                    &key,
+                    bound.result().value(),
+                    expressions.result().value(),
+                    cancellation,
                 )?;
 
                 let unit = bray_checker::CheckerUnitView::new(
                     bound.result().value(),
                     &semantic_context,
                     &context,
-                ).with_trusted_contracts(contracts.value());
+                )
+                .with_trusted_contracts(contracts.value());
 
                 let result = checker_result(DefaultBodySemanticChecker.check_body_semantics(
                     unit,
@@ -198,7 +202,12 @@ mod tests {
 
                 for index in 0..count {
                     if partial {
-                        writeln!(source, "let wrapper{index} = Wrapper {{ value = Item {{}}, }};").unwrap();
+                        writeln!(
+                            source,
+                            "let wrapper{index} = Wrapper {{ value = Item {{}}, }};"
+                        )
+                        .unwrap();
+
                         writeln!(source, "let moved{index} = wrapper{index}.value;").unwrap();
                     } else {
                         writeln!(source, "let item{index} = Item {{}};").unwrap();
@@ -230,19 +239,31 @@ mod tests {
                 assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
 
                 assert!(
-                    flow.value().operations().iter().filter(|operation| {
-                        operation.purpose() == bray_bound_tree::StorageAccessPurpose::Move
-                            && operation.status() == bray_bound_tree::StorageOperationStatus::Valid
-                    }).count() >= count
+                    flow.value()
+                        .operations()
+                        .iter()
+                        .filter(|operation| {
+                            operation.purpose() == bray_bound_tree::StorageAccessPurpose::Move
+                                && operation.status()
+                                    == bray_bound_tree::StorageOperationStatus::Valid
+                        })
+                        .count()
+                        >= count
                 );
 
                 assert!(
-                    flow.value().exits().iter().all(|exit| exit.live().len() <= 8),
+                    flow.value()
+                        .exits()
+                        .iter()
+                        .all(|exit| exit.live().len() <= 8),
                     "expired move-only storage must not accumulate at exits"
                 );
 
                 assert!(
-                    flow.value().exits().iter().all(|exit| exit.moved().len() <= 8),
+                    flow.value()
+                        .exits()
+                        .iter()
+                        .all(|exit| exit.moved().len() <= 8),
                     "expired move history must not accumulate at exits"
                 );
             }

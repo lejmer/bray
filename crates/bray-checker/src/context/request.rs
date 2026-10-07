@@ -94,8 +94,14 @@ pub trait CheckerRequestContext: Sync {
     fn callable_predicate_contracts(
         &self,
         _callable: bray_symbols::CallableSymbolId,
-    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<std::sync::Arc<[bray_symbols::CallableContractClause]>>, Self::UpstreamError> {
-        Ok(bray_diagnostics::DiagnosticResult::new(std::sync::Arc::new([]), bray_diagnostics::DiagnosticBag::new()))
+    ) -> CheckerQueryResult<
+        bray_diagnostics::DiagnosticResult<std::sync::Arc<[bray_symbols::CallableContractClause]>>,
+        Self::UpstreamError,
+    > {
+        Ok(bray_diagnostics::DiagnosticResult::new(
+            std::sync::Arc::new([]),
+            bray_diagnostics::DiagnosticBag::new(),
+        ))
     }
 
     /// Returns the inferred contract retained by one callable's returned value.

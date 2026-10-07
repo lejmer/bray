@@ -172,7 +172,13 @@ pub struct ExecutionCallEvidence {
 
 impl ExecutionCallEvidence {
     pub(crate) fn intersect(&mut self, other: &Self) -> bool {
-        let before = (self.trusted_boundary, self.pending_execution, self.assumptions.len(), self.trusted_assumptions.len(), self.arguments.len());
+        let before = (
+            self.trusted_boundary,
+            self.pending_execution,
+            self.assumptions.len(),
+            self.trusted_assumptions.len(),
+            self.arguments.len(),
+        );
 
         self.trusted_boundary &= other.trusted_boundary;
         self.pending_execution |= other.pending_execution;
@@ -186,7 +192,14 @@ impl ExecutionCallEvidence {
         self.arguments
             .retain(|place, value| other.arguments.get(place) == Some(value));
 
-        before != (self.trusted_boundary, self.pending_execution, self.assumptions.len(), self.trusted_assumptions.len(), self.arguments.len())
+        before
+            != (
+                self.trusted_boundary,
+                self.pending_execution,
+                self.assumptions.len(),
+                self.trusted_assumptions.len(),
+                self.arguments.len(),
+            )
     }
 
     /// Whether every callee-entry condition follows from the captured argument values.
@@ -199,11 +212,17 @@ impl ExecutionCallEvidence {
         self.proves_from(conditions, &self.trusted_assumptions)
     }
 
-    fn proves_from(&self, conditions: &[super::ExecutionCondition], assumptions: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>) -> bool {
+    fn proves_from(
+        &self,
+        conditions: &[super::ExecutionCondition],
+        assumptions: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
+    ) -> bool {
         let equalities = super::ExecutionCondition::equalities(&self.assumptions);
 
-        let known = assumptions.iter().map(|(condition, value)|
-            (condition.with_equalities(&equalities), *value)).collect();
+        let known = assumptions
+            .iter()
+            .map(|(condition, value)| (condition.with_equalities(&equalities), *value))
+            .collect();
 
         conditions.iter().all(|condition| {
             let condition = condition.substitute(

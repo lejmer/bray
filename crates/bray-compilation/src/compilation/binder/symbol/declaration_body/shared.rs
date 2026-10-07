@@ -152,18 +152,25 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
 
     let dependencies = body.result().value().dependencies();
 
-    let owner = context.symbols().symbol_for_key(key.declared_owner())
+    let owner = context
+        .symbols()
+        .symbol_for_key(key.declared_owner())
         .expect("checked predicate clause must retain its declaration owner");
 
-    let inputs = compilation.execution_callable_inputs(owner, context.cancellation)
+    let inputs = compilation
+        .execution_callable_inputs(owner, context.cancellation)
         .map_err(super::super::binding::binder_error)?;
 
-    let boolean = compilation.target_property_type(bray_target::TargetPropertyKind::ScalarBool)
+    let boolean = compilation
+        .target_property_type(bray_target::TargetPropertyKind::ScalarBool)
         .map_err(super::super::binding::binder_error)?;
 
     let normalized = bray_checker::predicate_conditions(
-        bound.result().value(), semantics.result().value(), context.semantic_values(),
-    ).map_err(|error| BindingQueryError::Binding(bray_binder::BindingError::SemanticValue(error)))?;
+        bound.result().value(),
+        semantics.result().value(),
+        context.semantic_values(),
+    )
+    .map_err(|error| BindingQueryError::Binding(bray_binder::BindingError::SemanticValue(error)))?;
 
     let mut predicates = Vec::new();
     let mut execution_requirements = Vec::new();
@@ -177,18 +184,22 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
             return Err(missing_dependency_contract(key.clone(), expression));
         };
 
-        let dependency = portable_dependency_contract(
-            context,
-            storage.result().value(),
-            contract,
-        )?;
+        let dependency = portable_dependency_contract(context, storage.result().value(), contract)?;
 
         let term = bray_checker::execution_condition_term(
-            context.semantic_values(), &condition, &inputs, boolean,
-        ).map_err(|error| BindingQueryError::Binding(bray_binder::BindingError::SemanticValue(error)))?;
+            context.semantic_values(),
+            &condition,
+            &inputs,
+            boolean,
+        )
+        .map_err(|error| {
+            BindingQueryError::Binding(bray_binder::BindingError::SemanticValue(error))
+        })?;
 
-        predicates.push(bray_symbols::PredicateSemanticSummary::new(dependency)
-            .with_condition(term, is_trusted));
+        predicates.push(
+            bray_symbols::PredicateSemanticSummary::new(dependency)
+                .with_condition(term, is_trusted),
+        );
 
         if let Some(requirement) = execution_requirement(
             semantics

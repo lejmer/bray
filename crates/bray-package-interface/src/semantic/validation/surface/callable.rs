@@ -213,10 +213,11 @@ impl InterfaceSemantics {
             }
         }
 
-        let relationship_parameters = surface.relationships_for(
-            owner,
-            bray_symbols::SymbolRelationshipKind::GenericParameter,
-        )
+        let relationship_parameters = surface
+            .relationships_for(
+                owner,
+                bray_symbols::SymbolRelationshipKind::GenericParameter,
+            )
             .iter()
             .map(|relationship| InterfaceSymbolReference::Local(relationship.member()))
             .collect::<Vec<_>>();
@@ -319,13 +320,21 @@ impl InterfaceSemantics {
         symbol_count: usize,
         dependency_count: usize,
     ) -> Result<(), InterfaceValidationError> {
-        for predicates in [&behavior.predicate_requirements, &behavior.predicate_guarantees] {
+        for predicates in [
+            &behavior.predicate_requirements,
+            &behavior.predicate_guarantees,
+        ] {
             if !is_strictly_sorted(predicates) {
-                return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference));
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
             }
 
             for predicate in &**predicates {
-                validate_index(predicate.dependency_contract.to_index(), self.dependency_contracts.len())?;
+                validate_index(
+                    predicate.dependency_contract.to_index(),
+                    self.dependency_contracts.len(),
+                )?;
 
                 if let Some(term) = predicate.condition {
                     validate_index(term.to_index(), self.constant_terms.len())?;
@@ -391,7 +400,10 @@ fn validate_callable_parameter_default(
     let parameter = local_symbol(&default.parameter)?;
 
     let has_provider = !surface
-        .relationships_for(parameter, bray_symbols::SymbolRelationshipKind::DefaultProvider)
+        .relationships_for(
+            parameter,
+            bray_symbols::SymbolRelationshipKind::DefaultProvider,
+        )
         .is_empty();
 
     if default.is_present != has_provider {

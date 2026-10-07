@@ -353,6 +353,9 @@ impl InternState {
             InterfaceConstantProjection::TupleElement(ordinal) => {
                 Some(ConstantProjectionKind::TupleElement(*ordinal))
             }
+            InterfaceConstantProjection::ArrayElementOrdinal(index) => {
+                Some(ConstantProjectionKind::ArrayElementOrdinal(*index))
+            }
             InterfaceConstantProjection::ArrayElement(id) => self
                 .constant_term_id(*id)
                 .map(ConstantProjectionKind::ArrayElement),
