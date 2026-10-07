@@ -3,6 +3,7 @@ mod cleanup;
 mod completion;
 mod operation;
 mod postcondition;
+mod state;
 mod trusted;
 
 pub use check::check_execution_candidate;

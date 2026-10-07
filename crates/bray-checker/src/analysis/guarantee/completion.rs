@@ -6,7 +6,8 @@ use bray_symbols::{
 };
 
 use super::super::model::{AnalysisOperationKind, AnalysisScopeExitPhase};
-use super::flow::{ExecutionFlow, ExecutionFlowDomain, ExecutionState};
+use super::flow::{ExecutionFlow, ExecutionFlowDomain};
+use super::state::ExecutionState;
 use crate::{CheckerQueryError, CheckerRequestContext, ExecutionCallEvidence, ExecutionCondition, ExecutionPlace};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
@@ -108,7 +109,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                     )
             }) {
                 results.insert(match state.result {
-                    crate::ExecutionCondition::Expression(expression) => {
+                    crate::ExecutionCondition::Expression(expression)
+                    | crate::ExecutionCondition::Constructed(expression, _) => {
                         match self.domain.semantics.selections().expression(expression) {
                             Some(bray_bound_tree::SemanticSelection::Operation(
                                 bray_bound_tree::SelectedOperation::Construction(construction),

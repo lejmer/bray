@@ -142,6 +142,7 @@ fn encode(
             return field_term(values, value, *field);
         }
         ExecutionCondition::Unknown
+        | ExecutionCondition::Constructed(_, _)
         | ExecutionCondition::Expression(_)
         | ExecutionCondition::PostState(_, _) => return Ok(None),
     };

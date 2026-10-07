@@ -216,14 +216,9 @@ pub(crate) fn expression_condition(
         );
     }
 
-    if let Some(SemanticSelection::Operation(SelectedOperation::Construction(construction))) =
-        semantics.selections().expression(expression)
-        && matches!(
-            construction.target(),
-            bray_bound_tree::ConstructionTarget::UnionVariant(_)
-        )
-    {
-        return ExecutionCondition::Expression(expression);
+    if let Some(constructed) = constructed_condition(expression, bound, semantics, &mut |source|
+        expression_condition(unit, semantics, values, literals, current, evaluated, source, budget)) {
+        return constructed;
     }
 
     match bound {
@@ -246,7 +241,14 @@ pub(crate) fn expression_condition(
                 _ => ExecutionCondition::Unknown,
             }
         }
+        BoundExpression::PatternReference(reference) => current.get(&BoundReferenceTarget::Local(reference.binding().into()).into())
+            .cloned().unwrap_or(ExecutionCondition::Unknown),
         BoundExpression::MemberAccess(member) => {
+            if let Some(bray_bound_tree::BoundMemberSelector::TupleElement(index)) = member.selector() {
+                return expression_condition(unit, semantics, values, literals, current, evaluated, member.receiver(), budget)
+                    .project(bray_bound_tree::StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(*index)));
+            }
+
             let Some(SemanticSelection::Operation(SelectedOperation::Member(target))) =
                 semantics.selections().expression(expression)
             else {
@@ -300,6 +302,22 @@ pub(crate) fn expression_condition(
 
             ExecutionCondition::operation(operator, operands)
         }
+        BoundExpression::Structured(operation) if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::ElementIndex
+            && matches!(semantics.selections().expression(expression),
+                Some(SemanticSelection::Operation(SelectedOperation::Index { target: bray_bound_tree::IndexTarget::ArrayElement, .. }))) => {
+            let [receiver, index] = operation.operands() else { return ExecutionCondition::Unknown; };
+
+            let index = expression_condition(unit, semantics, values, literals, current, evaluated, *index, budget);
+
+            let ExecutionCondition::Literal(index) = index else { return ExecutionCondition::Unknown; };
+
+            let ConstantValueKind::Integer(index) = index.kind() else { return ExecutionCondition::Unknown; };
+
+            let Some(index) = index.to_u64().and_then(|index| u32::try_from(index).ok()) else { return ExecutionCondition::Unknown; };
+
+            expression_condition(unit, semantics, values, literals, current, evaluated, *receiver, budget)
+                .project(bray_bound_tree::StorageProjection::ElementFromStart(bray_symbols::SymbolOrdinal::new(index)))
+        }
         BoundExpression::Structured(operation)
             if matches!(
                 operation.kind(),
@@ -309,13 +327,13 @@ pub(crate) fn expression_condition(
             ) =>
         {
             if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::Borrow
-                && let Some(operand) = operation.operands().first()
-                && let Some(place) = expression_place(unit, semantics, *operand) {
+                && let Some(operand) = operation.operands().first() {
                 let value = expression_condition(unit, semantics, values, literals, current, evaluated, *operand, budget);
 
                 return if matches!(value, ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_)) {
                     // Equal scalar contents do not identify the storage being borrowed.
-                    ExecutionCondition::Input(place)
+                    expression_place(unit, semantics, *operand).map(ExecutionCondition::Input)
+                        .unwrap_or(ExecutionCondition::Expression(*operand))
                 } else { value };
             }
 
@@ -330,6 +348,76 @@ pub(crate) fn expression_condition(
                 .unwrap_or(ExecutionCondition::Unknown)
         }
         _ => ExecutionCondition::Unknown,
+    }
+}
+
+fn constructed_condition(
+    expression: BoundExpressionId,
+    bound: &BoundExpression,
+    semantics: &CheckedExpressionSemantics,
+    value: &mut impl FnMut(BoundExpressionId) -> ExecutionCondition,
+) -> Option<ExecutionCondition> {
+    if let Some(SemanticSelection::Operation(SelectedOperation::Construction(construction))) =
+        semantics.selections().expression(expression)
+        && matches!(construction.target(), bray_bound_tree::ConstructionTarget::Struct(_)
+            | bray_bound_tree::ConstructionTarget::UnionVariant(_))
+    {
+        let fields = construction.inputs().iter().filter_map(|input| {
+            let (input, source) = match input {
+                bray_bound_tree::SelectedConstructionInput::Explicit { input, expression, .. } => (*input, Some(*expression)),
+                bray_bound_tree::SelectedConstructionInput::Default { input, .. } => (*input, None),
+            };
+
+            let field = match input {
+                bray_bound_tree::ConstructionInputId::StructField(field) => bray_bound_tree::StorageProjection::ProductField(field),
+                bray_bound_tree::ConstructionInputId::UnionPayloadField(field) => {
+                    let bray_bound_tree::ConstructionTarget::UnionVariant(variant) = construction.target() else {
+                        unreachable!("checked union payload input must select a union variant");
+                    };
+
+                    bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, field }
+                },
+                bray_bound_tree::ConstructionInputId::CallableParameter(_) => return None,
+            };
+
+            Some((field, source.map(&mut *value).unwrap_or(ExecutionCondition::Unknown)))
+        }).collect::<Vec<_>>();
+
+        return Some(ExecutionCondition::Constructed(expression, fields.into()));
+    }
+
+    match bound {
+        BoundExpression::Structured(operation) if matches!(operation.kind(),
+            bray_bound_tree::BoundStructuredExpressionKind::Tuple | bray_bound_tree::BoundStructuredExpressionKind::Array) => {
+            let fields = operation.operands().iter().enumerate().map(|(index, operand)| {
+                let index = bray_symbols::SymbolOrdinal::new(u32::try_from(index)
+                    .expect("checked aggregate index must fit its bound unit"));
+
+                let projection = if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::Tuple {
+                    bray_bound_tree::StorageProjection::TupleElement(index)
+                } else { bray_bound_tree::StorageProjection::ElementFromStart(index) };
+
+                (projection, value(*operand))
+            }).collect::<Vec<_>>();
+
+            Some(ExecutionCondition::Constructed(expression, fields.into()))
+        }
+        BoundExpression::Structured(operation) if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::RepeatedArray => {
+            let [operand, count] = operation.operands() else { return None; };
+
+            let ExecutionCondition::Literal(count) = value(*count) else { return None; };
+
+            let ConstantValueKind::Integer(count) = count.kind() else { return None; };
+
+            let count = usize::try_from(count.to_u64()?).ok()?.min(ExecutionCondition::WORK_LIMIT);
+            let value = value(*operand);
+
+            let fields = (0..count).map(|index| (bray_bound_tree::StorageProjection::ElementFromStart(
+                bray_symbols::SymbolOrdinal::new(u32::try_from(index).expect("bounded repeat index must fit"))), value.clone())).collect::<Vec<_>>();
+
+            Some(ExecutionCondition::Constructed(expression, fields.into()))
+        }
+        _ => None,
     }
 }
 

@@ -209,12 +209,12 @@ impl Compilation {
     }
 
     fn trusted_predicate_subjects(&self, conditions: &[ExecutionCondition], cancellation: &CancellationToken,
-        diagnostics: &mut DiagnosticBag) -> Result<Vec<ExecutionCondition>, FactQueryError> {
+        diagnostics: &mut DiagnosticBag) -> Result<Vec<(ExecutionCondition, ExecutionCondition)>, FactQueryError> {
         let context = self.binding_context(cancellation)?;
-        let mut pending = conditions.iter().collect::<Vec<_>>();
+        let mut pending = conditions.iter().map(|condition| (condition, condition)).collect::<Vec<_>>();
         let mut subjects = Vec::new();
 
-        while let Some(condition) = pending.pop() {
+        while let Some((guarantee, condition)) = pending.pop() {
             match condition {
                 ExecutionCondition::Predicate(predicate, _, arguments) => {
                     let signature = context.resolve_symbol_query(bray_symbols::SymbolQueryRequest::<bray_symbols::PredicateSignatureTemplateQuery>::new(*predicate))
@@ -223,10 +223,10 @@ impl Compilation {
                     diagnostics.add_range(signature.diagnostics().iter().cloned());
 
                     if !signature.diagnostics().has_errors() && signature.value().is_trusted() {
-                        subjects.extend(arguments.iter().cloned());
+                        subjects.extend(arguments.iter().map(|argument| (guarantee.clone(), argument.clone())));
                     }
                 }
-                ExecutionCondition::Operation(_, operands) => pending.extend(operands.iter()),
+                ExecutionCondition::Operation(_, operands) => pending.extend(operands.iter().map(|operand| (guarantee, operand))),
                 _ => {}
             }
         }
@@ -688,6 +688,188 @@ mod tests {
             let diagnostics = compilation.check_diagnostics();
 
             assert_eq!(!diagnostics.has_errors(), valid, "{diagnostics:?}");
+        }
+    }
+
+    #[test]
+    fn vacuous_conditional_guarantees_do_not_restrict_ordinary_copies() {
+        for guarantee in ["when(flag) { ensures(trusted live(&result)) }",
+            "ensures(!flag || trusted live(&result))"] {
+            for (argument, copy, valid) in [
+                ("false", "let copy = value;", true),
+                ("true", "let copy = value;", false),
+                ("flag", "let copy = value;", false),
+                ("flag", "if !flag { let copy = value; }", true),
+            ] {
+                let compilation = compilation(&format!(r#"
+                    trusted module app;
+                    @copy struct Owner {{ epoch: u64; }}
+                    trusted predicate live(value: &Owner);
+                    trusted func owner(pos flag: bool) -> Owner {guarantee} {{ return {{ epoch = 1 }}; }}
+                    func caller(pos flag: bool) {{ let value = owner({argument}); {copy} }}
+                "#));
+
+                assert_eq!(!compilation.check_diagnostics().has_errors(), valid,
+                    "{guarantee}, {argument}, {copy}: {:?}", compilation.check_diagnostics());
+            }
+        }
+    }
+
+    #[test]
+    fn output_authority_copy_checks_follow_current_completion_guards() {
+        for guarantee in ["when(flag) { ensures(trusted live(value)) }",
+            "ensures(!flag || trusted live(value))"] {
+            let compilation = compilation(&format!(r#"
+                trusted module app;
+                @copy struct Owner {{ epoch: u64; }}
+                trusted predicate live(value: &mut Owner);
+                trusted func initialize(pos flag: bool, pos value: &mut Owner) {guarantee} {{}}
+                func caller(pos flag: bool) {{
+                    let mut value: Owner = {{ epoch = 0 }};
+                    initialize(flag, &mut value);
+                    if !flag {{ let copy = value; }}
+                }}
+            "#));
+
+            assert!(!compilation.check_diagnostics().has_errors(), "{guarantee}: {:?}", compilation.check_diagnostics());
+        }
+
+        let compilation = compilation(r#"
+            trusted module app;
+            @copy struct Owner { epoch: u64; }
+            trusted predicate live(value: &mut Owner);
+            trusted func initialize(pos value: &mut Owner) -> u32
+                ensures(result != 0 || trusted live(value)) { return 0; }
+            func caller() {
+                let mut value: Owner = { epoch = 0 };
+                let status = initialize(&mut value);
+                if status != 0 { let copy = value; }
+            }
+        "#);
+
+        assert!(!compilation.check_diagnostics().has_errors(), "{:?}", compilation.check_diagnostics());
+    }
+
+    #[test]
+    fn structural_storage_preserves_whole_moved_and_fresh_owner_guarantees() {
+        for body in [
+            "let value = owner(); let holder: Holder = { owner = value }; observe(&holder.owner);",
+            "let holder: Holder = { owner = owner() }; observe(&holder.owner);",
+            "let holder: Holder = { owner = { let value = owner(); yield value; } }; observe(&holder.owner);",
+            "let nested: Nested = { holder = { owner = owner() } }; observe(&nested.holder.owner);",
+            "let holder: Holder = { owner = owner() }; let moved = holder; observe(&moved.owner);",
+            "let holder: Holder = { owner = owner() }; let moved = holder.owner; observe(&moved);",
+            "let mut holder: Holder = { owner = { epoch = 0 } }; holder.owner = owner(); observe(&holder.owner);",
+        ] {
+            let compilation = compilation(&format!(r#"
+                trusted module app;
+                struct Owner {{ epoch: u64; }}
+                struct Holder {{ mut owner: Owner; }}
+                struct Nested {{ holder: Holder; }}
+                trusted predicate live(value: &Owner);
+                trusted func owner() -> Owner ensures(trusted live(&result)) {{ return {{ epoch = 1 }}; }}
+                func observe(pos value: &Owner) requires(trusted live(value)) {{}}
+                func caller() {{ {body} }}
+            "#));
+
+            assert!(!compilation.check_diagnostics().has_errors(), "{body}: {:?}", compilation.check_diagnostics());
+        }
+    }
+
+    #[test]
+    fn copying_a_structural_owner_cannot_duplicate_nested_authority() {
+        let compilation = compilation(r#"
+            trusted module app;
+            @copy struct Owner { epoch: u64; }
+            @copy struct Holder { owner: Owner; }
+            trusted predicate live(value: &Owner);
+            trusted func owner() -> Owner ensures(trusted live(&result)) { return { epoch = 1 }; }
+            func caller() { let holder: Holder = { owner = owner() }; let copy = holder; }
+        "#);
+
+        bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(),
+            DiagnosticKind::CheckingTrustedWitnessTransferNotProven);
+    }
+
+    #[test]
+    fn destructured_storage_preserves_whole_owner_guarantees() {
+        for body in [
+            "let number: u8 = 0; let (value, copied) = (owner(), number); observe(&value);",
+            "let [value]: [Owner; 1] = [owner()]; observe(&value);",
+            "let holder = Holder.Owned(owner()); match consume holder { case .Owned(value) { observe(&value); } }",
+            "let value: Owner = owner(); let holder: Owner? = value; match consume holder { case ?present { observe(&present); } case none {} }",
+            "let value = (owner(), owner()); observe(&value.0);",
+            "let value = (owner(), owner()); observe(&value.1);",
+            "let value: [Owner; 1] = [owner()]; observe(&value[0]);",
+            "let number: u8 = 0; let (_, value) = (number, owner()); observe(&value);",
+            "let [first, .., last]: [Owner; 2] = [owner(), owner()]; observe(&first);",
+            "let [first, .., last]: [Owner; 2] = [owner(), owner()]; observe(&last);",
+            "let value = { let number: u8 = 0; let pair = (owner(), number); let (value, copied) = pair; yield value; }; observe(&value);",
+            "let value = { let values: [Owner; 1] = [owner()]; let [value] = values; yield value; }; observe(&value);",
+        ] {
+            let compilation = compilation(&format!(r#"
+                trusted module app;
+                struct Owner {{ epoch: u64; }}
+                union Holder {{ Owned(pos value: Owner); }}
+                trusted predicate live(value: &Owner);
+                trusted func owner() -> Owner executes(pure, total)
+                    ensures(trusted live(&result)) {{ return {{ epoch = 1 }}; }}
+                func observe(pos value: &Owner) executes(pure, total) requires(trusted live(value)) {{}}
+                func caller() {{ {body} }}
+            "#));
+
+            assert!(!compilation.check_diagnostics().has_errors(), "{body}: {:?}", compilation.check_diagnostics());
+        }
+    }
+
+    #[test]
+    fn aggregate_copy_checks_apply_to_the_transferred_component() {
+        for (body, valid) in [
+            ("let number: u8 = 0; let pair = (owner(), number); let (value, copied) = pair;", false),
+            ("let number: u8 = 0; let (value, copied) = (owner(), number);", true),
+            ("let values: [Owner; 1] = [owner()]; let copy = values;", false),
+            ("let number: u8 = 0; let pair = (owner(), number); let copied = pair.1;", true),
+            ("let number: u8 = 0; let pair = (owner(), number); let copy = pair.0;", false),
+            ("let values: [Owner; 1] = [owner()]; let copy = values[0];", false),
+            ("let values: [Owner; 2] = [owner(); 2];", false),
+            ("let values: [Owner; 1] = [owner(); 1];", true),
+        ] {
+            let compilation = compilation(&format!(r#"
+                trusted module app;
+                @copy struct Owner {{ epoch: u64; }}
+                trusted predicate live(value: &Owner);
+                trusted func owner() -> Owner ensures(trusted live(&result)) {{ return {{ epoch = 1 }}; }}
+                func caller() {{ {body} }}
+            "#));
+
+            assert_eq!(!compilation.check_diagnostics().has_errors(), valid, "{body}: {:?}", compilation.check_diagnostics());
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(),
+                    DiagnosticKind::CheckingTrustedWitnessTransferNotProven);
+            }
+        }
+    }
+
+    #[test]
+    fn equal_aggregate_elements_cannot_share_borrowed_authority() {
+        for body in [
+            "let first: [u8; 1] = [0]; let second: [u8; 1] = [0]; establish(&first[0]); observe(&second[0]);",
+            "let value = (false, false); establish_bool(&value.0); observe_bool(&value.1);",
+        ] {
+            let compilation = compilation(&format!(r#"
+                trusted module app;
+                trusted predicate live(value: &u8);
+                trusted predicate live_bool(value: &bool);
+                trusted func establish(pos value: &u8) executes(pure, total) ensures(trusted live(value)) {{}}
+                trusted func establish_bool(pos value: &bool) executes(pure, total) ensures(trusted live_bool(value)) {{}}
+                func observe(pos value: &u8) requires(trusted live(value)) {{}}
+                func observe_bool(pos value: &bool) requires(trusted live_bool(value)) {{}}
+                func caller() {{ {body} }}
+            "#));
+
+            bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven);
         }
     }
 

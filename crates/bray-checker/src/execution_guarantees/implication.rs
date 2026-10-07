@@ -63,6 +63,8 @@ pub fn map_execution_condition_substitutions<E>(
                 map_execution_condition_substitutions(operand, map)).collect::<Result<_, _>>()?),
         ExecutionCondition::Field(field, value) => ExecutionCondition::field(*field,
             map_execution_condition_substitutions(value, map)?),
+        ExecutionCondition::Constructed(expression, fields) => ExecutionCondition::Constructed(*expression, fields.iter().map(|(field, value)|
+            Ok((*field, map_execution_condition_substitutions(value, map)?))).collect::<Result<Vec<_>, E>>()?.into()),
         _ => condition.clone(),
     })
 }

@@ -17,6 +17,8 @@ pub enum ExecutionCondition {
     Result,
     /// The value produced by one runtime expression, without inventing its contents.
     Expression(bray_bound_tree::BoundExpressionId),
+    /// A checked structural value retaining the values placed in its actual storage components.
+    Constructed(bray_bound_tree::BoundExpressionId, Arc<[(bray_bound_tree::StorageProjection, ExecutionCondition)]>),
     /// A retained receiver observed after one call completes normally.
     PostState(
         bray_bound_tree::BoundExpressionId,
@@ -89,6 +91,7 @@ impl ExecutionCondition {
                     pending.extend(operands.iter())
                 }
                 Self::Field(_, value) => pending.push(value),
+                Self::Constructed(_, fields) => pending.extend(fields.iter().map(|(_, value)| value)),
                 _ => {}
             }
         }
@@ -125,6 +128,8 @@ impl ExecutionCondition {
             Self::Field(field, value) => {
                 Self::field(*field, value.substitute(input, result, budget))
             }
+            Self::Constructed(expression, fields) => Self::Constructed(*expression, fields.iter().map(|(field, value)|
+                (*field, value.substitute(input, result, budget))).collect::<Vec<_>>().into()),
             Self::Operation(operator, operands) => Self::operation(
                 *operator,
                 operands
@@ -145,11 +150,27 @@ impl ExecutionCondition {
                 {
                     return true;
                 }
+                Self::Constructed(candidate, _) if *candidate == expression => return true,
+                Self::Constructed(_, fields) => pending.extend(fields.iter().map(|(_, value)| value)),
                 Self::Operation(_, operands) | Self::Predicate(_, _, operands) | Self::Call(_, operands) => {
                     pending.extend(operands.iter())
                 }
                 Self::Field(_, value) => pending.push(value),
                 _ => {}
+            }
+        }
+
+        false
+    }
+
+    pub(crate) fn contains_value(&self, value: &Self) -> bool {
+        let mut pending = vec![self];
+
+        while let Some(condition) = pending.pop() {
+            if condition == value { return true; }
+
+            if let Self::Constructed(_, fields) = condition {
+                pending.extend(fields.iter().map(|(_, value)| value));
             }
         }
 
@@ -168,6 +189,7 @@ impl ExecutionCondition {
                 (Self::Input(observed), Self::Input(changed)) if observed.overlaps(changed) => return true,
                 (Self::Operation(_, operands) | Self::Predicate(_, _, operands) | Self::Call(_, operands), _) => pending.extend(operands.iter()),
                 (Self::Field(_, subject), _) => pending.push(subject),
+                (Self::Constructed(_, fields), _) => pending.extend(fields.iter().map(|(_, value)| value)),
                 _ => {}
             }
         }
@@ -201,8 +223,42 @@ impl ExecutionCondition {
     pub(crate) fn field(field: bray_symbols::AnySymbolId, value: Self) -> Self {
         match value {
             Self::Input(place) => Self::Input(place.field(field)),
+            Self::Constructed(_, fields) => fields.iter().find(|(candidate, _)| match candidate {
+                bray_bound_tree::StorageProjection::ProductField(candidate) => bray_symbols::AnySymbolId::from(*candidate) == field,
+                bray_bound_tree::StorageProjection::ActiveUnionPayloadField { field: candidate, .. } => bray_symbols::AnySymbolId::from(*candidate) == field,
+                _ => false,
+            })
+                .map(|(_, value)| value.clone()).unwrap_or(Self::Unknown),
             Self::Unknown => Self::Unknown,
             value => Self::Field(field, Arc::new(value)),
+        }
+    }
+
+    pub(crate) fn project(self, projection: bray_bound_tree::StorageProjection) -> Self {
+        use bray_bound_tree::StorageProjection;
+
+        if projection == StorageProjection::NullableValue { return self; }
+
+        if let Self::Constructed(_, fields) = &self {
+            let projection = match projection {
+                StorageProjection::ElementFromEnd(index) => {
+                    let Some(index) = u32::try_from(fields.len()).ok().and_then(|length| length.checked_sub(index.raw() + 1)) else {
+                        return Self::Unknown;
+                    };
+
+                    StorageProjection::ElementFromStart(bray_symbols::SymbolOrdinal::new(index))
+                },
+                projection => projection,
+            };
+
+            return fields.iter().find(|(candidate, _)| *candidate == projection)
+                .map(|(_, value)| value.clone()).unwrap_or(Self::Unknown);
+        }
+
+        match projection {
+            StorageProjection::ProductField(field) => Self::field(field.into(), self),
+            StorageProjection::ActiveUnionPayloadField { field, .. } => Self::field(field.into(), self),
+            _ => Self::Unknown,
         }
     }
 
@@ -384,6 +440,8 @@ fn rewrite_equalities(value: &ExecutionCondition, replacements: &std::collection
 
     let value = match value {
         ExecutionCondition::Field(field, base) => ExecutionCondition::field(field, rewrite_equalities(&base, replacements, budget)),
+        ExecutionCondition::Constructed(expression, fields) => ExecutionCondition::Constructed(expression, fields.iter().map(|(field, value)|
+            (*field, rewrite_equalities(value, replacements, budget))).collect::<Vec<_>>().into()),
         ExecutionCondition::Operation(operator, operands) => ExecutionCondition::operation(operator, operands.iter().map(|operand| rewrite_equalities(operand, replacements, budget)).collect()),
         ExecutionCondition::Predicate(predicate, substitution, operands) => ExecutionCondition::predicate(predicate, substitution, operands.iter().map(|operand| rewrite_equalities(operand, replacements, budget)).collect()),
         ExecutionCondition::Call(callable, operands) => ExecutionCondition::call(callable, operands.iter().map(|operand| rewrite_equalities(operand, replacements, budget)).collect()),

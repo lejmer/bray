@@ -28,8 +28,8 @@ pub struct TrustedCallContract {
     pub completes: bool,
     /// Whether result guarantees are carried by the value rather than checked storage.
     pub result_is_witness: bool,
-    /// Subjects of trusted predicate guarantees, excluding ordinary completion guards.
-    pub witness_subjects: Vec<ExecutionCondition>,
+    /// Trusted predicate subjects paired with their conditional completion guarantee.
+    pub witness_subjects: Vec<(ExecutionCondition, ExecutionCondition)>,
     /// Conditions required before invocation.
     pub requirements: Vec<ExecutionCondition>,
     /// Ordinary entry conditions that guard the trusted guarantees.

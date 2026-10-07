@@ -3,7 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, CheckedExpressionSemantics, StoragePlan};
 use bray_diagnostics::{Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticExpressionCategory, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind};
 
-use super::flow::{ExecutionFlowDomain, ExecutionState, analyze_execution_flow};
+use super::flow::{ExecutionFlowDomain, analyze_execution_flow};
+use super::state::ExecutionState;
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView, ExecutionCondition};
 
 pub(crate) fn check_trusted_contracts<C: CheckerRequestContext + ?Sized>(
@@ -48,16 +49,18 @@ pub(crate) fn check_trusted_contracts<C: CheckerRequestContext + ?Sized>(
             for plan in storage.access_plans().iter().filter(|plan| cleanup.is_some() && plan.node() == operation.kind().node()
                 && matches!(plan.purpose(), bray_bound_tree::StorageAccessPurpose::Copy
                     | bray_bound_tree::StorageAccessPurpose::ValueTransfer | bray_bound_tree::StorageAccessPurpose::Move)) {
-                let value = flow.domain.value(&state, plan.expression());
+                let value = flow.domain.storage_value(&state, *plan);
 
                 if plan.purpose() == bray_bound_tree::StorageAccessPurpose::ValueTransfer
-                    && crate::execution_guarantees::expression_place(request.unit(), expressions, plan.expression()).is_none() {
-                    // A fresh result moves into its first destination without duplicating a live access path.
+                    && storage.root_identity(plan.access()).and_then(|identity| storage.identity(identity))
+                        .is_some_and(|identity| matches!(identity, bray_bound_tree::StorageIdentity::Temporary(_)
+                            | bray_bound_tree::StorageIdentity::Result(_) | bray_bound_tree::StorageIdentity::Allocation(_))) {
+                    // A fresh result or its destructured components move into their first destination.
                     continue;
                 }
 
-                let mut is_witness = state.witness_carriers.contains(&value);
-                let mut partial_witness = matches!(&value, ExecutionCondition::Field(_, base) if state.witness_carriers.contains(base.as_ref()));
+                let mut is_witness = state.is_witness(&value);
+                let mut partial_witness = matches!(&value, ExecutionCondition::Field(_, base) if state.is_witness(base));
 
                 for (condition, subject) in &contracts.required_witnesses {
                     let condition = condition.substitute(&|place| place.value_in(&state.current)
@@ -93,6 +96,18 @@ pub(crate) fn check_trusted_contracts<C: CheckerRequestContext + ?Sized>(
             let AnyBoundNodeId::Expression(expression) = operation.kind().node() else {
                 continue;
             };
+
+            if let Some(bray_bound_tree::BoundExpression::Structured(bound)) = request.view().expression(expression)
+                && bound.kind() == bray_bound_tree::BoundStructuredExpressionKind::RepeatedArray
+                && let [value, count] = bound.operands()
+                && state.is_witness(&flow.domain.value(&state, *value)) {
+                let count = flow.domain.value(&state, *count);
+
+                let singleton = matches!(count, ExecutionCondition::Literal(count)
+                    if matches!(count.kind(), bray_symbols::ConstantValueKind::Integer(count) if count.to_u64().is_some_and(|count| count <= 1)));
+
+                if !singleton { transfers.insert(expression); }
+            }
 
             let Some(contract) = contracts.calls.get(&expression) else {
                 continue;
@@ -479,8 +494,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         state.current.retain(|place, _| !expired.iter().any(|expired| expired.contains(place)));
 
-        for value in values {
-            if state.result == value || state.current.values().any(|live| *live == value) {
+        let mut pending = values;
+
+        while let Some(value) = pending.pop() {
+            if state.result.contains_value(&value) || state.current.values().chain(state.pending_results.values())
+                .any(|live| live.contains_value(&value)) {
+                continue;
+            }
+
+            if let ExecutionCondition::Constructed(_, components) = value {
+                pending.extend(components.iter().map(|(_, value)| value.clone()));
+
                 continue;
             }
 
@@ -606,7 +630,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         }
 
-        for subject in &contract.witness_subjects {
+        for (guarantee, subject) in &contract.witness_subjects {
+            let guarantee = guarantee.substitute(&|place|
+                place.value_in(&arguments).unwrap_or(ExecutionCondition::Unknown), &result,
+                &mut { ExecutionCondition::WORK_LIMIT });
+
+            // A guarantee discharged solely by its ordinary guard carries no trusted authority.
+            if guarantee.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT }) == Some(true) { continue; }
+
             let condition = subject.substitute(&|place|
                 place.value_in(&arguments).unwrap_or(ExecutionCondition::Unknown), &result,
                 &mut { ExecutionCondition::WORK_LIMIT });

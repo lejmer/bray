@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundAssignmentOperator, BoundBlockItem, BoundControlTransferKind,
+    AnyBoundNodeId, BoundAssignmentOperator, BoundControlTransferKind,
     BoundExpression, BoundExpressionId, BoundReferenceTarget, CheckedExpressionSemantics,
 };
 
@@ -14,103 +14,8 @@ use super::super::fixed_point::{
 use super::super::id::{AnalysisBlockId, AnalysisEdgeId};
 use super::super::model::{AnalysisBlock, AnalysisEdge, AnalysisRefinement, ControlFlowGraph};
 use super::super::storage_invalidation::StorageInvalidation;
+use super::state::ExecutionState;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct ExecutionState {
-    pub(super) trust_boundaries: BTreeSet<BoundExpressionId>,
-    pub(super) assumptions: BTreeSet<(ExecutionCondition, bool)>,
-    pub(super) witness_carriers: BTreeSet<ExecutionCondition>,
-    pub(super) witness_dependencies: BTreeMap<ExecutionCondition, BTreeSet<crate::ExecutionPlace>>,
-    pub(super) trusted_assumptions: BTreeSet<(ExecutionCondition, bool)>,
-    pub(super) current: BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
-    pub(super) expressions: BTreeMap<BoundExpressionId, ExecutionCondition>,
-    pub(super) result: ExecutionCondition,
-    pub(super) entries: BTreeMap<BoundExpressionId, crate::ExecutionCallEvidence>,
-    pub(super) completion_dependencies: BTreeSet<crate::ExecutionCompletionDependency>,
-}
-
-impl Default for ExecutionState {
-    fn default() -> Self {
-        Self {
-            trust_boundaries: BTreeSet::new(),
-            assumptions: BTreeSet::new(),
-            witness_carriers: BTreeSet::new(),
-            witness_dependencies: BTreeMap::new(),
-            trusted_assumptions: BTreeSet::new(),
-            current: BTreeMap::new(),
-            expressions: BTreeMap::new(),
-            result: ExecutionCondition::Unknown,
-            entries: BTreeMap::new(),
-            completion_dependencies: BTreeSet::new(),
-        }
-    }
-}
-
-impl ExecutionState {
-    pub(super) fn invalidate_cleanup(&mut self) {
-        self.witness_carriers.clear();
-        self.witness_dependencies.clear();
-        self.trusted_assumptions.clear();
-
-        for entry in self.entries.values_mut().filter(|entry| entry.pending_execution) {
-            entry.assumptions.clear();
-            entry.trusted_assumptions.clear();
-            entry.trusted_boundary = false;
-        }
-
-        // Cleanup can mutate observations through owned capabilities, just like an opaque call.
-        for (place, value) in &mut self.current {
-            if !place.fields.is_empty() {
-                *value = ExecutionCondition::Unknown;
-            }
-        }
-    }
-
-    pub(super) fn assign(&mut self, place: crate::ExecutionPlace, value: ExecutionCondition) {
-        self.current.retain(|observed, _| !place.contains(observed));
-        self.current.insert(place, value);
-    }
-
-    pub(super) fn invalidate_trusted(&mut self, value: &ExecutionCondition) {
-        let mut invalidated = BTreeSet::from([value.clone()]);
-
-        // A returned address or capability can retain an owner through several checked wrappers.
-        loop {
-            let before = invalidated.len();
-
-            for (carrier, dependencies) in &self.witness_dependencies {
-                if dependencies.iter().filter_map(|place| place.value_in(&self.current)).any(|dependency|
-                    invalidated.iter().any(|value| dependency.observes(value))) {
-                    invalidated.insert(carrier.clone());
-                }
-            }
-
-            if invalidated.len() == before { break; }
-        }
-
-        self.witness_carriers.retain(|carrier| !invalidated.iter().any(|value| carrier.observes(value)));
-
-        self.trusted_assumptions.retain(|(condition, _)|
-            !invalidated.iter().any(|value| condition.observes(value)));
-
-        self.witness_dependencies.retain(|carrier, _|
-            !invalidated.iter().any(|value| carrier.observes(value)));
-
-        for entry in self.entries.values_mut().filter(|entry| entry.pending_execution) {
-            entry.assumptions.retain(|(condition, _)| !invalidated.iter().any(|value| condition.observes(value)));
-            entry.trusted_assumptions.retain(|(condition, _)| !invalidated.iter().any(|value| condition.observes(value)));
-        }
-    }
-
-    pub(super) fn invalidate_trusted_place(&mut self, place: &crate::ExecutionPlace) {
-        let dependent = self.witness_dependencies.iter().filter(|(_, owners)|
-            owners.iter().any(|owner| owner.overlaps(place))).map(|(carrier, _)| carrier.clone()).collect::<Vec<_>>();
-
-        for carrier in dependent {
-            self.invalidate_trusted(&carrier);
-        }
-    }
-}
 pub(super) struct ExecutionFlow<'a, 'view, C: CheckerRequestContext + ?Sized> {
     pub(super) domain: ExecutionFlowDomain<'a, 'view, C>,
     pub(super) states: FixedPointResult<Option<ExecutionState>>,
@@ -171,7 +76,19 @@ pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         }
     }
 
+    let targets = request.unit().tree().expressions().map(|(id, expression)|
+        (expression.origin().source_anchor().syntax(), id)).collect::<BTreeMap<_, _>>();
+
+    let yield_targets = request.unit().tree().expressions().filter_map(|(id, expression)| {
+        let BoundExpression::ControlTransfer(transfer) = expression else { return None; };
+
+        if transfer.kind() != BoundControlTransferKind::Yield { return None; }
+
+        transfer.target().and_then(|target| targets.get(&target).copied()).map(|target| (id, target))
+    }).collect();
+
     let domain = ExecutionFlowDomain {
+        yield_targets,
         graph,
         request,
         semantics,
@@ -234,6 +151,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
 }
 
 pub(super) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Sized> {
+    yield_targets: BTreeMap<BoundExpressionId, BoundExpressionId>,
     pub(super) graph: &'a ControlFlowGraph,
     pub(super) request: CheckerUnitView<'view, C>,
     pub(super) semantics: &'a CheckedExpressionSemantics,
@@ -259,6 +177,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             expression,
             &mut { crate::ExecutionCondition::WORK_LIMIT },
         )
+    }
+
+    pub(super) fn storage_value(&self, state: &ExecutionState, plan: bray_bound_tree::StorageAccessPlan) -> ExecutionCondition {
+        let mut value = self.value(state, plan.expression());
+
+        let source = self.storage.expression_plans(plan.expression()).filter(|source|
+            source.node() == AnyBoundNodeId::Expression(plan.expression())
+                && self.storage.access_contains(source.access(), plan.access()))
+            .max_by_key(|source| self.storage.resolved_projections(source.access()).map_or(0, <[_]>::len));
+
+        let source_path = source.and_then(|source| self.storage.resolved_projections(source.access())).unwrap_or(&[]);
+        let path = self.storage.resolved_projections(plan.access()).and_then(|path| path.strip_prefix(source_path));
+
+        if let Some(path) = path {
+            for projection in path { value = value.project(*projection); }
+        } else { value = ExecutionCondition::Unknown; }
+
+        value
     }
 
     fn edge_state(&self, state: &ExecutionState, edge: &AnalysisEdge) -> Option<ExecutionState> {
@@ -353,6 +289,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .current
                         .values_mut()
                         .chain(state.expressions.values_mut())
+                        .chain(state.pending_results.values_mut())
                     {
                         if value.depends_on(expression) {
                             *value = ExecutionCondition::Unknown;
@@ -391,7 +328,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     fn expression(&self, state: &mut ExecutionState, expression: BoundExpressionId) {
         state.expressions.remove(&expression);
 
-        let value = self.value(state, expression);
+        let value = state.pending_results.remove(&expression).unwrap_or_else(|| self.value(state, expression));
 
         state.expressions.insert(expression, value);
         self.invalidate(state, expression.into());
@@ -431,6 +368,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             .unwrap_or_else(|| self.value(state, operand))
                     })
                     .unwrap_or(ExecutionCondition::Unknown);
+            }
+            Some(BoundExpression::ControlTransfer(transfer)) if transfer.kind() == BoundControlTransferKind::Yield => {
+                if let Some(target) = self.yield_targets.get(&expression) {
+                    let value = transfer.operand().map(|operand| self.value(state, operand))
+                        .unwrap_or(ExecutionCondition::Unknown);
+
+                    state.pending_results.insert(*target, value);
+                }
             }
             _ => {}
         }
@@ -551,34 +496,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     fn pattern(&self, state: &mut ExecutionState, pattern: bray_bound_tree::BoundPatternId) {
-        for (_, block) in self.request.unit().tree().blocks() {
-            for item in block.items() {
-                let BoundBlockItem::LocalBinding(binding) = item else {
-                    continue;
-                };
+        let bound = self.request.view().pattern(pattern).expect("checked pattern must exist");
 
-                if binding.pattern() != pattern {
-                    continue;
-                }
+        let mut plans = self.storage.access_plans().iter().filter(|plan| plan.node() == pattern.into()
+            && !matches!(plan.purpose(), bray_bound_tree::StorageAccessPurpose::Projection));
 
-                let value = if binding.bindings().len() == 1 {
-                    state
-                        .expressions
-                        .get(&binding.initializer())
-                        .cloned()
-                        .unwrap_or_else(|| self.value(state, binding.initializer()))
-                } else {
-                    ExecutionCondition::Unknown
-                };
-
-                for binding in binding.bindings() {
-                    // Pattern bindings independently retain the initializer's immutable term.
-                    state.assign(
-                        BoundReferenceTarget::Local((*binding).into()).into(),
-                        value.clone(),
-                    );
-                }
+        for binding in bound.bindings().iter().copied().chain(bound.entries().iter().filter_map(|entry| entry.binding())) {
+            if self.storage.binding(bray_bound_tree::StorageBindingTarget::Local(binding)).is_none() {
+                continue;
             }
+
+            let Some(plan) = plans.next() else { continue; };
+
+            let value = self.storage_value(state, *plan);
+
+            // The storage plan supplies exact components for declarations, matches, and conditional bindings.
+            state.assign(BoundReferenceTarget::Local(binding.into()).into(), value);
         }
     }
 }
@@ -763,6 +696,7 @@ fn merge(target: &mut Option<ExecutionState>, incoming: &Option<ExecutionState>)
 
     changed |= merge_values(&mut target.current, &incoming.current);
     changed |= merge_values(&mut target.expressions, &incoming.expressions);
+    changed |= merge_values(&mut target.pending_results, &incoming.pending_results);
 
     if target.result != incoming.result && target.result != ExecutionCondition::Unknown {
         target.result = ExecutionCondition::Unknown;

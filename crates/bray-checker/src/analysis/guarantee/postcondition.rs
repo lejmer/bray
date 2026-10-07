@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use bray_bound_tree::{BoundExpressionId, BoundReferenceTarget, SelectedCall};
 use bray_symbols::ReceiverMode;
 
-use super::flow::{ExecutionFlowDomain, ExecutionState};
+use super::flow::{ExecutionFlowDomain};
+use super::state::ExecutionState;
 use crate::{
     CheckerRequestContext, ExecutionCompletionContract, ExecutionCondition, ExecutionPlace,
 };
