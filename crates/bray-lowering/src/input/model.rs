@@ -47,7 +47,7 @@ pub struct LoweringInput<'unit> {
     selections: &'unit CheckedSemanticSelections,
     symbols: &'unit AvailableCompilerKnownSymbols,
     async_analysis: &'unit CheckedAsync,
-    suspensions: BTreeMap<bray_bound_tree::SemanticOccurrence, usize>,
+    suspensions: BTreeMap<bray_bound_tree::BoundExecutionSite, usize>,
     task_operations: BTreeMap<BoundExpressionId, AsyncTaskOperationKind>,
     lifecycle_storage: BTreeSet<StorageIdentityId>,
     completed: BTreeSet<(AnyBoundNodeId, StorageAccessId)>,
@@ -329,7 +329,7 @@ impl<'unit> LoweringInput<'unit> {
     /// Returns the checked suspension plan for one suspending expression.
     pub fn suspension(
         &self,
-        occurrence: impl Into<bray_bound_tree::SemanticOccurrence>,
+        occurrence: impl Into<bray_bound_tree::BoundExecutionSite>,
     ) -> Option<&AsyncSuspensionPoint> {
         self.suspensions
             .get(&occurrence.into())

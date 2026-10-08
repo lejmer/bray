@@ -55,8 +55,8 @@ pub struct CheckedDependencyContracts {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     contracts: Arc<[BoundDependencyContract]>,
-    expressions: Arc<[ContractEntry<crate::SemanticOccurrence>]>,
-    deferred_expressions: Arc<[ContractEntry<crate::SemanticOccurrence>]>,
+    expressions: Arc<[ContractEntry<crate::BoundExecutionSite>]>,
+    deferred_expressions: Arc<[ContractEntry<crate::BoundExecutionSite>]>,
     accesses: Arc<[ContractEntry<StorageAccessId>]>,
     borrows: Arc<[ContractEntry<BorrowCapabilityId>]>,
     is_recovered: bool,
@@ -67,9 +67,9 @@ impl CheckedDependencyContracts {
     pub fn try_new(
         unit: &BoundUnit,
         storage: &StoragePlan,
-        expressions: impl IntoIterator<Item = (crate::SemanticOccurrence, BoundDependencyContract)>,
+        expressions: impl IntoIterator<Item = (crate::BoundExecutionSite, BoundDependencyContract)>,
         deferred_expressions: impl IntoIterator<
-            Item = (crate::SemanticOccurrence, BoundDependencyContract),
+            Item = (crate::BoundExecutionSite, BoundDependencyContract),
         >,
         accesses: impl IntoIterator<Item = (StorageAccessId, BoundDependencyContract)>,
         borrows: impl IntoIterator<Item = (BorrowCapabilityId, BoundDependencyContract)>,
@@ -164,7 +164,7 @@ impl CheckedDependencyContracts {
     /// Returns the contract carried by one source or implicit invocation occurrence.
     pub fn expression(
         &self,
-        occurrence: impl Into<crate::SemanticOccurrence>,
+        occurrence: impl Into<crate::BoundExecutionSite>,
     ) -> Option<BoundDependencyContractId> {
         find_contract(&self.expressions, occurrence.into())
     }
@@ -172,7 +172,7 @@ impl CheckedDependencyContracts {
     /// Returns the contract required when one source or implicit invocation is driven.
     pub fn deferred_expression(
         &self,
-        occurrence: impl Into<crate::SemanticOccurrence>,
+        occurrence: impl Into<crate::BoundExecutionSite>,
     ) -> Option<BoundDependencyContractId> {
         find_contract(&self.deferred_expressions, occurrence.into())
     }
@@ -240,7 +240,7 @@ impl CheckedDependencyContracts {
             .expressions
             .iter()
             .filter_map(|entry| match entry.occurrence() {
-                crate::SemanticOccurrence::Node(crate::AnyBoundNodeId::Expression(expression)) => {
+                crate::BoundExecutionSite::Node(crate::AnyBoundNodeId::Expression(expression)) => {
                     Some(*expression)
                 }
                 _ => None,

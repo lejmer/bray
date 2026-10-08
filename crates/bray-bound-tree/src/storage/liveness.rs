@@ -11,14 +11,14 @@ use crate::{
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LastUse {
     subject: BoundDependencySubject,
-    occurrence: crate::SemanticOccurrence,
+    occurrence: crate::BoundExecutionSite,
 }
 
 impl LastUse {
     /// Creates one last-use decision.
     pub fn new(
         subject: BoundDependencySubject,
-        occurrence: impl Into<crate::SemanticOccurrence>,
+        occurrence: impl Into<crate::BoundExecutionSite>,
     ) -> Self {
         Self {
             subject,
@@ -37,7 +37,7 @@ impl LastUse {
     }
 
     /// Returns the exact source or implicit lifecycle phase of the final use.
-    pub const fn occurrence(self) -> crate::SemanticOccurrence {
+    pub const fn occurrence(self) -> crate::BoundExecutionSite {
         self.occurrence
     }
 }
@@ -83,21 +83,21 @@ impl LiveAcrossScope {
 /// A subject retained while one direct await can suspend the current run.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LiveAcrossSuspension {
-    occurrence: crate::SemanticOccurrence,
+    occurrence: crate::BoundExecutionSite,
     subject: BoundDependencySubject,
 }
 
 /// A subject whose lifetime is transferred into one exact value result.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct OwnerRetention {
-    occurrence: crate::SemanticOccurrence,
+    occurrence: crate::BoundExecutionSite,
     subject: BoundDependencySubject,
 }
 
 impl OwnerRetention {
     /// Creates one owning-call retention decision.
     pub fn new(
-        occurrence: impl Into<crate::SemanticOccurrence>,
+        occurrence: impl Into<crate::BoundExecutionSite>,
         subject: BoundDependencySubject,
     ) -> Self {
         Self {
@@ -107,7 +107,7 @@ impl OwnerRetention {
     }
 
     /// Returns the actual invocation that transfers ownership.
-    pub const fn occurrence(self) -> crate::SemanticOccurrence {
+    pub const fn occurrence(self) -> crate::BoundExecutionSite {
         self.occurrence
     }
 
@@ -120,7 +120,7 @@ impl OwnerRetention {
 impl LiveAcrossSuspension {
     /// Creates one suspension-boundary liveness decision.
     pub fn new(
-        occurrence: impl Into<crate::SemanticOccurrence>,
+        occurrence: impl Into<crate::BoundExecutionSite>,
         subject: BoundDependencySubject,
     ) -> Self {
         Self {
@@ -137,7 +137,7 @@ impl LiveAcrossSuspension {
     }
 
     /// Returns the exact suspension phase.
-    pub const fn occurrence(self) -> crate::SemanticOccurrence {
+    pub const fn occurrence(self) -> crate::BoundExecutionSite {
         self.occurrence
     }
 
@@ -280,7 +280,7 @@ impl Liveness {
     /// Returns whether this exact call transfers the subject into an owning result.
     pub fn is_owner_retained_by(
         &self,
-        occurrence: impl Into<crate::SemanticOccurrence>,
+        occurrence: impl Into<crate::BoundExecutionSite>,
         subject: BoundDependencySubject,
     ) -> bool {
         self.owner_retentions
@@ -296,7 +296,7 @@ impl Liveness {
     /// Returns whether the operation is a last use of the subject.
     pub fn is_last_use(
         &self,
-        occurrence: impl Into<crate::SemanticOccurrence>,
+        occurrence: impl Into<crate::BoundExecutionSite>,
         subject: BoundDependencySubject,
     ) -> bool {
         self.last_uses
@@ -319,7 +319,7 @@ impl Liveness {
     /// Returns whether the subject is retained across one direct await.
     pub fn is_live_across_suspension(
         &self,
-        occurrence: impl Into<crate::SemanticOccurrence>,
+        occurrence: impl Into<crate::BoundExecutionSite>,
         subject: BoundDependencySubject,
     ) -> bool {
         self.live_across_suspensions

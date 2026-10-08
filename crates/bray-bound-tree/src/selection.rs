@@ -7,10 +7,7 @@ mod scoped_use;
 mod table;
 mod template;
 
-pub use call::{
-    SelectedArgument, SelectedCall, SelectedImplementationWitness, SelectedReceiver,
-    SemanticOccurrence,
-};
+pub use call::{SelectedArgument, SelectedCall, SelectedImplementationWitness, SelectedReceiver};
 pub use iteration::{
     SelectedIterationProtocolOperation, SelectedIterationSource, SelectedIterationTypes,
 };

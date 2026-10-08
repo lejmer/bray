@@ -43,7 +43,7 @@ impl ControlFlowGraphAssembler {
     pub(super) fn push_call(
         &mut self,
         block: AnalysisBlockId,
-        invocation: bray_bound_tree::SemanticOccurrence,
+        invocation: bray_bound_tree::BoundExecutionSite,
         phase: AnalysisCallPhase,
     ) {
         self.push_operation(block, AnalysisOperationKind::Call { invocation, phase });
@@ -56,7 +56,7 @@ impl ControlFlowGraphAssembler {
     pub(super) fn push_suspension(
         &mut self,
         block: AnalysisBlockId,
-        occurrence: bray_bound_tree::SemanticOccurrence,
+        occurrence: bray_bound_tree::BoundExecutionSite,
         kind: AnalysisSuspensionKind,
     ) {
         self.push_operation(
@@ -107,7 +107,7 @@ impl ControlFlowGraphAssembler {
         let lifecycle = if let Some((expression, result)) = scoped {
             self.push_call(
                 lifecycle,
-                bray_bound_tree::SemanticOccurrence::ScopeExit(expression),
+                bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
                 AnalysisCallPhase::Attempt,
             );
 
@@ -116,7 +116,7 @@ impl ControlFlowGraphAssembler {
             if matches!(result, bray_bound_tree::BoundCallResult::LazyFuture(_)) {
                 self.push_suspension(
                     lifecycle,
-                    bray_bound_tree::SemanticOccurrence::ScopeExit(expression),
+                    bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
                     AnalysisSuspensionKind::ScopedCall,
                 );
 
@@ -132,7 +132,7 @@ impl ControlFlowGraphAssembler {
 
             self.push_call(
                 completed,
-                bray_bound_tree::SemanticOccurrence::ScopeExit(expression),
+                bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
                 AnalysisCallPhase::Completion,
             );
 

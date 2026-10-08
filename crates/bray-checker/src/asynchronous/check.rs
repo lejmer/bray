@@ -123,7 +123,7 @@ where
     let mut diagnostics = DiagnosticBag::new();
 
     let mut suspensions =
-        BTreeMap::<bray_bound_tree::SemanticOccurrence, AsyncSuspensionPoint>::new();
+        BTreeMap::<bray_bound_tree::BoundExecutionSite, AsyncSuspensionPoint>::new();
 
     let mut task_operations = BTreeMap::new();
     let mut frame_dependencies = BTreeSet::new();
@@ -1069,7 +1069,7 @@ fn add_suspension_context_diagnostic<C: CheckerRequestContext + ?Sized>(
 
 fn scoped_deferred_call(
     selections: &CheckedSemanticSelections,
-    occurrence: bray_bound_tree::SemanticOccurrence,
+    occurrence: bray_bound_tree::BoundExecutionSite,
 ) -> BodyBehaviorCall {
     let expression = occurrence
         .expression()

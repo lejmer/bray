@@ -140,6 +140,55 @@ define_bound_node_ids! {
     BoundCallableBodyId => CallableBody: CallableBody,
 }
 
+/// A source-correlated execution site used to key checked contracts and storage plans.
+///
+/// Ordinary operations use their bound node identity. A `with` expression also owns
+/// separate implicit `enter` and `exit` calls, which must retain distinct checked inputs
+/// and results despite sharing the same source node. Lexical tree traversal continues
+/// to use `BoundWalkEvent`, and control-flow analysis identifies individual executions
+/// of these sites separately.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum BoundExecutionSite {
+    /// An explicit source operation, binding or scope boundary.
+    Node(AnyBoundNodeId),
+    /// The implicit lifecycle entry selected by a with expression.
+    ScopedEnter(BoundExpressionId),
+    /// The implicit lifecycle exit paired with a successful scoped entry.
+    ScopedExit(BoundExpressionId),
+}
+
+impl BoundExecutionSite {
+    /// Returns the bound node owning this execution site.
+    pub const fn node(self) -> AnyBoundNodeId {
+        match self {
+            Self::Node(node) => node,
+            Self::ScopedEnter(expression) | Self::ScopedExit(expression) => {
+                AnyBoundNodeId::Expression(expression)
+            }
+        }
+    }
+
+    /// Returns the owning expression when this execution site belongs to an expression.
+    pub const fn expression(self) -> Option<BoundExpressionId> {
+        match self.node() {
+            AnyBoundNodeId::Expression(expression) => Some(expression),
+            _ => None,
+        }
+    }
+}
+
+impl From<AnyBoundNodeId> for BoundExecutionSite {
+    fn from(node: AnyBoundNodeId) -> Self {
+        Self::Node(node)
+    }
+}
+
+impl From<BoundExpressionId> for BoundExecutionSite {
+    fn from(expression: BoundExpressionId) -> Self {
+        Self::Node(expression.into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::mem::size_of;

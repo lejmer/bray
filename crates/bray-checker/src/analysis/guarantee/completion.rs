@@ -252,7 +252,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(super) fn call_entry(
         &self,
         state: &ExecutionState,
-        invocation: bray_bound_tree::SemanticOccurrence,
+        invocation: bray_bound_tree::BoundExecutionSite,
     ) -> Option<crate::ExecutionCallEvidence> {
         let expression = invocation
             .expression()
@@ -262,7 +262,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         if let bray_bound_tree::SemanticSelection::ScopedUse(scoped) = selection {
             let (input, value) = match invocation {
-                bray_bound_tree::SemanticOccurrence::ScopeEnter(_) => (
+                bray_bound_tree::BoundExecutionSite::ScopedEnter(_) => (
                     scoped
                         .enter()
                         .1
@@ -272,11 +272,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .into(),
                     self.value(state, scoped.initializer()),
                 ),
-                bray_bound_tree::SemanticOccurrence::ScopeExit(_) => (
+                bray_bound_tree::BoundExecutionSite::ScopedExit(_) => (
                     scoped.exit().1.parameters()[0].parameter().into(),
                     ExecutionCondition::ScopedCapability(expression),
                 ),
-                bray_bound_tree::SemanticOccurrence::Node(_) => return None,
+                bray_bound_tree::BoundExecutionSite::Node(_) => return None,
             };
 
             return Some(crate::ExecutionCallEvidence {

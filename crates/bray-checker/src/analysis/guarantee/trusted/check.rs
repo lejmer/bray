@@ -252,7 +252,7 @@ fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
     storage: &StoragePlan,
     flow: &super::super::flow::ExecutionFlow<'_, '_, C>,
     state: &ExecutionState,
-    occurrence: bray_bound_tree::SemanticOccurrence,
+    occurrence: bray_bound_tree::BoundExecutionSite,
     requirements: &[(ExecutionCondition, crate::ExecutionPlace)],
     transfers: &mut BTreeSet<BoundExpressionId>,
 ) {

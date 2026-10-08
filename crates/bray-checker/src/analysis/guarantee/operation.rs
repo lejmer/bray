@@ -11,7 +11,7 @@ use crate::execution_guarantees::{ExecutionDependency, ExecutionProperty};
 use crate::{CheckerRequestContext, CheckerUnitView};
 
 pub(super) fn collect_preservation_dependencies(
-    occurrences: impl Iterator<Item = bray_bound_tree::SemanticOccurrence>,
+    occurrences: impl Iterator<Item = bray_bound_tree::BoundExecutionSite>,
     selections: &CheckedSemanticSelections,
     memory: &CheckedMemoryOperations,
     values: &bray_symbols::SemanticValueStore,
@@ -26,7 +26,7 @@ pub(super) fn collect_preservation_dependencies(
         .collect::<std::collections::BTreeSet<_>>();
 
     for occurrence in occurrences {
-        let bray_bound_tree::SemanticOccurrence::Node(node) = occurrence else {
+        let bray_bound_tree::BoundExecutionSite::Node(node) = occurrence else {
             if scoped_invocation_preserves_inputs(selections, values, occurrence) {
                 collect_scoped_dependency(
                     selections,
@@ -66,7 +66,7 @@ pub(super) fn collect_preservation_dependencies(
 pub(super) fn scoped_invocation_preserves_inputs(
     selections: &CheckedSemanticSelections,
     values: &bray_symbols::SemanticValueStore,
-    occurrence: bray_bound_tree::SemanticOccurrence,
+    occurrence: bray_bound_tree::BoundExecutionSite,
 ) -> bool {
     let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(
         occurrence
@@ -211,7 +211,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
 
 pub(super) fn check_storage_accesses<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    occurrence: bray_bound_tree::SemanticOccurrence,
+    occurrence: bray_bound_tree::BoundExecutionSite,
     storage: &StoragePlan,
     property: ExecutionProperty,
     dependencies: &mut Vec<ExecutionDependency>,
@@ -324,7 +324,7 @@ fn collect_conversion_dependencies(
 
 pub(super) fn collect_scoped_dependency(
     selections: &CheckedSemanticSelections,
-    invocation: bray_bound_tree::SemanticOccurrence,
+    invocation: bray_bound_tree::BoundExecutionSite,
     property: ExecutionProperty,
     dependencies: &mut Vec<ExecutionDependency>,
 ) {

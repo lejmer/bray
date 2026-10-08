@@ -151,7 +151,7 @@ where
 
             self.push_call(
                 current,
-                bray_bound_tree::SemanticOccurrence::ScopeEnter(id),
+                bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
                 super::model::AnalysisCallPhase::Attempt,
             );
 
@@ -171,7 +171,7 @@ where
             ) {
                 self.push_suspension(
                     current,
-                    bray_bound_tree::SemanticOccurrence::ScopeEnter(id),
+                    bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
                     super::model::AnalysisSuspensionKind::ScopedCall,
                 );
 
@@ -217,7 +217,7 @@ where
 
             self.push_call(
                 entered,
-                bray_bound_tree::SemanticOccurrence::ScopeEnter(id),
+                bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
                 super::model::AnalysisCallPhase::Completion,
             );
 

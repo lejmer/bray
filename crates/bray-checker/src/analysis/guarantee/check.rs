@@ -143,15 +143,15 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
                 | AnalysisOperationKind::Suspension { .. }
                 | AnalysisOperationKind::TaskOperation { .. } => false,
                 AnalysisOperationKind::Call {
-                    invocation: bray_bound_tree::SemanticOccurrence::Node(_),
+                    invocation: bray_bound_tree::BoundExecutionSite::Node(_),
                     ..
                 } if !matches!(node, AnyBoundNodeId::Expression(_)) => {
                     panic!("selected call invocation retains an actual expression owner");
                 }
                 AnalysisOperationKind::Call {
                     invocation:
-                        invocation @ (bray_bound_tree::SemanticOccurrence::ScopeEnter(_)
-                        | bray_bound_tree::SemanticOccurrence::ScopeExit(_)),
+                        invocation @ (bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+                        | bray_bound_tree::BoundExecutionSite::ScopedExit(_)),
                     ..
                 } => {
                     if visited.insert(invocation) {
@@ -175,7 +175,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
                 }
                 AnalysisOperationKind::Call {
                     invocation:
-                        bray_bound_tree::SemanticOccurrence::Node(
+                        bray_bound_tree::BoundExecutionSite::Node(
                             bray_bound_tree::AnyBoundNodeId::Expression(expression),
                         ),
                     ..

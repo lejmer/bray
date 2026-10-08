@@ -738,7 +738,7 @@ where
     pub(super) fn push_call(
         &mut self,
         block: AnalysisBlockId,
-        invocation: bray_bound_tree::SemanticOccurrence,
+        invocation: bray_bound_tree::BoundExecutionSite,
         phase: AnalysisCallPhase,
     ) {
         let expression = invocation
@@ -758,7 +758,7 @@ where
     pub(super) fn push_suspension(
         &mut self,
         block: AnalysisBlockId,
-        occurrence: bray_bound_tree::SemanticOccurrence,
+        occurrence: bray_bound_tree::BoundExecutionSite,
         kind: AnalysisSuspensionKind,
     ) {
         match self.view.node_is_recovered(occurrence.node()) {

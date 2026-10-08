@@ -28,11 +28,11 @@ pub(in crate::analysis::liveness) struct OperationEffect {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::analysis::liveness) struct OperationEffects {
-    pub(super) by_occurrence: BTreeMap<bray_bound_tree::SemanticOccurrence, OperationEffect>,
+    pub(super) by_occurrence: BTreeMap<bray_bound_tree::BoundExecutionSite, OperationEffect>,
     operation_result_definitions: BTreeMap<BoundExpressionId, BTreeSet<BoundDependencySubject>>,
     pub(in crate::analysis::liveness) universe: BTreeSet<BoundDependencySubject>,
     pub(in crate::analysis::liveness) owner_dependencies:
-        BTreeMap<bray_bound_tree::SemanticOccurrence, BTreeSet<BoundDependencySubject>>,
+        BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
     exit_dependencies: BTreeMap<AnyBoundNodeId, BTreeSet<BoundDependencySubject>>,
     pub(super) value_inputs: ValueInputs,
     pub(in crate::analysis::liveness) recovered_nodes: BTreeSet<AnyBoundNodeId>,
@@ -78,7 +78,7 @@ impl OperationEffects {
                 {
                     Some(bray_bound_tree::StorageIdentity::ScopedCapability {
                         expression, ..
-                    }) => bray_bound_tree::SemanticOccurrence::ScopeEnter(expression),
+                    }) => bray_bound_tree::BoundExecutionSite::ScopedEnter(expression),
                     _ => plan.expression().into(),
                 };
 
@@ -96,7 +96,7 @@ impl OperationEffects {
                     selections.expression(expression),
                     Some(SemanticSelection::ScopedUse(_))
                 ) {
-                    bray_bound_tree::SemanticOccurrence::ScopeEnter(expression)
+                    bray_bound_tree::BoundExecutionSite::ScopedEnter(expression)
                 } else {
                     expression.into()
                 };
@@ -199,7 +199,7 @@ impl OperationEffects {
                 Some(BoundExpression::Structured(scoped))
                     if scoped.kind() == bray_bound_tree::BoundStructuredExpressionKind::With =>
                 {
-                    bray_bound_tree::SemanticOccurrence::ScopeEnter(expression)
+                    bray_bound_tree::BoundExecutionSite::ScopedEnter(expression)
                 }
                 _ => expression.into(),
             };
@@ -237,7 +237,7 @@ impl OperationEffects {
                     .flat_map(|child| {
                         effects
                             .by_occurrence
-                            .get(&bray_bound_tree::SemanticOccurrence::Node(child.into()))
+                            .get(&bray_bound_tree::BoundExecutionSite::Node(child.into()))
                             .into_iter()
                             .flat_map(|effect| {
                                 effect
@@ -335,8 +335,8 @@ impl OperationEffects {
         for entry in selections.entries() {
             if let SemanticSelection::ScopedUse(scoped) = entry.selection() {
                 for occurrence in [
-                    bray_bound_tree::SemanticOccurrence::ScopeEnter(entry.expression()),
-                    bray_bound_tree::SemanticOccurrence::ScopeExit(entry.expression()),
+                    bray_bound_tree::BoundExecutionSite::ScopedEnter(entry.expression()),
+                    bray_bound_tree::BoundExecutionSite::ScopedExit(entry.expression()),
                 ] {
                     let contracts = crate::dependency::selected_scoped_contracts(
                         request, storage, scoped, occurrence,
@@ -489,7 +489,7 @@ impl OperationEffects {
 
     pub(super) fn extend_uses(
         &mut self,
-        occurrence: impl Into<bray_bound_tree::SemanticOccurrence>,
+        occurrence: impl Into<bray_bound_tree::BoundExecutionSite>,
         subjects: impl IntoIterator<Item = BoundDependencySubject>,
     ) {
         self.by_occurrence
@@ -543,7 +543,7 @@ impl OperationEffects {
         let (phase, result_definitions) = match operation.kind() {
             AnalysisOperationKind::Call {
                 invocation:
-                    bray_bound_tree::SemanticOccurrence::Node(
+                    bray_bound_tree::BoundExecutionSite::Node(
                         bray_bound_tree::AnyBoundNodeId::Expression(expression),
                     ),
                 phase,

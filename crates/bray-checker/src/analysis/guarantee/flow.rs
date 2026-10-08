@@ -258,7 +258,7 @@ pub(super) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(super) storage: &'a bray_bound_tree::StoragePlan,
     pub(super) contracts: &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
     cleanup: Option<&'a bray_bound_tree::CheckedAsync>,
-    invalidating: BTreeMap<bray_bound_tree::SemanticOccurrence, StorageInvalidation>,
+    invalidating: BTreeMap<bray_bound_tree::BoundExecutionSite, StorageInvalidation>,
     pub(super) spatial_predicates: BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
 }
 
@@ -283,17 +283,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(super) fn invocation_value(
         &self,
         state: &ExecutionState,
-        invocation: bray_bound_tree::SemanticOccurrence,
+        invocation: bray_bound_tree::BoundExecutionSite,
     ) -> ExecutionCondition {
         match invocation {
-            bray_bound_tree::SemanticOccurrence::Node(
+            bray_bound_tree::BoundExecutionSite::Node(
                 bray_bound_tree::AnyBoundNodeId::Expression(expression),
             ) => self.value(state, expression),
-            bray_bound_tree::SemanticOccurrence::ScopeEnter(expression) => {
+            bray_bound_tree::BoundExecutionSite::ScopedEnter(expression) => {
                 ExecutionCondition::ScopedCapability(expression)
             }
-            bray_bound_tree::SemanticOccurrence::ScopeExit(_) => ExecutionCondition::Unknown,
-            bray_bound_tree::SemanticOccurrence::Node(node) => {
+            bray_bound_tree::BoundExecutionSite::ScopedExit(_) => ExecutionCondition::Unknown,
+            bray_bound_tree::BoundExecutionSite::Node(node) => {
                 panic!("invocation value requires an expression owner, got {node:?}")
             }
         }
@@ -394,8 +394,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) {
         if let super::super::model::AnalysisOperationKind::Call {
             invocation:
-                invocation @ (bray_bound_tree::SemanticOccurrence::ScopeEnter(_)
-                | bray_bound_tree::SemanticOccurrence::ScopeExit(_)),
+                invocation @ (bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+                | bray_bound_tree::BoundExecutionSite::ScopedExit(_)),
             phase,
         } = operation
         {
@@ -403,7 +403,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 super::super::model::AnalysisCallPhase::Attempt => {
                     let entry = self.call_entry(state, invocation);
 
-                    if let bray_bound_tree::SemanticOccurrence::ScopeExit(expression) = invocation {
+                    if let bray_bound_tree::BoundExecutionSite::ScopedExit(expression) = invocation
+                    {
                         // Exit may transfer obligations from its captured input contract. The
                         // entered capability itself grants no authority beyond this boundary.
                         state.invalidate_trusted(&ExecutionCondition::ScopedCapability(expression));
@@ -422,7 +423,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     self.complete_trusted_call(state, invocation, result);
 
-                    if let bray_bound_tree::SemanticOccurrence::ScopeExit(expression) = invocation {
+                    if let bray_bound_tree::BoundExecutionSite::ScopedExit(expression) = invocation
+                    {
                         // Only guarantees rewritten to surviving values can outlive the consumed capability.
                         state.invalidate_trusted(&ExecutionCondition::ScopedCapability(expression));
                     }
@@ -600,7 +602,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     fn invalidate(
         &self,
         state: &mut ExecutionState,
-        occurrence: bray_bound_tree::SemanticOccurrence,
+        occurrence: bray_bound_tree::BoundExecutionSite,
     ) {
         let Some(invalidation) = self.invalidating.get(&occurrence) else {
             return;
@@ -608,7 +610,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         if matches!(invalidation, StorageInvalidation::All) {
             let preserves_storage = match occurrence {
-                bray_bound_tree::SemanticOccurrence::Node(AnyBoundNodeId::Expression(
+                bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(
                     expression,
                 )) => {
                     matches!(self.semantics.selections().expression(expression),

@@ -9,7 +9,7 @@ impl Liveness {
         &self,
         dependencies: &CheckedDependencyContracts,
         storage: &StoragePlan,
-        occurrence: impl Into<crate::SemanticOccurrence>,
+        occurrence: impl Into<crate::BoundExecutionSite>,
         dependency_contract: Option<BoundDependencyContractId>,
     ) -> Vec<BoundDependencySubject> {
         let occurrence = occurrence.into();

@@ -169,7 +169,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 if let AnalysisOperationKind::Suspension {
                     occurrence:
-                        bray_bound_tree::SemanticOccurrence::Node(
+                        bray_bound_tree::BoundExecutionSite::Node(
                             bray_bound_tree::AnyBoundNodeId::Expression(expression),
                         ),
                     kind: AnalysisSuspensionKind::Await,
@@ -334,7 +334,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis::guarantee) fn complete_trusted_call(
         &self,
         state: &mut ExecutionState,
-        invocation: bray_bound_tree::SemanticOccurrence,
+        invocation: bray_bound_tree::BoundExecutionSite,
         result: ExecutionCondition,
     ) {
         let Some(contract) = self
@@ -392,7 +392,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .collect::<Vec<_>>();
 
         let transfer_equalities = match invocation {
-            bray_bound_tree::SemanticOccurrence::ScopeExit(expression) => Some(
+            bray_bound_tree::BoundExecutionSite::ScopedExit(expression) => Some(
                 ExecutionCondition::equalities(&entry.assumptions, Some(expression)),
             ),
             _ => None,
@@ -401,7 +401,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut arguments = entry.arguments;
 
         let (carriers, owners) = if !contract.guarantees.is_empty()
-            && let bray_bound_tree::SemanticOccurrence::Node(
+            && let bray_bound_tree::BoundExecutionSite::Node(
                 bray_bound_tree::AnyBoundNodeId::Expression(expression),
             ) = invocation
             && let Some(bray_bound_tree::SemanticSelection::Call(call)) =

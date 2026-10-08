@@ -25,7 +25,7 @@ pub(super) struct StorageFlowInput {
     copyable_types: BTreeSet<TypeId>,
     mutable_storage: BTreeSet<StorageIdentityId>,
     immutable_field_accesses: BTreeSet<StorageAccessId>,
-    storage_last_uses: BTreeMap<bray_bound_tree::SemanticOccurrence, Vec<StorageIdentityId>>,
+    storage_last_uses: BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageIdentityId>>,
     unused_entry_storage: BTreeSet<StorageIdentityId>,
     cleanup_free_storage: BTreeSet<StorageIdentityId>,
     pub(super) suspension_borrows: BTreeSet<BorrowCapabilityId>,
@@ -172,7 +172,7 @@ impl StorageFlowInput {
 
     pub(super) fn storage_last_uses(
         &self,
-        occurrence: bray_bound_tree::SemanticOccurrence,
+        occurrence: bray_bound_tree::BoundExecutionSite,
     ) -> &[StorageIdentityId] {
         self.storage_last_uses
             .get(&occurrence)

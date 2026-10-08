@@ -99,7 +99,7 @@ impl StorageOperationDecision {
 /// Storage and borrow state immediately before one direct-await suspension.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageSuspensionState {
-    occurrence: crate::SemanticOccurrence,
+    occurrence: crate::BoundExecutionSite,
     live: Arc<[StorageIdentityId]>,
     initialized: Arc<[StorageIdentityId]>,
     moved: Arc<[StorageAccessId]>,
@@ -109,7 +109,7 @@ pub struct StorageSuspensionState {
 impl StorageSuspensionState {
     /// Creates one normalized suspension-state snapshot.
     pub fn new(
-        occurrence: impl Into<crate::SemanticOccurrence>,
+        occurrence: impl Into<crate::BoundExecutionSite>,
         live: impl IntoIterator<Item = StorageIdentityId>,
         initialized: impl IntoIterator<Item = StorageIdentityId>,
         moved: impl IntoIterator<Item = StorageAccessId>,
@@ -132,7 +132,7 @@ impl StorageSuspensionState {
     }
 
     /// Returns the exact suspension phase.
-    pub const fn occurrence(&self) -> crate::SemanticOccurrence {
+    pub const fn occurrence(&self) -> crate::BoundExecutionSite {
         self.occurrence
     }
 
@@ -487,7 +487,7 @@ impl StorageFlow {
     /// Returns storage state immediately before one direct-await expression.
     pub fn suspension(
         &self,
-        occurrence: impl Into<crate::SemanticOccurrence>,
+        occurrence: impl Into<crate::BoundExecutionSite>,
     ) -> Option<&StorageSuspensionState> {
         self.suspensions
             .binary_search_by_key(&occurrence.into(), StorageSuspensionState::occurrence)

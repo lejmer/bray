@@ -21,14 +21,14 @@ impl OperationEffects {
         let mut initializations = value_transfer_bindings(request, storage)
             .into_iter()
             .map(|(expression, bindings)| (expression.into(), bindings))
-            .collect::<BTreeMap<bray_bound_tree::SemanticOccurrence, _>>();
+            .collect::<BTreeMap<bray_bound_tree::BoundExecutionSite, _>>();
 
         for (identity, provenance) in storage.identity_entries() {
             if let bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. } =
                 provenance
             {
                 initializations
-                    .entry(bray_bound_tree::SemanticOccurrence::ScopeEnter(expression))
+                    .entry(bray_bound_tree::BoundExecutionSite::ScopedEnter(expression))
                     .or_default()
                     .push(StorageBinding::Identity(identity));
             }
@@ -129,9 +129,9 @@ impl OperationEffects {
 
 fn index_value_sources_by_root(
     storage: &StoragePlan,
-    initializations: &BTreeMap<bray_bound_tree::SemanticOccurrence, Vec<StorageBinding>>,
+    initializations: &BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageBinding>>,
     inputs: &ValueInputs,
-) -> BTreeMap<StorageIdentityId, Vec<bray_bound_tree::SemanticOccurrence>> {
+) -> BTreeMap<StorageIdentityId, Vec<bray_bound_tree::BoundExecutionSite>> {
     let mut result = BTreeMap::<_, Vec<_>>::new();
 
     for (initializer, bindings) in initializations {
@@ -164,7 +164,7 @@ fn index_value_sources_by_root(
                 inputs
                     .projected_operands(plan.expression())
                     .map(|(value, path)| {
-                        bray_bound_tree::SemanticOccurrence::from(inputs.project(value, &path).0)
+                        bray_bound_tree::BoundExecutionSite::from(inputs.project(value, &path).0)
                     }),
             );
     }
@@ -174,7 +174,7 @@ fn index_value_sources_by_root(
 
 fn retained_storage_borrows(
     storage: &StoragePlan,
-    value_sources_by_root: &BTreeMap<StorageIdentityId, Vec<bray_bound_tree::SemanticOccurrence>>,
+    value_sources_by_root: &BTreeMap<StorageIdentityId, Vec<bray_bound_tree::BoundExecutionSite>>,
     subjects: impl IntoIterator<Item = BoundDependencySubject>,
     effects: &OperationEffects,
 ) -> BTreeSet<BoundDependencySubject> {
@@ -228,14 +228,14 @@ fn retained_storage_borrows(
 
 pub(super) fn retained_subtree_subjects(
     inputs: &ValueInputs,
-    root: impl Into<bray_bound_tree::SemanticOccurrence>,
+    root: impl Into<bray_bound_tree::BoundExecutionSite>,
     retained_by_expression: &BTreeMap<
-        bray_bound_tree::SemanticOccurrence,
+        bray_bound_tree::BoundExecutionSite,
         BTreeSet<BoundDependencySubject>,
     >,
 ) -> BTreeSet<BoundDependencySubject> {
     let mut retained = BTreeSet::new();
-    let mut pending: Vec<bray_bound_tree::SemanticOccurrence> = vec![root.into()];
+    let mut pending: Vec<bray_bound_tree::BoundExecutionSite> = vec![root.into()];
     let mut visited = BTreeSet::new();
 
     while let Some(occurrence) = pending.pop() {
@@ -244,7 +244,7 @@ pub(super) fn retained_subtree_subjects(
         }
 
         let expression = match occurrence {
-            bray_bound_tree::SemanticOccurrence::Node(
+            bray_bound_tree::BoundExecutionSite::Node(
                 bray_bound_tree::AnyBoundNodeId::Expression(expression),
             ) => Some(expression),
             _ => None,
@@ -265,11 +265,11 @@ pub(super) fn retained_subtree_subjects(
         pending.extend(
             inputs
                 .operands(expression)
-                .map(bray_bound_tree::SemanticOccurrence::from),
+                .map(bray_bound_tree::BoundExecutionSite::from),
         );
 
         pending.extend(inputs.projected_operands(expression).map(|(value, path)| {
-            bray_bound_tree::SemanticOccurrence::from(inputs.project(value, &path).0)
+            bray_bound_tree::BoundExecutionSite::from(inputs.project(value, &path).0)
         }));
     }
 

@@ -8,11 +8,11 @@ pub(crate) enum AnalysisOperationKind {
     Bound(AnyBoundNodeId),
     PatternObservation(BoundPatternId),
     Call {
-        invocation: bray_bound_tree::SemanticOccurrence,
+        invocation: bray_bound_tree::BoundExecutionSite,
         phase: AnalysisCallPhase,
     },
     Suspension {
-        occurrence: bray_bound_tree::SemanticOccurrence,
+        occurrence: bray_bound_tree::BoundExecutionSite,
         kind: AnalysisSuspensionKind,
     },
     TaskOperation {
@@ -28,11 +28,11 @@ pub(crate) enum AnalysisOperationKind {
 }
 
 impl AnalysisOperationKind {
-    pub(crate) const fn occurrence(self) -> bray_bound_tree::SemanticOccurrence {
+    pub(crate) const fn occurrence(self) -> bray_bound_tree::BoundExecutionSite {
         match self {
             Self::Call { invocation, .. } => invocation,
             Self::Suspension { occurrence, .. } => occurrence,
-            _ => bray_bound_tree::SemanticOccurrence::Node(self.node()),
+            _ => bray_bound_tree::BoundExecutionSite::Node(self.node()),
         }
     }
 

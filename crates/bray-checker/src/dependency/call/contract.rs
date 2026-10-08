@@ -231,7 +231,7 @@ pub(crate) fn selected_scoped_contracts<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     scoped: &bray_bound_tree::SelectedScopedUse,
-    occurrence: bray_bound_tree::SemanticOccurrence,
+    occurrence: bray_bound_tree::BoundExecutionSite,
 ) -> Result<
     InstantiatedCallContracts,
     DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
@@ -246,7 +246,7 @@ where
         .access();
 
     let (callable, root, result) = match occurrence {
-        bray_bound_tree::SemanticOccurrence::ScopeEnter(expression) => {
+        bray_bound_tree::BoundExecutionSite::ScopedEnter(expression) => {
             let bray_bound_tree::BoundExpression::Structured(bound) = request
                 .view()
                 .expression(expression)
@@ -270,12 +270,12 @@ where
                 Some(capability),
             )
         }
-        bray_bound_tree::SemanticOccurrence::ScopeExit(_) => (
+        bray_bound_tree::BoundExecutionSite::ScopedExit(_) => (
             scoped.exit().0,
             DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
             None,
         ),
-        bray_bound_tree::SemanticOccurrence::Node(_) => {
+        bray_bound_tree::BoundExecutionSite::Node(_) => {
             panic!("scoped contract requires its enter or exit occurrence");
         }
     };

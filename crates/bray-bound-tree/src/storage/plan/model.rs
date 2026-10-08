@@ -289,7 +289,7 @@ impl StoragePlan {
     /// Returns access plans for an exact execution occurrence in their original evaluation order.
     pub fn occurrence_plans(
         &self,
-        occurrence: crate::SemanticOccurrence,
+        occurrence: crate::BoundExecutionSite,
     ) -> impl Iterator<Item = StorageAccessPlan> + '_ {
         let first = self
             .plans_by_occurrence

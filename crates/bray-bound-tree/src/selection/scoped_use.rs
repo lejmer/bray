@@ -117,7 +117,7 @@ impl SelectedScopedUse {
     /// Returns the closed callable, signature and execution result for one actual protocol phase.
     pub fn invocation(
         &self,
-        occurrence: crate::SemanticOccurrence,
+        occurrence: crate::BoundExecutionSite,
     ) -> (CallableInstanceData, &CallableSignature, BoundCallResult) {
         assert_eq!(
             occurrence.expression(),
@@ -126,13 +126,13 @@ impl SelectedScopedUse {
         );
 
         match occurrence {
-            crate::SemanticOccurrence::ScopeEnter(_) => {
+            crate::BoundExecutionSite::ScopedEnter(_) => {
                 (self.enter.0, &self.enter.1, self.enter_result)
             }
-            crate::SemanticOccurrence::ScopeExit(_) => {
+            crate::BoundExecutionSite::ScopedExit(_) => {
                 (self.exit.0, &self.exit.1, self.exit_result)
             }
-            crate::SemanticOccurrence::Node(_) => {
+            crate::BoundExecutionSite::Node(_) => {
                 panic!("scoped invocation retains its enter or exit phase")
             }
         }

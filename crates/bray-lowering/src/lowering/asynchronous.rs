@@ -54,7 +54,7 @@ impl Lowerer<'_> {
 
     pub(super) fn lower_awaited_frame(
         &mut self,
-        occurrence: bray_bound_tree::SemanticOccurrence,
+        occurrence: bray_bound_tree::BoundExecutionSite,
         frame_value: MirOperand,
         completion: bray_symbols::TypeId,
         current: MirBlockId,
@@ -97,7 +97,7 @@ impl Lowerer<'_> {
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
         let cancellation = match occurrence {
-            bray_bound_tree::SemanticOccurrence::ScopeExit(_) => {
+            bray_bound_tree::BoundExecutionSite::ScopedExit(_) => {
                 // The exit dispatcher establishes the cleanup shield before driving this child.
                 let unreachable = self.builder.push_block(
                     Self::retained_source(&source),

@@ -351,7 +351,7 @@ where
     pub(super) input: &'analysis StorageFlowInput,
     pub(super) owners: &'analysis StorageScopeOwners,
     pub(super) statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
-    pub(super) suspensions: BTreeMap<bray_bound_tree::SemanticOccurrence, StorageSuspensionState>,
+    pub(super) suspensions: BTreeMap<bray_bound_tree::BoundExecutionSite, StorageSuspensionState>,
     exits: Vec<(bray_bound_tree::BoundBlockId, AnyBoundNodeId, ExitState)>,
     exit_indices: BTreeMap<(bray_bound_tree::BoundBlockId, AnyBoundNodeId), usize>,
     replacements: BTreeMap<StorageAccessPlan, ReplacementState>,
@@ -451,13 +451,13 @@ where
 
         if let AnalysisOperationKind::Call { invocation, phase } = operation.kind() {
             match invocation {
-                bray_bound_tree::SemanticOccurrence::Node(
+                bray_bound_tree::BoundExecutionSite::Node(
                     bray_bound_tree::AnyBoundNodeId::Expression(_),
                 ) if phase == AnalysisCallPhase::Attempt => {
                     return;
                 }
-                bray_bound_tree::SemanticOccurrence::ScopeEnter(_)
-                | bray_bound_tree::SemanticOccurrence::ScopeExit(_) => {
+                bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+                | bray_bound_tree::BoundExecutionSite::ScopedExit(_) => {
                     if phase == AnalysisCallPhase::Attempt {
                         let refinements =
                             self.refinements.refinements_before(operation.kind().node());
@@ -472,7 +472,7 @@ where
 
                     return;
                 }
-                bray_bound_tree::SemanticOccurrence::Node(_) => {}
+                bray_bound_tree::BoundExecutionSite::Node(_) => {}
             }
         }
 
@@ -857,7 +857,7 @@ where
     fn end_last_use_storage(
         &self,
         state: &mut StorageFlowState,
-        operation: bray_bound_tree::SemanticOccurrence,
+        operation: bray_bound_tree::BoundExecutionSite,
     ) {
         if state.recovered {
             return;
@@ -871,7 +871,7 @@ where
     fn end_last_use_borrows(
         &self,
         state: &mut StorageFlowState,
-        operation: bray_bound_tree::SemanticOccurrence,
+        operation: bray_bound_tree::BoundExecutionSite,
     ) {
         let moved_borrows = state
             .moved
@@ -1012,7 +1012,7 @@ where
     fn record_suspension(
         &mut self,
         state: &StorageFlowState,
-        occurrence: bray_bound_tree::SemanticOccurrence,
+        occurrence: bray_bound_tree::BoundExecutionSite,
     ) {
         if !self.publish {
             return;

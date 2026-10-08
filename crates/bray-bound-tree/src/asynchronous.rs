@@ -57,7 +57,7 @@ pub enum AsyncSuspensionKind {
 /// One suspension point and the semantic state it retains.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct AsyncSuspensionPoint {
-    occurrence: crate::SemanticOccurrence,
+    occurrence: crate::BoundExecutionSite,
     kind: AsyncSuspensionKind,
     dependency_contract: Option<BoundDependencyContractId>,
     deferred_calls: Arc<[BodyBehaviorCall]>,
@@ -101,7 +101,7 @@ impl AsyncSuspensionPoint {
 
     /// Creates one normalized suspension point.
     pub fn new(
-        occurrence: impl Into<crate::SemanticOccurrence>,
+        occurrence: impl Into<crate::BoundExecutionSite>,
         kind: AsyncSuspensionKind,
         dependency_contract: Option<BoundDependencyContractId>,
         deferred_calls: impl IntoIterator<Item = BodyBehaviorCall>,
@@ -126,7 +126,7 @@ impl AsyncSuspensionPoint {
     }
 
     /// Returns the exact source or implicit lifecycle phase that suspends.
-    pub const fn occurrence(&self) -> crate::SemanticOccurrence {
+    pub const fn occurrence(&self) -> crate::BoundExecutionSite {
         self.occurrence
     }
 

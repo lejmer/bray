@@ -70,7 +70,7 @@ where
         let requirements = operation_requirements(storage, operation);
 
         expression_requirements
-            .entry(bray_bound_tree::SemanticOccurrence::from(
+            .entry(bray_bound_tree::BoundExecutionSite::from(
                 operation.expression(),
             ))
             .or_insert_with(Vec::new)
@@ -114,7 +114,7 @@ where
 
                         if let Some(deferred) = contracts.deferred() {
                             deferred_expression_requirements
-                                .entry(bray_bound_tree::SemanticOccurrence::from(
+                                .entry(bray_bound_tree::BoundExecutionSite::from(
                                     entry.expression(),
                                 ))
                                 .or_insert_with(Vec::new)
@@ -131,8 +131,8 @@ where
             }
             SemanticSelection::ScopedUse(scoped) => {
                 for occurrence in [
-                    bray_bound_tree::SemanticOccurrence::ScopeEnter(entry.expression()),
-                    bray_bound_tree::SemanticOccurrence::ScopeExit(entry.expression()),
+                    bray_bound_tree::BoundExecutionSite::ScopedEnter(entry.expression()),
+                    bray_bound_tree::BoundExecutionSite::ScopedExit(entry.expression()),
                 ] {
                     match selected_scoped_contracts(request, storage, scoped, occurrence) {
                         Ok(contracts) => {
@@ -164,7 +164,7 @@ where
 
         match contract {
             Ok(contract) => expression_requirements
-                .entry(bray_bound_tree::SemanticOccurrence::from(
+                .entry(bray_bound_tree::BoundExecutionSite::from(
                     entry.expression(),
                 ))
                 .or_insert_with(Vec::new)
@@ -241,7 +241,7 @@ where
 fn inherit_child_requirements<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     expression_requirements: &mut BTreeMap<
-        bray_bound_tree::SemanticOccurrence,
+        bray_bound_tree::BoundExecutionSite,
         Vec<BoundDependencyRequirement>,
     >,
 ) {

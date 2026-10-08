@@ -727,11 +727,11 @@ impl Compilation {
 
         for (invocation, selected) in [
             (
-                bray_bound_tree::SemanticOccurrence::ScopeEnter(expression),
+                bray_bound_tree::BoundExecutionSite::ScopedEnter(expression),
                 scoped.enter(),
             ),
             (
-                bray_bound_tree::SemanticOccurrence::ScopeExit(expression),
+                bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
                 scoped.exit(),
             ),
         ] {
@@ -755,7 +755,7 @@ impl Compilation {
         signature: &bray_symbols::CallableSignature,
         arguments: std::collections::BTreeMap<
             bray_bound_tree::BoundReferenceTarget,
-            bray_bound_tree::SemanticOccurrence,
+            bray_bound_tree::BoundExecutionSite,
         >,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,

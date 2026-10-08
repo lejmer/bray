@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use bray_bound_tree::SemanticOccurrence;
+use bray_bound_tree::BoundExecutionSite;
 
 use crate::ExecutionCondition;
 
@@ -16,14 +16,14 @@ pub struct TrustedContractInputs {
     /// Guarantees a safe body must establish on every normal completion.
     pub guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
     /// Predicate contracts on selected calls, retaining declaration identity.
-    pub calls: BTreeMap<SemanticOccurrence, TrustedCallContract>,
+    pub calls: BTreeMap<BoundExecutionSite, TrustedCallContract>,
 }
 
 /// Trusted requirements and guarantees on one selected call.
 #[derive(Debug, Default)]
 pub struct TrustedCallContract {
     /// Exact declaration inputs for an implicit selected operation.
-    pub arguments: BTreeMap<bray_bound_tree::BoundReferenceTarget, SemanticOccurrence>,
+    pub arguments: BTreeMap<bray_bound_tree::BoundReferenceTarget, BoundExecutionSite>,
     /// Whether this operation establishes guarantees at its normal completion.
     pub completes: bool,
     /// Whether result guarantees are carried by the value rather than checked storage.

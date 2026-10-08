@@ -578,7 +578,7 @@ where
 
         self.builder_mut()?
             .plan_occurrence_access(
-                bray_bound_tree::SemanticOccurrence::ScopeEnter(id),
+                bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
                 *initializer,
                 Self::call_receiver_purpose(mode),
                 source,
@@ -608,7 +608,7 @@ where
 
         self.builder_mut()?
             .plan_occurrence_access(
-                bray_bound_tree::SemanticOccurrence::ScopeExit(id),
+                bray_bound_tree::BoundExecutionSite::ScopedExit(id),
                 id,
                 StorageAccessPurpose::ValueTransfer,
                 capability,

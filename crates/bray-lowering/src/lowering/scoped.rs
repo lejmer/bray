@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    BoundCallResult, BoundExpressionId, BoundPatternId, SelectedReceiver, SemanticOccurrence,
+    BoundCallResult, BoundExecutionSite, BoundExpressionId, BoundPatternId, SelectedReceiver,
     SemanticSelection, StorageBinding, StorageBindingTarget,
 };
 use bray_compiler_known::RepresentationRole;
@@ -66,7 +66,7 @@ impl Lowerer<'_> {
         let access = self
             .input
             .storage_plan()
-            .occurrence_plans(SemanticOccurrence::ScopeEnter(expression))
+            .occurrence_plans(BoundExecutionSite::ScopedEnter(expression))
             .next()
             .expect("selected enter retains its receiver access")
             .access();
@@ -116,7 +116,7 @@ impl Lowerer<'_> {
                 let (current, value) =
                     if matches!(invocation_result, BoundCallResult::LazyFuture(_)) {
                         let awaited = lowerer.lower_awaited_frame(
-                            SemanticOccurrence::ScopeEnter(expression),
+                            BoundExecutionSite::ScopedEnter(expression),
                             value,
                             result,
                             current,
@@ -238,7 +238,7 @@ impl Lowerer<'_> {
         let access = self
             .input
             .storage_plan()
-            .occurrence_plans(SemanticOccurrence::ScopeExit(expression))
+            .occurrence_plans(BoundExecutionSite::ScopedExit(expression))
             .next()
             .expect("selected exit retains its capability access")
             .access();
@@ -306,7 +306,7 @@ impl Lowerer<'_> {
                     block = lowerer.check_scoped_exit_call(block, source, ordinary_shield, &mut continuations)?;
 
                     let awaited = lowerer.lower_awaited_frame(
-                        SemanticOccurrence::ScopeExit(expression), completion, result, block,
+                        BoundExecutionSite::ScopedExit(expression), completion, result, block,
                         Self::retained_source(source),
                     )?;
 

@@ -40,7 +40,7 @@ pub struct StoragePlanBuilder {
     pub(super) bindings: BTreeMap<StorageBindingTarget, StorageBinding>,
     pub(super) plans: Vec<StorageAccessPlan>,
     pub(super) planned_accesses: BTreeSet<(
-        crate::SemanticOccurrence,
+        crate::BoundExecutionSite,
         crate::BoundExpressionId,
         StorageAccessPurpose,
         StorageAccessId,
@@ -241,7 +241,7 @@ impl StoragePlanBuilder {
     /// Records an access at its exact source or implicit protocol invocation occurrence.
     pub fn plan_occurrence_access(
         &mut self,
-        occurrence: crate::SemanticOccurrence,
+        occurrence: crate::BoundExecutionSite,
         expression: crate::BoundExpressionId,
         purpose: StorageAccessPurpose,
         access: StorageAccessId,

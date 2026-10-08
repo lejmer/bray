@@ -384,14 +384,14 @@ fn transfer_operation(
             invocation,
             phase: AnalysisCallPhase::Completion,
         } => {
-            if let bray_bound_tree::SemanticOccurrence::Node(node) = invocation {
+            if let bray_bound_tree::BoundExecutionSite::Node(node) = invocation {
                 universe.finish_operation(&mut state.refinements, node);
             }
         }
         AnalysisOperationKind::Suspension { occurrence, .. } => {
             universe.invalidate_for_operation(&mut state.refinements, occurrence, storage);
 
-            if let bray_bound_tree::SemanticOccurrence::Node(node) = occurrence {
+            if let bray_bound_tree::BoundExecutionSite::Node(node) = occurrence {
                 universe.finish_operation(&mut state.refinements, node);
             }
         }

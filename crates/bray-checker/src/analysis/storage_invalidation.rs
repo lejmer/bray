@@ -1,6 +1,6 @@
 use crate::{CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{
-    CheckedSemanticSelections, SemanticOccurrence, SemanticSelection, StorageAccessId,
+    BoundExecutionSite, CheckedSemanticSelections, SemanticSelection, StorageAccessId,
     StorageAccessPurpose, StoragePlan, StorageRelationship,
 };
 use bray_symbols::{ExecutionProperty, TypeData};
@@ -27,7 +27,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
     selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
     copied_types: &BTreeSet<bray_symbols::TypeId>,
-) -> BTreeMap<SemanticOccurrence, StorageInvalidation> {
+) -> BTreeMap<BoundExecutionSite, StorageInvalidation> {
     let mut accesses = BTreeMap::new();
 
     for plan in storage.access_plans().iter().filter(|plan| {
@@ -59,8 +59,8 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
     for (expression, _) in request.unit().tree().expressions() {
         if let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(expression) {
             for occurrence in [
-                SemanticOccurrence::ScopeEnter(expression),
-                SemanticOccurrence::ScopeExit(expression),
+                BoundExecutionSite::ScopedEnter(expression),
+                BoundExecutionSite::ScopedExit(expression),
             ] {
                 let signature = scoped.invocation(occurrence).1;
 
