@@ -276,6 +276,11 @@ fn public_module_re_exports_enter_the_interface_lookup_surface() {
 
 #[test]
 fn parallel_interface_discovery_preserves_encoded_identity() {
+    use std::sync::{Condvar, Mutex};
+    use std::time::Duration;
+
+    use crate::profile::ProfileOperation;
+
     let sources = [
         r#"
             module app.first;
@@ -306,6 +311,42 @@ fn parallel_interface_discovery_preserves_encoded_identity() {
         .unwrap_or_else(|error| panic!("parallel worker budget must be valid: {error:?}"));
 
     let parallel = profiled_compilation_from_sources_with_worker_budget(sources, parallel_budget);
+
+    let rendezvous = (Mutex::new(0), Condvar::new());
+
+    parallel
+        .state
+        .fact_runtime
+        .profile()
+        .expect("parallel compilation must retain its profile session")
+        .set_test_observer(move |operation| {
+            if operation != ProfileOperation::InterfaceFragmentDiscovery {
+                return;
+            }
+
+            // Hold the first fragment span open until another scheduled worker enters one.
+            let (arrivals, ready) = &rendezvous;
+
+            let mut arrivals = arrivals
+                .lock()
+                .expect("fragment rendezvous must remain available");
+
+            if *arrivals >= 2 {
+                return;
+            }
+
+            *arrivals += 1;
+            ready.notify_all();
+
+            let (arrivals, _) = ready
+                .wait_timeout_while(arrivals, Duration::from_secs(10), |arrivals| *arrivals < 2)
+                .expect("fragment rendezvous must remain available");
+
+            assert_eq!(
+                *arrivals, 2,
+                "two fragment workers must reach the rendezvous"
+            );
+        });
 
     let serial_artifact = encode_package_interface(export(&serial))
         .unwrap_or_else(|error| panic!("serial interface must encode: {error:?}"));
