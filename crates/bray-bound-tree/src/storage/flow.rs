@@ -99,7 +99,7 @@ impl StorageOperationDecision {
 /// Storage and borrow state immediately before one direct-await suspension.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageSuspensionState {
-    expression: BoundExpressionId,
+    occurrence: crate::SemanticOccurrence,
     live: Arc<[StorageIdentityId]>,
     initialized: Arc<[StorageIdentityId]>,
     moved: Arc<[StorageAccessId]>,
@@ -109,14 +109,14 @@ pub struct StorageSuspensionState {
 impl StorageSuspensionState {
     /// Creates one normalized suspension-state snapshot.
     pub fn new(
-        expression: BoundExpressionId,
+        occurrence: impl Into<crate::SemanticOccurrence>,
         live: impl IntoIterator<Item = StorageIdentityId>,
         initialized: impl IntoIterator<Item = StorageIdentityId>,
         moved: impl IntoIterator<Item = StorageAccessId>,
         active_borrows: impl IntoIterator<Item = BorrowCapabilityId>,
     ) -> Self {
         Self {
-            expression,
+            occurrence: occurrence.into(),
             live: sorted_unique_shared_slice(live),
             initialized: sorted_unique_shared_slice(initialized),
             moved: sorted_unique_shared_slice(moved),
@@ -126,7 +126,14 @@ impl StorageSuspensionState {
 
     /// Returns the direct-await expression.
     pub const fn expression(&self) -> BoundExpressionId {
-        self.expression
+        self.occurrence
+            .expression()
+            .expect("suspension has an expression owner")
+    }
+
+    /// Returns the exact suspension phase.
+    pub const fn occurrence(&self) -> crate::SemanticOccurrence {
+        self.occurrence
     }
 
     /// Returns storage known to be live before suspension.
@@ -358,11 +365,11 @@ impl StorageFlow {
             return Err(StorageFlowBuildError::ForeignUnit);
         }
 
-        suspensions.sort_unstable_by_key(StorageSuspensionState::expression);
+        suspensions.sort_unstable_by_key(StorageSuspensionState::occurrence);
 
         if suspensions
             .windows(2)
-            .any(|pair| pair[0].expression() == pair[1].expression())
+            .any(|pair| pair[0].occurrence() == pair[1].occurrence())
         {
             return Err(StorageFlowBuildError::DuplicateSuspension);
         }
@@ -478,9 +485,12 @@ impl StorageFlow {
     }
 
     /// Returns storage state immediately before one direct-await expression.
-    pub fn suspension(&self, expression: BoundExpressionId) -> Option<&StorageSuspensionState> {
+    pub fn suspension(
+        &self,
+        occurrence: impl Into<crate::SemanticOccurrence>,
+    ) -> Option<&StorageSuspensionState> {
         self.suspensions
-            .binary_search_by_key(&expression, StorageSuspensionState::expression)
+            .binary_search_by_key(&occurrence.into(), StorageSuspensionState::occurrence)
             .ok()
             .map(|index| &self.suspensions[index])
     }

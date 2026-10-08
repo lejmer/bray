@@ -13,7 +13,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return true;
         }
 
-        let equalities = ExecutionCondition::equalities(&entry.assumptions);
+        let equalities = ExecutionCondition::equalities(&entry.assumptions, None);
 
         let ordinary = entry
             .assumptions

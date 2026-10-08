@@ -107,7 +107,22 @@ where
             }
         }
 
-        for (_, expression) in request.unit().tree().expressions() {
+        for (id, expression) in request.unit().tree().expressions() {
+            if let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(id) {
+                let BoundExpression::Structured(bound) = expression else {
+                    panic!("selected scoped use retains its with expression");
+                };
+
+                let values = inference.scoped_values(scoped)?;
+
+                changed |= inference.bind_pattern_values(
+                    bound.patterns()[0],
+                    None,
+                    BTreeSet::new(),
+                    values,
+                )?;
+            }
+
             if let BoundExpression::Structured(value) = expression
                 && value.kind() == BoundStructuredExpressionKind::PatternBinding
                 && let Some(subject) = value.operands().first()

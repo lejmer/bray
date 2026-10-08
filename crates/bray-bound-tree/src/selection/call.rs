@@ -10,6 +10,49 @@ use bray_symbols::{
 
 use crate::{BoundCallableTarget, BoundExpressionId, BoundResolvedCall, SelectedConversion};
 
+/// An actual source node or a distinct implicit scoped invocation at its source owner.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum SemanticOccurrence {
+    /// An explicit source operation, binding or scope boundary.
+    Node(crate::AnyBoundNodeId),
+    /// The implicit lifecycle entry selected by a with expression.
+    ScopeEnter(BoundExpressionId),
+    /// The implicit lifecycle exit paired with a successful scoped entry.
+    ScopeExit(BoundExpressionId),
+}
+
+impl SemanticOccurrence {
+    /// Returns the source node owning this execution occurrence.
+    pub const fn node(self) -> crate::AnyBoundNodeId {
+        match self {
+            Self::Node(node) => node,
+            Self::ScopeEnter(expression) | Self::ScopeExit(expression) => {
+                crate::AnyBoundNodeId::Expression(expression)
+            }
+        }
+    }
+
+    /// Returns the owning expression when this occurrence belongs to an expression.
+    pub const fn expression(self) -> Option<BoundExpressionId> {
+        match self.node() {
+            crate::AnyBoundNodeId::Expression(expression) => Some(expression),
+            _ => None,
+        }
+    }
+}
+
+impl From<crate::AnyBoundNodeId> for SemanticOccurrence {
+    fn from(node: crate::AnyBoundNodeId) -> Self {
+        Self::Node(node)
+    }
+}
+
+impl From<BoundExpressionId> for SemanticOccurrence {
+    fn from(expression: BoundExpressionId) -> Self {
+        Self::Node(expression.into())
+    }
+}
+
 /// The checked receiver passed to one selected callable.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SelectedReceiver {

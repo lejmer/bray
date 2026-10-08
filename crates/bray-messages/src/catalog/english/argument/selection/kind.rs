@@ -70,5 +70,7 @@ pub(crate) const fn format_english_selection_kind(
         DiagnosticSelectionKind::Conversion => "conversion",
         DiagnosticSelectionKind::Implementation => "implementation",
         DiagnosticSelectionKind::IterationSource => "iteration source",
+        DiagnosticSelectionKind::ScopeEnter => "scope enter",
+        DiagnosticSelectionKind::ScopeExit => "scope exit",
     }
 }

@@ -15,7 +15,7 @@ pub(super) struct ExecutionState {
     pub(super) expressions: BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(super) pending_results: BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(super) result: ExecutionCondition,
-    pub(super) entries: BTreeMap<BoundExpressionId, crate::ExecutionCallEvidence>,
+    pub(super) entries: BTreeMap<bray_bound_tree::SemanticOccurrence, crate::ExecutionCallEvidence>,
     pub(super) completion_dependencies: BTreeSet<crate::ExecutionCompletionDependency>,
 }
 

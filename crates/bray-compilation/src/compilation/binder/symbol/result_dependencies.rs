@@ -88,9 +88,18 @@ fn infer_reachable_results(
             .map_err(binder_error)?;
 
         for entry in expressions.result().value().selections().entries() {
-            if let SemanticSelection::Call(call) = entry.selection()
-                && let BoundCallableTarget::Declaration(instance) = call.target()
-            {
+            let instances = match entry.selection() {
+                SemanticSelection::Call(call) => match call.target() {
+                    BoundCallableTarget::Declaration(instance) => [Some(instance), None],
+                    _ => [None, None],
+                },
+                SemanticSelection::ScopedUse(scoped) => {
+                    [Some(scoped.enter().0), Some(scoped.exit().0)]
+                }
+                _ => [None, None],
+            };
+
+            for instance in instances.into_iter().flatten() {
                 let callee = instance.definition().callable_symbol();
 
                 pending.push(callee);

@@ -184,7 +184,9 @@ impl Lowerer<'_> {
             );
         };
 
-        let initializer = self.lower_expression(*initializer_id, current)?;
+        let (join, result, result_type) = self.push_result_join(id, expression.origin())?;
+
+        let initializer = self.lower_scope_enter(id, current, join, result_type)?;
 
         let Some(current) = initializer.block else {
             return Ok(initializer);
@@ -197,7 +199,7 @@ impl Lowerer<'_> {
             );
         };
 
-        let current = self.lower_pattern_bindings(*pattern, value, current)?;
+        let current = self.bind_scoped_capability(id, *pattern, value, current)?;
 
         let [body] = expression.blocks() else {
             panic!(
@@ -206,10 +208,23 @@ impl Lowerer<'_> {
             );
         };
 
-        let (join, result, result_type) = self.push_result_join(id, expression.origin())?;
+        let success_type = match self.input.semantic_selections().expression(id) {
+            Some(bray_bound_tree::SemanticSelection::ScopedUse(scoped))
+                if scoped.failure_type().is_some() =>
+            {
+                Some(self.named_type_arguments(result_type)[0])
+            }
+            _ => None,
+        };
 
-        let body =
-            self.lower_yielding_block(*body, current, join, result_type, self.active_scopes.len())?;
+        let body = self.lower_yielding_block(
+            *body,
+            current,
+            join,
+            result_type,
+            self.active_scopes.len(),
+            success_type,
+        )?;
 
         self.finish_result_edge(body, join, result_type)?;
 

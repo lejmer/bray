@@ -52,6 +52,8 @@ pub enum DiagnosticStorageRoot {
     CustomIndexBorrow,
     IterationCursor,
     IterationElement,
+    /// Storage retaining a capability for one scoped-use occurrence.
+    ScopedCapability,
     Allocation,
     CompilerCreated,
     Alternative,
@@ -77,6 +79,7 @@ impl DiagnosticStorageRoot {
             Self::CustomIndexBorrow => "custom_index_borrow",
             Self::IterationCursor => "iteration_cursor",
             Self::IterationElement => "iteration_element",
+            Self::ScopedCapability => "scoped_capability",
             Self::Allocation => "allocation",
             Self::CompilerCreated => "compiler_created",
             Self::Alternative => "alternative",

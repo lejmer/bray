@@ -104,6 +104,7 @@ impl Lowerer<'_> {
                 join,
                 result_type,
                 self.active_scopes.len(),
+                None,
             )?;
 
             self.finish_result_edge(body, join, result_type)?;

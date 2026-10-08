@@ -5,5 +5,5 @@ mod input;
 
 pub(crate) use check::check_patterns;
 pub use input::{
-    GuardConstantEvidence, IterationPatternType, PatternCheckInput, PatternConstantEvidence,
+    GuardConstantEvidence, PatternCheckInput, PatternConstantEvidence, PatternSubjectType,
 };

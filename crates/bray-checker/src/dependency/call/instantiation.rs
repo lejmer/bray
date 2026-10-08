@@ -16,8 +16,8 @@ enum CallInstantiationInput<'check> {
         call: &'check SelectedCall,
     },
     Hidden {
-        receiver: StorageAccessId,
-        result: StorageAccessId,
+        input: (DependencySubjectRoot, StorageAccessId),
+        result: Option<StorageAccessId>,
     },
 }
 
@@ -54,13 +54,13 @@ where
     pub(super) const fn hidden(
         request: CheckerUnitView<'check, C>,
         storage: &'check StoragePlan,
-        receiver: StorageAccessId,
-        result: StorageAccessId,
+        input: (DependencySubjectRoot, StorageAccessId),
+        result: Option<StorageAccessId>,
     ) -> Self {
         Self {
             request,
             storage,
-            input: CallInstantiationInput::Hidden { receiver, result },
+            input: CallInstantiationInput::Hidden { input, result },
             deferred: false,
             result_values: None,
         }
@@ -104,19 +104,16 @@ where
     }
 
     fn hidden_access(&self, root: DependencySubjectRoot) -> Option<StorageAccessId> {
-        let CallInstantiationInput::Hidden { receiver, result } = self.input else {
+        let CallInstantiationInput::Hidden { input, result } = self.input else {
             return None;
         };
 
-        match root {
-            DependencySubjectRoot::Receiver => Some(receiver),
-            DependencySubjectRoot::Result => Some(result),
-            DependencySubjectRoot::Parameter(_)
-            | DependencySubjectRoot::EvaluationStorage
-            | DependencySubjectRoot::ScopedCapability(_)
-            | DependencySubjectRoot::ImplementationWitness(_)
-            | DependencySubjectRoot::ProductStatic(_)
-            | DependencySubjectRoot::ExactThreadStatic(_) => None,
+        if root == input.0 {
+            Some(input.1)
+        } else if root == DependencySubjectRoot::Result {
+            result
+        } else {
+            None
         }
     }
 

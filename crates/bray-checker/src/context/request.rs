@@ -90,6 +90,21 @@ pub trait CheckerRequestContext: Sync {
     /// Returns the canonical semantic values used by bound structure and queries.
     fn semantic_values(&self) -> &SemanticValueStore;
 
+    /// Matches inherited named-type arguments to an inherent callable's implementation header.
+    fn inherited_callable_substitution(
+        &self,
+        instance: bray_symbols::CallableInstanceData,
+    ) -> CheckerQueryResult<
+        DiagnosticResult<Option<bray_symbols::GenericSubstitutionId>>,
+        Self::UpstreamError,
+    >;
+
+    /// Resolves the open subject type that defines an implementation's contextual Self.
+    fn implementation_subject_type(
+        &self,
+        implementation: bray_symbols::ImplementationSymbolId,
+    ) -> CheckerQueryResult<DiagnosticResult<TypeId>, Self::UpstreamError>;
+
     /// Returns predicate contracts checked independently of callable body effects.
     fn callable_predicate_contracts(
         &self,

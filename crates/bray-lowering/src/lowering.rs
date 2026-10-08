@@ -13,6 +13,7 @@ mod parts;
 mod projection;
 mod replacement;
 mod representation;
+mod scoped;
 
 pub use error::LoweringError;
 pub use lowerer::lower_unit;

@@ -199,6 +199,18 @@ impl Lowerer<'_> {
             ),
         }?;
 
+        if let Some(current) = lowered.block
+            && self.type_representation(self.expression_type(id)) == Some(RepresentationRole::Never)
+        {
+            self.set_terminator(
+                current,
+                Self::retained_source(&lowered.source),
+                MirTerminatorKind::Unreachable,
+            )?;
+
+            return Ok(LoweredExpression::terminated(lowered.source));
+        }
+
         self.materialize_temporary(id, lowered)
     }
 
@@ -1132,16 +1144,6 @@ impl Lowerer<'_> {
         let (current, value) =
             self.lower_call_operation(id, current, Self::retained_source(&source), call)?;
 
-        if self.type_representation(self.expression_type(id)) == Some(RepresentationRole::Never) {
-            self.set_terminator(
-                current,
-                Self::retained_source(&source),
-                MirTerminatorKind::Unreachable,
-            )?;
-
-            return Ok(LoweredExpression::terminated(source));
-        }
-
         Ok(LoweredExpression::continuing(current, Some(value), source))
     }
 
@@ -1421,7 +1423,7 @@ impl Lowerer<'_> {
             })
     }
 
-    pub(in crate::lowering::expression) fn expression_source(
+    pub(in crate::lowering) fn expression_source(
         &self,
         expression: BoundExpressionId,
     ) -> MirSourceAnchor {
@@ -1587,6 +1589,7 @@ fn storage_kind(identity: StorageIdentity, parameter_position: Option<u32>) -> M
         | StorageIdentity::PostconditionResult(_)
         | StorageIdentity::IterationCursor(_)
         | StorageIdentity::IterationElement(_)
+        | StorageIdentity::ScopedCapability { .. }
         | StorageIdentity::Allocation(_)
         | StorageIdentity::CompilerCreated(_)
         | StorageIdentity::Error(_) => MirStorageKind::Temporary,

@@ -9,6 +9,320 @@ use crate::test_support::{
 };
 
 #[test]
+fn scoped_invocations_retain_distinct_inputs_and_clear_activity_before_exit() {
+    for body in ["yield lease;", "return lease;", "panic(\"body failed\");"] {
+        let compilation = compilation(&format!(
+            r#"
+            module app;
+            struct Resource {{}}
+            impl Resource
+            {{
+                enter() -> bool {{ return true; }}
+                exit(pos lease: bool) {{}}
+            }}
+            func caller(pos resource: Resource) -> bool
+            {{
+                return with lease = resource {{ {body} }};
+            }}
+        "#
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let key = source_function_body_key(&compilation, "caller");
+        let selections = compilation.semantic_selections(key.clone()).unwrap();
+
+        let scoped = selections
+            .value()
+            .entries()
+            .iter()
+            .find_map(|entry| match entry.selection() {
+                bray_bound_tree::SemanticSelection::ScopedUse(scoped) => Some(scoped),
+                _ => None,
+            })
+            .unwrap();
+
+        let result = compilation.lowered_unit(key).unwrap();
+        let mir = lowered_mir(&result);
+        let mut entered = false;
+        let mut exited = false;
+
+        for block in mir.blocks() {
+            for (position, id) in block.operations().iter().enumerate() {
+                let MirOperationKind::Call(call) = mir.operation(*id).unwrap().kind() else {
+                    continue;
+                };
+
+                let bray_ir::MirCallTarget::Direct(callable) = call.target() else {
+                    continue;
+                };
+
+                if callable.instance() == scoped.enter().0 {
+                    entered = true;
+
+                    assert!(matches!(
+                        block.terminator().kind(),
+                        MirTerminatorKind::CheckCallOutcome { .. }
+                    ));
+                }
+
+                if callable.instance() == scoped.exit().0 {
+                    exited = true;
+
+                    assert!(call.is_cleanup());
+
+                    assert!(
+                        block.operations()[..position].iter().any(|id| matches!(
+                            mir.operation(*id).unwrap().kind(),
+                            MirOperationKind::Store {
+                                value: bray_ir::MirOperand::Immediate {
+                                    value: bray_ir::MirImmediateValue::Boolean(false),
+                                    ..
+                                },
+                                ..
+                            }
+                        )),
+                        "exit clears its active guard before invoking user code"
+                    );
+                }
+            }
+        }
+
+        assert!(
+            entered && exited,
+            "scoped use invokes both selected declarations"
+        );
+    }
+}
+
+#[test]
+fn borrowed_scoped_capability_retains_its_entry_receiver_through_exit() {
+    let compilation = compilation(
+        r#"
+        module app;
+        struct Resource { ready: bool; }
+        impl Resource
+        {
+            enter() -> &Self { return &self; }
+            exit(pos lease: &Self) {}
+        }
+        func caller(pos resource: Resource) -> bool
+        {
+            return with lease = resource { yield lease.ready; };
+        }
+    "#,
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+
+    let key = source_function_body_key(&compilation, "caller");
+    let storage = compilation.storage_plan(key.clone()).unwrap();
+
+    let capability = storage
+        .value()
+        .access_entries()
+        .find_map(|(_, access)| match access.root() {
+            bray_bound_tree::StorageAccessRoot::BorrowedStorage {
+                capability,
+                storage: identity,
+            } if matches!(
+                storage.value().identity(identity),
+                Some(bray_bound_tree::StorageIdentity::ScopedCapability { .. })
+            ) =>
+            {
+                Some(storage.value().borrow_capability(capability).unwrap())
+            }
+            _ => None,
+        })
+        .expect("borrowed scoped result retains both its loan and its physical capability storage");
+
+    let receiver = storage.value().root_identity(capability.access()).unwrap();
+
+    assert!(matches!(
+        storage.value().identity(receiver),
+        Some(bray_bound_tree::StorageIdentity::Parameter(_))
+    ));
+
+    let result = compilation.lowered_unit(key).unwrap();
+
+    lowered_mir(&result);
+}
+
+#[test]
+fn asynchronous_scoped_phases_drive_selected_frames_and_shield_exit() {
+    for (enter, exit) in [("async ", ""), ("", "async "), ("async ", "async ")] {
+        let compilation = compilation(&format!(
+            r#"
+            module app;
+            struct Resource {{}}
+            impl Resource
+            {{
+                {enter}enter() -> bool {{ return true; }}
+                {exit}exit(pos lease: bool) {{}}
+            }}
+            async func caller(pos resource: Resource) -> bool
+            {{
+                return with lease = resource {{ yield lease; }};
+            }}
+        "#,
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let key = source_function_body_key(&compilation, "caller");
+        let checked = compilation.async_analysis(key.clone()).unwrap();
+
+        let phases = checked
+            .value()
+            .suspensions()
+            .iter()
+            .filter(|suspension| {
+                suspension.kind() == bray_bound_tree::AsyncSuspensionKind::ScopedCall
+            })
+            .map(|suspension| suspension.occurrence())
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(
+            phases.len(),
+            usize::from(!enter.is_empty()) + usize::from(!exit.is_empty())
+        );
+
+        let result = compilation.lowered_unit(key).unwrap();
+        let mir = lowered_mir(&result);
+
+        assert!(
+            mir.blocks().iter().any(|block| matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::Suspend { .. }
+            ))
+        );
+
+        if !exit.is_empty() {
+            assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+                MirOperationKind::Call(call) if matches!(call.target(), bray_ir::MirCallTarget::Runtime(runtime)
+                    if runtime.role() == bray_runtime_interface::RuntimeAbiRole::CleanupShieldEnter))));
+        }
+    }
+}
+
+#[test]
+fn fallible_scoped_phases_separate_the_capability_and_body_result_types() {
+    for (enter, exit) in [
+        (
+            "enter() -> Result<bool, i32> { return Ok(true); }",
+            "exit(pos lease: bool) {}",
+        ),
+        (
+            "enter() -> bool { return true; }",
+            "exit(pos lease: bool) -> Result<unit, i32> { return Ok(unit); }",
+        ),
+        (
+            "enter() -> Result<bool, i32> { return Error(7); }",
+            "exit(pos lease: bool) -> Result<unit, i32> { return Error(8); }",
+        ),
+    ] {
+        let compilation = compilation(&format!(
+            r#"
+            module app;
+            struct Resource {{}}
+            impl Resource {{ {enter} {exit} }}
+            func caller(pos resource: Resource) -> Result<bool, i32>
+            {{
+                return with lease: bool = resource {{ yield lease; }};
+            }}
+        "#
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let key = source_function_body_key(&compilation, "caller");
+        let selections = compilation.semantic_selections(key.clone()).unwrap();
+
+        let scoped = selections
+            .value()
+            .entries()
+            .iter()
+            .find_map(|entry| match entry.selection() {
+                bray_bound_tree::SemanticSelection::ScopedUse(scoped) => Some(scoped),
+                _ => None,
+            })
+            .unwrap();
+
+        let types = compilation.expression_types(key.clone()).unwrap();
+
+        assert!(scoped.failure_type().is_some());
+
+        assert_ne!(
+            types.value().expression(scoped.expression()).unwrap().ty(),
+            scoped.capability_type()
+        );
+
+        let result = compilation.lowered_unit(key).unwrap();
+
+        lowered_mir(&result);
+    }
+}
+
+#[test]
+fn fallible_scoped_exit_preserves_pending_control_outcomes() {
+    for body in ["return Ok(lease);", "panic(\"pending panic\");"] {
+        let compilation = compilation(&format!(
+            r#"
+            module app;
+            struct Resource {{}}
+            impl Resource
+            {{
+                enter() -> Result<bool, i32> {{ return Ok(true); }}
+                exit(pos lease: bool) -> Result<unit, i32> {{ return Error(9); }}
+            }}
+            func caller(pos resource: Resource) -> Result<bool, i32>
+            {{
+                return with lease = resource {{ {body} }};
+            }}
+            "#
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let key = source_function_body_key(&compilation, "caller");
+        let result = compilation.lowered_unit(key).unwrap();
+        let mir = lowered_mir(&result);
+
+        assert!(
+            mir.blocks()
+                .iter()
+                .flat_map(|block| block.operations())
+                .any(|id| matches!(
+                    mir.operation(*id).unwrap().kind(),
+                    MirOperationKind::Async(
+                        bray_ir::MirAsyncOperation::TransferCleanupIncident { .. }
+                    )
+                ))
+        );
+    }
+}
+
+#[test]
 fn destructor_receiver_move_admits_before_transfer() {
     let compilation = compilation(
         r#"

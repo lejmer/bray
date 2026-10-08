@@ -11,7 +11,7 @@ use crate::compilation::operation::OperationSubject;
 use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
 use crate::fact::{CancellationToken, FactQueryError};
 
-use super::model::{ConversionPlan, OperationResolution, TraitOperation};
+use super::model::{ConversionPlan, SemanticResolution, TraitOperation};
 use super::query::{expression_type, operation_contract_failure, unit_contract_failure};
 
 impl Compilation {
@@ -23,7 +23,7 @@ impl Compilation {
         types: &bray_bound_tree::CheckedExpressionTypes,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<OperationResolution>, FactQueryError> {
+    ) -> Result<Option<SemanticResolution>, FactQueryError> {
         let Some(BoundExpression::Conversion(conversion)) =
             unit.view().expression(key.expression())
         else {

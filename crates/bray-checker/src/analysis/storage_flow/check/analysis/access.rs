@@ -284,6 +284,7 @@ where
                 | StorageIdentity::CustomIndexBorrow(_)
                 | StorageIdentity::IterationCursor(_)
                 | StorageIdentity::IterationElement(_)
+                | StorageIdentity::ScopedCapability { .. }
                 | StorageIdentity::Allocation(_)
                 | StorageIdentity::CompilerCreated(_),
             ) => true,

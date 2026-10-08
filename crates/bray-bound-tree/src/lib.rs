@@ -106,7 +106,8 @@ pub use selection::{
     SelectedImplementationWitness, SelectedIterationProtocolOperation, SelectedIterationSource,
     SelectedIterationTypes, SelectedOperation, SelectedPredicateApplication,
     SelectedPredicateArgument, SelectedPropagation, SelectedPropagationBoundary, SelectedReceiver,
-    SelectionKind, SemanticSelection, SemanticSelectionEntry, SemanticSelectionTableBuildError,
+    SelectedScopedUse, SelectionKind, SemanticOccurrence, SemanticSelection,
+    SemanticSelectionEntry, SemanticSelectionTableBuildError,
 };
 pub use semantic::{
     CheckedBodySemantics, CheckedExpressionSemantics, SemanticSnapshotBuildError,

@@ -282,6 +282,7 @@ fn portable_storage_identity(
         | StorageIdentity::CustomIndexBorrow(_)
         | StorageIdentity::IterationCursor(_)
         | StorageIdentity::IterationElement(_)
+        | StorageIdentity::ScopedCapability { .. }
         | StorageIdentity::Allocation(_)
         | StorageIdentity::CompilerCreated(_)
         | StorageIdentity::Error(_) => return Ok(None),

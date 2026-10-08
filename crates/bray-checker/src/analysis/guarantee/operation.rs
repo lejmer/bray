@@ -11,14 +11,34 @@ use crate::execution_guarantees::{ExecutionDependency, ExecutionProperty};
 use crate::{CheckerRequestContext, CheckerUnitView};
 
 pub(super) fn collect_preservation_dependencies(
-    nodes: impl Iterator<Item = bray_bound_tree::AnyBoundNodeId>,
+    occurrences: impl Iterator<Item = bray_bound_tree::SemanticOccurrence>,
     selections: &CheckedSemanticSelections,
     memory: &CheckedMemoryOperations,
+    values: &bray_symbols::SemanticValueStore,
     dependencies: &mut Vec<ExecutionDependency>,
 ) {
     // Retaining entry facts across a pure call depends on that call's proof, even when
     // the enclosing obligation is only a completion predicate or termination promise.
-    for node in nodes {
+    let memory_expressions = memory
+        .operations()
+        .iter()
+        .map(|operation| operation.expression())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    for occurrence in occurrences {
+        let bray_bound_tree::SemanticOccurrence::Node(node) = occurrence else {
+            if scoped_invocation_preserves_inputs(selections, values, occurrence) {
+                collect_scoped_dependency(
+                    selections,
+                    occurrence,
+                    ExecutionProperty::Pure,
+                    dependencies,
+                );
+            }
+
+            continue;
+        };
+
         let bray_bound_tree::AnyBoundNodeId::Expression(expression) = node else {
             continue;
         };
@@ -32,18 +52,41 @@ pub(super) fn collect_preservation_dependencies(
             .invocation()
             .execution_properties()
             .contains(&ExecutionProperty::Pure)
-            && !memory
-                .operations()
-                .iter()
-                .any(|operation| operation.expression() == expression)
+            && !memory_expressions.contains(&expression)
         {
             dependencies.push(ExecutionDependency {
                 target: call.target(),
                 property: ExecutionProperty::Pure,
-                node,
+                occurrence: node.into(),
             });
         }
     }
+}
+
+pub(super) fn scoped_invocation_preserves_inputs(
+    selections: &CheckedSemanticSelections,
+    values: &bray_symbols::SemanticValueStore,
+    occurrence: bray_bound_tree::SemanticOccurrence,
+) -> bool {
+    let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(
+        occurrence
+            .expression()
+            .expect("scoped invocation has an expression"),
+    ) else {
+        panic!("scoped invocation retains its selected lifecycle declarations");
+    };
+
+    let data = values.type_data(scoped.invocation(occurrence).1.callable_type());
+
+    let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
+        panic!("scoped invocation signature retains its callable type");
+    };
+
+    callable
+        .phase_behaviors()
+        .invocation()
+        .execution_properties()
+        .contains(&ExecutionProperty::Pure)
 }
 
 pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
@@ -108,7 +151,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
             dependencies.push(ExecutionDependency {
                 target: call.target(),
                 property,
-                node: expression.into(),
+                occurrence: expression.into(),
             });
 
             return true;
@@ -152,8 +195,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
         }
         BoundExpression::Structured(expression) => !matches!(
             expression.kind(),
-            BoundStructuredExpressionKind::With
-                | BoundStructuredExpressionKind::GeneralGenerator
+            BoundStructuredExpressionKind::GeneralGenerator
                 | BoundStructuredExpressionKind::ArrayGenerator
                 | BoundStructuredExpressionKind::BooleanAllFold
                 | BoundStructuredExpressionKind::BooleanAnyFold
@@ -169,12 +211,12 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
 
 pub(super) fn check_storage_accesses<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    node: bray_bound_tree::AnyBoundNodeId,
+    occurrence: bray_bound_tree::SemanticOccurrence,
     storage: &StoragePlan,
     property: ExecutionProperty,
     dependencies: &mut Vec<ExecutionDependency>,
 ) -> bool {
-    for plan in storage.node_plans(node) {
+    for plan in storage.occurrence_plans(occurrence) {
         let Some(identity) = storage.root_identity(plan.access()) else {
             return false;
         };
@@ -212,7 +254,7 @@ pub(super) fn check_storage_accesses<C: CheckerRequestContext + ?Sized>(
             dependencies.push(ExecutionDependency {
                 target: bray_bound_tree::BoundCallableTarget::Declaration(call.callable()),
                 property,
-                node,
+                occurrence,
             });
         }
     }
@@ -239,7 +281,7 @@ fn check_operation(
     dependencies.extend(calls.iter().map(|call| ExecutionDependency {
         target: call.target(),
         property,
-        node: expression.into(),
+        occurrence: expression.into(),
     }));
 
     match operation {
@@ -274,8 +316,79 @@ fn collect_conversion_dependencies(
     dependencies.extend(calls.iter().map(|call| ExecutionDependency {
         target: call.target(),
         property,
-        node: expression.into(),
+        occurrence: expression.into(),
     }));
 
     resolved
+}
+
+pub(super) fn collect_scoped_dependency(
+    selections: &CheckedSemanticSelections,
+    invocation: bray_bound_tree::SemanticOccurrence,
+    property: ExecutionProperty,
+    dependencies: &mut Vec<ExecutionDependency>,
+) {
+    let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(
+        invocation
+            .expression()
+            .expect("scoped invocation retains its with occurrence"),
+    ) else {
+        panic!("implicit scoped invocation retains its checked selection");
+    };
+
+    let callable = scoped.invocation(invocation).0;
+
+    dependencies.push(ExecutionDependency {
+        target: bray_bound_tree::BoundCallableTarget::Declaration(callable),
+        property,
+        occurrence: invocation,
+    });
+}
+
+pub(super) fn check_construction_admission<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    expression: BoundExpressionId,
+    property: ExecutionProperty,
+    expressions: &bray_bound_tree::CheckedExpressionSemantics,
+    storage: &StoragePlan,
+    dependencies: &mut Vec<ExecutionDependency>,
+    diagnostics: &mut bray_diagnostics::DiagnosticBag,
+) -> Result<bool, crate::CheckerQueryError<C::UpstreamError>> {
+    let constructed = matches!(expressions.selections().expression(expression), Some(SemanticSelection::Operation(operation)) if matches!(operation, SelectedOperation::Construction(_)) || matches!(operation, SelectedOperation::Member(member) if matches!(member.member(), bray_symbols::AnySymbolId::UnionVariant(_))));
+
+    let republished = bray_bound_tree::storage_expression_republishes_destructor_receiver(
+        request.unit(),
+        storage,
+        expression,
+    );
+
+    if !constructed && republished.is_none() {
+        return Ok(true);
+    }
+
+    let Some(ty) = republished.or_else(|| {
+        expressions
+            .types()
+            .expression(expression)
+            .map(|entry| entry.ty())
+    }) else {
+        return Ok(false);
+    };
+
+    let admission = crate::asynchronous::execution_cleanup_dependencies(
+        request,
+        ty,
+        property,
+        crate::asynchronous::ExecutionCleanupMode::Admission,
+        expression.into(),
+    )?;
+
+    let (admission, admission_diagnostics) = admission.into_parts();
+
+    let valid = admission.is_some();
+
+    dependencies.extend(admission.into_iter().flatten());
+    diagnostics.add_range(admission_diagnostics);
+
+    Ok(valid)
 }

@@ -47,7 +47,7 @@ pub struct LoweringInput<'unit> {
     selections: &'unit CheckedSemanticSelections,
     symbols: &'unit AvailableCompilerKnownSymbols,
     async_analysis: &'unit CheckedAsync,
-    suspensions: BTreeMap<BoundExpressionId, usize>,
+    suspensions: BTreeMap<bray_bound_tree::SemanticOccurrence, usize>,
     task_operations: BTreeMap<BoundExpressionId, AsyncTaskOperationKind>,
     lifecycle_storage: BTreeSet<StorageIdentityId>,
     completed: BTreeSet<(AnyBoundNodeId, StorageAccessId)>,
@@ -174,7 +174,7 @@ impl<'unit> LoweringInput<'unit> {
 
         for (index, suspension) in async_analysis.suspensions().iter().enumerate() {
             assert!(
-                suspensions.insert(suspension.expression(), index).is_none(),
+                suspensions.insert(suspension.occurrence(), index).is_none(),
                 "checked async analysis contains duplicate suspension for {:?}",
                 suspension.expression()
             );
@@ -327,9 +327,12 @@ impl<'unit> LoweringInput<'unit> {
     }
 
     /// Returns the checked suspension plan for one suspending expression.
-    pub fn suspension(&self, expression: BoundExpressionId) -> Option<&AsyncSuspensionPoint> {
+    pub fn suspension(
+        &self,
+        occurrence: impl Into<bray_bound_tree::SemanticOccurrence>,
+    ) -> Option<&AsyncSuspensionPoint> {
         self.suspensions
-            .get(&expression)
+            .get(&occurrence.into())
             .and_then(|index| self.async_analysis.suspensions().get(*index))
     }
 
@@ -1068,7 +1071,7 @@ mod tests {
             &storage,
             unit.tree()
                 .expressions()
-                .map(|(expression, _)| (expression, BoundDependencyContract::new([]))),
+                .map(|(expression, _)| (expression.into(), BoundDependencyContract::new([]))),
             [],
             [],
             [],

@@ -25,9 +25,10 @@ pub(super) struct StorageFlowInput {
     copyable_types: BTreeSet<TypeId>,
     mutable_storage: BTreeSet<StorageIdentityId>,
     immutable_field_accesses: BTreeSet<StorageAccessId>,
-    storage_last_uses: BTreeMap<AnyBoundNodeId, Vec<StorageIdentityId>>,
+    storage_last_uses: BTreeMap<bray_bound_tree::SemanticOccurrence, Vec<StorageIdentityId>>,
     unused_entry_storage: BTreeSet<StorageIdentityId>,
     cleanup_free_storage: BTreeSet<StorageIdentityId>,
+    pub(super) suspension_borrows: BTreeSet<BorrowCapabilityId>,
 }
 
 impl StorageFlowInput {
@@ -47,6 +48,16 @@ impl StorageFlowInput {
             copyable_types,
             initialization_destinations,
             mutable_storage,
+            suspension_borrows: liveness
+                .live_across_suspensions()
+                .iter()
+                .filter_map(|entry| match entry.subject() {
+                    bray_bound_tree::BoundDependencySubject::BorrowCapability(borrow) => {
+                        Some(borrow)
+                    }
+                    _ => None,
+                })
+                .collect(),
             ..Self::default()
         };
 
@@ -127,7 +138,7 @@ impl StorageFlowInput {
                 && cleanup_free.contains(&identity)
             {
                 self.storage_last_uses
-                    .entry(last_use.operation())
+                    .entry(last_use.occurrence())
                     .or_default()
                     .push(identity);
             }
@@ -159,9 +170,12 @@ impl StorageFlowInput {
             .unwrap_or_default()
     }
 
-    pub(super) fn storage_last_uses(&self, node: AnyBoundNodeId) -> &[StorageIdentityId] {
+    pub(super) fn storage_last_uses(
+        &self,
+        occurrence: bray_bound_tree::SemanticOccurrence,
+    ) -> &[StorageIdentityId] {
         self.storage_last_uses
-            .get(&node)
+            .get(&occurrence)
             .map(Vec::as_slice)
             .unwrap_or_default()
     }

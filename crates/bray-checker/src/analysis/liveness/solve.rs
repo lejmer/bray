@@ -391,7 +391,7 @@ fn collect_liveness(
                 );
             }
 
-            if let AnalysisOperationKind::Suspension { expression, .. } = operation.kind() {
+            if let AnalysisOperationKind::Suspension { occurrence, .. } = operation.kind() {
                 live_across_suspensions.extend(
                     state
                         .iter()
@@ -402,7 +402,7 @@ fn collect_liveness(
                                 .into_iter()
                                 .flat_map(|effect| effect.uses.iter().copied()),
                         )
-                        .map(|subject| LiveAcrossSuspension::new(expression, subject)),
+                        .map(|subject| LiveAcrossSuspension::new(occurrence, subject)),
                 );
             }
 
@@ -416,7 +416,7 @@ fn collect_liveness(
                         .uses()
                         .filter(|subject| !effect.defines(subject) && !state.contains(subject))
                         .copied()
-                        .map(|subject| LastUse::new(subject, operation.kind().node())),
+                        .map(|subject| LastUse::new(subject, operation.kind().occurrence())),
                 );
 
                 last_uses.extend(
@@ -431,7 +431,7 @@ fn collect_liveness(
                                 && !state.contains(subject)
                         })
                         .copied()
-                        .map(|subject| LastUse::new(subject, operation.kind().node())),
+                        .map(|subject| LastUse::new(subject, operation.kind().occurrence())),
                 );
             }
 
@@ -522,12 +522,12 @@ fn collect_edge_lifetime_ends(
                 .and_then(|id| graph.operation(*id));
 
             let bypassed_attempt = source_operation.filter(|operation| {
-                let AnalysisOperationKind::Call { expression, phase: AnalysisCallPhase::Attempt } = operation.kind() else {
+                let AnalysisOperationKind::Call { invocation, phase: AnalysisCallPhase::Attempt } = operation.kind() else {
                     return false;
                 };
 
                 !target_operation.is_some_and(|target| matches!(target.kind(),
-                    AnalysisOperationKind::Call { expression: completed, phase: AnalysisCallPhase::Completion } if completed == expression))
+                    AnalysisOperationKind::Call { invocation: completed, phase: AnalysisCallPhase::Completion } if completed == invocation))
             });
 
             // Failed calls bypass the completion where storage flow applies input last uses.

@@ -112,6 +112,26 @@ impl bray_base::Cancellation for TestCheckerContext {
 }
 
 impl CheckerRequestContext for TestCheckerContext {
+    fn inherited_callable_substitution(
+        &self,
+        instance: bray_symbols::CallableInstanceData,
+    ) -> crate::CheckerQueryResult<
+        bray_diagnostics::DiagnosticResult<Option<bray_symbols::GenericSubstitutionId>>,
+        Self::UpstreamError,
+    > {
+        Ok(bray_diagnostics::DiagnosticResult::without_diagnostics(
+            Some(instance.substitution()),
+        ))
+    }
+
+    fn implementation_subject_type(
+        &self,
+        _implementation: bray_symbols::ImplementationSymbolId,
+    ) -> crate::CheckerQueryResult<bray_diagnostics::DiagnosticResult<TypeId>, Self::UpstreamError>
+    {
+        Err(crate::CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
+    }
+
     fn result_dispatch_requirement(
         &self,
         _dispatch: bray_symbols::TraitConstraintDispatch,

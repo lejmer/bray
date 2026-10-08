@@ -199,6 +199,7 @@ fn encode(
         ExecutionCondition::Unknown
         | ExecutionCondition::Constructed(_, _)
         | ExecutionCondition::Expression(_)
+        | ExecutionCondition::ScopedCapability(_)
         | ExecutionCondition::PostState(_, _) => return Ok(None),
     };
 

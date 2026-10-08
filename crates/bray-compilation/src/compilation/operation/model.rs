@@ -40,11 +40,11 @@ impl OperationSubject {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub(in crate::compilation) struct OperationResolution {
+pub(in crate::compilation) struct SemanticResolution {
     expression: BoundExpressionId,
-    result_type: TypeId,
+    result_type: Option<TypeId>,
     expectations: Arc<[(BoundExpressionId, TypeId)]>,
-    selection: Option<SelectedOperation>,
+    selection: Option<SemanticSelection>,
 }
 
 #[derive(Clone, Copy)]
@@ -149,7 +149,16 @@ impl ConversionPlan {
     }
 }
 
-impl OperationResolution {
+impl SemanticResolution {
+    pub(super) fn scoped_use(selection: bray_bound_tree::SelectedScopedUse) -> Self {
+        Self {
+            expression: selection.expression(),
+            result_type: None,
+            expectations: Arc::from([]),
+            selection: Some(SemanticSelection::ScopedUse(selection)),
+        }
+    }
+
     pub(in crate::compilation) fn new(
         expression: BoundExpressionId,
         result_type: TypeId,
@@ -158,9 +167,9 @@ impl OperationResolution {
     ) -> Self {
         Self {
             expression,
-            result_type,
+            result_type: Some(result_type),
             expectations: expectations.into_iter().collect(),
-            selection,
+            selection: selection.map(SemanticSelection::Operation),
         }
     }
 
@@ -168,7 +177,7 @@ impl OperationResolution {
         self.expression
     }
 
-    pub(in crate::compilation) const fn result_type(&self) -> TypeId {
+    pub(in crate::compilation) const fn result_type(&self) -> Option<TypeId> {
         self.result_type
     }
 
@@ -176,14 +185,14 @@ impl OperationResolution {
         &self.expectations
     }
 
-    pub(in crate::compilation) const fn selection(&self) -> Option<&SelectedOperation> {
+    pub(in crate::compilation) const fn selection(&self) -> Option<&SemanticSelection> {
         self.selection.as_ref()
     }
 
     pub(in crate::compilation) fn selection_entry(&self) -> Option<SemanticSelectionEntry> {
         // The operation selection retains its result while the type input owns the table entry.
-        self.selection.clone().map(|selection| {
-            SemanticSelectionEntry::new(self.expression, SemanticSelection::Operation(selection))
-        })
+        self.selection
+            .clone()
+            .map(|selection| SemanticSelectionEntry::new(self.expression, selection))
     }
 }

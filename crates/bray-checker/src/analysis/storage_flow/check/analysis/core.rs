@@ -279,7 +279,7 @@ where
         storage.unit(),
         storage.kind(),
         decisions,
-        collector.suspensions,
+        collector.suspensions.into_values(),
         reachable_exits,
         exits,
         collector.is_recovered
@@ -351,7 +351,7 @@ where
     pub(super) input: &'analysis StorageFlowInput,
     pub(super) owners: &'analysis StorageScopeOwners,
     pub(super) statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
-    pub(super) suspensions: Vec<StorageSuspensionState>,
+    pub(super) suspensions: BTreeMap<bray_bound_tree::SemanticOccurrence, StorageSuspensionState>,
     exits: Vec<(bray_bound_tree::BoundBlockId, AnyBoundNodeId, ExitState)>,
     exit_indices: BTreeMap<(bray_bound_tree::BoundBlockId, AnyBoundNodeId), usize>,
     replacements: BTreeMap<StorageAccessPlan, ReplacementState>,
@@ -390,7 +390,7 @@ where
             input,
             owners,
             statuses: BTreeMap::new(),
-            suspensions: Vec::new(),
+            suspensions: BTreeMap::new(),
             exits: Vec::new(),
             exit_indices: BTreeMap::new(),
             replacements: BTreeMap::new(),
@@ -440,8 +440,8 @@ where
             return;
         }
 
-        if let AnalysisOperationKind::Suspension { expression, .. } = operation.kind() {
-            self.record_suspension(state, expression);
+        if let AnalysisOperationKind::Suspension { occurrence, .. } = operation.kind() {
+            self.record_suspension(state, occurrence);
         }
 
         if matches!(operation.kind(), AnalysisOperationKind::Recovery(_)) {
@@ -449,14 +449,31 @@ where
             self.is_recovered = true;
         }
 
-        if matches!(
-            operation.kind(),
-            AnalysisOperationKind::Call {
-                phase: AnalysisCallPhase::Attempt,
-                ..
+        if let AnalysisOperationKind::Call { invocation, phase } = operation.kind() {
+            match invocation {
+                bray_bound_tree::SemanticOccurrence::Node(
+                    bray_bound_tree::AnyBoundNodeId::Expression(_),
+                ) if phase == AnalysisCallPhase::Attempt => {
+                    return;
+                }
+                bray_bound_tree::SemanticOccurrence::ScopeEnter(_)
+                | bray_bound_tree::SemanticOccurrence::ScopeExit(_) => {
+                    if phase == AnalysisCallPhase::Attempt {
+                        let refinements =
+                            self.refinements.refinements_before(operation.kind().node());
+
+                        for plan in self.storage.occurrence_plans(operation.kind().occurrence()) {
+                            self.apply_plan(state, plan, refinements);
+                        }
+                    } else {
+                        self.end_last_use_borrows(state, invocation);
+                        self.end_last_use_storage(state, invocation);
+                    }
+
+                    return;
+                }
+                bray_bound_tree::SemanticOccurrence::Node(_) => {}
             }
-        ) {
-            return;
         }
 
         self.initialize_operation_storage(state, operation.kind().node());
@@ -490,8 +507,8 @@ where
             self.report_escaping_default_storage(state, root);
         }
 
-        self.end_last_use_borrows(state, operation.kind().node());
-        self.end_last_use_storage(state, operation.kind().node());
+        self.end_last_use_borrows(state, operation.kind().occurrence());
+        self.end_last_use_storage(state, operation.kind().occurrence());
 
         if let AnalysisOperationKind::ScopeExit {
             block,
@@ -837,7 +854,11 @@ where
         }
     }
 
-    fn end_last_use_storage(&self, state: &mut StorageFlowState, operation: AnyBoundNodeId) {
+    fn end_last_use_storage(
+        &self,
+        state: &mut StorageFlowState,
+        operation: bray_bound_tree::SemanticOccurrence,
+    ) {
         if state.recovered {
             return;
         }
@@ -847,7 +868,11 @@ where
         }
     }
 
-    fn end_last_use_borrows(&self, state: &mut StorageFlowState, operation: AnyBoundNodeId) {
+    fn end_last_use_borrows(
+        &self,
+        state: &mut StorageFlowState,
+        operation: bray_bound_tree::SemanticOccurrence,
+    ) {
         let moved_borrows = state
             .moved
             .keys()
@@ -867,26 +892,12 @@ where
 
                 let subject = BoundDependencySubject::BorrowCapability(*borrow);
 
-                let retained_for_suspension = self
-                    .liveness
-                    .live_across_suspensions()
-                    .iter()
-                    .any(|entry| entry.subject() == subject);
+                let retained_for_suspension = self.input.suspension_borrows.contains(borrow);
 
-                let completed_retaining_suspension = match operation {
-                    AnyBoundNodeId::Expression(expression) => {
-                        self.liveness.is_live_across_suspension(expression, subject)
-                    }
-                    AnyBoundNodeId::Pattern(_)
-                    | AnyBoundNodeId::Block(_)
-                    | AnyBoundNodeId::CallableBody(_) => false,
-                };
+                let completed_retaining_suspension =
+                    self.liveness.is_live_across_suspension(operation, subject);
 
-                let reaches_last_use = self.liveness.is_last_use(operation, subject)
-                    || capability.expression().is_some_and(|expression| {
-                        self.liveness
-                            .is_last_use(AnyBoundNodeId::Expression(expression), subject)
-                    });
+                let reaches_last_use = self.liveness.is_last_use(operation, subject);
 
                 capability.entry_binding().is_none()
                     && ((moved_borrows.contains(borrow)
@@ -998,18 +1009,42 @@ where
         })
     }
 
-    fn record_suspension(&mut self, state: &StorageFlowState, expression: BoundExpressionId) {
+    fn record_suspension(
+        &mut self,
+        state: &StorageFlowState,
+        occurrence: bray_bound_tree::SemanticOccurrence,
+    ) {
         if !self.publish {
             return;
         }
 
-        self.suspensions.push(StorageSuspensionState::new(
-            expression,
+        let snapshot = StorageSuspensionState::new(
+            occurrence,
             state.live.iter().copied(),
             state.initialized.iter().copied(),
             state.moved.keys().copied(),
             state.definitely_active_borrows.iter().copied(),
-        ));
+        );
+
+        self.suspensions
+            .entry(occurrence)
+            .and_modify(|previous| {
+                // An implicit exit has multiple incoming transfers. Retain every possible owner,
+                // but promise initialization and active loans only when every path establishes them.
+                *previous =
+                    StorageSuspensionState::new(
+                        occurrence,
+                        previous.live().iter().chain(snapshot.live()).copied(),
+                        previous.initialized().iter().copied().filter(|identity| {
+                            snapshot.initialized().binary_search(identity).is_ok()
+                        }),
+                        previous.moved().iter().chain(snapshot.moved()).copied(),
+                        previous.active_borrows().iter().copied().filter(|borrow| {
+                            snapshot.active_borrows().binary_search(borrow).is_ok()
+                        }),
+                    );
+            })
+            .or_insert(snapshot);
     }
 
     fn add_diagnostic(
@@ -1136,6 +1171,9 @@ where
             Some(StorageIdentity::CustomIndexBorrow(_)) => DiagnosticStorageRoot::CustomIndexBorrow,
             Some(StorageIdentity::IterationCursor(_)) => DiagnosticStorageRoot::IterationCursor,
             Some(StorageIdentity::IterationElement(_)) => DiagnosticStorageRoot::IterationElement,
+            Some(StorageIdentity::ScopedCapability { .. }) => {
+                DiagnosticStorageRoot::ScopedCapability
+            }
             Some(StorageIdentity::Allocation(_)) => DiagnosticStorageRoot::Allocation,
             Some(StorageIdentity::CompilerCreated(_)) => DiagnosticStorageRoot::CompilerCreated,
             Some(StorageIdentity::Alternative { .. }) => DiagnosticStorageRoot::Alternative,

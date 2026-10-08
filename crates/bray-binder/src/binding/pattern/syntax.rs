@@ -12,6 +12,7 @@ use crate::binding::name::symbol_name;
 pub(super) const fn bound_mode(mode: PatternBindingMode) -> BoundPatternMode {
     match mode {
         PatternBindingMode::Declaration => BoundPatternMode::Declaration,
+        PatternBindingMode::Scoped => BoundPatternMode::Scoped,
         PatternBindingMode::Assignment => BoundPatternMode::Assignment,
         PatternBindingMode::MatchObserve => BoundPatternMode::MatchObserve,
         PatternBindingMode::MatchConsume => BoundPatternMode::MatchConsume,

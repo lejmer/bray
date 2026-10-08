@@ -28,6 +28,8 @@ pub enum SemanticSelection {
     Iteration(SelectedIterationSource),
     /// An exact lexical or current-run propagation decision.
     Propagation(SelectedPropagation),
+    /// The matching enter and exit declarations for a scoped-use expression.
+    ScopedUse(crate::SelectedScopedUse),
 }
 
 impl SemanticSelection {
@@ -40,6 +42,7 @@ impl SemanticSelection {
             Self::Operation(operation) => operation.result_type(),
             Self::Iteration(_) => None,
             Self::Propagation(_) => None,
+            Self::ScopedUse(_) => None,
         }
     }
 }
@@ -259,6 +262,11 @@ fn selection_matches_expression(
                     && selection.mode() == mode
             })
         }
+        (SemanticSelection::ScopedUse(selection), BoundExpression::Structured(expression)) => {
+            expression.kind() == BoundStructuredExpressionKind::With
+                && selection.expression() == expression_id
+                && expression.operands() == [selection.initializer()]
+        }
         (SemanticSelection::Propagation(selection), BoundExpression::Structured(expression)) => {
             matches!(
                 (selection, expression.kind()),
@@ -320,6 +328,13 @@ fn validate_operation_subject(
         (SemanticSelection::Iteration(selection), _) => validate_subject_type(
             types,
             selection.source(),
+            selection.source_type(),
+            expression_id,
+            SemanticSelectionTableBuildError::OperandTypeMismatch,
+        ),
+        (SemanticSelection::ScopedUse(selection), _) => validate_subject_type(
+            types,
+            selection.initializer(),
             selection.source_type(),
             expression_id,
             SemanticSelectionTableBuildError::OperandTypeMismatch,

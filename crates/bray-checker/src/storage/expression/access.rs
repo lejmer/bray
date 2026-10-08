@@ -385,6 +385,7 @@ where
         expression: BoundExpressionId,
         access: StorageAccessId,
         kind: bray_symbols::BorrowKind,
+        result: TypeId,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let borrowed = self
             .builder()?
@@ -417,7 +418,10 @@ where
             expression,
             StorageAccessRoot::Borrow(capability),
             [],
-            self.expression_type(expression)?,
+            bray_bound_tree::ExpressionTypeResult::new(
+                result,
+                self.expression_type(expression)?.status(),
+            ),
         )
     }
 
@@ -552,7 +556,7 @@ where
         )
     }
 
-    pub(super) fn iteration_access(
+    pub(super) fn protocol_access(
         &mut self,
         expression: BoundExpressionId,
         identity: StorageIdentity,
@@ -567,12 +571,17 @@ where
         let source = node.origin().source_anchor();
         let is_recovered = node.is_recovered();
 
+        let storage = self
+            .builder_mut()?
+            .push_identity(identity)
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
+
+        self.builder_mut()?
+            .set_identity_type(storage, ty)
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
+
         let access = StorageAccess::new(
-            StorageAccessRoot::Storage(
-                self.builder_mut()?
-                    .push_identity(identity)
-                    .map_err(CheckerInfrastructureError::StoragePlan)?,
-            ),
+            StorageAccessRoot::Storage(storage),
             [],
             ty,
             source,

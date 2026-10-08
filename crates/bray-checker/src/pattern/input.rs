@@ -7,35 +7,35 @@ use bray_bound_tree::{
 };
 use bray_symbols::{ConstantTermId, ConstantValueId, TypeExpressionTemplate, TypeId};
 
-/// The selected element type supplied to one iteration pattern.
+/// The selected subject type supplied to a protocol-produced pattern.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct IterationPatternType {
+pub struct PatternSubjectType {
     pattern: BoundPatternId,
-    element_type: TypeId,
+    ty: TypeId,
     is_recovered: bool,
 }
 
-impl IterationPatternType {
-    /// Creates one iteration-pattern type input.
-    pub const fn new(pattern: BoundPatternId, element_type: TypeId, is_recovered: bool) -> Self {
+impl PatternSubjectType {
+    /// Creates one selected pattern-subject type input.
+    pub const fn new(pattern: BoundPatternId, ty: TypeId, is_recovered: bool) -> Self {
         Self {
             pattern,
-            element_type,
+            ty,
             is_recovered,
         }
     }
 
-    /// Returns the exact iteration pattern.
+    /// Returns the exact pattern occurrence.
     pub const fn pattern(self) -> BoundPatternId {
         self.pattern
     }
 
-    /// Returns the selected iteration element type.
-    pub const fn element_type(self) -> TypeId {
-        self.element_type
+    /// Returns the selected subject type.
+    pub const fn ty(self) -> TypeId {
+        self.ty
     }
 
-    /// Returns whether iteration selection recovered.
+    /// Returns whether protocol selection recovered.
     pub const fn is_recovered(self) -> bool {
         self.is_recovered
     }
@@ -100,7 +100,7 @@ impl GuardConstantEvidence {
 /// Repeated evidence for a pattern or guard must agree. Conflicting compiler facts panic at insertion.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PatternCheckInput {
-    iteration_patterns: Arc<[IterationPatternType]>,
+    subject_types: Arc<[PatternSubjectType]>,
     declared_patterns: BTreeMap<BoundPatternId, TypeExpressionTemplate>,
     constant_patterns: BTreeMap<BoundPatternId, PatternConstantEvidence>,
     constant_guards: BTreeMap<BoundExpressionId, ConstantValueId>,
@@ -116,19 +116,19 @@ impl PatternCheckInput {
     /// Creates an empty pattern-checking input.
     pub fn new() -> Self {
         Self {
-            iteration_patterns: Arc::from([]),
+            subject_types: Arc::from([]),
             declared_patterns: BTreeMap::new(),
             constant_patterns: BTreeMap::new(),
             constant_guards: BTreeMap::new(),
         }
     }
 
-    /// Returns this input with selected iteration element types.
-    pub fn with_iteration_patterns(
+    /// Returns this input with selected pattern subject types.
+    pub fn with_subject_types(
         mut self,
-        patterns: impl IntoIterator<Item = IterationPatternType>,
+        patterns: impl IntoIterator<Item = PatternSubjectType>,
     ) -> Self {
-        self.iteration_patterns = shared_slice(patterns);
+        self.subject_types = shared_slice(patterns);
 
         self
     }
@@ -192,8 +192,9 @@ impl PatternCheckInput {
         self
     }
 
-    pub(super) fn iteration_patterns(&self) -> &[IterationPatternType] {
-        &self.iteration_patterns
+    /// Returns selected protocol subject types in their supplied order.
+    pub fn subject_types(&self) -> &[PatternSubjectType] {
+        &self.subject_types
     }
 
     pub(super) fn declared_patterns(&self) -> &BTreeMap<BoundPatternId, TypeExpressionTemplate> {

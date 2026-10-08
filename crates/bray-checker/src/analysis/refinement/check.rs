@@ -375,26 +375,27 @@ fn transfer_operation(
             universe.finish_operation(&mut state.refinements, node);
         }
         AnalysisOperationKind::Call {
-            expression,
+            invocation,
             phase: AnalysisCallPhase::Attempt,
         } => {
-            universe.invalidate_for_operation(
-                &mut state.refinements,
-                AnyBoundNodeId::Expression(expression),
-                storage,
-            );
+            universe.invalidate_for_operation(&mut state.refinements, invocation, storage);
         }
         AnalysisOperationKind::Call {
-            expression,
+            invocation,
             phase: AnalysisCallPhase::Completion,
         } => {
-            universe.finish_operation(
-                &mut state.refinements,
-                AnyBoundNodeId::Expression(expression),
-            );
+            if let bray_bound_tree::SemanticOccurrence::Node(node) = invocation {
+                universe.finish_operation(&mut state.refinements, node);
+            }
         }
-        AnalysisOperationKind::Suspension { expression, .. }
-        | AnalysisOperationKind::TaskOperation { expression, .. } => {
+        AnalysisOperationKind::Suspension { occurrence, .. } => {
+            universe.invalidate_for_operation(&mut state.refinements, occurrence, storage);
+
+            if let bray_bound_tree::SemanticOccurrence::Node(node) = occurrence {
+                universe.finish_operation(&mut state.refinements, node);
+            }
+        }
+        AnalysisOperationKind::TaskOperation { expression, .. } => {
             let node = AnyBoundNodeId::Expression(expression);
 
             universe.invalidate_for_operation(&mut state.refinements, node, storage);

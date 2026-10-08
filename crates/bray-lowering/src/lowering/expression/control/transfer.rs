@@ -153,6 +153,7 @@ impl Lowerer<'_> {
             YieldTarget::Result {
                 block,
                 result_type,
+                success_type,
                 scope_depth,
                 ..
             } => {
@@ -161,8 +162,14 @@ impl Lowerer<'_> {
                     current,
                     &source,
                     value,
-                    result_type,
+                    success_type.unwrap_or(result_type),
                 )?;
+
+                let value = if success_type.is_some() {
+                    self.construct_result(current, &source, result_type, true, value)?
+                } else {
+                    value
+                };
 
                 self.finish_exit_to_block(
                     current,

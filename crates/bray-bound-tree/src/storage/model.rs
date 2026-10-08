@@ -75,6 +75,13 @@ pub enum StorageIdentity {
     IterationCursor(BoundExpressionId),
     /// Current element produced by an iteration expression.
     IterationElement(BoundExpressionId),
+    /// Capability retained from successful entry until its matching scoped exit.
+    ScopedCapability {
+        /// The actual with occurrence selecting this capability.
+        expression: BoundExpressionId,
+        /// The pattern reached only after successful entry initializes the capability.
+        pattern: crate::BoundPatternId,
+    },
     /// Storage created by an allocation operation.
     Allocation(BoundExpressionId),
     /// Storage introduced by a compiler-required operation.
@@ -112,6 +119,7 @@ impl StorageIdentity {
             Self::CustomIndexBorrow(_) => "custom_index_borrow",
             Self::IterationCursor(_) => "iteration_cursor",
             Self::IterationElement(_) => "iteration_element",
+            Self::ScopedCapability { .. } => "scoped_capability",
             Self::Allocation(_) => "allocation",
             Self::CompilerCreated(_) => "compiler_created",
             Self::Alternative { .. } => "alternative",
@@ -141,7 +149,9 @@ impl StorageIdentity {
             | Self::IterationCursor(expression)
             | Self::IterationElement(expression)
             | Self::Allocation(expression) => Some(AnyBoundNodeId::Expression(expression)),
-            Self::Alternative { pattern, .. } => Some(AnyBoundNodeId::Pattern(pattern)),
+            Self::Alternative { pattern, .. } | Self::ScopedCapability { pattern, .. } => {
+                Some(AnyBoundNodeId::Pattern(pattern))
+            }
             Self::Parameter(_)
             | Self::Receiver(_)
             | Self::Static(_)
@@ -165,6 +175,10 @@ impl StorageIdentity {
                 pattern,
                 alternative,
             } => pattern.unit() == unit && alternative.unit() == unit,
+            Self::ScopedCapability {
+                expression,
+                pattern,
+            } => expression.unit() == unit && pattern.unit() == unit,
             Self::AnonymousParameter(parameter) => parameter.region().raw() == unit.raw(),
             Self::Parameter(_)
             | Self::Static(_)

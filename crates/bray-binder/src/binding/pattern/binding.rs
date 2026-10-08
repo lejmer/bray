@@ -520,6 +520,7 @@ where
                         self.bind_assignment_pattern_path(context, &path)?
                     }
                     PatternBindingMode::Declaration
+                    | PatternBindingMode::Scoped
                     | PatternBindingMode::MatchObserve
                     | PatternBindingMode::MatchConsume => self.bind_pattern_path(context, &path)?,
                 },

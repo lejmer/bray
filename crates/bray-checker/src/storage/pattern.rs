@@ -200,6 +200,7 @@ where
                         subject_expression,
                         access,
                         bray_symbols::BorrowKind::Shared,
+                        self.expression_type(subject_expression)?.ty(),
                     )?))
                 }
                 PatternOperation::MutableBorrow => {
@@ -207,6 +208,7 @@ where
                         subject_expression,
                         access,
                         bray_symbols::BorrowKind::Mutable,
+                        self.expression_type(subject_expression)?.ty(),
                     )?))
                 }
             };
@@ -433,6 +435,7 @@ where
         let purpose = match mode {
             BoundPatternMode::Assignment => StorageAccessPurpose::Assignment,
             BoundPatternMode::Declaration
+            | BoundPatternMode::Scoped
             | BoundPatternMode::MatchObserve
             | BoundPatternMode::MatchConsume => StorageAccessPurpose::Read,
         };

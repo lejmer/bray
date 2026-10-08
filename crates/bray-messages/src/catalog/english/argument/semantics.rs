@@ -508,6 +508,7 @@ pub(super) fn format_english_storage_access(access: &DiagnosticStorageAccess) ->
         DiagnosticStorageRoot::CustomIndexBorrow => "custom-index borrow storage",
         DiagnosticStorageRoot::IterationCursor => "iteration cursor storage",
         DiagnosticStorageRoot::IterationElement => "iteration element storage",
+        DiagnosticStorageRoot::ScopedCapability => "scoped capability storage",
         DiagnosticStorageRoot::Allocation => "allocated storage",
         DiagnosticStorageRoot::CompilerCreated => "compiler-provided storage",
         DiagnosticStorageRoot::Alternative => "pattern-selected storage",

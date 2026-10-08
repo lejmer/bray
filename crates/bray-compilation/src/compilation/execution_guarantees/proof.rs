@@ -173,7 +173,7 @@ impl Compilation {
                 (
                     dependency.target,
                     ExecutionObligation::Property(dependency.property, None),
-                    dependency.node,
+                    dependency.occurrence,
                 )
             });
 
@@ -184,7 +184,7 @@ impl Compilation {
                     (
                         dependency.target,
                         ExecutionObligation::Postcondition(dependency.source),
-                        dependency.node,
+                        dependency.node.into(),
                     )
                 });
 

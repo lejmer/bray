@@ -152,9 +152,28 @@ impl CleanupOutcome {
         block: MirBlockId,
         source: &MirSourceAnchor,
     ) -> Result<MirBlockId, MirCapacityError> {
+        let (completed, continuation) = self.check_completion(builder, block, source)?;
+
+        builder.set_terminator(
+            completed,
+            source.clone(),
+            MirTerminatorKind::Goto(MirEdge::new(continuation, [])),
+        );
+
+        Ok(continuation)
+    }
+
+    /// Returns the successful result path and the continuation shared with retained incidents.
+    pub(crate) fn check_completion(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+    ) -> Result<(MirBlockId, MirBlockId), MirCapacityError> {
         let kind = builder.block_kind(block);
         let panicked = builder.push_block(source.clone(), kind)?;
         let cancelled = builder.push_block(source.clone(), kind)?;
+        let continuation = builder.push_block(source.clone(), kind)?;
 
         let completed = check_call_outcome(
             builder,
@@ -176,12 +195,12 @@ impl CleanupOutcome {
         builder.set_terminator(
             cancelled,
             source.clone(),
-            MirTerminatorKind::Goto(MirEdge::new(completed, [])),
+            MirTerminatorKind::Goto(MirEdge::new(continuation, [])),
         );
 
-        self.retain_panic(builder, panicked, source, completed)?;
+        self.retain_panic(builder, panicked, source, continuation)?;
 
-        Ok(completed)
+        Ok((completed, continuation))
     }
 
     fn retain_panic(

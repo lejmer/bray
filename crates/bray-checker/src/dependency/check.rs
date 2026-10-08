@@ -8,7 +8,9 @@ use bray_bound_tree::{
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::CallableSignatureQuery;
 
-use super::call::{selected_call_contracts, selected_iteration_contract};
+use super::call::{
+    selected_call_contracts, selected_iteration_contract, selected_scoped_contracts,
+};
 use super::operation::{operation_access_requirements, operation_requirements};
 use crate::unit::assert_unit_inputs;
 use crate::{
@@ -68,7 +70,9 @@ where
         let requirements = operation_requirements(storage, operation);
 
         expression_requirements
-            .entry(operation.expression())
+            .entry(bray_bound_tree::SemanticOccurrence::from(
+                operation.expression(),
+            ))
             .or_insert_with(Vec::new)
             .extend(requirements.iter().cloned());
 
@@ -110,7 +114,9 @@ where
 
                         if let Some(deferred) = contracts.deferred() {
                             deferred_expression_requirements
-                                .entry(entry.expression())
+                                .entry(bray_bound_tree::SemanticOccurrence::from(
+                                    entry.expression(),
+                                ))
                                 .or_insert_with(Vec::new)
                                 .extend(deferred.requirements().iter().cloned());
                         }
@@ -123,6 +129,31 @@ where
             SemanticSelection::Iteration(iteration) => {
                 selected_iteration_contract(request, storage, iteration)
             }
+            SemanticSelection::ScopedUse(scoped) => {
+                for occurrence in [
+                    bray_bound_tree::SemanticOccurrence::ScopeEnter(entry.expression()),
+                    bray_bound_tree::SemanticOccurrence::ScopeExit(entry.expression()),
+                ] {
+                    match selected_scoped_contracts(request, storage, scoped, occurrence) {
+                        Ok(contracts) => {
+                            expression_requirements
+                                .entry(occurrence)
+                                .or_insert_with(Vec::new)
+                                .extend(contracts.invocation().requirements().iter().cloned());
+
+                            if let Some(deferred) = contracts.deferred() {
+                                deferred_expression_requirements
+                                    .entry(occurrence)
+                                    .or_insert_with(Vec::new)
+                                    .extend(deferred.requirements().iter().cloned());
+                            }
+                        }
+                        Err(error) => return failed_contract(error, entry.expression()),
+                    }
+                }
+
+                continue;
+            }
             SemanticSelection::Reference(_)
             | SemanticSelection::CallableReference(_)
             | SemanticSelection::StaticReference(_)
@@ -133,7 +164,9 @@ where
 
         match contract {
             Ok(contract) => expression_requirements
-                .entry(entry.expression())
+                .entry(bray_bound_tree::SemanticOccurrence::from(
+                    entry.expression(),
+                ))
                 .or_insert_with(Vec::new)
                 .extend(contract.requirements().iter().cloned()),
             Err(DependencyContractInstantiationError::Resolution(
@@ -141,49 +174,26 @@ where
                     CheckerInfrastructureError::InvalidSemanticSelectionInput,
                 ),
             )) => is_recovered = true,
-            Err(DependencyContractInstantiationError::Resolution(CheckerQueryError::Cancelled)) => {
-                return CheckerOutcome::Cancelled;
-            }
-            Err(DependencyContractInstantiationError::Resolution(
-                CheckerQueryError::Infrastructure(error),
-            )) => return CheckerOutcome::InfrastructureFailure(error),
-            Err(DependencyContractInstantiationError::Resolution(CheckerQueryError::Upstream(
-                error,
-            ))) => return CheckerOutcome::UpstreamFailure(error),
-            Err(DependencyContractInstantiationError::UnresolvedWitness) => {
-                return CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::StorageFlow(
-                        CheckerStorageFlowFailure::UnresolvedDependencyWitness {
-                            expression: entry.expression(),
-                        },
-                    ),
-                );
-            }
-            Err(DependencyContractInstantiationError::ForeignUnit) => {
-                return CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::StorageFlow(
-                        CheckerStorageFlowFailure::ForeignDependencyContract,
-                    ),
-                );
-            }
+            Err(error) => return failed_contract(error, entry.expression()),
         }
     }
 
     inherit_child_requirements(request, &mut expression_requirements);
     inherit_child_requirements(request, &mut deferred_expression_requirements);
 
-    let expressions = request.unit().tree().expressions().map(|(expression, _)| {
-        let requirements = expression_requirements
-            .get(&expression)
-            .cloned()
-            .unwrap_or_default();
+    for (expression, _) in request.unit().tree().expressions() {
+        expression_requirements
+            .entry(expression.into())
+            .or_default();
+    }
 
-        (expression, BoundDependencyContract::new(requirements))
-    });
+    let expressions = expression_requirements
+        .into_iter()
+        .map(|(occurrence, requirements)| (occurrence, BoundDependencyContract::new(requirements)));
 
     let deferred_expressions = deferred_expression_requirements
         .into_iter()
-        .map(|(expression, requirements)| (expression, BoundDependencyContract::new(requirements)));
+        .map(|(occurrence, requirements)| (occurrence, BoundDependencyContract::new(requirements)));
 
     let borrows = storage
         .borrow_capability_entries()
@@ -231,7 +241,7 @@ where
 fn inherit_child_requirements<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     expression_requirements: &mut BTreeMap<
-        bray_bound_tree::BoundExpressionId,
+        bray_bound_tree::SemanticOccurrence,
         Vec<BoundDependencyRequirement>,
     >,
 ) {
@@ -240,7 +250,7 @@ fn inherit_child_requirements<C: CheckerRequestContext + ?Sized>(
             .child_expressions()
             .flat_map(|child| {
                 expression_requirements
-                    .get(&child)
+                    .get(&child.into())
                     .into_iter()
                     .flatten()
                     .cloned()
@@ -248,8 +258,37 @@ fn inherit_child_requirements<C: CheckerRequestContext + ?Sized>(
             .collect::<Vec<_>>();
 
         expression_requirements
-            .entry(expression)
+            .entry(expression.into())
             .or_default()
             .extend(child_requirements);
+    }
+}
+
+fn failed_contract<E, T>(
+    error: DependencyContractInstantiationError<CheckerQueryError<E>>,
+    expression: bray_bound_tree::BoundExpressionId,
+) -> CheckerOutcome<T, E> {
+    match error {
+        DependencyContractInstantiationError::Resolution(CheckerQueryError::Cancelled) => {
+            CheckerOutcome::Cancelled
+        }
+        DependencyContractInstantiationError::Resolution(CheckerQueryError::Infrastructure(
+            error,
+        )) => CheckerOutcome::InfrastructureFailure(error),
+        DependencyContractInstantiationError::Resolution(CheckerQueryError::Upstream(error)) => {
+            CheckerOutcome::UpstreamFailure(error)
+        }
+        DependencyContractInstantiationError::UnresolvedWitness => {
+            // rust-style: allow(context-erasing-failure-conversion, reason = "unresolved witness error has no payload and its exact expression is retained")
+            CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::StorageFlow(
+                CheckerStorageFlowFailure::UnresolvedDependencyWitness { expression },
+            ))
+        }
+        DependencyContractInstantiationError::ForeignUnit => {
+            // rust-style: allow(context-erasing-failure-conversion, reason = "foreign unit error has no payload and its exact cause is retained")
+            CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::StorageFlow(
+                CheckerStorageFlowFailure::ForeignDependencyContract,
+            ))
+        }
     }
 }

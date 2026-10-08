@@ -1,6 +1,6 @@
 use crate::{CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{
-    AnyBoundNodeId, CheckedSemanticSelections, SemanticSelection, StorageAccessId,
+    CheckedSemanticSelections, SemanticOccurrence, SemanticSelection, StorageAccessId,
     StorageAccessPurpose, StoragePlan, StorageRelationship,
 };
 use bray_symbols::{ExecutionProperty, TypeData};
@@ -27,7 +27,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
     selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
     copied_types: &BTreeSet<bray_symbols::TypeId>,
-) -> BTreeMap<AnyBoundNodeId, StorageInvalidation> {
+) -> BTreeMap<SemanticOccurrence, StorageInvalidation> {
     let mut accesses = BTreeMap::new();
 
     for plan in storage.access_plans().iter().filter(|plan| {
@@ -48,7 +48,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
         access_invalidates_refinements(plan.purpose())
     }) {
         let invalidation = accesses
-            .entry(plan.node())
+            .entry(plan.occurrence())
             .or_insert_with(|| StorageInvalidation::Accesses(Vec::new()));
 
         if let StorageInvalidation::Accesses(changed) = invalidation {
@@ -57,6 +57,34 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
     }
 
     for (expression, _) in request.unit().tree().expressions() {
+        if let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(expression) {
+            for occurrence in [
+                SemanticOccurrence::ScopeEnter(expression),
+                SemanticOccurrence::ScopeExit(expression),
+            ] {
+                let signature = scoped.invocation(occurrence).1;
+
+                let data = request
+                    .semantic_values()
+                    .type_data(signature.callable_type());
+
+                let TypeData::Callable(callable) = data.as_ref() else {
+                    panic!("scoped invocation retains its selected callable type");
+                };
+
+                if !callable
+                    .phase_behaviors()
+                    .invocation()
+                    .execution_properties()
+                    .contains(&ExecutionProperty::Pure)
+                {
+                    accesses.insert(occurrence, StorageInvalidation::All);
+                }
+            }
+
+            continue;
+        }
+
         let Some(SemanticSelection::Call(call)) = selections.expression(expression) else {
             continue;
         };

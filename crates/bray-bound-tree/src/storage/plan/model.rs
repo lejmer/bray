@@ -29,7 +29,7 @@ pub struct StoragePlan {
     bindings: Arc<[(StorageBindingTarget, StorageBinding)]>,
     bindings_by_storage: Arc<[usize]>,
     plans: Arc<[StorageAccessPlan]>,
-    plans_by_node: Arc<[usize]>,
+    plans_by_occurrence: Arc<[usize]>,
     plans_by_expression: Arc<[usize]>,
 }
 
@@ -70,10 +70,10 @@ impl StoragePlan {
             &borrow_capabilities,
         );
 
-        let mut plans_by_node = (0..plans.len()).collect::<Vec<_>>();
-        let mut plans_by_expression = plans_by_node.clone();
+        let mut plans_by_occurrence = (0..plans.len()).collect::<Vec<_>>();
+        let mut plans_by_expression = plans_by_occurrence.clone();
 
-        plans_by_node.sort_unstable_by_key(|index| (plans[*index].node(), *index));
+        plans_by_occurrence.sort_unstable_by_key(|index| (plans[*index].occurrence(), *index));
         plans_by_expression.sort_unstable_by_key(|index| (plans[*index].expression(), *index));
 
         let bindings = bindings.into_iter().collect::<Vec<_>>();
@@ -94,7 +94,7 @@ impl StoragePlan {
             bindings: bindings.into(),
             bindings_by_storage: bindings_by_storage.into(),
             plans: plans.into(),
-            plans_by_node: plans_by_node.into(),
+            plans_by_occurrence: plans_by_occurrence.into(),
             plans_by_expression: plans_by_expression.into(),
         }
     }
@@ -283,14 +283,22 @@ impl StoragePlan {
     /// Returns the access plans for one node in their original evaluation order.
     /// Lookup examines only the matching plans after a binary search of the immutable index.
     pub fn node_plans(&self, node: AnyBoundNodeId) -> impl Iterator<Item = StorageAccessPlan> + '_ {
-        let first = self
-            .plans_by_node
-            .partition_point(|index| self.plans[*index].node() < node);
+        self.occurrence_plans(node.into())
+    }
 
-        self.plans_by_node[first..]
+    /// Returns access plans for an exact execution occurrence in their original evaluation order.
+    pub fn occurrence_plans(
+        &self,
+        occurrence: crate::SemanticOccurrence,
+    ) -> impl Iterator<Item = StorageAccessPlan> + '_ {
+        let first = self
+            .plans_by_occurrence
+            .partition_point(|index| self.plans[*index].occurrence() < occurrence);
+
+        self.plans_by_occurrence[first..]
             .iter()
             .map(|index| self.plans[*index])
-            .take_while(move |plan| plan.node() == node)
+            .take_while(move |plan| plan.occurrence() == occurrence)
     }
 
     /// Returns the proven overlap relationship between two evaluated accesses.

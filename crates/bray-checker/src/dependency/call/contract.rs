@@ -200,11 +200,23 @@ where
         CheckerInfrastructureError::InvalidSemanticSelectionInput.into(),
     ))?;
 
-    let iterate =
-        instantiate_hidden_iteration_call(request, storage, selection.iterate(), source, cursor)?;
+    let iterate = instantiate_hidden_call(
+        request,
+        storage,
+        selection.iterate(),
+        (DependencySubjectRoot::Receiver, source),
+        Some(cursor),
+    )?
+    .invocation;
 
-    let next =
-        instantiate_hidden_iteration_call(request, storage, selection.next(), cursor, element)?;
+    let next = instantiate_hidden_call(
+        request,
+        storage,
+        selection.next(),
+        (DependencySubjectRoot::Receiver, cursor),
+        Some(element),
+    )?
+    .invocation;
 
     Ok(BoundDependencyContract::new(
         iterate
@@ -215,14 +227,107 @@ where
     ))
 }
 
-fn instantiate_hidden_iteration_call<C>(
+pub(crate) fn selected_scoped_contracts<C>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+    scoped: &bray_bound_tree::SelectedScopedUse,
+    occurrence: bray_bound_tree::SemanticOccurrence,
+) -> Result<
+    InstantiatedCallContracts,
+    DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
+>
+where
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
+{
+    let input = storage
+        .occurrence_plans(occurrence)
+        .next()
+        .expect("checked scoped invocation retains its sole input")
+        .access();
+
+    let (callable, root, result) = match occurrence {
+        bray_bound_tree::SemanticOccurrence::ScopeEnter(expression) => {
+            let bray_bound_tree::BoundExpression::Structured(bound) = request
+                .view()
+                .expression(expression)
+                .expect("scoped invocation retains its expression")
+            else {
+                panic!("selected scoped invocation must be a with expression");
+            };
+
+            let bray_bound_tree::StorageBinding::Access(capability) = storage
+                .binding(bray_bound_tree::StorageBindingTarget::PatternSubject(
+                    bound.patterns()[0],
+                ))
+                .expect("scoped pattern retains its capability storage")
+            else {
+                panic!("scoped pattern must observe its capability storage");
+            };
+
+            (
+                scoped.enter().0,
+                DependencySubjectRoot::Receiver,
+                Some(capability),
+            )
+        }
+        bray_bound_tree::SemanticOccurrence::ScopeExit(_) => (
+            scoped.exit().0,
+            DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
+            None,
+        ),
+        bray_bound_tree::SemanticOccurrence::Node(_) => {
+            panic!("scoped contract requires its enter or exit occurrence");
+        }
+    };
+
+    let mut instantiated =
+        instantiate_hidden_call(request, storage, callable, (root, input), result)?;
+
+    if result.is_some() {
+        let template = request
+            .context()
+            .callable_result_dependencies(callable.definition().callable_symbol())
+            .map_err(DependencyContractInstantiationError::Resolution)?;
+
+        let template = crate::dependency::returned::resolved_result_template(
+            request,
+            Some(callable),
+            template,
+        )
+        .map_err(DependencyContractInstantiationError::Resolution)?;
+
+        let mut context = CallInstantiationContext::hidden(request, storage, (root, input), result);
+
+        let concrete = DependencyContractTemplateData::new(
+            template
+                .requirements()
+                .iter()
+                .filter(|requirement| {
+                    !matches!(
+                        requirement,
+                        DependencyRequirement::ResultCall { .. }
+                            | DependencyRequirement::FixedPoint { .. }
+                            | DependencyRequirement::Variable { .. }
+                    )
+                })
+                .cloned(),
+        );
+
+        instantiated.result = BoundDependencyContract::try_instantiate(&concrete, &mut context)
+            .map_err(|error| error.map_resolution(CheckerQueryError::Infrastructure))?;
+    }
+
+    Ok(instantiated)
+}
+
+fn instantiate_hidden_call<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     callable: CallableInstanceData,
-    receiver: bray_bound_tree::StorageAccessId,
-    result: bray_bound_tree::StorageAccessId,
+    input: (DependencySubjectRoot, bray_bound_tree::StorageAccessId),
+    result: Option<bray_bound_tree::StorageAccessId>,
 ) -> Result<
-    BoundDependencyContract,
+    InstantiatedCallContracts,
     DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
 >
 where
@@ -232,10 +337,9 @@ where
         callable_dependency_contracts(request, BoundCallableTarget::Declaration(callable))
             .map_err(DependencyContractInstantiationError::Resolution)?;
 
-    let mut context = CallInstantiationContext::hidden(request, storage, receiver, result);
+    let mut context = CallInstantiationContext::hidden(request, storage, input, result);
 
     instantiate_callable_contracts(request, contracts, &mut context)
-        .map(|contracts| contracts.invocation)
 }
 
 fn instantiate_callable_contracts<C>(
@@ -764,8 +868,12 @@ mod tests {
 
         let request = CheckerUnitView::new(&unit, &semantic_context, &context);
 
-        let mut context =
-            CallInstantiationContext::hidden(request, &storage, source_access, cursor_access);
+        let mut context = CallInstantiationContext::hidden(
+            request,
+            &storage,
+            (DependencySubjectRoot::Receiver, source_access),
+            Some(cursor_access),
+        );
 
         let contracts = instantiate_callable_contracts(
             request,

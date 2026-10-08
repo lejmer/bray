@@ -26,7 +26,7 @@ pub(super) struct RefinementUniverse {
     equivalent_accesses: BTreeMap<StorageAccessId, StorageAccessId>,
     edge_refinements: BTreeMap<AnalysisRefinement, Box<[usize]>>,
     trust_boundaries: BTreeMap<BoundExpressionId, usize>,
-    invalidating_accesses: BTreeMap<AnyBoundNodeId, StorageInvalidation>,
+    invalidating_accesses: BTreeMap<bray_bound_tree::SemanticOccurrence, StorageInvalidation>,
 }
 
 impl RefinementUniverse {
@@ -251,10 +251,10 @@ impl RefinementUniverse {
     pub(super) fn invalidate_for_operation(
         &self,
         set: &mut RefinementSet,
-        node: AnyBoundNodeId,
+        occurrence: impl Into<bray_bound_tree::SemanticOccurrence>,
         storage: &StoragePlan,
     ) {
-        let Some(mutations) = self.invalidating_accesses.get(&node) else {
+        let Some(mutations) = self.invalidating_accesses.get(&occurrence.into()) else {
             return;
         };
 

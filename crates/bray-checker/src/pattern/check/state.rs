@@ -121,7 +121,7 @@ where
 {
     pub(in crate::pattern) request: CheckerUnitView<'view, C>,
     expression_types: &'view CheckedExpressionTypes,
-    iteration_patterns: BTreeMap<BoundPatternId, PatternSubject>,
+    subject_types: BTreeMap<BoundPatternId, PatternSubject>,
     declared_patterns: BTreeMap<BoundPatternId, TypeId>,
     pub(in crate::pattern) constant_patterns:
         &'input BTreeMap<BoundPatternId, PatternConstantEvidence>,
@@ -161,14 +161,14 @@ where
             .intern_type(TypeData::Error)
             .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
-        let iteration_patterns = input
-            .iteration_patterns()
+        let subject_types = input
+            .subject_types()
             .iter()
             .map(|input| {
                 (
                     input.pattern(),
                     PatternSubject {
-                        ty: input.element_type(),
+                        ty: input.ty(),
                         is_recovered: input.is_recovered(),
                         trusted_variant: false,
                     },
@@ -190,7 +190,7 @@ where
         Ok(Self {
             request,
             expression_types,
-            iteration_patterns,
+            subject_types,
             declared_patterns,
             constant_patterns: input.constant_patterns(),
             constant_guards: input.constant_guards(),
@@ -277,16 +277,22 @@ where
                 }
             }
             BoundExpression::For(expression) => {
-                self.collect_iteration_subject(expression.pattern());
+                self.collect_protocol_subject(expression.pattern());
             }
             BoundExpression::Generator(expression) => {
-                self.collect_iteration_subject(expression.pattern());
+                self.collect_protocol_subject(expression.pattern());
+            }
+            BoundExpression::Structured(expression)
+                if expression.kind() == BoundStructuredExpressionKind::With =>
+            {
+                for pattern in expression.patterns() {
+                    self.collect_protocol_subject(*pattern);
+                }
             }
             BoundExpression::Structured(expression)
                 if matches!(
                     expression.kind(),
-                    BoundStructuredExpressionKind::With
-                        | BoundStructuredExpressionKind::PatternTest
+                    BoundStructuredExpressionKind::PatternTest
                         | BoundStructuredExpressionKind::PatternBinding
                 ) =>
             {
@@ -308,9 +314,9 @@ where
         }
     }
 
-    fn collect_iteration_subject(&mut self, pattern: BoundPatternId) {
+    fn collect_protocol_subject(&mut self, pattern: BoundPatternId) {
         let subject = self
-            .iteration_patterns
+            .subject_types
             .get(&pattern)
             .copied()
             .unwrap_or(PatternSubject {
@@ -406,6 +412,13 @@ where
             matched_subject.ty,
             type_data.as_ref(),
         )?;
+
+        if pattern.mode() == bray_bound_tree::BoundPatternMode::Scoped {
+            compatible &= self
+                .declared_patterns
+                .get(&id)
+                .is_none_or(|declared| *declared == subject.ty);
+        }
 
         if kind == BoundPatternKind::Literal {
             compatible &= predicate.is_some();

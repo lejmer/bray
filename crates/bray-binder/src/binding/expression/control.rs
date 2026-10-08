@@ -37,7 +37,7 @@ impl ExpressionBinder {
             &pattern_syntax,
             self.error_type,
             self.error_type,
-            PatternBindingMode::Declaration,
+            PatternBindingMode::Scoped,
         )?;
 
         binder.activate_pattern_bindings(pattern_scope, &pattern)?;

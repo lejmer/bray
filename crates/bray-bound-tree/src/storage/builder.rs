@@ -40,7 +40,7 @@ pub struct StoragePlanBuilder {
     pub(super) bindings: BTreeMap<StorageBindingTarget, StorageBinding>,
     pub(super) plans: Vec<StorageAccessPlan>,
     pub(super) planned_accesses: BTreeSet<(
-        crate::AnyBoundNodeId,
+        crate::SemanticOccurrence,
         crate::BoundExpressionId,
         StorageAccessPurpose,
         StorageAccessId,
@@ -235,7 +235,20 @@ impl StoragePlanBuilder {
         purpose: StorageAccessPurpose,
         access: StorageAccessId,
     ) -> Result<(), StoragePlanBuildError> {
-        if node.unit() != self.unit || expression.unit() != self.unit || access.unit() != self.unit
+        self.plan_occurrence_access(node.into(), expression, purpose, access)
+    }
+
+    /// Records an access at its exact source or implicit protocol invocation occurrence.
+    pub fn plan_occurrence_access(
+        &mut self,
+        occurrence: crate::SemanticOccurrence,
+        expression: crate::BoundExpressionId,
+        purpose: StorageAccessPurpose,
+        access: StorageAccessId,
+    ) -> Result<(), StoragePlanBuildError> {
+        if occurrence.node().unit() != self.unit
+            || expression.unit() != self.unit
+            || access.unit() != self.unit
         {
             return Err(StoragePlanBuildError::ForeignUnit);
         }
@@ -246,13 +259,14 @@ impl StoragePlanBuilder {
 
         if !self
             .planned_accesses
-            .insert((node, expression, purpose, access))
+            .insert((occurrence, expression, purpose, access))
         {
             return Ok(());
         }
 
-        self.plans
-            .push(StorageAccessPlan::new(node, expression, purpose, access));
+        self.plans.push(StorageAccessPlan::new(
+            occurrence, expression, purpose, access,
+        ));
 
         Ok(())
     }

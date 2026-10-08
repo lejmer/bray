@@ -152,9 +152,10 @@ impl Compilation {
 
         let mut diagnostics = DiagnosticBag::new();
 
-        let signature = bray_checker::normalize_callable_signature_type_valued_members(
+        let signature = bray_checker::normalize_callable_signature(
             &checker,
             signature,
+            Some(substitution),
             &mut diagnostics,
         )
         .map_err(codegen_checker_error)?;

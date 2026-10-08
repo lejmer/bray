@@ -87,6 +87,7 @@ impl Lowerer<'_> {
                     | SemanticSelection::CallableReference(_)
                     | SemanticSelection::StaticReference(_)
                     | SemanticSelection::Predicate(_)
+                    | SemanticSelection::ScopedUse(_)
                     | SemanticSelection::Propagation(_),
                 )
                 | None => false,

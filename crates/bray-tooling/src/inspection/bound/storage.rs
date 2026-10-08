@@ -226,6 +226,7 @@ impl InspectionStorageProvenance {
             | StorageIdentity::CustomIndexBorrow(expression)
             | StorageIdentity::IterationCursor(expression)
             | StorageIdentity::IterationElement(expression)
+            | StorageIdentity::ScopedCapability { expression, .. }
             | StorageIdentity::Allocation(expression) => Ok(Self::Expression {
                 expression: expression.ordinal(),
             }),

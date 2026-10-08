@@ -29,6 +29,25 @@ impl<C> ControlFlowGraphBuilder<'_, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    fn scoped_exit(
+        &self,
+        scope: BoundBlockId,
+    ) -> Option<(
+        bray_bound_tree::BoundExpressionId,
+        bray_bound_tree::BoundCallResult,
+    )> {
+        let expression = *self.scoped_uses.get(&scope)?;
+
+        let Some(bray_bound_tree::SemanticSelection::ScopedUse(scoped)) = self
+            .selections()
+            .and_then(|selections| selections.expression(expression))
+        else {
+            panic!("scoped cleanup inventory retains its selected exit");
+        };
+
+        Some((expression, scoped.exit_result()))
+    }
+
     pub(super) fn push_scope_exit(
         &mut self,
         current: AnalysisBlockId,
@@ -45,7 +64,8 @@ where
         self.push_cleanup_failures(current, self.scopes.len().saturating_sub(1), exit);
         self.scopes.truncate(retained_depth);
 
-        self.storage.push_scope_exit(current, block, exit)
+        self.storage
+            .push_scope_exit(current, block, exit, self.scoped_exit(block))
     }
 
     pub(super) fn push_exit(
@@ -88,6 +108,10 @@ where
         retained_depth: usize,
         exit: AnyBoundNodeId,
     ) {
+        if self.dependency_failures == super::build::DependencyFailureMode::ProofDependencies {
+            return;
+        }
+
         let mut can_fail = false;
 
         for index in (retained_depth..self.scopes.len()).rev() {
@@ -141,7 +165,9 @@ where
         for index in (retained_depth..self.scopes.len()).rev() {
             let scope = self.scopes[index];
 
-            current = self.storage.push_scope_exit(current, scope, exit);
+            current = self
+                .storage
+                .push_scope_exit(current, scope, exit, self.scoped_exit(scope));
         }
 
         current

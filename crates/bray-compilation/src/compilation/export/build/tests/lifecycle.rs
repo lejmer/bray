@@ -767,3 +767,303 @@ fn collect_integer_constants(
         kind => panic!("aggregate fixture must contain products and integers, found {kind:?}"),
     }
 }
+
+#[test]
+fn imported_inherent_constructor_self_resolves_with_its_generic_subject() {
+    for (subject, construct_result, call, caller_result) in [
+        ("Value", "Self", "Value(true)", "Value"),
+        ("Value<T>", "Self", "Value<bool>(true)", "Value<bool>"),
+        (
+            "Value<T>",
+            "Result<Self, bool>",
+            "Value<bool>(true)",
+            "Result<Value<bool>, bool>",
+        ),
+    ] {
+        let field = if subject == "Value" { "bool" } else { "T" };
+
+        let result = if construct_result == "Self" {
+            "value"
+        } else {
+            "Ok(value)"
+        };
+
+        let source = format!(
+            r#"
+            module api;
+            struct {subject} {{ byte: {field}; }}
+            impl {subject}
+            {{
+                construct(pos byte: {field}) -> {construct_result}
+                {{
+                    let value: {subject} = {{ byte = byte }};
+                    return {result};
+                }}
+            }}
+        "#
+        );
+
+        let provider = compilation(&source);
+
+        assert!(
+            provider.check_diagnostics().is_empty(),
+            "{source}: {:?}",
+            provider.check_diagnostics()
+        );
+
+        let call = call.replacen("Value", "example.package.api.Value", 1);
+        let caller_result = caller_result.replacen("Value", "example.package.api.Value", 1);
+
+        let consumer = super::fixtures::execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api;
+            func caller() -> {caller_result} {{ return {call}; }}
+        "#
+            ),
+        );
+
+        assert!(
+            consumer.check_diagnostics().is_empty(),
+            "{source}: {:?}",
+            consumer.check_diagnostics()
+        );
+    }
+}
+
+#[test]
+fn source_and_imported_scope_lifecycle_self_matches_the_concrete_generic_subject() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Value<T> { byte: T; }
+        impl Value<T>
+        {
+            consume enter() -> Self { return self; }
+            exit(pos lease: Self) {}
+        }
+        func caller(pos value: Value<bool>) -> Value<bool> { return value; }
+    "#,
+    );
+
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api;
+        func caller(pos value: example.package.api.Value<bool>) -> example.package.api.Value<bool>
+        { return value; }
+    "#,
+    );
+
+    assert!(
+        consumer.check_diagnostics().is_empty(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
+
+    for compilation in [&provider, &consumer] {
+        let key = source_function_body_key(compilation, "caller");
+        let bound = compilation.bound_unit(key.clone()).unwrap();
+        let types = compilation.expression_types(key).unwrap();
+
+        let ty = bound
+            .value()
+            .tree()
+            .expressions()
+            .find_map(|(id, expression)| {
+                matches!(expression, bray_bound_tree::BoundExpression::Name(_))
+                    .then(|| types.value().expression(id).unwrap().ty())
+            })
+            .expect("caller observes its concrete resource parameter");
+
+        let cancellation = crate::fact::CancellationToken::new();
+
+        for slot in [
+            bray_symbols::TypeAssociatedLifecycleSlot::ScopeEnter,
+            bray_symbols::TypeAssociatedLifecycleSlot::ScopeExit,
+        ] {
+            let selected = compilation
+                .selected_lifecycle_signature(ty, slot, &cancellation)
+                .unwrap();
+
+            assert!(
+                selected.diagnostics().is_empty(),
+                "{:?}",
+                selected.diagnostics()
+            );
+
+            let (_, signature) = selected
+                .value()
+                .as_ref()
+                .expect("resource retains its scoped-use declarations");
+
+            match slot {
+                bray_symbols::TypeAssociatedLifecycleSlot::ScopeEnter => {
+                    assert_eq!(signature.receiver().unwrap().ty(), ty);
+                    assert_eq!(signature.result(), ty);
+                }
+                bray_symbols::TypeAssociatedLifecycleSlot::ScopeExit => {
+                    assert!(signature.receiver().is_none());
+                    assert_eq!(signature.parameters()[0].ty(), ty);
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+}
+
+#[test]
+fn scoped_capability_annotations_do_not_select_enter_in_source_or_imported_interfaces() {
+    let declarations = r#"
+        module api;
+        struct Resource<T> {}
+        impl Resource<T>
+        {
+            consume enter() -> bool { return true; }
+            exit(pos lease: bool) {}
+        }
+    "#;
+
+    let provider = compilation(declarations);
+
+    for annotation in ["bool", "i32"] {
+        let source = compilation(&format!(
+            "{declarations}
+            func caller(pos value: Resource<bool>) -> bool
+            {{ return with lease: {annotation} = value {{ yield true; }}; }}"
+        ));
+
+        let imported = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api;
+            func caller(pos value: example.package.api.Resource<bool>) -> bool
+            {{ return with lease: {annotation} = value {{ yield true; }}; }}
+        "#
+            ),
+        );
+
+        for compilation in [&source, &imported] {
+            let key = source_function_body_key(compilation, "caller");
+            let bound = compilation.bound_unit(key.clone()).unwrap();
+            let types = compilation.expression_types(key.clone()).unwrap();
+            let patterns = compilation.patterns(key.clone()).unwrap();
+            let selections = compilation.semantic_selections(key.clone()).unwrap();
+
+            let scoped = selections
+                .value()
+                .entries()
+                .iter()
+                .find_map(|entry| match entry.selection() {
+                    bray_bound_tree::SemanticSelection::ScopedUse(scoped) => Some(scoped),
+                    _ => None,
+                })
+                .expect("the resource initializer selects its actual enter/exit pair");
+
+            assert_ne!(scoped.source_type(), scoped.capability_type());
+            assert_eq!(scoped.enter().1.result(), scoped.capability_type());
+
+            assert_eq!(
+                scoped.exit().1.parameters()[0].ty(),
+                scoped.capability_type()
+            );
+
+            assert!(
+                matches!(bound.value().view().expression(scoped.expression()),
+                Some(bray_bound_tree::BoundExpression::Structured(expression))
+                    if expression.kind() == bray_bound_tree::BoundStructuredExpressionKind::With)
+            );
+
+            if annotation == "bool" {
+                assert!(types.diagnostics().is_empty(), "{:?}", types.diagnostics());
+
+                assert!(
+                    patterns.diagnostics().is_empty(),
+                    "{:?}",
+                    patterns.diagnostics()
+                );
+
+                let storage = compilation.storage_plan(key.clone()).unwrap();
+
+                assert!(
+                    storage.diagnostics().is_empty(),
+                    "{:?}",
+                    storage.diagnostics()
+                );
+
+                let (identity, provenance) = storage.value().identity_entries().find(|(_, identity)| matches!(identity,
+                    bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. } if *expression == scoped.expression()
+                )).expect("successful entry retains separate capability storage");
+
+                let bray_bound_tree::StorageIdentity::ScopedCapability { pattern, .. } = provenance
+                else {
+                    unreachable!()
+                };
+
+                assert_eq!(
+                    storage.value().identity_type(identity),
+                    Some(scoped.capability_type())
+                );
+
+                assert_eq!(provenance.definition_node(), Some(pattern.into()));
+
+                let pattern_node = bound.value().view().pattern(pattern).unwrap();
+
+                assert_eq!(
+                    pattern_node.mode(),
+                    bray_bound_tree::BoundPatternMode::Scoped
+                );
+
+                assert_eq!(
+                    patterns.value().pattern(pattern).unwrap().operation(),
+                    bray_bound_tree::PatternOperation::Observe
+                );
+
+                for binding in pattern_node.bindings() {
+                    let Some(bray_bound_tree::StorageBinding::Access(access)) = storage
+                        .value()
+                        .binding(bray_bound_tree::StorageBindingTarget::Local(*binding))
+                    else {
+                        panic!("scoped binding aliases its retained capability");
+                    };
+
+                    assert_eq!(storage.value().root_identity(access), Some(identity));
+                }
+
+                let Some(bray_bound_tree::BoundExpression::Structured(expression)) =
+                    bound.value().view().expression(scoped.expression())
+                else {
+                    unreachable!()
+                };
+
+                let owners = bray_bound_tree::StorageScopeOwners::collect(bound.value()).unwrap();
+
+                assert_eq!(
+                    owners.identity_scope(storage.value(), identity),
+                    Some(expression.blocks()[0])
+                );
+            } else {
+                assert!(
+                    patterns
+                        .diagnostics()
+                        .iter()
+                        .any(|diagnostic| diagnostic.kind()
+                            == bray_diagnostics::DiagnosticKind::CheckingIncompatiblePattern),
+                    "{:?}",
+                    patterns.diagnostics()
+                );
+            }
+        }
+    }
+}

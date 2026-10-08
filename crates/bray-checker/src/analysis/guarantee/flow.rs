@@ -258,7 +258,7 @@ pub(super) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(super) storage: &'a bray_bound_tree::StoragePlan,
     pub(super) contracts: &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
     cleanup: Option<&'a bray_bound_tree::CheckedAsync>,
-    invalidating: BTreeMap<AnyBoundNodeId, StorageInvalidation>,
+    invalidating: BTreeMap<bray_bound_tree::SemanticOccurrence, StorageInvalidation>,
     pub(super) spatial_predicates: BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
 }
 
@@ -280,19 +280,48 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         )
     }
 
+    pub(super) fn invocation_value(
+        &self,
+        state: &ExecutionState,
+        invocation: bray_bound_tree::SemanticOccurrence,
+    ) -> ExecutionCondition {
+        match invocation {
+            bray_bound_tree::SemanticOccurrence::Node(
+                bray_bound_tree::AnyBoundNodeId::Expression(expression),
+            ) => self.value(state, expression),
+            bray_bound_tree::SemanticOccurrence::ScopeEnter(expression) => {
+                ExecutionCondition::ScopedCapability(expression)
+            }
+            bray_bound_tree::SemanticOccurrence::ScopeExit(_) => ExecutionCondition::Unknown,
+            bray_bound_tree::SemanticOccurrence::Node(node) => {
+                panic!("invocation value requires an expression owner, got {node:?}")
+            }
+        }
+    }
+
     pub(super) fn storage_value(
         &self,
         state: &ExecutionState,
-        plan: bray_bound_tree::StorageAccessPlan,
+        expression: BoundExpressionId,
+        access: bray_bound_tree::StorageAccessId,
     ) -> ExecutionCondition {
-        let mut value = self.value(state, plan.expression());
+        let (mut value, scoped) = match self
+            .storage
+            .root_identity(access)
+            .and_then(|identity| self.storage.identity(identity))
+        {
+            Some(bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. }) => {
+                (ExecutionCondition::ScopedCapability(expression), true)
+            }
+            _ => (self.value(state, expression), false),
+        };
 
         let source = self
             .storage
-            .expression_plans(plan.expression())
+            .expression_plans(expression)
             .filter(|source| {
-                source.node() == AnyBoundNodeId::Expression(plan.expression())
-                    && self.storage.access_contains(source.access(), plan.access())
+                source.node() == AnyBoundNodeId::Expression(expression)
+                    && self.storage.access_contains(source.access(), access)
             })
             .max_by_key(|source| {
                 self.storage
@@ -300,13 +329,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .map_or(0, <[_]>::len)
             });
 
-        let source_path = source
-            .and_then(|source| self.storage.resolved_projections(source.access()))
-            .unwrap_or(&[]);
+        // A scoped root names the whole retained capability, even when this occurrence
+        // observes one of its fields. Ordinary expression values already include their source path.
+        let source_path = if scoped {
+            &[][..]
+        } else {
+            source
+                .and_then(|source| self.storage.resolved_projections(source.access()))
+                .unwrap_or(&[])
+        };
 
         let path = self
             .storage
-            .resolved_projections(plan.access())
+            .resolved_projections(access)
             .and_then(|path| path.strip_prefix(source_path));
 
         if let Some(path) = path {
@@ -357,6 +392,46 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         operation: super::super::model::AnalysisOperationKind,
     ) {
+        if let super::super::model::AnalysisOperationKind::Call {
+            invocation:
+                invocation @ (bray_bound_tree::SemanticOccurrence::ScopeEnter(_)
+                | bray_bound_tree::SemanticOccurrence::ScopeExit(_)),
+            phase,
+        } = operation
+        {
+            match phase {
+                super::super::model::AnalysisCallPhase::Attempt => {
+                    let entry = self.call_entry(state, invocation);
+
+                    if let bray_bound_tree::SemanticOccurrence::ScopeExit(expression) = invocation {
+                        // Exit may transfer obligations from its captured input contract. The
+                        // entered capability itself grants no authority beyond this boundary.
+                        state.invalidate_trusted(&ExecutionCondition::ScopedCapability(expression));
+                    }
+
+                    self.invalidate(state, invocation);
+
+                    // The invocation owns its captured inputs after transfer. Invalidation
+                    // retires caller authority and earlier computations, not this callee's entry evidence.
+                    if let Some(entry) = entry {
+                        state.entries.insert(invocation, entry);
+                    }
+                }
+                super::super::model::AnalysisCallPhase::Completion => {
+                    let result = self.invocation_value(state, invocation);
+
+                    self.complete_trusted_call(state, invocation, result);
+
+                    if let bray_bound_tree::SemanticOccurrence::ScopeExit(expression) = invocation {
+                        // Only guarantees rewritten to surviving values can outlive the consumed capability.
+                        state.invalidate_trusted(&ExecutionCondition::ScopedCapability(expression));
+                    }
+                }
+            }
+
+            return;
+        }
+
         if let super::super::model::AnalysisOperationKind::ScopeExit { block, exit, phase } =
             operation
         {
@@ -425,8 +500,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         }
                     }
 
-                    if let Some(entry) = self.call_entry(state, expression) {
-                        state.entries.insert(expression, entry);
+                    if let Some(entry) = self.call_entry(state, expression.into()) {
+                        state.entries.insert(expression.into(), entry);
                     }
                 }
 
@@ -447,9 +522,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 if self
                     .request
                     .trusted_contracts()
-                    .and_then(|contracts| contracts.calls.get(&expression))
+                    .and_then(|contracts| contracts.calls.get(&expression.into()))
                     .is_some_and(|contract| !contract.completes)
-                    && let Some(entry) = state.entries.get_mut(&expression)
+                    && let Some(entry) = state.entries.get_mut(&expression.into())
                 {
                     entry.pending_execution = true;
                 }
@@ -522,14 +597,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
-    fn invalidate(&self, state: &mut ExecutionState, node: AnyBoundNodeId) {
-        let Some(invalidation) = self.invalidating.get(&node) else {
+    fn invalidate(
+        &self,
+        state: &mut ExecutionState,
+        occurrence: bray_bound_tree::SemanticOccurrence,
+    ) {
+        let Some(invalidation) = self.invalidating.get(&occurrence) else {
             return;
         };
 
         if matches!(invalidation, StorageInvalidation::All) {
-            let preserves_storage = match node {
-                AnyBoundNodeId::Expression(expression) => {
+            let preserves_storage = match occurrence {
+                bray_bound_tree::SemanticOccurrence::Node(AnyBoundNodeId::Expression(
+                    expression,
+                )) => {
                     matches!(self.semantics.selections().expression(expression),
                     Some(bray_bound_tree::SemanticSelection::Call(call)) if matches!(call.implementation_hook(), Some(
                         bray_compiler_known::ImplementationHook::RawPointerWrite
@@ -581,7 +662,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             unreachable!("global invalidation is handled before per-access invalidation");
         };
 
-        let transfers = !self.storage.node_plans(node).any(|plan| {
+        let transfers = !self.storage.occurrence_plans(occurrence).any(|plan| {
             matches!(
                 plan.purpose(),
                 bray_bound_tree::StorageAccessPurpose::Assignment
@@ -692,10 +773,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .pattern(pattern)
             .expect("checked pattern must exist");
 
+        let expression = self
+            .storage
+            .node_plans(pattern.into())
+            .next()
+            .map(|plan| plan.expression());
+
         let mut plans = self.storage.node_plans(pattern.into()).filter(|plan| {
             !matches!(
                 plan.purpose(),
                 bray_bound_tree::StorageAccessPurpose::Projection
+                    | bray_bound_tree::StorageAccessPurpose::Initialize
             )
         });
 
@@ -705,21 +793,26 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .copied()
             .chain(bound.entries().iter().filter_map(|entry| entry.binding()))
         {
-            if self
+            let source = match self
                 .storage
                 .binding(bray_bound_tree::StorageBindingTarget::Local(binding))
-                .is_none()
             {
-                continue;
-            }
+                Some(bray_bound_tree::StorageBinding::Access(access)) => {
+                    expression.map(|expression| (expression, access))
+                }
+                Some(bray_bound_tree::StorageBinding::Identity(_)) => {
+                    plans.next().map(|plan| (plan.expression(), plan.access()))
+                }
+                None => None,
+            };
 
-            let Some(plan) = plans.next() else {
+            let Some((expression, access)) = source else {
                 continue;
             };
 
-            let value = self.storage_value(state, plan);
+            let value = self.storage_value(state, expression, access);
 
-            // The storage plan supplies exact components for declarations, matches, and conditional bindings.
+            // Observing bindings use their committed component, independently of borrow and initialization plans.
             state.assign(BoundReferenceTarget::Local(binding.into()).into(), value);
         }
     }

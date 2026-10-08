@@ -99,6 +99,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         candidate.calls.keys().copied(),
         expressions.selections(),
         memory,
+        request.semantic_values(),
         &mut candidate.dependencies,
     );
 
@@ -141,11 +142,48 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
                 AnalysisOperationKind::Recovery(_)
                 | AnalysisOperationKind::Suspension { .. }
                 | AnalysisOperationKind::TaskOperation { .. } => false,
-                AnalysisOperationKind::Call { expression, .. }
+                AnalysisOperationKind::Call {
+                    invocation: bray_bound_tree::SemanticOccurrence::Node(_),
+                    ..
+                } if !matches!(node, AnyBoundNodeId::Expression(_)) => {
+                    panic!("selected call invocation retains an actual expression owner");
+                }
+                AnalysisOperationKind::Call {
+                    invocation:
+                        invocation @ (bray_bound_tree::SemanticOccurrence::ScopeEnter(_)
+                        | bray_bound_tree::SemanticOccurrence::ScopeExit(_)),
+                    ..
+                } => {
+                    if visited.insert(invocation) {
+                        super::operation::collect_scoped_dependency(
+                            expressions.selections(),
+                            invocation,
+                            property,
+                            &mut candidate.dependencies,
+                        );
+
+                        super::operation::check_storage_accesses(
+                            request,
+                            invocation,
+                            storage,
+                            property,
+                            &mut candidate.dependencies,
+                        )
+                    } else {
+                        true
+                    }
+                }
+                AnalysisOperationKind::Call {
+                    invocation:
+                        bray_bound_tree::SemanticOccurrence::Node(
+                            bray_bound_tree::AnyBoundNodeId::Expression(expression),
+                        ),
+                    ..
+                }
                 | AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => {
                     let mut valid = true;
 
-                    if visited.insert(expression) {
+                    if visited.insert(expression.into()) {
                         valid &= super::operation::check_expression(
                             request,
                             expression,
@@ -169,44 +207,15 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
                             ));
                         }
 
-                        let constructed = matches!(expressions.selections().expression(expression), Some(bray_bound_tree::SemanticSelection::Operation(operation)) if matches!(operation, bray_bound_tree::SelectedOperation::Construction(_)) || matches!(operation, bray_bound_tree::SelectedOperation::Member(member) if matches!(member.member(), bray_symbols::AnySymbolId::UnionVariant(_))));
-
-                        let republished =
-                            bray_bound_tree::storage_expression_republishes_destructor_receiver(
-                                request.unit(),
-                                storage,
-                                expression,
-                            );
-
-                        if constructed || republished.is_some() {
-                            if let Some(ty) = republished.or_else(|| {
-                                expressions
-                                    .types()
-                                    .expression(expression)
-                                    .map(|entry| entry.ty())
-                            }) {
-                                let admission =
-                                    checked!(crate::asynchronous::execution_cleanup_dependencies(
-                                        request,
-                                        ty,
-                                        property,
-                                        crate::asynchronous::ExecutionCleanupMode::Admission,
-                                        node
-                                    ));
-
-                                let (dependencies, admission_diagnostics) = admission.into_parts();
-
-                                valid &= dependencies.is_some();
-
-                                candidate
-                                    .dependencies
-                                    .extend(dependencies.into_iter().flatten());
-
-                                diagnostics.add_range(admission_diagnostics);
-                            } else {
-                                valid = false;
-                            }
-                        }
+                        valid &= checked!(super::operation::check_construction_admission(
+                            request,
+                            expression,
+                            property,
+                            expressions,
+                            storage,
+                            &mut candidate.dependencies,
+                            &mut diagnostics
+                        ));
                     }
 
                     valid
@@ -214,11 +223,14 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
                 AnalysisOperationKind::PatternObservation(_) | AnalysisOperationKind::Bound(_) => {
                     super::operation::check_storage_accesses(
                         request,
-                        node,
+                        node.into(),
                         storage,
                         property,
                         &mut candidate.dependencies,
                     )
+                }
+                AnalysisOperationKind::Call { .. } => {
+                    unreachable!("all selected invocation occurrences are handled above")
                 }
             };
 

@@ -21,6 +21,11 @@ pub(super) fn index_storage_roots(
             continue;
         };
 
+        if matches!(storage.identity(root), Some(bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. }) if expression == plan.expression())
+        {
+            continue;
+        }
+
         accesses_by_root
             .entry(root)
             .or_default()

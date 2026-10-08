@@ -96,7 +96,7 @@ impl Compilation {
                 .verified_execution_obligation(
                     callable,
                     ExecutionObligation::Postcondition(dependency.source),
-                    candidate.call_evidence(dependency.node),
+                    candidate.call_evidence(dependency.node.into()),
                     cancellation,
                 )?
                 .is_none()

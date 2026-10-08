@@ -441,6 +441,28 @@ where
 
     let mut plans = Vec::new();
 
+    let scoped_uses = selections
+        .entries()
+        .iter()
+        .filter_map(|entry| {
+            let bray_bound_tree::SemanticSelection::ScopedUse(scoped) = entry.selection() else {
+                return None;
+            };
+
+            let Some(bray_bound_tree::BoundExpression::Structured(expression)) =
+                request.view().expression(scoped.expression())
+            else {
+                panic!("selected scoped use retains its structured expression");
+            };
+
+            let [body] = expression.blocks() else {
+                panic!("selected scoped use retains its sole body");
+            };
+
+            Some((*body, scoped.expression()))
+        })
+        .collect::<BTreeMap<_, _>>();
+
     for exit in flow.exits() {
         let mut cancellation = Vec::new();
         let mut lifecycle = Vec::new();
@@ -495,7 +517,7 @@ where
             }
         }
 
-        plans.push(AsyncScopeExitPlan::new(
+        let mut plan = AsyncScopeExitPlan::new(
             exit.scope(),
             exit.exit(),
             dispositions,
@@ -503,7 +525,13 @@ where
             lifecycle,
             exit.moved().iter().copied(),
             is_recovered,
-        ));
+        );
+
+        if let Some(expression) = scoped_uses.get(&exit.scope()) {
+            plan = plan.with_scoped_exit(*expression);
+        }
+
+        plans.push(plan);
     }
 
     Ok((

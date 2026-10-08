@@ -43,10 +43,10 @@ impl ControlFlowGraphAssembler {
     pub(super) fn push_call(
         &mut self,
         block: AnalysisBlockId,
-        expression: bray_bound_tree::BoundExpressionId,
+        invocation: bray_bound_tree::SemanticOccurrence,
         phase: AnalysisCallPhase,
     ) {
-        self.push_operation(block, AnalysisOperationKind::Call { expression, phase });
+        self.push_operation(block, AnalysisOperationKind::Call { invocation, phase });
     }
 
     pub(super) fn push_recovery(&mut self, block: AnalysisBlockId, node: AnyBoundNodeId) {
@@ -56,12 +56,12 @@ impl ControlFlowGraphAssembler {
     pub(super) fn push_suspension(
         &mut self,
         block: AnalysisBlockId,
-        expression: bray_bound_tree::BoundExpressionId,
+        occurrence: bray_bound_tree::SemanticOccurrence,
         kind: AnalysisSuspensionKind,
     ) {
         self.push_operation(
             block,
-            AnalysisOperationKind::Suspension { expression, kind },
+            AnalysisOperationKind::Suspension { occurrence, kind },
         );
     }
 
@@ -82,6 +82,10 @@ impl ControlFlowGraphAssembler {
         current: AnalysisBlockId,
         block: bray_bound_tree::BoundBlockId,
         exit: bray_bound_tree::AnyBoundNodeId,
+        scoped: Option<(
+            bray_bound_tree::BoundExpressionId,
+            bray_bound_tree::BoundCallResult,
+        )>,
     ) -> AnalysisBlockId {
         let cancellation = self.push_block();
 
@@ -99,6 +103,43 @@ impl ControlFlowGraphAssembler {
         let lifecycle = self.push_block();
 
         self.push_edge(cancellation, lifecycle, AnalysisEdgeKind::Sequential, None);
+
+        let lifecycle = if let Some((expression, result)) = scoped {
+            self.push_call(
+                lifecycle,
+                bray_bound_tree::SemanticOccurrence::ScopeExit(expression),
+                AnalysisCallPhase::Attempt,
+            );
+
+            let completed = self.push_block();
+
+            if matches!(result, bray_bound_tree::BoundCallResult::LazyFuture(_)) {
+                self.push_suspension(
+                    lifecycle,
+                    bray_bound_tree::SemanticOccurrence::ScopeExit(expression),
+                    AnalysisSuspensionKind::ScopedCall,
+                );
+
+                let suspended = self.push_block();
+
+                self.push_edge(lifecycle, suspended, AnalysisEdgeKind::Suspension, None);
+
+                // Cleanup is shielded, so cancellation waits until exit completes.
+                self.push_edge(suspended, completed, AnalysisEdgeKind::Resume, None);
+            } else {
+                self.push_edge(lifecycle, completed, AnalysisEdgeKind::Sequential, None);
+            }
+
+            self.push_call(
+                completed,
+                bray_bound_tree::SemanticOccurrence::ScopeExit(expression),
+                AnalysisCallPhase::Completion,
+            );
+
+            completed
+        } else {
+            lifecycle
+        };
 
         self.push_operation(
             lifecycle,

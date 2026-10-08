@@ -155,6 +155,7 @@ where
     checked_storage: Option<&'view StoragePlan>,
     selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
     pub(super) cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
+    pub(super) scoped_uses: std::collections::BTreeMap<BoundBlockId, BoundExpressionId>,
     pub(super) dependency_failures: DependencyFailureMode,
     pub(super) completion_semantics: Option<(
         &'view bray_bound_tree::CheckedExpressionSemantics,
@@ -192,8 +193,31 @@ where
         request: CheckerUnitView<'view, C>,
         checked_storage: Option<&'view StoragePlan>,
         selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
-        cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
+        mut cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
     ) -> Self {
+        let scoped_uses: std::collections::BTreeMap<_, _> = selections
+            .into_iter()
+            .flat_map(|selections| selections.entries())
+            .filter_map(|entry| match entry.selection() {
+                SemanticSelection::ScopedUse(scoped) => {
+                    let Some(BoundExpression::Structured(expression)) =
+                        request.view().expression(scoped.expression())
+                    else {
+                        panic!("selected scoped use retains its structured expression");
+                    };
+
+                    let [body] = expression.blocks() else {
+                        panic!("selected scoped use retains its sole body");
+                    };
+
+                    Some((*body, scoped.expression()))
+                }
+                _ => None,
+            })
+            .collect();
+
+        cleanup_scopes.extend(scoped_uses.keys().copied());
+
         Self {
             request,
             view: request.view(),
@@ -206,6 +230,7 @@ where
             checked_storage,
             selections,
             cleanup_scopes,
+            scoped_uses,
             dependency_failures: DependencyFailureMode::PotentialExits,
             completion_semantics: None,
         }
@@ -451,11 +476,16 @@ where
     ) -> AnalysisBlockId {
         let continuation = self.push_block();
 
-        self.push_call(current, expression, AnalysisCallPhase::Attempt);
+        self.push_call(current, expression.into(), AnalysisCallPhase::Attempt);
         self.push_edge(current, continuation, AnalysisEdgeKind::Sequential, None);
         self.push_exit(current, AnalysisExitKind::Panic, expression.into());
         self.push_exit(current, AnalysisExitKind::Cancellation, expression.into());
-        self.push_call(continuation, expression, AnalysisCallPhase::Completion);
+
+        self.push_call(
+            continuation,
+            expression.into(),
+            AnalysisCallPhase::Completion,
+        );
 
         continuation
     }
@@ -491,6 +521,7 @@ where
                 | SemanticSelection::StaticReference(_)
                 | SemanticSelection::Call(_)
                 | SemanticSelection::Predicate(_)
+                | SemanticSelection::ScopedUse(_)
                 | SemanticSelection::Propagation(_),
             )
             | None => false,
@@ -707,11 +738,15 @@ where
     pub(super) fn push_call(
         &mut self,
         block: AnalysisBlockId,
-        expression: BoundExpressionId,
+        invocation: bray_bound_tree::SemanticOccurrence,
         phase: AnalysisCallPhase,
     ) {
+        let expression = invocation
+            .expression()
+            .expect("selected invocation retains its actual expression owner");
+
         match self.view.node_is_recovered(expression.into()) {
-            Some(false) => self.storage.push_call(block, expression, phase),
+            Some(false) => self.storage.push_call(block, invocation, phase),
             Some(true) | None => self.storage.push_recovery(block, expression.into()),
         }
     }
@@ -723,12 +758,12 @@ where
     pub(super) fn push_suspension(
         &mut self,
         block: AnalysisBlockId,
-        expression: BoundExpressionId,
+        occurrence: bray_bound_tree::SemanticOccurrence,
         kind: AnalysisSuspensionKind,
     ) {
-        match self.view.node_is_recovered(expression.into()) {
-            Some(false) => self.storage.push_suspension(block, expression, kind),
-            Some(true) | None => self.storage.push_recovery(block, expression.into()),
+        match self.view.node_is_recovered(occurrence.node()) {
+            Some(false) => self.storage.push_suspension(block, occurrence, kind),
+            Some(true) | None => self.storage.push_recovery(block, occurrence.node()),
         }
     }
 
@@ -1160,9 +1195,9 @@ mod tests {
         assert!(graph.operations().iter().any(|operation| matches!(
             operation.kind(),
             AnalysisOperationKind::Suspension {
-                expression,
+                occurrence,
                 kind: AnalysisSuspensionKind::Await,
-            } if expression == await_expression
+            } if occurrence == await_expression.into()
         )));
     }
 
