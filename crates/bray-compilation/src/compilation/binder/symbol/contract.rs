@@ -196,37 +196,7 @@ fn bind_callable_predicate_contracts(
                         .requirements(),
                 );
 
-                condition = match (guard.condition(), condition) {
-                    (Some(guard), Some(post)) => {
-                        let guard = context
-                            .semantic_values()
-                            .intern_constant_term(bray_symbols::ConstantTermData::Unary {
-                                operation: bray_symbols::ConstantUnaryOperation::EntryCondition,
-                                operand: guard,
-                            })
-                            .map_err(BindingQueryError::SemanticValue)?;
-
-                        let negated = context
-                            .semantic_values()
-                            .intern_constant_term(bray_symbols::ConstantTermData::Unary {
-                                operation: bray_symbols::ConstantUnaryOperation::LogicalNot,
-                                operand: guard,
-                            })
-                            .map_err(BindingQueryError::SemanticValue)?;
-
-                        Some(
-                            context
-                                .semantic_values()
-                                .intern_constant_term(bray_symbols::ConstantTermData::Binary {
-                                    operation: bray_symbols::ConstantBinaryOperation::LogicalOr,
-                                    left: negated,
-                                    right: post,
-                                })
-                                .map_err(BindingQueryError::SemanticValue)?,
-                        )
-                    }
-                    _ => None,
-                };
+                condition = guarded_postcondition(context, guard.condition(), condition)?;
             }
 
             let dependency = context
@@ -248,6 +218,41 @@ fn bind_callable_predicate_contracts(
     }
 
     Ok(DiagnosticResult::new(predicates.into(), diagnostics))
+}
+
+pub(in crate::compilation::binder::symbol) fn guarded_postcondition(
+    context: &CompilationBindingContext<'_>,
+    guard: Option<bray_symbols::ConstantTermId>,
+    post: Option<bray_symbols::ConstantTermId>,
+) -> BindingQueryResult<Option<bray_symbols::ConstantTermId>> {
+    let (Some(guard), Some(post)) = (guard, post) else {
+        return Ok(None);
+    };
+
+    let values = context.semantic_values();
+
+    let guard = values
+        .intern_constant_term(bray_symbols::ConstantTermData::Unary {
+            operation: bray_symbols::ConstantUnaryOperation::EntryCondition,
+            operand: guard,
+        })
+        .map_err(BindingQueryError::SemanticValue)?;
+
+    let negated = values
+        .intern_constant_term(bray_symbols::ConstantTermData::Unary {
+            operation: bray_symbols::ConstantUnaryOperation::LogicalNot,
+            operand: guard,
+        })
+        .map_err(BindingQueryError::SemanticValue)?;
+
+    values
+        .intern_constant_term(bray_symbols::ConstantTermData::Binary {
+            operation: bray_symbols::ConstantBinaryOperation::LogicalOr,
+            left: negated,
+            right: post,
+        })
+        .map(Some)
+        .map_err(BindingQueryError::SemanticValue)
 }
 
 pub(in crate::compilation::binder::symbol) fn conditional_postconditions(

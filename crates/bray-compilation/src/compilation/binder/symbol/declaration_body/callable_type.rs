@@ -201,37 +201,7 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
 
         for (mut term, trusted) in predicates {
             for guard in &guards {
-                term = match (*guard, term) {
-                    (Some(guard), Some(post)) => {
-                        let guard = context
-                            .semantic_values()
-                            .intern_constant_term(bray_symbols::ConstantTermData::Unary {
-                                operation: bray_symbols::ConstantUnaryOperation::EntryCondition,
-                                operand: guard,
-                            })
-                            .map_err(BindingQueryError::SemanticValue)?;
-
-                        let negated = context
-                            .semantic_values()
-                            .intern_constant_term(bray_symbols::ConstantTermData::Unary {
-                                operation: bray_symbols::ConstantUnaryOperation::LogicalNot,
-                                operand: guard,
-                            })
-                            .map_err(BindingQueryError::SemanticValue)?;
-
-                        Some(
-                            context
-                                .semantic_values()
-                                .intern_constant_term(bray_symbols::ConstantTermData::Binary {
-                                    operation: bray_symbols::ConstantBinaryOperation::LogicalOr,
-                                    left: negated,
-                                    right: post,
-                                })
-                                .map_err(BindingQueryError::SemanticValue)?,
-                        )
-                    }
-                    _ => None,
-                };
+                term = super::super::contract::guarded_postcondition(context, *guard, term)?;
             }
 
             let predicate = PredicateSemanticSummary::new(dependency).with_condition(term, trusted);
