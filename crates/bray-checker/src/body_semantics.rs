@@ -143,12 +143,11 @@ where
 
     let trusted = complete!(
         diagnostics,
-        crate::analysis::guarantee::check_trusted_contracts(
+        crate::analysis::guarantee::collect_trusted_memory_evidence(
             request,
             expressions,
             storage,
             graph,
-            None
         )
     );
 
@@ -189,23 +188,12 @@ where
 
     complete!(
         diagnostics,
-        crate::analysis::guarantee::check_trusted_cleanup(
+        crate::analysis::guarantee::check_trusted_completion(
             request,
             expressions,
             storage,
             &asynchronous,
             graph
-        )
-    );
-
-    complete!(
-        diagnostics,
-        crate::analysis::guarantee::check_trusted_contracts(
-            request,
-            expressions,
-            storage,
-            graph,
-            Some(&asynchronous)
         )
     );
 

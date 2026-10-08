@@ -156,12 +156,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
                             &mut candidate.dependencies,
                         );
 
-                        for replacement in body
-                            .asynchronous()
-                            .replacements()
-                            .iter()
-                            .filter(|replacement| replacement.expression() == expression)
-                        {
+                        for replacement in body.asynchronous().replacement(expression).into_iter() {
                             valid &= checked!(super::cleanup::check_cleanup(
                                 request,
                                 storage,

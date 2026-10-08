@@ -67,7 +67,21 @@ pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         &copied_types,
     );
 
+    let mut observed_places = BTreeSet::new();
+    let mut targets = BTreeMap::new();
+
     for (expression, node) in request.unit().tree().expressions() {
+        targets.insert(node.origin().source_anchor().syntax(), expression);
+
+        if let Some(place) = crate::execution_guarantees::expression_place(
+            request.unit(),
+            semantics,
+            request.semantic_values(),
+            expression,
+        ) {
+            observed_places.insert(place);
+        }
+
         if let BoundExpression::Call(call) = node
             && semantics.types().expression(call.callee()).is_some_and(|entry|
                 matches!(request.semantic_values().type_data(entry.ty()).as_ref(), bray_symbols::TypeData::Callable(callable)
@@ -100,13 +114,6 @@ pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         }
     }
 
-    let targets = request
-        .unit()
-        .tree()
-        .expressions()
-        .map(|(id, expression)| (expression.origin().source_anchor().syntax(), id))
-        .collect::<BTreeMap<_, _>>();
-
     let yield_targets = request
         .unit()
         .tree()
@@ -127,7 +134,38 @@ pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         })
         .collect();
 
+    let mut scope_places = BTreeMap::<_, Vec<_>>::new();
+
+    if request.trusted_contracts().is_some_and(|contracts| {
+        !contracts.requirements.is_empty()
+            || !contracts.guarantees.is_empty()
+            || !contracts.calls.is_empty()
+    }) {
+        let owners = bray_bound_tree::StorageScopeOwners::collect(request.unit())
+            .expect("checked bound unit must have balanced lexical scopes");
+
+        for (target, binding) in storage.bindings() {
+            let identity = match binding {
+                bray_bound_tree::StorageBinding::Identity(identity) => Some(*identity),
+                bray_bound_tree::StorageBinding::Access(access) => storage.root_identity(*access),
+            };
+
+            if let Some(scope) =
+                identity.and_then(|identity| owners.identity_scope(storage, identity))
+                && let Some(reference) =
+                    crate::execution_guarantees::storage_binding_reference(*target)
+            {
+                scope_places
+                    .entry(scope)
+                    .or_default()
+                    .push(crate::ExecutionPlace::from(reference));
+            }
+        }
+    }
+
     let domain = ExecutionFlowDomain {
+        observed_places,
+        scope_places,
         yield_targets,
         graph,
         request,
@@ -137,17 +175,6 @@ pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         storage,
         contracts,
         cleanup,
-        owners: request
-            .trusted_contracts()
-            .filter(|contracts| {
-                !contracts.requirements.is_empty()
-                    || !contracts.guarantees.is_empty()
-                    || !contracts.calls.is_empty()
-            })
-            .map(|_| {
-                bray_bound_tree::StorageScopeOwners::collect(request.unit())
-                    .expect("checked bound unit must have balanced lexical scopes")
-            }),
         invalidating,
         spatial_predicates: request
             .trusted_contracts()
@@ -220,6 +247,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
 }
 
 pub(super) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Sized> {
+    observed_places: BTreeSet<crate::ExecutionPlace>,
+    pub(super) scope_places: BTreeMap<bray_bound_tree::BoundBlockId, Vec<crate::ExecutionPlace>>,
     yield_targets: BTreeMap<BoundExpressionId, BoundExpressionId>,
     pub(super) graph: &'a ControlFlowGraph,
     pub(super) request: CheckerUnitView<'view, C>,
@@ -229,7 +258,6 @@ pub(super) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(super) storage: &'a bray_bound_tree::StoragePlan,
     pub(super) contracts: &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
     cleanup: Option<&'a bray_bound_tree::CheckedAsync>,
-    pub(super) owners: Option<bray_bound_tree::StorageScopeOwners>,
     invalidating: BTreeMap<AnyBoundNodeId, StorageInvalidation>,
     pub(super) spatial_predicates: BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
 }
@@ -337,16 +365,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             if self.cleanup.is_some_and(|cleanup| {
-                cleanup.scope_exits().iter().any(|plan| {
-                    plan.scope() == block && plan.exit() == exit && match phase {
+                cleanup
+                    .scope_exit_plan(block, exit)
+                    .is_some_and(|plan| match phase {
                         super::super::model::AnalysisScopeExitPhase::TaskCancellationBroadcast => {
                             !plan.cancellation_broadcast().is_empty()
                         }
                         super::super::model::AnalysisScopeExitPhase::LifecycleResolution => {
                             !plan.lifecycle_resolution().is_empty()
                         }
-                    }
-                })
+                    })
             }) {
                 state.invalidate_cleanup();
             }
@@ -357,12 +385,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         match operation.node() {
             AnyBoundNodeId::Expression(expression) => {
                 if self.cleanup.is_some_and(|cleanup| {
-                    cleanup.replacements().iter().any(|plan| {
-                        plan.expression() == expression
-                            && matches!(
-                                plan.cleanup(),
-                                bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_)
-                            )
+                    cleanup.replacement(expression).is_some_and(|plan| {
+                        matches!(
+                            plan.cleanup(),
+                            bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_)
+                        )
                     })
                 }) {
                     state.invalidate_cleanup();
@@ -539,15 +566,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             state.trusted_assumptions = spatial;
             state.witness_dependencies = dependencies;
 
-            for (expression, _) in self.request.unit().tree().expressions() {
-                if let Some(place) = crate::execution_guarantees::expression_place(
-                    self.request.unit(),
-                    self.semantics,
-                    self.request.semantic_values(),
-                    expression,
-                ) && !place.projections.is_empty()
-                {
-                    state.current.insert(place, ExecutionCondition::Unknown);
+            for place in &self.observed_places {
+                if !place.projections.is_empty() {
+                    state
+                        .current
+                        .insert(place.clone(), ExecutionCondition::Unknown);
                 }
             }
 
@@ -557,6 +580,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let StorageInvalidation::Accesses(accesses) = invalidation else {
             unreachable!("global invalidation is handled before per-access invalidation");
         };
+
+        let transfers = !self.storage.node_plans(node).any(|plan| {
+            matches!(
+                plan.purpose(),
+                bray_bound_tree::StorageAccessPurpose::Assignment
+                    | bray_bound_tree::StorageAccessPurpose::Initialize
+            )
+        });
 
         for (target, binding) in self.storage.bindings() {
             let access = match binding {
@@ -578,19 +609,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             else {
                 continue;
             };
-
-            let transfers = !self
-                .storage
-                .access_plans()
-                .iter()
-                .filter(|plan| plan.node() == node)
-                .any(|plan| {
-                    matches!(
-                        plan.purpose(),
-                        bray_bound_tree::StorageAccessPurpose::Assignment
-                            | bray_bound_tree::StorageAccessPurpose::Initialize
-                    )
-                });
 
             for invalidated in accesses {
                 if self.storage.relationship(*invalidated, access)
@@ -674,12 +692,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .pattern(pattern)
             .expect("checked pattern must exist");
 
-        let mut plans = self.storage.access_plans().iter().filter(|plan| {
-            plan.node() == pattern.into()
-                && !matches!(
-                    plan.purpose(),
-                    bray_bound_tree::StorageAccessPurpose::Projection
-                )
+        let mut plans = self.storage.node_plans(pattern.into()).filter(|plan| {
+            !matches!(
+                plan.purpose(),
+                bray_bound_tree::StorageAccessPurpose::Projection
+            )
         });
 
         for binding in bound
@@ -700,7 +717,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             };
 
-            let value = self.storage_value(state, *plan);
+            let value = self.storage_value(state, plan);
 
             // The storage plan supplies exact components for declarations, matches, and conditional bindings.
             state.assign(BoundReferenceTarget::Local(binding.into()).into(), value);
@@ -721,25 +738,18 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
     fn boundary(&self) -> Self::State {
         let mut state = ExecutionState::default();
 
-        for (expression, _) in self.request.unit().tree().expressions() {
-            if let Some(place) = crate::execution_guarantees::expression_place(
-                self.request.unit(),
-                self.semantics,
-                self.request.semantic_values(),
-                expression,
+        for place in &self.observed_places {
+            if matches!(
+                place.reference(),
+                Some(BoundReferenceTarget::Surface(
+                    bray_symbols::AnySymbolId::CallableParameter(_)
+                        | bray_symbols::AnySymbolId::ReceiverParameter(_)
+                ))
             ) {
-                if matches!(
-                    place.reference(),
-                    Some(BoundReferenceTarget::Surface(
-                        bray_symbols::AnySymbolId::CallableParameter(_)
-                            | bray_symbols::AnySymbolId::ReceiverParameter(_)
-                    ))
-                ) {
-                    // Entry places and their immutable snapshots retain the shared field path.
-                    state
-                        .current
-                        .insert(place.clone(), ExecutionCondition::Input(place));
-                }
+                // Entry places and their immutable snapshots retain the shared field path.
+                state
+                    .current
+                    .insert(place.clone(), ExecutionCondition::Input(place.clone()));
             }
         }
 

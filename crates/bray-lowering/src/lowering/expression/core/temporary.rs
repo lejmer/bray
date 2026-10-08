@@ -151,7 +151,8 @@ impl Lowerer<'_> {
         let temporary = self.input.temporary_storage(expression, ty).or_else(|| {
             // Transparent expressions retain their operand's checked storage identity.
             self.input
-                .expression_storage_plans(expression)
+                .storage_plan()
+                .expression_plans(expression)
                 .filter(|plan| storage.is_root_access(plan.access()))
                 .filter_map(|plan| storage.root_identity(plan.access()))
                 .find(|identity| {

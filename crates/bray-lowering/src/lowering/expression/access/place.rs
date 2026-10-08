@@ -67,7 +67,8 @@ impl Lowerer<'_> {
     ) -> Option<bray_bound_tree::StorageOperationDecision> {
         let plan = self
             .input
-            .expression_storage_plans(expression)
+            .storage_plan()
+            .expression_plans(expression)
             .find(|plan| accepts(*plan))?;
 
         let decision = self.input.storage_operation(plan).unwrap_or_else(|| {

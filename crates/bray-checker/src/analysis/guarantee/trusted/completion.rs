@@ -83,37 +83,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         scope: bray_bound_tree::BoundBlockId,
     ) {
-        let Some(owners) = &self.owners else {
+        let Some(expired) = self.scope_places.get(&scope) else {
             return;
         };
-
-        let expired = self
-            .storage
-            .bindings()
-            .iter()
-            .filter_map(|(target, binding)| {
-                let identity = match binding {
-                    bray_bound_tree::StorageBinding::Identity(identity) => *identity,
-                    bray_bound_tree::StorageBinding::Access(access) => {
-                        self.storage.root_identity(*access)?
-                    }
-                };
-
-                if owners.identity_scope(self.storage, identity) != Some(scope) {
-                    return None;
-                }
-
-                crate::execution_guarantees::storage_binding_reference(*target)
-                    .map(crate::ExecutionPlace::from)
-            })
-            .collect::<Vec<_>>();
 
         let values = expired
             .iter()
             .filter_map(|place| place.value_in(&state.current))
             .collect::<Vec<_>>();
 
-        for place in &expired {
+        for place in expired {
             state.invalidate_trusted_place(place);
         }
 
@@ -245,12 +224,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             ) else {
                 // Indexed storage has no scalar field path. Its enclosing owner still bounds
                 // the lifetime of a returned address or capability.
-                for access in self
-                    .storage
-                    .access_plans()
-                    .iter()
-                    .filter(|plan| plan.expression() == *operand)
-                {
+                for access in self.storage.expression_plans(*operand) {
                     if let Some(owner) =
                         crate::ExecutionPlace::storage_owner(self.storage, access.access())
                     {

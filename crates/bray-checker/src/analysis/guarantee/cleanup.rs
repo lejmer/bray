@@ -22,21 +22,15 @@ pub(super) fn check_scope_cleanup<C: CheckerRequestContext + ?Sized>(
 ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
     let mut valid = true;
 
-    for plan in cleanup
-        .scope_exits()
-        .iter()
-        .filter(|plan| plan.scope() == scope && plan.exit() == exit)
-    {
+    if let Some(plan) = cleanup.scope_exit_plan(scope, exit) {
         valid &= !plan.is_recovered() && plan.cancellation_broadcast().is_empty();
 
         if phase == super::super::model::AnalysisScopeExitPhase::LifecycleResolution {
             for access in plan.lifecycle_resolution() {
                 let identity = storage.root_identity(*access);
 
-                let parts = cleanup
-                    .storage_requirements()
-                    .iter()
-                    .find(|requirement| Some(requirement.identity()) == identity)
+                let parts = identity
+                    .and_then(|identity| cleanup.storage_requirement(identity))
                     .and_then(|requirement| requirement.parts());
 
                 valid &= check_cleanup(

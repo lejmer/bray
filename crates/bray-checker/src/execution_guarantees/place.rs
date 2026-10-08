@@ -52,13 +52,31 @@ impl ExecutionPlace {
     ) -> Option<Self> {
         let identity = storage.root_identity(access)?;
 
-        let root = storage.bindings().iter().find_map(|(target, binding)| {
-            (*binding == bray_bound_tree::StorageBinding::Identity(identity))
-                .then(|| storage_binding_reference(*target))
-                .flatten()
-        })?;
+        let root = storage
+            .binding_targets(bray_bound_tree::StorageBinding::Identity(identity))
+            .find_map(storage_binding_reference)?;
 
         Some(Self::from(root))
+    }
+
+    pub(crate) fn cleanup_part(
+        storage: &bray_bound_tree::StoragePlan,
+        access: bray_bound_tree::StorageAccessId,
+        part: &bray_bound_tree::StorageCleanupPart,
+    ) -> Option<Self> {
+        let mut place = Self::storage(storage, access)?;
+
+        for projection in part.projections() {
+            let bray_bound_tree::StorageCleanupProjectionKind::Component(projection) =
+                projection.projection()
+            else {
+                return None;
+            };
+
+            place = place.project(&[projection])?;
+        }
+
+        Some(place)
     }
 
     pub(crate) fn project(

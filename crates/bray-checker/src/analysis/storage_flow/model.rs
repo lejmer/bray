@@ -18,7 +18,6 @@ use super::check::StorageFlowCollector;
 
 #[derive(Debug, Default)]
 pub(super) struct StorageFlowInput {
-    plans: BTreeMap<AnyBoundNodeId, Vec<StorageAccessPlan>>,
     expression_roots: BTreeMap<BoundExpressionId, Vec<StorageIdentityId>>,
     borrows: BTreeMap<StorageAccessPlan, BorrowCapabilityId>,
     definitions: BTreeMap<AnyBoundNodeId, Vec<StorageIdentityId>>,
@@ -61,8 +60,6 @@ impl StorageFlowInput {
             .collect::<BTreeMap<_, _>>();
 
         for plan in storage.access_plans().iter().copied() {
-            input.plans.entry(plan.node()).or_default().push(plan);
-
             if let Some(root) = storage.root_identity(plan.access()) {
                 input
                     .expression_roots
@@ -167,10 +164,6 @@ impl StorageFlowInput {
             .get(&node)
             .map(Vec::as_slice)
             .unwrap_or_default()
-    }
-
-    pub(super) fn plans(&self, node: AnyBoundNodeId) -> &[StorageAccessPlan] {
-        self.plans.get(&node).map(Vec::as_slice).unwrap_or_default()
     }
 
     pub(super) fn borrow(&self, plan: StorageAccessPlan) -> Option<BorrowCapabilityId> {

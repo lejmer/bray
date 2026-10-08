@@ -44,9 +44,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                         exit,
                         phase: AnalysisScopeExitPhase::LifecycleResolution,
                     } if collect_cleanup => cleanup
-                        .scope_exits()
-                        .iter()
-                        .filter(|plan| plan.scope() == block && plan.exit() == exit)
+                        .scope_exit_plan(block, exit)
+                        .into_iter()
                         .flat_map(|plan| {
                             plan.lifecycle_resolution()
                                 .iter()
@@ -57,11 +56,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                         if collect_cleanup =>
                     {
                         cleanup
-                            .replacements()
-                            .iter()
+                            .replacement(expression)
+                            .into_iter()
                             .filter(|plan| {
-                                plan.expression() == expression
-                                    && plan.parts().is_none()
+                                plan.parts().is_none()
                                     && matches!(
                                         plan.cleanup(),
                                         bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_)

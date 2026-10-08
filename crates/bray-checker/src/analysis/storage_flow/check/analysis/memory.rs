@@ -179,12 +179,12 @@ where
         let mut sources = Vec::new();
         let mut destinations = Vec::new();
 
-        for plan in self.input.plans(node) {
+        for plan in self.storage.node_plans(node) {
             let Some(root) = self.storage.root_identity(plan.access()) else {
                 continue;
             };
 
-            match self.effective_purpose(*plan) {
+            match self.effective_purpose(plan) {
                 StorageAccessPurpose::Move
                 | StorageAccessPurpose::Copy
                 | StorageAccessPurpose::ValueTransfer => sources.push((root, plan.purpose())),

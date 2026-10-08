@@ -2,4 +2,4 @@ mod check;
 mod completion;
 mod proof;
 
-pub(crate) use check::{check_trusted_cleanup, check_trusted_contracts};
+pub(crate) use check::{check_trusted_completion, collect_trusted_memory_evidence};
