@@ -1,4 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(test)]
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::ThreadId;
@@ -55,7 +57,7 @@ pub(crate) struct ProfileSession {
     native_callback_entries: Mutex<BTreeSet<String>>,
     native_codegen: Mutex<CompilationProfileNativeCodegen>,
     #[cfg(test)]
-    observer: Mutex<Option<Arc<dyn Fn(ProfileOperation) + Send + Sync>>>,
+    observer: OnceLock<Box<dyn Fn(ProfileOperation) + Send + Sync>>,
 }
 
 impl std::fmt::Debug for ProfileSession {
@@ -118,7 +120,7 @@ impl ProfileSession {
             native_callback_entries: Mutex::new(BTreeSet::new()),
             native_codegen: Mutex::new(CompilationProfileNativeCodegen::default()),
             #[cfg(test)]
-            observer: Mutex::new(None),
+            observer: OnceLock::new(),
         })
     }
 
@@ -188,17 +190,8 @@ impl ProfileSession {
         };
 
         #[cfg(test)]
-        {
-            // Clone the callback so rendezvousing workers do not hold the observer lock.
-            let observer = self
-                .observer
-                .lock()
-                .expect("profile test observer must remain available")
-                .clone();
-
-            if let Some(observer) = observer {
-                observer(operation);
-            }
+        if let Some(observer) = self.observer.get() {
+            observer(operation);
         }
 
         span
@@ -209,10 +202,10 @@ impl ProfileSession {
         &self,
         observe: impl Fn(ProfileOperation) + Send + Sync + 'static,
     ) {
-        *self
-            .observer
-            .lock()
-            .expect("profile test observer must remain available") = Some(Arc::new(observe));
+        assert!(
+            self.observer.set(Box::new(observe)).is_ok(),
+            "profile test observer must be installed only once"
+        );
     }
 
     pub(crate) fn start_query_request(&self, query: ProfileQueryKind) -> ProfileQueryRequest<'_> {
