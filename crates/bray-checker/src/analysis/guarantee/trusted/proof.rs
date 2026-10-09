@@ -5,6 +5,56 @@ use super::super::state::ExecutionState;
 use crate::{CheckerRequestContext, ExecutionCondition};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(in crate::analysis::guarantee) fn empty_memory_copy(
+        &self,
+        state: &ExecutionState,
+        invocation: bray_bound_tree::BoundExecutionSite,
+    ) -> bool {
+        use bray_bound_tree::{
+            AnyBoundNodeId, BoundExecutionSite, SelectedArgument, SemanticSelection,
+        };
+
+        use bray_compiler_known::ImplementationHook;
+
+        let BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)) = invocation else {
+            return false;
+        };
+
+        let Some(SemanticSelection::Call(call)) =
+            self.semantics.selections().expression(expression)
+        else {
+            return false;
+        };
+
+        if !matches!(
+            call.implementation_hook(),
+            Some(ImplementationHook::MemoryCopy | ImplementationHook::MemoryCopyOverlapping)
+        ) {
+            return false;
+        }
+
+        let Some(count) = call.arguments().iter().find_map(|argument| match argument {
+            SelectedArgument::Explicit {
+                expression,
+                ordinal: 2,
+                ..
+            } => Some(*expression),
+            _ => None,
+        }) else {
+            return false;
+        };
+
+        let Some(entry) = state.entries.get(&invocation) else {
+            return false;
+        };
+
+        let equalities = ExecutionCondition::equalities(&entry.assumptions, None);
+        let count = self.value(state, count).with_equalities(&equalities);
+
+        matches!(count, ExecutionCondition::Literal(value)
+            if matches!(value.kind(), bray_symbols::ConstantValueKind::Integer(integer) if integer.to_u64() == Some(0)))
+    }
+
     pub(in crate::analysis::guarantee) fn allocation_subjects(
         &self,
         conditions: &[ExecutionCondition],

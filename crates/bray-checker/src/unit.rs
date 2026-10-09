@@ -26,7 +26,8 @@ where
     context: &'view C,
     source_snapshot: Option<&'view bray_source::SourceSnapshot>,
     trusted_contracts: Option<&'view crate::TrustedContractInputs>,
-    trusted_memory_evidence: Option<&'view std::collections::BTreeSet<BoundExpressionId>>,
+    // Proven sites map to whether a raw copy is known to have an empty extent.
+    trusted_memory_evidence: Option<&'view std::collections::BTreeMap<BoundExpressionId, bool>>,
 }
 
 impl<C> Clone for CheckerUnitView<'_, C>
@@ -131,7 +132,7 @@ where
 
     pub(crate) fn with_trusted_memory_evidence<'evidence>(
         self,
-        evidence: &'evidence std::collections::BTreeSet<BoundExpressionId>,
+        evidence: &'evidence std::collections::BTreeMap<BoundExpressionId, bool>,
     ) -> CheckerUnitView<'evidence, C>
     where
         'view: 'evidence,
@@ -148,7 +149,7 @@ where
 
     pub(crate) fn trusted_memory_evidence(
         self,
-    ) -> Option<&'view std::collections::BTreeSet<BoundExpressionId>> {
+    ) -> Option<&'view std::collections::BTreeMap<BoundExpressionId, bool>> {
         self.trusted_memory_evidence
     }
 

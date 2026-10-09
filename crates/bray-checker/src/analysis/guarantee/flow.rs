@@ -864,6 +864,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         };
 
+        // A proven zero extent has no writes, epoch changes, or ownership effects.
+        if self.empty_memory_copy(state, occurrence) {
+            return;
+        }
+
         if matches!(invalidation, StorageInvalidation::All) {
             if let Some(contract) = self
                 .request

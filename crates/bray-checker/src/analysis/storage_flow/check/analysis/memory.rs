@@ -232,9 +232,9 @@ where
         let proven = self
             .request
             .trusted_memory_evidence()
-            .is_some_and(|evidence| evidence.contains(&expression));
+            .and_then(|evidence| evidence.get(&expression).copied());
 
-        if proven {
+        if proven.is_some() {
             if let CheckedMemoryOperationKind::Read { pointee, .. }
             | CheckedMemoryOperationKind::VolatileRead { pointee, .. }
             | CheckedMemoryOperationKind::UninitAssumeInitialized { element: pointee }
@@ -261,7 +261,7 @@ where
         } else if state.recovered {
             MemoryOperationStatus::Recovered
         } else if operation_requires_trust(operation.kind())
-            && !proven
+            && proven.is_none()
             && !refinements
                 .iter()
                 .any(|refinement| matches!(refinement.kind(), RefinementKind::TrustBoundary(_)))
@@ -291,7 +291,7 @@ where
         &self,
         state: &mut StorageFlowState,
         operation: &bray_bound_tree::CheckedMemoryOperation,
-        proven: bool,
+        proven: Option<bool>,
     ) -> MemoryOperationStatus {
         let arguments = operation.arguments();
 
@@ -751,7 +751,7 @@ fn apply_raw_copy(
     destination: StorageIdentityId,
     pointee: bray_symbols::TypeId,
     origin: BoundExpressionId,
-    proven: bool,
+    proven: Option<bool>,
 ) -> MemoryOperationStatus {
     if state.invalidated_allocations.contains_key(&source)
         || state.invalidated_allocations.contains_key(&destination)
@@ -759,9 +759,12 @@ fn apply_raw_copy(
         return MemoryOperationStatus::InvalidatedAllocation;
     }
 
-    // A proven range supplies this copy's source authority without claiming that any
-    // individual source element is initialized (the checked range may be empty).
-    if !proven
+    // Empty ranges establish no scalar state and preserve existing destination values.
+    if proven == Some(true) {
+        return MemoryOperationStatus::Valid;
+    }
+
+    if proven.is_none()
         && !state
             .raw_initialized
             .get(&source)
@@ -892,20 +895,81 @@ mod tests {
     }
 
     #[test]
-    fn trusted_range_copy_does_not_invent_scalar_source_initialization() {
+    fn trusted_range_copy_does_not_invent_scalar_initialization() {
         let (expressions, source, destination) = raw_storage_pair(BoundUnitId::new(83));
 
         let mut state = StorageFlowState::default();
         let ty = error_type();
 
         assert_eq!(
-            apply_raw_copy(&mut state, source, destination, ty, expressions[0], true),
+            apply_raw_copy(
+                &mut state,
+                source,
+                destination,
+                ty,
+                expressions[0],
+                Some(true)
+            ),
             MemoryOperationStatus::Valid,
         );
 
         assert_eq!(
             apply_raw_read(&mut state, source, ty, MemoryReadKind::Copy),
             MemoryOperationStatus::UninitializedRawStorage,
+        );
+
+        assert_eq!(
+            apply_raw_read(&mut state, destination, ty, MemoryReadKind::Copy),
+            MemoryOperationStatus::UninitializedRawStorage,
+        );
+
+        assert_eq!(
+            apply_deallocation(&mut state, destination, expressions[1]),
+            MemoryOperationStatus::Valid,
+        );
+
+        // Copying an empty range over an existing scalar preserves that value.
+        let mut initialized = StorageFlowState::default();
+
+        assert_eq!(
+            apply_raw_write(&mut initialized, destination, ty, expressions[1]),
+            MemoryOperationStatus::Valid,
+        );
+
+        assert_eq!(
+            apply_raw_copy(
+                &mut initialized,
+                source,
+                destination,
+                ty,
+                expressions[0],
+                Some(true)
+            ),
+            MemoryOperationStatus::Valid,
+        );
+
+        assert_eq!(
+            apply_raw_read(&mut initialized, destination, ty, MemoryReadKind::Copy),
+            MemoryOperationStatus::Valid,
+        );
+
+        let mut nonempty = StorageFlowState::default();
+
+        assert_eq!(
+            apply_raw_copy(
+                &mut nonempty,
+                source,
+                destination,
+                ty,
+                expressions[0],
+                Some(false)
+            ),
+            MemoryOperationStatus::Valid,
+        );
+
+        assert_eq!(
+            apply_deallocation(&mut nonempty, destination, expressions[1]),
+            MemoryOperationStatus::OutstandingObligations,
         );
 
         state
@@ -915,7 +979,14 @@ mod tests {
             .insert(expressions[1]);
 
         assert_eq!(
-            apply_raw_copy(&mut state, source, destination, ty, expressions[0], true),
+            apply_raw_copy(
+                &mut state,
+                source,
+                destination,
+                ty,
+                expressions[0],
+                Some(true)
+            ),
             MemoryOperationStatus::InvalidatedAllocation,
         );
     }
@@ -935,7 +1006,7 @@ mod tests {
         );
 
         assert_eq!(
-            apply_raw_copy(&mut state, source, destination, ty, expressions[1], false),
+            apply_raw_copy(&mut state, source, destination, ty, expressions[1], None),
             MemoryOperationStatus::Valid
         );
 

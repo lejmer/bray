@@ -171,7 +171,7 @@ trusted internal func platform_thread_storage_load(
         trusted core.memory.valid_write<RawPointer<u8>>(pointer = value, count = 1),
         trusted core.memory.aligned_for<RawPointer<u8>>(pointer = value),
     )
-    ensures(trusted core.memory.initialized_as<RawPointer<u8>>(pointer = value))
+    ensures(result.category != 0 || trusted core.memory.initialized_as<RawPointer<u8>>(pointer = value))
 {
     let stored: Result<RawPointer<u8>, std.platform.PlatformStatus> = trusted internal prepare_thread_storage_load(
         key,

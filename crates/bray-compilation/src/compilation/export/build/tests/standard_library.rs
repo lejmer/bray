@@ -2589,6 +2589,130 @@ fn standard_library_compilation<const N: usize>(sources: [&str; N]) -> Compilati
     standard_library_compilation_with_options(sources, CompilationOptions::default())
 }
 
+#[test]
+fn empty_raw_copies_preserve_deallocation_authority() {
+    for (operation, extent) in [("copy", "0"), ("copy_overlapping", "count")] {
+        let source = format!(
+            r#"
+            trusted module app;
+            trusted func copy_nothing(pos source: RawPointer<u8>, pos destination: RawPointer<u8>, pos count: usize)
+                requires(
+                    count == 0,
+                    trusted core.memory.valid_read<u8>(pointer = source, count = {extent}),
+                    trusted core.memory.initialized_range_as<u8>(pointer = source, count = {extent}),
+                    trusted core.memory.valid_write<u8>(pointer = destination, count = {extent}),
+                    trusted core.memory.owned_allocation(pointer = destination, bytes = 1, align = 1),
+                    trusted core.memory.non_overlapping<u8>(left = source, left_count = {extent}, right = destination, right_count = {extent}),
+                )
+                uses(manual_alloc) {{
+                trusted std.memory.{operation}<u8>(source, destination, count = {extent});
+                trusted core.memory.deallocate(destination, bytes = 1, align = 1);
+            }}
+            "#,
+        );
+
+        let compilation = standard_library_compilation([
+            include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+            &source,
+        ]);
+
+        assert!(
+            !compilation.check_diagnostics().has_errors(),
+            "{operation}: {:#?}",
+            compilation.check_diagnostics(),
+        );
+    }
+}
+
+#[test]
+fn thread_storage_load_only_initializes_successful_outputs() {
+    let boundary =
+        include_str!("../../../../../../../standard-library/std/src/thread/boundary.bray");
+
+    let start = boundary
+        .find("trusted internal func platform_thread_storage_load(")
+        .expect("thread storage load boundary exists");
+
+    let boundary = format!(
+        "trusted internal module std.thread; @abi(c) {}",
+        &boundary[start..]
+    );
+
+    let platform = r#"
+        trusted internal module std.platform;
+        @copy @layout(c) internal struct PlatformStatus {
+            category: u32; reserved: u32; native_code: i64;
+        }
+    "#;
+
+    let preparation = r#"
+        trusted internal module std.thread;
+        trusted internal func need_initialized(pos pointer: RawPointer<RawPointer<u8>>)
+            requires(trusted core.memory.initialized_as<RawPointer<u8>>(pointer = pointer)) {}
+        trusted internal func prepare_thread_storage_load(
+            pos key: u64, pos value: RawPointer<RawPointer<u8>>
+        ) -> Result<RawPointer<u8>, std.platform.PlatformStatus>
+            requires(
+                trusted core.memory.valid_write<RawPointer<u8>>(pointer = value, count = 1),
+                trusted core.memory.aligned_for<RawPointer<u8>>(pointer = value),
+            )
+            ensures(
+                trusted core.memory.valid_write<RawPointer<u8>>(pointer = value, count = 1),
+                trusted core.memory.aligned_for<RawPointer<u8>>(pointer = value),
+            ) {
+            return Error({ category = 5, reserved = 0, native_code = 0 });
+        }
+    "#;
+
+    for guarded in [true, false] {
+        let caller = format!(
+            r#"
+            trusted internal module std.thread;
+            trusted internal func load_uninitialized_slot(pos pointer: RawPointer<RawPointer<u8>>) -> RawPointer<u8>
+                requires(
+                    trusted core.memory.valid_read<RawPointer<u8>>(pointer = pointer, count = 1),
+                    trusted core.memory.valid_write<RawPointer<u8>>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<RawPointer<u8>>(pointer = pointer),
+                ) {{
+                let status = trusted platform_thread_storage_load(18_446_744_073_709_551_615, pointer);
+                {}
+                need_initialized(pointer);
+                return std.memory.null<u8>();
+            }}
+            "#,
+            if guarded {
+                "if status.category != 0 { return std.memory.null<u8>(); }"
+            } else {
+                ""
+            },
+        );
+
+        let compilation = standard_library_compilation([
+            include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+            include_str!("../../../../../../../standard-library/std/src/platform/status.bray"),
+            platform,
+            &preparation,
+            &boundary,
+            &caller,
+        ]);
+
+        if guarded {
+            assert!(
+                !compilation.check_diagnostics().has_errors(),
+                "{:#?}",
+                compilation.check_diagnostics(),
+            );
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                compilation.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
 fn standard_library_compilation_with_options<const N: usize>(
     sources: [&str; N],
     options: CompilationOptions,

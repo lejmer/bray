@@ -15,16 +15,16 @@ pub(crate) fn collect_trusted_memory_evidence<C: CheckerRequestContext + ?Sized>
     expressions: &CheckedExpressionSemantics,
     storage: &StoragePlan,
     graph: &super::super::super::model::ControlFlowGraph,
-) -> CheckerOutcome<BTreeSet<BoundExpressionId>, C::UpstreamError> {
+) -> CheckerOutcome<BTreeMap<BoundExpressionId, bool>, C::UpstreamError> {
     let Some(contracts) = request.trusted_contracts() else {
-        return CheckerOutcome::complete(BTreeSet::new(), DiagnosticBag::new());
+        return CheckerOutcome::complete(BTreeMap::new(), DiagnosticBag::new());
     };
 
     if contracts.requirements.is_empty()
         && contracts.guarantees.is_empty()
         && contracts.calls.is_empty()
     {
-        return CheckerOutcome::complete(BTreeSet::new(), DiagnosticBag::new());
+        return CheckerOutcome::complete(BTreeMap::new(), DiagnosticBag::new());
     }
 
     let literals =
@@ -59,21 +59,21 @@ fn check_trusted_contracts_in_flow<C: CheckerRequestContext + ?Sized>(
     storage: &StoragePlan,
     flow: &ExecutionFlow<'_, '_, C>,
     final_check: bool,
-) -> CheckerOutcome<BTreeSet<BoundExpressionId>, C::UpstreamError> {
+) -> CheckerOutcome<BTreeMap<BoundExpressionId, bool>, C::UpstreamError> {
     let Some(contracts) = request.trusted_contracts() else {
-        return CheckerOutcome::without_diagnostics(BTreeSet::new());
+        return CheckerOutcome::without_diagnostics(BTreeMap::new());
     };
 
     if contracts.requirements.is_empty()
         && contracts.guarantees.is_empty()
         && contracts.calls.is_empty()
     {
-        return CheckerOutcome::without_diagnostics(BTreeSet::new());
+        return CheckerOutcome::without_diagnostics(BTreeMap::new());
     }
 
     let graph = flow.domain.graph;
     let mut diagnostics = DiagnosticBag::new();
-    let mut proven = BTreeSet::new();
+    let mut proven = BTreeMap::new();
     let mut failed = BTreeSet::new();
     let mut transfers = BTreeSet::new();
 
@@ -140,7 +140,13 @@ fn check_trusted_contracts_in_flow<C: CheckerRequestContext + ?Sized>(
                     .domain
                     .trusted_requirements_proven(evidence, &contract.requirements)
                 {
-                    proven.insert(expression);
+                    let empty_copy = flow.domain.empty_memory_copy(&state, invocation);
+
+                    // A copy is empty only when every reachable entry proves that extent.
+                    proven
+                        .entry(expression)
+                        .and_modify(|empty| *empty &= empty_copy)
+                        .or_insert(empty_copy);
                 } else {
                     failed.insert(expression);
                 }
