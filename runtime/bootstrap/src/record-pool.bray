@@ -2,69 +2,101 @@
 trusted internal module bray.runtime.bootstrap;
 
 using std.memory;
+using internal std.memory;
+using internal std.sync;
 
-internal const RECORD_LOCK: usize = 0;
+internal struct ReportSlab
+{
+    first: usize;
+    mut records: std.memory.RawBuffer<ReportRecord>;
+}
 
-internal const FREE_RECORD: usize = 1;
+internal struct ReportPool
+{
+    mut slabs: std.memory.RawBuffer<ReportSlab>?;
+    mut free: usize;
+    mut available: usize;
+    mut total: usize;
+    mut credits: usize;
+}
 
-internal const FREE_RECORD_COUNT: usize = 2;
+// One pool retains the linked-image lifetime and owns every stable record slab.
+internal static RECORD_POOL: std.sync.SpinLock<ReportPool> =
+{
+    next_ticket = core.atomic.initialize<u32>(0),
+    serving_ticket = core.atomic.initialize<u32>(0),
+    storage = { slabs = none, free = 0, available = 0, total = 0, credits = 0 },
+};
 
-internal const POOL_RECORD_COUNT: usize = 3;
-
-internal const SOURCE_CREDITS: usize = 4;
-
-// Pool state shares one linked-image lifetime. Named slots keep the atomic words together.
-internal static RECORD_POOL: [core.atomic.Atomic<usize>; 5] = [
-    core.atomic.initialize<usize>(0),
-    core.atomic.initialize<usize>(0),
-    core.atomic.initialize<usize>(0),
-    core.atomic.initialize<usize>(0),
-    core.atomic.initialize<usize>(0),
-];
-
-@abi(c)
-trusted internal func lock_records()
+trusted internal func slab_index(pos pool: &mut ReportPool) -> &mut std.memory.RawBuffer<ReportSlab>
     uses(intrinsic)
 {
-    loop
+    if let ?slabs = pool.slabs
     {
-        let (_, acquired) = core.atomic.compare_exchange<usize, 1, 0>(
-            &RECORD_POOL[RECORD_LOCK],
-            expected = 0,
-            desired = 1
-        );
+        return &mut slabs;
+    }
 
-        if acquired
+    trusted core.target.abort();
+}
+
+trusted internal func reserve_slab_index(pos pool: &mut ReportPool) -> bool
+    uses(manual_alloc, raw_memory, unchecked_init)
+{
+    if pool.slabs matches none
+    {
+        let allocation: std.memory.RawBuffer<ReportSlab>? = trusted internal bray.runtime.bootstrap.heap.try_buffer<ReportSlab>(1);
+
+        if allocation matches none
         {
-            return;
+            return false;
         }
 
-        trusted core.target.spin_loop_hint();
+        pool.slabs = allocation;
+        return true;
     }
-}
 
-@abi(c)
-internal func unlock_records()
-{
-    core.atomic.store<usize, 2>(&RECORD_POOL[RECORD_LOCK], value = 0);
-}
+    let index: &mut std.memory.RawBuffer<ReportSlab> = trusted slab_index(pool);
+    let count: usize = std.memory.initialized_count<ReportSlab>(index);
+    let capacity: usize = std.memory.capacity<ReportSlab>(index);
 
-@abi(c)
-trusted internal func reserve_records(pos count: usize) -> bool
-    uses(raw_memory, unchecked_init, intrinsic)
-{
-    let available: usize = core.atomic.load<usize, 0>(&RECORD_POOL[FREE_RECORD_COUNT]);
-
-    if count <= available
+    if count < capacity
     {
         return true;
     }
 
-    let required: usize = count - available;
-    let size: usize = std.memory.size_of<ReportRecord>();
     let maximum: usize = ~0;
-    let total: usize = core.atomic.load<usize, 0>(&RECORD_POOL[POOL_RECORD_COUNT]);
-    let limit: usize = maximum / size - total;
+
+    if capacity > maximum / 2
+    {
+        return false;
+    }
+
+    let allocation: std.memory.RawBuffer<ReportSlab>? = trusted internal bray.runtime.bootstrap.heap.try_buffer<ReportSlab>(capacity * 2);
+
+    return match consume allocation
+    {
+        case ?replacement
+        {
+            let mut storage: std.memory.RawBuffer<ReportSlab> = replacement;
+
+            trusted internal std.memory.raw_buffer_relocate<ReportSlab>(index, &mut storage);
+            trusted internal std.memory.raw_buffer_replace<ReportSlab>(index, &mut storage);
+            yield true;
+        }
+        case none { yield false; }
+    };
+}
+
+trusted internal func reserve_records(pos pool: &mut ReportPool, pos count: usize) -> bool
+{
+    if count <= pool.available
+    {
+        return true;
+    }
+
+    let required: usize = count - pool.available;
+    let maximum: usize = ~0;
+    let limit: usize = maximum / std.memory.size_of<ReportRecord>() - pool.total;
 
     if required > limit
     {
@@ -73,142 +105,224 @@ trusted internal func reserve_records(pos count: usize) -> bool
 
     let mut additional: usize = required;
 
-    // Slabs keep handles stable and double capacity to amortize repeated admissions.
-    if total > required && total <= limit
+    if pool.total > required && pool.total <= limit
     {
-        additional = total;
+        additional = pool.total;
     }
 
-    let bytes: usize = additional * size;
+    let allocation: std.memory.RawBuffer<ReportRecord>? = trusted internal bray.runtime.bootstrap.heap.try_buffer<ReportRecord>(additional);
 
-    let allocation: RawPointer<u8> = trusted internal bray.runtime.bootstrap.heap.allocate(
-        bytes,
-        align = std.memory.align_of<ReportRecord>()
-    );
-
-    if std.memory.is_null<u8>(allocation)
+    return match consume allocation
     {
-        return false;
-    }
+        case ?storage
+        {
+            let mut slab: std.memory.RawBuffer<ReportRecord> = storage;
 
-    let mut head: usize = core.atomic.load<usize, 0>(&RECORD_POOL[FREE_RECORD]);
-    let mut index: usize = 0;
-    let base: usize = trusted core.target.expose_address<u8>(allocation);
-
-    while index < additional
-    {
-        let address: usize = base + index * size;
-
-        let pointer: RawPointer<ReportRecord> = trusted core.target.from_exposed_address<ReportRecord>(
-            address = address
-        );
-
-        trusted std.memory.write<ReportRecord>(
-            pointer,
+            if !trusted reserve_slab_index(pool)
             {
-                primary = empty_primary(),
-                next = head,
-                segment =
-                {
-                    ordinal = 0,
-                    task = 0,
-                    frame = [0; 32],
-                    state = 0
-                },
-                segment_tail = 0,
-                segment_count = 0,
+                return false;
             }
-        );
 
-        head = address;
-        index += 1;
-    }
+            let first: usize = pool.total + 1;
+            let mut head: usize = pool.free;
+            let mut index: usize = 0;
 
-    core.atomic.store<usize, 0>(&RECORD_POOL[FREE_RECORD], value = head);
-    core.atomic.store<usize, 0>(&RECORD_POOL[FREE_RECORD_COUNT], value = available + additional);
-    core.atomic.store<usize, 0>(&RECORD_POOL[POOL_RECORD_COUNT], value = total + additional);
-    return true;
+            while index < additional
+            {
+                trusted internal std.memory.initialize_spare<ReportRecord>(
+                    &mut slab,
+                    {
+                        primary = empty_primary(),
+                        message = none,
+                        next = head,
+                        segment = { ordinal = 0, task = 0, frame = [0; 32], state = 0 },
+                        segment_tail = 0,
+                        segment_count = 0,
+                    },
+                );
+
+                head = first + index;
+                index += 1;
+            }
+
+            let entry: ReportSlab = { first = first, records = slab };
+
+            trusted internal std.memory.initialize_spare<ReportSlab>(trusted slab_index(pool), entry);
+            pool.free = head;
+            pool.available += additional;
+            pool.total += additional;
+            yield true;
+        }
+        case none { yield false; }
+    };
 }
 
-@abi(c)
-trusted internal func activate_record() -> usize
+trusted internal func record(pos pool: &mut ReportPool, pos handle: usize) -> &mut ReportRecord
+    uses(intrinsic, raw_memory)
+{
+    if handle == 0 || handle > pool.total
+    {
+        trusted core.target.abort();
+    }
+
+    let index: &mut std.memory.RawBuffer<ReportSlab> = trusted slab_index(pool);
+    let slabs: &mut [ReportSlab] = trusted std.memory.initialized_slice_mut<ReportSlab>(index);
+    let mut low: usize = 0;
+    let mut high: usize = slabs.length;
+
+    // Stable opaque ordinals select owned storage without reconstructing addresses.
+    while low + 1 < high
+    {
+        let middle: usize = low + (high - low) / 2;
+
+        if slabs[middle].first <= handle
+        {
+            low = middle;
+        }
+        else
+        {
+            high = middle;
+        }
+    }
+
+    let first: usize = slabs[low].first;
+    let records: &mut [ReportRecord] = trusted std.memory.initialized_slice_mut<ReportRecord>(&mut slabs[low].records);
+
+    return &mut records[handle - first];
+}
+
+trusted internal func activate_record(pos pool: &mut ReportPool) -> usize
     uses(intrinsic)
 {
-    let mut head: usize = core.atomic.load<usize, 0>(&RECORD_POOL[FREE_RECORD]);
+    let head: usize = pool.free;
 
     if head == 0
     {
         trusted core.target.abort();
     }
 
-    let entry: &mut ReportRecord = trusted record(&mut head);
+    let next: usize =
+    {
+        let entry: &mut ReportRecord = trusted record(pool, head);
+        let next: usize = entry.next;
 
-    core.atomic.store<usize, 0>(&RECORD_POOL[FREE_RECORD], value = entry.next);
-    entry.next = 0;
+        entry.next = 0;
+        yield next;
+    };
 
-    let count: usize = core.atomic.load<usize, 0>(&RECORD_POOL[FREE_RECORD_COUNT]);
-
-    core.atomic.store<usize, 0>(&RECORD_POOL[FREE_RECORD_COUNT], value = count - 1);
+    pool.free = next;
+    pool.available -= 1;
     return head;
 }
 
 @abi(c)
-trusted internal func report_records_admit(pos count: usize, pos mut destination: RawPointer<ReportRecords>) -> u32
+trusted internal func report_records_admit(pos count: usize, pos destination: RawPointer<ReportRecords>) -> u32
+    requires(trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
+        trusted core.memory.valid_read<ReportRecords>(pointer = destination, count = 1),
+        trusted core.memory.initialized_as<ReportRecords>(pointer = destination))
+    uses(raw_memory, unchecked_init)
 {
-    trusted lock_records();
+    let output: ReportRecords = trusted std.memory.read<ReportRecords>(destination);
+    let (status, updated) = trusted admit_record_values(count, output, destination);
 
-    let credits: usize = core.atomic.load<usize, 0>(&RECORD_POOL[SOURCE_CREDITS]);
+    trusted std.memory.write<ReportRecords>(destination, updated);
+    return status;
+}
+
+trusted internal func admit_record_values(pos count: usize, pos mut output: ReportRecords, pos destination: RawPointer<ReportRecords>) -> (u32, ReportRecords)
+    requires(
+        trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
+    )
+    ensures(
+        trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
+    )
+{
+    let mut guard = RECORD_POOL.lock();
+    let pool: &mut ReportPool = guard.get();
     let maximum: usize = ~0;
 
-    if count > maximum - credits
+    if count > maximum - pool.credits
     {
-        unlock_records();
-        return 1;
+        return (1, output);
     }
 
-    if !trusted reserve_records(credits + count)
+    let requested: usize = pool.credits + count;
+
+    if !trusted reserve_records(pool, requested)
     {
-        unlock_records();
-        return 1;
+        return (1, output);
     }
 
-    let mut output: &mut ReportRecords = trusted records(&mut destination);
     let mut remaining: usize = count;
 
     while remaining != 0
     {
-        let handle: usize = trusted activate_record();
+        let handle: usize = trusted activate_record(pool);
 
-        trusted append_record(&mut output, handle);
+        trusted append_record(pool, &mut output, handle);
         remaining -= 1;
     }
 
-    unlock_records();
-    return 0;
+    return (0, output);
 }
 
 @abi(c)
-trusted internal func report_records_pop(
-    pos mut chain: RawPointer<ReportRecords>,
-    pos destination: RawPointer<ReportPrimary>
-)
+trusted internal func report_records_pop(pos chain: RawPointer<ReportRecords>, pos destination: RawPointer<ReportPrimary>)
+    requires(trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
+        trusted core.memory.valid_read<ReportRecords>(pointer = chain, count = 1),
+        trusted core.memory.initialized_as<ReportRecords>(pointer = chain), trusted core.memory.valid_write<ReportPrimary>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<ReportPrimary>(pointer = destination))
+    ensures(
+        trusted native_primary_slot_callbacks(pointer = destination),
+        trusted core.memory.valid_write<ReportPrimary>(pointer = destination, count = 1),
+        trusted core.memory.initialized_as<ReportPrimary>(pointer = destination),
+        trusted core.memory.valid_read<ReportPrimary>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<ReportPrimary>(pointer = destination),
+    )
     uses(raw_memory, unchecked_init)
 {
-    let value: &mut ReportRecords = trusted records(&mut chain);
-    let mut handle: usize = trusted detach_record(value);
-    let entry: &mut ReportRecord = trusted record(&mut handle);
+    let value: ReportRecords = trusted std.memory.read<ReportRecords>(chain);
+    let (remaining, primary) = trusted pop_record_value(value, chain, destination);
 
-    trusted std.memory.write<ReportPrimary>(destination, entry.primary);
-    entry.primary = empty_primary();
-    entry.segment_count = 0;
-    entry.segment_tail = 0;
+    trusted std.memory.write<ReportPrimary>(destination, primary);
+    trusted std.memory.write<ReportRecords>(chain, remaining);
+}
 
-    trusted lock_records();
-    entry.next = core.atomic.load<usize, 0>(&RECORD_POOL[FREE_RECORD]);
-    core.atomic.store<usize, 0>(&RECORD_POOL[FREE_RECORD], value = handle);
+trusted internal func pop_record_value(pos mut value: ReportRecords, pos chain: RawPointer<ReportRecords>, pos destination: RawPointer<ReportPrimary>) -> (ReportRecords, ReportPrimary)
+    requires(
+        trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
+        trusted core.memory.valid_write<ReportPrimary>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<ReportPrimary>(pointer = destination),
+    )
+    ensures(
+        trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
+        trusted core.memory.valid_write<ReportPrimary>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<ReportPrimary>(pointer = destination),
+    )
+{
+    let mut guard = RECORD_POOL.lock();
+    let pool: &mut ReportPool = guard.get();
+    let handle: usize = trusted detach_record(pool, &mut value);
+    let head: usize = pool.free;
+    let primary: ReportPrimary =
+    {
+        let entry: &mut ReportRecord = trusted record(pool, handle);
+        let primary: ReportPrimary = trusted serialized_primary(&entry.primary);
 
-    let available: usize = core.atomic.load<usize, 0>(&RECORD_POOL[FREE_RECORD_COUNT]);
+        entry.primary = empty_primary();
+        entry.segment_count = 0;
+        entry.segment_tail = 0;
+        entry.next = head;
+        yield primary;
+    };
 
-    core.atomic.store<usize, 0>(&RECORD_POOL[FREE_RECORD_COUNT], value = available + 1);
-    unlock_records();
+    pool.free = handle;
+    pool.available += 1;
+    return (value, primary);
 }

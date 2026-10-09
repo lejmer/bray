@@ -11,13 +11,31 @@ internal struct ReportOutcome
     mut report: PanicReportData;
 }
 
+// NativePanicMessage stores typed optional C callbacks. The native report producer
+// retains their provider until consumption. Source construction uses selected
+// callable values, and the pool only accepts headers with that same protocol.
+trusted internal predicate native_primary_callbacks(primary: &ReportPrimary);
+
+trusted internal predicate native_report_callbacks(report: &PanicReportData);
+
+trusted internal predicate native_primary_slot_callbacks(pointer: RawPointer<ReportPrimary>);
+
+trusted internal predicate native_report_slot_callbacks(pointer: RawPointer<PanicReportData>);
+
 internal callable ReportConsumer = @abi(c) trusted func(
     pos pointer: RawPointer<PanicReportData>,
     pos reporting: bool
-) -> u32;
+) -> u32
+    requires(
+        trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.valid_write<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<PanicReportData>(pointer = pointer),
+        trusted core.memory.initialized_as<PanicReportData>(pointer = pointer),
+        trusted native_report_slot_callbacks(pointer = pointer),
+    );
 
-@abi(c)
 trusted internal func consume_pointer() -> RawPointer<u8>
+    executes(pure, total)
     uses(layout_reinterpret)
 {
     let consumer: ReportConsumer = consume_report;
@@ -27,8 +45,10 @@ trusted internal func consume_pointer() -> RawPointer<u8>
     );
 }
 
-@abi(c)
-internal func report_primary_value(pos report: PanicReportData) -> ReportPrimary
+trusted internal func report_primary_value(pos report: PanicReportData) -> ReportPrimary
+    requires(trusted native_report_callbacks(report = &report))
+    ensures(trusted native_primary_callbacks(primary = &result))
+    executes(pure, total)
 {
     return
     {
@@ -49,7 +69,60 @@ internal func report_primary_value(pos report: PanicReportData) -> ReportPrimary
     };
 }
 
-trusted internal func release_primary(pos primary: &ReportPrimary) -> ReportOutcome
+// The C producer guarantees typed optional callbacks and retains their providers.
+// Reading arbitrary initialized bytes cannot establish this protocol.
+trusted internal func read_primary(pos pointer: RawPointer<ReportPrimary>) -> ReportPrimary
+    requires(
+        trusted native_primary_slot_callbacks(pointer = pointer),
+        trusted core.memory.valid_write<ReportPrimary>(pointer = pointer, count = 1),
+        trusted core.memory.valid_read<ReportPrimary>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<ReportPrimary>(pointer = pointer),
+        trusted core.memory.initialized_as<ReportPrimary>(pointer = pointer),
+    )
+    ensures(
+        trusted native_primary_callbacks(primary = &result),
+        trusted core.memory.valid_write<ReportPrimary>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<ReportPrimary>(pointer = pointer),
+    )
+    uses(raw_memory)
+{
+    return trusted std.memory.read<ReportPrimary>(pointer);
+}
+
+trusted internal func primary_release(pos primary: &ReportPrimary) -> PanicMessageRelease?
+    requires(trusted native_primary_callbacks(primary = primary))
+    uses(layout_reinterpret)
+{
+    let mut callback: PanicMessageRelease? = none;
+
+    if !std.memory.is_null<u8>(primary.release_message)
+    {
+        let pointer: RawPointer<PanicMessageRelease> = trusted native_release_address(primary);
+
+        callback = trusted std.memory.callable_from_pointer<PanicMessageRelease>(pointer);
+    }
+
+    return callback;
+}
+
+trusted internal func native_release_address(pos primary: &ReportPrimary) -> RawPointer<PanicMessageRelease>
+    requires(
+        trusted native_primary_callbacks(primary = primary),
+        !std.memory.is_null<u8>(primary.release_message),
+    )
+    ensures(trusted core.memory.callable_address_valid<PanicMessageRelease>(pointer = result))
+    uses(intrinsic)
+{
+    // The native protocol supplies exact callback identity and keeps its provider
+    // alive through consumption. This projection copies code-address bits without
+    // borrowing the C header that carries them.
+    return trusted core.target.from_exposed_address<PanicMessageRelease>(
+        address = trusted core.target.expose_address<u8>(primary.release_message),
+    );
+}
+
+trusted internal func release_primary(pos primary: &ReportPrimary, pos callback: PanicMessageRelease?) -> ReportOutcome
+    ensures(trusted native_report_callbacks(report = &result.report))
     uses(layout_reinterpret)
 {
     let mut outcome: ReportOutcome =
@@ -59,14 +132,8 @@ trusted internal func release_primary(pos primary: &ReportPrimary) -> ReportOutc
         report = empty_panic_report()
     };
 
-    if !std.memory.is_null<u8>(primary.release_message)
+    if let ?release = callback
     {
-        let pointer: RawPointer<PanicMessageRelease> = trusted std.memory.reinterpret<PanicMessageRelease, u8>(
-            primary.release_message
-        );
-
-        let release: PanicMessageRelease = trusted std.memory.callable_from_pointer<PanicMessageRelease>(pointer);
-
         let output: RawPointer<u8> = trusted std.memory.reinterpret<u8, ReportOutcome>(
             std.memory.address_of_mut<ReportOutcome>(&mut outcome)
         );
@@ -95,12 +162,12 @@ trusted internal func recycle_reservation(pos handle: usize)
 
     let mut primary: ReportPrimary = empty_primary();
 
-    trusted report_records_pop(
-        std.memory.address_of_mut<ReportRecords>(&mut reserved),
-        std.memory.address_of_mut<ReportPrimary>(&mut primary)
-    );
+    let pointer: RawPointer<ReportPrimary> = std.memory.address_of_mut<ReportPrimary>(&mut primary);
 
-    let outcome: ReportOutcome = trusted release_primary(&primary);
+    trusted report_records_pop(std.memory.address_of_mut<ReportRecords>(&mut reserved), pointer);
+    primary = trusted read_primary(pointer);
+    let callback: PanicMessageRelease? = trusted primary_release(&primary);
+    let outcome: ReportOutcome = trusted release_primary(&primary, callback);
 
     if outcome.state != RUN_COMPLETED
     {
@@ -110,6 +177,13 @@ trusted internal func recycle_reservation(pos handle: usize)
 
 @abi(c)
 trusted internal func consume_report(pos pointer: RawPointer<PanicReportData>, pos reporting: bool) -> u32
+    requires(
+        trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.valid_write<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<PanicReportData>(pointer = pointer),
+        trusted core.memory.initialized_as<PanicReportData>(pointer = pointer),
+        trusted native_report_slot_callbacks(pointer = pointer),
+    )
     uses(intrinsic, foreign_call)
 {
     let owned: PanicReportData = trusted take_report(pointer);
@@ -123,6 +197,8 @@ trusted internal func consume_report(pos pointer: RawPointer<PanicReportData>, p
 
     let reserved: usize = owned.reserved;
     let mut primary: ReportPrimary = report_primary_value(owned);
+
+    let mut callback: PanicMessageRelease? = trusted primary_release(&primary);
 
     trusted recycle_reservation(reserved);
 
@@ -140,7 +216,7 @@ trusted internal func consume_report(pos pointer: RawPointer<PanicReportData>, p
             }
         }
 
-        let mut release: ReportOutcome = trusted release_primary(&primary);
+        let mut release: ReportOutcome = trusted release_primary(&primary, callback);
 
         if release.state == RUN_PANICKED
         {
@@ -156,8 +232,11 @@ trusted internal func consume_report(pos pointer: RawPointer<PanicReportData>, p
                 count = release.report.outgoing_count
             };
 
-            trusted recycle_reservation(release.report.reserved);
-            primary = report_primary_value(release.report);
+            let reservation: usize = release.report.reserved;
+
+            primary = trusted report_primary_value(release.report);
+            callback = trusted primary_release(&primary);
+            trusted recycle_reservation(reservation);
 
             trusted report_records_append(
                 std.memory.address_of_mut<ReportRecords>(&mut incidents),
@@ -178,10 +257,11 @@ trusted internal func consume_report(pos pointer: RawPointer<PanicReportData>, p
                 return status;
             }
 
-            trusted report_records_pop(
-                std.memory.address_of_mut<ReportRecords>(&mut remaining),
-                std.memory.address_of_mut<ReportPrimary>(&mut primary)
-            );
+            let next_primary: RawPointer<ReportPrimary> = std.memory.address_of_mut<ReportPrimary>(&mut primary);
+
+            trusted report_records_pop(std.memory.address_of_mut<ReportRecords>(&mut remaining), next_primary);
+            primary = trusted read_primary(next_primary);
+            callback = trusted primary_release(&primary);
         }
     }
 }

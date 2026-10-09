@@ -114,6 +114,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
                     | CheckedMemoryOperationKind::IsNull { .. }
                     | CheckedMemoryOperationKind::Offset { .. }
                     | CheckedMemoryOperationKind::Reinterpret { .. }
+                    | CheckedMemoryOperationKind::PointerFromCallable { .. }
                     | CheckedMemoryOperationKind::LayoutQuery { .. }
                     | CheckedMemoryOperationKind::RawBufferCapacity
                     | CheckedMemoryOperationKind::RawBufferInitializedCount
@@ -138,6 +139,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
                 | CheckedMemoryOperationKind::IsNull { .. }
                 | CheckedMemoryOperationKind::Offset { .. }
                 | CheckedMemoryOperationKind::Reinterpret { .. }
+                | CheckedMemoryOperationKind::PointerFromCallable { .. }
                 | CheckedMemoryOperationKind::LayoutQuery { .. }
                 | CheckedMemoryOperationKind::Null { .. }
                 | CheckedMemoryOperationKind::Address { .. }
