@@ -165,10 +165,22 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         .target_property_type(bray_target::TargetPropertyKind::ScalarBool)
         .map_err(super::super::binding::binder_error)?;
 
-    let normalized = bray_checker::predicate_conditions(
+    let mut diagnostics = checked_source_diagnostics(&bound, &semantics, &storage, &body);
+
+    let constants = compilation
+        .execution_constant_inputs(
+            bound.result().value(),
+            semantics.result().value(),
+            context.cancellation,
+            &mut diagnostics,
+        )
+        .map_err(super::super::binding::binder_error)?;
+
+    let normalized = bray_checker::predicate_conditions_with_inputs(
         bound.result().value(),
         semantics.result().value(),
         context.semantic_values(),
+        &constants,
     )
     .map_err(|error| BindingQueryError::Binding(bray_binder::BindingError::SemanticValue(error)))?;
 
@@ -211,8 +223,6 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
             execution_requirements.push(requirement);
         }
     }
-
-    let diagnostics = checked_source_diagnostics(&bound, &semantics, &storage, &body);
 
     Ok(CheckedSourcePredicateSequence {
         predicates,

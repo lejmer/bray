@@ -150,9 +150,26 @@ trusted func file_status_at(
 }
 
 trusted func working_directory(pos destination: RawPointer<u8>, capacity: usize) -> RawPointer<u8>
+    requires(capacity != 0, trusted core.memory.valid_write<u8>(pointer = destination, count = capacity))
+    ensures(core.memory.is_null<u8>(result) || trusted core.memory.nul_terminated_read(pointer = result))
     uses(foreign_call)
 {
     return trusted std.os.darwin.getcwd(destination, capacity = capacity);
+}
+
+trusted func narrow_string_length(pos text: RawPointer<u8>, pos limit: usize) -> usize
+    requires(trusted core.memory.nul_terminated_read(pointer = text))
+    ensures(
+        result <= limit,
+        trusted core.memory.nul_terminated_read(pointer = text),
+        trusted core.memory.valid_read<u8>(pointer = text, count = result),
+        trusted core.memory.initialized_range_as<u8>(pointer = text, count = result),
+        result == limit || trusted core.memory.valid_read<u8>(pointer = text, count = result + 1),
+        result == limit || trusted core.memory.initialized_range_as<u8>(pointer = text, count = result + 1),
+    )
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.narrow_string_length(text, limit);
 }
 
 trusted func open_file(pos path: RawPointer<u8>, flags: i32, mode: u32) -> i32
@@ -198,6 +215,15 @@ trusted func munmap(pos address: RawPointer<u8>, pos length: usize) -> i32
 }
 
 trusted func read(pos descriptor: i32, pos destination: RawPointer<u8>, pos length: usize) -> isize
+    requires(length == 0 || trusted core.memory.valid_write<u8>(pointer = destination, count = length))
+    ensures(
+        result < 0 || std.truncate_to<usize>(result) <= length,
+        result < 0 || trusted core.memory.valid_read<u8>(pointer = destination, count = std.truncate_to<usize>(result)),
+        result < 0 || trusted core.memory.initialized_range_as<u8>(
+            pointer = destination,
+            count = std.truncate_to<usize>(result)
+        ),
+    )
     uses(foreign_call)
 {
     return trusted std.os.darwin.read(descriptor, destination = destination, length = length);
@@ -222,16 +248,28 @@ trusted func rename_path(pos source: RawPointer<u8>, pos destination: RawPointer
 }
 
 trusted func write(pos descriptor: i32, pos source: RawPointer<u8>, pos length: usize) -> isize
+    requires(
+        length == 0 || trusted core.memory.valid_read<u8>(pointer = source, count = length),
+        length == 0 || trusted core.memory.initialized_range_as<u8>(pointer = source, count = length),
+    )
+    ensures(result < 0 || std.truncate_to<usize>(result) <= length)
     uses(foreign_call)
 {
     return trusted std.os.darwin.write(descriptor, source = source, length = length);
 }
 
-trusted func socket_pair(pos descriptors: RawPointer<i32>) -> i32
+trusted func socket_pair() -> (i32, [i32; 2])
     uses(foreign_call)
 {
-    trusted std.memory.write<i32>(descriptors, value = -1);
-    trusted std.memory.write<i32>(std.memory.offset<i32>(descriptors, elements = 1), value = -1);
+    let mut pair: [i32; 2] = [-1, -1];
+    let output: &mut [i32] = &mut pair[0..2];
+
+    if !(2 <= output.length())
+    {
+        return (-1, pair);
+    }
+
+    let descriptors: RawPointer<i32> = internal std.memory.slice_pointer_mut<i32>(output, count = 2);
 
     let status: i32 = trusted std.os.darwin.socket_pair(
         std.os.darwin.AF_UNIX,
@@ -242,11 +280,11 @@ trusted func socket_pair(pos descriptors: RawPointer<i32>) -> i32
 
     if status != 0
     {
-        return -1;
+        return (-1, pair);
     }
 
-    let first: i32 = trusted std.memory.read<i32>(descriptors);
-    let second: i32 = trusted std.memory.read<i32>(std.memory.offset<i32>(descriptors, elements = 1));
+    let first: i32 = pair[0];
+    let second: i32 = pair[1];
 
     if trusted std.os.darwin.fcntl(first, std.os.darwin.F_SETFD, std.os.darwin.FD_CLOEXEC) != 0 ||
         trusted std.os.darwin.fcntl(second, std.os.darwin.F_SETFD, std.os.darwin.FD_CLOEXEC) != 0
@@ -257,12 +295,14 @@ trusted func socket_pair(pos descriptors: RawPointer<i32>) -> i32
         let _: i32 = trusted std.os.darwin.close(first);
         let _: i32 = trusted std.os.darwin.close(second);
 
-        trusted std.memory.write<i32>(error_location, value = error);
+        let restored_error_location: RawPointer<i32> = trusted std.os.darwin.error_location();
 
-        return -1;
+        trusted std.memory.write<i32>(restored_error_location, value = error);
+
+        return (-1, pair);
     }
 
-    return 0;
+    return (0, pair);
 }
 
 trusted func duplicate_close_on_exec(pos descriptor: i32, minimum: i32) -> i32
@@ -353,11 +393,10 @@ trusted func signal(pos process: i32, force: bool) -> i32
 }
 
 trusted func pthread_create(
-    pos thread: RawPointer<u64>,
     pos attributes: RawPointer<PThreadAttribute>,
     pos entry: ThreadStartRoutine,
     pos context: RawPointer<u8>,
-) -> i32
+) -> (i32, u64)
     uses(foreign_call, intrinsic)
 {
     let entry_pointer: RawPointer<ThreadStartRoutine> = trusted std.memory.pointer_from_callable(entry);
@@ -378,12 +417,12 @@ trusted func pthread_create(
         context = context,
     );
 
-    if status == 0
+    if status != 0
     {
-        trusted std.memory.write<u64>(thread, trusted core.target.expose_address<u8>(native_thread) as u64);
+        return (status, 0);
     }
 
-    return status;
+    return (status, trusted core.target.expose_address<u8>(native_thread) as u64);
 }
 
 trusted func pthread_detach(pos thread: u64) -> i32
@@ -409,6 +448,10 @@ trusted func pthread_self() -> u64
 }
 
 trusted func pthread_key_create(pos key: RawPointer<u64>, pos destructor: ThreadStorageDestructor) -> i32
+    requires(
+        trusted core.memory.valid_write<u64>(pointer = key, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = key),
+    )
     uses(foreign_call)
 {
     let destructor_pointer: RawPointer<ThreadStorageDestructor> = trusted std.memory.pointer_from_callable(destructor);

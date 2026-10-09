@@ -53,8 +53,14 @@ internal struct ChannelState<T>
 
     trusted mut func store_message(pos value: T)
     {
-        let mut index: usize = self.head + self.length;
         let storage_capacity: usize = std.memory.capacity<Uninit<T>>(&self.storage);
+
+        if self.length >= storage_capacity
+        {
+            panic("channel message storage is full");
+        }
+
+        let mut index: usize = self.head + self.length;
 
         if index >= storage_capacity
         {
@@ -70,11 +76,8 @@ internal struct ChannelState<T>
     trusted mut func take_message() -> T
     {
         let storage_capacity: usize = std.memory.capacity<Uninit<T>>(&self.storage);
-        let slots: &mut [Uninit<T>] = trusted std.memory.initialized_slice_mut<Uninit<T>>(&mut self.storage);
-        let pointer: RawPointer<Uninit<T>> = std.memory.address_of_mut<Uninit<T>>(&mut slots[self.head]);
-        let value: Uninit<T> = trusted std.memory.read<Uninit<T>>(pointer);
-
-        trusted std.memory.write<Uninit<T>>(pointer, std.memory.uninit<T>());
+        let slot: &mut Uninit<T> = trusted internal channel_initialized_head<T>(&mut self);
+        let value: T = trusted std.memory.move_initialized<T>(slot);
 
         self.length -= 1;
         self.head += 1;
@@ -84,7 +87,7 @@ internal struct ChannelState<T>
             self.head = 0;
         }
 
-        return trusted std.memory.assume_initialized<T>(value);
+        return value;
     }
 
     trusted mut func take_received_message() -> T
@@ -103,6 +106,19 @@ internal struct ChannelState<T>
 
         return message;
     }
+}
+
+trusted internal func channel_initialized_head<T>(pos state: &mut ChannelState<T>) -> &mut Uninit<T>
+    ensures(trusted core.memory.uninit_initialized<T>(storage = &result))
+{
+    if state.length == 0
+    {
+        panic("channel has no message to take");
+    }
+
+    let slots: &mut [Uninit<T>] = trusted std.memory.initialized_slice_mut<Uninit<T>>(&mut state.storage);
+
+    return &mut slots[state.head];
 }
 
 internal struct ChannelCore<T>

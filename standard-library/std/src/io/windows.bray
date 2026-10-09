@@ -9,10 +9,15 @@ trusted internal func platform_standard_input_read(
     pos length: u64,
     pos transferred: RawPointer<u64>,
 ) -> std.platform.PlatformStatus
-    uses(foreign_call)
+    requires(
+        length == 0 || trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize),
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
 {
     return trusted internal std.platform.handle_read(
-        trusted std.os.windows.get_standard_handle(std.os.windows.STD_INPUT_HANDLE),
+        0,
+        standard_stream = std.os.windows.STD_INPUT_HANDLE,
         destination = destination,
         length = length,
         transferred = transferred,
@@ -25,10 +30,16 @@ trusted internal func platform_standard_output_write(
     pos length: u64,
     pos transferred: RawPointer<u64>,
 ) -> std.platform.PlatformStatus
-    uses(foreign_call)
+    requires(
+        length == 0 || trusted core.memory.valid_read<u8>(pointer = source, count = length as usize),
+        length == 0 || trusted core.memory.initialized_range_as<u8>(pointer = source, count = length as usize),
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
 {
     return trusted internal std.platform.handle_write(
-        trusted std.os.windows.get_standard_handle(std.os.windows.STD_OUTPUT_HANDLE),
+        0,
+        standard_stream = std.os.windows.STD_OUTPUT_HANDLE,
         source = source,
         length = length,
         transferred = transferred,
@@ -41,10 +52,16 @@ trusted internal func platform_standard_error_write(
     pos length: u64,
     pos transferred: RawPointer<u64>,
 ) -> std.platform.PlatformStatus
-    uses(foreign_call)
+    requires(
+        length == 0 || trusted core.memory.valid_read<u8>(pointer = source, count = length as usize),
+        length == 0 || trusted core.memory.initialized_range_as<u8>(pointer = source, count = length as usize),
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
 {
     return trusted internal std.platform.handle_write(
-        trusted std.os.windows.get_standard_handle(std.os.windows.STD_ERROR_HANDLE),
+        0,
+        standard_stream = std.os.windows.STD_ERROR_HANDLE,
         source = source,
         length = length,
         transferred = transferred,

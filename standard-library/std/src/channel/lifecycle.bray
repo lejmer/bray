@@ -4,39 +4,29 @@ internal const WAIT_TIMEOUT_MILLISECONDS: u32 = 50;
 
 internal struct PendingValue<T>
 {
-    mut storage: Uninit<T>;
-    mut active: bool;
+    mut storage: T?;
 
     trusted construct(pos value: T) -> Self
     {
-        let mut storage: Uninit<T> = std.memory.uninit<T>();
-        let _: &mut T = std.memory.uninit_write<T>(&mut storage, value);
+        let mut storage: T? = none;
+
+        storage = value;
 
         return
         {
             storage = storage,
-            active = true,
         };
     }
 
-    trusted destruct()
+    mut func take() -> T
     {
-        if self.active
+        let stored: T? = std.memory.replace_value(&mut self.storage, none);
+
+        return match consume stored
         {
-            trusted std.memory.destroy_initialized<T>(&mut self.storage);
-        }
-    }
-
-    trusted mut func take() -> T
-    {
-        if !self.active
-        {
-            panic("channel pending value has already been taken");
-        }
-
-        self.active = false;
-
-        return trusted std.memory.move_initialized<T>(&mut self.storage);
+            case ?value { yield value; }
+            case none { panic("channel pending value has already been taken"); }
+        };
     }
 }
 
@@ -94,15 +84,15 @@ internal struct ChannelWaitWake<T>
     }
 }
 
-internal struct WaitOwner<T>
+internal struct ChannelOwner<T>
 {
     core: RawPointer<ChannelCore<T>>;
 
     trusted destruct()
     {
-        let shared: &ChannelCore<T> = trusted internal channel_core<T, WaitOwner<T>>(&self, self.core);
+        let shared: &ChannelCore<T> = trusted internal channel_core<T>(&self);
 
-        trusted internal release_core<T>(shared, self.core);
+        trusted internal release_core<T>(&self, shared);
     }
 }
 
@@ -157,10 +147,10 @@ trusted internal func withdraw_waiter<T>(pos registration: &mut WaitRegistration
     trusted internal notify_channel<T>(registration.shared);
 }
 
-internal async func wait_for_channel_change<T>(pos owner: WaitOwner<T>, pos generation: u32)
+internal async func wait_for_channel_change<T>(pos owner: ChannelOwner<T>, pos generation: u32)
     requires(blocking_execution())
 {
-    let shared: &ChannelCore<T> = trusted internal channel_core<T, WaitOwner<T>>(&owner, owner.core);
+    let shared: &ChannelCore<T> = trusted internal channel_core<T>(&owner);
 
     if core.atomic.load<u32, 0>(&shared.generation) == generation
     {
@@ -183,12 +173,28 @@ trusted internal func notify_channel<T>(pos shared: &ChannelCore<T>)
     trusted internal std.atomic.platform_wake_all_words(&shared.generation);
 }
 
-trusted internal func channel_core<T, Owner>(
-    pos owner: &Owner,
-    pos pointer: RawPointer<ChannelCore<T>>,
-) -> &ChannelCore<T>
+// Each token retains one reference to the shared core. Its private construction sites
+// are the initial channel pair and reference-count increments for endpoints and waits.
+trusted internal func channel_owner_pointer<T>(pos owner: &ChannelOwner<T>) -> RawPointer<ChannelCore<T>>
+    ensures(
+        trusted core.memory.valid_read<ChannelCore<T>>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<ChannelCore<T>>(pointer = result),
+        trusted core.memory.initialized_as<ChannelCore<T>>(pointer = result),
+        trusted core.memory.shared_alias_valid<ChannelCore<T>>(pointer = result),
+        trusted core.memory.epoch_current<ChannelCore<T>>(pointer = result),
+        trusted core.memory.synchronized_access<ChannelCore<T>>(pointer = result),
+        trusted core.memory.movement_stable<ChannelCore<T>>(pointer = result),
+        trusted core.memory.finalization_pending<ChannelCore<T>>(pointer = result),
+    )
 {
-    return trusted std.memory.borrow_from<ChannelCore<T>, Owner>(owner, pointer);
+    return owner.core;
+}
+
+trusted internal func channel_core<T>(pos owner: &ChannelOwner<T>) -> &ChannelCore<T>
+{
+    let pointer: RawPointer<ChannelCore<T>> = trusted internal channel_owner_pointer<T>(owner);
+
+    return trusted std.memory.borrow_from<ChannelCore<T>, ChannelOwner<T>>(owner, pointer);
 }
 
 trusted internal func retain_counter(pos counter: &core.atomic.Atomic<usize>)
@@ -222,19 +228,17 @@ trusted internal func all_senders_closed<T>(pos shared: &ChannelCore<T>) -> bool
     return core.atomic.load<usize, 1>(&shared.senders) == 0;
 }
 
-trusted internal func release_sender<T, Owner>(pos owner: &Owner, pos pointer: RawPointer<ChannelCore<T>>)
+trusted internal func release_sender<T>(pos owner: &ChannelOwner<T>)
 {
-    let shared: &ChannelCore<T> = trusted internal channel_core<T, Owner>(owner, pointer);
+    let shared: &ChannelCore<T> = trusted internal channel_core<T>(owner);
     let _: usize = core.atomic.fetch_sub<usize, 3>(&shared.senders, 1);
 
     trusted internal notify_channel<T>(shared);
-
-    trusted internal release_core<T>(shared, pointer);
 }
 
-trusted internal func release_receiver<T, Owner>(pos owner: &Owner, pos pointer: RawPointer<ChannelCore<T>>)
+trusted internal func release_receiver<T>(pos owner: &ChannelOwner<T>)
 {
-    let shared: &ChannelCore<T> = trusted internal channel_core<T, Owner>(owner, pointer);
+    let shared: &ChannelCore<T> = trusted internal channel_core<T>(owner);
 
     {
         let mut state = shared.state.lock();
@@ -251,11 +255,9 @@ trusted internal func release_receiver<T, Owner>(pos owner: &Owner, pos pointer:
     }
 
     trusted internal notify_channel<T>(shared);
-
-    trusted internal release_core<T>(shared, pointer);
 }
 
-trusted internal func release_core<T>(pos shared: &ChannelCore<T>, pos pointer: RawPointer<ChannelCore<T>>)
+trusted internal func release_core<T>(pos owner: &ChannelOwner<T>, pos shared: &ChannelCore<T>)
 {
     let owners: usize = core.atomic.fetch_sub<usize, 3>(&shared.owners, 1);
 
@@ -276,6 +278,26 @@ trusted internal func release_core<T>(pos shared: &ChannelCore<T>, pos pointer: 
             trusted std.memory.raw_buffer_release<Uninit<T>>(&mut channel.storage);
         }
 
+        let pointer: RawPointer<ChannelCore<T>> = trusted internal final_channel_allocation<T>(owner);
+
         trusted internal std.memory.deallocate_value<ChannelCore<T>>(pointer);
     }
+}
+
+// The final decrement is an acquire-release operation. Once it observes the last
+// reference, no endpoint or suspended waiter can still own or borrow this allocation.
+trusted internal func final_channel_allocation<T>(pos owner: &ChannelOwner<T>) -> RawPointer<ChannelCore<T>>
+    ensures(
+        trusted core.memory.owned_allocation(
+            pointer = trusted std.memory.reinterpret<u8, ChannelCore<T>>(result),
+            bytes = internal std.memory.value_allocation_bytes<ChannelCore<T>>(),
+            align = std.memory.align_of<ChannelCore<T>>(),
+        ),
+    )
+{
+    let shared: &ChannelCore<T> = trusted internal channel_core<T>(owner);
+
+    assert(core.atomic.load<usize, 1>(&shared.owners) == 0, "channel allocation still has live owners");
+
+    return owner.core;
 }

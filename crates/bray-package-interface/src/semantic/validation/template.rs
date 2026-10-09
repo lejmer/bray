@@ -499,7 +499,29 @@ fn validate_operation_type(
                 ));
             };
 
-            ty_kind == kind && node_type(template, *operand) == Some(*target)
+            let mut operand_type = node_type(template, *operand);
+            let mut reaches_target = false;
+
+            for _ in 0..=semantics.types.len() {
+                if operand_type == Some(*target) {
+                    reaches_target = true;
+                    break;
+                }
+
+                match operand_type.and_then(|ty| type_at(semantics, ty)) {
+                    Some(InterfaceType::Borrow {
+                        kind: source_kind,
+                        target: source_target,
+                    }) if *kind == bray_symbols::BorrowKind::Shared
+                        || *source_kind == bray_symbols::BorrowKind::Mutable =>
+                    {
+                        operand_type = Some(*source_target);
+                    }
+                    _ => break,
+                }
+            }
+
+            ty_kind == kind && reaches_target
         }
         InterfaceCheckedTemplateOperation::Convert { target, .. } => *target == node.ty(),
         InterfaceCheckedTemplateOperation::Tuple(elements) => {
@@ -560,7 +582,9 @@ fn validate_operation_type(
         InterfaceCheckedTemplateOperation::TupleElement { subject, index } => {
             let mut subject_type = node_type(template, *subject);
 
-            loop {
+            let mut matches_element = false;
+
+            for _ in 0..=semantics.types.len() {
                 match subject_type.and_then(|ty| type_at(semantics, ty)) {
                     Some(
                         InterfaceType::Borrow { target, .. }
@@ -569,12 +593,16 @@ fn validate_operation_type(
                         subject_type = Some(*target);
                     }
                     Some(InterfaceType::Tuple(elements)) => {
-                        break index.to_index().and_then(|index| elements.get(index))
+                        matches_element = index.to_index().and_then(|index| elements.get(index))
                             == Some(&node.ty());
+
+                        break;
                     }
-                    _ => break false,
+                    _ => break,
                 }
             }
+
+            matches_element
         }
         InterfaceCheckedTemplateOperation::Temporary(temporary) => {
             let temporary_index =

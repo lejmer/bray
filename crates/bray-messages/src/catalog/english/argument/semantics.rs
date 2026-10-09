@@ -405,11 +405,12 @@ pub(super) const fn format_english_memory_operation(
         DiagnosticMemoryOperation::RawBufferSetInitializedCount => {
             "raw buffer initialized-count update"
         }
+        DiagnosticMemoryOperation::RawBufferPush => "raw buffer push",
+        DiagnosticMemoryOperation::RawBufferPop => "raw buffer pop",
         DiagnosticMemoryOperation::RawBufferRelease => "raw buffer release",
         DiagnosticMemoryOperation::RawBufferReplace => "raw buffer replacement",
         DiagnosticMemoryOperation::RawBufferRelocate => "raw buffer relocation",
         DiagnosticMemoryOperation::ByteBufferFill => "byte buffer fill",
-        DiagnosticMemoryOperation::ByteBufferCopy => "byte buffer copy",
         DiagnosticMemoryOperation::ByteBufferRead => "byte buffer read",
         DiagnosticMemoryOperation::SequenceLength => "sequence length access",
         DiagnosticMemoryOperation::VolatileRead => "volatile read",

@@ -18,7 +18,7 @@ trusted internal func resolve_dynamic_symbol<T>(
 
     let status: std.platform.PlatformStatus = trusted platform_dynamic_library_symbol(
         handle,
-        name = internal std.memory.byte_slice_pointer(name),
+        name = internal std.memory.slice_pointer(name, count = name.length()),
         length = name.length() as u64,
         address = std.memory.address_of_mut<RawPointer<u8>>(&mut address),
     );

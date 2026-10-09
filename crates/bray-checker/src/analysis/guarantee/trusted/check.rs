@@ -156,72 +156,49 @@ fn check_trusted_contracts_in_flow<C: CheckerRequestContext + ?Sized>(
 
     let boundary = super::super::super::fixed_point::FixedPointDomain::boundary(&flow.domain);
 
-    for (condition, span) in &contracts.guarantees {
-        let Some(boundary) = &boundary else {
-            continue;
-        };
+    let guarantees = boundary
+        .as_ref()
+        .map(|boundary| {
+            contracts
+                .guarantees
+                .iter()
+                .map(|(condition, span)| {
+                    let condition = condition.capture_entry(
+                        &|place| {
+                            place
+                                .value_in(&boundary.current)
+                                .unwrap_or_else(|| ExecutionCondition::Input(place.clone()))
+                        },
+                        &boundary.trusted_assumptions,
+                        &boundary.assumptions,
+                        &mut { ExecutionCondition::WORK_LIMIT },
+                    );
 
-        let condition = condition.capture_entry(
-            &|place| {
-                place
-                    .value_in(&boundary.current)
-                    .unwrap_or_else(|| ExecutionCondition::Input(place.clone()))
-            },
-            &boundary.trusted_assumptions,
-            &boundary.assumptions,
-            &mut { ExecutionCondition::WORK_LIMIT },
+                    (condition, *span)
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    for span in super::super::postcondition::unproven_postconditions(flow, &guarantees) {
+        diagnostics.add(
+            Diagnostic::new(
+                bray_diagnostics::DiagnosticId::new(span.start().bytes()),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::TrustedObligationFailure,
+                span,
+            ))
+            .with_arg(DiagnosticArg::expression_category(
+                DiagnosticExpressionCategory::Call,
+            ))
+            .with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::TrustedObligationEvidenceRequired,
+            )),
         );
-
-        let proven = graph
-            .exits()
-            .iter()
-            .filter(|exit| {
-                matches!(
-                    exit.kind(),
-                    super::super::super::model::AnalysisExitKind::Return
-                        | super::super::super::model::AnalysisExitKind::NormalFallthrough
-                        | super::super::super::model::AnalysisExitKind::ResultErrorPropagation
-                )
-            })
-            .all(|exit| {
-                let Some(state) = flow.output(exit.block()) else {
-                    return true;
-                };
-
-                let condition = condition.substitute(
-                    &|place| {
-                        place
-                            .value_in(&state.current)
-                            .unwrap_or_else(|| ExecutionCondition::Input(place.clone()))
-                    },
-                    &state.result,
-                    &mut { ExecutionCondition::WORK_LIMIT },
-                );
-
-                condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
-                    == Some(true)
-            });
-
-        if !proven {
-            diagnostics.add(
-                Diagnostic::new(
-                    bray_diagnostics::DiagnosticId::new(span.start().bytes()),
-                    DiagnosticKind::CheckingTrustedObligationNotProven,
-                    SeverityKind::Error,
-                )
-                .with_primary_span(*span)
-                .with_label(DiagnosticLabel::primary(
-                    DiagnosticLabelKind::TrustedObligationFailure,
-                    *span,
-                ))
-                .with_arg(DiagnosticArg::expression_category(
-                    DiagnosticExpressionCategory::Call,
-                ))
-                .with_note(DiagnosticNote::new(
-                    DiagnosticNoteKind::TrustedObligationEvidenceRequired,
-                )),
-            );
-        }
     }
 
     for expression in transfers {
@@ -288,7 +265,7 @@ fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
         let mut is_witness = state.is_witness(&value);
 
         let mut partial_witness =
-            matches!(&value, ExecutionCondition::Field(_, base) if state.is_witness(base));
+            matches!(&value, ExecutionCondition::Projection(_, base) if state.is_witness(base));
 
         for (condition, subject) in requirements {
             let condition = condition.substitute(
@@ -338,7 +315,7 @@ fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
         }
 
         let copies = plan.purpose() != bray_bound_tree::StorageAccessPurpose::Move
-            && flow.copied_types.contains(&ty);
+            && flow.domain.copied_types.contains(&ty);
 
         if (is_witness && copies) || (partial_witness && !copies) {
             transfers.insert(plan.expression());
@@ -510,6 +487,8 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
                 let targets = cleanup_targets(cleanup, operation.kind());
 
                 for access in targets {
+                    let preserves_inputs = flow.domain.cleanup_preserves_inputs(&state, access);
+
                     for (ty, part) in parts
                         .get(&access)
                         .expect("cleanup access has its selected expansion")
@@ -544,7 +523,9 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
                                 failed.insert(operation.kind().node());
                             }
 
-                            state.invalidate_cleanup();
+                            if !preserves_inputs {
+                                state.invalidate_cleanup(None);
+                            }
 
                             if established
                                 && contract.completes
@@ -559,7 +540,9 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
                             }
                         }
 
-                        state.invalidate_cleanup();
+                        if !preserves_inputs {
+                            state.invalidate_cleanup(None);
+                        }
                     }
                 }
 

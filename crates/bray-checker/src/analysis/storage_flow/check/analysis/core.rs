@@ -36,7 +36,6 @@ use crate::analysis::model::{
 };
 use crate::analysis::reachability::analyze_reachability;
 use crate::analysis::storage_flow::authority::mutable_storage;
-use crate::analysis::storage_flow::copyability::CopyabilityResolver;
 use crate::analysis::storage_flow::decision::{diagnostic_kind, more_conservative};
 use crate::analysis::storage_flow::model::{StorageFlowDomain, StorageFlowInput, StorageFlowState};
 
@@ -143,20 +142,9 @@ where
         return CheckerOutcome::Cancelled;
     };
 
-    let mut copyability = CopyabilityResolver::new(request);
-
-    for plan in storage.access_plans().iter().copied().filter(|plan| {
-        matches!(
-            plan.purpose(),
-            StorageAccessPurpose::Copy | StorageAccessPurpose::ValueTransfer
-        )
-    }) {
-        let Some(access) = storage.access(plan.access()) else {
-            continue;
-        };
-
-        match copyability.resolve(access.reached_type()) {
-            Ok(_) => {}
+    let (copyable_types, copyability_diagnostics) =
+        match crate::analysis::storage_flow::copyability::storage_copyable_types(request, storage) {
+            Ok(result) => result,
             Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
             Err(CheckerQueryError::Infrastructure(error)) => {
                 return CheckerOutcome::InfrastructureFailure(error);
@@ -164,10 +152,7 @@ where
             Err(CheckerQueryError::Upstream(error)) => {
                 return CheckerOutcome::UpstreamFailure(error);
             }
-        }
-    }
-
-    let (copyable_types, copyability_diagnostics) = copyability.into_parts();
+        };
 
     let ((input, cleanup_diagnostics), authority_diagnostics) =
         match mutable_storage(request, storage).and_then(|(mutable, diagnostics)| {

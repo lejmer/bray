@@ -162,10 +162,18 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             )?;
         }
 
-        let creates_capability = self
-            .builder()?
-            .access(access)
-            .is_some_and(|access| access.root().borrow_capability().is_none());
+        let builder = self.builder()?;
+
+        let creates_capability = builder.access(access).is_some_and(|access| {
+            !access.projections().is_empty()
+                || access.root().borrow_capability().is_none_or(|capability| {
+                    builder
+                        .borrow_capability(capability)
+                        .expect("returned borrow references a planned capability")
+                        .kind()
+                        != kind
+                })
+        });
 
         if creates_capability {
             let source = self.access_with_reached_type(expression, access, target)?;

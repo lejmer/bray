@@ -10,6 +10,32 @@ use crate::{
     SemanticUnitContext,
 };
 
+pub(in crate::analysis) fn storage_copyable_types<C>(
+    request: CheckerUnitView<'_, C>,
+    storage: &bray_bound_tree::StoragePlan,
+) -> CheckerQueryResult<(BTreeSet<TypeId>, DiagnosticBag), C::UpstreamError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut resolver = CopyabilityResolver::new(request);
+
+    for plan in storage.access_plans().iter().filter(|plan| {
+        matches!(
+            plan.purpose(),
+            bray_bound_tree::StorageAccessPurpose::Copy
+                | bray_bound_tree::StorageAccessPurpose::ValueTransfer
+        )
+    }) {
+        let access = storage
+            .access(plan.access())
+            .expect("checked transfer has committed storage");
+
+        resolver.resolve(access.reached_type())?;
+    }
+
+    Ok(resolver.into_parts())
+}
+
 /// Checks whether one semantic type has a copy contract in the supplied static context.
 pub fn type_is_copyable<C>(
     request: CheckerUnitView<'_, C>,

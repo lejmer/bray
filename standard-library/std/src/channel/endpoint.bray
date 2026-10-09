@@ -2,34 +2,40 @@ trusted module std.channel;
 
 struct Sender<T>
 {
-    internal core: RawPointer<ChannelCore<T>>;
+    internal owner: ChannelOwner<T>;
     internal mut active: bool;
 
     trusted destruct()
     {
         if self.active
         {
-            trusted internal release_sender<T, Sender<T>>(&self, self.core);
+            trusted internal release_sender<T>(&self.owner);
         }
     }
 
     func duplicate() -> Sender<T>
     {
-        let shared: &ChannelCore<T> = trusted internal channel_core<T, Sender<T>>(&self, self.core);
+        let shared: &ChannelCore<T> = trusted internal channel_core<T>(&self.owner);
 
         trusted internal retain_counter(&shared.owners);
+
+        let owner: ChannelOwner<T> =
+        {
+            core = self.owner.core,
+        };
+
         trusted internal retain_counter(&shared.senders);
 
         return
         {
-            core = self.core,
+            owner = owner,
             active = true,
         };
     }
 
     async func send(pos value: T) -> Result<unit, SendError<T>>
     {
-        let shared: &ChannelCore<T> = trusted internal channel_core<T, Sender<T>>(&self, self.core);
+        let shared: &ChannelCore<T> = trusted internal channel_core<T>(&self.owner);
         let mut pending: PendingValue<T> = trusted PendingValue<T>(value);
         let mut registration: WaitRegistration<T> = trusted internal register_waiter<T>(shared, WaiterKind.Sender);
 
@@ -100,9 +106,9 @@ struct Sender<T>
 
             trusted internal retain_counter(&shared.owners);
 
-            let owner: WaitOwner<T> =
+            let owner: ChannelOwner<T> =
             {
-                core = self.core,
+                core = self.owner.core,
             };
 
             let mut wake: ChannelWaitWake<T> = trusted internal ChannelWaitWake<T>(shared);
@@ -121,7 +127,7 @@ struct Sender<T>
 
     func try_send(pos value: T) -> Result<unit, TrySendError<T>>
     {
-        let shared: &ChannelCore<T> = trusted internal channel_core<T, Sender<T>>(&self, self.core);
+        let shared: &ChannelCore<T> = trusted internal channel_core<T>(&self.owner);
         let mut state = shared.state.lock();
         let channel: &mut ChannelState<T> = state.get();
 
@@ -147,27 +153,27 @@ struct Sender<T>
 
     consume mut func close()
     {
-        trusted internal release_sender<T, Sender<T>>(&self, self.core);
+        trusted internal release_sender<T>(&self.owner);
         self.active = false;
     }
 }
 
 struct Receiver<T>
 {
-    internal core: RawPointer<ChannelCore<T>>;
+    internal owner: ChannelOwner<T>;
     internal mut active: bool;
 
     trusted destruct()
     {
         if self.active
         {
-            trusted internal release_receiver<T, Receiver<T>>(&self, self.core);
+            trusted internal release_receiver<T>(&self.owner);
         }
     }
 
     async func receive() -> ReceiveResult<T>
     {
-        let shared: &ChannelCore<T> = trusted internal channel_core<T, Receiver<T>>(&self, self.core);
+        let shared: &ChannelCore<T> = trusted internal channel_core<T>(&self.owner);
         let mut registration: WaitRegistration<T> = trusted internal register_waiter<T>(shared, WaiterKind.Receiver);
 
         while true
@@ -209,9 +215,9 @@ struct Receiver<T>
 
             trusted internal retain_counter(&shared.owners);
 
-            let owner: WaitOwner<T> =
+            let owner: ChannelOwner<T> =
             {
-                core = self.core,
+                core = self.owner.core,
             };
 
             let mut wake: ChannelWaitWake<T> = trusted internal ChannelWaitWake<T>(shared);
@@ -227,7 +233,7 @@ struct Receiver<T>
 
     func try_receive() -> TryReceiveResult<T>
     {
-        let shared: &ChannelCore<T> = trusted internal channel_core<T, Receiver<T>>(&self, self.core);
+        let shared: &ChannelCore<T> = trusted internal channel_core<T>(&self.owner);
         let mut state = shared.state.lock();
         let channel: &mut ChannelState<T> = state.get();
 
@@ -251,7 +257,7 @@ struct Receiver<T>
 
     consume mut func close()
     {
-        trusted internal release_receiver<T, Receiver<T>>(&self, self.core);
+        trusted internal release_receiver<T>(&self.owner);
         self.active = false;
     }
 }

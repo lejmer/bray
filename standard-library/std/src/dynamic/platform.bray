@@ -58,11 +58,13 @@ trusted internal func release_dynamic_library(pos library: &mut DynamicLibrary) 
 }
 
 trusted internal func dynamic_library_handle(pos library: &DynamicLibrary) -> u64
+    executes(pure, total)
 {
     return library.handle_value;
 }
 
 internal func load_policy_value(pos policy: LoadPolicy) -> u32
+    executes(pure, total)
 {
     match policy
     {
@@ -75,9 +77,121 @@ internal func load_policy_value(pos policy: LoadPolicy) -> u32
 }
 
 internal func system_library_value(pos identity: SystemLibrary) -> u32
+    executes(pure, total)
 {
     match identity
     {
         case SystemLibrary.CRuntime { return 0; }
+    }
+}
+
+@abi(c)
+trusted internal func platform_dynamic_library_open_path(
+    pos path: std.fs.PlatformPath,
+    pos policy: u32,
+    pos opened: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.valid_write<u64>(pointer = opened, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = opened),
+        trusted core.memory.exclusive_alias_valid<u64>(pointer = opened),
+        trusted core.memory.epoch_current<u64>(pointer = opened),
+        trusted core.memory.synchronized_access<u64>(pointer = opened),
+        trusted core.memory.movement_stable<u64>(pointer = opened),
+        trusted core.memory.finalization_pending<u64>(pointer = opened),
+        blocking_execution(),
+    )
+{
+    let prepared: Result<u64, std.platform.PlatformStatus> = trusted internal prepare_dynamic_library_open_path(
+        path,
+        policy,
+        opened,
+    );
+
+    match consume prepared
+    {
+        case Ok(handle)
+        {
+            trusted std.memory.write<u64>(opened, value = handle);
+
+            return internal std.platform.success_status();
+        }
+        case Error(status) { return status; }
+    }
+}
+
+@abi(c)
+trusted internal func platform_dynamic_library_symbol(
+    pos handle: u64,
+    pos name: RawPointer<u8>,
+    pos length: u64,
+    pos address: RawPointer<RawPointer<u8>>,
+) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = name, count = length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = name, count = length as usize),
+        trusted core.memory.valid_write<RawPointer<u8>>(pointer = address, count = 1),
+        trusted core.memory.aligned_for<RawPointer<u8>>(pointer = address),
+        trusted core.memory.exclusive_alias_valid<RawPointer<u8>>(pointer = address),
+        trusted core.memory.epoch_current<RawPointer<u8>>(pointer = address),
+        trusted core.memory.synchronized_access<RawPointer<u8>>(pointer = address),
+        trusted core.memory.movement_stable<RawPointer<u8>>(pointer = address),
+        trusted core.memory.finalization_pending<RawPointer<u8>>(pointer = address),
+        blocking_execution(),
+    )
+{
+    let prepared: Result<RawPointer<u8>, std.platform.PlatformStatus> = trusted internal prepare_dynamic_library_symbol(
+        handle,
+        name,
+        length,
+        address,
+    );
+
+    match consume prepared
+    {
+        case Ok(pointer)
+        {
+            trusted std.memory.write<RawPointer<u8>>(address, value = pointer);
+
+            return internal std.platform.success_status();
+        }
+        case Error(status) { return status; }
+    }
+}
+
+@abi(c)
+trusted internal func platform_dynamic_library_open_system(
+    pos identity: u32,
+    pos policy: u32,
+    pos opened: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_write<u64>(pointer = opened, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = opened),
+        trusted core.memory.exclusive_alias_valid<u64>(pointer = opened),
+        trusted core.memory.epoch_current<u64>(pointer = opened),
+        trusted core.memory.synchronized_access<u64>(pointer = opened),
+        trusted core.memory.movement_stable<u64>(pointer = opened),
+        trusted core.memory.finalization_pending<u64>(pointer = opened),
+        blocking_execution(),
+    )
+{
+    let prepared: Result<u64, std.platform.PlatformStatus> = trusted internal prepare_dynamic_library_open_system(
+        identity,
+        policy,
+        opened,
+    );
+
+    match consume prepared
+    {
+        case Ok(handle)
+        {
+            trusted std.memory.write<u64>(opened, value = handle);
+
+            return internal std.platform.success_status();
+        }
+        case Error(status) { return status; }
     }
 }

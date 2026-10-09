@@ -11,6 +11,72 @@ use crate::compilation::{
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
+    pub(in crate::compilation) fn execution_constant_inputs(
+        &self,
+        bound: &bray_bound_tree::BoundUnit,
+        semantics: &bray_bound_tree::CheckedExpressionSemantics,
+        cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<
+        std::collections::BTreeMap<bray_checker::ExecutionPlace, ExecutionCondition>,
+        FactQueryError,
+    > {
+        let mut constants = std::collections::BTreeMap::new();
+        let mut visited = std::collections::BTreeSet::new();
+
+        for (expression, node) in bound.tree().expressions() {
+            let symbol = match node {
+                bray_bound_tree::BoundExpression::Name(name) => match name.target() {
+                    bray_bound_tree::BoundReferenceTarget::Surface(symbol) => symbol,
+                    _ => continue,
+                },
+                bray_bound_tree::BoundExpression::MemberAccess(_) => {
+                    let Some(bray_bound_tree::SemanticSelection::Operation(
+                        bray_bound_tree::SelectedOperation::Member(member),
+                    )) = semantics.selections().expression(expression)
+                    else {
+                        continue;
+                    };
+
+                    member.member()
+                }
+                _ => continue,
+            };
+
+            if !visited.insert(symbol) {
+                continue;
+            }
+
+            let Some((_, resolution)) =
+                self.resolve_surface_constant(symbol, cancellation, diagnostics)?
+            else {
+                continue;
+            };
+
+            let value = match resolution {
+                bray_checker::ConstantReferenceResolution::Value(value) => value,
+                bray_checker::ConstantReferenceResolution::Evaluated(value) => value.value(),
+                _ => continue,
+            };
+
+            let value = self.semantic_value_store()?.constant_value_data(value);
+
+            let condition = match value.kind() {
+                bray_symbols::ConstantValueKind::Boolean(value) => {
+                    ExecutionCondition::Boolean(*value)
+                }
+                _ => ExecutionCondition::Literal(value),
+            };
+
+            constants.insert(
+                bray_bound_tree::BoundReferenceTarget::Surface(symbol).into(),
+                condition,
+            );
+        }
+
+        Ok(constants)
+    }
+
     pub(super) fn execution_condition_inputs(
         &self,
         owner: &BoundUnitKey,
@@ -28,6 +94,37 @@ impl Compilation {
                 .collect(),
             diagnostics,
         ))
+    }
+
+    fn instance_execution_condition_inputs(
+        &self,
+        owner: &BoundUnitKey,
+        callable: bray_symbols::CallableInstanceData,
+        anchors: &[SyntaxAnchor],
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<Vec<(ExecutionCondition, SourceSpan)>>, FactQueryError> {
+        let (conditions, diagnostics) = self
+            .execution_condition_inputs(owner, anchors, cancellation)?
+            .into_parts();
+
+        let values = self.semantic_value_store()?;
+
+        let conditions = conditions
+            .into_iter()
+            .map(|(condition, source)| {
+                let condition = bray_checker::map_execution_condition_substitutions(
+                    &condition,
+                    &|substitution| {
+                        values
+                            .substitute_generic_substitution(substitution, callable.substitution())
+                    },
+                )?;
+
+                Ok((condition, source))
+            })
+            .collect::<Result<_, FactQueryError>>()?;
+
+        Ok(DiagnosticResult::new(conditions, diagnostics))
     }
 
     pub(in crate::compilation) fn predicate_condition_inputs(
@@ -68,10 +165,18 @@ impl Compilation {
 
             let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
 
-            let normalized = bray_checker::predicate_conditions(
+            let constants = self.execution_constant_inputs(
+                bound.result().value(),
+                semantics.result().value(),
+                cancellation,
+                &mut diagnostics,
+            )?;
+
+            let normalized = bray_checker::predicate_conditions_with_inputs(
                 bound.result().value(),
                 semantics.result().value(),
                 self.semantic_value_store()?,
+                &constants,
             )?;
 
             if clause_diagnostics.has_errors() {
@@ -687,13 +792,18 @@ impl Compilation {
     pub(super) fn applicable_execution_obligation(
         &self,
         body: &BoundUnitKey,
+        callable: bray_symbols::CallableInstanceData,
         declaration: &bray_checker::ExecutionDeclaration,
         property: bray_checker::ExecutionProperty,
         evidence: Option<&bray_checker::ExecutionCallEvidence>,
         cancellation: &CancellationToken,
     ) -> Result<Option<Option<SourceSpan>>, FactQueryError> {
-        let requirements =
-            self.execution_condition_inputs(body, declaration.requirements(), cancellation)?;
+        let requirements = self.instance_execution_condition_inputs(
+            body,
+            callable,
+            declaration.requirements(),
+            cancellation,
+        )?;
 
         if requirements.diagnostics().has_errors() {
             return Ok(None);
@@ -715,7 +825,12 @@ impl Compilation {
                 continue;
             };
 
-            let guards = self.execution_condition_inputs(body, &domain.guards, cancellation)?;
+            let guards = self.instance_execution_condition_inputs(
+                body,
+                callable,
+                &domain.guards,
+                cancellation,
+            )?;
 
             if guards.diagnostics().has_errors() {
                 continue;
@@ -839,10 +954,19 @@ impl Compilation {
                     .copied()
                     .collect::<Vec<_>>();
 
-                let entry = self.execution_condition_inputs(&body, &anchors, cancellation)?;
+                let entry = self.instance_execution_condition_inputs(
+                    &body,
+                    callable,
+                    &anchors,
+                    cancellation,
+                )?;
 
-                let posts =
-                    self.execution_condition_inputs(&body, &domain.postconditions, cancellation)?;
+                let posts = self.instance_execution_condition_inputs(
+                    &body,
+                    callable,
+                    &domain.postconditions,
+                    cancellation,
+                )?;
 
                 diagnostics.add_range(entry.diagnostics().iter().cloned());
                 diagnostics.add_range(posts.diagnostics().iter().cloned());

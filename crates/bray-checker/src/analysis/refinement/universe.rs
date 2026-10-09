@@ -36,6 +36,7 @@ impl RefinementUniverse {
         patterns: &CheckedPatterns,
         selections: &bray_bound_tree::CheckedSemanticSelections,
         storage: &StoragePlan,
+        copied_types: &BTreeSet<bray_symbols::TypeId>,
     ) -> Result<Self, RefinementUniverseError>
     where
         C: CheckerRequestContext + ?Sized,
@@ -43,7 +44,7 @@ impl RefinementUniverse {
         let direct_dependencies = direct_expression_dependencies(storage);
 
         let invalidating_accesses =
-            invalidating_operation_accesses(request, selections, storage, &BTreeSet::new());
+            invalidating_operation_accesses(request, selections, storage, copied_types);
 
         let mut universe = Self {
             refinements: Vec::new(),

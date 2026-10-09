@@ -280,19 +280,48 @@ trusted internal func zone_name(pos handle: u64) -> Result<string, TimeError>
 
     let mut buffer: std.memory.RawBuffer<u8> = try trusted temporal_text_buffer(required);
 
-    outcome = TEMPORAL_SUCCESS;
+    let copied: (std.platform.PlatformStatus, u32, usize) = trusted fill_zone_name(handle, &mut buffer);
 
-    let copied: std.platform.PlatformStatus = trusted platform_time_zone_name(
+    trusted std.memory.set_initialized_count<u8>(&mut buffer, count = copied.2);
+
+    try checked_temporal_call(copied.0, copied.1);
+
+    return trusted temporal_text(buffer);
+}
+
+trusted internal func fill_zone_name(
+    pos handle: u64,
+    pos buffer: &mut std.memory.RawBuffer<u8>,
+) -> (std.platform.PlatformStatus, u32, usize)
+    ensures(trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result.2))
+    uses(foreign_call)
+{
+    let initialized: usize = buffer.initialized;
+    let capacity: usize = buffer.capacity - initialized;
+    let mut written: u64 = 0;
+    let mut outcome: u32 = TEMPORAL_SUCCESS;
+
+    let status: std.platform.PlatformStatus = trusted platform_time_zone_name(
         handle,
-        destination = std.memory.pointer<u8>(&buffer),
-        capacity = required,
-        written_or_required = std.memory.address_of_mut<u64>(&mut required),
+        destination = trusted std.memory.spare_pointer<u8>(buffer),
+        capacity = capacity as u64,
+        written_or_required = std.memory.address_of_mut<u64>(&mut written),
         outcome = std.memory.address_of_mut<u32>(&mut outcome),
     );
 
-    try checked_temporal_call(copied, outcome);
+    if status.category != 0 || outcome != TEMPORAL_SUCCESS
+    {
+        return (status, outcome, initialized);
+    }
 
-    return trusted temporal_text(buffer, required);
+    let length: usize = written as usize;
+
+    if length as u64 != written || length > capacity
+    {
+        panic("the platform temporal output exceeds its storage");
+    }
+
+    return (status, outcome, initialized + length);
 }
 
 trusted internal func zoned_from_timestamp(
@@ -362,28 +391,68 @@ trusted internal func observe_timestamp(
 
     let mut buffer: std.memory.RawBuffer<u8> = try trusted temporal_text_buffer(required);
 
-    outcome = TEMPORAL_SUCCESS;
-
-    let observed: std.platform.PlatformStatus = trusted platform_time_observe(
+    let observed: (std.platform.PlatformStatus, u32, usize) = trusted fill_temporal_observation(
         zone,
         fixed_offset_seconds,
         timestamp.seconds(),
         timestamp.nanoseconds(),
-        observation = std.memory.address_of_mut<PlatformTemporalObservation>(&mut value),
-        abbreviation = std.memory.pointer<u8>(&buffer),
-        capacity = required,
-        written_or_required = std.memory.address_of_mut<u64>(&mut required),
-        outcome = std.memory.address_of_mut<u32>(&mut outcome),
+        &mut value,
+        &mut buffer,
     );
 
-    try checked_temporal_call(observed, outcome);
+    trusted std.memory.set_initialized_count<u8>(&mut buffer, count = observed.2);
+
+    try checked_temporal_call(observed.0, observed.1);
 
     return Ok(
         {
             value = value,
-            abbreviation = try trusted temporal_text(buffer, required),
+            abbreviation = try trusted temporal_text(buffer),
         }
     );
+}
+
+trusted internal func fill_temporal_observation(
+    pos zone: u64,
+    pos fixed_offset_seconds: i32,
+    pos seconds: i64,
+    pos nanoseconds: u32,
+    pos observation: &mut PlatformTemporalObservation,
+    pos buffer: &mut std.memory.RawBuffer<u8>,
+) -> (std.platform.PlatformStatus, u32, usize)
+    ensures(trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result.2))
+    uses(foreign_call)
+{
+    let initialized: usize = buffer.initialized;
+    let capacity: usize = buffer.capacity - initialized;
+    let mut written: u64 = 0;
+    let mut outcome: u32 = TEMPORAL_SUCCESS;
+
+    let status: std.platform.PlatformStatus = trusted platform_time_observe(
+        zone,
+        fixed_offset_seconds,
+        seconds,
+        nanoseconds,
+        observation = std.memory.address_of_mut<PlatformTemporalObservation>(observation),
+        abbreviation = trusted std.memory.spare_pointer<u8>(buffer),
+        capacity = capacity as u64,
+        written_or_required = std.memory.address_of_mut<u64>(&mut written),
+        outcome = std.memory.address_of_mut<u32>(&mut outcome),
+    );
+
+    if status.category != 0 || outcome != TEMPORAL_SUCCESS
+    {
+        return (status, outcome, initialized);
+    }
+
+    let length: usize = written as usize;
+
+    if length as u64 != written || length > capacity
+    {
+        panic("the platform temporal output exceeds its storage");
+    }
+
+    return (status, outcome, initialized + length);
 }
 
 trusted internal func resolve_local_platform(

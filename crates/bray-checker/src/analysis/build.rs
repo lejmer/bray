@@ -39,6 +39,7 @@ where
         None,
         None,
         Default::default(),
+        Default::default(),
         DependencyFailureMode::PotentialExits,
         None,
     )
@@ -54,22 +55,26 @@ pub(crate) fn build_storage_control_flow_graph<C: CheckerRequestContext + ?Sized
         &super::cleanup::CleanupFreeExits,
     )>,
 ) -> ControlFlowGraphBuildOutcome<C::UpstreamError> {
-    let scopes = match crate::asynchronous::cleanup_scopes(request, storage) {
-        Ok(scopes) => scopes,
-        Err(crate::CheckerQueryError::Cancelled) => return ControlFlowGraphBuildOutcome::Cancelled,
-        Err(crate::CheckerQueryError::Infrastructure(error)) => {
-            return ControlFlowGraphBuildOutcome::InfrastructureFailure(error);
-        }
-        Err(crate::CheckerQueryError::Upstream(error)) => {
-            return ControlFlowGraphBuildOutcome::UpstreamFailure(error);
-        }
-    };
+    let (scopes, cleanup_free_replacements) =
+        match crate::asynchronous::cleanup_scopes(request, storage) {
+            Ok(scopes) => scopes,
+            Err(crate::CheckerQueryError::Cancelled) => {
+                return ControlFlowGraphBuildOutcome::Cancelled;
+            }
+            Err(crate::CheckerQueryError::Infrastructure(error)) => {
+                return ControlFlowGraphBuildOutcome::InfrastructureFailure(error);
+            }
+            Err(crate::CheckerQueryError::Upstream(error)) => {
+                return ControlFlowGraphBuildOutcome::UpstreamFailure(error);
+            }
+        };
 
     build_control_flow_graph_with_storage(
         request,
         Some(storage),
         Some(selections),
         scopes,
+        cleanup_free_replacements,
         DependencyFailureMode::PotentialExits,
         completion_semantics,
     )
@@ -89,6 +94,7 @@ where
         Some(storage),
         Some(selections),
         Default::default(),
+        Default::default(),
         DependencyFailureMode::ProofDependencies,
         None,
     )
@@ -99,6 +105,7 @@ fn build_control_flow_graph_with_storage<C, E>(
     checked_storage: Option<&StoragePlan>,
     selections: Option<&bray_bound_tree::CheckedSemanticSelections>,
     cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
+    cleanup_free_replacements: std::collections::BTreeSet<BoundExpressionId>,
     dependency_failures: DependencyFailureMode,
     completion_semantics: Option<(
         &bray_bound_tree::CheckedExpressionSemantics,
@@ -109,8 +116,13 @@ fn build_control_flow_graph_with_storage<C, E>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut builder =
-        ControlFlowGraphBuilder::new(request, checked_storage, selections, cleanup_scopes);
+    let mut builder = ControlFlowGraphBuilder::new(
+        request,
+        checked_storage,
+        selections,
+        cleanup_scopes,
+        cleanup_free_replacements,
+    );
 
     builder.dependency_failures = dependency_failures;
     builder.completion_semantics = completion_semantics;
@@ -155,6 +167,7 @@ where
     checked_storage: Option<&'view StoragePlan>,
     selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
     pub(super) cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
+    cleanup_free_replacements: std::collections::BTreeSet<BoundExpressionId>,
     pub(super) scoped_uses: std::collections::BTreeMap<BoundBlockId, BoundExpressionId>,
     pub(super) dependency_failures: DependencyFailureMode,
     pub(super) completion_semantics: Option<(
@@ -194,6 +207,7 @@ where
         checked_storage: Option<&'view StoragePlan>,
         selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
         mut cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
+        cleanup_free_replacements: std::collections::BTreeSet<BoundExpressionId>,
     ) -> Self {
         let scoped_uses: std::collections::BTreeMap<_, _> = selections
             .into_iter()
@@ -230,6 +244,7 @@ where
             checked_storage,
             selections,
             cleanup_scopes,
+            cleanup_free_replacements,
             scoped_uses,
             dependency_failures: DependencyFailureMode::PotentialExits,
             completion_semantics: None,
@@ -440,6 +455,7 @@ where
 
         if self.dependency_failures == DependencyFailureMode::PotentialExits
             && matches!(expression, BoundExpression::Assignment(_))
+            && !self.cleanup_free_replacements.contains(&id)
         {
             // Old cleanup failure is observable only after the replacement is installed.
             let continuation = self.push_block();

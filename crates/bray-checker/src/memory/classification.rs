@@ -114,6 +114,9 @@ where
         | ImplementationHook::RawDeallocate
         | ImplementationHook::Allocate
         | ImplementationHook::Deallocate
+        | ImplementationHook::RawBufferPush
+        | ImplementationHook::RawBufferPop
+        | ImplementationHook::RawBufferAllocate
         | ImplementationHook::RawBufferCapacity
         | ImplementationHook::RawBufferInitializedCount
         | ImplementationHook::RawBufferPointer
@@ -125,7 +128,6 @@ where
         | ImplementationHook::RawBufferReplace
         | ImplementationHook::RawBufferRelocate
         | ImplementationHook::ByteBufferFill
-        | ImplementationHook::ByteBufferCopy
         | ImplementationHook::ByteBufferRead => {
             classify_allocation_and_buffer_operation(hook, types)
         }
@@ -393,6 +395,9 @@ const fn memory_operation_requires_complete_pointee(hook: ImplementationHook) ->
             | ImplementationHook::RawPointerWrite
             | ImplementationHook::MemoryCopy
             | ImplementationHook::MemoryCopyOverlapping
+            | ImplementationHook::RawBufferAllocate
+            | ImplementationHook::RawBufferPush
+            | ImplementationHook::RawBufferPop
     )
 }
 
@@ -653,6 +658,17 @@ fn classify_allocation_and_buffer_operation<Upstream>(
 
             CheckedMemoryOperationKind::Deallocate
         }
+        ImplementationHook::RawBufferPush => CheckedMemoryOperationKind::RawBufferPush {
+            element: one_type_argument(types)?,
+        },
+        ImplementationHook::RawBufferPop => CheckedMemoryOperationKind::RawBufferPop {
+            element: one_type_argument(types)?,
+        },
+        ImplementationHook::RawBufferAllocate => {
+            one_type_argument(types)?;
+
+            CheckedMemoryOperationKind::RawBufferAllocate
+        }
         ImplementationHook::RawBufferCapacity => {
             one_type_argument(types)?;
 
@@ -701,11 +717,6 @@ fn classify_allocation_and_buffer_operation<Upstream>(
             ensure_no_type_arguments(types)?;
 
             CheckedMemoryOperationKind::ByteBufferFill
-        }
-        ImplementationHook::ByteBufferCopy => {
-            ensure_no_type_arguments(types)?;
-
-            CheckedMemoryOperationKind::ByteBufferCopy
         }
         ImplementationHook::ByteBufferRead => {
             ensure_no_type_arguments(types)?;
@@ -1063,6 +1074,42 @@ mod tests {
                 &diagnostics,
                 DiagnosticKind::CheckingMemoryPointeeTypeUnsupported,
             );
+        });
+    }
+
+    #[test]
+    fn raw_buffer_prefix_operations_reject_dynamically_sized_elements() {
+        with_request(|request| {
+            let element = semantic_values()
+                .intern_type(TypeData::Slice(error_type()))
+                .expect("slice element type must intern");
+
+            let expression = first_expression(request);
+            let mut read_kinds = BTreeMap::new();
+
+            for hook in [
+                ImplementationHook::RawBufferAllocate,
+                ImplementationHook::RawBufferPush,
+                ImplementationHook::RawBufferPop,
+            ] {
+                let mut diagnostics = DiagnosticBag::new();
+
+                let result = classify_operation(
+                    request,
+                    hook,
+                    &[GenericArgument::Type(element)],
+                    expression,
+                    &mut read_kinds,
+                    &mut diagnostics,
+                );
+
+                assert_eq!(result, Ok(None));
+
+                assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::CheckingMemoryPointeeTypeUnsupported,
+                );
+            }
         });
     }
 

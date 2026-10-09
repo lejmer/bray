@@ -7,25 +7,6 @@ use super::super::core::UnitTranslator;
 use super::super::support::{int_value, llvm};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
-    pub(super) fn translate_byte_buffer_copy(
-        &mut self,
-        memory: &MirMemoryOperation,
-    ) -> Result<(), CodegenFailure> {
-        let [source, destination, count] = memory.operands() else {
-            panic!("checked MIR memory translation violated an established compiler contract");
-        };
-
-        let source = self.memory_pointer(source)?;
-        let destination = self.memory_pointer(destination)?;
-        let bytes = self.pointer_sized_memory_operand(count)?;
-
-        llvm(self.builder.build_memcpy(destination, 1, source, 1, bytes))?;
-
-        self.observe_memory_copy(bytes)?;
-
-        Ok(())
-    }
-
     pub(super) fn translate_memory_copy(
         &mut self,
         destination: &bray_ir::MirOperand,

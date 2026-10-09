@@ -322,13 +322,21 @@ impl InterfaceSemantics {
             .as_ref()
             .unwrap_or(&contract.invocation_behavior);
 
+        let requirements = contract
+            .invocation_preconditions
+            .iter()
+            .filter_map(|clause| {
+                clause
+                    .predicate()
+                    .and_then(|predicate| predicate.condition())
+            })
+            .collect::<BTreeSet<_>>();
+
         for property in &*behavior.execution_properties {
-            if !contract
-                .execution_contract
-                .domains
-                .iter()
-                .any(|domain| domain.entry.is_empty() && domain.properties.contains(property))
-            {
+            if !contract.execution_contract.domains.iter().any(|domain| {
+                domain.properties.contains(property)
+                    && domain.entry.iter().all(|term| requirements.contains(term))
+            }) {
                 return Err(invalid());
             }
         }
@@ -368,6 +376,30 @@ impl InterfaceSemantics {
                 InterfaceConstantTerm::Binary { left, right, .. } => {
                     pending.extend([*left, *right])
                 }
+                InterfaceConstantTerm::Call {
+                    callable,
+                    selected_implementation: None,
+                    arguments,
+                } => {
+                    let instance = callable
+                        .to_index()
+                        .and_then(|index| self.callable_instances.get(index))
+                        .ok_or_else(invalid)?;
+
+                    let substitution = instance
+                        .substitution
+                        .to_index()
+                        .and_then(|index| self.substitutions.get(index))
+                        .ok_or_else(invalid)?;
+
+                    if !validate_symbol_kind(&instance.definition, surface)?.is_callable()
+                        || substitution.owner != instance.definition
+                    {
+                        return Err(invalid());
+                    }
+
+                    pending.extend(arguments.iter().copied());
+                }
                 InterfaceConstantTerm::PredicateCall {
                     predicate: definition,
                     substitution,
@@ -394,18 +426,24 @@ impl InterfaceSemantics {
                     pending.extend(arguments.iter().copied())
                 }
                 InterfaceConstantTerm::Projection { subject, kind } => {
-                    let (field, expected) = match kind {
+                    match kind {
                         crate::InterfaceConstantProjection::ProductField(field) => {
-                            (field, bray_symbols::SymbolKind::StructField)
+                            if validate_symbol_kind(field, surface)?
+                                != bray_symbols::SymbolKind::StructField
+                            {
+                                return Err(invalid());
+                            }
                         }
                         crate::InterfaceConstantProjection::UnionPayloadField(field) => {
-                            (field, bray_symbols::SymbolKind::UnionPayloadField)
+                            if validate_symbol_kind(field, surface)?
+                                != bray_symbols::SymbolKind::UnionPayloadField
+                            {
+                                return Err(invalid());
+                            }
                         }
+                        crate::InterfaceConstantProjection::TupleElement(_)
+                        | crate::InterfaceConstantProjection::ArrayElementOrdinal(_) => {}
                         _ => return Err(invalid()),
-                    };
-
-                    if validate_symbol_kind(field, surface)? != expected {
-                        return Err(invalid());
                     }
 
                     pending.push(*subject);

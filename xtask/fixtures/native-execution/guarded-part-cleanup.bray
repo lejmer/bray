@@ -102,7 +102,7 @@ impl PairStorage(Storage<Pair>)
 // supplies a live initialized Pair until destroy, and the borrow retains that storage's capability.
 trusted func initialized_pair(pos storage: &mut PairStorage) -> &mut Uninit<Pair>
     executes(pure, total)
-    ensures(trusted core.memory.uninit_initialized<Pair>(storage = result))
+    ensures(trusted core.memory.uninit_initialized<Pair>(storage = &result))
 {
     return &mut storage.value;
 }

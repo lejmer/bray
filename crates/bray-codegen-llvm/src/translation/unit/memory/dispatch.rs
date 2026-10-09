@@ -79,6 +79,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 Ok(None)
             }
+            CheckedMemoryOperationKind::RawBufferPush { element } => self
+                .translate_raw_buffer_push(memory, element)
+                .map(|()| None),
+            CheckedMemoryOperationKind::RawBufferPop { element } => {
+                self.translate_raw_buffer_pop(memory, element).map(Some)
+            }
+            CheckedMemoryOperationKind::RawBufferAllocate => self
+                .translate_raw_buffer_allocation(id, operation, memory)
+                .map(Some),
             CheckedMemoryOperationKind::RawBufferCapacity => {
                 self.translate_raw_buffer_field(memory, 1).map(Some)
             }
@@ -129,11 +138,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             CheckedMemoryOperationKind::ByteBufferFill => {
                 self.translate_byte_buffer_fill(memory)?;
-
-                Ok(None)
-            }
-            CheckedMemoryOperationKind::ByteBufferCopy => {
-                self.translate_byte_buffer_copy(memory)?;
 
                 Ok(None)
             }
@@ -420,6 +424,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             CheckedMemoryOperationKind::RawAllocate
             | CheckedMemoryOperationKind::RawDeallocate
+            | CheckedMemoryOperationKind::RawBufferPush { .. }
+            | CheckedMemoryOperationKind::RawBufferPop { .. }
+            | CheckedMemoryOperationKind::RawBufferAllocate
             | CheckedMemoryOperationKind::Allocate
             | CheckedMemoryOperationKind::Deallocate
             | CheckedMemoryOperationKind::RawBufferCapacity
@@ -637,6 +644,9 @@ mod tests {
         );
 
         for spelling in [
+            "memory.buffer.owner",
+            "memory.buffer.appended",
+            "memory.buffer.removed",
             "llvm.memcpy",
             "llvm.memmove",
             "load volatile",
@@ -986,6 +996,8 @@ mod tests {
             .push_block(source.clone(), MirBlockKind::Ordinary)
             .unwrap_or_else(|error| panic!("memory test block must be valid: {error:?}"));
 
+        let root = entry;
+
         let storage = builder
             .push_storage(source.clone(), MirStorageKind::Local, types.value)
             .unwrap_or_else(|error| panic!("memory test storage must be valid: {error:?}"));
@@ -1056,6 +1068,8 @@ mod tests {
         )
         .result()
         .unwrap_or_else(|| panic!("raw memory allocation must produce a value"));
+
+        let entry = checked_memory_continuation(&mut builder, entry, &source, types);
 
         push_memory(
             &mut builder,
@@ -1349,6 +1363,8 @@ mod tests {
         .result()
         .unwrap_or_else(|| panic!("memory allocation operation must produce a value"));
 
+        let entry = checked_memory_continuation(&mut builder, entry, &source, types);
+
         push_memory(
             &mut builder,
             entry,
@@ -1371,7 +1387,7 @@ mod tests {
 
         builder.set_terminator(completed, source.clone(), MirTerminatorKind::Return(None));
 
-        let mir = builder.finish(entry);
+        let mir = builder.finish(root);
 
         let allocation = helper_instance_key(172, 1, mir.target());
         let deallocation = helper_instance_key(173, 2, mir.target());
@@ -1404,7 +1420,7 @@ mod tests {
             &allocation,
             &deallocation,
             &cleanup,
-            false,
+            true,
         );
 
         codegen_request_for_unit(unit, target, mappings, backend.identity().clone())
@@ -1614,6 +1630,22 @@ mod tests {
         null: MirValueId,
         size: MirValueId,
     ) -> bray_ir::MirBlockId {
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::RawBufferAllocate,
+            [
+                MirOperand::Value(size),
+                MirOperand::Value(size),
+                MirOperand::Value(size),
+            ],
+            [types.usize, types.usize, types.usize],
+            Some(types.raw_buffer),
+        );
+
+        let block = checked_memory_continuation(builder, block, source, types);
+
         let buffer = push_borrowed_storage(builder, block, source, types);
         let source_buffer = push_borrowed_storage(builder, block, source, types);
 
@@ -1704,6 +1736,45 @@ mod tests {
             Some(types.pointer),
         );
 
+        let value = push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::Read {
+                pointee: types.value,
+                kind: MemoryReadKind::Copy,
+            },
+            [MirOperand::Value(address)],
+            [types.pointer],
+            Some(types.value),
+        )
+        .result()
+        .expect("buffer append fixture retains its typed value");
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::RawBufferPush {
+                element: types.value,
+            },
+            [MirOperand::Value(buffer), MirOperand::Value(value)],
+            [types.raw_buffer_borrow, types.value],
+            None,
+        );
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::RawBufferPop {
+                element: types.value,
+            },
+            [MirOperand::Value(buffer)],
+            [types.raw_buffer_borrow],
+            Some(types.value),
+        );
+
         push_memory(
             builder,
             block,
@@ -1763,32 +1834,6 @@ mod tests {
         );
 
         let block = checked_memory_continuation(builder, block, source, types);
-
-        let source_pointer = push_memory(
-            builder,
-            block,
-            source,
-            CheckedMemoryOperationKind::RawBufferPointer,
-            [MirOperand::Value(buffer)],
-            [types.raw_buffer_borrow],
-            Some(types.pointer),
-        )
-        .result()
-        .unwrap_or_else(|| panic!("raw buffer pointer must produce a value"));
-
-        push_memory(
-            builder,
-            block,
-            source,
-            CheckedMemoryOperationKind::ByteBufferCopy,
-            [
-                MirOperand::Value(source_pointer),
-                MirOperand::Value(null),
-                MirOperand::Value(size),
-            ],
-            [types.pointer, types.pointer, types.usize],
-            None,
-        );
 
         push_memory(
             builder,

@@ -138,7 +138,6 @@ where
     let refinements = complete!(
         diagnostics,
         check_refinements_with_graph(request, patterns, expressions.selections(), storage, graph)
-            .with_upstream()
     );
 
     let trusted = complete!(

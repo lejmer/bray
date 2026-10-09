@@ -1,7 +1,7 @@
 use crate::{CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{
-    BoundExecutionSite, CheckedSemanticSelections, SemanticSelection, StorageAccessId,
-    StorageAccessPurpose, StoragePlan, StorageRelationship,
+    BoundExecutionSite, CheckedSemanticSelections, SelectedCall, SemanticSelection,
+    StorageAccessId, StorageAccessPurpose, StoragePlan, StorageRelationship,
 };
 use bray_symbols::{ExecutionProperty, TypeData};
 use std::collections::{BTreeMap, BTreeSet};
@@ -89,14 +89,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
             continue;
         };
 
-        if call
-            .phase_behaviors()
-            .invocation()
-            .execution_properties()
-            .contains(&ExecutionProperty::Pure)
-            || call.implementation_hook()
-                == Some(bray_compiler_known::ImplementationHook::RawPointerReinterpret)
-        {
+        if call_preserves_storage(call, copied_types) {
             continue;
         }
 
@@ -137,6 +130,52 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
     }
 
     accesses
+}
+
+pub(in crate::analysis) fn call_preserves_storage(
+    call: &SelectedCall,
+    copied_types: &BTreeSet<bray_symbols::TypeId>,
+) -> bool {
+    call.phase_behaviors()
+        .invocation()
+        .execution_properties()
+        .contains(&ExecutionProperty::Pure)
+        || (call.implementation_hook()
+            == Some(bray_compiler_known::ImplementationHook::RawPointerRead)
+            && copied_types.contains(&call.resolution().result().ty()))
+        || matches!(
+            call.implementation_hook(),
+            Some(
+                bray_compiler_known::ImplementationHook::SequenceLength
+                    // Fresh allocation cannot reach or retire existing input storage.
+                    | bray_compiler_known::ImplementationHook::RawAllocate
+                    | bray_compiler_known::ImplementationHook::Allocate
+                    | bray_compiler_known::ImplementationHook::RawBufferAllocate
+                    | bray_compiler_known::ImplementationHook::SequenceIsEmpty
+                    // Pointer arithmetic, layout queries and scalar conversion do not access storage.
+                    | bray_compiler_known::ImplementationHook::RawPointerNull
+                    | bray_compiler_known::ImplementationHook::RawPointerIsNull
+                    | bray_compiler_known::ImplementationHook::RawPointerOffset
+                    | bray_compiler_known::ImplementationHook::RawPointerByteOffset
+                    | bray_compiler_known::ImplementationHook::MemorySizeOf
+                    | bray_compiler_known::ImplementationHook::MemoryAlignOf
+                    | bray_compiler_known::ImplementationHook::MemoryStrideOf
+                    | bray_compiler_known::ImplementationHook::MemoryLayoutOf
+                    | bray_compiler_known::ImplementationHook::MemoryTrailingLayoutOf
+                    | bray_compiler_known::ImplementationHook::NumericTruncate
+                    | bray_compiler_known::ImplementationHook::RawPointerReinterpret
+                    | bray_compiler_known::ImplementationHook::AtomicLoad
+                    | bray_compiler_known::ImplementationHook::ByteBufferRead
+                    | bray_compiler_known::ImplementationHook::AddressOf
+                    | bray_compiler_known::ImplementationHook::AddressOfMut
+                    | bray_compiler_known::ImplementationHook::RawBufferCapacity
+                    | bray_compiler_known::ImplementationHook::RawBufferInitializedCount
+                    | bray_compiler_known::ImplementationHook::RawBufferPointer
+                    | bray_compiler_known::ImplementationHook::RawBufferInitializedSlice
+                    | bray_compiler_known::ImplementationHook::RawBufferInitializedSliceMut
+                    | bray_compiler_known::ImplementationHook::RawBufferSparePointer
+            )
+        )
 }
 
 const fn access_invalidates_refinements(purpose: StorageAccessPurpose) -> bool {

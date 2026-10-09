@@ -52,9 +52,27 @@ impl ExecutionPlace {
     ) -> Option<Self> {
         let identity = storage.root_identity(access)?;
 
-        let root = storage
-            .binding_targets(bray_bound_tree::StorageBinding::Identity(identity))
-            .find_map(storage_binding_reference)?;
+        Self::storage_identity(storage, identity)
+    }
+
+    pub(crate) fn storage_identity(
+        storage: &bray_bound_tree::StoragePlan,
+        identity: bray_bound_tree::StorageIdentityId,
+    ) -> Option<Self> {
+        let root = match storage.identity(identity)? {
+            bray_bound_tree::StorageIdentity::Parameter(parameter) => {
+                BoundReferenceTarget::Surface(parameter.into())
+            }
+            bray_bound_tree::StorageIdentity::Receiver(receiver) => {
+                BoundReferenceTarget::Surface(receiver.into())
+            }
+            bray_bound_tree::StorageIdentity::AnonymousParameter(parameter) => {
+                BoundReferenceTarget::Local(parameter.into())
+            }
+            _ => storage
+                .binding_targets(bray_bound_tree::StorageBinding::Identity(identity))
+                .find_map(storage_binding_reference)?,
+        };
 
         Some(Self::from(root))
     }
@@ -156,6 +174,28 @@ impl ExecutionPlace {
 
     pub(crate) fn contains(&self, other: &Self) -> bool {
         self.root == other.root && other.projections.starts_with(&self.projections)
+    }
+
+    pub(crate) fn overlaps_any(&self, places: &std::collections::BTreeSet<Self>) -> bool {
+        if places
+            .range(self.clone()..)
+            .next()
+            .is_some_and(|place| self.contains(place))
+        {
+            return true;
+        }
+
+        self.is_contained_by_any(places)
+    }
+
+    pub(crate) fn is_contained_by_any(&self, places: &std::collections::BTreeSet<Self>) -> bool {
+        (0..=self.projections.len()).any(|length| {
+            let mut prefix = self.clone();
+
+            prefix.projections = self.projections[..length].into();
+
+            places.contains(&prefix)
+        })
     }
 
     pub(crate) fn overlaps(&self, other: &Self) -> bool {

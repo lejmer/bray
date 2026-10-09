@@ -6,20 +6,13 @@ using std.memory;
 using std.path;
 
 @copy
-@layout(c)
-internal struct PlatformNativeText
-{
-    address: RawPointer<u8>;
-    length: u64;
-}
-
-@copy
-@layout(c)
 internal struct PlatformEnvironmentEntry
 {
-    key: PlatformNativeText;
-    value: PlatformNativeText;
+    key: &[u8];
+    value: &[u8];
 }
+
+internal static EMPTY_NATIVE_TEXT: [u8; 0] = b"";
 
 @copy
 @layout(c)
@@ -30,29 +23,19 @@ internal struct PlatformExitStatus
     payload: i64;
 }
 
-internal func path_span(pos path: &std.path.Path) -> PlatformNativeText
+internal func path_span(pos path: &std.path.Path) -> &[u8]
 {
-    return native_text_span(path.to_native());
+    return native_text_bytes(path.to_native());
 }
 
-internal func native_text_span(pos value: &std.path.NativeText) -> PlatformNativeText
+internal func native_text_bytes(pos value: &std.path.NativeText) -> &[u8]
 {
-    let bytes: &[u8] = internal std.path.native_bytes(value);
-
-    return
-    {
-        address = internal std.memory.byte_slice_pointer(bytes),
-        length = bytes.length() as u64,
-    };
+    return internal std.path.native_bytes(value);
 }
 
-internal func empty_span() -> PlatformNativeText
+internal func empty_span() -> &[u8]
 {
-    return
-    {
-        address = std.memory.null<u8>(),
-        length = 0,
-    };
+    return &EMPTY_NATIVE_TEXT[..];
 }
 
 internal func stream_policy_value(policy: ChildStreamPolicy) -> u32

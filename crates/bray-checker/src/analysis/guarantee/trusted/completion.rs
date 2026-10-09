@@ -89,27 +89,45 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let values = expired
             .iter()
-            .filter_map(|place| place.value_in(&state.current))
+            .filter(|(_, identity)| {
+                // Ending a borrow binding does not destroy the reached storage. The
+                // retained physical owner below still retires every dependent view.
+                !self.storage.identity_type(*identity).is_some_and(|ty| {
+                    matches!(
+                        self.request.semantic_values().type_data(ty).as_ref(),
+                        bray_symbols::TypeData::Borrow { .. }
+                    )
+                })
+            })
+            .filter_map(|(place, _)| place.value_in(&state.current))
             .collect::<Vec<_>>();
 
-        for place in expired {
-            state.invalidate_trusted_place(place);
-        }
+        let expired_roots = expired
+            .iter()
+            .map(|(place, _)| place.root)
+            .collect::<BTreeSet<_>>();
+
+        state.invalidate_trusted_roots(&expired_roots);
 
         state
             .current
-            .retain(|place, _| !expired.iter().any(|expired| expired.contains(place)));
+            .retain(|place, _| !expired_roots.contains(&place.root));
+
+        // Index retained owners once instead of scanning all live aggregates for
+        // every expired value and each of its owned components.
+        let retained = std::iter::once(&state.result)
+            .chain(state.current.values())
+            .chain(state.pending_results.values())
+            .flat_map(ExecutionCondition::owned_values)
+            .cloned()
+            .collect::<BTreeSet<_>>();
 
         let mut pending = values;
+        let mut visited = BTreeSet::new();
+        let mut retired = Vec::new();
 
         while let Some(value) = pending.pop() {
-            if state.result.contains_value(&value)
-                || state
-                    .current
-                    .values()
-                    .chain(state.pending_results.values())
-                    .any(|live| live.contains_value(&value))
-            {
+            if retained.contains(&value) || !visited.insert(value.clone()) {
                 continue;
             }
 
@@ -119,8 +137,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            state.invalidate_trusted(&value);
+            retired.push(value);
         }
+
+        state.invalidate_trusted_values(retired);
     }
 
     pub(in crate::analysis::guarantee) fn complete_trusted_await(
@@ -190,7 +210,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         // A resumed body can have executed opaque code and changed owner epochs.
-        state.invalidate_cleanup();
+        state.invalidate_cleanup(None);
 
         for (source, expression) in completions {
             self.complete_trusted_call(
@@ -206,10 +226,57 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         expression: BoundExpressionId,
         call: &bray_bound_tree::SelectedCall,
+        preserves_inputs: bool,
         arguments: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     ) -> (Vec<ExecutionCondition>, BTreeSet<crate::ExecutionPlace>) {
         let mut carriers = Vec::new();
         let mut owners = BTreeSet::new();
+        let mut replacements = BTreeMap::new();
+        let mut assignments = BTreeMap::new();
+
+        let preserves = preserves_inputs
+            || super::super::super::storage_invalidation::call_preserves_storage(
+                call,
+                &self.copied_types,
+            );
+
+        let mut complete_input =
+            |input: ExecutionCondition, place: &crate::ExecutionPlace, reference| {
+                if preserves {
+                    input
+                } else {
+                    let post = ExecutionCondition::PostState(expression, reference);
+
+                    // The promise describes the same borrowed storage after the call. Keep
+                    // the borrow around the new referent, including through local aliases.
+                    match input {
+                        ExecutionCondition::Borrowed(referent) => {
+                            let post = replacements
+                                .entry(referent.as_ref().clone())
+                                .or_insert(post);
+
+                            if let ExecutionCondition::Input(place) = referent.as_ref() {
+                                assignments.insert(place.clone(), post.clone());
+                            }
+
+                            post.clone().borrowed()
+                        }
+                        ExecutionCondition::Unknown => ExecutionCondition::Unknown,
+                        input => {
+                            let place = match &input {
+                                ExecutionCondition::Input(place) => place.clone(),
+                                _ => place.clone(),
+                            };
+
+                            let post = replacements.entry(input).or_insert(post).clone();
+
+                            assignments.insert(place, post.clone());
+
+                            post
+                        }
+                    }
+                }
+            };
 
         for argument in call.arguments() {
             let bray_bound_tree::SelectedArgument::Explicit {
@@ -257,19 +324,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .or_else(|| place.reference())
                 .expect("borrowed call input retains its binding identity");
 
-            owners.insert(place.clone());
+            let input = self.value(state, *operand);
 
-            let preserves = trusted_call_preserves_inputs(call);
+            // A local borrow alias retains the referent, rather than the slot holding
+            // the alias. Its returned view can outlive that slot while the input lives.
+            self.retain_trusted_borrow_owners(&mut owners, *operand, &input, &place);
 
-            let value = if preserves {
-                self.value(state, *operand)
-            } else {
-                ExecutionCondition::PostState(expression, reference)
-            };
-
-            if !preserves {
-                state.assign(place, value.clone());
-            }
+            let value = complete_input(input, &place, reference);
 
             carriers.push(value.clone());
 
@@ -305,19 +366,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let reference =
                 bray_bound_tree::BoundReferenceTarget::Surface(receiver.parameter().into());
 
-            owners.insert(place.clone());
+            let input = self.value(state, receiver.expression());
 
-            let preserves = trusted_call_preserves_inputs(call);
+            self.retain_trusted_borrow_owners(&mut owners, receiver.expression(), &input, &place);
 
-            let value = if preserves {
-                self.value(state, receiver.expression())
-            } else {
-                ExecutionCondition::PostState(expression, reference)
-            };
-
-            if !preserves {
-                state.assign(place, value.clone());
-            }
+            let value = complete_input(input, &place, reference);
 
             carriers.push(value.clone());
             arguments.insert(reference.into(), value.clone());
@@ -328,7 +381,74 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             );
         }
 
+        // Update reached owners and aliases together in one pass. Entry evidence and
+        // old facts stay immutable; only the declared completion promises restore authority.
+        if !replacements.is_empty() {
+            for value in state.current.values_mut() {
+                *value = value.with_joined_values(&replacements);
+            }
+        }
+
+        // Parameters initially have implicit Input values. Materialize their new
+        // state and retire stale field snapshots beneath each updated place.
+        if !assignments.is_empty() {
+            let changed = assignments.keys().cloned().collect::<BTreeSet<_>>();
+
+            state.current.retain(|place, _| {
+                !(0..=place.projections.len()).any(|length| {
+                    let mut prefix = place.clone();
+
+                    prefix.projections = place.projections[..length].into();
+
+                    changed.contains(&prefix)
+                })
+            });
+
+            state.current.extend(assignments);
+        }
+
         (carriers, owners)
+    }
+
+    fn retain_trusted_borrow_owners(
+        &self,
+        owners: &mut BTreeSet<crate::ExecutionPlace>,
+        expression: BoundExpressionId,
+        input: &ExecutionCondition,
+        place: &crate::ExecutionPlace,
+    ) {
+        // Retained borrow aliases name local slots, but their capabilities reach the
+        // original storage. Use the same resolved roots as ordinary borrow checking.
+        let mut retained = false;
+
+        let borrowed = self.storage.expression_plans(expression).any(|plan| {
+            matches!(
+                plan.purpose(),
+                bray_bound_tree::StorageAccessPurpose::Borrow(_)
+            )
+        });
+
+        for plan in self.storage.expression_plans(expression).filter(|plan| {
+            !borrowed
+                || matches!(
+                    plan.purpose(),
+                    bray_bound_tree::StorageAccessPurpose::Borrow(_)
+                )
+        }) {
+            for root in self.storage.retained_roots(plan.access()) {
+                if let Some(owner) = crate::ExecutionPlace::storage_identity(self.storage, root) {
+                    owners.insert(owner);
+                    retained = true;
+                }
+            }
+        }
+
+        if !retained {
+            owners.insert(match input {
+                ExecutionCondition::Input(owner) => owner.clone(),
+                _ => place.clone(),
+            });
+        }
     }
 
     pub(in crate::analysis::guarantee) fn complete_trusted_call(
@@ -400,6 +520,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut arguments = entry.arguments;
 
+        state.invalidate_trusted_values(contract.transferred_inputs.iter().map(|input| {
+            // The transferred owner values retain their immutable entry observations.
+            arguments
+                .get(&crate::ExecutionPlace::from(*input))
+                .expect("selected storage formation retains its transferred input")
+                .clone()
+        }));
+
         let (carriers, owners) = if !contract.guarantees.is_empty()
             && let bray_bound_tree::BoundExecutionSite::Node(
                 bray_bound_tree::AnyBoundNodeId::Expression(expression),
@@ -407,7 +535,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             && let Some(bray_bound_tree::SemanticSelection::Call(call)) =
                 self.semantics.selections().expression(expression)
         {
-            self.prepare_trusted_borrows(state, expression, call, &mut arguments)
+            // The entry above already proves the valid domain of this preservation promise.
+            self.prepare_trusted_borrows(
+                state,
+                expression,
+                call,
+                contract.preserves_inputs,
+                &mut arguments,
+            )
         } else {
             Default::default()
         };
@@ -457,7 +592,35 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         for guarantee in &guarantees {
-            instantiate(guarantee).assume(true, &mut state.trusted_assumptions);
+            let guarantee = instantiate(guarantee);
+
+            if contract.result_is_witness {
+                let mut pending = vec![&guarantee];
+
+                while let Some(condition) = pending.pop() {
+                    match condition {
+                        ExecutionCondition::Trusted(condition) => pending.push(condition),
+                        ExecutionCondition::Operation(_, operands) => {
+                            pending.extend(operands.iter())
+                        }
+                        ExecutionCondition::Predicate(predicate, _, _)
+                            if Some(*predicate) == self.owned_allocation
+                                && (condition.observes(&result)
+                                    || !contract.transferred_inputs.is_empty()) =>
+                        {
+                            // The allocation condition follows the complete linear value, not copies of its fields.
+                            state
+                                .allocation_owners
+                                .insert(condition.clone(), result.clone());
+
+                            state.witness_carriers.insert(result.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            guarantee.assume(true, &mut state.trusted_assumptions);
         }
 
         if !contract.guarantees.is_empty() && !owners.is_empty() {
@@ -481,22 +644,4 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             state.expressions.insert(expression, result);
         }
     }
-}
-
-fn trusted_call_preserves_inputs(call: &bray_bound_tree::SelectedCall) -> bool {
-    call.phase_behaviors()
-        .invocation()
-        .execution_properties()
-        .contains(&bray_symbols::ExecutionProperty::Pure)
-        || matches!(
-            call.implementation_hook(),
-            Some(
-                bray_compiler_known::ImplementationHook::AddressOf
-                    | bray_compiler_known::ImplementationHook::AddressOfMut
-                    | bray_compiler_known::ImplementationHook::RawBufferCapacity
-                    | bray_compiler_known::ImplementationHook::RawBufferInitializedCount
-                    | bray_compiler_known::ImplementationHook::RawBufferPointer
-                    | bray_compiler_known::ImplementationHook::RawBufferSparePointer
-            )
-        )
 }

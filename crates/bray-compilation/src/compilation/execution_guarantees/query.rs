@@ -104,11 +104,19 @@ impl Compilation {
                 let semantic_context =
                     semantic_unit_context(context.symbols(), bound.result().value());
 
+                let trusted = self.trusted_contract_inputs(
+                    &key,
+                    bound.result().value(),
+                    expressions.result().value(),
+                    cancellation,
+                )?;
+
                 let unit = bray_checker::CheckerUnitView::new(
                     bound.result().value(),
                     &semantic_context,
                     &context,
-                );
+                )
+                .with_trusted_contracts(trusted.value());
 
                 let mut diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),
@@ -117,6 +125,7 @@ impl Compilation {
                     body.result().diagnostics(),
                     memory.result().diagnostics(),
                     flow.result().diagnostics(),
+                    trusted.diagnostics(),
                 ]);
 
                 let declaration = self.execution_declaration(key.source().syntax())?;
@@ -273,43 +282,56 @@ mod tests {
 
     #[test]
     fn certified_dependencies_preserve_selected_generic_arguments() {
-        let compilation = compilation(
-            r#"
-            module app;
-            func helper<T>() -> bool executes(total) { return true; }
-            func root() -> bool executes(total) { return helper<bool>(); }
-        "#,
-        );
+        for required in ["bool", "u32"] {
+            let compilation = compilation(&format!(
+                r#"
+            trusted module app;
+            trusted predicate ready<T>();
+            trusted func helper<T>() -> bool requires(trusted ready<T>()) executes(total) {{ return true; }}
+            trusted func root() -> bool requires(trusted ready<{required}>()) executes(total) {{ return trusted helper<bool>(); }}
+        "#
+            ));
 
-        assert!(
-            compilation.check_diagnostics().is_empty(),
-            "{:?}",
-            compilation.check_diagnostics()
-        );
+            if required != "bool" {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    compilation.check_diagnostics(),
+                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
 
-        let proof = compilation
-            .execution_properties(source_function_body_key(&compilation, "root"))
-            .unwrap();
+                continue;
+            }
 
-        let values = compilation.semantic_value_store().unwrap();
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{:?}",
+                compilation.check_diagnostics()
+            );
 
-        assert!(
-            proof
-                .value()
-                .dependencies
-                .iter()
-                .any(|(_, _, target, obligation)| {
-                    let bray_bound_tree::BoundCallableTarget::Declaration(instance) = target else {
-                        return false;
-                    };
-                    *obligation == bray_checker::ExecutionObligation::Property(Total, None)
-                        && values
-                            .generic_substitution_data(instance.substitution())
-                            .bindings()
-                            .len()
-                            == 1
-                })
-        );
+            let proof = compilation
+                .execution_properties(source_function_body_key(&compilation, "root"))
+                .unwrap();
+
+            let values = compilation.semantic_value_store().unwrap();
+
+            assert!(
+                proof
+                    .value()
+                    .dependencies
+                    .iter()
+                    .any(|(_, _, target, obligation)| {
+                        let bray_bound_tree::BoundCallableTarget::Declaration(instance) = target
+                        else {
+                            return false;
+                        };
+                        *obligation == bray_checker::ExecutionObligation::Property(Total, None)
+                            && values
+                                .generic_substitution_data(instance.substitution())
+                                .bindings()
+                                .len()
+                                == 1
+                    })
+            );
+        }
     }
 
     #[test]
@@ -793,24 +815,29 @@ mod tests {
 
     #[test]
     fn opaque_foreign_assertions_retain_their_provenance() {
-        let options = crate::CompilationOptions::new(
-            crate::WorkerBudget::serial(),
-            bray_symbols::ProductKind::Library,
-            crate::SelectedTarget::baseline(),
-        )
-        .with_native_link_inputs([bray_symbols::NativeLinkRequirement::new(
-            bray_base::NonEmptySharedStr::try_new("c").unwrap(),
-            bray_symbols::NativeLinkKind::Dynamic,
-        )]);
+        for (requirement, argument, valid) in [
+            ("", "0", true),
+            ("requires(value > 0)", "1", true),
+            ("requires(value > 0)", "0", false),
+        ] {
+            let options = crate::CompilationOptions::new(
+                crate::WorkerBudget::serial(),
+                bray_symbols::ProductKind::Library,
+                crate::SelectedTarget::baseline(),
+            )
+            .with_native_link_inputs([bray_symbols::NativeLinkRequirement::new(
+                bray_base::NonEmptySharedStr::try_new("c").unwrap(),
+                bray_symbols::NativeLinkKind::Dynamic,
+            )]);
 
-        let compilation = crate::test_support::compilation_with_options(
-            r#"
+            let source = r#"
                 trusted module app;
 
                 @link(name = "c")
                 @symbol(name = "native_value")
                 @abi(c)
-                extern trusted func native_value() -> i32
+                extern trusted func native_value(pos value: i32) -> i32
+                    REQUIREMENT
                     uses(foreign_call)
                     executes(total);
 
@@ -818,28 +845,36 @@ mod tests {
                     uses(foreign_call)
                     executes(total)
                 {
-                    return native_value();
+                    return native_value(ARGUMENT);
                 }
-            "#,
-            options,
-        );
+            "#
+            .replace("REQUIREMENT", requirement)
+            .replace("ARGUMENT", argument);
 
-        assert!(
-            compilation.check_diagnostics().is_empty(),
-            "{:?}",
-            compilation.check_diagnostics()
-        );
+            let compilation = crate::test_support::compilation_with_options(&source, options);
 
-        let evidence = compilation
-            .execution_properties(source_function_body_key(&compilation, "wrapper"))
-            .unwrap();
+            assert_eq!(
+                !compilation.check_diagnostics().has_errors(),
+                valid,
+                "{:?}",
+                compilation.check_diagnostics()
+            );
 
-        assert_eq!(
-            evidence.value().properties,
-            std::collections::BTreeSet::from([Total])
-        );
+            if !valid {
+                continue;
+            }
 
-        assert_eq!(evidence.value().foreign_assertions.len(), 1);
+            let evidence = compilation
+                .execution_properties(source_function_body_key(&compilation, "wrapper"))
+                .unwrap();
+
+            assert_eq!(
+                evidence.value().properties,
+                std::collections::BTreeSet::from([Total])
+            );
+
+            assert_eq!(evidence.value().foreign_assertions.len(), 1);
+        }
     }
 
     #[test]

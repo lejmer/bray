@@ -9,7 +9,7 @@ use bray_bound_tree::{
 use bray_symbols::{
     AnyLocalSymbolId, CallableSymbolId, DependencyContractTemplateData,
     DependencyContractTemplateId, DependencyRequirement, DependencyRequirementKind,
-    DependencySubject, LocalBindingSymbolId,
+    DependencySubject, DependencySubjectRoot, LocalBindingSymbolId, StaticSymbolId,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -22,6 +22,7 @@ pub fn infer_result_dependencies<C>(
     patterns: &CheckedPatterns,
     callees: &BTreeMap<CallableSymbolId, DependencyContractTemplateId>,
     recursive_callees: &BTreeSet<CallableSymbolId>,
+    static_roots: &BTreeMap<StaticSymbolId, DependencySubjectRoot>,
 ) -> Result<DependencyContractTemplateId, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
@@ -45,12 +46,14 @@ where
         patterns,
         callees,
         recursive_callees,
+        static_roots,
         include_evaluation_storage: false,
         call_definitions: BTreeMap::new(),
         // Nodes own snapshots so fixed-point propagation can extend destinations independently.
         values: BTreeMap::new(),
         locals: BTreeMap::new(),
         local_sources: BTreeMap::new(),
+        borrowed_bindings: BTreeMap::new(),
         sources: BTreeMap::new(),
         inputs: crate::dependency::ValueInputs::prepare(
             request,
@@ -235,12 +238,14 @@ pub(super) struct ResultInference<'a, C: CheckerRequestContext + ?Sized> {
     pub(super) patterns: &'a CheckedPatterns,
     pub(super) callees: &'a BTreeMap<CallableSymbolId, DependencyContractTemplateId>,
     pub(super) recursive_callees: &'a BTreeSet<CallableSymbolId>,
+    pub(super) static_roots: &'a BTreeMap<StaticSymbolId, DependencySubjectRoot>,
     pub(super) include_evaluation_storage: bool,
     call_definitions: BTreeMap<u32, BTreeSet<DependencyRequirement>>,
     pub(super) values: BTreeMap<BoundExpressionId, BTreeSet<DependencyRequirement>>,
     pub(super) locals: BTreeMap<LocalBindingSymbolId, BTreeSet<DependencyRequirement>>,
-    pub(super) local_sources: BTreeMap<LocalBindingSymbolId, BTreeSet<DependencySubject>>,
-    pub(super) sources: BTreeMap<BoundExpressionId, BTreeSet<DependencySubject>>,
+    pub(super) local_sources: BTreeMap<LocalBindingSymbolId, BTreeSet<super::sources::SourcePath>>,
+    pub(super) borrowed_bindings: BTreeMap<LocalBindingSymbolId, BoundExpressionId>,
+    pub(super) sources: BTreeMap<BoundExpressionId, BTreeSet<super::sources::SourcePath>>,
     pub(super) inputs: crate::dependency::ValueInputs,
 }
 
@@ -267,7 +272,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                         .into_iter()
                         .map(|subject| {
                             DependencyRequirement::direct(
-                                subject,
+                                super::sources::source_subject(&subject, []),
                                 DependencyRequirementKind::ValueDependencies,
                             )
                         })
@@ -337,14 +342,22 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                         && sources.is_empty()
                         && self.borrows_evaluation_storage(operand)
                     {
-                        sources.insert(DependencySubject::root(
-                            bray_symbols::DependencySubjectRoot::EvaluationStorage,
+                        sources.insert((
+                            DependencySubject::root(
+                                bray_symbols::DependencySubjectRoot::EvaluationStorage,
+                            ),
+                            true,
                         ));
                     }
 
                     sources
                         .into_iter()
-                        .map(|source| DependencyRequirement::direct(source, kind))
+                        .map(|source| {
+                            DependencyRequirement::direct(
+                                super::sources::source_subject(&source, []),
+                                kind,
+                            )
+                        })
                         .collect()
                 }
                 _ => self
@@ -381,7 +394,10 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         Ok(sources
             .into_iter()
             .map(|subject| {
-                DependencyRequirement::direct(subject, DependencyRequirementKind::ValueDependencies)
+                DependencyRequirement::direct(
+                    super::sources::source_subject(&subject, []),
+                    DependencyRequirementKind::ValueDependencies,
+                )
             })
             .collect())
     }

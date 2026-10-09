@@ -28,9 +28,18 @@ struct Directory
             case Error(_) { return Error(internal std.io.buffer_allocation_error()); }
         };
 
-        let state_pointer: RawPointer<u8> = trusted std.memory.reinterpret<u8, u64>(std.memory.pointer<u64>(&state));
+        let mut initialized: usize = 0;
 
-        let handle: u64 = try trusted platform_directory_open(platform_path(path), state = state_pointer);
+        while initialized < capacity
+        {
+            trusted internal std.memory.initialize_spare<u64>(&mut state, 0);
+            initialized += 1;
+        }
+
+        let handle: u64 = try trusted platform_directory_open(
+            platform_path(path),
+            state = trusted std.memory.initialized_slice_mut<u64>(&mut state),
+        );
 
         return Ok(
             {
@@ -66,8 +75,8 @@ struct Directory
 
         return trusted platform_directory_next(
             handle = self.handle,
-            state = trusted std.memory.reinterpret<u8, u64>(std.memory.pointer<u64>(&self.state)),
-            first = std.memory.address_of_mut<u8>(&mut self.first),
+            state = trusted std.memory.initialized_slice_mut<u64>(&mut self.state),
+            first = &mut self.first,
         );
     }
 

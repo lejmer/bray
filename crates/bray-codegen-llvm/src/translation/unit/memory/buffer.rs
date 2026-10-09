@@ -11,6 +11,84 @@ use super::super::support::{extract_value, llvm, next_helper};
 use super::support::LoadedMemoryAggregate;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
+    pub(super) fn translate_raw_buffer_push(
+        &mut self,
+        memory: &MirMemoryOperation,
+        element: bray_symbols::TypeId,
+    ) -> Result<(), CodegenFailure> {
+        let [buffer, value] = memory.operands() else {
+            panic!("checked raw buffer append retains its owner and value");
+        };
+
+        let (buffer, llvm_type, owner, fields) =
+            self.load_raw_buffer(buffer, memory.operand_types()[0])?;
+
+        let pointer = self.memory_aggregate_pointer(owner, &fields, 0)?;
+        let initialized = self.memory_aggregate_integer(owner, &fields, 2)?;
+
+        let pointer =
+            self.dynamic_offset_pointer(pointer, initialized, self.memory_layout(element).size())?;
+
+        let value = self.operand(value)?;
+
+        llvm(self.builder.build_store(pointer, value))?;
+
+        let initialized = llvm(self.builder.build_int_add(
+            initialized,
+            self.pointer_integer_type().const_int(1, false),
+            "memory.buffer.appended",
+        ))?;
+
+        self.store_raw_buffer_initialized_count(
+            buffer,
+            llvm_type,
+            &fields,
+            initialized.into(),
+            "memory.buffer.initialized",
+        )
+    }
+
+    pub(super) fn translate_raw_buffer_pop(
+        &mut self,
+        memory: &MirMemoryOperation,
+        element: bray_symbols::TypeId,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let [buffer] = memory.operands() else {
+            panic!("checked raw buffer removal retains its owner");
+        };
+
+        let (buffer, llvm_type, owner, fields) =
+            self.load_raw_buffer(buffer, memory.operand_types()[0])?;
+
+        let pointer = self.memory_aggregate_pointer(owner, &fields, 0)?;
+        let initialized = self.memory_aggregate_integer(owner, &fields, 2)?;
+
+        let initialized = llvm(self.builder.build_int_sub(
+            initialized,
+            self.pointer_integer_type().const_int(1, false),
+            "memory.buffer.removed",
+        ))?;
+
+        let pointer =
+            self.dynamic_offset_pointer(pointer, initialized, self.memory_layout(element).size())?;
+
+        let value = llvm(self.builder.build_load(
+            self.types.map(element)?,
+            pointer,
+            "memory.buffer.value",
+        ))?;
+
+        self.store_raw_buffer_initialized_count(
+            buffer,
+            llvm_type,
+            &fields,
+            initialized.into(),
+            "memory.buffer.initialized",
+        )?;
+
+        Ok(value)
+    }
+
     pub(super) fn translate_raw_buffer_field(
         &mut self,
         memory: &MirMemoryOperation,

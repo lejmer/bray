@@ -29,7 +29,7 @@ pub(super) type ExecutionProofGraph = BTreeMap<
 >;
 
 impl Compilation {
-    pub(super) fn imported_execution_contract(
+    pub(in crate::compilation) fn imported_execution_contract(
         &self,
         callable: CallableInstanceData,
         diagnostics: &mut DiagnosticBag,
@@ -93,7 +93,7 @@ impl Compilation {
         diagnostics: &mut DiagnosticBag,
         cancellation: &CancellationToken,
     ) -> Result<Option<ExecutionObligation>, FactQueryError> {
-        if self.synthetic_heap_projection_obligation(callable, required) {
+        if self.intrinsic_projection_obligation(callable, required, cancellation)? {
             return Ok(Some(required));
         }
 
@@ -158,7 +158,7 @@ impl Compilation {
                 return Ok(false);
             }
 
-            if self.synthetic_heap_projection_obligation(callable, obligation) {
+            if self.intrinsic_projection_obligation(callable, obligation, cancellation)? {
                 graph.insert(
                     (ExecutionProofOwner::Imported(callable), obligation),
                     BTreeSet::new(),

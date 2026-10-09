@@ -435,23 +435,14 @@ impl CallableContractSet {
             None => super::CallablePhaseBehaviors::synchronous(invocation_behavior),
         };
 
-        let phase_behaviors = if invocation_preconditions
-            .iter()
-            .chain(&normal_completion_postconditions)
-            .filter_map(|clause| clause.predicate())
-            .any(|predicate| predicate.is_trusted())
-        {
-            phase_behaviors.with_predicates(
-                invocation_preconditions
-                    .iter()
-                    .filter_map(|clause| clause.predicate()),
-                normal_completion_postconditions
-                    .iter()
-                    .filter_map(|clause| clause.predicate()),
-            )
-        } else {
-            phase_behaviors
-        };
+        let phase_behaviors = phase_behaviors.with_predicates(
+            invocation_preconditions
+                .iter()
+                .filter_map(|clause| clause.predicate()),
+            normal_completion_postconditions
+                .iter()
+                .filter_map(|clause| clause.predicate()),
+        );
 
         Self {
             invocation_preconditions: shared_slice(invocation_preconditions),
@@ -637,6 +628,26 @@ mod tests {
 
         assert_eq!(contract.invocation_preconditions().len(), 1);
         assert_eq!(contract.normal_completion_postconditions().len(), 1);
+
+        assert_eq!(
+            contract.invocation_behavior().predicate_requirements(),
+            [predicate]
+        );
+
+        assert!(
+            contract
+                .invocation_behavior()
+                .predicate_guarantees()
+                .is_empty()
+        );
+
+        assert_eq!(
+            contract
+                .deferred_execution_behavior()
+                .expect("async body phase")
+                .predicate_guarantees(),
+            [predicate],
+        );
 
         assert_eq!(
             contract

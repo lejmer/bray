@@ -490,7 +490,7 @@ impl HashMapWriteCursorIterator = HashMapWriteCursor<Key, Value>(Iterator)
 
             self.index += 1;
 
-            if trusted hash_table_occupied(self.map.table.states.pointer, index = index)
+            if trusted hash_table_occupied(&self.map.table.states, index = index)
             {
                 let item: &mut MapItem<Key, Value> = trusted hash_table_item_mut<MapItem<Key, Value>>(
                     &mut self.map.table,
@@ -547,7 +547,7 @@ impl HashMapMoveCursorIterator = HashMapMoveCursor<Key, Value>(Iterator)
         while self.index < bucket_count
         {
             let index: usize = self.index;
-            let occupied: bool = trusted hash_table_occupied(self.map.table.states.pointer, index = index);
+            let occupied: bool = trusted hash_table_occupied(&self.map.table.states, index = index);
 
             self.index += 1;
 

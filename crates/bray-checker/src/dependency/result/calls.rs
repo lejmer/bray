@@ -174,13 +174,9 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                     .flatten()
                     .map(|source| {
                         DependencyRequirement::direct(
-                            super::sources::normalized_subject(
-                                source.subject_root(),
-                                source
-                                    .projections()
-                                    .iter()
-                                    .chain(subject.projections())
-                                    .copied(),
+                            super::sources::source_subject(
+                                source,
+                                subject.projections().iter().copied(),
                             ),
                             kind,
                         )

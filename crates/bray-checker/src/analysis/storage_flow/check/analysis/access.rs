@@ -146,9 +146,7 @@ where
         match purpose {
             StorageAccessPurpose::Borrow(_) => self
                 .input
-                .borrow(plan)
-                .and_then(|borrow| self.storage.borrow_capability(borrow))
-                .map(|borrow| borrow.access())
+                .borrowed_access(plan, self.storage)
                 .unwrap_or_else(|| plan.access()),
             StorageAccessPurpose::Read
             | StorageAccessPurpose::Write

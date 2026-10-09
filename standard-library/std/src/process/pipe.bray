@@ -151,7 +151,7 @@ trusted internal func child_input_write(pos input: &mut ChildInput, pos source: 
 
     let status: std.platform.PlatformStatus = trusted internal platform_process_pipe_write(
         handle = input.state.handle,
-        source = internal std.memory.byte_slice_pointer(source),
+        source = internal std.memory.slice_pointer(source, count = source.length()),
         length = source.length() as u64,
         transferred = std.memory.address_of_mut(&mut transferred),
     );
@@ -191,7 +191,7 @@ trusted internal func child_output_read(
 
     let status: std.platform.PlatformStatus = trusted internal platform_process_pipe_read(
         handle = output.state.handle,
-        destination = internal std.memory.byte_slice_pointer_mut(destination),
+        destination = internal std.memory.slice_pointer_mut(destination, count = maximum),
         length = maximum as u64,
         transferred = std.memory.address_of_mut(&mut transferred),
     );

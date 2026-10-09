@@ -9,6 +9,7 @@ fn slices_and_fixed_arrays_select_and_lower_sequence_operations() {
         r#"module app;
 
 func inspect(pos slice: &[u8], pos array: [u8; 4]) -> (usize, bool, usize, bool)
+    executes(pure)
 {
     return (slice.length(), slice.is_empty(), array.length(), array.is_empty());
 }

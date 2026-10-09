@@ -15,11 +15,11 @@ struct Id
 
 struct Arguments
 {
-    internal state: ProcessContextTable;
+    internal state: &ProcessContextTable;
 
     func length() -> usize
     {
-        return self.state.count;
+        return std.memory.initialized_count<ProcessContextEntry>(&self.state.entries);
     }
 
     func value_at(pos index: usize) -> std.path.NativeText?
@@ -29,17 +29,11 @@ struct Arguments
             return none;
         }
 
-        let entry: std.platform.NativeTextPair = trusted internal table_entry(self.state, index = index);
-
-        let bytes: std.memory.RawBuffer<u8> = trusted internal std.platform.copy_context_text(
-            entry.key.address,
-            length = entry.key.length,
-        );
-
-        let value: std.path.NativeText = trusted internal required_native_text(bytes);
+        let entry: ProcessContextEntry = internal table_entry(self.state, index = index);
+        let native: std.path.NativeText = internal required_native_slice(internal table_key(self.state, entry));
         let mut result: std.path.NativeText? = none;
 
-        result = value;
+        result = native;
 
         return result;
     }
@@ -53,11 +47,11 @@ struct EnvironmentEntry
 
 struct Environment
 {
-    internal state: ProcessContextTable;
+    internal state: &ProcessContextTable;
 
     func length() -> usize
     {
-        return self.state.count;
+        return std.memory.initialized_count<ProcessContextEntry>(&self.state.entries);
     }
 
     func value(pos key: &std.path.NativeText) -> std.path.NativeText?
@@ -67,16 +61,15 @@ struct Environment
 
         while index < self.length()
         {
-            let entry: std.platform.NativeTextPair = trusted internal table_entry(self.state, index = index);
+            let entry: ProcessContextEntry = internal table_entry(self.state, index = index);
+            let candidate: &[u8] = internal table_key(self.state, entry);
 
-            if trusted internal std.platform.environment_key_equals_span(expected, right = entry.key)
+            if trusted internal std.platform.environment_keys_equal(expected, candidate)
             {
-                let value: std.memory.RawBuffer<u8> = trusted internal std.platform.copy_context_text(
-                    entry.value.address,
-                    length = entry.value.length,
+                let native: std.path.NativeText = internal required_native_slice(
+                    internal table_value(self.state, entry)
                 );
 
-                let native: std.path.NativeText = trusted internal required_native_text(value);
                 let mut result: std.path.NativeText? = none;
 
                 result = native;
@@ -97,22 +90,12 @@ struct Environment
             return none;
         }
 
-        let native_entry: std.platform.NativeTextPair = trusted internal table_entry(self.state, index = index);
-
-        let key: std.memory.RawBuffer<u8> = trusted internal std.platform.copy_context_text(
-            native_entry.key.address,
-            length = native_entry.key.length,
-        );
-
-        let value: std.memory.RawBuffer<u8> = trusted internal std.platform.copy_context_text(
-            native_entry.value.address,
-            length = native_entry.value.length,
-        );
+        let native_entry: ProcessContextEntry = internal table_entry(self.state, index = index);
 
         let entry: EnvironmentEntry =
         {
-            key = trusted internal required_native_text(key),
-            value = trusted internal required_native_text(value),
+            key = internal required_native_slice(internal table_key(self.state, native_entry)),
+            value = internal required_native_slice(internal table_value(self.state, native_entry)),
         };
 
         let mut result: EnvironmentEntry? = none;
@@ -155,30 +138,27 @@ func current_environment_value(pos key: &std.path.NativeText) -> Result<std.path
         panic("the platform process environment contains invalid native text");
     }
 
-    let base: RawPointer<u8> = internal std.memory.byte_slice_pointer(source);
     let mut start: usize = 0;
     let mut index: usize = 0;
 
     while index < source.length()
     {
-        if trusted internal native_unit_is_zero(base, index = index, width = width)
+        if internal native_unit_is_zero(source, index = index, width = width)
         {
-            let entry: std.platform.NativeTextPair = trusted internal context_pair(
-                base,
+            let entry: ProcessContextEntry = internal context_pair(
+                source,
                 start = start,
                 end = index,
                 width = width,
                 environment = true,
             );
 
-            if trusted internal std.platform.environment_key_equals_span(expected, right = entry.key)
+            if trusted internal std.platform.environment_keys_equal(expected, &source[entry.key_start..entry.key_end])
             {
-                let value: std.memory.RawBuffer<u8> = trusted internal std.platform.copy_context_text(
-                    entry.value.address,
-                    length = entry.value.length,
+                let native: std.path.NativeText = internal required_native_slice(
+                    &source[entry.value_start..entry.value_end]
                 );
 
-                let native: std.path.NativeText = trusted internal required_native_text(value);
                 let mut result: std.path.NativeText? = none;
 
                 result = native;
@@ -229,14 +209,7 @@ func environment() -> Environment
 
 func current_directory() -> std.path.Path
 {
-    let directory_span: std.platform.NativeTextSpan = trusted internal directory_context();
-
-    let directory: std.memory.RawBuffer<u8> = trusted internal std.platform.copy_context_text(
-        directory_span.address,
-        length = directory_span.length,
-    );
-
-    let bytes: &[u8] = trusted std.memory.initialized_slice<u8>(&directory);
+    let bytes: &[u8] = trusted internal directory_context();
     let path: Result<std.path.Path, std.path.PathError> = trusted internal std.path.path_from_bytes(bytes);
 
     match consume path
@@ -246,15 +219,9 @@ func current_directory() -> std.path.Path
     }
 }
 
-trusted internal func required_native_text(pos context: std.memory.RawBuffer<u8>) -> std.path.NativeText
+internal func required_native_slice(pos bytes: &[u8]) -> std.path.NativeText
 {
-    let bytes: &[u8] = trusted std.memory.initialized_slice<u8>(&context);
-
-    let value: Result<std.path.NativeText, std.path.PathError> = trusted internal std.path.native_text_from_bytes(
-        bytes
-    );
-
-    match consume value
+    match consume trusted internal std.path.native_text_from_bytes(bytes)
     {
         case Ok(native) { return native; }
         case Error(_) { panic("the platform process context contains invalid native text"); }

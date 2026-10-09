@@ -376,6 +376,26 @@ fn execution_guarantees_round_trip_and_reject_result_as_an_entry_guard() {
             {
                 return true;
             }
+
+            func required(pos flag: bool) -> bool
+                requires(flag)
+                executes(pure, total)
+            {
+                return flag;
+            }
+
+            func caller() -> bool
+            {
+                return required(true);
+            }
+
+            func required_components(pos flags: (bool, [bool; 2])) -> (bool, [bool; 2])
+                requires(flags.0, flags.1[0])
+                executes(pure, total)
+                ensures(result.0, result.1[0])
+            {
+                return flags;
+            }
         "#,
     );
 

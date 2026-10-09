@@ -2,8 +2,8 @@
 trusted module std.process;
 
 trusted internal func windows_command_line(
-    pos executable: PlatformNativeText,
-    pos arguments: &[PlatformNativeText],
+    pos executable: (&[u8]),
+    pos arguments: &[(&[u8])],
 ) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
 {
     let mut units: usize = try internal quoted_windows_units(executable);
@@ -29,7 +29,7 @@ trusted internal func windows_command_line(
     }
 
     let mut storage: std.memory.RawBuffer<u8> = try trusted internal windows_buffer((units + 1) * 2);
-    let destination: RawPointer<u8> = std.memory.pointer<u8>(&storage);
+    let destination: &mut [u8] = trusted std.memory.initialized_slice_mut<u8>(&mut storage);
     let mut written: usize = trusted internal write_quoted_windows_argument(destination, executable, index = 0);
 
     index = 0;
@@ -45,7 +45,7 @@ trusted internal func windows_command_line(
     return Ok(storage);
 }
 
-internal func quoted_windows_units(pos text: PlatformNativeText) -> Result<usize, std.platform.PlatformStatus>
+internal func quoted_windows_units(pos text: (&[u8])) -> Result<usize, std.platform.PlatformStatus>
 {
     let text_units: usize = try internal windows_text_units(text, allow_empty = true, allow_equals = true);
     let mut result: usize = 2;
@@ -97,12 +97,12 @@ internal func quoted_windows_units(pos text: PlatformNativeText) -> Result<usize
 }
 
 trusted internal func write_quoted_windows_argument(
-    pos destination: RawPointer<u8>,
-    pos text: PlatformNativeText,
+    pos destination: &mut [u8],
+    pos text: (&[u8]),
     index: usize,
 ) -> usize
 {
-    let units: usize = std.truncate_to<usize>(text.length) / 2;
+    let units: usize = text.length() / 2;
     let mut written: usize = index;
     let mut slashes: usize = 0;
     let mut source: usize = 0;

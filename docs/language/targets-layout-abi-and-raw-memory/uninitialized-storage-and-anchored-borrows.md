@@ -73,6 +73,8 @@ exact-thread-rooted dependency. The latter remains tied to the originating exact
 retains it. Neither root can outlive product cleanup, exact-thread cleanup, mapping teardown, guard release, allocation
 release, or another applicable owner boundary.
 
+The initialization predicate observes a shared protected slot. Committing or moving its value still requires exclusive storage authority.
+
 ## Foreign outputs and optimization
 
 A native output writes through `uninit_pointer_mut`. Trusted boundary code validates the native result and establishes

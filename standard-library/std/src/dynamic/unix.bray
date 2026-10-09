@@ -5,23 +5,43 @@
 )
 trusted module std.dynamic;
 
-@abi(c)
-trusted internal func platform_dynamic_library_open_path(
+trusted internal func prepare_dynamic_library_open_path(
     pos path: std.fs.PlatformPath,
     pos policy: u32,
     pos opened: RawPointer<u64>,
-) -> std.platform.PlatformStatus
-    requires(blocking_execution())
-    uses(raw_memory)
+) -> Result<u64, std.platform.PlatformStatus>
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.valid_write<u64>(pointer = opened, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = opened),
+        trusted core.memory.exclusive_alias_valid<u64>(pointer = opened),
+        trusted core.memory.epoch_current<u64>(pointer = opened),
+        trusted core.memory.synchronized_access<u64>(pointer = opened),
+        trusted core.memory.movement_stable<u64>(pointer = opened),
+        trusted core.memory.finalization_pending<u64>(pointer = opened),
+        blocking_execution(),
+    )
+    ensures(
+        trusted core.memory.valid_write<u64>(pointer = opened, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = opened),
+        trusted core.memory.exclusive_alias_valid<u64>(pointer = opened),
+        trusted core.memory.epoch_current<u64>(pointer = opened),
+        trusted core.memory.synchronized_access<u64>(pointer = opened),
+        trusted core.memory.movement_stable<u64>(pointer = opened),
+        trusted core.memory.finalization_pending<u64>(pointer = opened),
+    )
 {
-    if path.length == 0 || std.memory.is_null<u8>(path.address)
+    let count: usize = path.length as usize;
+
+    if !(1 <= count) || std.memory.is_null<u8>(path.address)
     {
-        return internal std.platform.invalid_input_status();
+        return Error(internal std.platform.invalid_input_status());
     }
 
     if trusted internal std.memory.byte_buffer_read(path.address, index = 0) != 47
     {
-        return internal std.platform.invalid_input_status();
+        return Error(internal std.platform.invalid_input_status());
     }
 
     let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
@@ -31,17 +51,16 @@ trusted internal func platform_dynamic_library_open_path(
     {
         case Ok(terminated_path)
         {
-            return trusted internal open_unix_library(terminated_path.pointer, policy = policy, opened = opened);
+            return trusted internal open_unix_library(terminated_path.pointer, policy = policy);
         }
-        case Error(status) { return status; }
+        case Error(status) { return Error(status); }
     }
 }
 
 trusted internal func open_unix_library(
     pos name: RawPointer<u8>,
     policy: u32,
-    opened: RawPointer<u64>,
-) -> std.platform.PlatformStatus
+) -> Result<u64, std.platform.PlatformStatus>
     requires(blocking_execution())
 {
     let flags: i32 = match policy
@@ -51,7 +70,7 @@ trusted internal func open_unix_library(
         case 2 { yield std.os.unix.RTLD_LOCAL | std.os.unix.RTLD_LAZY; }
         case 3 { yield std.os.unix.RTLD_GLOBAL | std.os.unix.RTLD_NOW; }
         case 4 { yield std.os.unix.RTLD_GLOBAL | std.os.unix.RTLD_LAZY; }
-        case _ { return internal std.platform.invalid_input_status(); }
+        case _ { return Error(internal std.platform.invalid_input_status()); }
     };
 
     let _: RawPointer<u8> = trusted std.os.unix.dlerror();
@@ -61,22 +80,39 @@ trusted internal func open_unix_library(
     {
         let _: RawPointer<u8> = trusted std.os.unix.dlerror();
 
-        return internal std.platform.not_found_status();
+        return Error(internal std.platform.not_found_status());
     }
 
-    trusted std.memory.write<u64>(opened, value = trusted internal std.platform.pointer_handle(library));
-
-    return internal std.platform.success_status();
+    return Ok(trusted internal std.platform.pointer_handle(library));
 }
 
-@abi(c)
-trusted internal func platform_dynamic_library_symbol(
+trusted internal func prepare_dynamic_library_symbol(
     pos handle: u64,
     pos name: RawPointer<u8>,
     pos length: u64,
     pos address: RawPointer<RawPointer<u8>>,
-) -> std.platform.PlatformStatus
-    requires(blocking_execution())
+) -> Result<RawPointer<u8>, std.platform.PlatformStatus>
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = name, count = length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = name, count = length as usize),
+        trusted core.memory.valid_write<RawPointer<u8>>(pointer = address, count = 1),
+        trusted core.memory.aligned_for<RawPointer<u8>>(pointer = address),
+        trusted core.memory.exclusive_alias_valid<RawPointer<u8>>(pointer = address),
+        trusted core.memory.epoch_current<RawPointer<u8>>(pointer = address),
+        trusted core.memory.synchronized_access<RawPointer<u8>>(pointer = address),
+        trusted core.memory.movement_stable<RawPointer<u8>>(pointer = address),
+        trusted core.memory.finalization_pending<RawPointer<u8>>(pointer = address),
+        blocking_execution(),
+    )
+    ensures(
+        trusted core.memory.valid_write<RawPointer<u8>>(pointer = address, count = 1),
+        trusted core.memory.aligned_for<RawPointer<u8>>(pointer = address),
+        trusted core.memory.exclusive_alias_valid<RawPointer<u8>>(pointer = address),
+        trusted core.memory.epoch_current<RawPointer<u8>>(pointer = address),
+        trusted core.memory.synchronized_access<RawPointer<u8>>(pointer = address),
+        trusted core.memory.movement_stable<RawPointer<u8>>(pointer = address),
+        trusted core.memory.finalization_pending<RawPointer<u8>>(pointer = address),
+    )
 {
     let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
         trusted internal std.platform.terminated_native_text(name, length = length, terminator_bytes = 1);
@@ -92,14 +128,12 @@ trusted internal func platform_dynamic_library_symbol(
 
             if !std.memory.is_null<u8>(error)
             {
-                return internal std.platform.not_found_status();
+                return Error(internal std.platform.not_found_status());
             }
 
-            trusted std.memory.write<RawPointer<u8>>(address, value = resolved_address);
-
-            return internal std.platform.success_status();
+            return Ok(resolved_address);
         }
-        case Error(status) { return status; }
+        case Error(status) { return Error(status); }
     }
 }
 
@@ -118,4 +152,34 @@ trusted internal func platform_dynamic_library_close(pos handle: u64) -> std.pla
     }
 
     return internal std.platform.success_status();
+}
+
+trusted internal func prepare_dynamic_library_open_system(
+    pos identity: u32,
+    pos policy: u32,
+    pos opened: RawPointer<u64>,
+) -> Result<u64, std.platform.PlatformStatus>
+    requires(
+        trusted core.memory.valid_write<u64>(pointer = opened, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = opened),
+        trusted core.memory.exclusive_alias_valid<u64>(pointer = opened),
+        trusted core.memory.epoch_current<u64>(pointer = opened),
+        trusted core.memory.synchronized_access<u64>(pointer = opened),
+        trusted core.memory.movement_stable<u64>(pointer = opened),
+        trusted core.memory.finalization_pending<u64>(pointer = opened),
+        blocking_execution(),
+    )
+    ensures(
+        trusted core.memory.valid_write<u64>(pointer = opened, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = opened),
+    )
+{
+    if identity != 0
+    {
+        return Error(internal std.platform.invalid_input_status());
+    }
+
+    let library_name: &[u8] = &UNIX_SYSTEM_LIBRARY_NAME[..];
+
+    return trusted internal open_unix_library(std.memory.address_of<u8>(&library_name[0]), policy = policy);
 }

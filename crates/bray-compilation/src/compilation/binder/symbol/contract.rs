@@ -21,8 +21,9 @@ use bray_symbols::{
     TrustedCapabilitySymbolId, TypeData,
 };
 use bray_syntax::{
-    EnsuresClauseSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxNodeView, SyntaxWalkControl,
-    UsesClauseSyntax, WithClauseSyntax, syntax_node_view, walk_direct_child_nodes,
+    EnsuresClauseSyntax, ExpressionSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxNodeView,
+    SyntaxWalkControl, UsesClauseSyntax, WithClauseSyntax, syntax_node_view,
+    walk_direct_child_nodes,
 };
 
 use super::binding::CompilationSymbolQueryEvaluator;
@@ -32,7 +33,7 @@ use super::declaration_body::{
     extend_dependency_contract_with_statics,
 };
 use super::environment::type_binder;
-use super::surface::{symbol_ordinal, with_declaration_root};
+use super::surface::{symbol_ordinal, syntax_node_for_anchor, with_declaration_root};
 use crate::compilation::binder::{
     BindingQueryResult, CompilationBindingContext,
     semantic_contract_binding_error as binding_contract,
@@ -333,76 +334,106 @@ fn bind_generic_constraints(
         );
     }
 
-    let clauses = with_declaration_root(context, owner, |root| Ok(direct_with_clauses(root)))?;
+    let catalog_sources = if context.symbols.declaration_syntax_anchor(owner).is_none()
+        && template.value().constraints().iter().any(|constraint| {
+            matches!(
+                constraint,
+                bray_symbols::GenericConstraintTemplate::Source { .. }
+            )
+        }) {
+        with_declaration_root(context, owner, |root| {
+            let mut sources = BTreeMap::new();
 
-    let mut constraints = Vec::new();
+            walk_direct_child_nodes(&root, |node| {
+                if let Some(clause) = node.cast::<WithClauseSyntax>() {
+                    for expression in clause.expressions() {
+                        sources.insert(
+                            bray_declarations::SyntaxAnchor::from_node(&expression),
+                            (clause.clone(), expression),
+                        );
+                    }
+                }
+
+                SyntaxWalkControl::SkipChildren
+            });
+
+            Ok(sources)
+        })?
+    } else {
+        BTreeMap::new()
+    };
+
+    let mut constraints = Vec::with_capacity(template.value().constraints().len());
     let mut diagnostics = template_diagnostics;
 
-    for clause in clauses {
-        for expression in clause.expressions() {
-            let ordinal = symbol_ordinal(constraints.len())?;
+    for source in template.value().constraints() {
+        let constraint = match source {
+            bray_symbols::GenericConstraintTemplate::TraitSatisfaction { .. } => {
+                resolve_trait_satisfaction_constraint(context, source, &mut diagnostics)?
+            }
+            bray_symbols::GenericConstraintTemplate::TypeEquality { .. } => {
+                resolve_type_equality_constraint(context, source, &mut diagnostics)?
+            }
+            bray_symbols::GenericConstraintTemplate::Source {
+                ordinal,
+                unit,
+                expression,
+            } => {
+                let (unit, expression) = if context
+                    .symbols
+                    .declaration_syntax_anchor(owner)
+                    .is_some()
+                {
+                    (
+                        syntax_node_for_anchor(context, *unit)?,
+                        syntax_node_for_anchor(context, expression.syntax())?
+                            .cast::<ExpressionSyntax>()
+                            .expect("generic constraint template must retain an expression anchor"),
+                    )
+                } else {
+                    let (clause, expression) = catalog_sources.get(&expression.syntax()).expect(
+                        "catalog generic constraint must retain its declaration expression",
+                    );
 
-            let source = template
-                .value()
-                .constraints()
-                .get(constraints.len())
-                .ok_or_else(|| {
-                    query_contract(
+                    (syntax_node_view(clause), expression.clone())
+                };
+
+                let result = bind_predicate_clause(
+                    context,
+                    owner,
+                    unit,
+                    [expression],
+                    PredicateClauseBindingContext::GenericConstraint,
+                )?;
+
+                let (predicates, clause_diagnostics) = result.into_parts();
+
+                diagnostics = diagnostics.merged(&clause_diagnostics);
+
+                let [predicate] = predicates.as_ref() else {
+                    return Err(query_contract(
                         owner,
                         GenericConstraintsQuery::KIND,
                         SemanticQueryViolation::CountMismatch {
                             data: SemanticDataKind::GenericConstraint,
-                            expected: constraints.len().saturating_add(1),
-                            actual: template.value().constraints().len(),
+                            expected: 1,
+                            actual: predicates.len(),
                         },
-                    )
-                })?;
-
-            let constraint = match source {
-                bray_symbols::GenericConstraintTemplate::TraitSatisfaction { .. } => {
-                    resolve_trait_satisfaction_constraint(context, source, &mut diagnostics)?
-                }
-                bray_symbols::GenericConstraintTemplate::TypeEquality { .. } => {
-                    resolve_type_equality_constraint(context, source, &mut diagnostics)?
-                }
-                bray_symbols::GenericConstraintTemplate::Source { .. } => {
-                    let result = bind_predicate_clause(
-                        context,
-                        owner,
-                        syntax_node_view(&clause),
-                        [expression],
-                        PredicateClauseBindingContext::GenericConstraint,
-                    )?;
-
-                    let (predicates, clause_diagnostics) = result.into_parts();
-
-                    diagnostics = diagnostics.merged(&clause_diagnostics);
-
-                    let [predicate] = predicates.as_ref() else {
-                        return Err(query_contract(
-                            owner,
-                            GenericConstraintsQuery::KIND,
-                            SemanticQueryViolation::CountMismatch {
-                                data: SemanticDataKind::GenericConstraint,
-                                expected: 1,
-                                actual: predicates.len(),
-                            },
-                        ));
-                    };
-
-                    CheckedConstraint::new(ordinal, *predicate)
-                }
-                bray_symbols::GenericConstraintTemplate::Resolved(_) => {
-                    return Err(query_contract(
-                        owner,
-                        GenericConstraintsQuery::KIND,
-                        SemanticQueryViolation::Unsupported(SemanticDataKind::GenericConstraint),
                     ));
-                }
-            };
+                };
 
-            constraints.push(constraint);
-        }
+                CheckedConstraint::new(*ordinal, *predicate)
+            }
+            bray_symbols::GenericConstraintTemplate::Resolved(_) => {
+                return Err(query_contract(
+                    owner,
+                    GenericConstraintsQuery::KIND,
+                    SemanticQueryViolation::Unsupported(SemanticDataKind::GenericConstraint),
+                ));
+            }
+        };
+
+        constraints.push(constraint);
     }
 
     publish_catalog_result(GenericConstraintSet::new(constraints), diagnostics)
@@ -1207,26 +1238,6 @@ fn bind_callable_static_constraints(
     Ok(())
 }
 
-fn direct_with_clauses(root: SyntaxNodeView<'_>) -> Vec<WithClauseSyntax> {
-    let mut children = Vec::new();
-
-    walk_direct_child_nodes(&root, |node| {
-        if node.kind() != SyntaxKind::WithClause {
-            return SyntaxWalkControl::Continue;
-        }
-
-        let Some(clause) = node.cast::<WithClauseSyntax>() else {
-            return SyntaxWalkControl::Stop;
-        };
-
-        children.push(clause);
-
-        SyntaxWalkControl::Continue
-    });
-
-    children
-}
-
 fn direct_contract_clauses(root: SyntaxNodeView<'_>) -> Vec<ContractClauseSyntax> {
     let mut clauses = Vec::new();
 
@@ -1334,9 +1345,34 @@ mod tests {
             .filter_map(|clause| clause.predicate())
             .collect::<Vec<_>>();
 
-        assert_eq!(predicates.len(), 2);
-        assert!(!predicates[0].is_trusted());
-        assert!(predicates[1].is_trusted());
+        assert_eq!(predicates.len(), 1);
+
+        let condition = bray_checker::execution_condition_from_type_term(
+            compilation.semantic_value_store().unwrap(),
+            predicates[0].condition().unwrap(),
+            2,
+        )
+        .unwrap();
+
+        let bray_checker::ExecutionCondition::Operation(
+            bray_bound_tree::BoundOperator::LogicalAnd,
+            operands,
+        ) = condition
+        else {
+            panic!("the contract retains its conjunction");
+        };
+
+        assert_eq!(operands.len(), 2);
+
+        assert!(!matches!(
+            operands[0],
+            bray_checker::ExecutionCondition::Trusted(_)
+        ));
+
+        assert!(
+            matches!(&operands[1], bray_checker::ExecutionCondition::Trusted(condition)
+            if matches!(condition.as_ref(), bray_checker::ExecutionCondition::Predicate(..)))
+        );
     }
 
     #[test]

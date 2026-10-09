@@ -335,7 +335,7 @@ impl CallableSignature {
         }
     }
 
-    /// Retains checked trusted caller predicates independently of body-effect queries.
+    /// Retains checked caller predicates and completion facts independently of body-effect queries.
     pub fn with_predicate_contracts(
         mut self,
         values: &SemanticValueStore,
@@ -350,14 +350,6 @@ impl CallableSignature {
 
         let mut requirements = Vec::new();
         let mut guarantees = Vec::new();
-
-        if !clauses
-            .iter()
-            .filter_map(|clause| clause.predicate())
-            .any(|predicate| predicate.is_trusted())
-        {
-            return Ok(self);
-        }
 
         for clause in clauses {
             let Some(predicate) = clause.predicate() else {

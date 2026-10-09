@@ -354,7 +354,12 @@
             }
           ],
           "result": "u32",
-          "native_result": "unsigned"
+          "native_result": "unsigned",
+          "trusted": true,
+          "requires": [
+            "blocking_execution()",
+            "compute_execution()"
+          ]
         },
         {
           "name": "ThreadStartRoutine",
@@ -368,7 +373,12 @@
             }
           ],
           "result": "u32",
-          "native_result": "DWORD"
+          "native_result": "DWORD",
+          "trusted": true,
+          "requires": [
+            "blocking_execution()",
+            "compute_execution()"
+          ]
         },
         {
           "name": "ThreadStorageDestructor",
@@ -440,6 +450,9 @@
             "foreign_call",
             "native_thread",
             "raw_memory"
+          ],
+          "requires": [
+            "trusted core.memory.callable_address_valid<BeginThreadRoutine>(pointer = trusted core.memory.reinterpret<BeginThreadRoutine, u8>(entry))"
           ]
         },
         {
@@ -558,6 +571,7 @@
           "ownership": "the C runtime owns the current native thread storage",
           "ensures": [
             "trusted core.memory.valid_read<i32>(pointer = result, count = 1)",
+            "trusted core.memory.valid_write<i32>(pointer = result, count = 1)",
             "trusted core.memory.aligned_for<i32>(pointer = result)",
             "trusted core.memory.initialized_as<i32>(pointer = result)"
           ],

@@ -890,6 +890,12 @@ pub enum CheckedMemoryOperationKind {
     Allocate,
     /// Release an owned allocation and invalidate its dependent state.
     Deallocate,
+    /// Create an empty raw-buffer owner from its validated element layout.
+    RawBufferAllocate,
+    /// Transfers a value into the spare prefix slot and commits its ownership.
+    RawBufferPush { element: TypeId },
+    /// Transfers the last initialized value out and shortens the prefix.
+    RawBufferPop { element: TypeId },
     /// Read a raw buffer's capacity.
     RawBufferCapacity,
     /// Read a raw buffer's initialized element count.
@@ -924,8 +930,6 @@ pub enum CheckedMemoryOperationKind {
     },
     /// Initialize a byte-buffer range to one repeated byte.
     ByteBufferFill,
-    /// Copy an initialized byte range into distinct writable storage.
-    ByteBufferCopy,
     /// Read one initialized byte from byte-buffer storage.
     ByteBufferRead,
     /// Read the element count of a slice or fixed array.
@@ -1107,6 +1111,7 @@ impl CheckedMemoryOperationKind {
             | Self::Read { .. }
             | Self::Allocate
             | Self::Deallocate
+            | Self::RawBufferPop { .. }
             | Self::RawBufferCapacity
             | Self::RawBufferInitializedCount
             | Self::RawBufferPointer
@@ -1127,6 +1132,7 @@ impl CheckedMemoryOperationKind {
             | Self::Offset { .. }
             | Self::Write { .. }
             | Self::RawAllocate
+            | Self::RawBufferPush { .. }
             | Self::RawBufferReplace { .. }
             | Self::RawBufferRelocate { .. }
             | Self::RawBufferSetInitializedCount
@@ -1138,8 +1144,8 @@ impl CheckedMemoryOperationKind {
             Self::VolatileWrite { .. } | Self::CompareAddress { .. } => 2,
             Self::Copy { .. }
             | Self::RawDeallocate
+            | Self::RawBufferAllocate
             | Self::ByteBufferFill
-            | Self::ByteBufferCopy
             | Self::AtomicCompareExchange { .. } => 3,
             Self::LayoutQuery {
                 kind: MemoryLayoutQueryKind::Layout | MemoryLayoutQueryKind::Trailing,
@@ -1172,6 +1178,7 @@ impl CheckedMemoryOperationKind {
             | Self::Read { .. }
             | Self::Allocate
             | Self::Deallocate
+            | Self::RawBufferPop { .. }
             | Self::RawBufferCapacity
             | Self::RawBufferInitializedCount
             | Self::RawBufferPointer
@@ -1202,6 +1209,7 @@ impl CheckedMemoryOperationKind {
             | Self::Offset { .. }
             | Self::Write { .. }
             | Self::RawAllocate
+            | Self::RawBufferPush { .. }
             | Self::RawBufferReplace { .. }
             | Self::RawBufferRelocate { .. }
             | Self::RawBufferSetInitializedCount
@@ -1220,8 +1228,8 @@ impl CheckedMemoryOperationKind {
             }
             Self::Copy { .. }
             | Self::RawDeallocate
+            | Self::RawBufferAllocate
             | Self::ByteBufferFill
-            | Self::ByteBufferCopy
             | Self::AtomicCompareExchange { .. } => {
                 if ordinal < 3 {
                     Some(ordinal)
@@ -1258,10 +1266,10 @@ impl CheckedMemoryOperationKind {
                 | Self::Deallocate
                 | Self::RawBufferSetInitializedCount
                 | Self::RawBufferRelease { .. }
+                | Self::RawBufferPush { .. }
                 | Self::RawBufferReplace { .. }
                 | Self::RawBufferRelocate { .. }
                 | Self::ByteBufferFill
-                | Self::ByteBufferCopy
                 | Self::VolatileWrite { .. }
                 | Self::Fence { .. }
                 | Self::CatastrophicAbort
@@ -1281,6 +1289,7 @@ impl CheckedMemoryOperationKind {
             self,
             Self::RawAllocate
                 | Self::RawDeallocate
+                | Self::RawBufferAllocate
                 | Self::Allocate
                 | Self::Deallocate
                 | Self::RawBufferRelease { .. }

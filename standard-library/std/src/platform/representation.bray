@@ -28,6 +28,10 @@ internal struct NativeTextPair
 }
 
 trusted internal func copy_context_text(pos address: RawPointer<u8>, length: u64) -> std.memory.RawBuffer<u8>
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = address, count = length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = address, count = length as usize),
+    )
 {
     let count: usize = length as usize;
 
@@ -36,43 +40,24 @@ trusted internal func copy_context_text(pos address: RawPointer<u8>, length: u64
         panic("the platform process context text is invalid");
     }
 
-    let created: Result<std.memory.RawBuffer<u8>, std.memory.MemoryLayoutError> = trusted std.memory.RawBuffer<u8>(
-        capacity = count
+    let mut buffer: std.memory.RawBuffer<u8> = trusted internal std.memory.allocate_buffer<u8>(
+        capacity = count,
+        bytes = count,
+        align = 1,
     );
 
-    match consume created
+    if count > 0
     {
-        case Ok(buffer)
-        {
-            let mut buffer: std.memory.RawBuffer<u8> = buffer;
+        let initialized: usize = trusted internal std.memory.copy_spare_raw_bytes(
+            &mut buffer,
+            source = address,
+            count = count,
+        );
 
-            if count > 0
-            {
-                let destination: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer);
-
-                trusted internal std.memory.byte_buffer_copy(address, destination, count = count);
-
-                trusted std.memory.set_initialized_count<u8>(&mut buffer, count = count);
-            }
-
-            return buffer;
-        }
-        case Error(_) { panic("the platform process context text cannot be allocated"); }
+        trusted std.memory.set_initialized_count<u8>(&mut buffer, count = initialized);
     }
-}
 
-trusted internal func environment_keys_equal(pos left: &[u8], pos right: &[u8]) -> bool
-{
-    return trusted internal environment_key_equals_span(left, right = native_text_span(right));
-}
-
-internal func native_text_span(pos value: &[u8]) -> NativeTextSpan
-{
-    return
-    {
-        address = internal std.memory.byte_slice_pointer(value),
-        length = value.length() as u64,
-    };
+    return buffer;
 }
 
 trusted internal func context_buffer(pos capacity: usize) -> std.memory.RawBuffer<u8>
@@ -93,6 +78,10 @@ trusted internal func terminated_native_text(
     length: u64,
     terminator_bytes: usize,
 ) -> Result<std.memory.RawBuffer<u8>, PlatformStatus>
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = address, count = length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = address, count = length as usize),
+    )
 {
     let count: usize = length as usize;
 
@@ -108,58 +97,73 @@ trusted internal func terminated_native_text(
 
     let total: usize = count + terminator_bytes;
 
-    let created: Result<std.memory.RawBuffer<u8>, std.memory.MemoryLayoutError> = trusted std.memory.RawBuffer<u8>(
-        capacity = total
+    let mut buffer: std.memory.RawBuffer<u8> = trusted internal std.memory.allocate_buffer<u8>(
+        capacity = total,
+        bytes = total,
+        align = 1,
     );
 
-    match consume created
+    if count > 0
     {
-        case Ok(buffer)
-        {
-            let mut buffer: std.memory.RawBuffer<u8> = buffer;
-            let destination: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer);
+        let initialized: usize = trusted internal std.memory.copy_spare_raw_bytes(
+            &mut buffer,
+            source = address,
+            count = count,
+        );
 
-            if count > 0
-            {
-                trusted internal std.memory.byte_buffer_copy(address, destination, count = count);
-            }
-
-            let terminator: RawPointer<u8> = std.memory.offset<u8>(
-                destination,
-                elements = std.truncate_to<isize>(count),
-            );
-
-            trusted internal std.memory.byte_buffer_fill(terminator, value = 0, count = terminator_bytes);
-
-            trusted std.memory.set_initialized_count<u8>(&mut buffer, count = total);
-
-            return Ok(buffer);
-        }
-        case Error(_) { return Error(exhausted_status()); }
+        trusted std.memory.set_initialized_count<u8>(&mut buffer, count = initialized);
     }
+
+    let initialized: usize = trusted internal std.memory.fill_spare_bytes(
+        &mut buffer,
+        value = 0,
+        count = terminator_bytes,
+    );
+
+    trusted std.memory.set_initialized_count<u8>(&mut buffer, count = initialized);
+
+    return Ok(buffer);
 }
 
 trusted internal func read_native_i32(pos pointer: RawPointer<i32>) -> i32
+    requires(
+        trusted core.memory.valid_read<i32>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<i32>(pointer = pointer),
+        trusted core.memory.initialized_as<i32>(pointer = pointer),
+    )
+    ensures(
+        trusted core.memory.valid_read<i32>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<i32>(pointer = pointer),
+        trusted core.memory.initialized_as<i32>(pointer = pointer),
+    )
 {
-    let source: RawPointer<u8> = trusted std.memory.reinterpret<u8, i32>(pointer);
-
-    let value: u32 = trusted internal std.memory.byte_buffer_read(source, index = 0) as u32 |
-        trusted internal std.memory.byte_buffer_read(source, index = 1) as u32 << 8 |
-        trusted internal std.memory.byte_buffer_read(source, index = 2) as u32 << 16 |
-        trusted internal std.memory.byte_buffer_read(source, index = 3) as u32 << 24;
-
-    return std.truncate_to<i32>(value);
+    return trusted std.memory.read<i32>(pointer);
 }
 
 trusted internal func read_native_u16(pos pointer: RawPointer<u16>) -> u16
+    requires(
+        trusted core.memory.valid_read<u16>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<u16>(pointer = pointer),
+        trusted core.memory.initialized_as<u16>(pointer = pointer),
+    )
+    ensures(
+        trusted core.memory.valid_read<u16>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<u16>(pointer = pointer),
+        trusted core.memory.initialized_as<u16>(pointer = pointer),
+    )
 {
-    let source: RawPointer<u8> = trusted std.memory.reinterpret<u8, u16>(pointer);
-
-    return trusted internal std.memory.byte_buffer_read(source, index = 0) as u16 |
-        trusted internal std.memory.byte_buffer_read(source, index = 1) as u16 << 8;
+    return trusted std.memory.read<u16>(pointer);
 }
 
 trusted internal func read_native_u32(pos pointer: RawPointer<u8>) -> u32
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = pointer, count = 4),
+        trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = 4),
+    )
+    ensures(
+        trusted core.memory.valid_read<u8>(pointer = pointer, count = 4),
+        trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = 4),
+    )
 {
     return trusted internal std.memory.byte_buffer_read(pointer, index = 0) as u32 |
         trusted internal std.memory.byte_buffer_read(pointer, index = 1) as u32 << 8 |
@@ -168,11 +172,19 @@ trusted internal func read_native_u32(pos pointer: RawPointer<u8>) -> u32
 }
 
 trusted internal func read_native_u64(pos pointer: RawPointer<u8>) -> u64
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = pointer, count = 8),
+        trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = 8),
+    )
+    ensures(
+        trusted core.memory.valid_read<u8>(pointer = pointer, count = 8),
+        trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = 8),
+    )
 {
     let mut value: u64 = 0;
     let mut index: usize = 0;
 
-    while index < 8
+    while index < 8 && index != 18_446_744_073_709_551_615
     {
         value |= trusted internal std.memory.byte_buffer_read(pointer, index = index) as u64 << (index as u64 * 8);
         index += 1;
@@ -182,19 +194,19 @@ trusted internal func read_native_u64(pos pointer: RawPointer<u8>) -> u64
 }
 
 trusted internal func read_native_pointer<T>(pos pointer: RawPointer<RawPointer<T>>) -> RawPointer<T>
-    uses(intrinsic)
+    requires(
+        trusted core.memory.valid_read<RawPointer<T>>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<RawPointer<T>>(pointer = pointer),
+        trusted core.memory.initialized_as<RawPointer<T>>(pointer = pointer),
+    )
+    ensures(
+        trusted core.memory.valid_read<RawPointer<T>>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<RawPointer<T>>(pointer = pointer),
+        trusted core.memory.initialized_as<RawPointer<T>>(pointer = pointer),
+    )
+    executes(pure, total)
 {
-    let source: RawPointer<u8> = trusted std.memory.reinterpret<u8, RawPointer<T>>(pointer);
-    let mut address: u64 = 0;
-    let mut index: usize = 0;
-
-    while index < 8
-    {
-        address |= trusted internal std.memory.byte_buffer_read(source, index = index) as u64 << (index as u64 * 8);
-        index += 1;
-    }
-
-    return trusted core.target.from_exposed_address<T>(address = std.truncate_to<usize>(address));
+    return trusted std.memory.read<RawPointer<T>>(pointer);
 }
 
 trusted internal func pointer_handle(pos pointer: RawPointer<u8>) -> u64
@@ -209,12 +221,12 @@ trusted internal func handle_pointer(pos handle: u64) -> RawPointer<u8>
     return trusted core.target.from_exposed_address<u8>(address = std.truncate_to<usize>(handle));
 }
 
-internal func successful_status(pos status: PlatformStatus) -> bool
+internal const func successful_status(pos status: PlatformStatus) -> bool
 {
     return status.category == 0 && status.reserved == 0;
 }
 
-internal func is_exhausted_status(pos status: PlatformStatus) -> bool
+internal const func is_exhausted_status(pos status: PlatformStatus) -> bool
 {
     return status.category == 7 && status.reserved == 0;
 }

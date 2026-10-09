@@ -35,6 +35,7 @@ type CheckerQueryResult<T> = bray_checker::CheckerQueryResult<T, FactQueryError>
 pub(in crate::compilation) struct CompilationConstantCallResolver<'compilation> {
     compilation: &'compilation Compilation,
     cancellation: &'compilation CancellationToken,
+    substitution: Option<bray_symbols::GenericSubstitutionId>,
 }
 
 impl<'compilation> CompilationConstantCallResolver<'compilation> {
@@ -45,7 +46,16 @@ impl<'compilation> CompilationConstantCallResolver<'compilation> {
         Self {
             compilation,
             cancellation,
+            substitution: None,
         }
+    }
+    pub(in crate::compilation) const fn with_substitution(
+        mut self,
+        substitution: bray_symbols::GenericSubstitutionId,
+    ) -> Self {
+        self.substitution = Some(substitution);
+
+        self
     }
 }
 
@@ -62,6 +72,42 @@ impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
     }
 
     fn resolve(&self, request: &ConstantCallRequest) -> CheckerQueryResult<ConstantCallResolution> {
+        let substituted;
+
+        let request = if let Some(substitution) = self.substitution {
+            let values = self
+                .compilation
+                .semantic_value_store()
+                .map_err(checker_call_query_error)?;
+
+            let callable = values
+                .intern_callable_instance(request.callable())
+                .and_then(|callable| values.substitute_callable_instance(callable, substitution))
+                .map_err(|error| {
+                    checker_call_query_error(FactQueryError::SemanticValueStore(error))
+                })?;
+
+            let witness = request
+                .selected_implementation()
+                .map(|witness| values.substitute_implementation_instance(witness, substitution))
+                .transpose()
+                .map_err(|error| {
+                    checker_call_query_error(FactQueryError::SemanticValueStore(error))
+                })?;
+
+            substituted = ConstantCallRequest::new(
+                *values.callable_instance_data(callable),
+                witness,
+                request.arguments().iter().copied(),
+                request.result_type(),
+                request.limits(),
+            );
+
+            &substituted
+        } else {
+            request
+        };
+
         match self
             .compilation
             .constant_call_with_cancellation(request, self.cancellation)
@@ -241,7 +287,8 @@ impl Compilation {
             arguments,
         )?;
 
-        let resolver = CompilationConstantCallResolver::new(self, cancellation);
+        let resolver = CompilationConstantCallResolver::new(self, cancellation)
+            .with_substitution(callable.substitution());
 
         let input = ConstantEvaluationInput::new(&types, semantics.result().value().selections())
             .with_block_root(root, result_type)
@@ -529,7 +576,8 @@ impl Compilation {
             cancellation,
         )?;
 
-        let resolver = CompilationConstantCallResolver::new(self, cancellation);
+        let resolver = CompilationConstantCallResolver::new(self, cancellation)
+            .with_substitution(callable.substitution());
 
         let input = ConstantEvaluationInput::new(&types, semantics.result().value().selections())
             .with_block_root(root, key.result_type())

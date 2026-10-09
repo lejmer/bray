@@ -608,6 +608,19 @@ mod tests {
     }
 
     #[test]
+    fn storage_views_and_pointer_transforms_retain_source_dependencies() {
+        for hook in [
+            ImplementationHook::RawBufferInitializedSlice,
+            ImplementationHook::RawBufferInitializedSliceMut,
+            ImplementationHook::RawPointerOffset,
+            ImplementationHook::RawPointerByteOffset,
+            ImplementationHook::RawPointerReinterpret,
+        ] {
+            assert_result_source_dependency(hook);
+        }
+    }
+
+    #[test]
     fn native_thread_start_retains_its_explicit_state() {
         let unit_id = BoundUnitId::new(33);
 
@@ -737,8 +750,16 @@ mod tests {
         );
 
         let capability_kind = match implementation {
-            ImplementationHook::BorrowFrom => Some(BorrowKind::Shared),
-            ImplementationHook::BorrowMutFrom => Some(BorrowKind::Mutable),
+            ImplementationHook::BorrowFrom
+            | ImplementationHook::AddressOf
+            | ImplementationHook::UninitPointer
+            | ImplementationHook::RawBufferPointer
+            | ImplementationHook::RawBufferInitializedSlice => Some(BorrowKind::Shared),
+            ImplementationHook::BorrowMutFrom
+            | ImplementationHook::AddressOfMut
+            | ImplementationHook::UninitPointerMut
+            | ImplementationHook::RawBufferInitializedSliceMut
+            | ImplementationHook::RawBufferSparePointer => Some(BorrowKind::Mutable),
             _ => None,
         };
 
@@ -815,7 +836,7 @@ mod tests {
             }));
         }
 
-        if implementation == ImplementationHook::BorrowMutFrom {
+        if capability_kind == Some(BorrowKind::Mutable) {
             assert!(contract.requirements().iter().any(|requirement| {
                 matches!(
                     requirement,

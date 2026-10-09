@@ -1156,49 +1156,37 @@ mod tests {
             )
         };
 
-        let kind_mismatch = invalid_semantics(
-            13,
-            InterfaceCheckedTemplateNode::new(
-                InterfaceCheckedTemplateOperation::Borrow {
-                    kind: bray_symbols::BorrowKind::Shared,
-                    operand: CheckedTemplateNodeId::new(0),
-                },
-                InterfaceTypeId::new(4),
-            ),
-        );
+        for (node_index, kind, operand, ty, valid) in [
+            (13, bray_symbols::BorrowKind::Shared, 0, 4, false),
+            (14, bray_symbols::BorrowKind::Mutable, 5, 4, false),
+            (14, bray_symbols::BorrowKind::Mutable, 13, 4, false),
+            (14, bray_symbols::BorrowKind::Shared, 13, 3, true),
+        ] {
+            let candidate = invalid_semantics(
+                node_index,
+                InterfaceCheckedTemplateNode::new(
+                    InterfaceCheckedTemplateOperation::Borrow {
+                        kind,
+                        operand: CheckedTemplateNodeId::new(operand),
+                    },
+                    InterfaceTypeId::new(ty),
+                ),
+            );
 
-        assert_eq!(
-            encode_semantics(
-                &kind_mismatch,
-                &surface,
-                InterfaceValidationLimits::default()
-            ),
-            Err(crate::semantic::codec::invalid_value(
-                crate::InterfaceValidationField::Template
-            ))
-        );
+            let result =
+                encode_semantics(&candidate, &surface, InterfaceValidationLimits::default());
 
-        let target_mismatch = invalid_semantics(
-            14,
-            InterfaceCheckedTemplateNode::new(
-                InterfaceCheckedTemplateOperation::Borrow {
-                    kind: bray_symbols::BorrowKind::Mutable,
-                    operand: CheckedTemplateNodeId::new(5),
-                },
-                InterfaceTypeId::new(4),
-            ),
-        );
-
-        assert_eq!(
-            encode_semantics(
-                &target_mismatch,
-                &surface,
-                InterfaceValidationLimits::default()
-            ),
-            Err(crate::semantic::codec::invalid_value(
-                crate::InterfaceValidationField::Template
-            ))
-        );
+            if valid {
+                assert!(result.is_ok(), "shared reborrow must encode: {result:?}");
+            } else {
+                assert_eq!(
+                    result,
+                    Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Template
+                    ))
+                );
+            }
+        }
 
         for (operation, ty) in [
             (

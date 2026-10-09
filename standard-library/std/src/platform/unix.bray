@@ -24,11 +24,11 @@ trusted internal func working_directory_storage() -> std.memory.RawBuffer<u8>
     {
         let mut buffer: std.memory.RawBuffer<u8> = trusted internal context_buffer(capacity);
 
-        if trusted internal fill_working_directory(&mut buffer, capacity = capacity)
-        {
-            let length: usize = trusted internal context_buffer_terminated_length(&buffer, limit = capacity);
+        let observed: (bool, usize) = trusted internal fill_working_directory(&mut buffer);
 
-            trusted std.memory.set_initialized_count<u8>(&mut buffer, count = length);
+        if observed.0
+        {
+            trusted std.memory.set_initialized_count<u8>(&mut buffer, count = observed.1);
 
             return buffer;
         }
@@ -47,31 +47,21 @@ trusted internal func working_directory_storage() -> std.memory.RawBuffer<u8>
 trusted internal func environment_storage() -> Result<std.memory.RawBuffer<u8>, PlatformStatus>
     uses(foreign_call, raw_memory)
 {
-    return Ok(
-        trusted internal copy_native_text_list(
-            trusted internal environment_pointer(),
-            limit = 18_446_744_073_709_551_615,
-        )
-    );
+    return Ok(trusted internal copy_native_text_list(trusted internal environment_cursor()));
 }
 
-trusted internal func environment_key_equals_span(pos left: &[u8], right: NativeTextSpan) -> bool
+trusted internal func environment_keys_equal(pos left: &[u8], pos right: &[u8]) -> bool
 {
-    let left_length: usize = left.length();
-    let right_length: usize = std.truncate_to<usize>(right.length);
-
-    if right_length as u64 != right.length || left_length != right_length
+    if left.length() != right.length()
     {
         return false;
     }
 
-    let left_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer(left);
     let mut index: usize = 0;
 
-    while index < left_length
+    while index < left.length()
     {
-        if trusted internal std.memory.byte_buffer_read(left_pointer, index = index) !=
-            trusted internal std.memory.byte_buffer_read(right.address, index = index)
+        if left[index] != right[index]
         {
             return false;
         }
@@ -82,66 +72,170 @@ trusted internal func environment_key_equals_span(pos left: &[u8], right: Native
     return true;
 }
 
-trusted internal func copy_native_text_list(
-    pos entries: RawPointer<RawPointer<u8>>,
-    limit: usize,
+// Only the native environment and argument producers construct this cursor. Each
+// current slot belongs to their provider-owned table. Advancing never crosses its
+// first null entry or the declared argument count.
+internal struct NativeTextCursor
+{
+    first: RawPointer<RawPointer<u8>>;
+    limit: usize;
+    mut current: RawPointer<RawPointer<u8>>;
+    mut remaining: usize;
+}
+
+trusted internal predicate native_text_cursor_valid(cursor: &NativeTextCursor);
+
+trusted internal func native_text_cursor_slot(pos cursor: &NativeTextCursor) -> RawPointer<RawPointer<u8>>
+    requires(trusted native_text_cursor_valid(cursor = cursor))
+    ensures(
+        trusted native_text_cursor_valid(cursor = cursor),
+        trusted core.memory.valid_read<RawPointer<u8>>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<RawPointer<u8>>(pointer = result),
+        trusted core.memory.initialized_as<RawPointer<u8>>(pointer = result),
+    )
+{
+    if cursor.remaining == 0 || std.memory.is_null<RawPointer<u8>>(cursor.current)
+    {
+        panic("native text cursor has no current entry");
+    }
+
+    return cursor.current;
+}
+
+trusted internal func native_text_cursor_value(pos cursor: &NativeTextCursor) -> RawPointer<u8>
+    requires(trusted native_text_cursor_valid(cursor = cursor))
+    ensures(
+        trusted native_text_cursor_valid(cursor = cursor),
+        core.memory.is_null<u8>(result) || trusted core.memory.nul_terminated_read(pointer = result),
+    )
+{
+    if cursor.remaining == 0
+    {
+        return std.memory.null<u8>();
+    }
+
+    let slot: RawPointer<RawPointer<u8>> = trusted internal native_text_cursor_slot(cursor);
+
+    return trusted internal read_native_pointer<u8>(slot);
+}
+
+trusted internal func native_text_cursor_entry(pos cursor: &NativeTextCursor) -> (RawPointer<u8>, usize)
+    requires(trusted native_text_cursor_valid(cursor = cursor))
+    ensures(
+        trusted native_text_cursor_valid(cursor = cursor),
+        core.memory.is_null<u8>(result.0) || trusted core.memory.valid_read<u8>(
+            pointer = result.0,
+            count = result.1 + 1
+        ),
+        core.memory.is_null<u8>(result.0) || trusted core.memory.initialized_range_as<u8>(
+            pointer = result.0,
+            count = result.1 + 1
+        ),
+    )
+{
+    let entry: RawPointer<u8> = trusted internal native_text_cursor_value(cursor);
+
+    if core.memory.is_null<u8>(entry)
+    {
+        return (entry, 0);
+    }
+
+    let length: usize = trusted internal terminated_byte_length(entry, limit = 9_223_372_036_854_775_807);
+
+    return (entry, length);
+}
+
+trusted internal func advance_native_text_cursor(pos cursor: &mut NativeTextCursor)
+    requires(trusted native_text_cursor_valid(cursor = &cursor))
+    ensures(trusted native_text_cursor_valid(cursor = &cursor))
+{
+    let entry: RawPointer<u8> = trusted internal native_text_cursor_value(&cursor);
+
+    if core.memory.is_null<u8>(entry)
+    {
+        cursor.remaining = 0;
+
+        return;
+    }
+
+    cursor.remaining -= 1;
+
+    if cursor.remaining > 0
+    {
+        cursor.current = std.memory.offset<RawPointer<u8>>(cursor.current, elements = 1);
+    }
+}
+
+trusted internal func prepare_native_text_copy(
+    pos cursor: &mut NativeTextCursor,
+    capacity: usize
 ) -> std.memory.RawBuffer<u8>
-    uses(raw_memory)
+    requires(trusted native_text_cursor_valid(cursor = &cursor))
+    ensures(trusted native_text_cursor_valid(cursor = &cursor))
+{
+    let buffer: std.memory.RawBuffer<u8> = trusted internal context_buffer(capacity);
+
+    cursor.current = cursor.first;
+    cursor.remaining = cursor.limit;
+
+    return buffer;
+}
+
+trusted internal func copy_native_text_entry(pos cursor: &NativeTextCursor, pos buffer: &mut std.memory.RawBuffer<u8>)
+    requires(trusted native_text_cursor_valid(cursor = cursor))
+    ensures(trusted native_text_cursor_valid(cursor = cursor))
+{
+    let observed: (RawPointer<u8>, usize) = trusted internal native_text_cursor_entry(cursor);
+
+    if core.memory.is_null<u8>(observed.0)
+    {
+        panic("the platform process context changed while being copied");
+    }
+
+    let initialized: usize = trusted internal std.memory.copy_spare_raw_bytes(
+        buffer,
+        source = observed.0,
+        count = observed.1 + 1,
+    );
+
+    trusted std.memory.set_initialized_count<u8>(buffer, count = initialized);
+}
+
+trusted internal func copy_native_text_list(pos mut cursor: NativeTextCursor) -> std.memory.RawBuffer<u8>
+    requires(trusted native_text_cursor_valid(cursor = &cursor))
 {
     let mut total: usize = 0;
     let mut length: usize = 0;
 
     loop
     {
-        if length >= limit
+        let observed: (RawPointer<u8>, usize) = trusted internal native_text_cursor_entry(&cursor);
+
+        if core.memory.is_null<u8>(observed.0)
         {
             break;
         }
 
-        let entry: RawPointer<u8> = trusted internal read_native_pointer<u8>(
-            std.memory.offset<RawPointer<u8>>(entries, elements = std.truncate_to<isize>(length))
-        );
-
-        if std.memory.is_null<u8>(entry)
-        {
-            break;
-        }
-
-        let bytes: usize = trusted internal terminated_byte_length(entry, limit = 9_223_372_036_854_775_807);
-
-        if total > 9_223_372_036_854_775_807 - bytes - 1
+        if total > 9_223_372_036_854_775_807 - observed.1 - 1
         {
             panic("the platform process context is too large");
         }
 
-        total += bytes + 1;
+        total += observed.1 + 1;
         length += 1;
+        trusted internal advance_native_text_cursor(&mut cursor);
     }
 
-    let mut buffer: std.memory.RawBuffer<u8> = trusted internal context_buffer(total);
-    let destination: RawPointer<u8> = std.memory.pointer<u8>(&buffer);
-    let mut offset: usize = 0;
+    let mut buffer: std.memory.RawBuffer<u8> = trusted internal prepare_native_text_copy(&mut cursor, capacity = total);
     let mut index: usize = 0;
 
     while index < length
     {
-        let entry: RawPointer<u8> = trusted internal read_native_pointer<u8>(
-            std.memory.offset<RawPointer<u8>>(entries, elements = std.truncate_to<isize>(index))
-        );
+        trusted internal copy_native_text_entry(&cursor, &mut buffer);
 
-        let bytes: usize = trusted internal terminated_byte_length(entry, limit = total - offset);
-
-        trusted internal std.memory.byte_buffer_copy(
-            entry,
-            std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(offset)),
-            count = bytes + 1,
-        );
-
-        offset += bytes + 1;
+        trusted internal advance_native_text_cursor(&mut cursor);
         index += 1;
     }
-
-    trusted std.memory.set_initialized_count<u8>(&mut buffer, count = total);
 
     return buffer;
 }
@@ -189,7 +283,8 @@ trusted internal func read_descriptor_to_end(pos descriptor: i32) -> std.memory.
             }
         }
 
-        let result: isize = trusted internal read_context_buffer(descriptor, &mut buffer);
+        let observed: (isize, usize) = trusted internal read_context_buffer(descriptor, &mut buffer);
+        let result: isize = observed.0;
 
         if result < 0
         {
@@ -206,7 +301,7 @@ trusted internal func read_descriptor_to_end(pos descriptor: i32) -> std.memory.
             break;
         }
 
-        trusted internal record_context_read(&mut buffer, count = std.truncate_to<usize>(result));
+        trusted std.memory.set_initialized_count<u8>(&mut buffer, count = observed.1);
     }
 
     if trusted internal context_buffer_needs_terminator(&buffer)
@@ -227,70 +322,92 @@ trusted internal func read_descriptor_to_end(pos descriptor: i32) -> std.memory.
     return buffer;
 }
 
-trusted internal func fill_working_directory(pos buffer: &mut std.memory.RawBuffer<u8>, capacity: usize) -> bool
-{
-    return !std.memory.is_null<u8>(trusted std.os.unix.working_directory(buffer.pointer, capacity = capacity));
-}
-
-trusted internal func context_buffer_terminated_length(pos buffer: &std.memory.RawBuffer<u8>, limit: usize) -> usize
-{
-    return trusted internal terminated_byte_length(std.memory.pointer<u8>(buffer), limit = limit);
-}
-
-trusted internal func read_context_buffer(pos descriptor: i32, pos buffer: &mut std.memory.RawBuffer<u8>) -> isize
-{
-    return trusted std.os.unix.read(
-        descriptor,
-        destination = std.memory.offset<u8>(buffer.pointer, elements = std.truncate_to<isize>(buffer.initialized)),
-        length = buffer.capacity - buffer.initialized,
-    );
-}
-
-trusted internal func record_context_read(pos buffer: &mut std.memory.RawBuffer<u8>, count: usize) -> unit
+trusted internal func fill_working_directory(pos buffer: &mut std.memory.RawBuffer<u8>) -> (bool, usize)
+    ensures(trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result.1))
 {
     let initialized: usize = buffer.initialized;
+    let capacity: usize = buffer.capacity - initialized;
 
-    trusted std.memory.set_initialized_count<u8>(&mut buffer, count = initialized + count);
+    if capacity == 0
+    {
+        return (false, initialized);
+    }
+
+    let pointer: RawPointer<u8> = trusted std.os.unix.working_directory(
+        trusted std.memory.spare_pointer<u8>(buffer),
+        capacity = capacity,
+    );
+
+    if core.memory.is_null<u8>(pointer)
+    {
+        return (false, initialized);
+    }
+
+    let length: usize = trusted internal terminated_byte_length(pointer, limit = capacity);
+
+    return (true, initialized + length);
+}
+
+trusted internal func read_context_buffer(
+    pos descriptor: i32,
+    pos buffer: &mut std.memory.RawBuffer<u8>
+) -> (isize, usize)
+    ensures(trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result.1))
+{
+    let initialized: usize = buffer.initialized;
+    let available: usize = buffer.capacity - initialized;
+
+    let result: isize = trusted std.os.unix.read(
+        descriptor,
+        destination = trusted std.memory.spare_pointer<u8>(buffer),
+        length = available,
+    );
+
+    if result < 0
+    {
+        return (result, initialized);
+    }
+
+    let count: usize = std.truncate_to<usize>(result);
+
+    assert(count <= available, "native read exceeds spare storage");
+
+    return (result, initialized + count);
 }
 
 trusted internal func context_buffer_needs_terminator(pos buffer: &std.memory.RawBuffer<u8>) -> bool
 {
-    let length: usize = std.memory.initialized_count<u8>(buffer);
+    let bytes: &[u8] = trusted std.memory.initialized_slice<u8>(buffer);
+    let length: usize = bytes.length();
 
-    return length > 0 && trusted internal std.memory.byte_buffer_read(
-        std.memory.pointer<u8>(buffer),
-        index = length - 1
-    ) != 0;
+    if length == 0
+    {
+        return false;
+    }
+
+    return bytes[length - 1] != 0;
 }
 
 trusted internal func append_context_terminator(pos buffer: &mut std.memory.RawBuffer<u8>) -> unit
 {
-    let length: usize = buffer.initialized;
-
-    trusted internal std.memory.byte_buffer_fill(
-        std.memory.offset<u8>(buffer.pointer, elements = std.truncate_to<isize>(length)),
-        value = 0,
-        count = 1,
-    );
-
-    trusted std.memory.set_initialized_count<u8>(&mut buffer, count = length + 1);
+    trusted internal std.memory.initialize_spare<u8>(buffer, 0);
 }
 
 trusted internal func terminated_byte_length(pos pointer: RawPointer<u8>, limit: usize) -> usize
+    requires(trusted core.memory.nul_terminated_read(pointer = pointer))
+    ensures(
+        trusted core.memory.valid_read<u8>(pointer = pointer, count = result + 1),
+        trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = result + 1),
+    )
 {
-    let mut length: usize = 0;
+    let length: usize = trusted std.os.unix.narrow_string_length(pointer, limit);
 
-    while length < limit
+    if length == limit
     {
-        if trusted internal std.memory.byte_buffer_read(pointer, index = length) == 0
-        {
-            return length;
-        }
-
-        length += 1;
+        panic("the platform process context contains invalid native text");
     }
 
-    panic("the platform process context contains invalid native text");
+    return length;
 }
 
 trusted internal func descriptor_read(
@@ -299,21 +416,55 @@ trusted internal func descriptor_read(
     length: u64,
     transferred: RawPointer<u64>,
 ) -> PlatformStatus
+    requires(
+        length == 0 || trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize),
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
+    ensures(trusted core.memory.initialized_as<u64>(pointer = transferred))
 {
-    trusted std.memory.write<u64>(transferred, value = 0);
-
-    if length == 0
-    {
-        return internal success_status();
-    }
-
-    let count: isize = trusted std.os.unix.read(
+    let observed: (PlatformStatus, u64) = trusted internal prepare_descriptor_read(
         descriptor,
         destination = destination,
-        length = internal descriptor_request_length(length),
+        length = length,
+        transferred = transferred,
     );
 
-    return trusted internal descriptor_transfer_result(count, transferred = transferred);
+    trusted std.memory.write<u64>(transferred, value = observed.1);
+
+    return observed.0;
+}
+
+trusted internal func prepare_descriptor_read(
+    pos descriptor: i32,
+    destination: RawPointer<u8>,
+    length: u64,
+    transferred: RawPointer<u64>,
+) -> (PlatformStatus, u64)
+    requires(
+        length == 0 || trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize),
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
+    ensures(
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
+{
+    if length == 0
+    {
+        return (internal success_status(), 0);
+    }
+
+    let requested: usize = internal descriptor_request_length(length);
+    let count: isize = trusted std.os.unix.read(descriptor, destination = destination, length = requested);
+
+    if count < 0
+    {
+        return (trusted unix_error_status(), 0);
+    }
+
+    return (internal success_status(), std.truncate_to<u64>(count));
 }
 
 trusted internal func descriptor_write(
@@ -322,52 +473,75 @@ trusted internal func descriptor_write(
     length: u64,
     transferred: RawPointer<u64>,
 ) -> PlatformStatus
+    requires(
+        length == 0 || trusted core.memory.valid_read<u8>(pointer = source, count = length as usize),
+        length == 0 || trusted core.memory.initialized_range_as<u8>(pointer = source, count = length as usize),
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
+    ensures(trusted core.memory.initialized_as<u64>(pointer = transferred))
 {
-    trusted std.memory.write<u64>(transferred, value = 0);
-
-    if length == 0
-    {
-        return internal success_status();
-    }
-
-    let count: isize = trusted std.os.unix.write(
+    let observed: (PlatformStatus, u64) = trusted internal prepare_descriptor_write(
         descriptor,
         source = source,
-        length = internal descriptor_request_length(length),
+        length = length,
+        transferred = transferred,
     );
 
-    return trusted internal descriptor_transfer_result(count, transferred = transferred);
+    trusted std.memory.write<u64>(transferred, value = observed.1);
+
+    return observed.0;
 }
 
-internal func descriptor_request_length(pos length: u64) -> usize
+trusted internal func prepare_descriptor_write(
+    pos descriptor: i32,
+    source: RawPointer<u8>,
+    length: u64,
+    transferred: RawPointer<u64>,
+) -> (PlatformStatus, u64)
+    requires(
+        length == 0 || trusted core.memory.valid_read<u8>(pointer = source, count = length as usize),
+        length == 0 || trusted core.memory.initialized_range_as<u8>(pointer = source, count = length as usize),
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
+    ensures(
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
+{
+    if length == 0
+    {
+        return (internal success_status(), 0);
+    }
+
+    let requested: usize = internal descriptor_request_length(length);
+    let count: isize = trusted std.os.unix.write(descriptor, source = source, length = requested);
+
+    if count < 0
+    {
+        return (trusted unix_error_status(), 0);
+    }
+
+    return (internal success_status(), std.truncate_to<u64>(count));
+}
+
+internal const func descriptor_request_length(pos length: u64) -> usize
+    executes(pure, total)
+    ensures(result <= length as usize)
 {
     let maximum: u64 = 9_223_372_036_854_775_807;
 
-    return std.truncate_to<usize>(
-        if length > maximum
-        {
-            yield maximum;
-        }
-        else
-        {
-            yield length;
-        }
-    );
-}
-
-trusted internal func descriptor_transfer_result(pos count: isize, transferred: RawPointer<u64>) -> PlatformStatus
-{
-    if count < 0
+    if length > maximum
     {
-        return trusted unix_error_status();
+        return maximum as usize;
     }
 
-    trusted std.memory.write<u64>(transferred, value = std.truncate_to<u64>(count));
-
-    return internal success_status();
+    return length as usize;
 }
 
 internal func checked_descriptor(pos handle: u64) -> Result<i32, PlatformStatus>
+    executes(pure, total)
 {
     if handle > 2_147_483_647
     {

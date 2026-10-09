@@ -365,6 +365,16 @@ impl StoragePlan {
             .map(|access| access.logical_root)
     }
 
+    /// Returns the physical storage roots retained through an access's borrow capabilities.
+    pub fn retained_roots(
+        &self,
+        access: StorageAccessId,
+    ) -> impl Iterator<Item = StorageIdentityId> + '_ {
+        self.resolved_access(access)
+            .into_iter()
+            .flat_map(|access| access.paths.iter().map(|path| path.root))
+    }
+
     /// Returns the complete resolved projection path reached by one access.
     pub fn resolved_projections(&self, access: StorageAccessId) -> Option<&[StorageProjection]> {
         self.resolved_access(access)
@@ -900,6 +910,13 @@ mod tests {
             .unwrap();
 
         let plan = builder.finish();
+
+        assert_eq!(plan.root_identity(child_access), Some(retained));
+
+        assert_eq!(
+            plan.retained_roots(child_access).collect::<Vec<_>>(),
+            [owner]
+        );
 
         assert_eq!(
             plan.relationship(first, second),

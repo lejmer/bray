@@ -1,6 +1,6 @@
 use bray_bound_tree::BoundReferenceTarget;
 use bray_symbols::{
-    AnySymbolId, ConstantProjection, ConstantProjectionKind, ConstantTermData, ConstantTermId,
+    ConstantProjection, ConstantProjectionKind, ConstantTermData, ConstantTermId,
     ConstantValueData, ConstantValueKind, SemanticValueStore, SemanticValueStoreError,
     SymbolOrdinal, TypeId,
 };
@@ -189,39 +189,26 @@ fn encode(
                 arguments: arguments.into(),
             }
         }
-        ExecutionCondition::Field(field, value) => {
+        ExecutionCondition::Projection(field, value) => {
             let Some(value) = encode(values, value, inputs, boolean_type, budget)? else {
                 return Ok(None);
             };
 
-            return field_term(values, value, *field);
+            return values
+                .intern_constant_term(ConstantTermData::Projection(ConstantProjection::new(
+                    value, *field,
+                )))
+                .map(Some);
         }
         ExecutionCondition::Unknown
         | ExecutionCondition::Constructed(_, _)
         | ExecutionCondition::Expression(_)
         | ExecutionCondition::ScopedCapability(_)
-        | ExecutionCondition::PostState(_, _) => return Ok(None),
+        | ExecutionCondition::PostState(_, _)
+        | ExecutionCondition::Joined(_, _, _) => return Ok(None),
     };
 
     values.intern_constant_term(data).map(Some)
-}
-
-fn field_term(
-    values: &SemanticValueStore,
-    subject: ConstantTermId,
-    field: AnySymbolId,
-) -> Result<Option<ConstantTermId>, SemanticValueStoreError> {
-    let kind = match field {
-        AnySymbolId::StructField(field) => ConstantProjectionKind::ProductField(field),
-        AnySymbolId::UnionPayloadField(field) => ConstantProjectionKind::UnionPayloadField(field),
-        _ => return Ok(None),
-    };
-
-    values
-        .intern_constant_term(ConstantTermData::Projection(ConstantProjection::new(
-            subject, kind,
-        )))
-        .map(Some)
 }
 
 /// Restores a portable condition using the supplied callable's semantic input identities.
@@ -352,29 +339,7 @@ fn decode(
                 .collect::<Result<Vec<_>, _>>()?,
         ),
         ConstantTermData::Projection(projection) => {
-            if let ConstantProjectionKind::TupleElement(index) = projection.kind() {
-                return Ok(decode(values, projection.subject(), inputs, budget)?
-                    .project(bray_bound_tree::StorageProjection::TupleElement(index)));
-            }
-
-            if let ConstantProjectionKind::ArrayElementOrdinal(index) = projection.kind() {
-                return Ok(decode(values, projection.subject(), inputs, budget)?
-                    .project(bray_bound_tree::StorageProjection::ElementFromStart(index)));
-            }
-
-            let field = match projection.kind() {
-                ConstantProjectionKind::ProductField(field) => Some(field.into()),
-                ConstantProjectionKind::UnionPayloadField(field) => Some(field.into()),
-                _ => None,
-            };
-
-            match field {
-                Some(field) => ExecutionCondition::field(
-                    field,
-                    decode(values, projection.subject(), inputs, budget)?,
-                ),
-                None => ExecutionCondition::Unknown,
-            }
+            decode(values, projection.subject(), inputs, budget)?.component(projection.kind())
         }
         _ => ExecutionCondition::Unknown,
     })

@@ -66,9 +66,9 @@ fn public_constant_callables_round_trip_as_implementation_bodies() {
         r#"
             module math;
 
-            const func selected(pos value: i32) -> i32
+            const func selected(pos value: u8) -> u32
             {
-                return value;
+                return value as u32;
             }
         "#,
     );
@@ -153,7 +153,7 @@ fn public_constant_callables_round_trip_as_implementation_bodies() {
 
             using example.package.math.selected;
 
-            const result: i32 = example.package.math.selected(37);
+            const result: u32 = example.package.math.selected(37);
         "#,
     );
 

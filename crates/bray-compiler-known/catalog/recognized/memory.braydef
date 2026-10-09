@@ -118,6 +118,7 @@ scope StandardMemory at std.memory {
 
         surface {
             trusted func pointer_from_callable<F>(pos value: F) -> RawPointer<F>
+                ensures(trusted core.memory.callable_address_valid<F>(pointer = result))
                 uses(layout_reinterpret);
         }
     }
@@ -257,7 +258,7 @@ scope StandardMemory at std.memory {
                 pos storage: &mut Uninit<T>,
                 pos value: T,
             ) -> &mut T
-                ensures(trusted core.memory.uninit_initialized<T>(storage = storage));
+                ensures(trusted core.memory.uninit_initialized<T>(storage = &storage));
         }
     }
 
@@ -268,7 +269,7 @@ scope StandardMemory at std.memory {
 
         surface {
             trusted func assume_initialized<T>(pos mut storage: Uninit<T>) -> T
-                requires(trusted core.memory.uninit_initialized<T>(storage = &mut storage))
+                requires(trusted core.memory.uninit_initialized<T>(storage = &storage))
                 uses(unchecked_init);
         }
     }
@@ -280,7 +281,7 @@ scope StandardMemory at std.memory {
 
         surface {
             trusted func move_initialized<T>(pos storage: &mut Uninit<T>) -> T
-                requires(trusted core.memory.uninit_initialized<T>(storage = storage))
+                requires(trusted core.memory.uninit_initialized<T>(storage = &storage))
                 uses(unchecked_init);
         }
     }
@@ -521,13 +522,51 @@ scope StandardMemory at std.memory {
         }
     }
 
+    declaration StandardMemoryRawBufferPush {
+        identity name raw_buffer_push;
+        availability Allocation;
+        implementation RawBufferPush;
+
+        surface {
+            trusted internal func raw_buffer_push<T>(pos buffer: &mut RawBuffer<T>, pos value: T) -> unit
+                requires(buffer.initialized < buffer.capacity)
+                uses(raw_memory, unchecked_init);
+        }
+    }
+
+    declaration StandardMemoryRawBufferPop {
+        identity name raw_buffer_pop;
+        availability Allocation;
+        implementation RawBufferPop;
+
+        surface {
+            trusted internal func raw_buffer_pop<T>(pos buffer: &mut RawBuffer<T>) -> T
+                requires(buffer.initialized > 0)
+                uses(raw_memory, unchecked_init);
+        }
+    }
+
+    declaration StandardMemoryAllocateBuffer {
+        identity name allocate_buffer;
+        availability Allocation;
+        implementation RawBufferAllocate;
+
+        surface {
+            trusted internal func allocate_buffer<T>(capacity: usize, bytes: usize, align: usize) -> RawBuffer<T>
+                requires(bytes == stride_of<T>() * capacity, align == align_of<T>())
+                ensures(result.capacity == capacity, result.initialized == 0)
+                uses(manual_alloc);
+        }
+    }
+
     declaration StandardMemoryCapacity {
         identity name capacity;
         availability Allocation;
         implementation RawBufferCapacity;
 
         surface {
-            func capacity<T>(pos buffer: &RawBuffer<T>) -> usize;
+            func capacity<T>(pos buffer: &RawBuffer<T>) -> usize
+                ensures(result == buffer.capacity);
         }
     }
 
@@ -537,7 +576,12 @@ scope StandardMemory at std.memory {
         implementation RawBufferInitializedCount;
 
         surface {
-            func initialized_count<T>(pos buffer: &RawBuffer<T>) -> usize;
+            func initialized_count<T>(pos buffer: &RawBuffer<T>) -> usize
+                ensures(
+                    result == buffer.initialized,
+                    result <= buffer.capacity,
+                    trusted core.memory.initialized_range_as<T>(pointer = buffer.pointer, count = result),
+                );
         }
     }
 
@@ -560,6 +604,7 @@ scope StandardMemory at std.memory {
             trusted func initialized_slice<T>(
                 pos buffer: &RawBuffer<T>,
             ) -> &[T]
+                executes(pure, total)
                 uses(raw_memory);
         }
     }
@@ -573,6 +618,7 @@ scope StandardMemory at std.memory {
             trusted func initialized_slice_mut<T>(
                 pos buffer: &mut RawBuffer<T>,
             ) -> &mut [T]
+                executes(pure, total)
                 uses(raw_memory);
         }
     }
@@ -632,21 +678,8 @@ scope StandardMemory at std.memory {
                 value: u8,
                 count: usize,
             ) -> unit
-                uses(raw_memory, unchecked_init);
-        }
-    }
-
-    declaration StandardMemoryByteBufferCopy {
-        identity name byte_buffer_copy;
-        availability Allocation;
-        implementation ByteBufferCopy;
-
-        surface {
-            trusted internal func byte_buffer_copy(
-                pos source: RawPointer<u8>,
-                pos destination: RawPointer<u8>,
-                count: usize,
-            ) -> unit
+                requires(trusted core.memory.valid_write<u8>(pointer = destination, count = count))
+                ensures(trusted core.memory.initialized_range_as<u8>(pointer = destination, count = count))
                 uses(raw_memory, unchecked_init);
         }
     }
@@ -712,6 +745,10 @@ scope StandardMemory at std.memory {
                 pos pointer: RawPointer<u8>,
                 index: usize,
             ) -> u8
+                requires(
+                    (trusted core.memory.valid_read<u8>(pointer = pointer, count = index + 1)) && index != 18_446_744_073_709_551_615,
+                    trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = index + 1),
+                )
                 uses(raw_memory);
         }
     }

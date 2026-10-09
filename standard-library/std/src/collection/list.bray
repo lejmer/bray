@@ -31,35 +31,28 @@ struct List<T>
 
 trusted internal func push_available<T>(pos list: &mut List<T>, pos value: T) -> unit
 {
-    let current_length: usize = list.storage.initialized;
-
-    let destination: RawPointer<T> = trusted std.memory.spare_pointer<T>(&mut list.storage);
-
-    trusted std.memory.write<T>(destination, value);
-    trusted std.memory.set_initialized_count<T>(buffer = &mut list.storage, count = current_length + 1);
+    trusted internal std.memory.initialize_spare<T>(&mut list.storage, value);
 }
 
 trusted internal func take_last<T>(pos list: &mut List<T>) -> T
 {
-    let current_length: usize = list.storage.initialized;
-
-    let value: T =
-    {
-        let values: &mut [T] = trusted std.memory.initialized_slice_mut<T>(&mut list.storage);
-        let pointer: RawPointer<T> = std.memory.address_of_mut<T>(&mut values[current_length - 1]);
-        let result: T = trusted std.memory.read<T>(pointer);
-
-        yield result;
-    };
-
-    trusted std.memory.set_initialized_count<T>(buffer = &mut list.storage, count = current_length - 1);
-
-    return value;
+    return trusted internal std.memory.take_last<T>(&mut list.storage);
 }
 
 trusted internal func swap_at<T>(pos list: &mut List<T>, left: usize, right: usize) -> unit
 {
     let values: &mut [T] = trusted std.memory.initialized_slice_mut<T>(&mut list.storage);
+
+    if left >= values.length() || right >= values.length()
+    {
+        panic("swap indexes must identify initialized elements");
+    }
+
+    if left == right
+    {
+        return unit;
+    }
+
     let left_pointer: RawPointer<T> = std.memory.address_of_mut<T>(&mut values[left]);
     let temporary: T = trusted std.memory.read<T>(left_pointer);
     let right_pointer: RawPointer<T> = std.memory.address_of_mut<T>(&mut values[right]);

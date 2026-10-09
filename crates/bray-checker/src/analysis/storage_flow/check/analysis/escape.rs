@@ -231,7 +231,12 @@ where
                     ))?;
 
             let Some(borrow) = record.root().borrow_capability() else {
-                return Ok(false);
+                return Ok(matches!(
+                    self.storage
+                        .root_identity(access)
+                        .and_then(|root| self.storage.identity(root)),
+                    Some(bray_bound_tree::StorageIdentity::Static(_))
+                ));
             };
 
             let capability = self.storage.borrow_capability(borrow).ok_or(

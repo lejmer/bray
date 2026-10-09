@@ -511,6 +511,11 @@
           "dependencies": [
             "foreign_call",
             "raw_memory"
+          ],
+          "requires": [
+            "trusted core.memory.wide_nul_terminated_read(pointer = command_line)",
+            "trusted core.memory.valid_write<i32>(pointer = count, count = 1)",
+            "trusted core.memory.aligned_for<i32>(pointer = count)"
           ]
         },
         {
@@ -1071,6 +1076,9 @@
           "initialization": "released storage becomes unavailable",
           "dependencies": [
             "foreign_call"
+          ],
+          "executes": [
+            "total"
           ]
         },
         {
@@ -1087,6 +1095,9 @@
           "dependencies": [
             "foreign_call",
             "raw_memory"
+          ],
+          "ensures": [
+            "trusted core.memory.wide_nul_terminated_read(pointer = result)"
           ]
         },
         {
@@ -1275,6 +1286,9 @@
           "initialization": "released storage becomes unavailable",
           "dependencies": [
             "foreign_call"
+          ],
+          "executes": [
+            "total"
           ]
         },
         {
@@ -1480,6 +1494,38 @@
             "blocking_execution",
             "foreign_call",
             "native_thread"
+          ]
+        },
+        {
+          "name": "wide_string_length",
+          "native": "lstrlenW",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "text",
+              "type": "RawPointer<u16>",
+              "native_type": "LPCWSTR"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "Kernel32",
+          "error_state": "returns the number of UTF-16 code units before the terminator",
+          "ownership": "the caller retains terminated text storage",
+          "initialization": "no output storage",
+          "requires": [
+            "trusted core.memory.wide_nul_terminated_read(pointer = text)"
+          ],
+          "ensures": [
+            "trusted core.memory.wide_nul_terminated_read(pointer = text)"
+          ],
+          "executes": [
+            "pure",
+            "total"
+          ],
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
           ]
         }
       ]

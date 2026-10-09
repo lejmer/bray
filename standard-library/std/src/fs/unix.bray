@@ -8,6 +8,11 @@ trusted internal func platform_file_read(
     pos length: u64,
     pos transferred: RawPointer<u64>,
 ) -> std.platform.PlatformStatus
+    requires(
+        length == 0 || trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize),
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
 {
     let native_descriptor: i32 = match internal std.platform.checked_descriptor(handle)
     {
@@ -30,6 +35,12 @@ trusted internal func platform_file_write(
     pos length: u64,
     pos transferred: RawPointer<u64>,
 ) -> std.platform.PlatformStatus
+    requires(
+        length == 0 || trusted core.memory.valid_read<u8>(pointer = source, count = length as usize),
+        length == 0 || trusted core.memory.initialized_range_as<u8>(pointer = source, count = length as usize),
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
 {
     let native_descriptor: i32 = match internal std.platform.checked_descriptor(handle)
     {
@@ -62,18 +73,25 @@ trusted internal func platform_file_flush(pos handle: u64) -> std.platform.Platf
     return internal std.platform.success_status();
 }
 
-@abi(c)
-trusted internal func platform_file_seek(
+trusted internal func prepare_file_seek(
     pos handle: u64,
     pos offset_bits: u64,
     pos origin: u32,
     pos position: RawPointer<u64>,
-) -> std.platform.PlatformStatus
+) -> Result<u64, std.platform.PlatformStatus>
+    requires(
+        trusted core.memory.valid_write<u64>(pointer = position, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = position),
+    )
+    ensures(
+        trusted core.memory.valid_write<u64>(pointer = position, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = position),
+    )
 {
     let native_descriptor: i32 = match internal std.platform.checked_descriptor(handle)
     {
         case Ok(value) { yield value; }
-        case Error(status) { return status; }
+        case Error(status) { return Error(status); }
     };
 
     let native_origin: i32 = match origin
@@ -82,14 +100,14 @@ trusted internal func platform_file_seek(
         {
             if offset_bits > 9_223_372_036_854_775_807
             {
-                return internal std.platform.invalid_input_status();
+                return Error(internal std.platform.invalid_input_status());
             }
 
             yield std.os.unix.SEEK_START;
         }
         case 1 { yield std.os.unix.SEEK_CURRENT; }
         case 2 { yield std.os.unix.SEEK_END; }
-        case _ { return internal std.platform.invalid_input_status(); }
+        case _ { return Error(internal std.platform.invalid_input_status()); }
     };
 
     let result: i64 = trusted std.os.unix.seek(
@@ -100,12 +118,10 @@ trusted internal func platform_file_seek(
 
     if result < 0
     {
-        return trusted internal std.platform.unix_error_status();
+        return Error(trusted internal std.platform.unix_error_status());
     }
 
-    trusted std.memory.write<u64>(position, value = std.truncate_to<u64>(result));
-
-    return internal std.platform.success_status();
+    return Ok(std.truncate_to<u64>(result));
 }
 
 @abi(c)
@@ -125,17 +141,26 @@ trusted internal func platform_file_close(pos handle: u64) -> std.platform.Platf
     return internal std.platform.success_status();
 }
 
-@abi(c)
-trusted internal func platform_file_open(
+trusted internal func prepare_file_open(
     pos path: PlatformPath,
     pos options: PlatformFileOptions,
     pos opened: RawPointer<u64>,
-) -> std.platform.PlatformStatus
+) -> Result<u64, std.platform.PlatformStatus>
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.valid_write<u64>(pointer = opened, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = opened),
+    )
+    ensures(
+        trusted core.memory.valid_write<u64>(pointer = opened, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = opened),
+    )
 {
     let flags: i32 = match open_flags(options)
     {
         case Ok(flags) { yield flags; }
-        case Error(status) { return status; }
+        case Error(status) { return Error(status); }
     };
 
     let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
@@ -153,19 +178,21 @@ trusted internal func platform_file_open(
 
             if native_descriptor < 0
             {
-                return trusted internal std.platform.unix_error_status();
+                return Error(trusted internal std.platform.unix_error_status());
             }
 
-            trusted std.memory.write<u64>(opened, value = std.truncate_to<u64>(native_descriptor));
-
-            return internal std.platform.success_status();
+            return Ok(std.truncate_to<u64>(native_descriptor));
         }
-        case Error(status) { return status; }
+        case Error(status) { return Error(status); }
     }
 }
 
 @abi(c)
 trusted internal func platform_path_create_directory(pos path: PlatformPath) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+    )
 {
     let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
         trusted internal std.platform.terminated_native_text(path.address, length = path.length, terminator_bytes = 1);
@@ -184,6 +211,10 @@ trusted internal func platform_path_create_directory(pos path: PlatformPath) -> 
 
 @abi(c)
 trusted internal func platform_path_remove_file(pos path: PlatformPath) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+    )
 {
     let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
         trusted internal std.platform.terminated_native_text(path.address, length = path.length, terminator_bytes = 1);
@@ -200,6 +231,10 @@ trusted internal func platform_path_remove_file(pos path: PlatformPath) -> std.p
 
 @abi(c)
 trusted internal func platform_path_remove_directory(pos path: PlatformPath) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+    )
 {
     let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
         trusted internal std.platform.terminated_native_text(path.address, length = path.length, terminator_bytes = 1);
@@ -219,15 +254,17 @@ trusted internal func platform_path_remove_directory(pos path: PlatformPath) -> 
 @abi(c)
 trusted internal func platform_path_rename(
     pos source: PlatformPath,
-    pos destination: PlatformPath,
+    pos new_path: PlatformPath,
 ) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = source.address, count = source.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = source.address, count = source.length as usize),
+        trusted core.memory.valid_read<u8>(pointer = new_path.address, count = new_path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = new_path.address, count = new_path.length as usize),
+    )
 {
     let terminated_source: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
-        trusted internal std.platform.terminated_native_text(
-        source.address,
-        length = source.length,
-        terminator_bytes = 1,
-    );
+        trusted internal prepare_rename_source(&source, &new_path);
 
     match consume terminated_source
     {
@@ -235,8 +272,8 @@ trusted internal func platform_path_rename(
         {
             let terminated_destination: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
                 trusted internal std.platform.terminated_native_text(
-                destination.address,
-                length = destination.length,
+                new_path.address,
+                length = new_path.length,
                 terminator_bytes = 1,
             );
 
@@ -256,13 +293,14 @@ trusted internal func platform_path_rename(
 }
 
 internal func open_flags(pos options: PlatformFileOptions) -> Result<i32, std.platform.PlatformStatus>
+    executes(pure, total)
 {
     if options.reserved != 0
     {
         return Error(internal std.platform.invalid_input_status());
     }
 
-    let mut flags: i32 = match options.access
+    let access: i32 = match options.access
     {
         case 0 { yield std.os.unix.O_RDONLY; }
         case 1 { yield std.os.unix.O_WRONLY; }
@@ -271,13 +309,11 @@ internal func open_flags(pos options: PlatformFileOptions) -> Result<i32, std.pl
         case _ { return Error(internal std.platform.invalid_input_status()); }
     };
 
-    flags |= std.os.unix.O_CLOEXEC;
-
-    match options.creation
+    let creation: i32 = match options.creation
     {
-        case 0 {}
-        case 1 { flags |= std.os.unix.O_CREAT; }
-        case 2 { flags |= std.os.unix.O_CREAT | std.os.unix.O_EXCL; }
+        case 0 { yield 0; }
+        case 1 { yield std.os.unix.O_CREAT; }
+        case 2 { yield std.os.unix.O_CREAT | std.os.unix.O_EXCL; }
         case 3
         {
             if options.access == 0
@@ -285,7 +321,7 @@ internal func open_flags(pos options: PlatformFileOptions) -> Result<i32, std.pl
                 return Error(internal std.platform.invalid_input_status());
             }
 
-            flags |= std.os.unix.O_TRUNC;
+            yield std.os.unix.O_TRUNC;
         }
         case 4
         {
@@ -294,12 +330,12 @@ internal func open_flags(pos options: PlatformFileOptions) -> Result<i32, std.pl
                 return Error(internal std.platform.invalid_input_status());
             }
 
-            flags |= std.os.unix.O_CREAT | std.os.unix.O_TRUNC;
+            yield std.os.unix.O_CREAT | std.os.unix.O_TRUNC;
         }
         case _ { return Error(internal std.platform.invalid_input_status()); }
-    }
+    };
 
-    return Ok(flags);
+    return Ok(access | creation | std.os.unix.O_CLOEXEC);
 }
 
 trusted internal func path_operation_status(pos result: i32) -> std.platform.PlatformStatus
@@ -321,18 +357,21 @@ trusted internal func platform_file_metadata_value(pos handle: u64) -> Result<Fi
     };
 
     let mut storage: [u64; 18] = [0; 18];
-    let data: RawPointer<u8> = trusted internal unix_status_storage(std.memory.address_of_mut<u64>(&mut storage[0]));
+    let data: RawPointer<u8> = trusted internal unix_status_storage(&mut storage);
 
     if trusted std.os.unix.file_status(native_descriptor, status = data) != 0
     {
         return Error(trusted internal unix_io_error());
     }
 
-    return trusted internal unix_metadata(data);
+    return trusted internal unix_metadata(&storage[..]);
 }
 
 trusted internal func platform_path_metadata_value(pos path: PlatformPath) -> Result<FileMetadata, std.io.IoError>
-    uses(foreign_call)
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+    )
 {
     let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
         trusted internal std.platform.terminated_native_text(path.address, length = path.length, terminator_bytes = 1);
@@ -343,16 +382,14 @@ trusted internal func platform_path_metadata_value(pos path: PlatformPath) -> Re
         {
             let mut storage: [u64; 18] = [0; 18];
 
-            let data: RawPointer<u8> = trusted internal unix_status_storage(
-                std.memory.address_of_mut<u64>(&mut storage[0])
-            );
+            let data: RawPointer<u8> = trusted internal unix_status_storage(&mut storage);
 
             if trusted std.os.unix.path_status(terminated_path.pointer, status = data) != 0
             {
                 return Error(trusted internal unix_io_error());
             }
 
-            return trusted internal unix_metadata(data);
+            return trusted internal unix_metadata(&storage[..]);
         }
         case Error(status) { return Error(internal std.io.platform_status_error(status)); }
     }
@@ -365,9 +402,12 @@ trusted internal func platform_directory_state_capacity() -> usize
 
 trusted internal func platform_directory_open(
     pos path: PlatformPath,
-    pos state: RawPointer<u8>,
+    pos state: &mut [u64],
 ) -> Result<u64, std.io.IoError>
-    uses(foreign_call)
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+    )
 {
     let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
         trusted internal std.platform.terminated_native_text(path.address, length = path.length, terminator_bytes = 1);
@@ -391,8 +431,8 @@ trusted internal func platform_directory_open(
 
 trusted internal func platform_directory_next(
     pos handle: u64,
-    pos state: RawPointer<u8>,
-    pos first: RawPointer<u8>,
+    pos state: &mut [u64],
+    pos first: &mut u8,
 ) -> Result<DirectoryEntry?, std.io.IoError>
     uses(foreign_call)
 {
@@ -408,9 +448,9 @@ trusted internal func platform_directory_next(
     {
         trusted internal std.platform.clear_unix_error();
 
-        let native_entry: RawPointer<u8> = trusted std.os.unix.read_directory(directory);
+        let name: RawPointer<u8> = trusted internal next_unix_directory_name(directory);
 
-        if std.memory.is_null<u8>(native_entry)
+        if core.memory.is_null<u8>(name)
         {
             if trusted internal std.platform.unix_error_code() != 0
             {
@@ -422,27 +462,24 @@ trusted internal func platform_directory_next(
             return Ok(exhausted);
         }
 
-        let name: RawPointer<u8> = std.memory.byte_offset<u8>(
-            native_entry,
-            bytes = std.truncate_to<isize>(std.os.unix.DIRECTORY_NAME_OFFSET),
-        );
+        let observed: (bool, usize) = trusted internal unix_directory_name_length(name);
 
-        let length: usize = match trusted internal unix_directory_name_length(name)
+        if !observed.0
         {
-            case ?value { yield value; }
-            case none { return Error(internal std.io.invalid_transfer_error()); }
-        };
+            return Error(internal std.io.invalid_transfer_error());
+        }
+
+        let length: usize = observed.1;
 
         if trusted internal unix_dot_entry(name, length = length)
         {
             continue;
         }
 
+        let path: std.path.Path = try trusted internal directory_entry_path(name, bytes = length);
         let mut storage: [u64; 18] = [0; 18];
 
-        let data: RawPointer<u8> = trusted internal unix_status_storage(
-            std.memory.address_of_mut<u64>(&mut storage[0])
-        );
+        let data: RawPointer<u8> = trusted internal unix_status_storage(&mut storage);
 
         if trusted std.os.unix.file_status_at(descriptor, name, status = data, flags = 0) != 0
         {
@@ -451,8 +488,8 @@ trusted internal func platform_directory_next(
 
         let entry: DirectoryEntry =
         {
-            path = try trusted internal directory_entry_path(name, bytes = length),
-            metadata = try trusted internal unix_metadata(data),
+            path = path,
+            metadata = try trusted internal unix_metadata(&storage[..]),
         };
 
         let mut result: DirectoryEntry? = none;
@@ -478,26 +515,45 @@ trusted internal func platform_directory_discard(pos handle: u64) -> unit
     let _: i32 = trusted std.os.unix.close_directory(trusted internal std.platform.handle_pointer(handle));
 }
 
-trusted internal func unix_status_storage(pos storage: RawPointer<u64>) -> RawPointer<u8>
+trusted internal func unix_status_storage(pos storage: &mut [u64; 18]) -> RawPointer<u8>
+    ensures(
+        trusted core.memory.valid_write<u8>(pointer = result, count = 144),
+        trusted core.memory.initialized_range_as<u8>(pointer = result, count = 144),
+    )
 {
-    return trusted std.memory.reinterpret<u8, u64>(storage);
+    assert(std.os.unix.FILE_STATUS_SIZE <= 144, "native file status exceeds its storage");
+
+    return trusted std.memory.reinterpret<u8, u64>(std.memory.address_of_mut<u64>(&mut storage[0]));
 }
 
-trusted internal func unix_metadata(pos data: RawPointer<u8>) -> Result<FileMetadata, std.io.IoError>
+internal func unix_status_value(pos storage: &[u64], offset: usize, bytes: usize) -> u64
 {
-    if std.memory.is_null<u8>(data)
+    assert(bytes <= 8, "native file status field exceeds its value width");
+
+    let mut value: u64 = 0;
+    let mut byte: usize = 0;
+
+    while byte < bytes
     {
-        return Error(internal std.io.invalid_transfer_error());
+        let position: usize = offset + byte;
+        let shift: u64 = (position % 8) as u64 * 8;
+        let part: u64 = storage[position / 8] >> shift & 255;
+
+        value |= part << (byte as u64 * 8);
+        byte += 1;
     }
 
-    let mode: u32 = trusted internal std.platform.read_native_u32(
-        std.memory.byte_offset<u8>(data, bytes = std.truncate_to<isize>(std.os.unix.FILE_STATUS_MODE_OFFSET))
+    return value;
+}
+
+trusted internal func unix_metadata(pos storage: &[u64]) -> Result<FileMetadata, std.io.IoError>
+{
+    let mode: u32 = std.truncate_to<u32>(
+        internal unix_status_value(storage, offset = std.os.unix.FILE_STATUS_MODE_OFFSET, bytes = 4)
     );
 
     let size: i64 = std.truncate_to<i64>(
-        trusted internal std.platform.read_native_u64(
-            std.memory.byte_offset<u8>(data, bytes = std.truncate_to<isize>(std.os.unix.FILE_STATUS_SIZE_OFFSET))
-        )
+        internal unix_status_value(storage, offset = std.os.unix.FILE_STATUS_SIZE_OFFSET, bytes = 8)
     );
 
     if size < 0
@@ -521,21 +577,11 @@ trusted internal func unix_metadata(pos data: RawPointer<u8>) -> Result<FileMeta
     };
 
     let seconds: i64 = std.truncate_to<i64>(
-        trusted internal std.platform.read_native_u64(
-            std.memory.byte_offset<u8>(
-                data,
-                bytes = std.truncate_to<isize>(std.os.unix.FILE_STATUS_MODIFIED_SECONDS_OFFSET),
-            )
-        )
+        internal unix_status_value(storage, offset = std.os.unix.FILE_STATUS_MODIFIED_SECONDS_OFFSET, bytes = 8)
     );
 
     let nanoseconds: i64 = std.truncate_to<i64>(
-        trusted internal std.platform.read_native_u64(
-            std.memory.byte_offset<u8>(
-                data,
-                bytes = std.truncate_to<isize>(std.os.unix.FILE_STATUS_MODIFIED_NANOSECONDS_OFFSET),
-            )
-        )
+        internal unix_status_value(storage, offset = std.os.unix.FILE_STATUS_MODIFIED_NANOSECONDS_OFFSET, bytes = 8)
     );
 
     if nanoseconds < 0 || 1_000_000_000 <= nanoseconds
@@ -561,28 +607,37 @@ trusted internal func unix_metadata(pos data: RawPointer<u8>) -> Result<FileMeta
     );
 }
 
-trusted internal func unix_directory_name_length(pos name: RawPointer<u8>) -> usize?
+trusted internal func next_unix_directory_name(pos directory: RawPointer<u8>) -> RawPointer<u8>
+    ensures(core.memory.is_null<u8>(result) || trusted core.memory.nul_terminated_read(pointer = result))
 {
-    let mut length: usize = 0;
+    let entry: RawPointer<u8> = trusted std.os.unix.read_directory(directory);
 
-    while length < std.os.unix.DIRECTORY_NAME_CAPACITY
+    if core.memory.is_null<u8>(entry)
     {
-        if trusted internal std.memory.byte_buffer_read(name, index = length) == 0
-        {
-            let mut result: usize? = none;
-
-            result = length;
-
-            return result;
-        }
-
-        length += 1;
+        return entry;
     }
 
-    return none;
+    return std.memory.byte_offset<u8>(entry, bytes = std.truncate_to<isize>(std.os.unix.DIRECTORY_NAME_OFFSET));
+}
+
+trusted internal func unix_directory_name_length(pos name: RawPointer<u8>) -> (bool, usize)
+    requires(trusted core.memory.nul_terminated_read(pointer = name))
+    ensures(
+        trusted core.memory.valid_read<u8>(pointer = name, count = result.1),
+        trusted core.memory.initialized_range_as<u8>(pointer = name, count = result.1),
+    )
+{
+    let length: usize = trusted std.os.unix.narrow_string_length(name, limit = std.os.unix.DIRECTORY_NAME_CAPACITY);
+
+    return (length != std.os.unix.DIRECTORY_NAME_CAPACITY, length);
 }
 
 trusted internal func unix_dot_entry(pos name: RawPointer<u8>, length: usize) -> bool
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = name, count = length),
+        trusted core.memory.initialized_range_as<u8>(pointer = name, count = length),
+    )
+    executes(pure)
 {
     if length == 1
     {

@@ -26,17 +26,17 @@ const fn operation_requires_trust(kind: CheckedMemoryOperationKind) -> bool {
             | CheckedMemoryOperationKind::Copy { .. }
             | CheckedMemoryOperationKind::RawAllocate
             | CheckedMemoryOperationKind::RawDeallocate
+            | CheckedMemoryOperationKind::RawBufferAllocate
             | CheckedMemoryOperationKind::Allocate
             | CheckedMemoryOperationKind::Deallocate
-            | CheckedMemoryOperationKind::RawBufferInitializedSlice
-            | CheckedMemoryOperationKind::RawBufferInitializedSliceMut
             | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
+            | CheckedMemoryOperationKind::RawBufferPush { .. }
+            | CheckedMemoryOperationKind::RawBufferPop { .. }
             | CheckedMemoryOperationKind::RawBufferSetInitializedCount
             | CheckedMemoryOperationKind::RawBufferRelease { .. }
             | CheckedMemoryOperationKind::RawBufferReplace { .. }
             | CheckedMemoryOperationKind::RawBufferRelocate { .. }
             | CheckedMemoryOperationKind::ByteBufferFill
-            | CheckedMemoryOperationKind::ByteBufferCopy
             | CheckedMemoryOperationKind::ByteBufferRead
             | CheckedMemoryOperationKind::CallbackState { .. }
             | CheckedMemoryOperationKind::VolatileRead { .. }
@@ -268,7 +268,7 @@ where
         {
             MemoryOperationStatus::MissingTrustedEvidence
         } else {
-            self.apply_valid_memory_operation(state, operation)
+            self.apply_valid_memory_operation(state, operation, proven)
         };
 
         self.is_recovered |= status == MemoryOperationStatus::Recovered;
@@ -291,6 +291,7 @@ where
         &self,
         state: &mut StorageFlowState,
         operation: &bray_bound_tree::CheckedMemoryOperation,
+        proven: bool,
     ) -> MemoryOperationStatus {
         let arguments = operation.arguments();
 
@@ -420,9 +421,18 @@ where
                     return MemoryOperationStatus::Recovered;
                 };
 
-                return apply_raw_copy(state, source, destination, pointee, operation.expression());
+                return apply_raw_copy(
+                    state,
+                    source,
+                    destination,
+                    pointee,
+                    operation.expression(),
+                    proven,
+                );
             }
-            CheckedMemoryOperationKind::RawAllocate | CheckedMemoryOperationKind::Allocate => {
+            CheckedMemoryOperationKind::RawAllocate
+            | CheckedMemoryOperationKind::RawBufferAllocate
+            | CheckedMemoryOperationKind::Allocate => {
                 let Some(result) = self.operation_result_storage(operation.expression()) else {
                     return MemoryOperationStatus::Recovered;
                 };
@@ -452,7 +462,6 @@ where
                 return apply_deallocation(state, pointer, operation.expression());
             }
             CheckedMemoryOperationKind::ByteBufferFill
-            | CheckedMemoryOperationKind::ByteBufferCopy
             | CheckedMemoryOperationKind::ByteBufferRead
             | CheckedMemoryOperationKind::SequenceLength
             | CheckedMemoryOperationKind::RawBufferCapacity
@@ -461,6 +470,8 @@ where
             | CheckedMemoryOperationKind::RawBufferInitializedSlice
             | CheckedMemoryOperationKind::RawBufferInitializedSliceMut
             | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
+            | CheckedMemoryOperationKind::RawBufferPush { .. }
+            | CheckedMemoryOperationKind::RawBufferPop { .. }
             | CheckedMemoryOperationKind::RawBufferSetInitializedCount
             | CheckedMemoryOperationKind::RawBufferRelease { .. }
             | CheckedMemoryOperationKind::CallbackState { .. }
@@ -740,6 +751,7 @@ fn apply_raw_copy(
     destination: StorageIdentityId,
     pointee: bray_symbols::TypeId,
     origin: BoundExpressionId,
+    proven: bool,
 ) -> MemoryOperationStatus {
     if state.invalidated_allocations.contains_key(&source)
         || state.invalidated_allocations.contains_key(&destination)
@@ -747,10 +759,13 @@ fn apply_raw_copy(
         return MemoryOperationStatus::InvalidatedAllocation;
     }
 
-    if !state
-        .raw_initialized
-        .get(&source)
-        .is_some_and(|initialized| initialized.contains_key(&pointee))
+    // A proven range supplies this copy's source authority without claiming that any
+    // individual source element is initialized (the checked range may be empty).
+    if !proven
+        && !state
+            .raw_initialized
+            .get(&source)
+            .is_some_and(|initialized| initialized.contains_key(&pointee))
     {
         return MemoryOperationStatus::UninitializedRawStorage;
     }
@@ -877,6 +892,35 @@ mod tests {
     }
 
     #[test]
+    fn trusted_range_copy_does_not_invent_scalar_source_initialization() {
+        let (expressions, source, destination) = raw_storage_pair(BoundUnitId::new(83));
+
+        let mut state = StorageFlowState::default();
+        let ty = error_type();
+
+        assert_eq!(
+            apply_raw_copy(&mut state, source, destination, ty, expressions[0], true),
+            MemoryOperationStatus::Valid,
+        );
+
+        assert_eq!(
+            apply_raw_read(&mut state, source, ty, MemoryReadKind::Copy),
+            MemoryOperationStatus::UninitializedRawStorage,
+        );
+
+        state
+            .invalidated_allocations
+            .entry(source)
+            .or_default()
+            .insert(expressions[1]);
+
+        assert_eq!(
+            apply_raw_copy(&mut state, source, destination, ty, expressions[0], true),
+            MemoryOperationStatus::InvalidatedAllocation,
+        );
+    }
+
+    #[test]
     fn raw_memory_transitions_preserve_initialization_and_invalidation() {
         let unit = BoundUnitId::new(41);
 
@@ -891,7 +935,7 @@ mod tests {
         );
 
         assert_eq!(
-            apply_raw_copy(&mut state, source, destination, ty, expressions[1]),
+            apply_raw_copy(&mut state, source, destination, ty, expressions[1], false),
             MemoryOperationStatus::Valid
         );
 

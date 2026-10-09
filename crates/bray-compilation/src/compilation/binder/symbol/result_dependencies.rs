@@ -183,6 +183,22 @@ fn infer_checked_result(
     let semantic = semantic_unit_context(checker.symbols(), bound);
     let request = bray_checker::CheckerUnitView::new(bound, &semantic, &checker);
 
+    let static_roots = expressions
+        .selections()
+        .entries()
+        .iter()
+        .filter_map(|entry| match entry.selection() {
+            SemanticSelection::StaticReference(selection) => {
+                Some(selection.template().declaration())
+            }
+            _ => None,
+        })
+        .map(|declaration| {
+            super::declaration_body::static_dependency_root(context, declaration)
+                .map(|root| (declaration, root))
+        })
+        .collect::<BindingQueryResult<BTreeMap<_, _>>>()?;
+
     bray_checker::infer_result_dependencies(
         request,
         expressions.types(),
@@ -190,6 +206,7 @@ fn infer_checked_result(
         patterns,
         templates,
         recursive_callees,
+        &static_roots,
     )
     .map_err(|error| match error {
         bray_checker::CheckerQueryError::Cancelled => BindingQueryError::Cancelled,

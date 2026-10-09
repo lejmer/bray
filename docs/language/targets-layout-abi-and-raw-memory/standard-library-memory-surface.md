@@ -39,8 +39,32 @@ A `std.memory` declaration that exposes a trusted caller obligation must write t
 
 Calling a trusted `std.memory` declaration follows the ordinary trust rules.
 
-The standard library cannot create new raw-memory trusted guarantees except through compiler-recognized declarations
+The standard library cannot create new raw-memory trusted guarantees except through trusted declarations
 whose contracts are defined by this chapter.
+
+The internal `copy_bytes` and `fill_bytes` helpers operate on initialized slices and check the destination extent
+before bulk copying or filling. `copy_bytes_from_pointer` exposes readable, initialized source storage as caller
+obligations and checks its destination slice. These helpers share the existing overlap-safe copy and bulk fill
+operations.
+
+The internal trusted `fill_spare_bytes` and `copy_spare_bytes` helpers initialize a contiguous byte-buffer suffix
+after checking the source and available capacity. They report the resulting initialized prefix so its owner can
+commit the initialized count. Filling uses the existing bulk fill operation and copying uses overlap-safe byte copying.
+They have ordinary Bray bodies and require no separate native implementation.
+
+The internal trusted `mutex_guard_pointer`, `spin_lock_guard_pointer`, and `rw_lock_guard_pointer` declarations
+publish writable, initialized, exclusive access to storage protected by their corresponding live guards. Guard
+construction follows successful exclusive acquisition, and consuming release ends that authority. Their guarantees
+depend on the guard and protected lock remaining live. An inactive guard cannot produce storage access.
+
+The internal trusted `slice_pointer<T>` and `slice_pointer_mut<T>` helpers produce an address for a checked prefix
+of an initialized slice. They check the requested element count against the slice length before returning. Shared
+slices establish readable, aligned, initialized storage for that prefix; mutable slices also establish writable
+storage. An empty prefix returns the null pointer and grants no access to an element. Their Bray bodies use the
+ordinary slice bounds and address operations. These helpers require no compiler-known identity or native implementation.
+
+These addresses retain the ordinary raw-pointer copy and lifetime rules. Their trusted access conditions depend on
+the source storage and capability remaining valid; the address itself does not extend the source borrow or lifetime.
 
 ## Raw pointer helpers
 
@@ -91,6 +115,7 @@ trusted func callable_from_pointer<F>(pos pointer: RawPointer<F>) -> F
     uses(layout_reinterpret);
 
 trusted func pointer_from_callable<F>(pos value: F) -> RawPointer<F>
+    ensures(trusted core.memory.callable_address_valid<F>(pointer = result))
     uses(layout_reinterpret);
 
 trusted func read<T>(pos pointer: RawPointer<T>) -> T
@@ -159,6 +184,11 @@ representation. The callable or raw pointer result retains the dependencies carr
 because it consumes an owned value and commits initialization as one checked operation. `assume_initialized` and
 `move_initialized` remain trusted and require the matching initialization state. `borrow_from` and `borrow_mut_from`
 remain trusted and require explicit owner or scoped-capability authority in addition to the raw memory predicates.
+
+Internal hash-table accessors validate bounds and occupancy against the same table that owns the item storage.
+Their trusted pointer and initialized-slot guarantees depend on that table remaining live and its occupied slot
+remaining unchanged. Only the private write and removal operations change occupancy, alongside writing or moving
+the corresponding item. These helpers preserve the separate compact state array and require no native hooks.
 
 The result of an anchored borrow retains the exact authority argument as a dependency. The compiler does not recognize
 synchronization guard, mapped region, output wrapper, or foreign owner names. Ordinary library products build safe

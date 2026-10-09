@@ -350,7 +350,12 @@
             }
           ],
           "result": "RawPointer<u8>",
-          "native_result": "void *"
+          "native_result": "void *",
+          "trusted": true,
+          "requires": [
+            "blocking_execution()",
+            "compute_execution()"
+          ]
         },
         {
           "name": "ThreadStorageDestructor",
@@ -812,6 +817,13 @@
             "foreign_call",
             "native_thread",
             "raw_memory"
+          ],
+          "requires": [
+            "trusted core.memory.valid_write<RawPointer<u8>>(pointer = thread, count = 1)",
+            "trusted core.memory.aligned_for<RawPointer<u8>>(pointer = thread)"
+          ],
+          "ensures": [
+            "result != 0 || trusted core.memory.initialized_as<RawPointer<u8>>(pointer = thread)"
           ]
         },
         {
@@ -881,7 +893,6 @@
             "native_thread"
           ]
         },
-
         {
           "name": "pthread_setname_np",
           "native": "pthread_setname_np",

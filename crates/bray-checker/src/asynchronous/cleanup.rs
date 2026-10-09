@@ -19,7 +19,13 @@ use crate::{
 pub(crate) fn cleanup_scopes<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
-) -> Result<BTreeSet<bray_bound_tree::BoundBlockId>, CheckerQueryError<C::UpstreamError>>
+) -> Result<
+    (
+        BTreeSet<bray_bound_tree::BoundBlockId>,
+        BTreeSet<bray_bound_tree::BoundExpressionId>,
+    ),
+    CheckerQueryError<C::UpstreamError>,
+>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -40,7 +46,34 @@ where
         }
     }
 
-    Ok(scopes)
+    let mut replacements = BTreeMap::new();
+
+    for plan in storage
+        .access_plans()
+        .iter()
+        .filter(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment)
+    {
+        let ty = storage
+            .access(plan.access())
+            .expect("assignment retains its checked destination")
+            .reached_type();
+
+        let shape = resolver.resolve(ty)?;
+
+        let free = !shape.cancellation && !shape.lifecycle && !shape.recovered;
+
+        replacements
+            .entry(plan.expression())
+            .and_modify(|previous| *previous &= free)
+            .or_insert(free);
+    }
+
+    let cleanup_free_replacements = replacements
+        .into_iter()
+        .filter_map(|(expression, free)| free.then_some(expression))
+        .collect();
+
+    Ok((scopes, cleanup_free_replacements))
 }
 
 pub(crate) fn cleanup_free_storage<C>(

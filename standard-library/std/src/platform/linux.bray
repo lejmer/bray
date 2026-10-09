@@ -14,9 +14,30 @@ trusted internal func process_identity() -> u64
     return std.truncate_to<u64>(identity);
 }
 
-trusted internal func environment_pointer() -> RawPointer<RawPointer<u8>>
+trusted internal func environment_storage_address() -> RawPointer<RawPointer<RawPointer<u8>>>
+    ensures(
+        trusted core.memory.valid_read<RawPointer<RawPointer<u8>>>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<RawPointer<RawPointer<u8>>>(pointer = result),
+        trusted core.memory.initialized_as<RawPointer<RawPointer<u8>>>(pointer = result),
+    )
 {
-    return trusted internal read_native_pointer<RawPointer<u8>>(std.os.linux.ENVIRON);
+    return std.os.linux.ENVIRON;
+}
+
+trusted internal func environment_cursor() -> NativeTextCursor
+    ensures(trusted native_text_cursor_valid(cursor = &result))
+{
+    let entries: RawPointer<RawPointer<u8>> = trusted internal read_native_pointer<RawPointer<u8>>(
+        trusted internal environment_storage_address()
+    );
+
+    return
+    {
+        first = entries,
+        limit = 18_446_744_073_709_551_615,
+        current = entries,
+        remaining = 18_446_744_073_709_551_615,
+    };
 }
 
 trusted internal func argument_storage() -> std.memory.RawBuffer<u8>
@@ -43,8 +64,15 @@ trusted internal func clear_unix_error() -> unit
     trusted std.memory.write<i32>(trusted internal std.os.linux.errno_location(), value = 0);
 }
 
-@abi(c)
-trusted internal func clock_monotonic_now(pos ticks: RawPointer<u64>) -> PlatformStatus
+trusted internal func prepare_clock_monotonic_now(pos ticks: RawPointer<u64>) -> Result<u64, PlatformStatus>
+    requires(
+        trusted core.memory.valid_write<u64>(pointer = ticks, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = ticks),
+    )
+    ensures(
+        trusted core.memory.valid_write<u64>(pointer = ticks, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = ticks),
+    )
     uses(foreign_call)
 {
     let mut observed: std.os.linux.Timespec =
@@ -58,12 +86,12 @@ trusted internal func clock_monotonic_now(pos ticks: RawPointer<u64>) -> Platfor
         time = std.memory.address_of_mut<std.os.linux.Timespec>(&mut observed),
     ) != 0
     {
-        return linux_error_status();
+        return Error(linux_error_status());
     }
 
     if observed.seconds < 0 || 0 > observed.nanoseconds || observed.nanoseconds >= 1_000_000_000
     {
-        return other_status();
+        return Error(other_status());
     }
 
     let seconds: u64 = std.truncate_to<u64>(observed.seconds);
@@ -71,16 +99,28 @@ trusted internal func clock_monotonic_now(pos ticks: RawPointer<u64>) -> Platfor
 
     if seconds > (18_446_744_073_709_551_615 - observed_nanoseconds) / 1_000_000_000
     {
-        return other_status();
+        return Error(other_status());
     }
 
-    trusted std.memory.write<u64>(ticks, value = seconds * 1_000_000_000 + observed_nanoseconds);
-
-    return success_status();
+    return Ok(seconds * 1_000_000_000 + observed_nanoseconds);
 }
 
-@abi(c)
-trusted internal func clock_wall_now(pos seconds: RawPointer<i64>, pos nanoseconds: RawPointer<u32>) -> PlatformStatus
+trusted internal func prepare_clock_wall_now(
+    pos seconds: RawPointer<i64>,
+    pos nanoseconds: RawPointer<u32>
+) -> Result<(i64, u32), PlatformStatus>
+    requires(
+        trusted core.memory.valid_write<i64>(pointer = seconds, count = 1),
+        trusted core.memory.aligned_for<i64>(pointer = seconds),
+        trusted core.memory.valid_write<u32>(pointer = nanoseconds, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = nanoseconds),
+    )
+    ensures(
+        trusted core.memory.valid_write<i64>(pointer = seconds, count = 1),
+        trusted core.memory.aligned_for<i64>(pointer = seconds),
+        trusted core.memory.valid_write<u32>(pointer = nanoseconds, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = nanoseconds),
+    )
     uses(foreign_call)
 {
     let mut observed: std.os.linux.Timespec =
@@ -94,18 +134,15 @@ trusted internal func clock_wall_now(pos seconds: RawPointer<i64>, pos nanosecon
         time = std.memory.address_of_mut<std.os.linux.Timespec>(&mut observed),
     ) != 0
     {
-        return linux_error_status();
+        return Error(linux_error_status());
     }
 
     if 0 > observed.nanoseconds || observed.nanoseconds >= 1_000_000_000
     {
-        return other_status();
+        return Error(other_status());
     }
 
-    trusted std.memory.write<i64>(seconds, value = observed.seconds);
-    trusted std.memory.write<u32>(nanoseconds, value = std.truncate_to<u32>(observed.nanoseconds));
-
-    return success_status();
+    return Ok((observed.seconds, std.truncate_to<u32>(observed.nanoseconds)));
 }
 
 @abi(c)
@@ -145,21 +182,27 @@ trusted internal func clock_sleep(pos seconds: u64, pos nanoseconds: u32) -> Pla
     return success_status();
 }
 
-@abi(c)
-trusted internal func entropy_fill(
+trusted internal func prepare_entropy_fill(
     pos destination: RawPointer<u8>,
     pos length: u64,
     pos transferred: RawPointer<u64>,
-) -> PlatformStatus
+) -> Result<usize, PlatformStatus>
+    requires(
+        trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize),
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
+    ensures(
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
     uses(foreign_call)
 {
-    trusted std.memory.write<u64>(transferred, value = 0);
-
     let count: usize = std.truncate_to<usize>(length);
 
     if count as u64 != length || count > 9_223_372_036_854_775_807
     {
-        return invalid_input_status();
+        return Error(invalid_input_status());
     }
 
     let mut completed: usize = 0;
@@ -176,20 +219,18 @@ trusted internal func entropy_fill(
                 continue;
             }
 
-            return linux_error_status();
+            return Error(linux_error_status());
         }
 
         if result == 0
         {
-            return other_status();
+            return Error(other_status());
         }
 
         completed += std.truncate_to<usize>(result);
     }
 
-    trusted std.memory.write<u64>(transferred, value = completed as u64);
-
-    return success_status();
+    return Ok(completed);
 }
 
 trusted internal func linux_error_code() -> i32
