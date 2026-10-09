@@ -2,14 +2,10 @@ use std::collections::BTreeMap;
 
 use bray_bound_tree::{
     BoundBlockItem, BoundExpression, BoundExpressionId, BoundPatternId, BoundUnitView,
-    StorageBinding, StorageBindingTarget, StorageIdentityId, StoragePlan, StorageScopeBuildError,
-    StorageScopeOwners,
+    StorageBinding, StorageBindingTarget, StorageIdentityId, StoragePlan, StorageScopeOwners,
 };
 
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
-    CheckerStorageFlowFailure, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 pub(crate) fn storage_scope_owners<C>(
     request: CheckerUnitView<'_, C>,
@@ -17,16 +13,11 @@ pub(crate) fn storage_scope_owners<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    StorageScopeOwners::collect(request.unit()).map_err(|error| {
-        CheckerQueryError::Infrastructure(CheckerInfrastructureError::StorageFlow(match error {
-            StorageScopeBuildError::UnbalancedScopes { open_scope } => {
-                CheckerStorageFlowFailure::UnbalancedScopes { open_scope }
-            }
-            StorageScopeBuildError::MissingPattern { pattern } => {
-                CheckerStorageFlowFailure::MissingPattern { pattern }
-            }
-        }))
-    })
+    Ok(
+        StorageScopeOwners::collect(request.unit()).unwrap_or_else(|error| {
+            panic!("storage_scope_owners must satisfy its checked construction contract: {error:?}")
+        }),
+    )
 }
 pub(crate) fn local_initialization_bindings<C>(
     request: CheckerUnitView<'_, C>,

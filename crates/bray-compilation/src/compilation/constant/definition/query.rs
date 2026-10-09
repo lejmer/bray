@@ -311,7 +311,6 @@ impl Compilation {
             template.value(),
             constants.value(),
         )
-        .map_err(FactQueryError::from)?
         .ok_or_else(|| {
             SemanticQueryFailure::contract(
                 SemanticQueryContext::Symbol(definition.into_any()),

@@ -1331,9 +1331,7 @@ impl Compilation {
             binding_context.semantic_values(),
             result.value(),
             checked.value(),
-        )
-        .map_err(FactQueryError::from)?
-        else {
+        ) else {
             return Ok(None);
         };
 

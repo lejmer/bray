@@ -15,9 +15,7 @@ use bray_symbols::{
     GenericSubstitutionId, NamedTypeSymbolId, SymbolKey, SymbolKeyData, TypeData, TypeId,
 };
 
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 pub(crate) const fn expression_category(
     expression: &BoundExpression,
@@ -147,7 +145,7 @@ where
 pub(crate) fn expression_span<C>(
     request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
-) -> Result<SourceSpan, CheckerInfrastructureError>
+) -> SourceSpan
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -192,7 +190,7 @@ where
 pub(crate) fn pattern_span<C>(
     request: CheckerUnitView<'_, C>,
     pattern: BoundPatternId,
-) -> Result<SourceSpan, CheckerInfrastructureError>
+) -> SourceSpan
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -210,16 +208,11 @@ pub(crate) fn diagnostic_id(index: usize) -> DiagnosticId {
     DiagnosticId::from_index(index)
 }
 
-fn source_span<C>(
-    request: CheckerUnitView<'_, C>,
-    origin: BoundNodeOrigin,
-) -> Result<SourceSpan, CheckerInfrastructureError>
+fn source_span<C>(request: CheckerUnitView<'_, C>, origin: BoundNodeOrigin) -> SourceSpan
 where
     C: CheckerRequestContext + ?Sized,
 {
-    request
-        .source(origin.source_anchor())
-        .map(|source| source.span())
+    request.source(origin.source_anchor()).span()
 }
 
 fn diagnostic_named_application<C>(
@@ -307,9 +300,6 @@ fn available_diagnostic_value<T, Upstream>(
     match result {
         Ok(value) => Ok(Some(value)),
         Err(crate::CheckerQueryError::Cancelled) => Ok(None),
-        Err(crate::CheckerQueryError::Infrastructure(error)) => {
-            Err(CheckerQueryError::Infrastructure(error))
-        }
         Err(crate::CheckerQueryError::Upstream(error)) => Err(CheckerQueryError::Upstream(error)),
     }
 }

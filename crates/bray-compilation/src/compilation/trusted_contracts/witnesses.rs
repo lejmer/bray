@@ -78,14 +78,13 @@ impl Compilation {
                     template,
                     checked.value(),
                 )
-                .map_err(FactQueryError::CheckerInfrastructure)?
                 .expect(
                     "checked predicate parameter template must resolve before trusted analysis",
                 );
 
-                let ty = values.substitute_type(ty, *substitution)?;
+                let ty = values.substitute_type(ty, *substitution);
 
-                let owns_authority = match values.type_data(ty).as_ref() {
+                let owns_authority = match values.type_data(ty?).as_ref() {
                     bray_symbols::TypeData::Named { definition, .. } => {
                         let role = match definition {
                             bray_symbols::NamedTypeSymbolId::Struct(symbol) => {
@@ -106,7 +105,7 @@ impl Compilation {
                                         | bray_compiler_known::RepresentationRole::Never
                                 )
                         }) && self.trusted_result_is_witness(
-                            ty,
+                            ty?,
                             std::slice::from_ref(&ExecutionCondition::Trusted(condition.clone())),
                             cancellation,
                             &mut diagnostics,

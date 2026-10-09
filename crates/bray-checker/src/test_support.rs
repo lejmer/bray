@@ -32,10 +32,9 @@ use bray_target::TargetProfile;
 pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
 
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerQueryResult,
-    CheckerRequestContext, CheckerSemanticQueryProvider, CheckerSource, CheckerUnitView,
-    DeclaredUnitContext, DefaultExpressionTypeChecker, ExpressionTypeChecker, ExpressionTypeInput,
-    SemanticUnitContext,
+    CheckerOutcome, CheckerQueryResult, CheckerRequestContext, CheckerSemanticQueryProvider,
+    CheckerSource, CheckerUnitView, DeclaredUnitContext, DefaultExpressionTypeChecker,
+    ExpressionTypeChecker, ExpressionTypeInput, SemanticUnitContext,
 };
 
 pub(crate) struct TestCheckerContext {
@@ -129,7 +128,9 @@ impl CheckerRequestContext for TestCheckerContext {
         _implementation: bray_symbols::ImplementationSymbolId,
     ) -> crate::CheckerQueryResult<bray_diagnostics::DiagnosticResult<TypeId>, Self::UpstreamError>
     {
-        Err(crate::CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in implementation_subject_type"
+        )
     }
 
     fn result_dispatch_requirement(
@@ -137,7 +138,9 @@ impl CheckerRequestContext for TestCheckerContext {
         _dispatch: bray_symbols::TraitConstraintDispatch,
     ) -> crate::CheckerQueryResult<bray_symbols::ImplementationRequirementKey, Self::UpstreamError>
     {
-        Err(crate::CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in result_dispatch_requirement"
+        )
     }
 
     fn result_witness_callable(
@@ -159,9 +162,8 @@ impl CheckerRequestContext for TestCheckerContext {
         _callable: bray_symbols::CallableSymbolId,
     ) -> crate::CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>
     {
-        self.semantic_values()
-            .empty_dependency_contract_template()
-            .map_err(|error| crate::CheckerInfrastructureError::SemanticValueStore(error).into())
+        Ok(self.semantic_values()
+            .empty_dependency_contract_template().unwrap_or_else(|error| panic!("callable_result_dependencies must satisfy its checked construction contract: {error:?}")))
     }
     fn parameter_default_result(
         &self,
@@ -175,13 +177,11 @@ impl CheckerRequestContext for TestCheckerContext {
     > {
         let ty = self
             .semantic_values()
-            .intern_type(TypeData::Error)
-            .map_err(crate::CheckerInfrastructureError::SemanticValueStore)?;
+            .intern_type(TypeData::Error).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in parameter_default_result: {error:?}"));
 
         let dependencies = self
             .semantic_values()
-            .empty_dependency_contract_template()
-            .map_err(crate::CheckerInfrastructureError::SemanticValueStore)?;
+            .empty_dependency_contract_template().unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in parameter_default_result: {error:?}"));
 
         Ok((ty, dependencies))
     }
@@ -214,9 +214,9 @@ impl CheckerRequestContext for TestCheckerContext {
         &self,
         _occurrence: bray_symbols::ConstantExpressionOccurrence,
     ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bray_symbols::ConstantTermId>> {
-        Err(CheckerQueryError::Infrastructure(
-            CheckerInfrastructureError::SemanticValueUnavailable,
-        ))
+        panic!(
+            "Canonical semantic value construction or lookup failed without an available store cause. in checked_constant_expression"
+        )
     }
 
     fn generic_constraints(
@@ -274,32 +274,26 @@ impl CheckerRequestContext for TestCheckerContext {
         Ok(false)
     }
 
-    fn source(
-        &self,
-        anchor: BoundSourceAnchor,
-    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
+    fn source(&self, anchor: BoundSourceAnchor) -> CheckerSource<'_> {
         let span = SourceSpan::new(anchor.syntax().source_id(), anchor.syntax().full_range());
         let source = self.source.as_ref().unwrap_or_else(|| source_snapshot());
 
         let Some(text) = source.text_slice(span.range()) else {
-            return Err(CheckerInfrastructureError::InvalidSourceRange { span });
+            panic!("bound source span {span:?} must be a valid UTF-8 range in its snapshot");
         };
 
-        Ok(CheckerSource::new(span, text))
+        CheckerSource::new(span, text)
     }
 
-    fn source_syntax(
-        &self,
-        anchor: SyntaxAnchor,
-    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
+    fn source_syntax(&self, anchor: SyntaxAnchor) -> CheckerSource<'_> {
         let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
         let source = self.source.as_ref().unwrap_or_else(|| source_snapshot());
 
         let Some(text) = source.text_slice(span.range()) else {
-            return Err(CheckerInfrastructureError::InvalidSourceRange { span });
+            panic!("bound source span {span:?} must be a valid UTF-8 range in its snapshot");
         };
 
-        Ok(CheckerSource::new(span, text))
+        CheckerSource::new(span, text)
     }
 
     fn cancellation(&self) -> &dyn bray_base::Cancellation {
@@ -319,12 +313,11 @@ where
             bray_diagnostics::DiagnosticResult<<C as bray_symbols::SymbolQueryContract>::Value>,
         >,
     > {
-        Err(CheckerQueryError::Infrastructure(
-            CheckerInfrastructureError::SemanticQueryUnavailable {
-                symbol: request.symbol(),
-                kind: request.kind(),
-            },
-        ))
+        panic!(
+            "A required semantic query could not be supplied. in resolve_symbol_query, symbol: {:?}, kind: {:?}",
+            request.symbol(),
+            request.kind()
+        )
     }
 }
 

@@ -13,10 +13,7 @@ use bray_symbols::TypeId;
 
 use crate::diagnostic::{diagnostic_id, expression_category, expression_span};
 use crate::representation::type_representation;
-use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerUnitView,
-};
+use crate::{CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 use super::ExpressionTypeInput;
 use super::array::append_inferred_bytes_diagnostics;
@@ -38,9 +35,8 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let session = match prepare_expression_types(request, input) {
-        Ok(SessionProgress::Complete(session)) => session,
-        Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        SessionProgress::Complete(session) => session,
+        SessionProgress::Cancelled => return CheckerOutcome::Cancelled,
     };
 
     finish_expression_types(request, session)
@@ -49,26 +45,26 @@ where
 fn prepare_expression_types<'view, C>(
     request: CheckerUnitView<'view, C>,
     input: &ExpressionTypeInput,
-) -> Result<SessionProgress<ExpressionTypeSession<'view, C>>, CheckerInfrastructureError>
+) -> SessionProgress<ExpressionTypeSession<'view, C>>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(mut session) =
-        ExpressionTypeSession::begin(request, input.operation_selections())?.into_value()
+        ExpressionTypeSession::begin(request, input.operation_selections()).into_value()
     else {
-        return Ok(SessionProgress::Cancelled);
+        return SessionProgress::Cancelled;
     };
 
-    session.apply_input(input)?;
+    session.apply_input(input);
 
-    if session.propagate()?.is_cancelled()
+    if session.propagate().is_cancelled()
         || session.apply_literal_defaults().is_cancelled()
-        || session.propagate()?.is_cancelled()
+        || session.propagate().is_cancelled()
     {
-        return Ok(SessionProgress::Cancelled);
+        return SessionProgress::Cancelled;
     }
 
-    Ok(SessionProgress::Complete(session))
+    SessionProgress::Complete(session)
 }
 
 pub(crate) fn finish_expression_types<C>(
@@ -125,10 +121,7 @@ where
     let mut diagnostics = Vec::new();
 
     for conflict in conflicts {
-        let span = match expression_span(request, conflict.expression) {
-            Ok(span) => span,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-        };
+        let span = expression_span(request, conflict.expression);
 
         diagnostics.push(
             Diagnostic::new(
@@ -158,10 +151,7 @@ where
             continue;
         }
 
-        let span = match expression_span(request, expression) {
-            Ok(span) => span,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-        };
+        let span = expression_span(request, expression);
 
         diagnostics.push(
             Diagnostic::new(
@@ -217,10 +207,7 @@ where
             continue;
         }
 
-        let span = match expression_span(request, *expression) {
-            Ok(span) => span,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-        };
+        let span = expression_span(request, *expression);
 
         let actual = match diagnostic_type(request, element) {
             Ok(actual) => actual,
@@ -272,10 +259,7 @@ where
         };
 
     for unproven in unproven_generators {
-        let span = match expression_span(request, unproven.expression) {
-            Ok(span) => span,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-        };
+        let span = expression_span(request, unproven.expression);
 
         diagnostics.push(
             Diagnostic::new(
@@ -321,7 +305,6 @@ where
 fn query_outcome<T, Upstream>(error: CheckerQueryError<Upstream>) -> CheckerOutcome<T, Upstream> {
     match error {
         CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-        CheckerQueryError::Infrastructure(error) => CheckerOutcome::InfrastructureFailure(error),
         CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
@@ -459,17 +442,14 @@ mod tests {
 
         let request = CheckerUnitView::new(&unit, &entry, &context);
 
-        let Ok(SessionProgress::Complete(mut session)) = ExpressionTypeSession::begin(request, &[])
+        let SessionProgress::Complete(mut session) = ExpressionTypeSession::begin(request, &[])
         else {
             panic!("expression type session must start");
         };
 
         session.add_evidence(expressions[0], operand_type);
 
-        assert!(matches!(
-            session.propagate(),
-            Ok(SessionProgress::Complete(()))
-        ));
+        assert!(matches!(session.propagate(), SessionProgress::Complete(())));
 
         assert_eq!(
             session
@@ -482,19 +462,13 @@ mod tests {
 
         session.add_evidence(expressions[1], child_type);
 
-        assert!(matches!(
-            session.propagate(),
-            Ok(SessionProgress::Complete(()))
-        ));
+        assert!(matches!(session.propagate(), SessionProgress::Complete(())));
 
         assert_eq!(session.expression_type(expressions[2]), None);
 
         session.add_evidence(expressions[2], parent_type);
 
-        assert!(matches!(
-            session.propagate(),
-            Ok(SessionProgress::Complete(()))
-        ));
+        assert!(matches!(session.propagate(), SessionProgress::Complete(())));
 
         let finished = session.finish();
 
@@ -1524,8 +1498,7 @@ mod tests {
         let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let result_type =
-            crate::representation::representation_type(request, RepresentationRole::ScalarU8)
-                .unwrap_or_else(|error| panic!("u8 must be available: {error:?}"));
+            crate::representation::representation_type(request, RepresentationRole::ScalarU8);
 
         let input = ExpressionTypeInput::new().with_callable_result_type(result_type);
 
@@ -1659,8 +1632,7 @@ mod tests {
         let request = CheckerUnitView::new(&fixture.unit, &entry, &context);
 
         let unit_type =
-            crate::representation::representation_type(request, RepresentationRole::Unit)
-                .unwrap_or_else(|error| panic!("unit type must be available: {error:?}"));
+            crate::representation::representation_type(request, RepresentationRole::Unit);
 
         assert_eq!(
             result
@@ -1783,8 +1755,7 @@ mod tests {
         let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let panic_report =
-            crate::representation::representation_type(request, RepresentationRole::PanicReport)
-                .unwrap_or_else(|error| panic!("PanicReport must be available: {error:?}"));
+            crate::representation::representation_type(request, RepresentationRole::PanicReport);
 
         assert_eq!(error, panic_report);
     }

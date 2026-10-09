@@ -14,7 +14,7 @@ use bray_target::{
     TargetValueLayout,
 };
 
-use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerSource};
+use crate::{CheckerOutcome, CheckerSource};
 
 /// Context required to validate an already selected target-dependent requirement.
 pub trait TargetValidityContext {
@@ -22,10 +22,7 @@ pub trait TargetValidityContext {
     fn selected_target(&self) -> &TargetProfile;
 
     /// Resolves a source anchor when a diagnostic is required.
-    fn source(
-        &self,
-        anchor: BoundSourceAnchor,
-    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError>;
+    fn source(&self, anchor: BoundSourceAnchor) -> CheckerSource<'_>;
 
     /// Returns request cancellation state.
     fn cancellation(&self) -> &dyn bray_base::Cancellation;
@@ -39,10 +36,7 @@ where
         crate::CheckerRequestContext::selected_target(self)
     }
 
-    fn source(
-        &self,
-        anchor: BoundSourceAnchor,
-    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
+    fn source(&self, anchor: BoundSourceAnchor) -> CheckerSource<'_> {
         crate::CheckerRequestContext::source(self, anchor)
     }
 
@@ -248,10 +242,7 @@ where
         return CheckerOutcome::without_diagnostics(TargetValidity::Valid);
     };
 
-    let source = match context.source(request.source()) {
-        Ok(source) => source,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-    };
+    let source = context.source(request.source());
 
     let diagnostic = violation.diagnostic(
         DiagnosticId::new(0),

@@ -16,7 +16,7 @@ use bray_symbols::{
 use bray_target::TargetProfile;
 use std::sync::Arc;
 
-use super::errors::{CheckerInfrastructureError, CheckerQueryResult};
+use super::errors::CheckerQueryResult;
 
 /// One recognized implementation hook and its availability for the selected target.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -362,16 +362,14 @@ pub trait CheckerRequestContext: Sync {
     ) -> CheckerQueryResult<bool, Self::UpstreamError>;
 
     /// Resolves a bound source anchor without exposing its source snapshot.
-    fn source(
-        &self,
-        anchor: BoundSourceAnchor,
-    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError>;
+    ///
+    /// The anchor must identify retained source at its bound revision with a valid text range.
+    fn source(&self, anchor: BoundSourceAnchor) -> CheckerSource<'_>;
 
     /// Resolves one declaration syntax anchor from the current immutable compilation snapshot.
-    fn source_syntax(
-        &self,
-        anchor: bray_declarations::SyntaxAnchor,
-    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError>;
+    ///
+    /// The anchor must identify retained source with a valid text range.
+    fn source_syntax(&self, anchor: bray_declarations::SyntaxAnchor) -> CheckerSource<'_>;
 
     /// Returns the cancellation source for the current request.
     fn cancellation(&self) -> &dyn Cancellation;

@@ -1,6 +1,4 @@
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{
     BoundBlockItem, BoundControlTransferKind, BoundExpression, BoundExpressionId,
     BoundReferenceTarget, BoundStructuredExpressionKind, CheckedExpressionTypes, CheckedPatterns,
@@ -62,18 +60,14 @@ where
             patterns,
             |callable| {
                 if recursive_callees.contains(&callable) {
-                    return request
+                    return Ok(request
                         .semantic_values()
-                        .empty_dependency_contract_template()
-                        .map_err(|error| {
-                            CheckerInfrastructureError::SemanticValueStore(error).into()
-                        });
+                        .empty_dependency_contract_template().unwrap_or_else(|error| panic!("infer_result_dependencies must satisfy its checked construction contract: {error:?}")));
                 }
 
-                callees
+                Ok(callees
                     .get(&callable)
-                    .copied()
-                    .ok_or_else(|| CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
+                    .copied().unwrap_or_else(|| panic!("result dependency inference requires the selected callable template for {callable:?}")))
             },
         )?,
     };
@@ -225,10 +219,9 @@ where
         requirements
     };
 
-    request
+    Ok(request
         .semantic_values()
-        .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements))
-        .map_err(|error| CheckerInfrastructureError::SemanticValueStore(error).into())
+        .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements)).unwrap_or_else(|error| panic!("infer_result_dependencies must satisfy its checked construction contract: {error:?}")))
 }
 
 pub(super) struct ResultInference<'a, C: CheckerRequestContext + ?Sized> {
@@ -316,13 +309,11 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                 BoundExpression::Structured(value)
                     if value.kind() == BoundStructuredExpressionKind::Borrow =>
                 {
-                    let operand = value
-                        .operands()
-                        .first()
-                        .copied()
-                        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+                    let operand = value.operands().first().copied().unwrap_or_else(|| {
+                        panic!("expression_values requires structured value operand, id: {id:?}")
+                    });
 
-                    let reborrowed = self.reborrowed_receiver(operand)?;
+                    let reborrowed = self.reborrowed_receiver(operand);
 
                     let kind = if reborrowed.is_some() {
                         DependencyRequirementKind::ValueDependencies

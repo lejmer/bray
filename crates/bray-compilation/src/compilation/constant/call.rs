@@ -3,11 +3,11 @@ use std::sync::Arc;
 use bray_binder::SymbolQueryProvider;
 use bray_binder::semantic_unit_context;
 use bray_checker::{
-    CheckerInfrastructureError, CheckerRequestContext, ConstantCallRequest, ConstantCallResolution,
-    ConstantCallResolver, ConstantChecker, ConstantEvaluationInput, ConstantEvaluationUsage,
-    ConstantEvaluator, ConstantReferenceResolution, ConstantTemplateResolver,
-    DefaultConstantChecker, DefaultConstantEvaluator, EvaluatedConstantCall,
-    evaluate_constant_callable_template, resolve_callable_signature_template,
+    CheckerRequestContext, ConstantCallRequest, ConstantCallResolution, ConstantCallResolver,
+    ConstantChecker, ConstantEvaluationInput, ConstantEvaluationUsage, ConstantEvaluator,
+    ConstantReferenceResolution, ConstantTemplateResolver, DefaultConstantChecker,
+    DefaultConstantEvaluator, EvaluatedConstantCall, evaluate_constant_callable_template,
+    resolve_callable_signature_template,
 };
 use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -215,10 +215,7 @@ impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
             .calls
             .compilation
             .static_initializer_key(declaration)
-            .map_err(checker_call_query_error)?
-            .ok_or(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::InvalidConstantEvaluationInput,
-            ))?;
+            .map_err(checker_call_query_error)?.unwrap_or_else(|| panic!("resolve_static requires retained checked input: self .calls .compilation .static_initializer_key(declaration) .map_err(checker_call_query_error)?, declaration: {declaration:?}, substitution: {substitution:?}"));
 
         let (selection, diagnostics) = self
             .calls
@@ -233,9 +230,9 @@ impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
             .map_err(checker_call_query_error)?;
 
         if selection.closed_instance().is_none() {
-            return Err(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::InvalidConstantEvaluationInput,
-            ));
+            panic!(
+                "Constant-evaluation inputs do not describe the requested bound unit. in resolve_static"
+            );
         }
 
         Ok(DiagnosticResult::new(selection, diagnostics))
@@ -398,7 +395,6 @@ impl Compilation {
             callable.substitution(),
             checked_terms.value(),
         )
-        .map_err(FactQueryError::from)?
         .ok_or_else(|| {
             SemanticQueryFailure::contract(
                 SemanticQueryContext::Symbol(callable.definition().callable_symbol().into_any()),

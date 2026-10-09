@@ -630,14 +630,7 @@ where
             return;
         };
 
-        let span = match self.request.source(node.origin().source_anchor()) {
-            Ok(source) => source.span(),
-            Err(_) => {
-                self.is_recovered = true;
-
-                return;
-            }
-        };
+        let span = self.request.source(node.origin().source_anchor()).span();
 
         let mut diagnostic = Diagnostic::new(
             DiagnosticId::from_index(self.diagnostics.len()),
@@ -662,9 +655,7 @@ where
                     continue;
                 };
 
-                let Ok(source) = self.request.source(node.origin().source_anchor()) else {
-                    continue;
-                };
+                let source = self.request.source(node.origin().source_anchor());
 
                 if source.span() != span {
                     diagnostic = diagnostic

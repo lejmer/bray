@@ -386,7 +386,6 @@ impl Compilation {
 
         let Some(ty) =
             bray_checker::resolve_type_expression_template(values, template, constants.value())
-                .map_err(FactQueryError::CheckerInfrastructure)?
         else {
             return Ok(());
         };

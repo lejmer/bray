@@ -54,10 +54,8 @@ pub use constant::{
     resolve_trait_application_template, resolve_type_expression_template,
 };
 pub use context::{
-    CheckerConstantEvaluationFailure, CheckerConstantOperationFailure, CheckerInfrastructureError,
-    CheckerLiteralValueFailure, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerSource, CheckerStorageFlowFailure,
-    ImplementationHookResolution,
+    CheckerQueryError, CheckerQueryResult, CheckerRequestContext, CheckerSemanticQueryProvider,
+    CheckerSource, ImplementationHookResolution,
 };
 pub use dependency::infer_result_dependencies;
 pub use diagnostic::diagnostic_type;

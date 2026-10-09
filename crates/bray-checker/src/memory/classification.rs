@@ -11,10 +11,7 @@ use bray_diagnostics::{
 };
 use bray_symbols::{GenericArgument, TypeId};
 
-use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView,
-    type_is_copyable,
-};
+use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView, type_is_copyable};
 
 pub(super) fn classify_operation<C>(
     request: CheckerUnitView<'_, C>,
@@ -59,12 +56,7 @@ fn memory_type_arguments<Upstream>(
         .enumerate()
         .map(|(ordinal, argument)| match argument {
             GenericArgument::Type(ty) => Ok(*ty),
-            GenericArgument::Constant(_) => Err(CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidMemoryGenericArgument {
-                    ordinal,
-                    actual: argument.kind(),
-                },
-            )),
+            GenericArgument::Constant(_) => panic!("A memory operation received a generic argument with the wrong category. in memory_type_arguments, ordinal: {:?}, actual: {:?}", ordinal, argument.kind()),
         })
         .collect()
 }
@@ -164,9 +156,9 @@ where
         | ImplementationHook::AtomicCompilerFence
         | ImplementationHook::AtomicWait
         | ImplementationHook::AtomicNotifyOne
-        | ImplementationHook::AtomicNotifyAll => Err(CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidSemanticSelectionInput,
-        )),
+        | ImplementationHook::AtomicNotifyAll => panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in classify_core_operation"
+        ),
         ImplementationHook::FutureStart
         | ImplementationHook::TaskJoin
         | ImplementationHook::TaskCancel
@@ -208,9 +200,10 @@ where
         | ImplementationHook::RangeMoveIterate
         | ImplementationHook::RangeNext
         | ImplementationHook::TestingFail => Ok(None),
-        hook => Err(CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidMemoryOperationInput { hook },
-        )),
+        hook => panic!(
+            "Memory-operation classification received a hook outside its operation catalog. in classify_core_operation, hook: {:?}",
+            hook
+        ),
     }
 }
 
@@ -252,9 +245,7 @@ where
         },
         ImplementationHook::BorrowFrom | ImplementationHook::BorrowMutFrom => {
             let [pointee, _authority] = types else {
-                return Err(CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                ));
+                panic!("Semantic-selection inputs do not describe the requested bound unit or operation category. in classify_direct_memory_operation");
             };
 
             CheckedMemoryOperationKind::BorrowFrom {
@@ -294,9 +285,7 @@ where
         }
         ImplementationHook::RawPointerReinterpret => {
             let [target, source] = types else {
-                return Err(CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                ));
+                panic!("Semantic-selection inputs do not describe the requested bound unit or operation category. in classify_direct_memory_operation");
             };
 
             CheckedMemoryOperationKind::Reinterpret {
@@ -344,11 +333,7 @@ where
         | ImplementationHook::MemoryLayoutOf
         | ImplementationHook::MemoryTrailingLayoutOf => CheckedMemoryOperationKind::LayoutQuery {
             ty: one_type_argument(types)?,
-            kind: layout_query_kind(hook).ok_or_else(|| {
-                CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                )
-            })?,
+            kind: layout_query_kind(hook).unwrap_or_else(|| panic!("classify_direct_memory_operation requires layout query classification, hook: {hook:?}")),
         },
         _ => return Ok(None),
     };
@@ -360,9 +345,9 @@ fn one_type_argument<Upstream>(
     types: &[TypeId],
 ) -> Result<TypeId, CheckerOutcome<CheckedMemoryOperations, Upstream>> {
     let [ty] = types else {
-        return Err(CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidSemanticSelectionInput,
-        ));
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in one_type_argument"
+        );
     };
 
     Ok(*ty)
@@ -412,9 +397,9 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(pointee) = types.first().copied() else {
-        return Err(CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidSemanticSelectionInput,
-        ));
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in validate_memory_pointee_type"
+        );
     };
 
     let complete = crate::representation::type_supports_complete_fixed_layout(request, pointee)
@@ -429,14 +414,9 @@ where
     }
 
     let operation =
-        crate::memory_diagnostics::diagnostic_memory_operation(hook).ok_or_else(|| {
-            CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
-            )
-        })?;
+        crate::memory_diagnostics::diagnostic_memory_operation(hook).unwrap_or_else(|| panic!("validate_memory_pointee_type requires memory operation diagnostic classification, expression: {expression:?}, hook: {hook:?}"));
 
-    let span = crate::diagnostic::expression_span(request, expression)
-        .map_err(CheckerOutcome::InfrastructureFailure)?;
+    let span = crate::diagnostic::expression_span(request, expression);
 
     diagnostics.add(
         Diagnostic::new(
@@ -467,9 +447,9 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let [ty] = types else {
-        return Err(CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidSemanticSelectionInput,
-        ));
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in validate_layout_query_type"
+        );
     };
 
     let fixed = crate::representation::type_supports_complete_fixed_layout(request, *ty)
@@ -490,8 +470,7 @@ where
         return Ok(true);
     }
 
-    let span = crate::diagnostic::expression_span(request, expression)
-        .map_err(CheckerOutcome::InfrastructureFailure)?;
+    let span = crate::diagnostic::expression_span(request, expression);
 
     let mut diagnostic = Diagnostic::new(
         crate::diagnostic::diagnostic_id(diagnostics.len()),
@@ -510,11 +489,7 @@ where
 
     if kind != MemoryLayoutQueryKind::Trailing {
         let operation =
-            crate::memory_diagnostics::diagnostic_memory_operation(hook).ok_or_else(|| {
-                CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                )
-            })?;
+            crate::memory_diagnostics::diagnostic_memory_operation(hook).unwrap_or_else(|| panic!("validate_layout_query_type requires memory operation diagnostic classification, expression: {expression:?}, hook: {hook:?}"));
 
         diagnostic = diagnostic.with_arg(DiagnosticArg::memory_operation(operation));
     }
@@ -529,9 +504,6 @@ fn query_outcome<Upstream>(
 ) -> CheckerOutcome<CheckedMemoryOperations, Upstream> {
     match error {
         crate::CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-        crate::CheckerQueryError::Infrastructure(error) => {
-            CheckerOutcome::InfrastructureFailure(error)
-        }
         crate::CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
@@ -547,9 +519,9 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let [callable] = types else {
-        return Err(CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidSemanticSelectionInput,
-        ));
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in validate_callable_address_type"
+        );
     };
 
     let data = request.semantic_values().type_data(*callable);
@@ -560,8 +532,7 @@ where
             if callable.abi() != bray_symbols::CallableAbi::Bray
     );
 
-    let span = crate::diagnostic::expression_span(request, expression)
-        .map_err(CheckerOutcome::InfrastructureFailure)?;
+    let span = crate::diagnostic::expression_span(request, expression);
 
     if !valid_type {
         diagnostics.add(
@@ -614,11 +585,7 @@ where
         .callable_addresses()
     {
         let operation =
-            crate::memory_diagnostics::diagnostic_memory_operation(hook).ok_or_else(|| {
-                CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                )
-            })?;
+            crate::memory_diagnostics::diagnostic_memory_operation(hook).unwrap_or_else(|| panic!("validate_callable_address_type requires memory operation diagnostic classification, expression: {expression:?}, hook: {hook:?}"));
 
         crate::memory_diagnostics::add_target_memory_operation_unavailable(
             span,
@@ -724,9 +691,10 @@ fn classify_allocation_and_buffer_operation<Upstream>(
             CheckedMemoryOperationKind::ByteBufferRead
         }
         hook => {
-            return Err(CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidMemoryOperationInput { hook },
-            ));
+            panic!(
+                "Memory-operation classification received a hook outside its operation catalog. in classify_allocation_and_buffer_operation, hook: {:?}",
+                hook
+            );
         }
     };
 
@@ -749,9 +717,6 @@ where
     let result = match type_is_copyable(request, pointee) {
         CheckerOutcome::Complete(result) => result,
         CheckerOutcome::Cancelled => return Err(CheckerOutcome::Cancelled),
-        CheckerOutcome::InfrastructureFailure(error) => {
-            return Err(CheckerOutcome::InfrastructureFailure(error));
-        }
         CheckerOutcome::UpstreamFailure(error) => {
             return Err(CheckerOutcome::UpstreamFailure(error));
         }
@@ -774,9 +739,9 @@ fn ensure_no_type_arguments<Upstream>(
     types: &[TypeId],
 ) -> Result<(), CheckerOutcome<CheckedMemoryOperations, Upstream>> {
     if !types.is_empty() {
-        return Err(CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidSemanticSelectionInput,
-        ));
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in ensure_no_type_arguments"
+        );
     }
 
     Ok(())

@@ -13,10 +13,7 @@ use bray_symbols::{GenericArgument, TypeData, TypeId};
 
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::representation::type_representation;
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitRoot,
-    CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitRoot, CheckerUnitView};
 
 use super::built_in_conversion_plan;
 
@@ -171,7 +168,7 @@ where
         };
 
         return Ok(Some(
-            match select_nullable_boundary(request, types, boundaries)? {
+            match select_nullable_boundary(request, types, boundaries) {
                 Some(boundary) => Ok(SelectedPropagation::Nullable {
                     boundary: boundary.target,
                     result_type: boundary.ty,
@@ -222,24 +219,24 @@ fn select_nullable_boundary<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     boundaries: &[ResultBoundary],
-) -> Result<Option<ResultBoundary>, CheckerInfrastructureError>
+) -> Option<ResultBoundary>
 where
     C: CheckerRequestContext + ?Sized,
 {
     for boundary in boundaries.iter().rev().copied() {
         if is_nullable(request, boundary.ty) {
-            return Ok(Some(boundary));
+            return Some(boundary);
         }
     }
 
     let Some(ty) = types.callable_result_type() else {
-        return Ok(None);
+        return None;
     };
 
-    Ok(is_nullable(request, ty).then_some(ResultBoundary {
+    is_nullable(request, ty).then_some(ResultBoundary {
         target: SelectedPropagationBoundary::Callable,
         ty,
-    }))
+    })
 }
 
 fn select_result_boundary<C>(
@@ -277,7 +274,7 @@ where
             available_errors.push(target_error);
         }
 
-        if let Some(conversion) = built_in_conversion_plan(request, error_type, target_error)? {
+        if let Some(conversion) = built_in_conversion_plan(request, error_type, target_error) {
             return Ok(Ok((boundary, conversion)));
         }
     }
@@ -386,7 +383,7 @@ fn missing_boundary_diagnostic<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let span = expression_span(request, expression)?;
+    let span = expression_span(request, expression);
 
     Ok(Diagnostic::new(
         diagnostic_id(index),

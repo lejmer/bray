@@ -8,10 +8,10 @@ use bray_binder::{
 };
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey};
 use bray_checker::{
-    CheckedConstantTerms, CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerSource, DefaultTargetValidityChecker,
-    ImplementationHookResolution, TargetValidity, TargetValidityChecker, TargetValidityContext,
-    TargetValidityRequest, resolve_type_expression_template,
+    CheckedConstantTerms, CheckerOutcome, CheckerRequestContext, CheckerSemanticQueryProvider,
+    CheckerSource, DefaultTargetValidityChecker, ImplementationHookResolution, TargetValidity,
+    TargetValidityChecker, TargetValidityContext, TargetValidityRequest,
+    resolve_type_expression_template,
 };
 use bray_compiler_known::{
     COMPILER_KNOWN_CATALOG, RecognizedStandardLibraryDeclarationDescriptor,
@@ -96,25 +96,19 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         context: &bray_checker::SemanticUnitContext,
         ty: TypeId,
     ) -> CheckerQueryResult<bool> {
-        let copyable_key = bray_compiler_known::CompilerKnownDeclarationKey::try_new("Copyable")
-            .ok_or(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::SemanticValueUnavailable,
-            ))?;
+        let copyable_key = bray_compiler_known::CompilerKnownDeclarationKey::try_new("Copyable").unwrap_or_else(|| panic!("statically_establishes_copyability requires retained checked input: bray_compiler_known::CompilerKnownDeclarationKey::try_new(\"Copyable\"), ty: {ty:?}"));
 
         let copyable = self
             .available_compiler_known_symbols()
-            .declaration_symbol::<TraitSymbolId>(&copyable_key)
-            .ok_or(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::SemanticValueUnavailable,
-            ))?;
+            .declaration_symbol::<TraitSymbolId>(&copyable_key).unwrap_or_else(|| panic!("statically_establishes_copyability requires retained checked input: self .available_compiler_known_symbols() .declaration_symbol::<TraitSymbolId>(&copyable_key), ty: {ty:?}"));
 
         let Some(mut symbol) = self
             .symbols()
             .symbol_for_key(context.key().declared_owner())
         else {
-            return Err(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::SemanticValueUnavailable,
-            ));
+            panic!(
+                "Canonical semantic value construction or lookup failed without an available store cause. in statically_establishes_copyability"
+            );
         };
 
         loop {
@@ -162,9 +156,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
                 self.binding_context.semantic_values(),
                 subject,
                 &constants,
-            )
-            .map_err(CheckerQueryError::Infrastructure)?
-            else {
+            ) else {
                 continue;
             };
 
@@ -204,11 +196,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
             terms.push((occurrence.key(), *result.value()));
         }
 
-        CheckedConstantTerms::try_from_terms(terms).map_err(|error| {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::CheckedConstantTerms(
-                error,
-            ))
-        })
+        Ok(CheckedConstantTerms::try_from_terms(terms).unwrap_or_else(|error| panic!("checked_constraint_constants must satisfy its checked construction contract: {error:?}")))
     }
 
     fn source_standard_library_implementations(
@@ -323,8 +311,12 @@ fn is_public_standard_library_source(compilation: &Compilation) -> bool {
 }
 
 fn standard_library_package_identity() -> CheckerQueryResult<PackageIdentity> {
-    PackageIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY).ok_or(
-        CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable),
+    Ok(
+        PackageIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY).unwrap_or_else(|| {
+            panic!(
+                "standard_library_package_identity must satisfy its checked construction contract"
+            )
+        }),
     )
 }
 
@@ -434,7 +426,9 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
                 Ok((surface.result(), surface.behavior().result_dependencies()))
             }
             bray_symbols::CallableParameterDefaultValue::Error(_) => {
-                Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in parameter_default_result"
+                )
             }
         }
     }
@@ -623,7 +617,6 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
     ) -> CheckerQueryResult<DiagnosticResult<Option<TypeId>>> {
         if let Some(ty) =
             bray_checker::built_in_operation_result_type(self, subject, application, member)
-                .map_err(CheckerQueryError::Infrastructure)?
         {
             return Ok(DiagnosticResult::without_diagnostics(Some(ty)));
         }
@@ -788,17 +781,11 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         CompilationCheckerContext::statically_establishes_copyability(self, context, ty)
     }
 
-    fn source(
-        &self,
-        anchor: BoundSourceAnchor,
-    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
+    fn source(&self, anchor: BoundSourceAnchor) -> CheckerSource<'_> {
         checker_source(self.binding_context.compilation(), anchor)
     }
 
-    fn source_syntax(
-        &self,
-        anchor: bray_declarations::SyntaxAnchor,
-    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
+    fn source_syntax(&self, anchor: bray_declarations::SyntaxAnchor) -> CheckerSource<'_> {
         checker_syntax_source(self.binding_context.compilation(), anchor)
     }
 
@@ -810,7 +797,6 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
 pub(in crate::compilation) fn checker_query_error(error: FactQueryError) -> CheckerQueryError {
     match error {
         FactQueryError::Cancelled => CheckerQueryError::Cancelled,
-        FactQueryError::CheckerInfrastructure(error) => CheckerQueryError::Infrastructure(error),
         error => CheckerQueryError::Upstream(error),
     }
 }
@@ -825,10 +811,7 @@ impl TargetValidityContext for CompilationTargetValidityContext<'_> {
         self.compilation.selected_target().target().profile()
     }
 
-    fn source(
-        &self,
-        anchor: BoundSourceAnchor,
-    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
+    fn source(&self, anchor: BoundSourceAnchor) -> CheckerSource<'_> {
         checker_source(self.compilation, anchor)
     }
 
@@ -840,56 +823,53 @@ impl TargetValidityContext for CompilationTargetValidityContext<'_> {
 fn checker_source_snapshot(
     compilation: &Compilation,
     anchor: BoundSourceAnchor,
-) -> Result<&SourceSnapshot, CheckerInfrastructureError> {
+) -> &SourceSnapshot {
     let source_id = anchor.syntax().source_id();
 
     let Some(source) = compilation.source(source_id) else {
-        return Err(CheckerInfrastructureError::MissingSource { source_id });
+        panic!("bound source {source_id:?} must exist in the immutable compilation snapshot");
     };
 
     if source.version() != anchor.source_version() {
-        return Err(CheckerInfrastructureError::SourceVersionMismatch {
-            source_id,
-            expected: anchor.source_version(),
-            actual: source.version(),
-        });
+        panic!(
+            "bound source {source_id:?} requires revision {:?}, but the immutable compilation has {:?}",
+            anchor.source_version(),
+            source.version(),
+        );
     }
 
-    Ok(source)
+    source
 }
 
-fn checker_source(
-    compilation: &Compilation,
-    anchor: BoundSourceAnchor,
-) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
-    let source = checker_source_snapshot(compilation, anchor)?;
+fn checker_source(compilation: &Compilation, anchor: BoundSourceAnchor) -> CheckerSource<'_> {
+    let source = checker_source_snapshot(compilation, anchor);
     let range = anchor.syntax().full_range();
     let span = SourceSpan::new(source.source_id(), range);
 
     let Some(text) = source.text_slice(range) else {
-        return Err(CheckerInfrastructureError::InvalidSourceRange { span });
+        panic!("bound source span {span:?} must be a valid UTF-8 range in its snapshot");
     };
 
-    Ok(CheckerSource::new(span, text))
+    CheckerSource::new(span, text)
 }
 
 fn checker_syntax_source(
     compilation: &Compilation,
     anchor: bray_declarations::SyntaxAnchor,
-) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
+) -> CheckerSource<'_> {
     let source_id = anchor.source_id();
 
     let Some(source) = compilation.source(source_id) else {
-        return Err(CheckerInfrastructureError::MissingSource { source_id });
+        panic!("bound source {source_id:?} must exist in the immutable compilation snapshot");
     };
 
     let span = SourceSpan::new(source_id, anchor.full_range());
 
     let Some(text) = source.text_slice(span.range()) else {
-        return Err(CheckerInfrastructureError::InvalidSourceRange { span });
+        panic!("bound source span {span:?} must be a valid UTF-8 range in its snapshot");
     };
 
-    Ok(CheckerSource::new(span, text))
+    CheckerSource::new(span, text)
 }
 
 pub(in crate::compilation) fn checker_binder_error(
@@ -897,10 +877,7 @@ pub(in crate::compilation) fn checker_binder_error(
 ) -> CheckerQueryError {
     match error {
         BindingQueryError::Cancelled => CheckerQueryError::Cancelled,
-        BindingQueryError::CheckerInfrastructure(error) => CheckerQueryError::Infrastructure(error),
-        BindingQueryError::SemanticValue(error) => {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
-        }
+        BindingQueryError::SemanticValue(error) => CheckerQueryError::Upstream(error.into()),
         BindingQueryError::DependencyUnavailable => {
             CheckerQueryError::Upstream(FactQueryError::BindingDependencyUnavailable)
         }
@@ -942,38 +919,7 @@ where
     > {
         self.binding_context
             .resolve_symbol_query(request)
-            .map_err(|error| match error {
-                BindingQueryError::Cancelled => CheckerQueryError::Cancelled,
-                BindingQueryError::CheckerInfrastructure(error) => {
-                    CheckerQueryError::Infrastructure(error)
-                }
-                BindingQueryError::SemanticValue(error) => CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                ),
-                BindingQueryError::DependencyUnavailable => CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticQueryUnavailable {
-                        symbol: request.symbol(),
-                        kind: request.kind(),
-                    },
-                ),
-                error @ (BindingQueryError::MissingSyntax { .. }
-                | BindingQueryError::MissingOwner { .. }
-                | BindingQueryError::MissingModule { .. }
-                | BindingQueryError::InvalidSurfaceName { .. }) => {
-                    CheckerQueryError::Upstream(super::binder::binding_query_error(error))
-                }
-                BindingQueryError::Construction(error) => {
-                    CheckerQueryError::Upstream(super::binder::binding_query_error(
-                        BindingQueryError::<FactQueryError>::Construction(error),
-                    ))
-                }
-                BindingQueryError::Binding(error) => {
-                    CheckerQueryError::Upstream(super::binder::binding_query_error(
-                        BindingQueryError::<FactQueryError>::Binding(error),
-                    ))
-                }
-                BindingQueryError::Upstream(error) => CheckerQueryError::Upstream(error),
-            })
+            .map_err(checker_binder_error)
     }
 }
 
@@ -1099,9 +1045,6 @@ where
     match outcome {
         CheckerOutcome::Complete(result) => Ok(result),
         CheckerOutcome::Cancelled => Err(FactQueryError::Cancelled),
-        CheckerOutcome::InfrastructureFailure(error) => {
-            Err(FactQueryError::CheckerInfrastructure(error))
-        }
         CheckerOutcome::UpstreamFailure(error) => Err(error.into()),
     }
 }
@@ -1113,8 +1056,8 @@ mod tests {
     use bray_binder::semantic_unit_context;
     use bray_bound_tree::BoundSourceAnchor;
     use bray_checker::{
-        CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView, TargetValidity,
-        TargetValidityRequest, TargetValidityRequirement,
+        CheckerRequestContext, CheckerUnitView, TargetValidity, TargetValidityRequest,
+        TargetValidityRequirement,
     };
     use bray_compiler_known::{ImplementationHook, RepresentationRole};
     use bray_diagnostics::DiagnosticKind;
@@ -1159,10 +1102,7 @@ mod tests {
 
         let anchor = key.source();
 
-        let source = match context.source(anchor) {
-            Ok(source) => source,
-            Err(error) => panic!("bound source must resolve: {error:?}"),
-        };
+        let source = context.source(anchor);
 
         let span = source.span();
 
@@ -1178,6 +1118,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "requires revision")]
     fn contexts_reject_bound_anchors_from_another_source_revision() {
         let compilation = callable_compilation();
         let key = source_callable_body_key(&compilation);
@@ -1194,10 +1135,7 @@ mod tests {
             SourceVersion::new(source.source_version().raw() + 1),
         );
 
-        assert!(matches!(
-            context.source(stale),
-            Err(CheckerInfrastructureError::SourceVersionMismatch { .. })
-        ));
+        context.source(stale);
     }
 
     #[test]

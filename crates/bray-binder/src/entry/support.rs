@@ -276,9 +276,6 @@ pub(super) fn map_binding_error<Upstream>(
 ) -> BoundUnitBindingError<Upstream> {
     match error {
         BindingError::Cancelled => BoundUnitBindingError::Cancelled,
-        BindingError::CheckerInfrastructure(error) => {
-            BoundUnitBindingError::CheckerInfrastructure(error)
-        }
         BindingError::SemanticValue(error) => BoundUnitBindingError::SemanticValue(error),
         BindingError::Upstream(error) => BoundUnitBindingError::Upstream(error),
         BindingError::Construction(error) => BoundUnitBindingError::Construction(error),
@@ -327,9 +324,6 @@ pub(super) fn map_query_error<Upstream>(
 ) -> BoundUnitBindingError<Upstream> {
     match error {
         crate::BindingQueryError::Cancelled => BoundUnitBindingError::Cancelled,
-        crate::BindingQueryError::CheckerInfrastructure(error) => {
-            BoundUnitBindingError::CheckerInfrastructure(error)
-        }
         crate::BindingQueryError::SemanticValue(error) => {
             BoundUnitBindingError::SemanticValue(error)
         }

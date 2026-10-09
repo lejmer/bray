@@ -36,9 +36,7 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
         context.semantic_values(),
         template,
         constants.value(),
-    )
-    .map_err(crate::fact::FactQueryError::CheckerInfrastructure)
-    .map_err(super::super::binding::binder_error)?;
+    );
 
     let Some(ty) = ty else {
         return Err(BindingQueryError::DependencyUnavailable);

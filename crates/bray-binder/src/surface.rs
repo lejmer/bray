@@ -239,9 +239,6 @@ fn bound_unit_error<Upstream>(
 ) -> BindingQueryError<Upstream> {
     match error {
         crate::BoundUnitBindingError::Cancelled => BindingQueryError::Cancelled,
-        crate::BoundUnitBindingError::CheckerInfrastructure(error) => {
-            BindingQueryError::CheckerInfrastructure(error)
-        }
         crate::BoundUnitBindingError::SemanticValue(error) => {
             BindingQueryError::SemanticValue(error)
         }
@@ -273,9 +270,6 @@ fn bound_unit_error<Upstream>(
 fn binding_error<Upstream>(error: BindingError<Upstream>) -> BindingQueryError<Upstream> {
     match error {
         BindingError::Cancelled => BindingQueryError::Cancelled,
-        BindingError::CheckerInfrastructure(error) => {
-            BindingQueryError::CheckerInfrastructure(error)
-        }
         BindingError::SemanticValue(error) => BindingQueryError::SemanticValue(error),
         BindingError::Upstream(error) => BindingQueryError::Upstream(error),
         BindingError::Construction(error) => BindingQueryError::Construction(error),

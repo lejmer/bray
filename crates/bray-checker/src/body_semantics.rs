@@ -14,10 +14,7 @@ use crate::asynchronous::check_async_analysis_with_graph;
 use crate::behavior::collect_body_behavior;
 use crate::dependency::check_dependency_contracts;
 use crate::unit::assert_unit_inputs;
-use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitView,
-};
+use crate::{CheckerOutcome, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView};
 
 macro_rules! complete {
     ($diagnostics:ident, $outcome:expr) => {
@@ -30,9 +27,7 @@ macro_rules! complete {
                 value
             }
             CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
-            CheckerOutcome::InfrastructureFailure(error) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
+
             CheckerOutcome::UpstreamFailure(error) => {
                 return CheckerOutcome::UpstreamFailure(error);
             }
@@ -69,9 +64,6 @@ where
         match build_storage_control_flow_graph(request, storage, expressions.selections(), None) {
             ControlFlowGraphBuildOutcome::Complete(graph) => graph,
             ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-            ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
             ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
                 return CheckerOutcome::UpstreamFailure(error);
             }
@@ -217,8 +209,9 @@ where
     ) {
         Ok(semantics) => semantics,
         Err(error) => {
-            return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::SemanticSnapshot(error),
+            panic!(
+                "Correlated semantic results describe different bound units or unit categories. in check_body_semantics_with_graph, value0: {:?}",
+                error
             );
         }
     };

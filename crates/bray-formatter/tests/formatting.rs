@@ -398,8 +398,8 @@ fn repository_programs_remain_valid_and_idempotent() {
             include_str!("../../../xtask/fixtures/native-execution/half-open-range.bray"),
         ),
         (
-            "abi_primitive",
-            include_str!("../../../xtask/fixtures/native-execution/abi-primitive.bray"),
+            "memory_layout",
+            include_str!("../../../xtask/fixtures/native-execution/memory-layout.bray"),
         ),
     ];
 

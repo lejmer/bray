@@ -5,9 +5,7 @@ use bray_symbols::{
     DependencyRequirement, SemanticValueStore, SemanticValueStoreError,
 };
 
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 use super::graph::{ParameterNode, Parameters, retain_parameters, solve_parameters};
 
@@ -26,12 +24,14 @@ impl SelectionParameters {
             self.discover(request, selected)?;
         }
 
-        retain_parameters(
+        Ok(retain_parameters(
             request.semantic_values(),
             selected,
             self.relevant.get(&selected.definition()),
         )
-        .map_err(|error| CheckerInfrastructureError::SemanticValueStore(error).into())
+        .unwrap_or_else(|error| {
+            panic!("key must satisfy its checked construction contract: {error:?}")
+        }))
     }
 
     fn discover<C: CheckerRequestContext + ?Sized>(
@@ -63,12 +63,10 @@ impl SelectionParameters {
             let mut edges = Vec::new();
 
             let local =
-                selection_requirements(values, template.requirements(), &mut pending, &mut edges)
-                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                selection_requirements(values, template.requirements(), &mut pending, &mut edges).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in discover: {error:?}"));
 
             let local = values
-                .intern_dependency_contract_template(DependencyContractTemplateData::new(local))
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                .intern_dependency_contract_template(DependencyContractTemplateData::new(local)).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in discover: {error:?}"));
 
             nodes.insert(
                 callable.definition(),

@@ -17,10 +17,7 @@ use crate::constant::{check_byte_string_literal, check_constant_literal};
 use crate::diagnostic::{diagnostic_id, pattern_span};
 use crate::representation::type_representation;
 use crate::type_check::diagnostic_type;
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider};
 
 impl<C> PatternChecker<'_, '_, C>
 where
@@ -167,19 +164,17 @@ where
             return Ok(None);
         };
 
-        let source = self.request.source(pattern.origin().source_anchor())?;
+        let source = self.request.source(pattern.origin().source_anchor());
 
         let Some(spelling) = source.text_for_range(literal.range()) else {
-            return Err(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::InvalidSourceRange {
-                    span: bray_source::SourceSpan::new(source.span().source_id(), literal.range()),
-                },
-            ));
+            panic!(
+                "A bound anchor does not cover a valid UTF-8 range in its source revision. in literal_predicate, span: {:?}",
+                bray_source::SourceSpan::new(source.span().source_id(), literal.range())
+            );
         };
 
         let value = if literal.kind() == bray_bound_tree::BoundLiteralKind::ByteString {
-            check_byte_string_literal(self.request.semantic_values(), input_type, spelling)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?
+            check_byte_string_literal(self.request.semantic_values(), input_type, spelling).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in literal_predicate: {error:?}"))
         } else {
             let Some(representation) = type_representation(self.request, input_type) else {
                 return Ok(None);
@@ -200,8 +195,7 @@ where
         let value = self
             .request
             .semantic_values()
-            .intern_constant_value(ConstantValueData::new(input_type, value))
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            .intern_constant_value(ConstantValueData::new(input_type, value)).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in literal_predicate: {error:?}"));
 
         Ok(Some(PatternLiteralPredicate::new(literal, value)))
     }
@@ -267,7 +261,7 @@ where
         actual: TypeId,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         let actual = diagnostic_type(self.request, actual)?;
-        let span = pattern_span(self.request, pattern)?;
+        let span = pattern_span(self.request, pattern);
 
         self.diagnostics.push(
             Diagnostic::new(
@@ -290,7 +284,7 @@ where
         &mut self,
         pattern: BoundPatternId,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
-        let span = pattern_span(self.request, pattern)?;
+        let span = pattern_span(self.request, pattern);
 
         self.diagnostics.push(
             Diagnostic::new(
@@ -325,9 +319,9 @@ where
                 .source(bray_bound_tree::BoundSourceAnchor::new(
                     syntax,
                     pattern.origin().source_anchor().source_version(),
-                ))?
+                ))
                 .span(),
-            None => pattern_span(self.request, id)?,
+            None => pattern_span(self.request, id),
         };
 
         self.diagnostics.push(
@@ -355,7 +349,7 @@ where
         actual: TypeId,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         let actual = diagnostic_type(self.request, actual)?;
-        let span = pattern_span(self.request, pattern)?;
+        let span = pattern_span(self.request, pattern);
 
         self.diagnostics.push(
             Diagnostic::new(
@@ -382,7 +376,7 @@ where
         pattern: BoundPatternId,
         source: &BoundPattern,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
-        let span = pattern_span(self.request, pattern)?;
+        let span = pattern_span(self.request, pattern);
         let name = source.name().map_or("", bray_symbols::SymbolName::as_str);
 
         self.diagnostics.push(

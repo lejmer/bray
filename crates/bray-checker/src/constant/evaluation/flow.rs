@@ -7,8 +7,8 @@ use bray_symbols::{
     AnyLocalSymbolId, ConstantTermData, ConstantTermId, ConstantValueKind, TypeId, UnionSymbolId,
 };
 
+use crate::CheckerRequestContext;
 use crate::representation::type_representation;
-use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
 use super::engine::Evaluator;
 use super::support::EvaluationFailure;
@@ -34,16 +34,13 @@ where
         let bound =
             self.request
                 .view()
-                .expression(expression)
-                .ok_or(EvaluationFailure::constant(
-                    crate::CheckerConstantEvaluationFailure::MissingExpression { expression },
-                ))?;
+                .expression(expression).unwrap_or_else(|| panic!("evaluate_flow requires checked expression type or node, expression: {expression:?}"));
 
         let evaluated = match bound {
             BoundExpression::Block(block) => {
-                let ty = self.expression_type(expression)?;
+                let ty = self.expression_type(expression);
 
-                self.evaluate_block(block.block(), ty)
+                self.evaluate_block(block.block(), ty?)
             }
             BoundExpression::Structured(structured)
                 if structured.kind() == BoundStructuredExpressionKind::Conditional =>
@@ -85,9 +82,10 @@ where
                 };
 
                 match transfer.kind() {
-                    BoundControlTransferKind::Yield => {
-                        Ok(EvaluationFlow::Yield { term, source_type })
-                    }
+                    BoundControlTransferKind::Yield => Ok(EvaluationFlow::Yield {
+                        term,
+                        source_type: source_type,
+                    }),
                     BoundControlTransferKind::Return => {
                         let result_type = self.input.result_type().unwrap_or(source_type);
 
@@ -157,12 +155,9 @@ where
         let block = self
             .request
             .view()
-            .block(block)
-            .ok_or(EvaluationFailure::constant(
-                crate::CheckerConstantEvaluationFailure::MissingBlock { block },
-            ))?;
+            .block(block).unwrap_or_else(|| panic!("evaluate_block requires checked input, block: {block:?}, result_type: {result_type:?}"));
 
-        let initial = self.intern_value_term(result_type, ConstantValueKind::Unit)?;
+        let initial = self.intern_value_term(result_type, ConstantValueKind::Unit);
         let mut result = (initial, result_type);
 
         for item in block.items() {
@@ -179,9 +174,9 @@ where
                     let value = self.evaluate(constant.initializer())?;
 
                     let value = if let Some(declared) = constant.declared_type().ty() {
-                        let initializer_type = self.expression_type(constant.initializer())?;
+                        let initializer_type = self.expression_type(constant.initializer());
 
-                        self.adapt_nullable_present(value, initializer_type, declared)?
+                        self.adapt_nullable_present(value, initializer_type?, declared)?
                     } else {
                         value
                     };
@@ -204,7 +199,7 @@ where
                         return Ok(EvaluationFlow::Return(value));
                     }
                     EvaluationFlow::Propagate(value) => {
-                        if let Some(value) = self.materialize_propagation(value, result_type)? {
+                        if let Some(value) = self.materialize_propagation(value, result_type) {
                             return Ok(EvaluationFlow::Value(value));
                         }
 
@@ -229,19 +224,19 @@ where
             return Err(EvaluationFailure::invalid_expression(expression));
         }
 
-        let ty = self.expression_type(expression)?;
+        let ty = self.expression_type(expression);
 
         for (condition, block) in conditional.operands().iter().zip(conditional.blocks()) {
             if self.boolean_value(*condition)? {
-                return self.evaluate_block(*block, ty);
+                return self.evaluate_block(*block, ty?);
             }
         }
 
         match conditional.blocks().get(conditional.operands().len()) {
-            Some(block) => self.evaluate_block(*block, ty),
-            None => self
-                .intern_value_term(ty, ConstantValueKind::Unit)
-                .map(EvaluationFlow::Value),
+            Some(block) => self.evaluate_block(*block, ty?),
+            None => Ok(EvaluationFlow::Value(
+                self.intern_value_term(ty?, ConstantValueKind::Unit),
+            )),
         }
     }
 
@@ -287,9 +282,9 @@ where
         let value = self.request.semantic_values().constant_value_data(value);
 
         match value.kind() {
-            ConstantValueKind::NullablePresent(value) => self
-                .intern_term(bray_symbols::ConstantTermData::Value(*value))
-                .map(EvaluationFlow::Value),
+            ConstantValueKind::NullablePresent(value) => Ok(EvaluationFlow::Value(
+                self.intern_term(bray_symbols::ConstantTermData::Value(*value)),
+            )),
             ConstantValueKind::NullableAbsent => Ok(EvaluationFlow::Propagate(operand)),
             _ => Err(EvaluationFailure::invalid_expression(expression)),
         }
@@ -318,16 +313,16 @@ where
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
-        let (success, failure) = self.result_variants()?;
+        let (success, failure) = self.result_variants();
 
         if *variant == success {
             let [field] = fields.as_ref() else {
                 return Err(EvaluationFailure::invalid_expression(expression));
             };
 
-            return self
-                .intern_term(ConstantTermData::Value(*field.value()))
-                .map(EvaluationFlow::Value);
+            return Ok(EvaluationFlow::Value(
+                self.intern_term(ConstantTermData::Value(*field.value())),
+            ));
         }
 
         if *variant == failure {
@@ -341,9 +336,9 @@ where
         &self,
         propagated: ConstantTermId,
         result_type: TypeId,
-    ) -> Result<Option<ConstantTermId>, EvaluationFailure> {
+    ) -> Option<ConstantTermId> {
         let Some(value) = self.term_value(propagated) else {
-            return Ok(None);
+            return None;
         };
 
         let value = self.request.semantic_values().constant_value_data(value);
@@ -356,64 +351,53 @@ where
             bray_symbols::TypeData::Nullable(_)
         ) && matches!(value.kind(), ConstantValueKind::NullableAbsent)
         {
-            return self
-                .intern_value_term(result_type, ConstantValueKind::NullableAbsent)
-                .map(Some);
+            return Some(self.intern_value_term(result_type, ConstantValueKind::NullableAbsent));
         }
 
         if type_representation(self.request, result_type) == Some(RepresentationRole::Result)
             && let ConstantValueKind::Union { variant, .. } = value.kind()
         {
-            let (_, failure) = self.result_variants()?;
+            let (_, failure) = self.result_variants();
 
             if *variant == failure {
-                return self
-                    .intern_value_term(result_type, value.kind().clone())
-                    .map(Some);
+                return Some(self.intern_value_term(result_type, value.kind().clone()));
             }
         }
 
-        Ok(None)
+        None
     }
 
     fn result_variants(
         &self,
-    ) -> Result<
-        (
-            bray_symbols::UnionVariantSymbolId,
-            bray_symbols::UnionVariantSymbolId,
-        ),
-        EvaluationFailure,
-    > {
+    ) -> (
+        bray_symbols::UnionVariantSymbolId,
+        bray_symbols::UnionVariantSymbolId,
+    ) {
         let Some(result) = self
             .request
             .available_compiler_known_symbols()
             .representation_symbol::<UnionSymbolId>(RepresentationRole::Result)
         else {
-            return Err(EvaluationFailure::Infrastructure(
-                CheckerInfrastructureError::SemanticValueUnavailable,
-            ));
+            panic!("Result representation must have a compiler-known union symbol");
         };
 
         let Some(result) = self.request.symbols().union(result) else {
-            return Err(EvaluationFailure::Infrastructure(
-                CheckerInfrastructureError::SemanticValueUnavailable,
-            ));
+            panic!("Result union symbol {result:?} must exist in the symbol graph");
         };
 
         let [success, failure] = result.variants() else {
-            return Err(EvaluationFailure::Infrastructure(
-                CheckerInfrastructureError::SemanticValueUnavailable,
-            ));
+            panic!(
+                "Result union must have exactly success and failure variants, actual: {result:?}"
+            );
         };
 
-        Ok((*success, *failure))
+        (*success, *failure)
     }
 
     fn unit_term(
         &self,
         expression: BoundExpressionId,
     ) -> Result<ConstantTermId, EvaluationFailure> {
-        self.intern_value_term(self.expression_type(expression)?, ConstantValueKind::Unit)
+        Ok(self.intern_value_term(self.expression_type(expression)?, ConstantValueKind::Unit))
     }
 }

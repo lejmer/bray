@@ -12,9 +12,7 @@ use bray_symbols::{GenericArgument, TypeData, TypeExpressionTemplate, TypeId};
 
 use super::parts::CleanupExpansion;
 use crate::storage::storage_scope_owners;
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 pub(crate) fn cleanup_scopes<C>(
     request: CheckerUnitView<'_, C>,
@@ -362,7 +360,7 @@ where
             SeverityKind,
         };
 
-        let span = self.request.source(source)?.span();
+        let span = self.request.source(source).span();
         let ty = crate::diagnostic::diagnostic_type(self.request.context(), ty)?;
 
         self.diagnostics.add(
@@ -435,8 +433,7 @@ where
 
                 if let Some(receiver) = call.receiver() {
                     let ty = receiver
-                        .input_type(request.semantic_values())
-                        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                        .input_type(request.semantic_values()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in scope_exit_plans: {error:?}"));
 
                     cleanup_shapes.include_input(ty)?;
                 }
@@ -458,8 +455,7 @@ where
         ) {
             for operand in expression.operands() {
                 let ty = types
-                    .expression(*operand)
-                    .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?
+                    .expression(*operand).unwrap_or_else(|| panic!("scope_exit_plans requires checked expression type or node, operand: {operand:?}"))
                     .ty();
 
                 cleanup_shapes.include_input(ty)?;

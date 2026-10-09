@@ -8,7 +8,7 @@ use bray_symbols::{
     DependencySubjectRoot, ReceiverMode, SymbolOrdinal,
 };
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitView};
 
 enum CallInstantiationInput<'check> {
     Selected {
@@ -74,12 +74,12 @@ where
         self.deferred = true;
     }
 
-    fn resolve_guard_access(
-        &mut self,
-        subject: &DependencySubject,
-    ) -> Result<StorageAccessId, CheckerInfrastructureError> {
-        match self.resolve_subject(subject, DependencyRequirementKind::StorageAlive)? {
-            BoundDependencySubject::StorageAccess(access) => Ok(access),
+    fn resolve_guard_access(&mut self, subject: &DependencySubject) -> StorageAccessId {
+        match self
+            .resolve_subject(subject, DependencyRequirementKind::StorageAlive)
+            .unwrap_or_else(|error| match error {})
+        {
+            BoundDependencySubject::StorageAccess(access) => access,
             BoundDependencySubject::Storage(_)
             | BoundDependencySubject::BorrowCapability(_)
             | BoundDependencySubject::ScopedCapability(_)
@@ -87,7 +87,9 @@ where
             | BoundDependencySubject::ProductStatic(_)
             | BoundDependencySubject::ExactThreadStatic(_)
             | BoundDependencySubject::LifecycleObligation(_) => {
-                Err(CheckerInfrastructureError::InvalidSemanticSelectionInput)
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in resolve_guard_access"
+                )
             }
         }
     }
@@ -209,7 +211,7 @@ impl<C> DependencyContractInstantiationContext for CallInstantiationContext<'_, 
 where
     C: CheckerRequestContext + ?Sized,
 {
-    type Error = CheckerInfrastructureError;
+    type Error = std::convert::Infallible;
 
     fn unit(&self) -> bray_bound_tree::BoundUnitId {
         self.request.unit().unit()
@@ -266,13 +268,11 @@ where
             .or_else(|| {
                 expression.and_then(|expression| expression_access(self.storage, expression))
             })
-            .or_else(|| self.hidden_access(root))
-            .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            .or_else(|| self.hidden_access(root)).unwrap_or_else(|| panic!("resolve_subject requires dependency storage access, root: {root:?}, expression: {expression:?}, requirement: {requirement:?}"));
 
         if let DependencyRequirementKind::BorrowCapabilityActive(kind) = requirement {
             let capability = self
-                .borrow_capability(expression, base, kind)
-                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+                .borrow_capability(expression, base, kind).unwrap_or_else(|| panic!("resolve_subject requires planned borrow capability, root: {root:?}, expression: {expression:?}, requirement: {requirement:?}"));
 
             return Ok(BoundDependencySubject::BorrowCapability(capability));
         }
@@ -292,12 +292,12 @@ where
     ) -> Result<BoundDependencyGuard, Self::Error> {
         match guard {
             DependencyGuard::NullablePresent(subject) => {
-                let access = self.resolve_guard_access(subject)?;
+                let access = self.resolve_guard_access(subject);
 
                 Ok(BoundDependencyGuard::NullablePresent(access))
             }
             DependencyGuard::ActiveUnionVariant { subject, variant } => {
-                let access = self.resolve_guard_access(subject)?;
+                let access = self.resolve_guard_access(subject);
 
                 Ok(BoundDependencyGuard::ActiveUnionVariant {
                     access,

@@ -9,7 +9,7 @@ use bray_symbols::{
 use super::super::diagnostic::ConstantDiagnostic;
 use super::super::operation::ConstantOperationError;
 use super::evaluator::TemplateEvaluator;
-use crate::{CheckerInfrastructureError, CheckerRequestContext};
+use crate::CheckerRequestContext;
 
 pub(super) fn check_definition_materialization<C: CheckerRequestContext + ?Sized>(
     evaluator: &mut TemplateEvaluator<'_, C>,
@@ -37,24 +37,15 @@ pub(super) fn check_definition_materialization<C: CheckerRequestContext + ?Sized
 
 pub(super) enum TemplateEvaluationFailure {
     Cancelled,
-    Infrastructure(CheckerInfrastructureError),
     Upstream,
     Diagnostic(ConstantDiagnostic),
 }
 
 impl TemplateEvaluationFailure {
-    pub(super) const fn invalid_input() -> Self {
-        Self::Infrastructure(CheckerInfrastructureError::InvalidConstantEvaluationInput)
-    }
-
     pub(super) const fn invalid_expression(
         category: bray_diagnostics::DiagnosticExpressionCategory,
     ) -> Self {
         Self::Diagnostic(ConstantDiagnostic::InvalidExpression(Some(category)))
-    }
-
-    pub(super) const fn semantic_value(error: bray_symbols::SemanticValueStoreError) -> Self {
-        Self::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
     }
 }
 
@@ -90,13 +81,12 @@ pub(super) fn target_integer_width(
     std::num::NonZeroU16::MIN
 }
 
-pub(super) fn recovery_value(
-    values: &SemanticValueStore,
-    ty: TypeId,
-) -> Result<ConstantValueId, CheckerInfrastructureError> {
+pub(super) fn recovery_value(values: &SemanticValueStore, ty: TypeId) -> ConstantValueId {
     values
         .intern_error_constant_value(ty)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)
+        .unwrap_or_else(|error| {
+            panic!("recovery_value must satisfy its checked construction contract: {error:?}")
+        })
 }
 
 pub(super) fn integer_index(value: &ConstantValueKind) -> Option<usize> {
@@ -107,6 +97,8 @@ pub(super) fn integer_index(value: &ConstantValueKind) -> Option<usize> {
     super::super::integer::integer_to_usize(value)
 }
 
-pub(super) fn template_index(raw: u32) -> Result<usize, TemplateEvaluationFailure> {
-    usize::try_from(raw).map_err(|_| TemplateEvaluationFailure::invalid_input())
+pub(super) fn template_index(raw: u32) -> usize {
+    usize::try_from(raw).unwrap_or_else(|error| {
+        panic!("template_index must satisfy its checked construction contract: {error:?}")
+    })
 }

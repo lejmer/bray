@@ -1,4 +1,3 @@
-use bray_checker::CheckerInfrastructureError;
 use bray_diagnostics::{
     DiagnosticArgName, DiagnosticArgValue, DiagnosticFailureValue, DiagnosticKind,
     DiagnosticNativeProductFailureKind, DiagnosticNoteKind, DiagnosticSemanticValueFailure,
@@ -72,18 +71,6 @@ fn native_product_evaluation_failures_preserve_specific_reasons() {
         (
             FactQueryError::ConstantCallableRootUnavailable,
             Kind::EvaluationConstantCallableRootUnavailable,
-        ),
-        (
-            FactQueryError::CheckerInfrastructure(
-                CheckerInfrastructureError::AtomicRepresentationTypeUnavailable,
-            ),
-            Kind::EvaluationAtomicRepresentationTypeUnavailable,
-        ),
-        (
-            FactQueryError::CheckerInfrastructure(
-                CheckerInfrastructureError::AtomicRepresentationArgumentsUnavailable,
-            ),
-            Kind::EvaluationAtomicRepresentationArgumentsUnavailable,
         ),
         (
             FactQueryError::AtomicInitializerArgumentUnavailable,

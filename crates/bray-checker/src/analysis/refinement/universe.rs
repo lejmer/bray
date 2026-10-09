@@ -87,11 +87,11 @@ impl RefinementUniverse {
             .blocks()
             .len()
             .checked_add(graph.operations().len())
-            .ok_or(RefinementUniverseError::CountUnrepresentable)?;
+            .expect("refinement state counts must fit the host address space");
 
         let bitset_cells = words
             .checked_mul(retained_states)
-            .ok_or(RefinementUniverseError::CountUnrepresentable)?;
+            .expect("refinement state counts must fit the host address space");
 
         if bitset_cells > MAX_REFINEMENT_CELLS {
             return Err(capacity_error(
@@ -198,7 +198,7 @@ impl RefinementUniverse {
 
         self.refinements
             .try_reserve(1)
-            .map_err(|_| RefinementUniverseError::AllocationFailed)?;
+            .unwrap_or_else(|error| panic!("failed to reserve refinement storage: {error}"));
 
         if let Some(key) = pattern_key {
             self.pattern_indexes.insert(key, index);
@@ -283,8 +283,6 @@ impl RefinementUniverse {
 #[derive(Clone, Copy, Debug)]
 pub(super) enum RefinementUniverseError {
     CapacityExceeded(DiagnosticRefinementCapacity),
-    CountUnrepresentable,
-    AllocationFailed,
     Cancelled,
 }
 
@@ -293,17 +291,14 @@ pub(super) fn capacity_error(
     actual: usize,
     maximum: usize,
 ) -> RefinementUniverseError {
-    let Ok(actual) = u64::try_from(actual) else {
-        return RefinementUniverseError::CountUnrepresentable;
-    };
+    let actual = u64::try_from(actual)
+        .expect("refinement demand must fit the diagnostic count representation");
 
-    let Ok(maximum) = u64::try_from(maximum) else {
-        return RefinementUniverseError::CountUnrepresentable;
-    };
+    let maximum = u64::try_from(maximum)
+        .expect("refinement limit must fit the diagnostic count representation");
 
-    let Some(capacity) = DiagnosticRefinementCapacity::try_new(surface, actual, maximum) else {
-        return RefinementUniverseError::CountUnrepresentable;
-    };
+    let capacity = DiagnosticRefinementCapacity::try_new(surface, actual, maximum)
+        .unwrap_or_else(|| panic!("refinement capacity rejection requires demand {actual} to exceed limit {maximum} for {surface:?}"));
 
     RefinementUniverseError::CapacityExceeded(capacity)
 }

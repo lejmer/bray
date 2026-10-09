@@ -5,9 +5,7 @@ use bray_symbols::{
     SymbolOrdinal,
 };
 
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 pub(super) fn deferred_result<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
@@ -15,13 +13,14 @@ pub(super) fn deferred_result<C: CheckerRequestContext + ?Sized>(
     requirement: Option<bray_symbols::ImplementationRequirementKey>,
 ) -> Result<DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>> {
     let BoundCallableTarget::Declaration(instance) = call.target() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in deferred_result"
+        );
     };
 
     let callable = request
         .semantic_values()
-        .intern_callable_instance(instance)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .intern_callable_instance(instance).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in deferred_result: {error:?}"));
 
     Ok(DependencyContractTemplateData::new([
         DependencyRequirement::result_call(callable, requirement, call_inputs(call)),
@@ -65,13 +64,11 @@ pub(super) fn instantiate_template<C: CheckerRequestContext + ?Sized>(
     let values = request.semantic_values();
 
     let template = values
-        .substitute_dependency_contract(template, key.0.substitution())
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .substitute_dependency_contract(template, key.0.substitution()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in instantiate_template: {error:?}"));
 
     let template = match key.1 {
         Some((context, subject)) => values
-            .substitute_contextual_self_in_dependency_contract(template, context, subject)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?,
+            .substitute_contextual_self_in_dependency_contract(template, context, subject).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in instantiate_template: {error:?}")),
         None => template,
     };
 
@@ -191,8 +188,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
             }
 
             if !self.equations[scope].changed {
-                break super::equations::shift_variables(&evaluated, -1)
-                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                break super::equations::shift_variables(&evaluated, -1).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in fixed_point: {error:?}"));
             }
         };
 
@@ -233,7 +229,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
             });
 
         if !self.equations[scope].active.insert(ordinal.raw()) {
-            return super::equations::shift_variables(
+            return Ok(super::equations::shift_variables(
                 self.equations[scope]
                     .values
                     .get(&ordinal.raw())
@@ -241,7 +237,9 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
                     .unwrap_or_default(),
                 i64::from(depth),
             )
-            .map_err(|error| CheckerInfrastructureError::SemanticValueStore(error).into());
+            .unwrap_or_else(|error| {
+                panic!("variable must satisfy its checked construction contract: {error:?}")
+            }));
         }
 
         let previous = self.scope;
@@ -265,8 +263,11 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
             .values
             .insert(ordinal.raw(), value.clone());
 
-        super::equations::shift_variables(&value, i64::from(depth))
-            .map_err(|error| CheckerInfrastructureError::SemanticValueStore(error).into())
+        Ok(
+            super::equations::shift_variables(&value, i64::from(depth)).unwrap_or_else(|error| {
+                panic!("variable must satisfy its checked construction contract: {error:?}")
+            }),
+        )
     }
 
     fn requirements(
@@ -326,8 +327,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
 
                     let resolved = self.selected_result(key)?;
 
-                    let mapped = map_call_inputs(&resolved, inputs)
-                        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                    let mapped = map_call_inputs(&resolved, inputs).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in requirements: {error:?}"));
 
                     result.extend(self.requirements(&mapped)?);
                 }

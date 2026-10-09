@@ -10,7 +10,7 @@ use bray_symbols::{
 };
 
 use super::super::plan::{PlanError, Planner, missing_node};
-use crate::{CheckerInfrastructureError, CheckerRequestContext};
+use crate::CheckerRequestContext;
 
 pub(super) enum MemberStorage {
     Projection(StorageProjection),
@@ -29,32 +29,32 @@ where
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let binding = match target {
             BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(id)) => {
-                self.builder()?.binding(StorageBindingTarget::Local(id))
+                self.builder().binding(StorageBindingTarget::Local(id))
             }
             BoundReferenceTarget::Local(AnyLocalSymbolId::AnonymousCallableParameter(id)) => self
-                .builder()?
+                .builder()
                 .binding(StorageBindingTarget::AnonymousParameter(id)),
             BoundReferenceTarget::Local(AnyLocalSymbolId::PostconditionResult(id)) => self
-                .builder()?
+                .builder()
                 .binding(StorageBindingTarget::PostconditionResult(id)),
             BoundReferenceTarget::Surface(AnySymbolId::CallableParameter(id)) => {
-                self.builder()?.binding(StorageBindingTarget::Parameter(id))
+                self.builder().binding(StorageBindingTarget::Parameter(id))
             }
             BoundReferenceTarget::Surface(AnySymbolId::ReceiverParameter(id)) => {
-                self.builder()?.binding(StorageBindingTarget::Receiver(id))
+                self.builder().binding(StorageBindingTarget::Receiver(id))
             }
             BoundReferenceTarget::Surface(AnySymbolId::Static(id)) => {
                 let target = StorageBindingTarget::Static(id);
 
-                if self.builder()?.binding(target).is_none() {
-                    let ty = self.expression_type(expression)?.ty();
+                if self.builder().binding(target).is_none() {
+                    let ty = self.expression_type(expression).ty();
                     let _ = self.bind_identity(target, StorageIdentity::Static(id), Some(ty))?;
                 }
 
-                self.builder()?.binding(target)
+                self.builder().binding(target)
             }
             BoundReferenceTarget::Surface(AnySymbolId::PredicateParameter(id)) => self
-                .builder()?
+                .builder()
                 .binding(StorageBindingTarget::PredicateParameter(id)),
             BoundReferenceTarget::Surface(AnySymbolId::StructField(field)) => {
                 return self
@@ -62,7 +62,9 @@ where
             }
             BoundReferenceTarget::Surface(AnySymbolId::UnionPayloadField(field)) => {
                 let Some(field) = self.request.symbols().union_payload_field(field) else {
-                    return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+                    panic!(
+                        "Storage-planning inputs or constructed records violate the requested unit contract. in reference_access"
+                    );
                 };
 
                 return self.receiver_field_access(
@@ -96,7 +98,7 @@ where
         };
 
         let receiver = match self
-            .builder()?
+            .builder()
             .binding(StorageBindingTarget::Receiver(receiver))
         {
             Some(StorageBinding::Identity(storage)) => self.direct_access(expression, storage)?,
@@ -108,7 +110,7 @@ where
             expression,
             receiver,
             projection,
-            self.expression_type(expression)?,
+            self.expression_type(expression),
         )
     }
 
@@ -135,7 +137,9 @@ where
             Some(SemanticSelection::Operation(SelectedOperation::Member(target))) => {
                 target.member()
             }
-            Some(_) => return Err(CheckerInfrastructureError::InvalidStoragePlan.into()),
+            Some(_) => panic!(
+                "Storage-planning inputs or constructed records violate the requested unit contract. in selected_member_projection"
+            ),
             None => return self.member_from_checked_receiver(expression),
         };
 
@@ -145,7 +149,9 @@ where
             }
             AnySymbolId::UnionPayloadField(field) => {
                 let Some(field) = self.request.symbols().union_payload_field(field) else {
-                    return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+                    panic!(
+                        "Storage-planning inputs or constructed records violate the requested unit contract. in selected_member_projection"
+                    );
                 };
 
                 MemberStorage::Projection(StorageProjection::ActiveUnionPayloadField {
@@ -174,7 +180,9 @@ where
             bray_bound_tree::BoundExpression::TraitQualifiedMember(member) => {
                 (member.receiver(), member.selector())
             }
-            _ => return Err(CheckerInfrastructureError::InvalidStoragePlan.into()),
+            _ => panic!(
+                "Storage-planning inputs or constructed records violate the requested unit contract. in member_from_checked_receiver"
+            ),
         };
 
         if bound.is_recovered() {
@@ -187,8 +195,7 @@ where
 
         let receiver = self
             .types
-            .expression(receiver)
-            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+            .expression(receiver).unwrap_or_else(|| panic!("member_from_checked_receiver requires checked expression type or node, expression: {expression:?}, receiver: {receiver:?}"));
 
         if receiver.is_recovered() {
             return Ok(MemberStorage::Recovered);
@@ -217,7 +224,9 @@ where
             ),
             MemberLookupResult::Found(AnySymbolId::UnionPayloadField(field)) => {
                 let Some(field) = self.request.symbols().union_payload_field(field) else {
-                    return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+                    panic!(
+                        "Storage-planning inputs or constructed records violate the requested unit contract. in member_from_checked_receiver"
+                    );
                 };
 
                 Ok(MemberStorage::Projection(
@@ -247,7 +256,7 @@ where
                 expression,
                 receiver,
                 projection,
-                self.expression_type(expression)?,
+                self.expression_type(expression),
             ),
             MemberStorage::Value => self.temporary_access(expression),
             MemberStorage::Recovered => self.conservative_subject_access(expression, receiver),
@@ -264,9 +273,8 @@ where
         let base = self.borrowed_value_access(expression, base)?;
 
         let base = self
-            .builder()?
-            .access(base)
-            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+            .builder()
+            .access(base).unwrap_or_else(|| panic!("project_access requires planned storage access, expression: {expression:?}, base: {base:?}"));
 
         let root = base.root();
         let mut projections = base.projections().to_vec();
@@ -282,9 +290,8 @@ where
         access: StorageAccessId,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let record = self
-            .builder()?
-            .access(access)
-            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+            .builder()
+            .access(access).unwrap_or_else(|| panic!("borrowed_value_access requires planned storage access, expression: {expression:?}, access: {access:?}"));
 
         let StorageAccessRoot::Storage(identity) = record.root() else {
             return Ok(access);
@@ -299,9 +306,8 @@ where
         let source = self.borrowed_value_access(expression, source)?;
 
         let source = self
-            .builder()?
-            .access(source)
-            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+            .builder()
+            .access(source).unwrap_or_else(|| panic!("borrowed_value_access requires planned storage access, expression: {expression:?}, access: {access:?}, source: {source:?}"));
 
         let Some(capability) = source.root().borrow_capability() else {
             return Ok(access);
@@ -317,7 +323,7 @@ where
             [],
             bray_bound_tree::ExpressionTypeResult::new(
                 reached_type,
-                self.expression_type(expression)?.status(),
+                self.expression_type(expression).status(),
             ),
         )
     }
@@ -327,13 +333,15 @@ where
         expression: BoundExpressionId,
         storage: bray_bound_tree::StorageIdentityId,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
-        let root = match self.builder()?.identity(storage) {
+        let root = match self.builder().identity(storage) {
             Some(StorageIdentity::Error(_)) => StorageAccessRoot::Recovery(storage),
             Some(_) => StorageAccessRoot::Storage(storage),
-            None => return Err(CheckerInfrastructureError::InvalidStoragePlan.into()),
+            None => panic!(
+                "Storage-planning inputs or constructed records violate the requested unit contract. in direct_access"
+            ),
         };
 
-        self.push_expression_access(expression, root, [], self.expression_type(expression)?)
+        self.push_expression_access(expression, root, [], self.expression_type(expression))
     }
 
     pub(super) fn copy_access(
@@ -342,9 +350,8 @@ where
         access: StorageAccessId,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let access = self
-            .builder()?
-            .access(access)
-            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+            .builder()
+            .access(access).unwrap_or_else(|| panic!("copy_access requires planned storage access, expression: {expression:?}, access: {access:?}"));
 
         let root = access.root();
         let projections = access.projections().to_vec();
@@ -353,7 +360,7 @@ where
             expression,
             root,
             projections,
-            self.expression_type(expression)?,
+            self.expression_type(expression),
         )
     }
 
@@ -364,13 +371,12 @@ where
         reached_type: TypeId,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let access = self
-            .builder()?
-            .access(access)
-            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+            .builder()
+            .access(access).unwrap_or_else(|| panic!("access_with_reached_type requires planned storage access, expression: {expression:?}, access: {access:?}, reached_type: {reached_type:?}"));
 
         let root = access.root();
         let projections = access.projections().to_vec();
-        let expression_type = self.expression_type(expression)?;
+        let expression_type = self.expression_type(expression);
 
         self.push_expression_access(
             expression,
@@ -388,9 +394,8 @@ where
         result: TypeId,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let borrowed = self
-            .builder()?
-            .access(access)
-            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+            .builder()
+            .access(access).unwrap_or_else(|| panic!("borrow_access requires planned storage access, expression: {expression:?}, access: {access:?}, result: {result:?}"));
 
         let parent = borrowed.root().borrow_capability();
 
@@ -410,9 +415,8 @@ where
         );
 
         let capability = self
-            .builder_mut()?
-            .push_borrow_capability(capability)
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+            .builder_mut()
+            .push_borrow_capability(capability).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in borrow_access: {error:?}"));
 
         self.push_expression_access(
             expression,
@@ -420,7 +424,7 @@ where
             [],
             bray_bound_tree::ExpressionTypeResult::new(
                 result,
-                self.expression_type(expression)?.status(),
+                self.expression_type(expression).status(),
             ),
         )
     }
@@ -431,9 +435,8 @@ where
         subject: StorageAccessId,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let subject = self
-            .builder()?
-            .access(subject)
-            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+            .builder()
+            .access(subject).unwrap_or_else(|| panic!("conservative_subject_access requires planned storage access, expression: {expression:?}, subject: {subject:?}"));
 
         let root = subject.root();
         let projections = subject.projections().to_vec();
@@ -444,7 +447,7 @@ where
             .expression(expression)
             .unwrap_or_else(|| missing_node(expression));
 
-        let result = self.expression_type(expression)?;
+        let result = self.expression_type(expression);
 
         let access = StorageAccess::new(
             root,
@@ -454,25 +457,22 @@ where
             true,
         );
 
-        self.builder_mut()?
-            .push_access(access)
-            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
+        Ok(self.builder_mut()
+            .push_access(access).unwrap_or_else(|error| panic!("conservative_subject_access must satisfy its checked construction contract: {error:?}")))
     }
 
     pub(super) fn temporary_access(
         &mut self,
         expression: BoundExpressionId,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
-        let ty = self.expression_type(expression)?.ty();
+        let ty = self.expression_type(expression).ty();
 
         let storage = self
-            .builder_mut()?
-            .push_identity(StorageIdentity::Temporary(expression))
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+            .builder_mut()
+            .push_identity(StorageIdentity::Temporary(expression)).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in temporary_access: {error:?}"));
 
-        self.builder_mut()?
-            .set_identity_type(storage, ty)
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+        self.builder_mut()
+            .set_identity_type(storage, ty).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in temporary_access: {error:?}"));
 
         self.direct_access(expression, storage)
     }
@@ -483,12 +483,11 @@ where
         receiver_access: StorageAccessId,
         kind: bray_symbols::BorrowKind,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
-        let result = self.expression_type(expression)?;
+        let result = self.expression_type(expression);
 
         let receiver = self
-            .builder()?
-            .access(receiver_access)
-            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+            .builder()
+            .access(receiver_access).unwrap_or_else(|| panic!("custom_index_access requires planned storage access, expression: {expression:?}, receiver_access: {receiver_access:?}"));
 
         let node = self
             .request
@@ -506,9 +505,8 @@ where
         );
 
         let capability = self
-            .builder_mut()?
-            .push_borrow_capability(capability)
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+            .builder_mut()
+            .push_borrow_capability(capability).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in custom_index_access: {error:?}"));
 
         let borrow_type = self
             .request
@@ -516,8 +514,7 @@ where
             .intern_type(bray_symbols::TypeData::Borrow {
                 kind,
                 target: result.ty(),
-            })
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            }).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in custom_index_access: {error:?}"));
 
         self.retain_borrow_value(
             expression,
@@ -537,13 +534,11 @@ where
         reached_type: bray_bound_tree::ExpressionTypeResult,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let storage = self
-            .builder_mut()?
-            .push_identity(identity)
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+            .builder_mut()
+            .push_identity(identity).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in retain_borrow_value: {error:?}"));
 
-        self.builder_mut()?
-            .set_identity_type(storage, stored_type)
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+        self.builder_mut()
+            .set_identity_type(storage, stored_type).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in retain_borrow_value: {error:?}"));
 
         self.push_expression_access(
             expression,
@@ -572,13 +567,11 @@ where
         let is_recovered = node.is_recovered();
 
         let storage = self
-            .builder_mut()?
-            .push_identity(identity)
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+            .builder_mut()
+            .push_identity(identity).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in protocol_access: {error:?}"));
 
-        self.builder_mut()?
-            .set_identity_type(storage, ty)
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+        self.builder_mut()
+            .set_identity_type(storage, ty).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in protocol_access: {error:?}"));
 
         let access = StorageAccess::new(
             StorageAccessRoot::Storage(storage),
@@ -588,9 +581,12 @@ where
             is_recovered,
         );
 
-        self.builder_mut()?
+        Ok(self
+            .builder_mut()
             .push_access(access)
-            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
+            .unwrap_or_else(|error| {
+                panic!("protocol_access must satisfy its checked construction contract: {error:?}")
+            }))
     }
 
     pub(super) fn recovery_access(
@@ -604,14 +600,14 @@ where
             .unwrap_or_else(|| missing_node(expression));
 
         let source = node.origin().source_anchor();
-        let result = self.expression_type(expression)?;
+        let result = self.expression_type(expression);
 
         let storage = self
-            .builder_mut()?
-            .push_identity(StorageIdentity::Error(source))
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+            .builder_mut()
+            .push_identity(StorageIdentity::Error(source)).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in recovery_access: {error:?}"));
 
-        self.builder_mut()?
+        Ok(self
+            .builder_mut()
             .push_access(StorageAccess::new(
                 StorageAccessRoot::Recovery(storage),
                 [],
@@ -619,7 +615,9 @@ where
                 source,
                 true,
             ))
-            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
+            .unwrap_or_else(|error| {
+                panic!("recovery_access must satisfy its checked construction contract: {error:?}")
+            }))
     }
 
     pub(super) fn result_access(
@@ -628,8 +626,8 @@ where
         value: Option<BoundExpressionId>,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let result = match value {
-            Some(value) => self.expression_type(value)?,
-            None => self.expression_type(expression)?,
+            Some(value) => self.expression_type(value),
+            None => self.expression_type(expression),
         };
 
         self.push_expression_access(
@@ -653,7 +651,7 @@ where
             .expression(expression)
             .unwrap_or_else(|| missing_node(expression));
 
-        let builder = self.builder()?;
+        let builder = self.builder();
 
         let recovered_borrow = root
             .borrow_capability()
@@ -668,9 +666,8 @@ where
             node.is_recovered() || result.is_recovered() || recovered_borrow,
         );
 
-        self.builder_mut()?
-            .push_access(access)
-            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
+        Ok(self.builder_mut()
+            .push_access(access).unwrap_or_else(|error| panic!("push_expression_access must satisfy its checked construction contract: {error:?}")))
     }
 }
 
@@ -687,9 +684,13 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
 
         let purpose = self.materialization_purpose(expression, purpose, access)?;
 
-        self.builder_mut()?
+        self.builder_mut()
             .plan_access(expression.into(), expression, purpose, access)
-            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
+            .unwrap_or_else(|error| {
+                panic!("record_purpose must satisfy its checked construction contract: {error:?}")
+            });
+
+        Ok(())
     }
 
     pub(in crate::storage) fn materialization_purpose(
@@ -702,11 +703,10 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             return Ok(purpose);
         }
 
-        let builder = self.builder()?;
+        let builder = self.builder();
 
         let record = builder
-            .access(access)
-            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+            .access(access).unwrap_or_else(|| panic!("materialization_purpose requires planned storage access, expression: {expression:?}, access: {access:?}"));
 
         let fresh = record
             .root()

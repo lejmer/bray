@@ -22,8 +22,8 @@ use crate::diagnostic::diagnostic_id;
 use crate::storage::{StorageScopeOwners, storage_scope_owners};
 use crate::unit::assert_unit_inputs;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerStorageFlowFailure, CheckerUnitView,
+    CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider,
+    CheckerUnitView,
 };
 
 use super::super::availability::storage_is_recovered;
@@ -71,9 +71,6 @@ where
         match build_storage_control_flow_graph(request, storage, expressions.selections(), None) {
             ControlFlowGraphBuildOutcome::Complete(graph) => graph,
             ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-            ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
             ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
                 return CheckerOutcome::UpstreamFailure(error);
             }
@@ -90,9 +87,6 @@ where
     ) {
         CheckerOutcome::Complete(result) => result.into_parts(),
         CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        CheckerOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         CheckerOutcome::UpstreamFailure(error) => return CheckerOutcome::UpstreamFailure(error),
     };
 
@@ -115,9 +109,6 @@ where
             CheckerOutcome::complete(flow, diagnostics)
         }
         CheckerOutcome::Cancelled => CheckerOutcome::Cancelled,
-        CheckerOutcome::InfrastructureFailure(error) => {
-            CheckerOutcome::InfrastructureFailure(error)
-        }
         CheckerOutcome::UpstreamFailure(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
@@ -146,9 +137,6 @@ where
         match crate::analysis::storage_flow::copyability::storage_copyable_types(request, storage) {
             Ok(result) => result,
             Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Infrastructure(error)) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
             Err(CheckerQueryError::Upstream(error)) => {
                 return CheckerOutcome::UpstreamFailure(error);
             }
@@ -161,9 +149,6 @@ where
         }) {
             Ok(result) => result,
             Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Infrastructure(error)) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
             Err(CheckerQueryError::Upstream(error)) => {
                 return CheckerOutcome::UpstreamFailure(error);
             }
@@ -172,9 +157,6 @@ where
     let owners = match storage_scope_owners(request).map_err(CheckerQueryError::with_upstream) {
         Ok(owners) => owners,
         Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         Err(CheckerQueryError::Upstream(error)) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
@@ -245,12 +227,9 @@ where
         }
     }
 
-    if let Some(error) = collector.infrastructure_failure.take() {
+    if let Some(error) = collector.query_failure.take() {
         return match error {
             CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-            CheckerQueryError::Infrastructure(error) => {
-                CheckerOutcome::InfrastructureFailure(error)
-            }
             CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
         };
     }
@@ -277,9 +256,10 @@ where
     {
         Ok(analysis) => analysis,
         Err(error) => {
-            return CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::StorageFlow(
-                CheckerStorageFlowFailure::FlowConstruction(error),
-            ));
+            panic!(
+                "Durable storage-flow construction rejected an exact invariant. in check_storage_flow_with_graph, value0: {:?}",
+                error
+            );
         }
     };
 
@@ -346,17 +326,13 @@ where
     pub(super) reported_memory_diagnostics: BTreeSet<(DiagnosticKind, BoundExpressionId)>,
     pub(super) publish: bool,
     pub(super) is_recovered: bool,
-    pub(super) infrastructure_failure: Option<CheckerQueryError<C::UpstreamError>>,
+    pub(super) query_failure: Option<CheckerQueryError<C::UpstreamError>>,
 }
 
 impl<'analysis, C> StorageFlowCollector<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    pub(super) fn record_infrastructure_failure(&mut self, error: CheckerInfrastructureError) {
-        self.infrastructure_failure = Some(CheckerQueryError::Infrastructure(error));
-    }
-
     fn new(
         request: CheckerUnitView<'analysis, C>,
         storage: &'analysis StoragePlan,
@@ -385,7 +361,7 @@ where
             reported_memory_diagnostics: BTreeSet::new(),
             publish: true,
             is_recovered: false,
-            infrastructure_failure: None,
+            query_failure: None,
         }
     }
 
@@ -514,13 +490,7 @@ where
     ) {
         let purpose = self.effective_purpose(plan);
 
-        let outcome = match self.operation_status(state, plan, purpose, refinements) {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                self.infrastructure_failure = Some(CheckerQueryError::Infrastructure(error));
-                return;
-            }
-        };
+        let outcome = self.operation_status(state, plan, purpose, refinements);
 
         let status = outcome.status;
         let borrow = self.input.borrow(plan);
@@ -531,15 +501,12 @@ where
                 | StorageOperationStatus::InactiveProjection
                 | StorageOperationStatus::NotCopyable
         ) {
-            self.infrastructure_failure = Some(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::InvalidStorageOperation {
-                    expression: plan.expression(),
-                    access: plan.access(),
-                    status,
-                },
-            ));
-
-            return;
+            panic!(
+                "Storage-flow analysis produced a state forbidden for one exact planned source operation. in apply_plan, expression: {:?}, access: {:?}, status: {:?}",
+                plan.expression(),
+                plan.access(),
+                status
+            );
         }
 
         if matches!(status, StorageOperationStatus::Valid) {
@@ -557,7 +524,7 @@ where
             }
 
             if let Err(error) = self.apply_valid_operation(state, plan, purpose, borrow) {
-                self.infrastructure_failure = Some(error);
+                self.query_failure = Some(error);
 
                 return;
             }
@@ -585,31 +552,23 @@ where
         plan: StorageAccessPlan,
         purpose: StorageAccessPurpose,
         refinements: &[Refinement],
-    ) -> Result<StorageOperationOutcome, CheckerInfrastructureError> {
+    ) -> StorageOperationOutcome {
         let Some(access) = self.storage.access(plan.access()) else {
-            return Ok(StorageOperationOutcome::status(
-                StorageOperationStatus::Recovered,
-            ));
+            return StorageOperationOutcome::status(StorageOperationStatus::Recovered);
         };
 
         if access.is_recovered() {
-            return Ok(StorageOperationOutcome::status(
-                StorageOperationStatus::Recovered,
-            ));
+            return StorageOperationOutcome::status(StorageOperationStatus::Recovered);
         }
 
         if !self.pattern_establishes_projection(plan.access())
             && !self.refinements_allow_access(plan.access(), refinements)
         {
-            return Ok(StorageOperationOutcome::status(
-                StorageOperationStatus::InactiveProjection,
-            ));
+            return StorageOperationOutcome::status(StorageOperationStatus::InactiveProjection);
         }
 
         let Some(root) = self.storage.root_identity(plan.access()) else {
-            return Ok(StorageOperationOutcome::status(
-                StorageOperationStatus::Recovered,
-            ));
+            return StorageOperationOutcome::status(StorageOperationStatus::Recovered);
         };
 
         let requires_value = matches!(
@@ -626,7 +585,7 @@ where
             let origins = self.moved_origins(state, plan.access());
 
             if !origins.is_empty() {
-                return Ok(StorageOperationOutcome::moved(origins));
+                return StorageOperationOutcome::moved(origins);
             }
         }
 
@@ -635,48 +594,40 @@ where
             && !state.initialized.contains(&root)
             && !state.observed_pattern_bindings.contains(&root)
         {
-            return Ok(StorageOperationOutcome::status(
-                StorageOperationStatus::Uninitialized,
-            ));
+            return StorageOperationOutcome::status(StorageOperationStatus::Uninitialized);
         }
 
         let operation_access = self.operation_access(plan, purpose);
 
         if purpose == StorageAccessPurpose::Move
-            && self.access_uses_borrow(operation_access)?
+            && self.access_uses_borrow(operation_access)
             && !self.type_is_borrow(access.reached_type())
         {
-            return Ok(StorageOperationOutcome::status(
-                StorageOperationStatus::MissingOwnership,
-            ));
+            return StorageOperationOutcome::status(StorageOperationStatus::MissingOwnership);
         }
 
-        if let Some(conflict) = self.borrow_conflict(state, plan, purpose)? {
-            return Ok(StorageOperationOutcome::borrow_conflict(conflict));
+        if let Some(conflict) = self.borrow_conflict(state, plan, purpose) {
+            return StorageOperationOutcome::borrow_conflict(conflict);
         }
 
         if let Some(authority_access) =
             self.input
                 .mutation_authority_access(plan, purpose, self.storage)
-            && (!self.has_mutation_authority(authority_access)?
+            && (!self.has_mutation_authority(authority_access)
                 || !self.input.fields_allow_mutation(authority_access))
         {
-            return Ok(StorageOperationOutcome::status(
+            return StorageOperationOutcome::status(
                 StorageOperationStatus::MissingMutationAuthority,
-            ));
+            );
         }
 
         if purpose == StorageAccessPurpose::Copy
             && !self.input.type_is_copyable(access.reached_type())
         {
-            return Ok(StorageOperationOutcome::status(
-                StorageOperationStatus::NotCopyable,
-            ));
+            return StorageOperationOutcome::status(StorageOperationStatus::NotCopyable);
         }
 
-        Ok(StorageOperationOutcome::status(
-            StorageOperationStatus::Valid,
-        ))
+        StorageOperationOutcome::status(StorageOperationStatus::Valid)
     }
 
     fn apply_valid_operation(
@@ -1039,35 +990,25 @@ where
         purpose: StorageAccessPurpose,
         origin: Option<StorageOperationOrigin>,
     ) {
-        if self.infrastructure_failure.is_some() {
+        if self.query_failure.is_some() {
             return;
         }
 
         let access_id = plan.access();
 
         let Some(access) = self.storage.access(access_id) else {
-            self.infrastructure_failure = Some(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::StorageFlow(
-                    CheckerStorageFlowFailure::MissingStorageAccess { access: access_id },
-                ),
-            ));
-
-            return;
+            panic!(
+                "A planned storage access is absent from its source body's storage plan. in add_diagnostic, access: {:?}",
+                access_id
+            );
         };
 
-        let source = match self.request.source(access.source()) {
-            Ok(source) => source,
-            Err(error) => {
-                self.infrastructure_failure = Some(CheckerQueryError::Infrastructure(error));
-
-                return;
-            }
-        };
+        let source = self.request.source(access.source());
 
         let access_argument = match self.diagnostic_storage_access(access_id, purpose) {
             Ok(access) => access,
             Err(error) => {
-                self.infrastructure_failure = Some(error);
+                self.query_failure = Some(error);
 
                 return;
             }
@@ -1103,13 +1044,10 @@ where
     ) -> Result<DiagnosticStorageAccess, CheckerQueryError<C::UpstreamError>> {
         let access =
             self.storage
-                .access(access_id)
-                .ok_or(CheckerInfrastructureError::StorageFlow(
-                    CheckerStorageFlowFailure::MissingStorageAccess { access: access_id },
-                ))?;
+                .access(access_id).unwrap_or_else(|| panic!("diagnostic_storage_access requires planned storage access, access_id: {access_id:?}"));
 
         let root = match access.root() {
-            StorageAccessRoot::Storage(storage) => self.diagnostic_storage_identity(storage)?,
+            StorageAccessRoot::Storage(storage) => self.diagnostic_storage_identity(storage),
             StorageAccessRoot::Borrow(_) => DiagnosticStorageRoot::Borrow,
             StorageAccessRoot::BorrowedStorage { .. } => DiagnosticStorageRoot::BorrowedStorage,
             StorageAccessRoot::OwnedIndirection { .. } => DiagnosticStorageRoot::OwnedIndirection,
@@ -1136,7 +1074,7 @@ where
     fn diagnostic_storage_identity(
         &self,
         identity: bray_bound_tree::StorageIdentityId,
-    ) -> Result<DiagnosticStorageRoot, CheckerInfrastructureError> {
+    ) -> DiagnosticStorageRoot {
         let root = match self.storage.identity(identity) {
             Some(StorageIdentity::LocalOwned(_)) => DiagnosticStorageRoot::Local,
             Some(StorageIdentity::Parameter(_)) => DiagnosticStorageRoot::Parameter,
@@ -1164,13 +1102,14 @@ where
             Some(StorageIdentity::Alternative { .. }) => DiagnosticStorageRoot::Alternative,
             Some(StorageIdentity::Error(_)) => DiagnosticStorageRoot::Recovery,
             None => {
-                return Err(CheckerInfrastructureError::StorageFlow(
-                    CheckerStorageFlowFailure::MissingStorageIdentity { identity },
-                ));
+                panic!(
+                    "A planned storage identity is absent from its source body's storage plan. in diagnostic_storage_identity, identity: {:?}",
+                    identity
+                );
             }
         };
 
-        Ok(root)
+        root
     }
 
     fn diagnostic_storage_projection(
@@ -1214,13 +1153,13 @@ where
         &self,
         symbol: AnySymbolId,
     ) -> Result<String, CheckerQueryError<C::UpstreamError>> {
-        self.request
+        Ok(self
+            .request
             .member_name(symbol)?
             .map(|name| name.as_str().to_owned())
-            .ok_or(CheckerInfrastructureError::StorageFlow(
-                CheckerStorageFlowFailure::MissingStorageSymbolName { symbol },
-            ))
-            .map_err(CheckerQueryError::Infrastructure)
+            .unwrap_or_else(|| {
+                panic!("checked storage symbol {symbol:?} must retain its member name")
+            }))
     }
 
     fn with_operation_origins(
@@ -1256,7 +1195,7 @@ where
 
         for related in sources
             .into_iter()
-            .filter_map(|source| self.request.source(source).ok())
+            .map(|source| self.request.source(source))
             .filter(|related| related.span() != primary)
         {
             diagnostic = diagnostic

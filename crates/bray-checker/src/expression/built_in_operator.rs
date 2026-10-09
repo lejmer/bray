@@ -8,7 +8,7 @@ use bray_symbols::{TypeData, TypeId};
 use crate::representation::{representation_type, type_representation};
 use crate::selection::representation_supports_operator;
 use crate::type_check::ExpressionTypeSession;
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitView};
 
 #[derive(Clone, Copy)]
 pub(super) struct PreparedBuiltInOperator {
@@ -82,15 +82,16 @@ pub(super) fn apply_evidence<C>(
     request: CheckerUnitView<'_, C>,
     prepared: &[PreparedBuiltInOperator],
     session: &mut ExpressionTypeSession<'_, C>,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
-    let boolean = representation_type(request, RepresentationRole::ScalarBool)?;
+    let boolean = representation_type(request, RepresentationRole::ScalarBool);
 
     for operation in prepared {
         let Some(expression) = request.view().expression(operation.expression) else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in apply_evidence"
+            );
         };
 
         if operation.kind == PreparedBuiltInOperatorKind::CompoundAssignment {
@@ -100,9 +101,9 @@ where
                 expression,
                 operation.operator,
                 session,
-            )? {
+            ) {
                 for operand in expression.child_expressions() {
-                    add_operand_expectation(request, session, operand, ty)?;
+                    add_operand_expectation(request, session, operand, ty);
                 }
             }
 
@@ -117,22 +118,20 @@ where
             expression,
             operation.operator,
             session,
-        )? {
+        ) {
             session.add_evidence(operation.expression, ty);
 
             for operand in expression.child_expressions() {
-                session.add_expectation(operand, ty)?;
+                session.add_expectation(operand, ty);
             }
         }
 
         if is_logical_operator(operation.operator) {
             for operand in expression.child_expressions() {
-                session.add_expectation(operand, boolean)?;
+                session.add_expectation(operand, boolean);
             }
         }
     }
-
-    Ok(())
 }
 
 pub(super) fn apply_operand_expectations<C>(
@@ -140,13 +139,14 @@ pub(super) fn apply_operand_expectations<C>(
     types: &CheckedExpressionTypes,
     prepared: &[PreparedBuiltInOperator],
     session: &mut ExpressionTypeSession<'_, C>,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
     for operation in prepared {
         let Some(source) = request.view().expression(operation.expression) else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in apply_operand_expectations"
+            );
         };
 
         let operands = match source {
@@ -160,46 +160,45 @@ where
         };
 
         let [left, right] = operands else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in apply_operand_expectations"
+            );
         };
 
-        if let Some(ty) = built_in_operand_type(request, types, *left, operation.operator)? {
-            add_operand_expectation(request, session, *right, ty)?;
+        if let Some(ty) = built_in_operand_type(request, types, *left, operation.operator) {
+            add_operand_expectation(request, session, *right, ty);
 
             if operation.kind == PreparedBuiltInOperatorKind::Ordinary {
                 session.add_evidence(
                     operation.expression,
-                    result_type(request, operation.operator, ty)?,
+                    result_type(request, operation.operator, ty),
                 );
             }
-        } else if let Some(ty) = built_in_operand_type(request, types, *right, operation.operator)?
-        {
-            add_operand_expectation(request, session, *left, ty)?;
+        } else if let Some(ty) = built_in_operand_type(request, types, *right, operation.operator) {
+            add_operand_expectation(request, session, *left, ty);
 
             if operation.kind == PreparedBuiltInOperatorKind::Ordinary {
                 session.add_evidence(
                     operation.expression,
-                    result_type(request, operation.operator, ty)?,
+                    result_type(request, operation.operator, ty),
                 );
             }
         }
     }
-
-    Ok(())
 }
 
 pub(super) fn selections<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     prepared: &[PreparedBuiltInOperator],
-) -> Result<Vec<SemanticSelectionEntry>, CheckerInfrastructureError>
+) -> Vec<SemanticSelectionEntry>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let mut entries = Vec::with_capacity(prepared.len());
 
     for operation in prepared {
-        let Some(result_type) = selected_result_type(request, types, operation)? else {
+        let Some(result_type) = selected_result_type(request, types, operation) else {
             continue;
         };
 
@@ -232,7 +231,7 @@ where
         ));
     }
 
-    Ok(entries)
+    entries
 }
 
 fn built_in_operand_type<C>(
@@ -240,7 +239,7 @@ fn built_in_operand_type<C>(
     types: &CheckedExpressionTypes,
     expression: BoundExpressionId,
     operator: BoundOperator,
-) -> Result<Option<TypeId>, CheckerInfrastructureError>
+) -> Option<TypeId>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -248,32 +247,36 @@ where
         .expression(expression)
         .filter(|result| !result.is_recovered())
     else {
-        return Ok(None);
+        return None;
     };
 
     let ty = observed_type(request, result.ty());
 
-    Ok(type_representation(request, ty)
+    type_representation(request, ty)
         .filter(|role| representation_supports_operator(*role, operator))
-        .map(|_| ty))
+        .map(|_| ty)
 }
 
 fn selected_result_type<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     operation: &PreparedBuiltInOperator,
-) -> Result<Option<TypeId>, CheckerInfrastructureError>
+) -> Option<TypeId>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(expression) = request.view().expression(operation.expression) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in selected_result_type"
+        );
     };
 
     let operands = expression.child_expressions().collect::<Vec<_>>();
 
     if operands.is_empty() || operands.len() > 2 {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in selected_result_type"
+        );
     }
 
     if is_logical_operator(operation.operator) {
@@ -282,7 +285,7 @@ where
                 .expression(*operand)
                 .filter(|result| !result.is_recovered())
             else {
-                return Ok(None);
+                return None;
             };
 
             let role = type_representation(request, observed_type(request, result.ty()));
@@ -291,18 +294,18 @@ where
                 role,
                 Some(RepresentationRole::ScalarBool | RepresentationRole::Never)
             ) {
-                return Ok(None);
+                return None;
             }
         }
 
-        return representation_type(request, RepresentationRole::ScalarBool).map(Some);
+        return Some(representation_type(request, RepresentationRole::ScalarBool));
     }
 
     let Some(first) = types
         .expression(operands[0])
         .filter(|result| !result.is_recovered())
     else {
-        return Ok(None);
+        return None;
     };
 
     if let Some(second) = operands.get(1) {
@@ -310,25 +313,25 @@ where
             .expression(*second)
             .filter(|result| !result.is_recovered())
         else {
-            return Ok(None);
+            return None;
         };
 
         if observed_type(request, first.ty()) != observed_type(request, second.ty()) {
-            return Ok(None);
+            return None;
         }
     }
 
     let operand = observed_type(request, first.ty());
 
     let Some(role) = type_representation(request, operand) else {
-        return Ok(None);
+        return None;
     };
 
     if !representation_supports_operator(role, operation.operator) {
-        return Ok(None);
+        return None;
     }
 
-    result_type(request, operation.operator, operand).map(Some)
+    Some(result_type(request, operation.operator, operand))
 }
 
 fn numeric_operation_type<C>(
@@ -337,7 +340,7 @@ fn numeric_operation_type<C>(
     expression: &BoundExpression,
     operator: BoundOperator,
     session: &mut ExpressionTypeSession<'_, C>,
-) -> Result<Option<TypeId>, CheckerInfrastructureError>
+) -> Option<TypeId>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -347,14 +350,14 @@ where
         && type_representation(request, observed_type(request, result.ty()))
             .is_some_and(|role| representation_supports_operator(role, operator))
     {
-        return Ok(Some(observed_type(request, result.ty())));
+        return Some(observed_type(request, result.ty()));
     }
 
     if let Some(expected) = session.unique_matching_expectation(expression_id, |ty| {
-        Ok(type_representation(request, ty)
-            .is_some_and(|role| representation_supports_operator(role, operator)))
-    })? {
-        return Ok(Some(expected));
+        type_representation(request, ty)
+            .is_some_and(|role| representation_supports_operator(role, operator))
+    }) {
+        return Some(expected);
     }
 
     for operand in expression.child_expressions() {
@@ -370,11 +373,11 @@ where
         if type_representation(request, ty)
             .is_some_and(|role| representation_supports_operator(role, operator))
         {
-            return Ok(Some(ty));
+            return Some(ty);
         }
     }
 
-    Ok(None)
+    None
 }
 
 fn add_operand_expectation<C>(
@@ -382,8 +385,7 @@ fn add_operand_expectation<C>(
     session: &mut ExpressionTypeSession<'_, C>,
     expression: BoundExpressionId,
     expected: TypeId,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
     if let Some(actual) = session
@@ -391,7 +393,7 @@ where
         .filter(|result| !result.is_recovered())
         && observed_type(request, actual.ty()) == expected
     {
-        return Ok(());
+        return;
     }
 
     session.add_expectation(expression, expected)
@@ -413,14 +415,14 @@ fn result_type<C>(
     request: CheckerUnitView<'_, C>,
     operator: BoundOperator,
     operand: TypeId,
-) -> Result<TypeId, CheckerInfrastructureError>
+) -> TypeId
 where
     C: CheckerRequestContext + ?Sized,
 {
     if is_boolean_result_operator(operator) {
         representation_type(request, RepresentationRole::ScalarBool)
     } else {
-        Ok(operand)
+        operand
     }
 }
 

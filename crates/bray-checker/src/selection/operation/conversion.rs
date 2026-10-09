@@ -2,14 +2,14 @@ use bray_bound_tree::{ConversionTarget, SelectedConversion, SelectedOperation};
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{GenericArgument, TypeData, TypeId};
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitView};
 
 /// Resolves the complete compiler-defined conversion plan when one applies.
 pub fn built_in_conversion_plan<C>(
     request: CheckerUnitView<'_, C>,
     source: TypeId,
     target: TypeId,
-) -> Result<Option<SelectedConversion>, CheckerInfrastructureError>
+) -> Option<SelectedConversion>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -21,59 +21,59 @@ pub fn built_in_conversion_plan_for_context<C>(
     request: &C,
     source: TypeId,
     target: TypeId,
-) -> Result<Option<SelectedConversion>, CheckerInfrastructureError>
+) -> Option<SelectedConversion>
 where
     C: CheckerRequestContext + ?Sized,
 {
     if source == target {
-        return Ok(Some(SelectedConversion::new(
+        return Some(SelectedConversion::new(
             source,
             target,
             ConversionTarget::Identity,
-        )));
+        ));
     }
 
     if callable_contract_conversion_is_valid(request.semantic_values(), source, target) {
-        return Ok(Some(SelectedConversion::new(
+        return Some(SelectedConversion::new(
             source,
             target,
             ConversionTarget::CallableContract,
-        )));
+        ));
     }
 
-    if scalar_conversion_is_valid(request, source, target)? {
-        return Ok(Some(SelectedConversion::new(
+    if scalar_conversion_is_valid(request, source, target) {
+        return Some(SelectedConversion::new(
             source,
             target,
             ConversionTarget::BuiltInScalar,
-        )));
+        ));
     }
 
-    let Some(children) = composite_conversion_children_for_context(request, source, target)? else {
-        return Ok(None);
+    let Some(children) = composite_conversion_children_for_context(request, source, target) else {
+        return None;
     };
 
     let mut plans = Vec::with_capacity(children.len());
 
     for (source, target) in children {
-        let Some(plan) = built_in_conversion_plan_for_context(request, source, target)? else {
-            return Ok(None);
+        let Some(plan) = built_in_conversion_plan_for_context(request, source, target) else {
+            return None;
         };
 
         plans.push(plan);
     }
 
-    Ok(Some(SelectedConversion::new(
+    Some(SelectedConversion::new(
         source,
         target,
         ConversionTarget::Composite(plans.into()),
-    )))
+    ))
 }
 
 pub(super) fn validate_conversion<C>(
     request: CheckerUnitView<'_, C>,
     conversion: &SelectedConversion,
-) -> Result<bool, CheckerInfrastructureError>
+) -> bool
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -94,14 +94,14 @@ where
                 matches!(target.as_ref(), TypeData::Nullable(contained) if *contained == source)
             }
             ConversionTarget::BuiltInScalar => {
-                scalar_conversion_is_valid(request.context(), source, target)?
+                scalar_conversion_is_valid(request.context(), source, target)
             }
             ConversionTarget::CVariadicPromotion => {
-                c_variadic_promotion_target(request, source)? == Some(target)
+                c_variadic_promotion_target(request, source) == Some(target)
             }
             ConversionTarget::Composite(children) => {
                 let is_valid =
-                    composite_conversion_shape_is_valid(request, source, target, children)?;
+                    composite_conversion_shape_is_valid(request, source, target, children);
 
                 if is_valid {
                     pending.extend(children.iter());
@@ -118,11 +118,11 @@ where
         };
 
         if !is_valid {
-            return Ok(false);
+            return false;
         }
     }
 
-    Ok(true)
+    true
 }
 
 /// Checks whether a callable conversion preserves the signature and cannot invent a promise.
@@ -193,22 +193,18 @@ fn phase_contract_is_compatible(
             .all(|property| source.execution_properties().contains(property))
 }
 
-fn scalar_conversion_is_valid<C>(
-    request: &C,
-    source: TypeId,
-    target: TypeId,
-) -> Result<bool, CheckerInfrastructureError>
+fn scalar_conversion_is_valid<C>(request: &C, source: TypeId, target: TypeId) -> bool
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(source) = crate::representation::type_representation_for_context(request, source)
     else {
-        return Ok(false);
+        return false;
     };
 
     let Some(target) = crate::representation::type_representation_for_context(request, target)
     else {
-        return Ok(false);
+        return false;
     };
 
     let target_width = request
@@ -217,15 +213,15 @@ where
         .pointer_width_bits()
         .get();
 
-    Ok(scalar_shape(source, target_width).is_some_and(|source| {
+    scalar_shape(source, target_width).is_some_and(|source| {
         scalar_shape(target, target_width).is_some_and(|target| source.can_represent(target))
-    }))
+    })
 }
 
 pub(crate) fn c_variadic_promotion_target<C>(
     request: CheckerUnitView<'_, C>,
     source: TypeId,
-) -> Result<Option<TypeId>, CheckerInfrastructureError>
+) -> Option<TypeId>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -238,10 +234,10 @@ where
             | RepresentationRole::ScalarU16,
         ) => RepresentationRole::ScalarI32,
         Some(RepresentationRole::ScalarR32) => RepresentationRole::ScalarR64,
-        _ => return Ok(None),
+        _ => return None,
     };
 
-    crate::representation::representation_type(request, target).map(Some)
+    Some(crate::representation::representation_type(request, target))
 }
 
 fn composite_conversion_shape_is_valid<C>(
@@ -249,27 +245,27 @@ fn composite_conversion_shape_is_valid<C>(
     source: TypeId,
     target: TypeId,
     children: &[SelectedConversion],
-) -> Result<bool, CheckerInfrastructureError>
+) -> bool
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(expected) =
-        composite_conversion_children_for_context(request.context(), source, target)?
+        composite_conversion_children_for_context(request.context(), source, target)
     else {
-        return Ok(false);
+        return false;
     };
 
     if expected.len() != children.len() {
-        return Ok(false);
+        return false;
     }
 
     for ((source, target), child) in expected.into_iter().zip(children) {
         if child.source_type() != source || child.target_type() != target {
-            return Ok(false);
+            return false;
         }
     }
 
-    Ok(true)
+    true
 }
 
 /// Returns the ordered child conversion pairs for a compiler-defined composite conversion.
@@ -277,7 +273,7 @@ pub fn composite_conversion_children<C>(
     request: CheckerUnitView<'_, C>,
     source: TypeId,
     target: TypeId,
-) -> Result<Option<Vec<(TypeId, TypeId)>>, CheckerInfrastructureError>
+) -> Option<Vec<(TypeId, TypeId)>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -288,7 +284,7 @@ fn composite_conversion_children_for_context<C>(
     request: &C,
     source: TypeId,
     target: TypeId,
-) -> Result<Option<Vec<(TypeId, TypeId)>>, CheckerInfrastructureError>
+) -> Option<Vec<(TypeId, TypeId)>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -316,8 +312,8 @@ where
         ) if source_length == target_length => vec![(*source_element, *target_element)],
         (TypeData::Nullable(source), TypeData::Nullable(target)) => vec![(*source, *target)],
         (TypeData::Tuple(elements), _) if elements.len() == 2 => {
-            let Some(component) = complex_component_type(request, target)? else {
-                return Ok(None);
+            let Some(component) = complex_component_type(request, target) else {
+                return None;
             };
 
             elements
@@ -326,22 +322,19 @@ where
                 .map(|element| (element, component))
                 .collect()
         }
-        _ => return Ok(None),
+        _ => return None,
     };
 
-    Ok(Some(expected))
+    Some(expected)
 }
 
-fn complex_component_type<C>(
-    request: &C,
-    target: TypeId,
-) -> Result<Option<TypeId>, CheckerInfrastructureError>
+fn complex_component_type<C>(request: &C, target: TypeId) -> Option<TypeId>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(target_role) = crate::representation::type_representation_for_context(request, target)
     else {
-        return Ok(None);
+        return None;
     };
 
     let component = match target_role {
@@ -349,10 +342,12 @@ where
         RepresentationRole::ScalarC64 => RepresentationRole::ScalarR32,
         RepresentationRole::ScalarC128 => RepresentationRole::ScalarR64,
         RepresentationRole::ScalarC256 => RepresentationRole::ScalarR128,
-        _ => return Ok(None),
+        _ => return None,
     };
 
-    crate::representation::representation_type_for_context(request, component).map(Some)
+    Some(crate::representation::representation_type_for_context(
+        request, component,
+    ))
 }
 
 fn trait_application_targets<C>(
@@ -475,16 +470,11 @@ mod tests {
             (RepresentationRole::ScalarU16, RepresentationRole::ScalarI32),
             (RepresentationRole::ScalarR32, RepresentationRole::ScalarR64),
         ] {
-            let source = crate::representation::representation_type(request, source)
-                .unwrap_or_else(|error| panic!("source type must resolve: {error:?}"));
+            let source = crate::representation::representation_type(request, source);
 
-            let target = crate::representation::representation_type(request, target)
-                .unwrap_or_else(|error| panic!("target type must resolve: {error:?}"));
+            let target = crate::representation::representation_type(request, target);
 
-            assert_eq!(
-                c_variadic_promotion_target(request, source),
-                Ok(Some(target))
-            );
+            assert_eq!(c_variadic_promotion_target(request, source), Some(target));
         }
 
         for role in [
@@ -492,10 +482,9 @@ mod tests {
             RepresentationRole::ScalarU32,
             RepresentationRole::ScalarR64,
         ] {
-            let ty = crate::representation::representation_type(request, role)
-                .unwrap_or_else(|error| panic!("unpromoted type must resolve: {error:?}"));
+            let ty = crate::representation::representation_type(request, role);
 
-            assert_eq!(c_variadic_promotion_target(request, ty), Ok(None));
+            assert_eq!(c_variadic_promotion_target(request, ty), None);
         }
     }
 
@@ -532,7 +521,7 @@ mod tests {
         let unit = test_unit(BoundUnitId::new(85), source);
         let context = TestCheckerContext::new(false);
 
-        assert_eq!(validate(&unit, &context, &conversion), Ok(true));
+        assert_eq!(validate(&unit, &context, &conversion), true);
 
         assert_eq!(
             conversion.target(),
@@ -552,7 +541,7 @@ mod tests {
         let unit = test_unit(BoundUnitId::new(86), source);
         let context = TestCheckerContext::new(false);
 
-        assert_eq!(validate(&unit, &context, &conversion), Ok(false));
+        assert_eq!(validate(&unit, &context, &conversion), false);
     }
 
     fn test_unit(unit: BoundUnitId, ty: bray_symbols::TypeId) -> bray_bound_tree::BoundUnit {
@@ -568,7 +557,7 @@ mod tests {
         unit: &bray_bound_tree::BoundUnit,
         context: &TestCheckerContext,
         conversion: &SelectedConversion,
-    ) -> Result<bool, crate::CheckerInfrastructureError> {
+    ) -> bool {
         let entry = callable_entry(unit.key());
 
         let request = CheckerUnitView::new(unit, &entry, context);

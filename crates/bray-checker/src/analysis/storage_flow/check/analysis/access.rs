@@ -25,7 +25,7 @@ where
         state: &StorageFlowState,
         plan: StorageAccessPlan,
         purpose: StorageAccessPurpose,
-    ) -> Result<Option<BorrowConflict>, crate::CheckerInfrastructureError> {
+    ) -> Option<BorrowConflict> {
         let requested = match purpose {
             StorageAccessPurpose::Borrow(kind) => Some(kind),
             StorageAccessPurpose::Write
@@ -42,7 +42,7 @@ where
         };
 
         let Some(requested) = requested else {
-            return Ok(None);
+            return None;
         };
 
         let access = self.operation_access(plan, purpose);
@@ -55,9 +55,9 @@ where
                 .access(access)
                 .and_then(|access| access.root().borrow_capability());
 
-            return Ok(Some(origin.map_or(BorrowConflict::Unlocated, |borrow| {
+            return Some(origin.map_or(BorrowConflict::Unlocated, |borrow| {
                 BorrowConflict::Borrows(vec![borrow])
-            })));
+            }));
         }
 
         let authority = match purpose {
@@ -66,7 +66,7 @@ where
         };
 
         let Some(authorizing_borrows) = self.borrow_chain(authority) else {
-            return Ok(Some(BorrowConflict::Unlocated));
+            return Some(BorrowConflict::Unlocated);
         };
 
         let created_borrow = self.input.borrow(plan);
@@ -80,7 +80,7 @@ where
             .collect::<Vec<_>>();
 
         if !inactive_authorizing_borrows.is_empty() {
-            return Ok(Some(BorrowConflict::Borrows(inactive_authorizing_borrows)));
+            return Some(BorrowConflict::Borrows(inactive_authorizing_borrows));
         }
 
         let mut conflicts = Vec::new();
@@ -91,7 +91,7 @@ where
             }
 
             let Some(capability) = self.storage.borrow_capability(active) else {
-                return Ok(Some(BorrowConflict::Unlocated));
+                return Some(BorrowConflict::Unlocated);
             };
 
             if requested == BorrowKind::Shared && capability.kind() == BorrowKind::Shared {
@@ -105,36 +105,33 @@ where
             }
         }
 
-        Ok((!conflicts.is_empty()).then_some(BorrowConflict::Borrows(conflicts)))
+        (!conflicts.is_empty()).then_some(BorrowConflict::Borrows(conflicts))
     }
 
-    pub(super) fn has_mutation_authority(
-        &self,
-        access: StorageAccessId,
-    ) -> Result<bool, crate::CheckerInfrastructureError> {
+    pub(super) fn has_mutation_authority(&self, access: StorageAccessId) -> bool {
         let Some(storage_access) = self.storage.access(access) else {
-            return Ok(false);
+            return false;
         };
 
         if storage_access.root().borrow_capability().is_some() {
-            return Ok(self.borrow_chain(access).is_some_and(|borrows| {
+            return self.borrow_chain(access).is_some_and(|borrows| {
                 !borrows.is_empty()
                     && borrows.iter().all(|borrow| {
                         self.storage
                             .borrow_capability(*borrow)
                             .is_some_and(|borrow| borrow.kind() == BorrowKind::Mutable)
                     })
-            }));
+            });
         }
 
         match storage_access.root() {
-            StorageAccessRoot::Recovery(_) => Ok(false),
+            StorageAccessRoot::Recovery(_) => false,
             StorageAccessRoot::Storage(storage)
-            | StorageAccessRoot::OwnedIndirection { storage, .. } => Ok(self
-                .projected_storage_borrow_kind(access)
-                == Some(BorrowKind::Mutable)
-                || self.owned_storage_is_mutable(storage)),
-            StorageAccessRoot::Borrow(_) | StorageAccessRoot::BorrowedStorage { .. } => Ok(false),
+            | StorageAccessRoot::OwnedIndirection { storage, .. } => {
+                self.projected_storage_borrow_kind(access) == Some(BorrowKind::Mutable)
+                    || self.owned_storage_is_mutable(storage)
+            }
+            StorageAccessRoot::Borrow(_) | StorageAccessRoot::BorrowedStorage { .. } => false,
         }
     }
 
@@ -162,23 +159,19 @@ where
         }
     }
 
-    pub(super) fn access_uses_borrow(
-        &self,
-        access: StorageAccessId,
-    ) -> Result<bool, crate::CheckerInfrastructureError> {
+    pub(super) fn access_uses_borrow(&self, access: StorageAccessId) -> bool {
         let Some(record) = self.storage.access(access) else {
-            return Ok(false);
+            return false;
         };
 
-        Ok(self
-            .storage
+        self.storage
             .root_identity(access)
             .and_then(|root| self.storage.identity(root))
             .is_some_and(|identity| {
                 identity.is_borrowed_provider_input(self.request.unit().key().kind())
             })
             || record.root().borrow_capability().is_some()
-            || self.projected_storage_borrow_kind(access).is_some())
+            || self.projected_storage_borrow_kind(access).is_some()
     }
 
     pub(super) fn projected_storage_borrow_kind(

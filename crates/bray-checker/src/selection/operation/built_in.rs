@@ -6,8 +6,8 @@ use bray_symbols::{
     GenericArgument, ProofOutcome, TraitApplicationId, TraitTypeMemberSymbolId, TypeId,
 };
 
+use crate::CheckerRequestContext;
 use crate::representation::type_representation_for_context;
-use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
 use super::conversion::built_in_conversion_plan_for_context;
 
@@ -18,7 +18,7 @@ pub fn built_in_trait_constraint_outcome<C>(
     request: &C,
     subject: TypeId,
     application: TraitApplicationId,
-) -> Result<Option<ProofOutcome>, CheckerInfrastructureError>
+) -> Option<ProofOutcome>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -35,7 +35,7 @@ where
         })
         .find(|contract| contract.trait_definition() == application.definition())
     else {
-        return Ok(None);
+        return None;
     };
 
     let substitution = request
@@ -44,16 +44,20 @@ where
 
     if contract.role() == CompilerKnownOperationRole::PlainConversion {
         let [binding] = substitution.bindings() else {
-            return Err(CheckerInfrastructureError::SemanticValueUnavailable);
+            panic!(
+                "Canonical semantic value construction or lookup failed without an available store cause. in built_in_trait_constraint_outcome"
+            );
         };
 
         let GenericArgument::Type(target) = binding.argument() else {
-            return Err(CheckerInfrastructureError::SemanticValueUnavailable);
+            panic!(
+                "Canonical semantic value construction or lookup failed without an available store cause. in built_in_trait_constraint_outcome"
+            );
         };
 
-        let conversion = built_in_conversion_plan_for_context(request, subject, target)?;
+        let conversion = built_in_conversion_plan_for_context(request, subject, target);
 
-        return Ok(conversion.map(|_| ProofOutcome::Proven));
+        return conversion.map(|_| ProofOutcome::Proven);
     }
 
     let role = type_representation_for_context(request, subject);
@@ -66,22 +70,18 @@ where
         _ => false,
     };
 
-    Ok((operands_match
+    (operands_match
         && role.is_some_and(|role| representation_supports_operation(role, contract.role())))
-    .then_some(ProofOutcome::Proven))
+    .then_some(ProofOutcome::Proven)
 }
 
 /// Returns whether the target representation supplies one source operator directly.
-pub fn built_in_operator_supported<C>(
-    request: &C,
-    subject: TypeId,
-    operator: BoundOperator,
-) -> Result<bool, CheckerInfrastructureError>
+pub fn built_in_operator_supported<C>(request: &C, subject: TypeId, operator: BoundOperator) -> bool
 where
     C: CheckerRequestContext + ?Sized,
 {
-    Ok(type_representation_for_context(request, subject)
-        .is_some_and(|role| representation_supports_operator(role, operator)))
+    type_representation_for_context(request, subject)
+        .is_some_and(|role| representation_supports_operator(role, operator))
 }
 
 /// Resolves a compiler-defined type-valued operation result when one applies.
@@ -90,7 +90,7 @@ pub fn built_in_operation_result_type<C>(
     subject: TypeId,
     application: TraitApplicationId,
     member: TraitTypeMemberSymbolId,
-) -> Result<Option<TypeId>, CheckerInfrastructureError>
+) -> Option<TypeId>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -107,17 +107,17 @@ where
         })
         .find(|contract| contract.trait_definition() == application_data.definition())
     else {
-        return Ok(None);
+        return None;
     };
 
     if contract.result_type_member() != Some(member)
-        || built_in_trait_constraint_outcome(request, subject, application)?
+        || built_in_trait_constraint_outcome(request, subject, application)
             != Some(ProofOutcome::Proven)
     {
-        return Ok(None);
+        return None;
     }
 
-    Ok(Some(subject))
+    Some(subject)
 }
 
 pub(crate) const fn representation_supports_operator(

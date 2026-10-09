@@ -6,7 +6,7 @@ use bray_diagnostics::{
     DiagnosticArrayGeneratorCardinalityProblem, DiagnosticArrayLength, DiagnosticArtifactDigest,
     DiagnosticArtifactDigestAlgorithm, DiagnosticBag, DiagnosticBindingFailure,
     DiagnosticCallableOverloadArm, DiagnosticCallableOverloadProblem,
-    DiagnosticCallbackStateProblem, DiagnosticCheckerFailure, DiagnosticConstructionInputRejection,
+    DiagnosticCallbackStateProblem, DiagnosticConstructionInputRejection,
     DiagnosticDependencySubjectKind, DiagnosticEmissionEvaluationFailure,
     DiagnosticEmissionFailure, DiagnosticFactRuntimeFailure, DiagnosticFailureField,
     DiagnosticFailureValue, DiagnosticGenericParameterCategory, DiagnosticId,
@@ -50,7 +50,6 @@ const JSON_SOURCE_INVENTORY: &[&str] = &[
     "output/diagnostic/json/checking/selection.rs",
     "output/diagnostic/json/checking/trait_mismatch.rs",
     "output/diagnostic/json/emission.rs",
-    "output/diagnostic/json/emission/checker.rs",
     "output/diagnostic/json/emission/context.rs",
     "output/diagnostic/json/emission/failure.rs",
     "output/diagnostic/json/emission/foreign_query.rs",
@@ -494,23 +493,9 @@ fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
             ),
         )),
     ))
-    .with_arg(DiagnosticArg::emission_failure(
-        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Checker(
-            DiagnosticCheckerFailure::SemanticValue(
-                DiagnosticSemanticValueFailure::CapacityExhausted { kind: "type" },
-            ),
-        )),
-    ))
     .with_arg(DiagnosticArg::native_product_failure_kind(
         DiagnosticNativeProductFailureKind::EvaluationBinding(
             DiagnosticBindingFailure::semantic_value(
-                DiagnosticSemanticValueFailure::CapacityExhausted { kind: "type" },
-            ),
-        ),
-    ))
-    .with_arg(DiagnosticArg::native_product_failure_kind(
-        DiagnosticNativeProductFailureKind::EvaluationChecker(
-            DiagnosticCheckerFailure::SemanticValue(
                 DiagnosticSemanticValueFailure::CapacityExhausted { kind: "type" },
             ),
         ),
@@ -527,17 +512,13 @@ fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
     let evaluation = &output["diagnostics"][0]["args"][0]["value"]["value"];
     let native = &output["diagnostics"][0]["args"][1]["value"]["value"];
     let binding = &output["diagnostics"][0]["args"][2]["value"]["value"];
-    let checker = &output["diagnostics"][0]["args"][3]["value"]["value"];
-    let native_binding = &output["diagnostics"][0]["args"][4]["value"]["value"];
-    let native_checker = &output["diagnostics"][0]["args"][5]["value"]["value"];
+    let native_binding = &output["diagnostics"][0]["args"][3]["value"]["value"];
 
     for (value, kind) in [
         (evaluation, "type"),
         (native, "constant_value"),
         (binding, "type"),
-        (checker, "type"),
         (native_binding, "type"),
-        (native_checker, "type"),
     ] {
         assert_eq!(value["context"][1]["name"], "semantic_value_kind");
         assert_eq!(value["context"][1]["value"]["value"], kind);

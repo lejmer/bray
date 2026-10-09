@@ -1,7 +1,5 @@
 use super::plan::{PlanError, Planner};
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::StorageProjection;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{DeclaredStorageShape, DependencyProjection, TypeData, TypeId};
@@ -20,7 +18,9 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             StorageProjection::ActiveUnionPayloadField { field, .. } => {
                 DependencyProjection::UnionPayloadField(field)
             }
-            _ => return Err(CheckerInfrastructureError::InvalidStoragePlan.into()),
+            _ => panic!(
+                "Storage-planning inputs or constructed records violate the requested unit contract. in projected_storage_type"
+            ),
         };
 
         let checked = projected_value_type(self.request, owner, projection)?;
@@ -29,7 +29,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
 
         self.diagnostics.add_range(diagnostics);
 
-        ty.ok_or_else(|| CheckerInfrastructureError::InvalidStoragePlan.into())
+        Ok(ty.unwrap_or_else(|| panic!("checked storage projection must have a type, owner: {owner:?}, projection: {projection:?}")))
     }
 }
 

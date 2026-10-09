@@ -222,7 +222,9 @@ impl<'a> SemanticExporter<'a> {
         let term = self
             .values
             .intern_constant_term(ConstantTermData::Value(value))
-            .map_err(super::super::semantic_value_export_error)?;
+            .unwrap_or_else(|error| {
+                panic!("semantic_value_export_error in constant_value_term_id: {error:?}")
+            });
 
         self.constant_term_id(term)
     }
@@ -237,7 +239,9 @@ impl<'a> SemanticExporter<'a> {
                 ty,
                 ConstantValueKind::NullableAbsent,
             ))
-            .map_err(super::super::semantic_value_export_error)?;
+            .unwrap_or_else(|error| {
+                panic!("semantic_value_export_error in nullable_absence_term_id: {error:?}")
+            });
 
         self.constant_value_term_id(value)
     }

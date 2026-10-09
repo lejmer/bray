@@ -4,7 +4,7 @@ use bray_bound_tree::{BoundExpressionId, SelectedCall, StorageAccessId, StorageP
 use bray_symbols::{DependencyProjection, DependencyRequirement, DependencySubjectRoot, TypeData};
 
 use super::super::plan::{PlanError, Planner};
-use crate::{CheckerInfrastructureError, CheckerRequestContext};
+use crate::CheckerRequestContext;
 
 impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
     pub(super) fn returned_borrow_access(
@@ -12,7 +12,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         expression: BoundExpressionId,
         call: &SelectedCall,
     ) -> Result<Option<StorageAccessId>, PlanError<C::UpstreamError>> {
-        let ty = self.expression_type(expression)?.ty();
+        let ty = self.expression_type(expression).ty();
 
         let data = self.request.semantic_values().type_data(ty);
 
@@ -71,7 +71,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         let argument_type = self
             .request
             .semantic_values()
-            .type_data(self.expression_type(argument)?.ty());
+            .type_data(self.expression_type(argument).ty());
 
         if matches!(source.subject_root(), DependencySubjectRoot::Parameter(_))
             && !matches!(argument_type.as_ref(), TypeData::Borrow { .. })
@@ -117,9 +117,8 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
                 }
                 DependencyProjection::OwnedTarget => {
                     let owner = self
-                        .builder()?
-                        .access(access)
-                        .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?
+                        .builder()
+                        .access(access).unwrap_or_else(|| panic!("retain_returned_borrow requires planned storage access, expression: {expression:?}, ty: {ty:?}, target: {target:?}, argument: {argument:?}, access: {access:?}"))
                         .reached_type();
 
                     if !self.plan_owned_borrows(owner)? {
@@ -132,8 +131,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
                 DependencyProjection::UnionPayloadField(field) => {
                     let record = self
                         .request
-                        .union_payload_field(*field)?
-                        .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+                        .union_payload_field(*field)?.unwrap_or_else(|| panic!("retain_returned_borrow requires union payload field, expression: {expression:?}, ty: {ty:?}, target: {target:?}, argument: {argument:?}"));
 
                     StorageProjection::ActiveUnionPayloadField {
                         variant: record.variant(),
@@ -144,9 +142,8 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             };
 
             let owner = self
-                .builder()?
-                .access(access)
-                .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?
+                .builder()
+                .access(access).unwrap_or_else(|| panic!("retain_returned_borrow requires planned storage access, expression: {expression:?}, ty: {ty:?}, target: {target:?}, argument: {argument:?}, access: {access:?}"))
                 .reached_type();
 
             let ty = self.projected_storage_type(owner, projection)?;
@@ -157,12 +154,12 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
                 projection,
                 bray_bound_tree::ExpressionTypeResult::new(
                     ty,
-                    self.expression_type(expression)?.status(),
+                    self.expression_type(expression).status(),
                 ),
             )?;
         }
 
-        let builder = self.builder()?;
+        let builder = self.builder();
 
         let creates_capability = builder.access(access).is_some_and(|access| {
             !access.projections().is_empty()
@@ -182,10 +179,9 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         }
 
         let capability = self
-            .builder()?
+            .builder()
             .access(access)
-            .and_then(|access| access.root().borrow_capability())
-            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+            .and_then(|access| access.root().borrow_capability()).unwrap_or_else(|| panic!("retain_returned_borrow requires planned borrow capability, expression: {expression:?}, ty: {ty:?}, target: {target:?}, argument: {argument:?}, access: {access:?}"));
 
         let access = self.retain_borrow_value(
             expression,
@@ -194,7 +190,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             ty,
             bray_bound_tree::ExpressionTypeResult::new(
                 ty,
-                self.expression_type(expression)?.status(),
+                self.expression_type(expression).status(),
             ),
         )?;
 
@@ -206,14 +202,13 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
                 _ => expression.into(),
             };
 
-            self.builder_mut()?
+            self.builder_mut()
                 .plan_access(
                     node,
                     expression,
                     bray_bound_tree::StorageAccessPurpose::Borrow(kind),
                     access,
-                )
-                .map_err(CheckerInfrastructureError::StoragePlan)?;
+                ).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in retain_returned_borrow: {error:?}"));
         }
 
         Ok(Some(access))

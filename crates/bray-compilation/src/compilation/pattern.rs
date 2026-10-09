@@ -289,9 +289,6 @@ impl Compilation {
         let result = match DefaultConstantEvaluator.evaluate_constant(request, &input) {
             CheckerOutcome::Complete(result) => result,
             CheckerOutcome::Cancelled => return Err(FactQueryError::Cancelled),
-            CheckerOutcome::InfrastructureFailure(error) => {
-                return Err(FactQueryError::CheckerInfrastructure(error));
-            }
             CheckerOutcome::UpstreamFailure(error) => return Err(error),
         };
 

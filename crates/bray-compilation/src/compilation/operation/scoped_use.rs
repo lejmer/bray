@@ -130,11 +130,10 @@ impl Compilation {
             };
 
             bray_checker::call_result(request, callable, signature.result())
-                .map_err(FactQueryError::from)
         };
 
-        let enter_result = invocation_result(&enter.1)?;
-        let exit_result = invocation_result(&exit.1)?;
+        let enter_result = invocation_result(&enter.1);
+        let exit_result = invocation_result(&exit.1);
 
         Ok(Some(SemanticResolution::scoped_use(
             SelectedScopedUse::new(

@@ -1,4 +1,4 @@
-use crate::{CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext};
+use crate::{CheckerQueryError, CheckerRequestContext};
 use bray_bound_tree::{BoundExpressionId, SemanticSelection};
 use bray_symbols::{DependencyRequirement, DependencyRequirementKind};
 use std::collections::BTreeSet;
@@ -29,10 +29,9 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
             crate::dependency::defaults::expand_result_defaults(self.request, call, &template)?
         } else {
             crate::dependency::call_result_template(self.request, call, |callable| {
-                self.callees
-                    .get(&callable)
-                    .copied()
-                    .ok_or_else(|| CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
+                Ok(self.callees.get(&callable).copied().unwrap_or_else(|| {
+                    panic!("selected call requires its result dependency template for {callable:?}")
+                }))
             })?
         };
 
@@ -77,8 +76,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
             let callable = self
                 .request
                 .semantic_values()
-                .intern_callable_instance(instance)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                .intern_callable_instance(instance).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in scoped_values: {error:?}"));
 
             let root = bray_symbols::DependencySubjectRoot::Receiver;
 
@@ -102,11 +100,9 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
 
             requirements
         } else {
-            let template = self
-                .callees
-                .get(&symbol)
-                .copied()
-                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            let template = self.callees.get(&symbol).copied().unwrap_or_else(|| {
+                panic!("scoped_values requires selected scoped call, symbol: {symbol:?}")
+            });
 
             crate::dependency::returned::resolved_result_template(
                 self.request,
@@ -182,8 +178,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                         )
                     })
                     .collect())
-            })
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?
+            }).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in mapped_result_values: {error:?}"))
             .into_iter()
             .collect(),
         )

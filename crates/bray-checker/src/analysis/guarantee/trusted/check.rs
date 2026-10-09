@@ -44,9 +44,6 @@ pub(crate) fn collect_trusted_memory_evidence<C: CheckerRequestContext + ?Sized>
     ) {
         CheckerOutcome::Complete(flow) => flow.into_parts().0,
         CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        CheckerOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         CheckerOutcome::UpstreamFailure(error) => return CheckerOutcome::UpstreamFailure(error),
     };
 
@@ -360,9 +357,7 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
             match $query {
                 Ok(value) => value,
                 Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-                Err(crate::CheckerQueryError::Infrastructure(error)) => {
-                    return CheckerOutcome::InfrastructureFailure(error)
-                }
+
                 Err(crate::CheckerQueryError::Upstream(error)) => {
                     return CheckerOutcome::UpstreamFailure(error)
                 }
@@ -421,8 +416,9 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
             let contract = match cleanup_contract(request.semantic_values(), signature) {
                 Ok(contract) => contract,
                 Err(error) => {
-                    return CheckerOutcome::InfrastructureFailure(
-                        crate::CheckerInfrastructureError::SemanticValueStore(error),
+                    panic!(
+                        "The canonical semantic value store rejected a construction or lookup operation. in check_trusted_completion, value0: {:?}",
+                        error
                     );
                 }
             };
@@ -469,9 +465,6 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
             flow
         }
         CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        CheckerOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         CheckerOutcome::UpstreamFailure(error) => return CheckerOutcome::UpstreamFailure(error),
     };
 
@@ -569,9 +562,6 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
     match check_trusted_contracts_in_flow(request, expressions, storage, &flow, true) {
         CheckerOutcome::Complete(result) => diagnostics.add_range(result.into_parts().1),
         CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        CheckerOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         CheckerOutcome::UpstreamFailure(error) => return CheckerOutcome::UpstreamFailure(error),
     }
 

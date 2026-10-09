@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use super::checker::DiagnosticCheckerFailure;
 use crate::{
     DiagnosticArtifactDigest, DiagnosticArtifactKind, DiagnosticAssemblySyntaxKind,
     DiagnosticDebugInformationMode, DiagnosticDebugOutputMode, DiagnosticFactRuntimeFailure,
@@ -321,7 +320,6 @@ pub enum DiagnosticEmissionEvaluationFailure {
     Product(DiagnosticProductQueryFailure),
     /// Foreign-boundary construction violated an exact retained contract.
     Foreign(crate::DiagnosticForeignQueryFailure),
-    Checker(DiagnosticCheckerFailure),
 }
 
 /// Exact machine-readable detail retained for an evaluation-owned failure.
@@ -690,7 +688,6 @@ impl DiagnosticEmissionEvaluationFailure {
             Self::SemanticQuery(failure) => failure.as_str(),
             Self::Product(failure) => failure.as_str(),
             Self::Foreign(failure) => failure.as_str(),
-            Self::Checker(failure) => failure.as_str(),
         }
     }
 }

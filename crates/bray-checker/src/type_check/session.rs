@@ -9,7 +9,7 @@ use bray_symbols::{TypeData, TypeId};
 
 use crate::constant::parse_byte_string;
 use crate::representation::representation_type;
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitView};
 
 use super::array::array_length;
 use super::constraints::{
@@ -72,16 +72,16 @@ where
     pub(crate) fn begin(
         request: CheckerUnitView<'view, C>,
         selections: &[bray_bound_tree::SemanticSelectionEntry],
-    ) -> Result<SessionProgress<Self>, CheckerInfrastructureError> {
+    ) -> SessionProgress<Self> {
         if request.is_cancelled() {
-            return Ok(SessionProgress::Cancelled);
+            return SessionProgress::Cancelled;
         }
 
         let Some(nodes) = collect_nodes(request) else {
-            return Ok(SessionProgress::Cancelled);
+            return SessionProgress::Cancelled;
         };
 
-        let types = ExpressionTypeDependencies::new(request, selections)?;
+        let types = ExpressionTypeDependencies::new(request, selections);
         let mut inference = TypeInferenceContext::new(types.error, types.never);
         let mut variables = BTreeMap::new();
         let mut block_variables = BTreeMap::new();
@@ -92,7 +92,7 @@ where
             &types,
             &mut variables,
             &mut inference,
-        )?;
+        );
 
         initialize_non_value_expressions(
             &nodes.non_value_expressions,
@@ -102,16 +102,16 @@ where
         );
 
         if request.is_cancelled() {
-            return Ok(SessionProgress::Cancelled);
+            return SessionProgress::Cancelled;
         }
 
-        initialize_block_variables(request, &nodes.blocks, &mut block_variables, &mut inference)?;
+        initialize_block_variables(request, &nodes.blocks, &mut block_variables, &mut inference);
 
         let block_owners =
             crate::unit::expression_block_owners(request, nodes.expressions.iter().copied());
 
         if request.is_cancelled() {
-            return Ok(SessionProgress::Cancelled);
+            return SessionProgress::Cancelled;
         }
 
         let regions = initialize_expression_type_regions(
@@ -122,7 +122,7 @@ where
             &block_variables,
             block_owners,
             &mut inference,
-        )?;
+        );
 
         if !add_relationship_constraints(
             request,
@@ -133,7 +133,7 @@ where
             &types,
             &mut inference,
         ) {
-            return Ok(SessionProgress::Cancelled);
+            return SessionProgress::Cancelled;
         }
 
         add_semantic_context_constraints(request, &variables, types.boolean, &mut inference);
@@ -141,16 +141,16 @@ where
         let mut inferred_byte_initializers = Vec::new();
 
         let Some(local_expectations) =
-            block_expectations(request, &nodes.blocks, &mut inferred_byte_initializers)?
+            block_expectations(request, &nodes.blocks, &mut inferred_byte_initializers)
         else {
-            return Ok(SessionProgress::Cancelled);
+            return SessionProgress::Cancelled;
         };
 
-        if add_expectations(request, local_expectations, &variables, &mut inference)?.is_none() {
-            return Ok(SessionProgress::Cancelled);
+        if add_expectations(request, local_expectations, &variables, &mut inference).is_none() {
+            return SessionProgress::Cancelled;
         }
 
-        Ok(SessionProgress::Complete(Self {
+        SessionProgress::Complete(Self {
             request,
             expressions: nodes.expressions,
             inferred_byte_initializers,
@@ -160,13 +160,10 @@ where
             types,
             inference,
             callable_result_type: None,
-        }))
+        })
     }
 
-    pub(crate) fn apply_input(
-        &mut self,
-        input: &ExpressionTypeInput,
-    ) -> Result<(), CheckerInfrastructureError> {
+    pub(crate) fn apply_input(&mut self, input: &ExpressionTypeInput) {
         self.apply_input_replacing_evidence(input, &BTreeSet::new())
     }
 
@@ -174,7 +171,7 @@ where
         &mut self,
         input: &ExpressionTypeInput,
         replacements: &BTreeSet<BoundExpressionId>,
-    ) -> Result<(), CheckerInfrastructureError> {
+    ) {
         for &(expression, policy) in input.box_storage_policies() {
             assert!(
                 matches!(self.request.view().expression(expression), Some(BoundExpression::BoxConstruction(construction)) if construction.policy().is_some()),
@@ -202,15 +199,13 @@ where
         }
 
         for expectation in input.expectations() {
-            self.add_expectation(expectation.expression(), expectation.ty())?;
+            self.add_expectation(expectation.expression(), expectation.ty());
         }
 
         if let Some(result_type) = input.callable_result_type() {
-            self.add_return_expectations(result_type)?;
+            self.add_return_expectations(result_type);
             self.callable_result_type = Some(result_type);
         }
-
-        Ok(())
     }
 
     pub(crate) fn add_evidence(&mut self, expression: BoundExpressionId, ty: TypeId) {
@@ -246,19 +241,15 @@ where
         self.add_evidence(evidence.expression(), evidence.ty())
     }
 
-    pub(crate) fn add_expectation(
-        &mut self,
-        expression: BoundExpressionId,
-        ty: TypeId,
-    ) -> Result<(), CheckerInfrastructureError> {
+    pub(crate) fn add_expectation(&mut self, expression: BoundExpressionId, ty: TypeId) {
         match add_expectations(
             self.request,
             [ExpressionTypeExpectation::new(expression, ty)],
             &self.variables,
             &mut self.inference,
-        )? {
-            Some(()) => Ok(()),
-            None => Ok(()),
+        ) {
+            Some(()) => (),
+            None => (),
         }
     }
 
@@ -271,17 +262,17 @@ where
         self.inference.result(variable)
     }
 
-    pub(crate) fn unique_matching_expectation<E>(
+    pub(crate) fn unique_matching_expectation(
         &mut self,
         expression: BoundExpressionId,
-        is_match: impl FnMut(TypeId) -> Result<bool, E>,
-    ) -> Result<Option<TypeId>, E> {
+        is_match: impl FnMut(TypeId) -> bool,
+    ) -> Option<TypeId> {
         let Some(variable) = self.variables.get(&expression).copied() else {
-            return Ok(None);
+            return None;
         };
 
         self.inference
-            .try_unique_matching_expectation(variable, is_match)
+            .unique_matching_expectation(variable, is_match)
     }
 
     pub(crate) fn preview(&mut self) -> CheckedExpressionTypes {
@@ -318,10 +309,10 @@ where
         &self.expressions
     }
 
-    pub(crate) fn propagate(&mut self) -> Result<SessionProgress<()>, CheckerInfrastructureError> {
+    pub(crate) fn propagate(&mut self) -> SessionProgress<()> {
         loop {
             if self.request.is_cancelled() {
-                return Ok(SessionProgress::Cancelled);
+                return SessionProgress::Cancelled;
             }
 
             let Some(propagated) = propagate_dynamic_constraints(
@@ -332,9 +323,8 @@ where
                 &self.regions,
                 &self.types,
                 &mut self.inference,
-            )?
-            else {
-                return Ok(SessionProgress::Cancelled);
+            ) else {
+                return SessionProgress::Cancelled;
             };
 
             let Some(adapted) = adapt_contextual_literals(
@@ -342,16 +332,15 @@ where
                 &self.expressions,
                 &self.variables,
                 &mut self.inference,
-            )?
-            else {
-                return Ok(SessionProgress::Cancelled);
+            ) else {
+                return SessionProgress::Cancelled;
             };
 
             if propagated || adapted {
                 continue;
             }
 
-            return Ok(SessionProgress::Complete(()));
+            return SessionProgress::Complete(());
         }
     }
 
@@ -391,13 +380,10 @@ where
         }
     }
 
-    fn add_return_expectations(
-        &mut self,
-        result_type: TypeId,
-    ) -> Result<(), CheckerInfrastructureError> {
+    fn add_return_expectations(&mut self, result_type: TypeId) {
         for index in 0..self.expressions.len() {
             if self.request.is_cancelled() {
-                return Ok(());
+                return;
             }
 
             let expression = self.expressions[index];
@@ -413,7 +399,7 @@ where
             }
 
             match transfer.operand() {
-                Some(operand) => self.add_expectation(operand, result_type)?,
+                Some(operand) => self.add_expectation(operand, result_type),
                 None if result_type != self.types.unit => {
                     let Some(variable) = self.variables.get(&expression).copied() else {
                         continue;
@@ -430,8 +416,6 @@ where
                 None => {}
             }
         }
-
-        Ok(())
     }
 }
 
@@ -522,13 +506,12 @@ fn initialize_expression_variables<C>(
     types: &ExpressionTypeDependencies,
     variables: &mut BTreeMap<BoundExpressionId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
     for &expression in expressions {
         if request.is_cancelled() {
-            return Ok(());
+            return;
         }
 
         let Some(bound) = request.view().expression(expression) else {
@@ -539,7 +522,9 @@ where
         };
 
         let Some(variable) = inference.fresh(bound.is_recovered()) else {
-            return Err(CheckerInfrastructureError::ExpressionTypeCapacityExceeded);
+            panic!(
+                "One unit contains more expression variables than the checker can identify compactly. in initialize_expression_variables"
+            );
         };
 
         variables.insert(expression, variable);
@@ -554,7 +539,7 @@ where
             && literal.kind() == bray_bound_tree::BoundLiteralKind::ByteString
             && !bound.is_recovered()
         {
-            let source = request.source(literal.origin().source_anchor())?;
+            let source = request.source(literal.origin().source_anchor());
 
             let spelling = source
                 .text_for_range(literal.spelling_range())
@@ -571,20 +556,17 @@ where
             });
 
             let element =
-                representation_type(request, bray_compiler_known::RepresentationRole::ScalarU8)?;
+                representation_type(request, bray_compiler_known::RepresentationRole::ScalarU8);
 
-            let length = array_length(request, bytes.len())?;
+            let length = array_length(request, bytes.len());
 
             let ty = request
                 .semantic_values()
-                .intern_type(TypeData::Array { element, length })
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                .intern_type(TypeData::Array { element, length }).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in initialize_expression_variables: {error:?}"));
 
             inference.add_evidence(variable, ty, expression);
         }
     }
-
-    Ok(())
 }
 
 fn intrinsic_expression_type(expression: &BoundExpression) -> Option<TypeId> {
@@ -609,13 +591,12 @@ fn initialize_block_variables<C>(
     blocks: &[BoundBlockId],
     variables: &mut BTreeMap<BoundBlockId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
     for &block in blocks {
         if request.is_cancelled() {
-            return Ok(());
+            return;
         }
 
         let Some(bound) = request.view().block(block) else {
@@ -626,11 +607,11 @@ where
         };
 
         let Some(variable) = inference.fresh(bound.is_recovered()) else {
-            return Err(CheckerInfrastructureError::ExpressionTypeCapacityExceeded);
+            panic!(
+                "One unit contains more expression variables than the checker can identify compactly. in initialize_block_variables"
+            );
         };
 
         variables.insert(block, variable);
     }
-
-    Ok(())
 }

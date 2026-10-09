@@ -1,51 +1,14 @@
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
-    DiagnosticArtifactKind, DiagnosticCheckerFailure, DiagnosticEmissionEvaluationFailure,
-    DiagnosticEmissionFailure, DiagnosticExternalToolExit, DiagnosticId, DiagnosticIoErrorKind,
-    DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink,
-    DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem, SeverityKind,
+    DiagnosticArtifactKind, DiagnosticEmissionFailure, DiagnosticExternalToolExit, DiagnosticId,
+    DiagnosticIoErrorKind, DiagnosticKind, DiagnosticNote, DiagnosticNoteKind,
+    DiagnosticOutputSink, DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem,
+    SeverityKind,
 };
 
 use crate::RenderedDiagnosticNoteKind;
 use crate::catalog::{INTERNAL_COMPILER_ERROR, forbidden_ordinary_diagnostic_term};
 use crate::renderer::DiagnosticRenderer;
-
-#[test]
-fn emission_checker_failures_name_the_product_type_and_reporting_action() {
-    let diagnostic = Diagnostic::new(
-        DiagnosticId::new(8),
-        DiagnosticKind::EmissionFailed,
-        SeverityKind::Error,
-    )
-    .with_arg(DiagnosticArg::actual_product_identity(
-        "example.application",
-    ))
-    .with_arg(DiagnosticArg::target_triple("x86_64-unknown-linux-gnu"))
-    .with_arg(DiagnosticArg::emission_failure(
-        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Checker(
-            DiagnosticCheckerFailure::CompilerKnownRepresentationUnavailable("ScalarU32"),
-        )),
-    ))
-    .with_note(DiagnosticNote::new(
-        DiagnosticNoteKind::ReportCompilerDefect,
-    ));
-
-    let rendered = DiagnosticRenderer::english().render(&diagnostic);
-
-    assert!(rendered.message().contains("example.application"));
-    assert!(rendered.message().contains("x86_64-unknown-linux-gnu"));
-    assert!(rendered.message().contains("`u32`"));
-    assert!(!rendered.message().contains("ScalarU32"));
-    assert_eq!(rendered.notes().len(), 1);
-
-    assert!(
-        rendered.notes()[0]
-            .message()
-            .contains("report this compiler defect")
-    );
-
-    assert_eq!(forbidden_ordinary_diagnostic_term(rendered.message()), None);
-}
 
 #[test]
 fn native_artifact_read_failures_identify_output_and_io_cause() {

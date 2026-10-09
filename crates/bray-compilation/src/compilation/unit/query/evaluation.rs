@@ -9,8 +9,8 @@ use bray_bound_tree::{
     walk_bound_unit_view,
 };
 use bray_checker::{
-    CheckerInfrastructureError, DefaultExpressionSemanticChecker, ExpressionSemanticChecker,
-    PatternCheckInput, PatternSubjectType,
+    DefaultExpressionSemanticChecker, ExpressionSemanticChecker, PatternCheckInput,
+    PatternSubjectType,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 
@@ -443,19 +443,10 @@ impl Compilation {
                 .iter()
                 .cloned()
                 .chain(reference_selections),
-        )
-        .map_err(|error| {
-            FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::SemanticSelection(
-                error,
-            ))
-        })?;
+        ).unwrap_or_else(|error| panic!("compute_expression_semantics must satisfy its checked construction contract: {error:?}"));
 
         let value =
-            CheckedExpressionSemantics::try_new(types, selections, literals).map_err(|error| {
-                FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::SemanticSnapshot(
-                    error,
-                ))
-            })?;
+            CheckedExpressionSemantics::try_new(types, selections, literals).unwrap_or_else(|error| panic!("compute_expression_semantics must satisfy its checked construction contract: {error:?}"));
 
         let diagnostics = DiagnosticBag::merged_all([
             candidates.diagnostics(),

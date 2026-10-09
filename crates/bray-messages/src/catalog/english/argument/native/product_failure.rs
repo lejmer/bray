@@ -20,8 +20,6 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::EvaluationSemanticQuery(_)
         | Kind::EvaluationProduct(_)
         | Kind::EvaluationForeign(_)
-        | Kind::EvaluationChecker(_)
-        | Kind::CheckingInfrastructureFailure
         | Kind::ReachabilityEmptyRoots
         | Kind::ReachabilityDuplicateInstance
         | Kind::ReachabilityUndemandedInstance

@@ -209,7 +209,6 @@ impl Compilation {
 
         if let Some(result) =
             bray_checker::built_in_operation_result_type(&context, *subject, *application, *member)
-                .map_err(FactQueryError::from)?
         {
             return Ok(DiagnosticResult::without_diagnostics(result));
         }
@@ -552,8 +551,7 @@ impl Compilation {
         let context = CompilationCheckerContext::new(self.binding_context(cancellation)?);
 
         let built_in =
-            bray_checker::built_in_trait_constraint_outcome(&context, subject, application)
-                .map_err(FactQueryError::from)?;
+            bray_checker::built_in_trait_constraint_outcome(&context, subject, application);
 
         let outcome = if let Some(outcome) = built_in {
             outcome
@@ -692,9 +690,8 @@ fn resolve_constraint_type(
     constants: &CheckedConstantTerms,
     substitution: GenericSubstitutionId,
 ) -> Result<TypeId, FactQueryError> {
-    let resolved = resolve_type_expression_template(values, template, constants)
-        .map_err(FactQueryError::from)?
-        .ok_or_else(|| {
+    let resolved =
+        resolve_type_expression_template(values, template, constants).ok_or_else(|| {
             SemanticQueryFailure::contract(
                 type_template_context(template),
                 SemanticQueryViolation::Missing(SemanticDataKind::Type),
@@ -712,9 +709,8 @@ fn resolve_constraint_trait_application(
     constants: &CheckedConstantTerms,
     substitution: GenericSubstitutionId,
 ) -> Result<TraitApplicationId, FactQueryError> {
-    let resolved = resolve_trait_application_template(values, template, constants)
-        .map_err(FactQueryError::from)?
-        .ok_or_else(|| {
+    let resolved =
+        resolve_trait_application_template(values, template, constants).ok_or_else(|| {
             SemanticQueryFailure::contract(
                 SemanticQueryContext::Symbol(template.definition().into()),
                 SemanticQueryViolation::Missing(SemanticDataKind::TraitApplication),
@@ -729,7 +725,6 @@ fn resolve_constraint_trait_application(
 fn checker_dependency_error(error: CheckerQueryError<FactQueryError>) -> FactQueryError {
     match error {
         CheckerQueryError::Cancelled => FactQueryError::Cancelled,
-        CheckerQueryError::Infrastructure(error) => FactQueryError::CheckerInfrastructure(error),
         CheckerQueryError::Upstream(error) => error,
     }
 }

@@ -18,8 +18,8 @@ use crate::analysis::model::{
 use crate::analysis::reachability::{ReachabilityResult, analyze_reachability};
 use crate::unit::assert_unit_inputs;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitView,
+    CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider,
+    CheckerUnitView,
 };
 
 use super::effects::OperationEffects;
@@ -54,9 +54,6 @@ where
         ControlFlowGraphBuildOutcome::Cancelled => {
             return CheckerOutcome::Cancelled;
         }
-        ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
@@ -69,9 +66,6 @@ where
             CheckerOutcome::Complete(result.map(|(liveness, _)| liveness))
         }
         CheckerOutcome::Cancelled => CheckerOutcome::Cancelled,
-        CheckerOutcome::InfrastructureFailure(error) => {
-            CheckerOutcome::InfrastructureFailure(error)
-        }
         CheckerOutcome::UpstreamFailure(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
@@ -103,9 +97,6 @@ where
     ) {
         Ok(effects) => effects,
         Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         Err(CheckerQueryError::Upstream(error)) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
@@ -143,7 +134,10 @@ where
             collect_edge_lifetime_ends(graph, &reachability, &effects, &domain, &result),
         )),
         Err(error) => {
-            CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::Liveness(error))
+            panic!(
+                "Durable liveness construction rejected one exact relationship. in analyze_storage_liveness_with_graph, value0: {:?}",
+                error
+            )
         }
     }
 }

@@ -3,9 +3,7 @@ use bray_compiler_known::CompilerKnownDeclarationKey;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{TypeData, TypeId};
 
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 pub(crate) fn selected_storage_protocol_call<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
@@ -60,8 +58,7 @@ impl<C: CheckerRequestContext + ?Sized> super::plan::Planner<'_, C> {
             (bray_symbols::BorrowKind::Shared, "StorageBorrow"),
             (bray_symbols::BorrowKind::Mutable, "StorageBorrowMut"),
         ] {
-            let member = bray_compiler_known::CompilerKnownDeclarationKey::try_new(member)
-                .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+            let member = bray_compiler_known::CompilerKnownDeclarationKey::try_new(member).unwrap_or_else(|| panic!("plan_owned_borrows requires compiler-known declaration key, owner: {owner:?}"));
 
             let selected =
                 super::selected_storage_protocol_call(self.request, *storage, *target, &member)?;
@@ -72,9 +69,8 @@ impl<C: CheckerRequestContext + ?Sized> super::plan::Planner<'_, C> {
 
             match call {
                 Some(call) => self
-                    .builder_mut()?
-                    .set_owned_borrow(owner, kind, call)
-                    .map_err(CheckerInfrastructureError::StoragePlan)?,
+                    .builder_mut()
+                    .set_owned_borrow(owner, kind, call).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in plan_owned_borrows: {error:?}")),
                 None => complete = false,
             }
         }

@@ -56,7 +56,7 @@ where
         result_type: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         if self.template.kind() != kind {
-            return Err(TemplateEvaluationFailure::invalid_input());
+            panic!("constant template must match requested kind {kind:?}");
         }
 
         self.static_initializer = matches!(
@@ -69,7 +69,7 @@ where
         let data = self.context.semantic_values().constant_value_data(value);
 
         if data.ty() != result_type {
-            return Err(TemplateEvaluationFailure::invalid_input());
+            panic!("constant template result must have type {result_type:?}, actual: {data:?}");
         }
 
         Ok(value)
@@ -81,7 +81,7 @@ where
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         self.observe_cancellation()?;
 
-        let index = template_index(node.raw())?;
+        let index = template_index(node.raw());
 
         if let Some(value) = self.values.get(index).copied().flatten() {
             return Ok(value);
@@ -91,17 +91,17 @@ where
             .try_charge_step()
             .map_err(TemplateEvaluationFailure::Diagnostic)?;
 
-        let node = self
-            .template
-            .nodes()
-            .get(index)
-            .ok_or_else(TemplateEvaluationFailure::invalid_input)?;
+        let node = self.template.nodes().get(index).unwrap_or_else(|| {
+            panic!(
+                "evaluate_node requires constant template node, node: {node:?}, index: {index:?}"
+            )
+        });
 
         let ty = self
             .context
             .semantic_values()
             .substitute_type(node.ty(), self.substitution)
-            .map_err(TemplateEvaluationFailure::semantic_value)?;
+            .unwrap_or_else(|error| panic!("semantic_value in evaluate_node: {error:?}"));
 
         let value = self.evaluate_operation(node.operation(), ty)?;
 
@@ -109,8 +109,7 @@ where
 
         let slot = self
             .values
-            .get_mut(index)
-            .ok_or_else(TemplateEvaluationFailure::invalid_input)?;
+            .get_mut(index).unwrap_or_else(|| panic!("evaluate_node requires constant template value slot, node: {node:?}, index: {index:?}"));
 
         *slot = Some(value);
 
@@ -140,7 +139,9 @@ where
                     .context
                     .semantic_values()
                     .substitute_constant_term(*term, self.substitution)
-                    .map_err(TemplateEvaluationFailure::semantic_value)?;
+                    .unwrap_or_else(|error| {
+                        panic!("semantic_value in evaluate_operation: {error:?}")
+                    });
 
                 self.evaluate_term(term, ty)
             }
@@ -179,7 +180,9 @@ where
                     .context
                     .semantic_values()
                     .substitute_type(*target, self.substitution)
-                    .map_err(TemplateEvaluationFailure::semantic_value)?;
+                    .unwrap_or_else(|error| {
+                        panic!("semantic_value in evaluate_operation: {error:?}")
+                    });
 
                 self.evaluate_conversion(value, target)
             }
@@ -190,7 +193,7 @@ where
                     .try_charge_elements(values.len())
                     .map_err(TemplateEvaluationFailure::Diagnostic)?;
 
-                self.intern_value(ty, ConstantValueKind::Tuple(values.into()))
+                Ok(self.intern_value(ty, ConstantValueKind::Tuple(values.into())))
             }
             CheckedTemplateOperation::Array(elements) => {
                 let values = self.evaluate_nodes(elements)?;
@@ -199,7 +202,7 @@ where
                     .try_charge_elements(values.len())
                     .map_err(TemplateEvaluationFailure::Diagnostic)?;
 
-                self.intern_value(ty, ConstantValueKind::Array(values.into()))
+                Ok(self.intern_value(ty, ConstantValueKind::Array(values.into())))
             }
             CheckedTemplateOperation::Product(fields) => {
                 let mut values = Vec::with_capacity(fields.len());
@@ -208,7 +211,9 @@ where
                     let Some(AnySymbolId::StructField(field_id)) =
                         self.resolver.symbol(field.field())
                     else {
-                        return Err(TemplateEvaluationFailure::invalid_input());
+                        panic!(
+                            "constant product field must resolve to a struct field, actual: {field:?}"
+                        );
                     };
 
                     values.push(ConstantField::new(
@@ -221,21 +226,23 @@ where
                     .try_charge_elements(values.len())
                     .map_err(TemplateEvaluationFailure::Diagnostic)?;
 
-                self.intern_value(ty, ConstantValueKind::product(values))
+                Ok(self.intern_value(ty, ConstantValueKind::product(values)))
             }
             CheckedTemplateOperation::TupleElement { subject, index } => {
                 let subject = self.evaluate_node(*subject)?;
                 let subject = self.context.semantic_values().constant_value_data(subject);
 
                 let ConstantValueKind::Tuple(elements) = subject.kind() else {
-                    return Err(TemplateEvaluationFailure::invalid_input());
+                    panic!("constant tuple projection must receive a tuple, actual: {subject:?}");
                 };
 
-                index
+                Ok(index
                     .to_index()
                     .and_then(|index| elements.get(index))
                     .copied()
-                    .ok_or_else(TemplateEvaluationFailure::invalid_input)
+                    .unwrap_or_else(|| {
+                        panic!("checked constant tuple index {index:?} must exist in the tuple")
+                    }))
             }
             CheckedTemplateOperation::Project { subject, member } => {
                 let subject = self.evaluate_node(*subject)?;
@@ -259,7 +266,7 @@ where
                 let subject = self.context.semantic_values().constant_value_data(subject);
 
                 let ConstantValueKind::Array(elements) = subject.kind() else {
-                    return Err(TemplateEvaluationFailure::invalid_input());
+                    panic!("constant index operation must receive an array, actual: {subject:?}");
                 };
 
                 elements.get(index).copied().ok_or_else(|| {
@@ -298,13 +305,12 @@ where
                 }
             }
             CheckedTemplateOperation::Temporary(temporary) => {
-                let index = template_index(temporary.raw())?;
+                let index = template_index(temporary.raw());
 
                 let temporary = self
                     .template
                     .temporaries()
-                    .get(index)
-                    .ok_or_else(TemplateEvaluationFailure::invalid_input)?;
+                    .get(index).unwrap_or_else(|| panic!("evaluate_operation requires constant template temporary, ty: {ty:?}, index: {index:?}"));
 
                 self.evaluate_node(temporary.initializer())
             }
@@ -318,7 +324,7 @@ where
         let value = self.evaluate_node(node)?;
         let value = self.context.semantic_values().constant_value_data(value);
 
-        integer_index(value.kind()).ok_or_else(TemplateEvaluationFailure::invalid_input)
+        Ok(integer_index(value.kind()).unwrap_or_else(|| panic!("checked constant index bound at {node:?} must be a nonnegative host-sized integer, actual: {value:?}")))
     }
 
     fn evaluate_slice(
@@ -332,7 +338,7 @@ where
         let subject = self.context.semantic_values().constant_value_data(subject);
 
         let ConstantValueKind::Array(elements) = subject.kind() else {
-            return Err(TemplateEvaluationFailure::invalid_input());
+            panic!("constant slice must receive an array, actual: {subject:?}");
         };
 
         let lower = lower
@@ -354,7 +360,7 @@ where
             .try_charge_elements(elements.len())
             .map_err(TemplateEvaluationFailure::Diagnostic)?;
 
-        self.intern_value(ty, ConstantValueKind::array(elements.iter().copied()))
+        Ok(self.intern_value(ty, ConstantValueKind::array(elements.iter().copied())))
     }
 
     fn evaluate_static_address(
@@ -364,10 +370,12 @@ where
         ty: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         if !self.static_initializer || kind != bray_symbols::BorrowKind::Shared {
-            return Err(TemplateEvaluationFailure::invalid_input());
+            panic!(
+                "constant static address requires a shared borrow in a static initializer, kind: {kind:?}, operand: {operand:?}"
+            );
         }
 
-        let index = template_index(operand.raw())?;
+        let index = template_index(operand.raw());
 
         let Some(CheckedTemplateOperation::Declaration {
             declaration,
@@ -378,18 +386,20 @@ where
             .get(index)
             .map(|node| node.operation())
         else {
-            return Err(TemplateEvaluationFailure::invalid_input());
+            panic!("static address operand {operand:?} must be a static declaration node");
         };
 
         let Some(AnySymbolId::Static(declaration)) = self.resolver.symbol(declaration) else {
-            return Err(TemplateEvaluationFailure::invalid_input());
+            panic!(
+                "static address declaration must resolve to a static symbol, actual: {declaration:?}"
+            );
         };
 
         let substitution = self
             .context
             .semantic_values()
             .substitute_generic_substitution(*substitution, self.substitution)
-            .map_err(TemplateEvaluationFailure::semantic_value)?;
+            .unwrap_or_else(|error| panic!("semantic_value in evaluate_static_address: {error:?}"));
 
         let selection = self
             .resolver
@@ -400,32 +410,30 @@ where
 
         self.diagnostics = self.diagnostics.merged(&diagnostics);
 
-        self.intern_value(ty, ConstantValueKind::StaticAddress(selection))
+        Ok(self.intern_value(ty, ConstantValueKind::StaticAddress(selection)))
     }
 
     fn evaluate_input(
         &mut self,
         input: bray_bound_tree::CheckedTemplateInputId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
-        let index = template_index(input.raw())?;
+        let index = template_index(input.raw());
 
         let input = self
             .template
             .inputs()
-            .get(index)
-            .ok_or_else(TemplateEvaluationFailure::invalid_input)?;
+            .get(index).unwrap_or_else(|| panic!("evaluate_input requires constant template input, input: {input:?}, index: {index:?}"));
 
         match input.kind() {
-            CheckedTemplateInputKind::Parameter(ordinal) => ordinal
+            CheckedTemplateInputKind::Parameter(ordinal) => Ok(ordinal
                 .to_index()
                 .and_then(|index| self.arguments.get(index))
-                .copied()
-                .ok_or_else(TemplateEvaluationFailure::invalid_input),
+                .copied().unwrap_or_else(|| panic!("checked constant parameter ordinal {ordinal:?} must exist in the application"))),
             CheckedTemplateInputKind::GenericConstant(parameter) => {
                 let Some(AnySymbolId::GenericConstParameter(parameter)) =
                     self.resolver.symbol(parameter)
                 else {
-                    return Err(TemplateEvaluationFailure::invalid_input());
+                    panic!("constant template parameter must resolve to a generic constant, actual: {parameter:?}");
                 };
 
                 let substitution = self
@@ -436,21 +444,20 @@ where
                 let Some(GenericArgument::Constant(term)) =
                     substitution.argument_for(GenericParameterSymbolId::Const(parameter))
                 else {
-                    return Err(TemplateEvaluationFailure::invalid_input());
+                    panic!("generic constant {parameter:?} must have a constant substitution argument");
                 };
 
                 let ty = self
                     .context
                     .semantic_values()
-                    .substitute_type(input.ty(), self.substitution)
-                    .map_err(TemplateEvaluationFailure::semantic_value)?;
+                    .substitute_type(input.ty(), self.substitution).unwrap_or_else(|error| panic!("semantic_value in evaluate_input: {error:?}"));
 
                 self.evaluate_term(term, ty)
             }
             CheckedTemplateInputKind::Receiver
             | CheckedTemplateInputKind::GenericType(_)
             | CheckedTemplateInputKind::PostconditionResult => {
-                Err(TemplateEvaluationFailure::invalid_input())
+                panic!("constant template input kind must be evaluable at compile time, actual: {input:?}")
             }
         }
     }
@@ -484,7 +491,7 @@ where
             operation_failure(diagnostic_operation(unary_operator(operation)), error)
         })?;
 
-        self.intern_value(ty, kind)
+        Ok(self.intern_value(ty, kind))
     }
 
     fn evaluate_binary(
@@ -518,7 +525,7 @@ where
             operation_failure(diagnostic_operation(binary_operator(operation)), error)
         })?;
 
-        self.intern_value(ty, kind)
+        Ok(self.intern_value(ty, kind))
     }
 
     fn evaluate_declaration(
@@ -527,15 +534,15 @@ where
         ty: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         let Some(symbol) = self.resolver.symbol(declaration) else {
-            return Err(TemplateEvaluationFailure::invalid_input());
+            panic!("constant declaration {declaration:?} must resolve to a symbol");
         };
 
         if let AnySymbolId::UnionVariant(variant) = symbol {
-            return self.intern_value(ty, ConstantValueKind::union(variant, []));
+            return Ok(self.intern_value(ty, ConstantValueKind::union(variant, [])));
         }
 
         let Some(definition) = constant_definition(symbol) else {
-            return Err(TemplateEvaluationFailure::invalid_input());
+            panic!("constant symbol {symbol:?} must have a constant definition");
         };
 
         let instance =
@@ -566,14 +573,18 @@ where
                 ));
             }
             ConstantReferenceResolution::Invalid => {
-                return Err(TemplateEvaluationFailure::invalid_input());
+                panic!(
+                    "constant declaration {declaration:?} must have a valid reference resolution"
+                );
             }
         };
 
         let data = self.context.semantic_values().constant_value_data(value);
 
         if data.ty() != ty {
-            return Err(TemplateEvaluationFailure::invalid_input());
+            panic!(
+                "constant declaration {declaration:?} must produce type {ty:?}, actual: {data:?}"
+            );
         }
 
         Ok(value)
@@ -594,14 +605,14 @@ where
             .symbol(callable)
             .and_then(CallableDefinitionId::try_new)
         else {
-            return Err(TemplateEvaluationFailure::invalid_input());
+            panic!("constant call must resolve to a callable definition: {callable:?}");
         };
 
         let values = self.context.semantic_values();
 
         let substitution = values
             .substitute_generic_substitution(substitution, self.substitution)
-            .map_err(TemplateEvaluationFailure::semantic_value)?;
+            .unwrap_or_else(|error| panic!("semantic_value in evaluate_call: {error:?}"));
 
         let implementation = implementation
             .map(|(declaration, substitution)| {
@@ -610,22 +621,19 @@ where
                     .symbol(declaration)
                     .and_then(ImplementationSymbolId::try_from_any)
                 else {
-                    return Err(TemplateEvaluationFailure::invalid_input());
+                    panic!("constant call implementation must resolve to a declared implementation: {declaration:?}");
                 };
 
                 let substitution = values
-                    .substitute_generic_substitution(*substitution, self.substitution)
-                    .map_err(TemplateEvaluationFailure::semantic_value)?;
+                    .substitute_generic_substitution(*substitution, self.substitution).unwrap_or_else(|error| panic!("semantic_value in evaluate_call: {error:?}"));
 
                 values
                     .intern_implementation_instance(ImplementationInstanceData::new(
                         declaration,
                         substitution,
                     ))
-                    .map(Some)
-                    .map_err(TemplateEvaluationFailure::semantic_value)
+                    .map(Some).unwrap_or_else(|error| panic!("evaluate_call must satisfy its checked construction contract: {error:?}"))
             })
-            .transpose()?
             .flatten();
 
         let limits = self.budget.remaining_limits(self.limits);
@@ -674,11 +682,12 @@ where
                 if diagnostics.has_errors() {
                     self.diagnostics = self.diagnostics.merged(&diagnostics);
 
-                    return recovery_value(self.context.semantic_values(), result_type)
-                        .map_err(TemplateEvaluationFailure::Infrastructure);
+                    return Ok(recovery_value(self.context.semantic_values(), result_type));
                 }
 
-                Err(TemplateEvaluationFailure::invalid_input())
+                panic!(
+                    "checked constant call must have a valid reference resolution, request: {request:?}"
+                )
             }
         }
     }
@@ -695,7 +704,9 @@ where
         }
 
         let Some(representation) = type_representation_for_context(self.context, target) else {
-            return Err(TemplateEvaluationFailure::invalid_input());
+            panic!(
+                "checked constant conversion must have a scalar target representation, target: {target:?}"
+            );
         };
 
         let kind = convert_scalar(data.kind(), representation, || {
@@ -711,7 +722,7 @@ where
             )
         })?;
 
-        self.intern_value(target, kind)
+        Ok(self.intern_value(target, kind))
     }
 
     fn evaluate_projection(
@@ -724,8 +735,7 @@ where
 
         let member = self
             .resolver
-            .symbol(member)
-            .ok_or_else(TemplateEvaluationFailure::invalid_input)?;
+            .symbol(member).unwrap_or_else(|| panic!("evaluate_projection requires constant projection member, subject: {subject:?}, ty: {ty:?}, member: {member:?}"));
 
         let value = match (subject.kind(), member) {
             (ConstantValueKind::Product(fields), AnySymbolId::StructField(field)) => fields
@@ -739,13 +749,12 @@ where
                     .map(|entry| *entry.value())
             }
             _ => None,
-        }
-        .ok_or_else(TemplateEvaluationFailure::invalid_input)?;
+        }.unwrap_or_else(|| panic!("evaluate_projection requires constant projection field, subject: {subject:?}, ty: {ty:?}"));
 
         let value_data = self.context.semantic_values().constant_value_data(value);
 
         if value_data.ty() != ty {
-            return Err(TemplateEvaluationFailure::invalid_input());
+            panic!("checked constant projection must produce type {ty:?}, actual: {value_data:?}");
         }
 
         Ok(value)
@@ -762,21 +771,19 @@ where
         let value = self.context.semantic_values().constant_value_data(value);
 
         let ConstantValueKind::Boolean(value) = value.kind() else {
-            return Err(TemplateEvaluationFailure::invalid_input());
+            panic!("checked Boolean constant must be a Boolean value, actual: {value:?}");
         };
 
         Ok(*value)
     }
 
-    pub(super) fn intern_value(
-        &self,
-        ty: TypeId,
-        kind: ConstantValueKind,
-    ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
+    pub(super) fn intern_value(&self, ty: TypeId, kind: ConstantValueKind) -> ConstantValueId {
         self.context
             .semantic_values()
             .intern_constant_value(ConstantValueData::new(ty, kind))
-            .map_err(TemplateEvaluationFailure::semantic_value)
+            .unwrap_or_else(|error| {
+                panic!("intern_value must satisfy its checked construction contract: {error:?}")
+            })
     }
 
     pub(super) fn observe_cancellation(&self) -> Result<(), TemplateEvaluationFailure> {
@@ -793,9 +800,6 @@ where
     ) -> TemplateEvaluationFailure {
         match error {
             CheckerQueryError::Cancelled => TemplateEvaluationFailure::Cancelled,
-            CheckerQueryError::Infrastructure(error) => {
-                TemplateEvaluationFailure::Infrastructure(error)
-            }
             CheckerQueryError::Upstream(error) => {
                 self.upstream_failure = Some(error);
 

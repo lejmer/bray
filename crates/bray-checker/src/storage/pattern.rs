@@ -7,7 +7,7 @@ use bray_bound_tree::{
 use bray_symbols::TypeData;
 
 use super::plan::{PlanError, Planner, missing_node};
-use crate::{CheckerInfrastructureError, CheckerRequestContext};
+use crate::CheckerRequestContext;
 
 impl<C> Planner<'_, C>
 where
@@ -40,8 +40,7 @@ where
 
         let checked = self
             .patterns
-            .pattern(id)
-            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+            .pattern(id).unwrap_or_else(|| panic!("plan_pattern requires checked pattern, id: {id:?}, subject_expression: {subject_expression:?}, parent_access: {parent_access:?}"));
 
         let access = match checked.projection() {
             Some(projection) => {
@@ -65,12 +64,11 @@ where
             None => parent_access,
         };
 
-        self.builder_mut()?
+        self.builder_mut()
             .bind(
                 StorageBindingTarget::PatternSubject(id),
                 StorageBinding::Access(access),
-            )
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+            ).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in plan_pattern: {error:?}"));
 
         if pattern.kind() == BoundPatternKind::Discard {
             if checked.operation() == PatternOperation::Consume {
@@ -103,8 +101,7 @@ where
 
             let checked = self
                 .patterns
-                .binding_type(binding)
-                .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+                .binding_type(binding).unwrap_or_else(|| panic!("plan_pattern requires checked pattern binding type, id: {id:?}, subject_expression: {subject_expression:?}, parent_access: {parent_access:?}, binding: {binding:?}"));
 
             let access = match checked.projection() {
                 Some(projection) => {
@@ -158,8 +155,7 @@ where
     ) -> Result<(), PlanError<C::UpstreamError>> {
         let checked = self
             .patterns
-            .binding_type(binding)
-            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+            .binding_type(binding).unwrap_or_else(|| panic!("bind_pattern_local requires checked pattern binding type, binding: {binding:?}, pattern: {pattern:?}, subject_expression: {subject_expression:?}, access: {access:?}"));
 
         let target = StorageBindingTarget::Local(binding);
 
@@ -186,7 +182,7 @@ where
                             .pattern(pattern)
                             .is_some_and(|pattern| !pattern.is_mutable())
                         && let Some(StorageBinding::Identity(identity)) =
-                            self.builder()?.binding(target)
+                            self.builder().binding(target)
                     {
                         // An immutable binding keeps this exact source for every later projection.
                         self.borrowed_values.insert(identity, access);
@@ -200,7 +196,7 @@ where
                         subject_expression,
                         access,
                         bray_symbols::BorrowKind::Shared,
-                        self.expression_type(subject_expression)?.ty(),
+                        self.expression_type(subject_expression).ty(),
                     )?))
                 }
                 PatternOperation::MutableBorrow => {
@@ -208,15 +204,14 @@ where
                         subject_expression,
                         access,
                         bray_symbols::BorrowKind::Mutable,
-                        self.expression_type(subject_expression)?.ty(),
+                        self.expression_type(subject_expression).ty(),
                     )?))
                 }
             };
 
             if let Some(binding) = binding {
-                self.builder_mut()?
-                    .bind(target, binding)
-                    .map_err(CheckerInfrastructureError::StoragePlan)?;
+                self.builder_mut()
+                    .bind(target, binding).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in bind_pattern_local: {error:?}"));
             }
         }
 
@@ -263,9 +258,8 @@ where
             pattern.is_recovered() || is_recovered,
         );
 
-        self.builder_mut()?
-            .push_access(access)
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+        self.builder_mut()
+            .push_access(access).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in bind_owned_pattern_storage: {error:?}"));
 
         Ok(())
     }
@@ -285,8 +279,7 @@ where
         for binding in bindings {
             let checked = self
                 .patterns
-                .binding_type(binding)
-                .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+                .binding_type(binding).unwrap_or_else(|| panic!("install_alternative_bindings requires checked pattern binding type, pattern: {pattern:?}, binding: {binding:?}"));
 
             if matches!(
                 checked.operation(),
@@ -336,11 +329,15 @@ where
             };
 
             let Some(accesses) = alternatives.pop() else {
-                return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+                panic!(
+                    "Storage-planning inputs or constructed records violate the requested unit contract. in finalize_alternative_bindings"
+                );
             };
 
             if accesses.is_empty() {
-                return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+                panic!(
+                    "Storage-planning inputs or constructed records violate the requested unit contract. in finalize_alternative_bindings"
+                );
             }
 
             if !alternatives.is_empty() {
@@ -351,14 +348,12 @@ where
 
             let ty = self
                 .patterns
-                .binding_type(binding)
-                .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?
+                .binding_type(binding).unwrap_or_else(|| panic!("finalize_alternative_bindings requires checked pattern binding type, pattern_id: {pattern_id:?}, binding: {binding:?}"))
                 .ty();
 
             let alternative = self
-                .builder_mut()?
-                .push_alternative(pattern_id, accesses)
-                .map_err(CheckerInfrastructureError::StoragePlan)?;
+                .builder_mut()
+                .push_alternative(pattern_id, accesses).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in finalize_alternative_bindings: {error:?}"));
 
             let identity = self.bind_identity(
                 StorageBindingTarget::Local(binding),
@@ -378,9 +373,8 @@ where
                     pattern.is_recovered(),
                 );
 
-                self.builder_mut()?
-                    .push_access(access)
-                    .map_err(CheckerInfrastructureError::StoragePlan)?;
+                self.builder_mut()
+                    .push_access(access).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in finalize_alternative_bindings: {error:?}"));
             }
         }
 
@@ -397,10 +391,9 @@ where
         while let Some(pattern) = pending.pop() {
             self.check_cancellation()?;
 
-            let checked = self
-                .patterns
-                .pattern(pattern)
-                .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+            let checked = self.patterns.pattern(pattern).unwrap_or_else(|| {
+                panic!("descendant_bindings requires checked pattern, pattern: {pattern:?}")
+            });
 
             let pattern = self
                 .request
@@ -452,9 +445,10 @@ where
     ) -> Result<(), PlanError<C::UpstreamError>> {
         let purpose = self.materialization_purpose(expression, purpose, access)?;
 
-        self.builder_mut()?
-            .plan_access(pattern.into(), expression, purpose, access)
-            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
+        self.builder_mut()
+            .plan_access(pattern.into(), expression, purpose, access).unwrap_or_else(|error| panic!("record_pattern_purpose must satisfy its checked construction contract: {error:?}"));
+
+        Ok(())
     }
 
     fn project_pattern_access(
@@ -468,9 +462,8 @@ where
         let projection = StorageProjection::from(projection);
 
         let base = self
-            .builder()?
-            .access(base)
-            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+            .builder()
+            .access(base).unwrap_or_else(|| panic!("project_pattern_access requires planned storage access, pattern: {pattern:?}, base: {base:?}, reached_type: {reached_type:?}"));
 
         let root = base.root();
         let owner = base.reached_type();
@@ -496,9 +489,8 @@ where
             pattern.is_recovered() || is_recovered,
         );
 
-        self.builder_mut()?
-            .push_access(access)
-            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
+        Ok(self.builder_mut()
+            .push_access(access).unwrap_or_else(|error| panic!("project_pattern_access must satisfy its checked construction contract: {error:?}")))
     }
 }
 

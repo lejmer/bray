@@ -191,9 +191,6 @@ pub(in crate::compilation) fn map_binding_error(
 ) -> FactQueryError {
     match error {
         BoundUnitBindingError::Cancelled => FactQueryError::Cancelled,
-        BoundUnitBindingError::CheckerInfrastructure(error) => {
-            FactQueryError::CheckerInfrastructure(error)
-        }
         BoundUnitBindingError::Upstream(error) => error,
         BoundUnitBindingError::InvalidUnitKey => {
             FactQueryError::Binding(BoundUnitBindingError::InvalidUnitKey)

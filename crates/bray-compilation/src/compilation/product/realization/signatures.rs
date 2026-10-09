@@ -127,8 +127,7 @@ impl Compilation {
             template.value(),
             substitution,
             constants.value(),
-        )
-        .map_err(FactQueryError::from)?;
+        );
 
         let Some(signature) = signature else {
             if constants.diagnostics().has_errors() {
@@ -449,8 +448,7 @@ impl Compilation {
             template.value(),
             substitution,
             constants.value(),
-        )
-        .map_err(FactQueryError::from)?;
+        );
 
         let Some(signature) = signature else {
             if constants.diagnostics().has_errors() {

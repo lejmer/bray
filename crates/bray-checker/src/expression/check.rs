@@ -25,9 +25,9 @@ use crate::type_check::{
 };
 use crate::unit::assert_unit_inputs;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitView, ExpressionCandidateSet, ExpressionTypeEvidence,
-    NestedCallableEvidence, PatternCheckInput,
+    CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider,
+    CheckerUnitView, ExpressionCandidateSet, ExpressionTypeEvidence, NestedCallableEvidence,
+    PatternCheckInput,
 };
 
 pub(crate) fn check_expression_semantics<C>(
@@ -94,9 +94,6 @@ where
         ) {
             CheckerOutcome::Complete(result) => result.into_parts().0,
             CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
-            CheckerOutcome::InfrastructureFailure(error) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
             CheckerOutcome::UpstreamFailure(error) => {
                 return CheckerOutcome::UpstreamFailure(error);
             }
@@ -105,9 +102,6 @@ where
         let patterns = match crate::pattern::check_patterns(request, &types, &pattern_input) {
             CheckerOutcome::Complete(result) => result.into_parts().0,
             CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
-            CheckerOutcome::InfrastructureFailure(error) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
             CheckerOutcome::UpstreamFailure(error) => {
                 return CheckerOutcome::UpstreamFailure(error);
             }
@@ -125,11 +119,7 @@ where
         }
     };
 
-    let prepared = match prepare_pattern_binding_references(request, &provisional_patterns, pending)
-    {
-        Ok(prepared) => prepared,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-    };
+    let prepared = prepare_pattern_binding_references(request, &provisional_patterns, pending);
 
     check_expression_semantics_once(
         request,
@@ -268,7 +258,7 @@ where
     prepared.defer(supplemental_deferred.iter().copied());
 
     let Some(mut session) =
-        ExpressionTypeSession::begin(request, operation_input.operation_selections())?.into_value()
+        ExpressionTypeSession::begin(request, operation_input.operation_selections()).into_value()
     else {
         return Ok(SessionProgress::Cancelled);
     };
@@ -286,20 +276,20 @@ where
         })
         .collect::<BTreeSet<_>>();
 
-    session.apply_input_replacing_evidence(&input, &replaced_evidence)?;
-    session.apply_input(operation_input)?;
+    session.apply_input_replacing_evidence(&input, &replaced_evidence);
+    session.apply_input(operation_input);
 
     for evidence in supplemental_evidence {
         session.add_evidence(evidence.expression(), evidence.ty());
     }
 
-    built_in_operator::apply_evidence(request, prepared.built_in_operators(), &mut session)?;
+    built_in_operator::apply_evidence(request, prepared.built_in_operators(), &mut session);
 
     if converge(request, &prepared, &mut session)?.is_cancelled() {
         return Ok(SessionProgress::Cancelled);
     }
 
-    apply_await_completion_evidence(request, &mut session)?;
+    apply_await_completion_evidence(request, &mut session);
 
     if session.apply_literal_defaults().is_cancelled()
         || converge(request, &prepared, &mut session)?.is_cancelled()
@@ -313,8 +303,7 @@ where
 fn apply_await_completion_evidence<C>(
     request: CheckerUnitView<'_, C>,
     session: &mut ExpressionTypeSession<'_, C>,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
     let awaits = request
@@ -345,8 +334,6 @@ where
 
         session.add_evidence(expression, completion);
     }
-
-    Ok(())
 }
 
 fn finish_expression_check<C>(
@@ -379,9 +366,6 @@ where
     ) {
         CheckerOutcome::Complete(result) => result,
         CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        CheckerOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         CheckerOutcome::UpstreamFailure(error) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
@@ -424,8 +408,9 @@ where
     let selections = match CheckedSemanticSelections::try_new(request.unit(), &types, entries) {
         Ok(selections) => selections,
         Err(error) => {
-            return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::SemanticSelection(error),
+            panic!(
+                "Construction of the final semantic-selection table rejected one exact relationship. in finish_expression_check, value0: {:?}",
+                error
             );
         }
     };
@@ -433,9 +418,6 @@ where
     let literal_result = match check_literal_values(request, &types) {
         CheckerOutcome::Complete(result) => result,
         CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        CheckerOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         CheckerOutcome::UpstreamFailure(error) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
@@ -457,7 +439,6 @@ where
 fn query_outcome<T, Upstream>(error: CheckerQueryError<Upstream>) -> CheckerOutcome<T, Upstream> {
     match error {
         CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-        CheckerQueryError::Infrastructure(error) => CheckerOutcome::InfrastructureFailure(error),
         CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
@@ -471,9 +452,10 @@ mod tests {
         TestCheckerContext, callable_entry, expression_unit, integer_literal_expression,
         push_expression,
     };
-    use crate::{CheckerInfrastructureError, CheckerUnitView, ExpressionCandidateSet};
+    use crate::{CheckerUnitView, ExpressionCandidateSet};
 
     #[test]
+    #[should_panic(expected = "Semantic-selection inputs")]
     fn foreign_candidate_expressions_fail_without_partial_results() {
         let (unit, _) = literal_unit(BoundUnitId::new(91));
 
@@ -487,7 +469,7 @@ mod tests {
 
         let request = CheckerUnitView::new(&unit, &semantic_context, &context);
 
-        let outcome = check_expression_semantics(
+        check_expression_semantics(
             request,
             &declared,
             &[],
@@ -495,13 +477,6 @@ mod tests {
             &crate::PatternCheckInput::new(),
             &crate::ExpressionTypeInput::new(),
         );
-
-        assert_eq!(
-            outcome.infrastructure_failure(),
-            Some(CheckerInfrastructureError::InvalidSemanticSelectionInput)
-        );
-
-        assert_eq!(outcome.result(), None);
     }
 
     fn literal_unit(unit: BoundUnitId) -> (BoundUnit, BoundExpressionId) {

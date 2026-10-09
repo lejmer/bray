@@ -1,4 +1,4 @@
-use crate::{CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext};
+use crate::{CheckerQueryError, CheckerRequestContext};
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundStructuredExpressionKind,
 };
@@ -43,7 +43,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
     pub(super) fn reborrowed_receiver(
         &self,
         mut expression: BoundExpressionId,
-    ) -> Result<Option<BoundExpressionId>, CheckerInfrastructureError> {
+    ) -> Option<BoundExpressionId> {
         loop {
             let receiver = match self.request.view().expression(expression) {
                 Some(BoundExpression::Name(name)) => match name.target() {
@@ -71,19 +71,18 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
             };
 
             let Some(receiver) = receiver else {
-                return Ok(None);
+                return None;
             };
 
-            let ty = self
-                .types
-                .expression(receiver)
-                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            let ty = self.types.expression(receiver).unwrap_or_else(|| {
+                panic!("checked scoped receiver {receiver:?} must retain its expression type")
+            });
 
             let ty = self.request.semantic_values().type_data(ty.ty());
 
             if matches!(ty.as_ref(), bray_symbols::TypeData::Borrow { .. }) {
                 // Reborrowing a reached value retains the existing borrow, not the slot storing it.
-                return Ok(Some(receiver));
+                return Some(receiver);
             }
 
             expression = receiver;
@@ -115,17 +114,14 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         let mut pending = vec![(root, sources, Vec::new())];
 
         while let Some((id, mut sources, mut path)) = pending.pop() {
-            let pattern = self
-                .request
-                .unit()
-                .tree()
-                .pattern(id)
-                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            let pattern = self.request.unit().tree().pattern(id).unwrap_or_else(|| {
+                panic!("bound pattern {id:?} must exist for its checked binding")
+            });
 
             let checked = self
                 .patterns
                 .pattern(id)
-                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+                .unwrap_or_else(|| panic!("bound pattern {id:?} must retain its checked pattern"));
 
             if let Some(projection) = checked.projection().and_then(pattern_projection) {
                 sources = project_subjects(&sources, projection);
@@ -133,10 +129,11 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
             }
 
             for binding in checked.bindings(pattern) {
-                let binding_type = self
-                    .patterns
-                    .binding_type(binding)
-                    .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+                let binding_type = self.patterns.binding_type(binding).unwrap_or_else(|| {
+                    panic!(
+                        "checked binding {binding:?} must retain its type and ownership operation"
+                    )
+                });
 
                 let observes = matches!(
                     binding_type.operation(),
@@ -146,10 +143,11 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                 );
 
                 if observes && let Some(expression) = expression {
-                    let ty = self
-                        .types
-                        .expression(expression)
-                        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+                    let ty = self.types.expression(expression).unwrap_or_else(|| {
+                        panic!(
+                            "checked scoped receiver {expression:?} must retain its expression type"
+                        )
+                    });
 
                     let receiver = if matches!(
                         self.request.semantic_values().type_data(ty.ty()).as_ref(),
@@ -157,7 +155,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                     ) {
                         Some(expression)
                     } else {
-                        self.reborrowed_receiver(expression)?
+                        self.reborrowed_receiver(expression)
                     };
 
                     if let Some(receiver) = receiver {

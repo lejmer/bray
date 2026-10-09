@@ -209,7 +209,9 @@ fn static_initializer_behavior(
         let dependency_contract = context
             .semantic_values()
             .empty_dependency_contract_template()
-            .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+            .unwrap_or_else(|error| {
+                panic!("semantic_value_binding_error in static_initializer_behavior: {error:?}")
+            });
 
         return Ok((
             source_duration,
@@ -230,7 +232,9 @@ fn static_initializer_behavior(
         let dependency_contract = context
             .semantic_values()
             .empty_dependency_contract_template()
-            .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+            .unwrap_or_else(|error| {
+                panic!("semantic_value_binding_error in static_initializer_behavior: {error:?}")
+            });
 
         return Ok((
             duration,

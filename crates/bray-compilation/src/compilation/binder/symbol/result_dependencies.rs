@@ -40,7 +40,9 @@ fn infer_reachable_results(
     let empty = context
         .semantic_values()
         .empty_dependency_contract_template()
-        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+        .unwrap_or_else(|error| {
+            panic!("semantic_value_binding_error in infer_reachable_results: {error:?}")
+        });
 
     let mut templates = BTreeMap::new();
     let mut units = BTreeMap::new();
@@ -210,9 +212,6 @@ fn infer_checked_result(
     )
     .map_err(|error| match error {
         bray_checker::CheckerQueryError::Cancelled => BindingQueryError::Cancelled,
-        bray_checker::CheckerQueryError::Infrastructure(error) => {
-            BindingQueryError::CheckerInfrastructure(error)
-        }
         bray_checker::CheckerQueryError::Upstream(error) => binder_error(error),
     })
 }

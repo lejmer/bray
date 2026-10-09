@@ -3,8 +3,6 @@
 pub enum BindingQueryError<Upstream = std::convert::Infallible> {
     /// Cancellation was observed before the requested query could complete.
     Cancelled,
-    /// Semantic checking could not complete because a typed dependency was unavailable.
-    CheckerInfrastructure(bray_checker::CheckerInfrastructureError),
     /// The semantic value store rejected a lookup or interning operation.
     SemanticValue(bray_symbols::SemanticValueStoreError),
     /// A required dependency could not be supplied by the coordinating query layer.
@@ -53,7 +51,6 @@ impl BindingQueryError {
     pub fn with_upstream<Upstream>(self) -> BindingQueryError<Upstream> {
         match self {
             Self::Cancelled => BindingQueryError::Cancelled,
-            Self::CheckerInfrastructure(error) => BindingQueryError::CheckerInfrastructure(error),
             Self::SemanticValue(error) => BindingQueryError::SemanticValue(error),
             Self::DependencyUnavailable => BindingQueryError::DependencyUnavailable,
             Self::MissingSyntax { source } => BindingQueryError::MissingSyntax { source },

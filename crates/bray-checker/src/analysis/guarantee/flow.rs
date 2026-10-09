@@ -35,9 +35,6 @@ pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         match crate::analysis::storage_flow::copyability::storage_copyable_types(request, storage) {
             Ok(result) => result,
             Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Infrastructure(error)) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
             Err(CheckerQueryError::Upstream(error)) => {
                 return CheckerOutcome::UpstreamFailure(error);
             }

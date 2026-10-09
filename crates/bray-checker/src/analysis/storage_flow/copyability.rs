@@ -102,9 +102,6 @@ where
             ))
         }
         Err(CheckerQueryError::Cancelled) => CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            CheckerOutcome::InfrastructureFailure(error)
-        }
         Err(CheckerQueryError::Upstream(error)) => CheckerOutcome::UpstreamFailure(error),
     }
 }

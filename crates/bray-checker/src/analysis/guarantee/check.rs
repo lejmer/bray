@@ -44,9 +44,6 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     let graph = match graph {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
@@ -69,9 +66,6 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         CheckerOutcome::Cancelled => {
             return CheckerOutcome::Cancelled;
         }
-        CheckerOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         CheckerOutcome::UpstreamFailure(error) => return CheckerOutcome::UpstreamFailure(error),
     };
 
@@ -80,9 +74,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
             match $result {
                 Ok(value) => value,
                 Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-                Err(crate::CheckerQueryError::Infrastructure(error)) => {
-                    return CheckerOutcome::InfrastructureFailure(error)
-                }
+
                 Err(crate::CheckerQueryError::Upstream(error)) => {
                     return CheckerOutcome::UpstreamFailure(error)
                 }

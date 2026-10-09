@@ -8,8 +8,8 @@ use bray_symbols::{
 };
 
 use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerStorageFlowFailure, CheckerUnitView, SemanticUnitContext,
+    CheckerQueryResult, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
+    SemanticUnitContext,
 };
 
 pub(super) fn immutable_field_accesses<C: CheckerRequestContext + ?Sized>(
@@ -136,15 +136,12 @@ where
     )?;
 
     if modes.len() != signature.value().parameters().len() {
-        return Err(CheckerQueryError::Infrastructure(
-            CheckerInfrastructureError::StorageFlow(
-                CheckerStorageFlowFailure::CallableParameterCountMismatch {
-                    callable: callable.into_any(),
-                    signature_parameters: signature.value().parameters().len(),
-                    type_parameters: modes.len(),
-                },
-            ),
-        ));
+        panic!(
+            "The callable signature and callable type disagree about their parameter count. in mutable_storage, callable: {:?}, signature_parameters: {:?}, type_parameters: {:?}",
+            callable.into_any(),
+            signature.value().parameters().len(),
+            modes.len()
+        );
     }
 
     for (parameter, mode) in signature.value().parameters().iter().copied().zip(modes) {
@@ -192,13 +189,10 @@ where
             let data = request.semantic_values().type_data(*ty);
 
             let TypeData::Callable(callable) = data.as_ref() else {
-                return Err(CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::StorageFlow(
-                        CheckerStorageFlowFailure::CallableTypeNotCallable {
-                            callable: callable_symbol,
-                        },
-                    ),
-                ));
+                panic!(
+                    "A callable declaration's resolved type is not callable. in parameter_modes, callable: {:?}",
+                    callable_symbol
+                );
             };
 
             Ok(callable
@@ -219,13 +213,10 @@ where
         | TypeExpressionTemplate::Nullable(_)
         | TypeExpressionTemplate::Borrow { .. }
         | TypeExpressionTemplate::OwnedIndirection { .. }
-        | TypeExpressionTemplate::TraitView(_) => Err(CheckerQueryError::Infrastructure(
-            CheckerInfrastructureError::StorageFlow(
-                CheckerStorageFlowFailure::CallableTypeNotCallable {
-                    callable: callable_symbol,
-                },
-            ),
-        )),
+        | TypeExpressionTemplate::TraitView(_) => panic!(
+            "A callable declaration's resolved type is not callable. in parameter_modes, callable: {:?}",
+            callable_symbol
+        ),
     }
 }
 

@@ -11,9 +11,7 @@ use bray_diagnostics::{
 use bray_symbols::TypeData;
 
 use crate::diagnostic::{diagnostic_id, expression_span};
-use crate::{
-    CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView, ExpressionTypeEvidence,
-};
+use crate::{CheckerRequestContext, CheckerUnitView, ExpressionTypeEvidence};
 
 #[derive(Default)]
 pub(super) struct PreparedPatternReferences {
@@ -67,14 +65,13 @@ pub(super) fn prepare_pattern_binding_references<C>(
     request: CheckerUnitView<'_, C>,
     patterns: &CheckedPatterns,
     expressions: BTreeSet<bray_bound_tree::BoundExpressionId>,
-) -> Result<PreparedPatternReferences, CheckerInfrastructureError>
+) -> PreparedPatternReferences
 where
     C: CheckerRequestContext + ?Sized,
 {
     let error_type = request
         .semantic_values()
-        .intern_type(TypeData::Error)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .intern_type(TypeData::Error).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in prepare_pattern_binding_references: {error:?}"));
 
     let mut evidence = Vec::with_capacity(expressions.len());
     let mut selections = Vec::with_capacity(expressions.len());
@@ -130,7 +127,7 @@ where
             reference.unresolved_kind(),
             reference.candidates().is_empty(),
         ) {
-            let span = expression_span(request, *expression)?;
+            let span = expression_span(request, *expression);
 
             let mut diagnostic =
                 Diagnostic::new(diagnostic_id(diagnostics.len()), kind, SeverityKind::Error)
@@ -146,12 +143,12 @@ where
         }
     }
 
-    Ok(PreparedPatternReferences {
+    PreparedPatternReferences {
         deferred: expressions,
         evidence,
         selections,
         diagnostics: DiagnosticBag::from(diagnostics),
-    })
+    }
 }
 
 pub(super) fn resolved_pattern_binding_evidence<C>(

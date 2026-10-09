@@ -2,9 +2,7 @@ use std::collections::BTreeMap;
 
 use bray_symbols::{CallableInstanceData, DependencyContractTemplateData, DependencyRequirement};
 
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 use super::graph::{ParameterNode, Parameters, retain_parameters, solve_parameters};
 
@@ -36,8 +34,7 @@ impl ResultParameters {
             request.semantic_values(),
             selected.0,
             self.relevant.get(&node),
-        )
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        ).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in key: {error:?}"));
 
         Ok((callable, selected.1))
     }
@@ -78,8 +75,7 @@ impl ResultParameters {
             )?;
 
             let local = values
-                .intern_dependency_contract_template(DependencyContractTemplateData::new(local))
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                .intern_dependency_contract_template(DependencyContractTemplateData::new(local)).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in discover: {error:?}"));
 
             nodes.insert(
                 key,
@@ -141,8 +137,7 @@ impl ResultParameters {
                     key,
                     DependencyRequirement::result_call(
                         values
-                            .intern_callable_instance(target.0)
-                            .map_err(CheckerInfrastructureError::SemanticValueStore)?,
+                            .intern_callable_instance(target.0).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in local_requirements: {error:?}")),
                         None,
                         [],
                     ),
@@ -154,7 +149,9 @@ impl ResultParameters {
                     ..
                 }) = concrete.requirements().first()
                 else {
-                    return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                    panic!(
+                        "Semantic-selection inputs do not describe the requested bound unit or operation category. in local_requirements"
+                    );
                 };
 
                 let concrete = values.callable_instance_data(*concrete);
@@ -165,8 +162,7 @@ impl ResultParameters {
                 edges.push((target.0, target_key));
 
                 let empty = retain_parameters(values, *original, None)
-                    .and_then(|callable| values.intern_callable_instance(callable))
-                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                    .and_then(|callable| values.intern_callable_instance(callable)).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in local_requirements: {error:?}"));
 
                 Ok(vec![DependencyRequirement::result_call(
                     empty,
@@ -195,7 +191,9 @@ fn witness_target<C: CheckerRequestContext + ?Sized>(
         ..
     }) = selection.requirements().first()
     else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in witness_target"
+        );
     };
 
     request
@@ -213,8 +211,7 @@ fn instantiate<C: CheckerRequestContext + ?Sized>(
 ) -> Result<std::sync::Arc<DependencyContractTemplateData>, CheckerQueryError<C::UpstreamError>> {
     let template = request
         .semantic_values()
-        .intern_dependency_contract_template(DependencyContractTemplateData::new([requirement]))
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .intern_dependency_contract_template(DependencyContractTemplateData::new([requirement])).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in instantiate: {error:?}"));
 
     super::super::witness::instantiate_template(request, template, key)
 }

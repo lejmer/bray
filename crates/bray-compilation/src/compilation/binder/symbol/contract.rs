@@ -561,7 +561,9 @@ fn bind_callable_contracts(
     let empty_dependency = context
         .semantic_values()
         .empty_dependency_contract_template()
-        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+        .unwrap_or_else(|error| {
+            panic!("semantic_value_binding_error in bind_callable_contracts: {error:?}")
+        });
 
     let dependency = extend_dependency_contract_with_statics(
         context,
@@ -1092,7 +1094,6 @@ fn resolve_type_template(
         .map_err(checked_constant_terms_binding_error)?;
 
     bray_checker::resolve_type_expression_template(context.semantic_values, template, &constants)
-        .map_err(BindingQueryError::CheckerInfrastructure)?
         .ok_or_else(|| missing_semantic_data(query_context, SemanticDataKind::Type))
 }
 
@@ -1127,7 +1128,6 @@ fn resolve_trait_satisfaction_templates(
         subject,
         &constants,
     )
-    .map_err(BindingQueryError::CheckerInfrastructure)?
     .ok_or_else(|| missing_semantic_data(query_context.clone(), SemanticDataKind::Type))?;
 
     let application = bray_checker::resolve_trait_application_template(
@@ -1135,7 +1135,6 @@ fn resolve_trait_satisfaction_templates(
         application,
         &constants,
     )
-    .map_err(BindingQueryError::CheckerInfrastructure)?
     .ok_or_else(|| missing_semantic_data(query_context, SemanticDataKind::TraitApplication))?;
 
     Ok((subject, application))

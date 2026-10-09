@@ -6,7 +6,7 @@ use bray_bound_tree::{
 use bray_compiler_known::ImplementationHook;
 use bray_declarations::SyntaxAnchor;
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitRoot, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitRoot, CheckerUnitView};
 
 use super::assembly::ControlFlowGraphAssembler;
 use super::id::AnalysisBlockId;
@@ -24,7 +24,6 @@ pub(super) enum DependencyFailureMode {
 pub(crate) enum ControlFlowGraphBuildOutcome<E = std::convert::Infallible> {
     Complete(ControlFlowGraph),
     Cancelled,
-    InfrastructureFailure(CheckerInfrastructureError),
     UpstreamFailure(E),
 }
 
@@ -60,9 +59,6 @@ pub(crate) fn build_storage_control_flow_graph<C: CheckerRequestContext + ?Sized
             Ok(scopes) => scopes,
             Err(crate::CheckerQueryError::Cancelled) => {
                 return ControlFlowGraphBuildOutcome::Cancelled;
-            }
-            Err(crate::CheckerQueryError::Infrastructure(error)) => {
-                return ControlFlowGraphBuildOutcome::InfrastructureFailure(error);
             }
             Err(crate::CheckerQueryError::Upstream(error)) => {
                 return ControlFlowGraphBuildOutcome::UpstreamFailure(error);
