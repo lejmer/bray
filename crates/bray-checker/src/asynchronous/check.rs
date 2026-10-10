@@ -121,7 +121,10 @@ where
     let mut deferred_calls = BTreeMap::new();
     let mut active = BTreeSet::new();
     let mut diagnostics = DiagnosticBag::new();
-    let mut suspensions = Vec::new();
+
+    let mut suspensions =
+        BTreeMap::<bray_bound_tree::BoundExecutionSite, AsyncSuspensionPoint>::new();
+
     let mut task_operations = BTreeMap::new();
     let mut frame_dependencies = BTreeSet::new();
 
@@ -133,7 +136,21 @@ where
         }
 
         match operation.kind() {
-            AnalysisOperationKind::Suspension { expression, kind } => {
+            AnalysisOperationKind::Suspension { occurrence, kind } => {
+                let expression = occurrence
+                    .expression()
+                    .expect("checked suspension has an expression owner");
+
+                if let Err(error) = add_suspension_context_diagnostic(
+                    request,
+                    execution,
+                    expression,
+                    kind,
+                    &mut diagnostics,
+                ) {
+                    return CheckerOutcome::InfrastructureFailure(error);
+                }
+
                 let (kind, dependency_contract, calls, syntax_recovered) = match kind {
                     AnalysisSuspensionKind::Await => {
                         let Some(BoundExpression::Await(await_expression)) =
@@ -143,21 +160,6 @@ where
 
                             continue;
                         };
-
-                        if execution == Some(CallableExecution::Synchronous) {
-                            let span = match expression_span(request, expression) {
-                                Ok(span) => span,
-                                Err(error) => {
-                                    return CheckerOutcome::InfrastructureFailure(error);
-                                }
-                            };
-
-                            diagnostics.add(invalid_async_operation_diagnostic(
-                                diagnostic_id(diagnostics.len()),
-                                DiagnosticKind::CheckingAwaitOutsideAsyncCallable,
-                                span,
-                            ));
-                        }
 
                         let operand = await_expression.operand();
 
@@ -187,6 +189,12 @@ where
                                 .is_none_or(BoundExpression::is_recovered),
                         )
                     }
+                    AnalysisSuspensionKind::ScopedCall => (
+                        AsyncSuspensionKind::ScopedCall,
+                        dependencies.deferred_expression(occurrence),
+                        BTreeSet::from([scoped_deferred_call(selections, occurrence)]),
+                        false,
+                    ),
                     AnalysisSuspensionKind::Yield => {
                         (AsyncSuspensionKind::Yield, None, BTreeSet::new(), false)
                     }
@@ -195,28 +203,30 @@ where
                 let retained = liveness.retained_suspension_subjects(
                     dependencies,
                     storage,
-                    expression,
+                    occurrence,
                     dependency_contract,
                 );
 
                 frame_dependencies.extend(retained.iter().copied());
 
-                let suspension_state = flow.suspension(expression);
+                let suspension_state = flow.suspension(occurrence);
 
                 let dependency_failure = match &kind {
-                    AsyncSuspensionKind::Await { .. } => match await_dependency_failure(
-                        request,
-                        dependencies,
-                        storage,
-                        refinements,
-                        expression,
-                        dependency_contract,
-                        suspension_state,
-                        syntax_recovered,
-                    ) {
-                        Ok(failure) => failure,
-                        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-                    },
+                    AsyncSuspensionKind::Await { .. } | AsyncSuspensionKind::ScopedCall => {
+                        match await_dependency_failure(
+                            request,
+                            dependencies,
+                            storage,
+                            refinements,
+                            expression,
+                            dependency_contract,
+                            suspension_state,
+                            syntax_recovered,
+                        ) {
+                            Ok(failure) => failure,
+                            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+                        }
+                    }
                     AsyncSuspensionKind::Yield => None,
                 };
 
@@ -236,14 +246,20 @@ where
 
                 is_recovered |= suspension_recovered;
 
-                suspensions.push(AsyncSuspensionPoint::new(
-                    expression,
+                let suspension = AsyncSuspensionPoint::new(
+                    occurrence,
                     kind,
                     dependency_contract,
                     calls,
                     retained,
                     suspension_recovered,
-                ));
+                );
+
+                // Deferred calls share immutable checked contracts across the exit paths.
+                suspensions
+                    .entry(occurrence)
+                    .and_modify(|previous| previous.merge_path(&suspension))
+                    .or_insert(suspension);
             }
             AnalysisOperationKind::TaskOperation { expression, kind } => {
                 let operation = AsyncTaskOperation::new(expression, task_operation_kind(kind));
@@ -298,7 +314,7 @@ where
         request.unit().unit(),
         request.unit().key().kind(),
         frame_dependencies,
-        suspensions,
+        suspensions.into_values(),
         task_operations.into_values(),
         storage_requirements,
         cleanup_types,
@@ -967,7 +983,7 @@ mod tests {
         let mut storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
 
         let deferred = build_contract(&unit, &expressions, &mut storage)
-            .map(|contract| (expressions[0], contract));
+            .map(|contract| (expressions[0].into(), contract));
 
         let storage = storage.finish();
 
@@ -1029,4 +1045,42 @@ mod tests {
             argument.value() == &DiagnosticArgValue::DependencyRequirementKind(expected_requirement)
         }));
     }
+}
+
+fn add_suspension_context_diagnostic<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    execution: Option<CallableExecution>,
+    expression: BoundExpressionId,
+    kind: AnalysisSuspensionKind,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<(), CheckerInfrastructureError> {
+    if kind != AnalysisSuspensionKind::Yield && execution == Some(CallableExecution::Synchronous) {
+        let span = expression_span(request, expression)?;
+
+        diagnostics.add(invalid_async_operation_diagnostic(
+            diagnostic_id(diagnostics.len()),
+            DiagnosticKind::CheckingAwaitOutsideAsyncCallable,
+            span,
+        ));
+    }
+
+    Ok(())
+}
+
+fn scoped_deferred_call(
+    selections: &CheckedSemanticSelections,
+    occurrence: bray_bound_tree::BoundExecutionSite,
+) -> BodyBehaviorCall {
+    let expression = occurrence
+        .expression()
+        .expect("scoped suspension retains its with occurrence");
+
+    let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(expression) else {
+        panic!("checked scoped suspension retains its lifecycle pair");
+    };
+
+    BodyBehaviorCall::new(
+        BoundCallableTarget::Declaration(scoped.invocation(occurrence).0),
+        BodyBehaviorPhase::DeferredExecution,
+    )
 }

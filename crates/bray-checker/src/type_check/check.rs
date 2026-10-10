@@ -53,7 +53,9 @@ fn prepare_expression_types<'view, C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(mut session) = ExpressionTypeSession::begin(request)?.into_value() else {
+    let Some(mut session) =
+        ExpressionTypeSession::begin(request, input.operation_selections())?.into_value()
+    else {
         return Ok(SessionProgress::Cancelled);
     };
 
@@ -457,7 +459,7 @@ mod tests {
 
         let request = CheckerUnitView::new(&unit, &entry, &context);
 
-        let Ok(SessionProgress::Complete(mut session)) = ExpressionTypeSession::begin(request)
+        let Ok(SessionProgress::Complete(mut session)) = ExpressionTypeSession::begin(request, &[])
         else {
             panic!("expression type session must start");
         };

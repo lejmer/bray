@@ -22,7 +22,7 @@ use crate::compilation::operation::OperationSubject;
 use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
 use crate::fact::{CancellationToken, FactQueryError};
 
-use super::model::{OperationResolution, TraitOperation, TraitOperationCandidate};
+use super::model::{SemanticResolution, TraitOperation, TraitOperationCandidate};
 use super::query::{
     expression_type, operation_contract_failure, symbol_contract_failure, unit_contract_failure,
 };
@@ -37,7 +37,7 @@ impl Compilation {
         types: &bray_bound_tree::CheckedExpressionTypes,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<OperationResolution>, FactQueryError> {
+    ) -> Result<Option<SemanticResolution>, FactQueryError> {
         let expression = unit.view().expression(key.expression()).ok_or_else(|| {
             operation_contract_failure(
                 key,
@@ -150,9 +150,16 @@ impl Compilation {
         };
 
         let assignment_type = expression_type(types, key.expression())?;
-        let operation_type = resolution.result_type();
 
-        let Some(SelectedOperation::Operator { target, .. }) = resolution.selection() else {
+        let operation_type = resolution
+            .result_type()
+            .expect("selected operator determines its result type");
+
+        let Some(bray_bound_tree::SemanticSelection::Operation(SelectedOperation::Operator {
+            target,
+            ..
+        })) = resolution.selection()
+        else {
             return Err(operation_contract_failure(
                 key,
                 SemanticQueryViolation::Unsupported(SemanticDataKind::OperationSelection),
@@ -165,7 +172,7 @@ impl Compilation {
             assignment_type,
         ));
 
-        Ok(Some(OperationResolution::new(
+        Ok(Some(SemanticResolution::new(
             key.expression(),
             assignment_type,
             [(*destination, operation_type)],

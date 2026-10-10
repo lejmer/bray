@@ -38,7 +38,13 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         };
 
         let source = self.access_with_reached_type(expression, access, *target)?;
-        let borrowed = self.borrow_access(expression, source, kind)?;
+
+        let borrowed = self.borrow_access(
+            expression,
+            source,
+            kind,
+            self.expression_type(expression)?.ty(),
+        )?;
 
         self.record_purpose(
             expression,

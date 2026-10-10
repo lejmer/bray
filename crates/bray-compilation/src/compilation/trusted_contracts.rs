@@ -102,6 +102,19 @@ impl Compilation {
         }
 
         for (expression, node) in bound.tree().expressions() {
+            if let Some(SemanticSelection::ScopedUse(scoped)) =
+                semantics.selections().expression(expression)
+            {
+                self.add_scoped_trusted_contracts(
+                    scoped,
+                    &mut inputs,
+                    cancellation,
+                    &mut diagnostics,
+                )?;
+
+                continue;
+            }
+
             let Some(SemanticSelection::Call(call)) = semantics.selections().expression(expression)
             else {
                 if let Some(SemanticSelection::Operation(operation)) =
@@ -113,7 +126,7 @@ impl Compilation {
                         &mut diagnostics,
                     )?
                 {
-                    inputs.calls.insert(expression, contract);
+                    inputs.calls.insert(expression.into(), contract);
                 }
 
                 continue;
@@ -228,7 +241,7 @@ impl Compilation {
             };
 
             if !contract.requirements.is_empty() || !contract.guarantees.is_empty() {
-                inputs.calls.insert(expression, contract);
+                inputs.calls.insert(expression.into(), contract);
             }
         }
 
@@ -675,21 +688,6 @@ impl Compilation {
             return Ok(None);
         };
 
-        let values = self.semantic_value_store()?;
-        let data = values.type_data(signature.callable_type());
-
-        let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
-            panic!("selected operation signature must retain a callable type");
-        };
-
-        let behavior = callable.phase_behaviors().invocation();
-
-        if behavior.predicate_requirements().is_empty()
-            && behavior.predicate_guarantees().is_empty()
-        {
-            return Ok(None);
-        }
-
         let inputs = self.execution_callable_inputs(target.definition().symbol(), cancellation)?;
 
         let operands = match operation {
@@ -711,9 +709,78 @@ impl Compilation {
         let arguments = operands
             .into_iter()
             .filter_map(|(ordinal, expression)| {
-                inputs.get(ordinal).map(|input| (*input, expression))
+                inputs.get(ordinal).map(|input| (*input, expression.into()))
             })
             .collect();
+
+        self.trusted_invocation_contract(target, &signature, arguments, cancellation, diagnostics)
+    }
+
+    fn add_scoped_trusted_contracts(
+        &self,
+        scoped: &bray_bound_tree::SelectedScopedUse,
+        inputs: &mut TrustedContractInputs,
+        cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<(), FactQueryError> {
+        let expression = scoped.expression();
+
+        for (invocation, selected) in [
+            (
+                bray_bound_tree::BoundExecutionSite::ScopedEnter(expression),
+                scoped.enter(),
+            ),
+            (
+                bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
+                scoped.exit(),
+            ),
+        ] {
+            if let Some(contract) = self.trusted_invocation_contract(
+                selected.0,
+                &selected.1,
+                std::collections::BTreeMap::new(),
+                cancellation,
+                diagnostics,
+            )? {
+                inputs.calls.insert(invocation, contract);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn trusted_invocation_contract(
+        &self,
+        target: bray_symbols::CallableInstanceData,
+        signature: &bray_symbols::CallableSignature,
+        arguments: std::collections::BTreeMap<
+            bray_bound_tree::BoundReferenceTarget,
+            bray_bound_tree::BoundExecutionSite,
+        >,
+        cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Option<TrustedCallContract>, FactQueryError> {
+        let values = self.semantic_value_store()?;
+        let data = values.type_data(signature.callable_type());
+
+        let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
+            panic!("selected invocation signature retains its callable type");
+        };
+
+        let behavior = callable.phase_behaviors().invocation();
+
+        let completion = callable
+            .phase_behaviors()
+            .deferred_execution()
+            .unwrap_or(behavior);
+
+        if behavior.predicate_requirements().is_empty()
+            && completion.predicate_guarantees().is_empty()
+        {
+            return Ok(None);
+        }
+
+        let inputs = self.execution_callable_inputs(target.definition().symbol(), cancellation)?;
 
         let decode =
             |predicate: &bray_symbols::PredicateSemanticSummary| -> Result<_, FactQueryError> {
@@ -724,7 +791,7 @@ impl Compilation {
                     .unwrap_or(ExecutionCondition::Unknown))
             };
 
-        let guarantees = behavior
+        let guarantees = completion
             .predicate_guarantees()
             .iter()
             .filter(|predicate| predicate.is_trusted())
@@ -734,7 +801,12 @@ impl Compilation {
         Ok(Some(TrustedCallContract {
             arguments,
             completes: true,
-            result_is_witness: true,
+            result_is_witness: self.trusted_result_is_witness(
+                signature.result(),
+                &guarantees,
+                cancellation,
+                diagnostics,
+            )?,
             witness_subjects: self.trusted_predicate_subjects(
                 &guarantees,
                 cancellation,
@@ -753,7 +825,7 @@ impl Compilation {
                 .map(decode)
                 .collect::<Result<_, _>>()?,
             guarantees,
-            postconditions: behavior
+            postconditions: completion
                 .predicate_guarantees()
                 .iter()
                 .filter(|predicate| !predicate.is_trusted())
@@ -1064,6 +1136,117 @@ mod tests {
             let diagnostics = compilation.check_diagnostics();
 
             assert_eq!(!diagnostics.has_errors(), valid, "{diagnostics:?}");
+        }
+    }
+
+    #[test]
+    fn scoped_guarantees_and_requirements_use_the_actual_capability() {
+        for (enter_mode, exit_mode, caller_mode) in [
+            ("", "", ""),
+            ("async ", "", "async "),
+            ("", "async ", "async "),
+            ("async ", "async ", "async "),
+        ] {
+            for (enter_contract, exit_contract, body, valid) in [
+                (
+                    "ensures(trusted live(&result))",
+                    "",
+                    "observe(&lease);",
+                    true,
+                ),
+                ("", "", "observe(&lease);", false),
+                (
+                    "ensures(trusted live(&result))",
+                    "requires(trusted live(&lease))",
+                    "",
+                    true,
+                ),
+                ("", "requires(trusted live(&lease))", "", false),
+            ] {
+                let compilation = compilation(&format!(
+                    r#"
+                trusted module app;
+                struct Resource {{}}
+                struct Lease {{ tag: bool; }}
+                trusted predicate live(value: &Lease);
+                impl Resource
+                {{
+                    trusted {enter_mode}enter() -> Lease {enter_contract} {{ return {{ tag = true }}; }}
+                    {exit_mode}exit(pos lease: Lease) {exit_contract} {{}}
+                }}
+                func observe(pos value: &Lease) requires(trusted live(value)) {{}}
+                {caller_mode}func caller(pos resource: Resource)
+                {{
+                    with lease = resource {{ {body} }};
+                }}
+                "#,
+                ));
+
+                let diagnostics = compilation.check_diagnostics();
+
+                assert_eq!(
+                    !diagnostics.has_errors(),
+                    valid,
+                    "enter {enter_mode:?}, exit {exit_mode:?}: {diagnostics:?}"
+                );
+
+                if !valid {
+                    bray_testing::assert_goal_state_diagnostic_kind(
+                        diagnostics,
+                        DiagnosticKind::CheckingTrustedObligationNotProven,
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn scoped_exit_must_explicitly_transfer_trusted_authority() {
+        for (exit_contract, borrowed, valid) in [
+            ("", false, false),
+            ("ensures(trusted live(lease.tag))", false, true),
+            ("ensures(trusted live(&lease.tag))", true, false),
+        ] {
+            let observation = if borrowed { "&" } else { "" };
+
+            let compilation = compilation(&format!(
+                r#"
+                trusted module app;
+                struct Resource {{ tag: bool; }}
+                struct Lease {{ tag: bool; }}
+                trusted predicate live(value: {observation}bool);
+                impl Resource
+                {{
+                    trusted enter() -> Lease
+                        ensures(result.tag == self.tag, trusted live({observation}result.tag))
+                        executes(pure)
+                    {{ return {{ tag = self.tag }}; }}
+                    trusted exit(pos lease: Lease) {exit_contract} executes(pure) {{}}
+                }}
+                func observe(pos value: {observation}bool)
+                    requires(trusted live(value)) executes(pure) {{}}
+                func caller(pos resource: &Resource)
+                {{
+                    with lease = resource {{ let copied = lease.tag; let _ = copied; }};
+                    observe({observation}resource.tag);
+                }}
+                "#,
+            ));
+
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{exit_contract}: {diagnostics:?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
         }
     }
 

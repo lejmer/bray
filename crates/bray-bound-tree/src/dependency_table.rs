@@ -55,8 +55,8 @@ pub struct CheckedDependencyContracts {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     contracts: Arc<[BoundDependencyContract]>,
-    expressions: Arc<[ContractEntry<BoundExpressionId>]>,
-    deferred_expressions: Arc<[ContractEntry<BoundExpressionId>]>,
+    expressions: Arc<[ContractEntry<crate::BoundExecutionSite>]>,
+    deferred_expressions: Arc<[ContractEntry<crate::BoundExecutionSite>]>,
     accesses: Arc<[ContractEntry<StorageAccessId>]>,
     borrows: Arc<[ContractEntry<BorrowCapabilityId>]>,
     is_recovered: bool,
@@ -67,8 +67,10 @@ impl CheckedDependencyContracts {
     pub fn try_new(
         unit: &BoundUnit,
         storage: &StoragePlan,
-        expressions: impl IntoIterator<Item = (BoundExpressionId, BoundDependencyContract)>,
-        deferred_expressions: impl IntoIterator<Item = (BoundExpressionId, BoundDependencyContract)>,
+        expressions: impl IntoIterator<Item = (crate::BoundExecutionSite, BoundDependencyContract)>,
+        deferred_expressions: impl IntoIterator<
+            Item = (crate::BoundExecutionSite, BoundDependencyContract),
+        >,
         accesses: impl IntoIterator<Item = (StorageAccessId, BoundDependencyContract)>,
         borrows: impl IntoIterator<Item = (BorrowCapabilityId, BoundDependencyContract)>,
         is_recovered: bool,
@@ -86,7 +88,10 @@ impl CheckedDependencyContracts {
             &mut contracts,
             &mut contract_ids,
             |expression| {
-                expression.unit() == unit.unit() && unit.view().expression(expression).is_some()
+                expression.node().unit() == unit.unit()
+                    && expression
+                        .expression()
+                        .is_some_and(|expression| unit.view().expression(expression).is_some())
             },
             DependencyContractsBuildError::InvalidExpression,
         )?;
@@ -97,7 +102,10 @@ impl CheckedDependencyContracts {
             &mut contracts,
             &mut contract_ids,
             |expression| {
-                expression.unit() == unit.unit() && unit.view().expression(expression).is_some()
+                expression.node().unit() == unit.unit()
+                    && expression
+                        .expression()
+                        .is_some_and(|expression| unit.view().expression(expression).is_some())
             },
             DependencyContractsBuildError::InvalidExpression,
         )?;
@@ -153,17 +161,20 @@ impl CheckedDependencyContracts {
             .and_then(|index| self.contracts.get(index))
     }
 
-    /// Returns the contract carried by one expression result.
-    pub fn expression(&self, expression: BoundExpressionId) -> Option<BoundDependencyContractId> {
-        find_contract(&self.expressions, expression)
+    /// Returns the contract carried by one source or implicit invocation occurrence.
+    pub fn expression(
+        &self,
+        occurrence: impl Into<crate::BoundExecutionSite>,
+    ) -> Option<BoundDependencyContractId> {
+        find_contract(&self.expressions, occurrence.into())
     }
 
-    /// Returns the contract required when one lazy expression is executed.
+    /// Returns the contract required when one source or implicit invocation is driven.
     pub fn deferred_expression(
         &self,
-        expression: BoundExpressionId,
+        occurrence: impl Into<crate::BoundExecutionSite>,
     ) -> Option<BoundDependencyContractId> {
-        find_contract(&self.deferred_expressions, expression)
+        find_contract(&self.deferred_expressions, occurrence.into())
     }
 
     /// Resolves the deferred contract carried through local reference bindings.
@@ -228,7 +239,12 @@ impl CheckedDependencyContracts {
         let expressions_match = self
             .expressions
             .iter()
-            .map(|entry| *entry.occurrence())
+            .filter_map(|entry| match entry.occurrence() {
+                crate::BoundExecutionSite::Node(crate::AnyBoundNodeId::Expression(expression)) => {
+                    Some(*expression)
+                }
+                _ => None,
+            })
             .eq(unit.tree().expressions().map(|(expression, _)| expression));
 
         let accesses_match = self
@@ -380,8 +396,8 @@ mod tests {
         let table = CheckedDependencyContracts::try_new(
             &bound,
             &storage,
-            [(expression, contract.clone())],
-            [(expression, deferred)],
+            [(expression.into(), contract.clone())],
+            [(expression.into(), deferred)],
             [(access, contract)],
             [],
             false,
@@ -436,7 +452,7 @@ mod tests {
                 &bound,
                 &storage,
                 [(
-                    BoundExpressionId::from_slot(BoundUnitId::new(4), 0),
+                    BoundExpressionId::from_slot(BoundUnitId::new(4), 0).into(),
                     BoundDependencyContract::new([]),
                 )],
                 [],
@@ -462,7 +478,7 @@ mod tests {
         let complete = CheckedDependencyContracts::try_new(
             &bound,
             &storage,
-            [(expression, contract.clone())],
+            [(expression.into(), contract.clone())],
             [],
             [(access, contract)],
             [],

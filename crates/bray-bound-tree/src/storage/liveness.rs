@@ -11,13 +11,19 @@ use crate::{
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LastUse {
     subject: BoundDependencySubject,
-    operation: AnyBoundNodeId,
+    occurrence: crate::BoundExecutionSite,
 }
 
 impl LastUse {
     /// Creates one last-use decision.
-    pub const fn new(subject: BoundDependencySubject, operation: AnyBoundNodeId) -> Self {
-        Self { subject, operation }
+    pub fn new(
+        subject: BoundDependencySubject,
+        occurrence: impl Into<crate::BoundExecutionSite>,
+    ) -> Self {
+        Self {
+            subject,
+            occurrence: occurrence.into(),
+        }
     }
 
     /// Returns the subject whose lifetime can end after the operation.
@@ -27,7 +33,12 @@ impl LastUse {
 
     /// Returns the operation that performs the final required use.
     pub const fn operation(self) -> AnyBoundNodeId {
-        self.operation
+        self.occurrence.node()
+    }
+
+    /// Returns the exact source or implicit lifecycle phase of the final use.
+    pub const fn occurrence(self) -> crate::BoundExecutionSite {
+        self.occurrence
     }
 }
 
@@ -72,29 +83,32 @@ impl LiveAcrossScope {
 /// A subject retained while one direct await can suspend the current run.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LiveAcrossSuspension {
-    await_expression: BoundExpressionId,
+    occurrence: crate::BoundExecutionSite,
     subject: BoundDependencySubject,
 }
 
 /// A subject whose lifetime is transferred into one exact value result.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct OwnerRetention {
-    expression: BoundExpressionId,
+    occurrence: crate::BoundExecutionSite,
     subject: BoundDependencySubject,
 }
 
 impl OwnerRetention {
     /// Creates one owning-call retention decision.
-    pub const fn new(expression: BoundExpressionId, subject: BoundDependencySubject) -> Self {
+    pub fn new(
+        occurrence: impl Into<crate::BoundExecutionSite>,
+        subject: BoundDependencySubject,
+    ) -> Self {
         Self {
-            expression,
+            occurrence: occurrence.into(),
             subject,
         }
     }
 
-    /// Returns the call expression that transfers ownership.
-    pub const fn expression(self) -> BoundExpressionId {
-        self.expression
+    /// Returns the actual invocation that transfers ownership.
+    pub const fn occurrence(self) -> crate::BoundExecutionSite {
+        self.occurrence
     }
 
     /// Returns the subject retained by the call result.
@@ -105,16 +119,26 @@ impl OwnerRetention {
 
 impl LiveAcrossSuspension {
     /// Creates one suspension-boundary liveness decision.
-    pub const fn new(await_expression: BoundExpressionId, subject: BoundDependencySubject) -> Self {
+    pub fn new(
+        occurrence: impl Into<crate::BoundExecutionSite>,
+        subject: BoundDependencySubject,
+    ) -> Self {
         Self {
-            await_expression,
+            occurrence: occurrence.into(),
             subject,
         }
     }
 
     /// Returns the direct-await expression that can suspend.
     pub const fn await_expression(self) -> BoundExpressionId {
-        self.await_expression
+        self.occurrence
+            .expression()
+            .expect("suspension has an expression owner")
+    }
+
+    /// Returns the exact suspension phase.
+    pub const fn occurrence(self) -> crate::BoundExecutionSite {
+        self.occurrence
     }
 
     /// Returns the subject retained across suspension.
@@ -187,7 +211,8 @@ impl Liveness {
                 entry.await_expression().unit() != unit || !entry.subject().is_valid_for(unit)
             })
             || owner_retentions.iter().any(|retention| {
-                retention.expression().unit() != unit || !retention.subject().is_valid_for(unit)
+                retention.occurrence().node().unit() != unit
+                    || !retention.subject().is_valid_for(unit)
             })
         {
             return Err(LivenessBuildError::ForeignUnit);
@@ -255,11 +280,11 @@ impl Liveness {
     /// Returns whether this exact call transfers the subject into an owning result.
     pub fn is_owner_retained_by(
         &self,
-        expression: BoundExpressionId,
+        occurrence: impl Into<crate::BoundExecutionSite>,
         subject: BoundDependencySubject,
     ) -> bool {
         self.owner_retentions
-            .binary_search(&OwnerRetention::new(expression, subject))
+            .binary_search(&OwnerRetention::new(occurrence, subject))
             .is_ok()
     }
 
@@ -269,9 +294,13 @@ impl Liveness {
     }
 
     /// Returns whether the operation is a last use of the subject.
-    pub fn is_last_use(&self, operation: AnyBoundNodeId, subject: BoundDependencySubject) -> bool {
+    pub fn is_last_use(
+        &self,
+        occurrence: impl Into<crate::BoundExecutionSite>,
+        subject: BoundDependencySubject,
+    ) -> bool {
         self.last_uses
-            .binary_search(&LastUse::new(subject, operation))
+            .binary_search(&LastUse::new(subject, occurrence))
             .is_ok()
     }
 
@@ -290,11 +319,11 @@ impl Liveness {
     /// Returns whether the subject is retained across one direct await.
     pub fn is_live_across_suspension(
         &self,
-        await_expression: BoundExpressionId,
+        occurrence: impl Into<crate::BoundExecutionSite>,
         subject: BoundDependencySubject,
     ) -> bool {
         self.live_across_suspensions
-            .binary_search(&LiveAcrossSuspension::new(await_expression, subject))
+            .binary_search(&LiveAcrossSuspension::new(occurrence, subject))
             .is_ok()
     }
 
@@ -325,7 +354,7 @@ mod tests {
 
         let subject = BoundDependencySubject::Storage(StorageIdentityId::from_slot(unit, 0));
 
-        let last_use = LastUse::new(subject, expression.into());
+        let last_use = LastUse::new(subject, expression);
         let live_across_scope = LiveAcrossScope::new(scope, expression.into(), subject);
         let live_across_suspension = LiveAcrossSuspension::new(expression, subject);
 
@@ -353,7 +382,7 @@ mod tests {
             &[live_across_suspension]
         );
 
-        assert!(liveness.is_last_use(expression.into(), subject));
+        assert!(liveness.is_last_use(expression, subject));
         assert!(liveness.is_live_across_scope(scope, expression.into(), subject));
 
         assert!(!liveness.is_live_across_scope(
@@ -381,7 +410,7 @@ mod tests {
             Liveness::try_new(
                 unit,
                 BoundUnitKind::CallableBody,
-                [LastUse::new(foreign, expression.into())],
+                [LastUse::new(foreign, expression)],
                 [],
                 [],
                 [],
@@ -419,7 +448,7 @@ mod tests {
             Liveness::try_new(
                 unit,
                 BoundUnitKind::CallableBody,
-                [LastUse::new(witness, expression.into())],
+                [LastUse::new(witness, expression)],
                 [],
                 [],
                 [],
@@ -445,7 +474,7 @@ mod tests {
 
         let last_uses = subjects
             .into_iter()
-            .map(|subject| LastUse::new(subject, expression.into()));
+            .map(|subject| LastUse::new(subject, expression));
 
         let Ok(liveness) = Liveness::try_new(
             unit,

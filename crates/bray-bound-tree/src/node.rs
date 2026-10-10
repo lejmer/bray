@@ -25,8 +25,8 @@ pub use expression::{
     BoundUnresolvedReferenceKind, IterationSourceMode,
 };
 pub use id::{
-    AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundNodeKind,
-    BoundPatternId, ExactBoundNodeId,
+    AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExecutionSite, BoundExpressionId,
+    BoundNodeKind, BoundPatternId, ExactBoundNodeId,
 };
 pub use pattern::{
     BoundPattern, BoundPatternEntry, BoundPatternEntryKind, BoundPatternKind, BoundPatternLiteral,

@@ -15,6 +15,7 @@ pub(super) const fn identity_is_distinct_storage(identity: StorageIdentity) -> b
             | StorageIdentity::Temporary(_)
             | StorageIdentity::IterationCursor(_)
             | StorageIdentity::IterationElement(_)
+            | StorageIdentity::ScopedCapability { .. }
             | StorageIdentity::Allocation(_)
             | StorageIdentity::CompilerCreated(_)
     )

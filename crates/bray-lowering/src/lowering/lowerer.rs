@@ -23,6 +23,7 @@ pub(super) enum YieldTarget {
         syntax: SyntaxAnchor,
         block: MirBlockId,
         result_type: bray_symbols::TypeId,
+        success_type: Option<bray_symbols::TypeId>,
         scope_depth: usize,
     },
     Generator {
@@ -66,6 +67,7 @@ pub(super) struct Lowerer<'unit> {
     pub(super) static_accesses: BTreeMap<StorageAccessId, StaticReferenceSelection>,
     pub(super) parameter_positions: BTreeMap<StorageIdentityId, u32>,
     pub(super) active_scopes: Vec<bray_bound_tree::BoundBlockId>,
+    pub(super) scoped_guards: BTreeMap<bray_bound_tree::BoundExpressionId, MirPlace>,
     pub(super) yield_targets: Vec<YieldTarget>,
     pub(super) loop_targets: Vec<LoopTarget>,
     pub(super) catch_targets: Vec<CatchTarget>,
@@ -104,6 +106,7 @@ impl<'unit> Lowerer<'unit> {
             static_accesses: BTreeMap::new(),
             parameter_positions,
             active_scopes: Vec::new(),
+            scoped_guards: BTreeMap::new(),
             yield_targets: Vec::new(),
             loop_targets: Vec::new(),
             catch_targets: Vec::new(),
@@ -1854,7 +1857,7 @@ mod tests {
             expressions
                 .iter()
                 .copied()
-                .map(|expression| (expression, BoundDependencyContract::new([]))),
+                .map(|expression| (expression.into(), BoundDependencyContract::new([]))),
             [],
             [],
             [],

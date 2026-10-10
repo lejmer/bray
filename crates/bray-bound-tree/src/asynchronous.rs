@@ -50,12 +50,14 @@ pub enum AsyncSuspensionKind {
     Await { operand: BoundExpressionId },
     /// Yield execution so another ready task can run.
     Yield,
+    /// Drive the selected asynchronous scoped lifecycle invocation.
+    ScopedCall,
 }
 
 /// One suspension point and the semantic state it retains.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct AsyncSuspensionPoint {
-    expression: BoundExpressionId,
+    occurrence: crate::BoundExecutionSite,
     kind: AsyncSuspensionKind,
     dependency_contract: Option<BoundDependencyContractId>,
     deferred_calls: Arc<[BodyBehaviorCall]>,
@@ -64,9 +66,42 @@ pub struct AsyncSuspensionPoint {
 }
 
 impl AsyncSuspensionPoint {
+    /// Combines retained subjects from control-flow paths reaching the same selected suspension.
+    pub fn merge_path(&mut self, other: &Self) {
+        assert_eq!(
+            self.occurrence, other.occurrence,
+            "merged suspension paths retain the same occurrence"
+        );
+
+        assert_eq!(
+            self.kind, other.kind,
+            "merged suspension paths retain the same execution kind"
+        );
+
+        assert_eq!(
+            self.dependency_contract, other.dependency_contract,
+            "merged suspension paths retain the same selected contract"
+        );
+
+        *self = Self::new(
+            self.occurrence,
+            self.kind,
+            self.dependency_contract,
+            self.deferred_calls
+                .iter()
+                .chain(other.deferred_calls.iter())
+                .cloned(),
+            self.retained_subjects
+                .iter()
+                .chain(other.retained_subjects.iter())
+                .copied(),
+            self.is_recovered || other.is_recovered,
+        );
+    }
+
     /// Creates one normalized suspension point.
     pub fn new(
-        expression: BoundExpressionId,
+        occurrence: impl Into<crate::BoundExecutionSite>,
         kind: AsyncSuspensionKind,
         dependency_contract: Option<BoundDependencyContractId>,
         deferred_calls: impl IntoIterator<Item = BodyBehaviorCall>,
@@ -74,7 +109,7 @@ impl AsyncSuspensionPoint {
         is_recovered: bool,
     ) -> Self {
         Self {
-            expression,
+            occurrence: occurrence.into(),
             kind,
             dependency_contract,
             deferred_calls: sorted_unique_shared_slice(deferred_calls),
@@ -85,7 +120,14 @@ impl AsyncSuspensionPoint {
 
     /// Returns the expression that suspends execution.
     pub const fn expression(&self) -> BoundExpressionId {
-        self.expression
+        self.occurrence
+            .expression()
+            .expect("suspension has an expression owner")
+    }
+
+    /// Returns the exact source or implicit lifecycle phase that suspends.
+    pub const fn occurrence(&self) -> crate::BoundExecutionSite {
+        self.occurrence
     }
 
     /// Returns the language operation that causes suspension.
@@ -292,6 +334,7 @@ impl AsyncStorageExitDecision {
 pub struct AsyncScopeExitPlan {
     scope: BoundBlockId,
     exit: AnyBoundNodeId,
+    scoped_exit: Option<BoundExpressionId>,
     storage: Arc<[AsyncStorageExitDecision]>,
     cancellation_broadcast: Arc<[StorageAccessId]>,
     lifecycle_resolution: Arc<[StorageAccessId]>,
@@ -313,6 +356,7 @@ impl AsyncScopeExitPlan {
         Self {
             scope,
             exit,
+            scoped_exit: None,
             storage: shared_slice(storage),
             cancellation_broadcast: shared_slice(cancellation_broadcast),
             lifecycle_resolution: shared_slice(lifecycle_resolution),
@@ -329,6 +373,24 @@ impl AsyncScopeExitPlan {
     /// Returns the bound node whose completion or transfer exits the scope.
     pub const fn exit(&self) -> AnyBoundNodeId {
         self.exit
+    }
+
+    /// Schedules the matched scoped exit before ordinary lifecycle resolution.
+    pub fn with_scoped_exit(mut self, expression: BoundExpressionId) -> Self {
+        assert_eq!(
+            self.scope.unit(),
+            expression.unit(),
+            "scoped exit belongs to its lexical scope unit"
+        );
+
+        self.scoped_exit = Some(expression);
+
+        self
+    }
+
+    /// Returns the with expression whose successful entry owns this exit.
+    pub const fn scoped_exit(&self) -> Option<BoundExpressionId> {
+        self.scoped_exit
     }
 
     /// Returns one disposition for every live identity at this exit.
@@ -348,7 +410,9 @@ impl AsyncScopeExitPlan {
 
     /// Returns whether this exit schedules cancellation or lifecycle cleanup.
     pub fn has_cleanup(&self) -> bool {
-        !self.cancellation_broadcast.is_empty() || !self.lifecycle_resolution.is_empty()
+        self.scoped_exit.is_some()
+            || !self.cancellation_broadcast.is_empty()
+            || !self.lifecycle_resolution.is_empty()
     }
 
     /// Returns paths already moved at this scope exit.
@@ -417,7 +481,7 @@ impl CheckedAsync {
                 suspension.expression().unit() != unit
                     || match suspension.kind() {
                         AsyncSuspensionKind::Await { operand } => operand.unit() != unit,
-                        AsyncSuspensionKind::Yield => false,
+                        AsyncSuspensionKind::Yield | AsyncSuspensionKind::ScopedCall => false,
                     }
                     || suspension
                         .dependency_contract()

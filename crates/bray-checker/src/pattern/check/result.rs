@@ -455,7 +455,7 @@ pub(super) const fn pattern_operation(
 
     match mode {
         BoundPatternMode::Declaration | BoundPatternMode::Assignment => PatternOperation::Consume,
-        BoundPatternMode::MatchObserve => PatternOperation::Observe,
+        BoundPatternMode::MatchObserve | BoundPatternMode::Scoped => PatternOperation::Observe,
         BoundPatternMode::MatchConsume => PatternOperation::Consume,
     }
 }

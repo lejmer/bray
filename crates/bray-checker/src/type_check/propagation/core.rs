@@ -7,7 +7,7 @@ use bray_bound_tree::{
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{BorrowKind, GenericArgument, TypeData};
 
-use crate::representation::type_representation;
+use crate::representation::{representation_union_type, type_representation};
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::super::ExpressionTypeExpectation;
@@ -100,6 +100,49 @@ where
         };
 
         match expression.kind() {
+            BoundStructuredExpressionKind::With => {
+                if let Some(&failure) = types.scoped_failures.get(&expression_id)
+                    && let Some(&variable) = variables.get(&expression_id)
+                    && let Some(&body) = expression
+                        .blocks()
+                        .first()
+                        .and_then(|body| block_variables.get(body))
+                {
+                    let mut expected_success = None;
+
+                    if let Some(expected) = inference.unique_expectation(variable)
+                        && type_representation(request, expected)
+                            == Some(RepresentationRole::Result)
+                        && let TypeData::Named { substitution, .. } =
+                            request.semantic_values().type_data(expected).as_ref()
+                        && let Some(GenericArgument::Type(success)) = request
+                            .semantic_values()
+                            .generic_substitution_data(*substitution)
+                            .bindings()
+                            .first()
+                            .map(|binding| binding.argument())
+                    {
+                        expected_success = Some(success);
+                        inference.add_expectation(body, success, expression_id);
+                    }
+
+                    if let Some(success) = inference.evidence(body) {
+                        let success = if success == types.never {
+                            expected_success.unwrap_or(success)
+                        } else {
+                            success
+                        };
+
+                        let result = representation_union_type(
+                            request,
+                            RepresentationRole::Result,
+                            [success, failure],
+                        )?;
+
+                        inference.add_evidence(variable, result, expression_id);
+                    }
+                }
+            }
             BoundStructuredExpressionKind::Tuple => infer_tuple(
                 request,
                 expression_id,

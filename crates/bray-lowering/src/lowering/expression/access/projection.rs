@@ -36,7 +36,7 @@ impl Lowerer<'_> {
         *target
     }
 
-    pub(super) fn append_reached_dereference(
+    pub(in crate::lowering) fn append_reached_dereference(
         &self,
         source_type: TypeId,
         reached_type: TypeId,

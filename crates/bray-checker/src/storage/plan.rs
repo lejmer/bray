@@ -200,6 +200,7 @@ where
                     | SemanticSelection::Call(_)
                     | SemanticSelection::Predicate(_)
                     | SemanticSelection::Operation(_)
+                    | SemanticSelection::ScopedUse(_)
                     | SemanticSelection::Propagation(_) => None,
                 })
                 .collect(),

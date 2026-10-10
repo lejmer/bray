@@ -10,7 +10,7 @@ use bray_bound_tree::{
 };
 use bray_checker::{
     CheckerInfrastructureError, DefaultExpressionSemanticChecker, ExpressionSemanticChecker,
-    IterationPatternType, PatternCheckInput,
+    PatternCheckInput, PatternSubjectType,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 
@@ -24,7 +24,9 @@ use super::super::view::{
 };
 use crate::compilation::binder::{bind_declared_value_type_templates, binding_query_error};
 use crate::compilation::checker::checker_result;
-use crate::compilation::operation::{operation_expressions, operation_type_input};
+use crate::compilation::operation::{
+    SemanticResolution, operation_expressions, selection_type_input,
+};
 use crate::compilation::state::Compilation;
 use crate::fact::{
     CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult, QueryPriority,
@@ -310,20 +312,35 @@ impl Compilation {
                     return Ok((provisional.result().as_ref().clone(), Box::new([])));
                 }
 
-                let mut operation_resolutions = Vec::new();
+                let mut operation_resolutions = Vec::<SemanticResolution>::new();
 
                 loop {
-                    let operation_input = operation_type_input(&operation_resolutions)
+                    let selected_patterns = scoped_pattern_subjects(
+                        bound.result().value(),
+                        operation_resolutions
+                            .iter()
+                            .filter_map(SemanticResolution::selection),
+                    );
+
+                    let selected_pattern_input = pattern_input.clone().with_subject_types(
+                        pattern_input
+                            .subject_types()
+                            .iter()
+                            .copied()
+                            .chain(selected_patterns),
+                    );
+
+                    let operation_input = selection_type_input(&operation_resolutions)
                         .with_iteration_sources(iteration_sources.iter().cloned());
 
                     let mut result = self.compute_expression_semantics(
                         &key,
                         cancellation,
-                        &pattern_input,
+                        &selected_pattern_input,
                         &operation_input,
                     )?;
 
-                    let (next, operation_diagnostics) = self.operation_inputs(
+                    let (next, operation_diagnostics) = self.semantic_selection_inputs(
                         &key,
                         bound.result().value(),
                         result.0.value(),
@@ -475,7 +492,27 @@ impl Compilation {
                 let (input, _, iteration_diagnostics, _) =
                     self.iteration_inputs(&key, bound.result().value(), cancellation)?;
 
-                let input = input.with_declared_pattern_types(declared.result().value());
+                let selected_patterns = scoped_pattern_subjects(
+                    bound.result().value(),
+                    expressions
+                        .result()
+                        .value()
+                        .selections()
+                        .entries()
+                        .iter()
+                        .map(|entry| entry.selection()),
+                );
+
+                let input = input
+                    .clone()
+                    .with_subject_types(
+                        input
+                            .subject_types()
+                            .iter()
+                            .copied()
+                            .chain(selected_patterns),
+                    )
+                    .with_declared_pattern_types(declared.result().value());
 
                 let context = self.checker_context_for(&key, cancellation)?;
 
@@ -602,7 +639,7 @@ impl Compilation {
             match selection.value() {
                 Some(selection) => {
                     if let Some(pattern) = pattern {
-                        inputs.push(IterationPatternType::new(
+                        inputs.push(PatternSubjectType::new(
                             pattern,
                             selection.element_type(),
                             false,
@@ -613,14 +650,14 @@ impl Compilation {
                 }
                 None => {
                     if let Some(pattern) = pattern {
-                        inputs.push(IterationPatternType::new(pattern, error_type, true));
+                        inputs.push(PatternSubjectType::new(pattern, error_type, true));
                     }
                 }
             }
         }
 
         Ok((
-            PatternCheckInput::new().with_iteration_patterns(inputs),
+            PatternCheckInput::new().with_subject_types(inputs),
             sources,
             diagnostics,
             has_iterations,
@@ -649,4 +686,27 @@ impl Compilation {
             },
         )
     }
+}
+
+fn scoped_pattern_subjects<'view>(
+    unit: &'view BoundUnit,
+    selections: impl Iterator<Item = &'view bray_bound_tree::SemanticSelection> + 'view,
+) -> impl Iterator<Item = PatternSubjectType> + 'view {
+    selections
+        .filter_map(|selection| match selection {
+            bray_bound_tree::SemanticSelection::ScopedUse(scoped) => Some(scoped),
+            _ => None,
+        })
+        .flat_map(|scoped| {
+            let Some(BoundExpression::Structured(expression)) =
+                unit.view().expression(scoped.expression())
+            else {
+                unreachable!("selected scoped use retains its actual with occurrence");
+            };
+
+            expression
+                .patterns()
+                .iter()
+                .map(|pattern| PatternSubjectType::new(*pattern, scoped.capability_type(), false))
+        })
 }

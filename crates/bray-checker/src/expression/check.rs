@@ -267,7 +267,9 @@ where
     prepared.defer(deferred);
     prepared.defer(supplemental_deferred.iter().copied());
 
-    let Some(mut session) = ExpressionTypeSession::begin(request)?.into_value() else {
+    let Some(mut session) =
+        ExpressionTypeSession::begin(request, operation_input.operation_selections())?.into_value()
+    else {
         return Ok(SessionProgress::Cancelled);
     };
 

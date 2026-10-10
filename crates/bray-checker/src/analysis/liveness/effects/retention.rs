@@ -1,9 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_bound_tree::{
-    AnyBoundNodeId, BoundDependencySubject, BoundExpressionId, StorageBinding, StorageIdentityId,
-    StoragePlan,
-};
+use bray_bound_tree::{BoundDependencySubject, StorageBinding, StorageIdentityId, StoragePlan};
 
 use super::core::OperationEffects;
 use crate::analysis::storage_index::index_storage_roots;
@@ -21,7 +18,21 @@ impl OperationEffects {
     {
         let (accesses_by_root, _) = index_storage_roots(storage);
 
-        let initializations = value_transfer_bindings(request, storage);
+        let mut initializations = value_transfer_bindings(request, storage)
+            .into_iter()
+            .map(|(expression, bindings)| (expression.into(), bindings))
+            .collect::<BTreeMap<bray_bound_tree::BoundExecutionSite, _>>();
+
+        for (identity, provenance) in storage.identity_entries() {
+            if let bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. } =
+                provenance
+            {
+                initializations
+                    .entry(bray_bound_tree::BoundExecutionSite::ScopedEnter(expression))
+                    .or_default()
+                    .push(StorageBinding::Identity(identity));
+            }
+        }
 
         let value_sources_by_root =
             index_value_sources_by_root(storage, &initializations, &self.value_inputs);
@@ -80,8 +91,9 @@ impl OperationEffects {
                             continue;
                         }
 
-                        let expression_retention =
-                            retained_by_expression.entry(*expression).or_default();
+                        let expression_retention = retained_by_expression
+                            .entry((*expression).into())
+                            .or_default();
 
                         let previous = expression_retention.len();
 
@@ -96,9 +108,11 @@ impl OperationEffects {
             }
         }
 
-        for (expression, retained) in &retained_by_expression {
-            let node = AnyBoundNodeId::Expression(*expression);
-            let defined = self.by_node.get(&node).map(|effect| &effect.definitions);
+        for (occurrence, retained) in &retained_by_expression {
+            let defined = self
+                .by_occurrence
+                .get(occurrence)
+                .map(|effect| &effect.definitions);
 
             let subjects = retained
                 .iter()
@@ -106,7 +120,7 @@ impl OperationEffects {
                 .filter(|subject| !defined.is_some_and(|definitions| definitions.contains(subject)))
                 .collect::<Vec<_>>();
 
-            self.extend_uses(*expression, subjects);
+            self.extend_uses(*occurrence, subjects);
         }
 
         self.owner_dependencies = retained_by_expression;
@@ -115,9 +129,9 @@ impl OperationEffects {
 
 fn index_value_sources_by_root(
     storage: &StoragePlan,
-    initializations: &BTreeMap<BoundExpressionId, Vec<StorageBinding>>,
+    initializations: &BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageBinding>>,
     inputs: &ValueInputs,
-) -> BTreeMap<StorageIdentityId, Vec<BoundExpressionId>> {
+) -> BTreeMap<StorageIdentityId, Vec<bray_bound_tree::BoundExecutionSite>> {
     let mut result = BTreeMap::<_, Vec<_>>::new();
 
     for (initializer, bindings) in initializations {
@@ -138,11 +152,21 @@ fn index_value_sources_by_root(
             continue;
         };
 
-        result.entry(root).or_default().extend(
-            inputs
-                .projected_operands(plan.expression())
-                .map(|(value, path)| inputs.project(value, &path).0),
-        );
+        if matches!(storage.identity(root), Some(bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. }) if expression == plan.expression())
+        {
+            continue;
+        }
+
+        result
+            .entry(root)
+            .or_default()
+            .extend(
+                inputs
+                    .projected_operands(plan.expression())
+                    .map(|(value, path)| {
+                        bray_bound_tree::BoundExecutionSite::from(inputs.project(value, &path).0)
+                    }),
+            );
     }
 
     result
@@ -150,7 +174,7 @@ fn index_value_sources_by_root(
 
 fn retained_storage_borrows(
     storage: &StoragePlan,
-    value_sources_by_root: &BTreeMap<StorageIdentityId, Vec<BoundExpressionId>>,
+    value_sources_by_root: &BTreeMap<StorageIdentityId, Vec<bray_bound_tree::BoundExecutionSite>>,
     subjects: impl IntoIterator<Item = BoundDependencySubject>,
     effects: &OperationEffects,
 ) -> BTreeSet<BoundDependencySubject> {
@@ -204,29 +228,49 @@ fn retained_storage_borrows(
 
 pub(super) fn retained_subtree_subjects(
     inputs: &ValueInputs,
-    root: BoundExpressionId,
-    retained_by_expression: &BTreeMap<BoundExpressionId, BTreeSet<BoundDependencySubject>>,
+    root: impl Into<bray_bound_tree::BoundExecutionSite>,
+    retained_by_expression: &BTreeMap<
+        bray_bound_tree::BoundExecutionSite,
+        BTreeSet<BoundDependencySubject>,
+    >,
 ) -> BTreeSet<BoundDependencySubject> {
     let mut retained = BTreeSet::new();
-    let mut pending = vec![root];
+    let mut pending: Vec<bray_bound_tree::BoundExecutionSite> = vec![root.into()];
     let mut visited = BTreeSet::new();
 
-    while let Some(expression) = pending.pop() {
-        if !visited.insert(expression) || inputs.is_independent(expression) {
+    while let Some(occurrence) = pending.pop() {
+        if !visited.insert(occurrence) {
             continue;
         }
 
-        if let Some(subjects) = retained_by_expression.get(&expression) {
+        let expression = match occurrence {
+            bray_bound_tree::BoundExecutionSite::Node(
+                bray_bound_tree::AnyBoundNodeId::Expression(expression),
+            ) => Some(expression),
+            _ => None,
+        };
+
+        if expression.is_some_and(|expression| inputs.is_independent(expression)) {
+            continue;
+        }
+
+        if let Some(subjects) = retained_by_expression.get(&occurrence) {
             retained.extend(subjects.iter().copied());
         }
 
-        pending.extend(inputs.operands(expression));
+        let Some(expression) = expression else {
+            continue;
+        };
 
         pending.extend(
             inputs
-                .projected_operands(expression)
-                .map(|(value, path)| inputs.project(value, &path).0),
+                .operands(expression)
+                .map(bray_bound_tree::BoundExecutionSite::from),
         );
+
+        pending.extend(inputs.projected_operands(expression).map(|(value, path)| {
+            bray_bound_tree::BoundExecutionSite::from(inputs.project(value, &path).0)
+        }));
     }
 
     retained

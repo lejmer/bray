@@ -17,7 +17,7 @@ use crate::{
     CallableCandidate, CallableCandidateState, CallableCandidateTemplateState,
     CallableDeclarationCandidateTemplate, CheckedConstantTerms, CheckerInfrastructureError,
     CheckerQueryError, CheckerQueryResult, PredicateCandidateTemplate,
-    normalize_callable_signature_type_valued_members, resolve_callable_signature_template,
+    normalize_callable_signature, resolve_callable_signature_template,
     resolve_type_expression_template,
 };
 
@@ -262,6 +262,20 @@ where
         .intern_generic_substitution(substitution)
         .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
+    let inherited =
+        request
+            .context()
+            .inherited_callable_substitution(CallableInstanceData::new(
+                template.definition(),
+                substitution,
+            ))?;
+
+    diagnostics.add_range(inherited.diagnostics().iter().cloned());
+
+    let Some(substitution) = *inherited.value() else {
+        return Ok(TemplateResolution::Unsupported);
+    };
+
     let mut signature =
         match resolve_signature(request, template.signature(), substitution, diagnostics)? {
             TemplateResolution::Resolved(signature) => signature,
@@ -409,8 +423,13 @@ where
         return Ok(TemplateResolution::Unsupported);
     };
 
-    normalize_callable_signature_type_valued_members(request.context(), signature, diagnostics)
-        .map(TemplateResolution::Resolved)
+    normalize_callable_signature(
+        request.context(),
+        signature,
+        Some(substitution),
+        diagnostics,
+    )
+    .map(TemplateResolution::Resolved)
 }
 
 pub(super) fn resolve_generic_arguments<C>(
@@ -524,7 +543,8 @@ where
         })
 }
 
-pub(super) fn call_result<C>(
+/// Resolves the immediate or lazy result of a closed callable signature.
+pub fn call_result<C>(
     request: crate::CheckerUnitView<'_, C>,
     callable: &CallableTypeData,
     result: TypeId,

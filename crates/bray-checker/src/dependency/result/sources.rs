@@ -82,13 +82,23 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         expression: BoundExpressionId,
         values: BTreeSet<DependencyRequirement>,
     ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
-        let mut changed = false;
-
-        let mut pending = vec![(
+        self.bind_pattern_values(
             root,
+            Some(expression),
             self.sources.get(&expression).cloned().unwrap_or_default(),
-            Vec::new(),
-        )];
+            values,
+        )
+    }
+
+    pub(super) fn bind_pattern_values(
+        &mut self,
+        root: bray_bound_tree::BoundPatternId,
+        expression: Option<BoundExpressionId>,
+        sources: BTreeSet<DependencySubject>,
+        values: BTreeSet<DependencyRequirement>,
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
+        let mut changed = false;
+        let mut pending = vec![(root, sources, Vec::new())];
 
         while let Some((id, mut sources, mut path)) = pending.pop() {
             let pattern = self
@@ -119,8 +129,9 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
 
                 let binding_path = path.iter().copied().chain(projection).collect::<Vec<_>>();
 
-                let projected_values = (!binding_path.is_empty())
-                    .then(|| self.projected_values(expression, &binding_path));
+                let projected_values = expression
+                    .filter(|_| !binding_path.is_empty())
+                    .map(|expression| self.projected_values(expression, &binding_path));
 
                 let binding_values = projected_values.as_ref().unwrap_or(&values);
 

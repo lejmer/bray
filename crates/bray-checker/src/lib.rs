@@ -71,11 +71,11 @@ pub use execution_guarantees::{
     execution_conditions, map_execution_condition_substitutions, predicate_conditions,
     predicate_conditions_with_inputs, remap_execution_condition_inputs,
 };
-pub use expression::{NestedCallableEvidence, check_generic_arguments};
+pub use expression::{NestedCallableEvidence, call_result, check_generic_arguments};
 pub use lifecycle::{LifecycleSelectionContext, LifecycleSelectionError, select_lifecycle_action};
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use pattern::{
-    GuardConstantEvidence, IterationPatternType, PatternCheckInput, PatternConstantEvidence,
+    GuardConstantEvidence, PatternCheckInput, PatternConstantEvidence, PatternSubjectType,
 };
 pub use selection::{
     CallableCandidate, CallableCandidateState, CallableCandidateTemplate,
@@ -114,9 +114,7 @@ pub use target::{
     TargetValidityRequirement,
 };
 pub use type_check::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
-pub use type_normalization::{
-    normalize_callable_signature_type_valued_members, normalize_type_valued_members,
-};
+pub use type_normalization::{normalize_callable_signature, normalize_type_valued_members};
 pub use type_representation::{
     DeclaredStorageMember, DeclaredStorageMemberIdentity, DeclaredTypeDefinition,
     DeclaredUnionVariant, RepresentationIntegerType, TypeRepresentationContext,

@@ -26,7 +26,7 @@ where
         let current = self.build_expression(expression.operand(), current)?;
         let current = current.unwrap_or_else(|| self.push_block());
 
-        self.push_suspension(current, id, AnalysisSuspensionKind::Await);
+        self.push_suspension(current, id.into(), AnalysisSuspensionKind::Await);
 
         let suspended = self.push_block();
         let resume = self.push_block();
@@ -81,7 +81,7 @@ where
             hook,
             Some(ImplementationHook::TaskYield | ImplementationHook::TaskEventWait)
         ) {
-            self.push_suspension(current, id, AnalysisSuspensionKind::Yield);
+            self.push_suspension(current, id.into(), AnalysisSuspensionKind::Yield);
 
             let suspended = self.push_block();
             let resume = self.push_block();

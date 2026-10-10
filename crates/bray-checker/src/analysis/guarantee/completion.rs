@@ -25,6 +25,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
         let mut dependencies = BTreeSet::new();
         let mut results = BTreeSet::new();
 
+        let normal_exit_blocks = self
+            .domain
+            .graph
+            .exits()
+            .iter()
+            .filter(|exit| {
+                matches!(
+                    exit.kind(),
+                    super::super::model::AnalysisExitKind::Return
+                        | super::super::model::AnalysisExitKind::NormalFallthrough
+                        | super::super::model::AnalysisExitKind::ResultErrorPropagation,
+                )
+            })
+            .map(|exit| exit.block())
+            .collect::<BTreeSet<_>>();
+
         for block in self.domain.graph.blocks() {
             let Some(Some(state)) = self.states.state(block.id()) else {
                 continue;
@@ -98,24 +114,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                 .iter()
                 .filter_map(|id| self.domain.graph.operation(*id))
             {
-                if let AnyBoundNodeId::Expression(expression) = operation.kind().node()
-                    && let Some(evidence) = state.entries.remove(&expression)
-                {
-                    candidate.calls.entry(expression.into()).or_insert(evidence);
+                let occurrence = operation.kind().occurrence();
+
+                if let Some(evidence) = state.entries.remove(&occurrence) {
+                    candidate.calls.entry(occurrence).or_insert(evidence);
                 }
             }
 
             dependencies.extend(state.completion_dependencies);
 
-            if self.domain.graph.exits().iter().any(|exit| {
-                exit.block() == block.id()
-                    && matches!(
-                        exit.kind(),
-                        super::super::model::AnalysisExitKind::Return
-                            | super::super::model::AnalysisExitKind::NormalFallthrough
-                            | super::super::model::AnalysisExitKind::ResultErrorPropagation
-                    )
-            }) {
+            if normal_exit_blocks.contains(&block.id()) {
                 results.insert(match state.result {
                     crate::ExecutionCondition::Expression(expression)
                     | crate::ExecutionCondition::Constructed(expression, _) => {
@@ -244,12 +252,60 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(super) fn call_entry(
         &self,
         state: &ExecutionState,
-        expression: BoundExpressionId,
+        invocation: bray_bound_tree::BoundExecutionSite,
     ) -> Option<crate::ExecutionCallEvidence> {
+        let expression = invocation
+            .expression()
+            .expect("selected invocation retains its actual expression owner");
+
         let selection = self.semantics.selections().expression(expression)?;
 
+        if let bray_bound_tree::SemanticSelection::ScopedUse(scoped) = selection {
+            let (input, value) = match invocation {
+                bray_bound_tree::BoundExecutionSite::ScopedEnter(_) => (
+                    scoped
+                        .enter()
+                        .1
+                        .receiver()
+                        .expect("selected scope enter has a receiver")
+                        .parameter()
+                        .into(),
+                    self.value(state, scoped.initializer()),
+                ),
+                bray_bound_tree::BoundExecutionSite::ScopedExit(_) => (
+                    scoped.exit().1.parameters()[0].parameter().into(),
+                    ExecutionCondition::ScopedCapability(expression),
+                ),
+                bray_bound_tree::BoundExecutionSite::Node(_) => return None,
+            };
+
+            return Some(crate::ExecutionCallEvidence {
+                trusted_boundary: !state.trust_boundaries.is_empty(),
+                pending_execution: matches!(
+                    scoped.invocation(invocation).2,
+                    bray_bound_tree::BoundCallResult::LazyFuture(_)
+                ),
+                arguments: BTreeMap::from([
+                    (
+                        crate::ExecutionPlace::from(BoundReferenceTarget::Surface(input)),
+                        value.clone(),
+                    ),
+                    (
+                        crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)),
+                        value,
+                    ),
+                ]),
+                assumptions: state.assumptions.clone(),
+                trusted_assumptions: state.trusted_assumptions.clone(),
+            });
+        }
+
         let bray_bound_tree::SemanticSelection::Call(call) = selection else {
-            let contract = self.request.trusted_contracts()?.calls.get(&expression)?;
+            let contract = self
+                .request
+                .trusted_contracts()?
+                .calls
+                .get(&expression.into())?;
 
             return Some(crate::ExecutionCallEvidence {
                 trusted_boundary: !state.trust_boundaries.is_empty(),
@@ -260,7 +316,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .map(|(input, expression)| {
                         (
                             crate::ExecutionPlace::from(*input),
-                            self.value(state, *expression),
+                            self.invocation_value(state, *expression),
                         )
                     })
                     .collect(),
@@ -357,7 +413,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 && let Some(contract) = self
                     .request
                     .trusted_contracts()
-                    .and_then(|contracts| contracts.calls.get(&expression))
+                    .and_then(|contracts| contracts.calls.get(&expression.into()))
             {
                 let key =
                     bray_compiler_known::CompilerKnownDeclarationKey::try_new("NonOverlapping")
@@ -397,9 +453,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     pub(super) fn complete_call(&self, state: &mut ExecutionState, expression: BoundExpressionId) {
-        self.complete_trusted_call(state, expression, expression);
+        self.complete_trusted_call(
+            state,
+            expression.into(),
+            ExecutionCondition::Expression(expression),
+        );
 
-        let Some(entry) = state.entries.get(&expression) else {
+        let Some(entry) = state.entries.get(&expression.into()) else {
             return;
         };
 

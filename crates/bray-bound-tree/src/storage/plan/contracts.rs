@@ -236,7 +236,7 @@ impl StorageAccessPurpose {
 /// One control-flow occurrence and the exact storage access it evaluates.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageAccessPlan {
-    node: AnyBoundNodeId,
+    occurrence: crate::BoundExecutionSite,
     expression: BoundExpressionId,
     purpose: StorageAccessPurpose,
     access: StorageAccessId,
@@ -244,13 +244,13 @@ pub struct StorageAccessPlan {
 
 impl StorageAccessPlan {
     pub(in crate::storage) const fn new(
-        node: AnyBoundNodeId,
+        occurrence: crate::BoundExecutionSite,
         expression: BoundExpressionId,
         purpose: StorageAccessPurpose,
         access: StorageAccessId,
     ) -> Self {
         Self {
-            node,
+            occurrence,
             expression,
             purpose,
             access,
@@ -259,7 +259,12 @@ impl StorageAccessPlan {
 
     /// Returns the control-flow node at which this access takes effect.
     pub const fn node(self) -> AnyBoundNodeId {
-        self.node
+        self.occurrence.node()
+    }
+
+    /// Returns the exact source or implicit invocation occurrence taking this access.
+    pub const fn occurrence(self) -> crate::BoundExecutionSite {
+        self.occurrence
     }
 
     /// Returns the source expression supplying the accessed value.

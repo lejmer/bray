@@ -17,6 +17,8 @@ pub enum ExecutionCondition {
     Result,
     /// The value produced by one runtime expression, without inventing its contents.
     Expression(bray_bound_tree::BoundExpressionId),
+    /// The capability produced by successful entry at one actual with occurrence.
+    ScopedCapability(bray_bound_tree::BoundExpressionId),
     /// A checked structural value retaining the values placed in its actual storage components.
     Constructed(
         bray_bound_tree::BoundExpressionId,
@@ -250,7 +252,9 @@ impl ExecutionCondition {
 
         while let Some(condition) = pending.pop() {
             match condition {
-                Self::Expression(candidate) | Self::PostState(candidate, _)
+                Self::Expression(candidate)
+                | Self::ScopedCapability(candidate)
+                | Self::PostState(candidate, _)
                     if *candidate == expression =>
                 {
                     return true;
@@ -646,7 +650,10 @@ impl ExecutionCondition {
         }
     }
 
-    pub(crate) fn equalities(assumptions: &BTreeSet<(Self, bool)>) -> BTreeMap<Self, Self> {
+    pub(crate) fn equalities(
+        assumptions: &BTreeSet<(Self, bool)>,
+        expiring: Option<bray_bound_tree::BoundExpressionId>,
+    ) -> BTreeMap<Self, Self> {
         let mut replacements = BTreeMap::new();
         let mut budget = Self::WORK_LIMIT;
 
@@ -670,9 +677,18 @@ impl ExecutionCondition {
             let left = resolve_equality(left, &replacements, &mut budget);
             let right = resolve_equality(right, &replacements, &mut budget);
 
-            if left < right {
+            // An explicit exit transfer must name the surviving value rather than an alias
+            // whose scoped authority is ending. Keep the same bounded equality solver.
+            let left_order = (expiring.is_some_and(|scope| left.depends_on(scope)), &left);
+
+            let right_order = (
+                expiring.is_some_and(|scope| right.depends_on(scope)),
+                &right,
+            );
+
+            if left_order < right_order {
                 replacements.insert(right, left);
-            } else if right < left {
+            } else if right_order < left_order {
                 replacements.insert(left, right);
             }
         }

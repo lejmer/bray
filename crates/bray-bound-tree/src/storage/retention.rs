@@ -1,10 +1,7 @@
 use std::collections::BTreeSet;
 
 use super::{Liveness, StoragePlan};
-use crate::{
-    BoundDependencyContractId, BoundDependencySubject, BoundExpressionId,
-    CheckedDependencyContracts,
-};
+use crate::{BoundDependencyContractId, BoundDependencySubject, CheckedDependencyContracts};
 
 impl Liveness {
     /// Returns the complete ordered subject set retained across one suspension.
@@ -12,13 +9,15 @@ impl Liveness {
         &self,
         dependencies: &CheckedDependencyContracts,
         storage: &StoragePlan,
-        expression: BoundExpressionId,
+        occurrence: impl Into<crate::BoundExecutionSite>,
         dependency_contract: Option<BoundDependencyContractId>,
     ) -> Vec<BoundDependencySubject> {
+        let occurrence = occurrence.into();
+
         let mut retained = self
             .live_across_suspensions()
             .iter()
-            .filter(|entry| entry.await_expression() == expression)
+            .filter(|entry| entry.occurrence() == occurrence)
             .map(|entry| entry.subject())
             .collect::<BTreeSet<_>>();
 

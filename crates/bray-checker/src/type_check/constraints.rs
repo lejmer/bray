@@ -235,7 +235,8 @@ where
             BoundExpression::Structured(structured)
                 if structured.kind() == BoundStructuredExpressionKind::With =>
             {
-                if let Some(block) = structured.blocks().first()
+                if !types.scoped_failures.contains_key(&expression_id)
+                    && let Some(block) = structured.blocks().first()
                     && let Some(block_variable) = block_variables.get(block).copied()
                 {
                     inference.unify(variable, block_variable, expression_id);

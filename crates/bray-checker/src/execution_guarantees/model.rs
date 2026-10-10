@@ -57,8 +57,8 @@ pub struct ExecutionDependency {
     pub target: BoundCallableTarget,
     /// The independently required execution property.
     pub property: ExecutionProperty,
-    /// The source operation that selected this dependency.
-    pub node: AnyBoundNodeId,
+    /// The exact source operation or implicit invocation that selected this dependency.
+    pub occurrence: bray_bound_tree::BoundExecutionSite,
 }
 
 /// Locally checked behavior whose dependencies still require certification.
@@ -74,7 +74,8 @@ pub struct ExecutionCandidate {
     >,
     pub(crate) result_variant: Option<bray_symbols::UnionVariantSymbolId>,
     pub(crate) completion_dependencies: Vec<ExecutionCompletionDependency>,
-    pub(crate) calls: std::collections::BTreeMap<AnyBoundNodeId, ExecutionCallEvidence>,
+    pub(crate) calls:
+        std::collections::BTreeMap<bray_bound_tree::BoundExecutionSite, ExecutionCallEvidence>,
     pub(crate) failure: Option<SourceSpan>,
     pub(crate) dependencies: Vec<ExecutionDependency>,
 }
@@ -111,8 +112,11 @@ impl ExecutionCandidate {
     }
 
     /// Returns captured entry evidence for a selected call operation.
-    pub fn call_evidence(&self, node: AnyBoundNodeId) -> Option<&ExecutionCallEvidence> {
-        self.calls.get(&node)
+    pub fn call_evidence(
+        &self,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+    ) -> Option<&ExecutionCallEvidence> {
+        self.calls.get(&occurrence)
     }
 
     /// Returns the first operation preventing a local proof, if any.
@@ -217,7 +221,7 @@ impl ExecutionCallEvidence {
         conditions: &[super::ExecutionCondition],
         assumptions: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
     ) -> bool {
-        let equalities = super::ExecutionCondition::equalities(&self.assumptions);
+        let equalities = super::ExecutionCondition::equalities(&self.assumptions, None);
 
         let known = assumptions
             .iter()

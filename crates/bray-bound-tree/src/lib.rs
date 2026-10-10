@@ -73,8 +73,8 @@ pub use node::{
     BoundCallableBodyId, BoundCallableBodyKind, BoundCallableTarget,
     BoundControlTransferExpression, BoundControlTransferKind, BoundConversionExpression,
     BoundErrorCallExpression, BoundErrorCallableBody, BoundErrorConversionExpression,
-    BoundErrorExpression, BoundExpression, BoundExpressionId, BoundForExpression,
-    BoundFutureComposition, BoundFutureConstruction, BoundGeneratorExpression,
+    BoundErrorExpression, BoundExecutionSite, BoundExpression, BoundExpressionId,
+    BoundForExpression, BoundFutureComposition, BoundFutureConstruction, BoundGeneratorExpression,
     BoundGenericArgument, BoundIterationSource, BoundLeadingDotVariantExpression,
     BoundLiteralExpression, BoundLiteralKind, BoundLocalBinding, BoundLocalConstant, BoundMatchArm,
     BoundMatchExpression, BoundMemberAccessExpression, BoundMemberSelector, BoundNameExpression,
@@ -106,7 +106,8 @@ pub use selection::{
     SelectedImplementationWitness, SelectedIterationProtocolOperation, SelectedIterationSource,
     SelectedIterationTypes, SelectedOperation, SelectedPredicateApplication,
     SelectedPredicateArgument, SelectedPropagation, SelectedPropagationBoundary, SelectedReceiver,
-    SelectionKind, SemanticSelection, SemanticSelectionEntry, SemanticSelectionTableBuildError,
+    SelectedScopedUse, SelectionKind, SemanticSelection, SemanticSelectionEntry,
+    SemanticSelectionTableBuildError,
 };
 pub use semantic::{
     CheckedBodySemantics, CheckedExpressionSemantics, SemanticSnapshotBuildError,

@@ -52,6 +52,7 @@ impl Lowerer<'_> {
             join,
             result_type,
             self.active_scopes.len(),
+            None,
         )?;
 
         self.finish_result_edge(completion, join, result_type)?;
@@ -107,6 +108,38 @@ impl Lowerer<'_> {
                 current = continuation;
             }
 
+            if let Some(YieldTarget::Result {
+                block: target,
+                result_type,
+                success_type: Some(success_type),
+                scope_depth,
+                ..
+            }) = self
+                .yield_targets
+                .last()
+                .filter(|target| target.syntax() == block.origin().source_anchor().syntax())
+                .cloned()
+            {
+                let value = self.construct_result(
+                    current,
+                    &source,
+                    result_type,
+                    true,
+                    self.unit_operand(success_type),
+                )?;
+
+                self.finish_exit_to_block(
+                    current,
+                    &source,
+                    scope_depth,
+                    target,
+                    Some((value, result_type)),
+                    id.into(),
+                )?;
+
+                return Ok(LoweredExpression::terminated(source));
+            }
+
             current = self.finish_scope(id, current, &source, id.into())?;
 
             Ok(LoweredExpression::continuing(current, None, source))
@@ -124,6 +157,7 @@ impl Lowerer<'_> {
         target: MirBlockId,
         result_type: TypeId,
         scope_depth: usize,
+        success_type: Option<TypeId>,
     ) -> Result<LoweredExpression, LoweringError> {
         let syntax = self
             .input
@@ -142,6 +176,7 @@ impl Lowerer<'_> {
             syntax,
             block: target,
             result_type,
+            success_type,
             scope_depth,
         });
 

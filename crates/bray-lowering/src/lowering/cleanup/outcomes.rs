@@ -56,6 +56,7 @@ struct AbnormalCleanupRoute {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum AbnormalCleanupStep {
+    ScopedExit(bray_bound_tree::BoundExpressionId),
     Place {
         place: bray_ir::MirPlace,
         source: MirSourceAnchor,
@@ -118,6 +119,7 @@ impl Lowerer<'_> {
             broadcast,
             source,
             &plans,
+            None,
             None,
             &std::collections::BTreeMap::new(),
             InputExit::All,
@@ -419,6 +421,12 @@ impl Lowerer<'_> {
         let mut temporaries = temporaries.iter().rev().peekable();
 
         for plan in plans {
+            if phase == MirCleanupPhase::LifecycleResolution
+                && let Some(expression) = plan.scoped_exit()
+            {
+                steps.push(AbnormalCleanupStep::ScopedExit(expression));
+            }
+
             let depth = self
                 .active_scopes
                 .iter()
@@ -500,6 +508,9 @@ impl Lowerer<'_> {
             self.cleanup_outcome = Some(machine.outcome.clone());
 
             let end = match &step {
+                AbnormalCleanupStep::ScopedExit(expression) => {
+                    self.push_scope_exit(entry, source, *expression, None, None)?
+                }
                 AbnormalCleanupStep::Place {
                     place,
                     source: cleanup_source,
@@ -673,6 +684,7 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         plans: &[AsyncScopeExitPlan],
         abandoned: Option<&bray_ir::MirPlace>,
+        pending: Option<&bray_ir::MirPlace>,
         failures: &std::collections::BTreeMap<
             bray_bound_tree::BoundBlockId,
             (MirBlockId, MirBlockId, bray_ir::MirPlace),
@@ -701,13 +713,13 @@ impl Lowerer<'_> {
                 .0;
         }
 
-        let (broadcast, _) = self.push_cleanup_operations(
+        let broadcast = self.push_cleanup_operations(
             broadcast,
             source,
             MirCleanupPhase::TaskCancellation,
             plans,
             &temporaries,
-            None,
+            pending,
             failures,
         )?;
 
@@ -741,10 +753,9 @@ impl Lowerer<'_> {
             MirCleanupPhase::LifecycleResolution,
             plans,
             &temporaries,
-            None,
+            pending,
             failures,
         )
-        .map(|(block, _)| block)
     }
 
     fn finish_cancelled_cleanup(

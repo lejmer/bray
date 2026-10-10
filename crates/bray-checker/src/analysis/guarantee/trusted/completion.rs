@@ -158,7 +158,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .filter_map(|id| self.graph.operation(*id))
             {
                 if let AnalysisOperationKind::Suspension {
-                    expression,
+                    occurrence,
+                    kind: AnalysisSuspensionKind::ScopedCall,
+                } = operation.kind()
+                    && let Some(entry) = state.entries.get_mut(&occurrence)
+                {
+                    // The resumed invocation keeps only evidence that survived deferred creation.
+                    entry.pending_execution = false;
+                }
+
+                if let AnalysisOperationKind::Suspension {
+                    occurrence:
+                        bray_bound_tree::BoundExecutionSite::Node(
+                            bray_bound_tree::AnyBoundNodeId::Expression(expression),
+                        ),
                     kind: AnalysisSuspensionKind::Await,
                 } = operation.kind()
                     && let Some(BoundExpression::Await(awaited)) =
@@ -166,7 +179,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     && let ExecutionCondition::Expression(source) =
                         self.value(state, awaited.operand())
                 {
-                    if let Some(entry) = state.entries.get_mut(&source) {
+                    if let Some(entry) = state.entries.get_mut(&source.into()) {
                         // Only evidence still valid when execution begins can justify this completion.
                         entry.pending_execution = false;
                     }
@@ -180,7 +193,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state.invalidate_cleanup();
 
         for (source, expression) in completions {
-            self.complete_trusted_call(state, source, expression);
+            self.complete_trusted_call(
+                state,
+                source.into(),
+                ExecutionCondition::Expression(expression),
+            );
         }
     }
 
@@ -317,20 +334,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis::guarantee) fn complete_trusted_call(
         &self,
         state: &mut ExecutionState,
-        expression: BoundExpressionId,
-        result_expression: BoundExpressionId,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        result: ExecutionCondition,
     ) {
         let Some(contract) = self
             .request
             .trusted_contracts()
-            .and_then(|contracts| contracts.calls.get(&expression))
+            .and_then(|contracts| contracts.calls.get(&invocation))
         else {
             return;
         };
 
         let Some(entry) = state
             .entries
-            .get(&expression)
+            .get(&invocation)
             .filter(|entry| {
                 (entry.trusted_boundary
                     || self.trusted_requirements_proven(entry, &contract.requirements))
@@ -341,7 +358,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         };
 
-        if !contract.completes && expression == result_expression {
+        if !contract.completes
+            && matches!(result, ExecutionCondition::Expression(expression) if invocation == expression.into())
+        {
             return;
         }
 
@@ -372,10 +391,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .map(capture)
             .collect::<Vec<_>>();
 
-        let result = ExecutionCondition::Expression(result_expression);
+        let transfer_equalities = match invocation {
+            bray_bound_tree::BoundExecutionSite::ScopedExit(expression) => Some(
+                ExecutionCondition::equalities(&entry.assumptions, Some(expression)),
+            ),
+            _ => None,
+        };
+
         let mut arguments = entry.arguments;
 
         let (carriers, owners) = if !contract.guarantees.is_empty()
+            && let bray_bound_tree::BoundExecutionSite::Node(
+                bray_bound_tree::AnyBoundNodeId::Expression(expression),
+            ) = invocation
             && let Some(bray_bound_tree::SemanticSelection::Call(call)) =
                 self.semantics.selections().expression(expression)
         {
@@ -384,8 +412,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             Default::default()
         };
 
-        for (guarantee, subject) in &subjects {
-            let guarantee = guarantee.substitute(
+        let instantiate = |condition: &ExecutionCondition| {
+            let condition = condition.substitute(
                 &|place| {
                     place
                         .value_in(&arguments)
@@ -394,6 +422,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 &result,
                 &mut { ExecutionCondition::WORK_LIMIT },
             );
+
+            match &transfer_equalities {
+                Some(equalities) => condition.with_equalities(equalities),
+                None => condition,
+            }
+        };
+
+        for (guarantee, subject) in &subjects {
+            let guarantee = instantiate(guarantee);
 
             // A guarantee discharged solely by its ordinary guard carries no trusted authority.
             if guarantee.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
@@ -402,15 +439,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let condition = subject.substitute(
-                &|place| {
-                    place
-                        .value_in(&arguments)
-                        .unwrap_or(ExecutionCondition::Unknown)
-                },
-                &result,
-                &mut { ExecutionCondition::WORK_LIMIT },
-            );
+            let condition = instantiate(subject);
 
             if condition == ExecutionCondition::Unknown {
                 continue;
@@ -428,17 +457,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         for guarantee in &guarantees {
-            guarantee
-                .substitute(
-                    &|place| {
-                        place
-                            .value_in(&arguments)
-                            .unwrap_or(ExecutionCondition::Unknown)
-                    },
-                    &result,
-                    &mut { ExecutionCondition::WORK_LIMIT },
-                )
-                .assume(true, &mut state.trusted_assumptions);
+            instantiate(guarantee).assume(true, &mut state.trusted_assumptions);
         }
 
         if !contract.guarantees.is_empty() && !owners.is_empty() {
@@ -453,20 +472,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         for postcondition in &postconditions {
-            let condition = postcondition.substitute(
-                &|place| {
-                    place
-                        .value_in(&arguments)
-                        .unwrap_or(ExecutionCondition::Unknown)
-                },
-                &result,
-                &mut { ExecutionCondition::WORK_LIMIT },
-            );
+            let condition = instantiate(postcondition);
 
             condition.assume(true, &mut state.assumptions);
         }
 
-        state.expressions.insert(result_expression, result);
+        if let ExecutionCondition::Expression(expression) = result {
+            state.expressions.insert(expression, result);
+        }
     }
 }
 

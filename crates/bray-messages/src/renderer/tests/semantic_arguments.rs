@@ -20,6 +20,33 @@ use crate::renderer::DiagnosticRenderer;
 use crate::{DiagnosticLocale, RenderedDiagnosticNoteKind};
 
 #[test]
+fn scoped_selection_failures_identify_enter_and_exit() {
+    let renderer = DiagnosticRenderer::english();
+
+    for (kind, expected) in [
+        (
+            DiagnosticSelectionKind::ScopeEnter,
+            "no applicable scope enter candidate",
+        ),
+        (
+            DiagnosticSelectionKind::ScopeExit,
+            "no applicable scope exit candidate",
+        ),
+    ] {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::CheckingNoApplicableCandidate,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::selection_kind(kind));
+
+        let rendered = renderer.render(&diagnostic);
+
+        assert_eq!(rendered.message(), expected);
+    }
+}
+
+#[test]
 fn renderer_localizes_checker_diagnostics() {
     let incompatible = Diagnostic::new(
         DiagnosticId::new(0),

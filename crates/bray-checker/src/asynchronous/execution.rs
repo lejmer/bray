@@ -143,7 +143,7 @@ pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
                                     } else {
                                         property
                                     },
-                                    node,
+                                    occurrence: node.into(),
                                 });
                             }
                         }

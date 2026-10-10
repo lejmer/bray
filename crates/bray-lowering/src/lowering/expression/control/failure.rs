@@ -230,7 +230,6 @@ impl Lowerer<'_> {
         }
 
         let success_result = self.construct_result(
-            id,
             success,
             &source,
             result_type,
@@ -245,7 +244,6 @@ impl Lowerer<'_> {
         )?;
 
         let error_result = self.construct_result(
-            id,
             handler,
             &source,
             result_type,
@@ -282,6 +280,7 @@ impl Lowerer<'_> {
                 success,
                 success_type,
                 self.active_scopes.len(),
+                None,
             ),
             _ => panic!(
                 "lowering contract violation: UnsupportedExpression {value:?}",
@@ -415,9 +414,8 @@ impl Lowerer<'_> {
         Ok((completed, MirOperand::Value(result)))
     }
 
-    pub(super) fn construct_result(
+    pub(in crate::lowering) fn construct_result(
         &mut self,
-        id: BoundExpressionId,
         current: MirBlockId,
         source: &bray_ir::MirSourceAnchor,
         result_type: TypeId,
@@ -449,7 +447,7 @@ impl Lowerer<'_> {
         Ok(commit.result().map(MirOperand::Value).unwrap_or_else(|| {
             panic!(
                 "lowering contract violation: MissingOperationResult {value:?}",
-                value = id
+                value = source
             )
         }))
     }

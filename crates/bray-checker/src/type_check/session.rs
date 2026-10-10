@@ -71,6 +71,7 @@ where
 {
     pub(crate) fn begin(
         request: CheckerUnitView<'view, C>,
+        selections: &[bray_bound_tree::SemanticSelectionEntry],
     ) -> Result<SessionProgress<Self>, CheckerInfrastructureError> {
         if request.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
@@ -80,7 +81,7 @@ where
             return Ok(SessionProgress::Cancelled);
         };
 
-        let types = ExpressionTypeDependencies::new(request)?;
+        let types = ExpressionTypeDependencies::new(request, selections)?;
         let mut inference = TypeInferenceContext::new(types.error, types.never);
         let mut variables = BTreeMap::new();
         let mut block_variables = BTreeMap::new();

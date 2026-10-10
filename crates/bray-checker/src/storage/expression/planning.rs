@@ -71,6 +71,11 @@ where
 
                 access
             }
+            BoundExpression::Structured(structured)
+                if structured.kind() == BoundStructuredExpressionKind::With =>
+            {
+                self.plan_scoped_use(id, structured)?
+            }
             BoundExpression::Structured(structured) => {
                 if matches!(
                     structured.kind(),
@@ -184,7 +189,9 @@ where
                             BoundPatternMode::MatchConsume | BoundPatternMode::MatchObserve => {
                                 StorageAccessPurpose::Read
                             }
-                            BoundPatternMode::Declaration | BoundPatternMode::Assignment => {
+                            BoundPatternMode::Declaration
+                            | BoundPatternMode::Scoped
+                            | BoundPatternMode::Assignment => {
                                 return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
                             }
                         }
@@ -462,7 +469,12 @@ where
                     })
                     .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
 
-                let access = self.borrow_access(id, operand_access, borrow_kind)?;
+                let access = self.borrow_access(
+                    id,
+                    operand_access,
+                    borrow_kind,
+                    self.expression_type(id)?.ty(),
+                )?;
 
                 self.record_purpose(id, Some(StorageAccessPurpose::Borrow(borrow_kind)), access)?;
 
@@ -534,6 +546,81 @@ where
         }
     }
 
+    fn plan_scoped_use(
+        &mut self,
+        id: BoundExpressionId,
+        expression: &bray_bound_tree::BoundStructuredExpression,
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
+        let ([initializer], [pattern], [body]) = (
+            expression.operands(),
+            expression.patterns(),
+            expression.blocks(),
+        ) else {
+            panic!("with occurrence {id:?} retains its initializer, pattern and body");
+        };
+
+        let Some(SemanticSelection::ScopedUse(scoped)) = self.selections.expression(id) else {
+            self.plan_expression(*initializer, Some(StorageAccessPurpose::Read))?;
+            self.plan_block(*body)?;
+
+            return self.recovery_access(id);
+        };
+
+        let mode = scoped
+            .enter()
+            .1
+            .receiver()
+            .expect("selected enter has a receiver")
+            .mode();
+
+        let capability_type = scoped.capability_type();
+        let source = self.plan_expression(*initializer, None)?;
+
+        self.builder_mut()?
+            .plan_occurrence_access(
+                bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+                *initializer,
+                Self::call_receiver_purpose(mode),
+                source,
+            )
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
+
+        let capability = match self.scoped_borrow_access(scoped, *pattern)? {
+            Some(capability) => capability,
+            None => self.protocol_access(
+                id,
+                StorageIdentity::ScopedCapability {
+                    expression: id,
+                    pattern: *pattern,
+                },
+                capability_type,
+            )?,
+        };
+
+        self.builder_mut()?
+            .plan_access(
+                (*pattern).into(),
+                id,
+                StorageAccessPurpose::Initialize,
+                capability,
+            )
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
+
+        self.builder_mut()?
+            .plan_occurrence_access(
+                bray_bound_tree::BoundExecutionSite::ScopedExit(id),
+                id,
+                StorageAccessPurpose::ValueTransfer,
+                capability,
+            )
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
+
+        self.plan_pattern(*pattern, id, capability)?;
+        self.plan_block(*body)?;
+
+        self.temporary_access(id)
+    }
+
     fn plan_iteration_storage(
         &mut self,
         expression: BoundExpressionId,
@@ -545,13 +632,13 @@ where
         let cursor_type = selection.cursor_type();
         let element_type = selection.element_type();
 
-        let cursor = self.iteration_access(
+        let cursor = self.protocol_access(
             expression,
             StorageIdentity::IterationCursor(expression),
             cursor_type,
         )?;
 
-        let element = self.iteration_access(
+        let element = self.protocol_access(
             expression,
             StorageIdentity::IterationElement(expression),
             element_type,

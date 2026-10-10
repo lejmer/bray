@@ -8,7 +8,7 @@ use bray_bound_tree::{
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{AnyLocalSymbolId, AnySymbolId, TypeData, TypeExpressionTemplate};
-use bray_syntax::TypeExpressionSyntax;
+use bray_syntax::{TypeExpressionSyntax, WithExpressionSyntax};
 
 use super::CompilationBindingContext;
 use super::symbol::{binder_error, type_binder};
@@ -154,6 +154,25 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
                 let template = self.bind_type_anchor(conversion.target_syntax())?;
 
                 self.add_evidence(DeclaredValueTypeTerm::Expression(id), template);
+            }
+            BoundExpression::Structured(expression)
+                if expression.kind() == bray_bound_tree::BoundStructuredExpressionKind::With =>
+            {
+                let [pattern] = expression.patterns() else {
+                    panic!("with occurrence {id:?} retains its sole capability pattern");
+                };
+
+                let anchor = expression.origin().source_anchor().syntax();
+
+                let syntax = anchor
+                    .find_descendant::<WithExpressionSyntax>(self.context.syntax())
+                    .expect("bound with occurrence retains its source syntax");
+
+                if let Some(annotation) = syntax.type_annotation() {
+                    let template = self.bind_type_syntax(&annotation.type_expression())?;
+
+                    self.add_evidence(DeclaredValueTypeTerm::Pattern(*pattern), template);
+                }
             }
             BoundExpression::BoxConstruction(construction) => {
                 if let Some(policy) = construction.policy() {

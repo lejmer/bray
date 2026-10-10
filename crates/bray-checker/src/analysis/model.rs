@@ -8,11 +8,11 @@ pub(crate) enum AnalysisOperationKind {
     Bound(AnyBoundNodeId),
     PatternObservation(BoundPatternId),
     Call {
-        expression: BoundExpressionId,
+        invocation: bray_bound_tree::BoundExecutionSite,
         phase: AnalysisCallPhase,
     },
     Suspension {
-        expression: BoundExpressionId,
+        occurrence: bray_bound_tree::BoundExecutionSite,
         kind: AnalysisSuspensionKind,
     },
     TaskOperation {
@@ -28,13 +28,21 @@ pub(crate) enum AnalysisOperationKind {
 }
 
 impl AnalysisOperationKind {
+    pub(crate) const fn occurrence(self) -> bray_bound_tree::BoundExecutionSite {
+        match self {
+            Self::Call { invocation, .. } => invocation,
+            Self::Suspension { occurrence, .. } => occurrence,
+            _ => bray_bound_tree::BoundExecutionSite::Node(self.node()),
+        }
+    }
+
     pub(crate) const fn node(self) -> AnyBoundNodeId {
         match self {
             Self::Bound(node) | Self::Recovery(node) => node,
             Self::PatternObservation(pattern) => AnyBoundNodeId::Pattern(pattern),
-            Self::Call { expression, .. }
-            | Self::Suspension { expression, .. }
-            | Self::TaskOperation { expression, .. } => AnyBoundNodeId::Expression(expression),
+            Self::Call { invocation, .. } => invocation.node(),
+            Self::Suspension { occurrence, .. } => occurrence.node(),
+            Self::TaskOperation { expression, .. } => AnyBoundNodeId::Expression(expression),
             Self::ScopeExit { block, .. } => AnyBoundNodeId::Block(block),
         }
     }
@@ -50,6 +58,7 @@ pub(crate) enum AnalysisCallPhase {
 pub(crate) enum AnalysisSuspensionKind {
     Await,
     Yield,
+    ScopedCall,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

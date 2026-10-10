@@ -494,7 +494,7 @@ mod tests {
 
         let request = CheckerUnitView::new(&unit, &entry, &context);
 
-        let Ok(SessionProgress::Complete(mut session)) = ExpressionTypeSession::begin(request)
+        let Ok(SessionProgress::Complete(mut session)) = ExpressionTypeSession::begin(request, &[])
         else {
             panic!("literal type session must start");
         };

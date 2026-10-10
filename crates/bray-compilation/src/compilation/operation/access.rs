@@ -20,11 +20,10 @@ use bray_symbols::{
     AnySymbolId, BorrowKind, CallableDefinitionId, CallableInstanceData,
     CallableParameterDefaultProviderSymbolId, CallableParameterDefaultTemplateQuery,
     CallableParameterSymbolId, CallableSignature, CheckedConstraintKind, ExactSymbolId,
-    GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationSelection,
-    ImplementationSubjectQuery, MemberLookupResult, NamedTypeSymbolId, SelfTypeContext,
-    StructFieldTypeQuery, SymbolQueryContract, SymbolQueryRequest, TraitApplicationId,
-    TraitCallableMemberSymbolId, TraitConstraintDispatch, TypeAssociatedMemberOrigin, TypeData,
-    TypeExpressionTemplate, TypeId,
+    GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationSelection, MemberLookupResult,
+    NamedTypeSymbolId, SelfTypeContext, StructFieldTypeQuery, SymbolQueryContract,
+    SymbolQueryRequest, TraitApplicationId, TraitCallableMemberSymbolId, TraitConstraintDispatch,
+    TypeAssociatedMemberOrigin, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::{GenericArgumentListSyntax, GenericArgumentSyntax};
 
@@ -47,7 +46,7 @@ use crate::compilation::{
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
-use super::model::{OperationResolution, TraitOperation};
+use super::model::{SemanticResolution, TraitOperation};
 use super::query::{
     expression_contract_failure, expression_type, operation_contract_failure,
     symbol_contract_failure, unit_contract_failure,
@@ -105,7 +104,7 @@ impl Compilation {
         types: &bray_bound_tree::CheckedExpressionTypes,
         expression: BoundExpressionId,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<OperationResolution>, FactQueryError> {
+    ) -> Result<Option<SemanticResolution>, FactQueryError> {
         if let Some(BoundExpression::TraitQualifiedMember(member)) =
             unit.view().expression(expression)
         {
@@ -144,7 +143,7 @@ impl Compilation {
                 return Ok(None);
             };
 
-            return Ok(Some(OperationResolution::new(
+            return Ok(Some(SemanticResolution::new(
                 expression,
                 result_type,
                 [],
@@ -336,7 +335,7 @@ impl Compilation {
             _ => return Ok(None),
         };
 
-        Ok(Some(OperationResolution::new(
+        Ok(Some(SemanticResolution::new(
             expression,
             result_type,
             [],
@@ -386,7 +385,7 @@ impl Compilation {
         receiver_type: TypeId,
         name: &str,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<OperationResolution>, FactQueryError> {
+    ) -> Result<Option<SemanticResolution>, FactQueryError> {
         let index = self.implementation_header_index(binding_context.cancellation())?;
 
         *diagnostics = diagnostics.merged(index.diagnostics());
@@ -489,7 +488,8 @@ impl Compilation {
                 diagnostics,
             )?;
 
-            let Some(operation) = resolution.and_then(|resolution| resolution.selection().cloned())
+            let Some(bray_bound_tree::SemanticSelection::Operation(operation)) =
+                resolution.and_then(|resolution| resolution.selection().cloned())
             else {
                 continue;
             };
@@ -551,7 +551,7 @@ impl Compilation {
         requirement: bray_symbols::ImplementationRequirementKey,
         witness: bray_symbols::ImplementationInstanceId,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<OperationResolution>, FactQueryError> {
+    ) -> Result<Option<SemanticResolution>, FactQueryError> {
         let values = binding_context.semantic_values();
 
         let application_data = values.trait_application_data(application);
@@ -644,7 +644,7 @@ impl Compilation {
                 target.with_trait_dispatch(TraitConstraintDispatch::trait_default(requirement));
         }
 
-        Ok(Some(OperationResolution::new(
+        Ok(Some(SemanticResolution::new(
             expression,
             result_type,
             [],
@@ -661,7 +661,7 @@ impl Compilation {
         trait_definition: bray_symbols::TraitSymbolId,
         name: &str,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<OperationResolution>, FactQueryError> {
+    ) -> Result<Option<SemanticResolution>, FactQueryError> {
         let MemberLookupResult::Found(member) = binding_context
             .lookup_member(trait_definition.into(), name)
             .map_err(binding_query_error)?
@@ -720,7 +720,7 @@ impl Compilation {
         receiver_type: TypeId,
         name: &str,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<OperationResolution>, FactQueryError> {
+    ) -> Result<Option<SemanticResolution>, FactQueryError> {
         let owner = binding_context
             .symbols()
             .symbol_for_key(unit.key().declared_owner())
@@ -789,7 +789,7 @@ impl Compilation {
         member: TraitCallableMemberSymbolId,
         constraints: &[(GenericOwnerId, bray_symbols::CheckedConstraint)],
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<OperationResolution>, FactQueryError> {
+    ) -> Result<Option<SemanticResolution>, FactQueryError> {
         let application = binding_context
             .semantic_values()
             .trait_application_data(application);
@@ -839,7 +839,7 @@ impl Compilation {
             target = target.with_callable_template(template);
         }
 
-        Ok(Some(OperationResolution::new(
+        Ok(Some(SemanticResolution::new(
             expression,
             result_type,
             [],
@@ -872,7 +872,7 @@ impl Compilation {
         requirements
     }
 
-    fn resolve_access_subject_type(
+    pub(super) fn resolve_access_subject_type(
         &self,
         binding_context: &CompilationBindingContext<'_>,
         mut ty: TypeId,
@@ -899,39 +899,6 @@ impl Compilation {
         }
     }
 
-    fn resolve_implementation_self_type(
-        &self,
-        binding_context: &CompilationBindingContext<'_>,
-        implementation: bray_symbols::ImplementationSymbolId,
-        diagnostics: &mut DiagnosticBag,
-    ) -> Result<TypeId, FactQueryError> {
-        let subject = binding_context
-            .resolve_symbol_query(SymbolQueryRequest::<ImplementationSubjectQuery>::new(
-                implementation,
-            ))
-            .map_err(binding_query_error)?;
-
-        *diagnostics = diagnostics.merged(subject.diagnostics());
-
-        let checked = self.checked_constant_terms(subject.value().ty())?;
-
-        *diagnostics = diagnostics.merged(checked.diagnostics());
-
-        resolve_type_expression_template(
-            binding_context.semantic_values(),
-            subject.value().ty(),
-            checked.value(),
-        )
-        .map_err(FactQueryError::from)?
-        .ok_or_else(|| {
-            SemanticQueryFailure::contract(
-                SemanticQueryContext::Symbol(implementation.into_any()),
-                SemanticQueryViolation::Unsupported(SemanticDataKind::Type),
-            )
-            .into()
-        })
-    }
-
     fn resolve_trait_qualified_member_operation(
         &self,
         binding_context: &CompilationBindingContext<'_>,
@@ -940,7 +907,7 @@ impl Compilation {
         expression: BoundExpressionId,
         member: &bray_bound_tree::BoundTraitQualifiedMemberExpression,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<OperationResolution>, FactQueryError> {
+    ) -> Result<Option<SemanticResolution>, FactQueryError> {
         let Some(BoundMemberSelector::Name(name)) = member.selector() else {
             return Ok(None);
         };
@@ -1384,7 +1351,7 @@ impl Compilation {
         types: &bray_bound_tree::CheckedExpressionTypes,
         expression: BoundExpressionId,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<OperationResolution>, FactQueryError> {
+    ) -> Result<Option<SemanticResolution>, FactQueryError> {
         let Some(BoundExpression::Structured(index)) = unit.view().expression(expression) else {
             return Err(expression_contract_failure(
                 unit.key(),
@@ -1467,7 +1434,7 @@ impl Compilation {
                 result_type,
             };
 
-            return Ok(Some(OperationResolution::new(
+            return Ok(Some(SemanticResolution::new(
                 expression,
                 result_type,
                 expectations,
@@ -1486,7 +1453,7 @@ impl Compilation {
         types: &bray_bound_tree::CheckedExpressionTypes,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<OperationResolution>, FactQueryError> {
+    ) -> Result<Option<SemanticResolution>, FactQueryError> {
         let Some(BoundExpression::Structured(index)) = unit.view().expression(key.expression())
         else {
             return Err(operation_contract_failure(
@@ -1645,7 +1612,7 @@ impl Compilation {
                     )
                 })?;
 
-                return Ok(Some(OperationResolution::new(
+                return Ok(Some(SemanticResolution::new(
                     key.expression(),
                     result_type,
                     [],

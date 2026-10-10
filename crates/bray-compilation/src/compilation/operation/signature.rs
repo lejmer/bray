@@ -144,7 +144,7 @@ pub(super) fn normalize_callable_type_valued_members(
     let checker =
         CompilationCheckerContext::new(*binding_context).with_implementation_witnesses([witness]);
 
-    bray_checker::normalize_callable_signature_type_valued_members(&checker, signature, diagnostics)
+    bray_checker::normalize_callable_signature(&checker, signature, None, diagnostics)
         .map_err(FactQueryError::from)
 }
 

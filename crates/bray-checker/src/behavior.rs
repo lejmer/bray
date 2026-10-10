@@ -102,6 +102,35 @@ where
             SemanticSelection::Operation(operation) => {
                 collect_operation_behavior(operation, source, &mut calls, &mut defaults);
             }
+            SemanticSelection::ScopedUse(selection) => {
+                for (target, signature) in [selection.enter(), selection.exit()] {
+                    let mut contribution = BodyBehaviorCall::new(
+                        BoundCallableTarget::Declaration(*target),
+                        BodyBehaviorPhase::Invocation,
+                    );
+
+                    if let Some(source) = source {
+                        contribution = contribution.with_source(source);
+                    }
+
+                    calls.push(contribution);
+
+                    if matches!(request.semantic_values().type_data(signature.callable_type()).as_ref(),
+                        bray_symbols::TypeData::Callable(callable) if callable.execution() == bray_symbols::CallableExecution::Asynchronous)
+                    {
+                        let mut contribution = BodyBehaviorCall::new(
+                            BoundCallableTarget::Declaration(*target),
+                            BodyBehaviorPhase::DeferredExecution,
+                        );
+
+                        if let Some(source) = source {
+                            contribution = contribution.with_source(source);
+                        }
+
+                        calls.push(contribution);
+                    }
+                }
+            }
             SemanticSelection::Iteration(selection) => {
                 calls.extend([selection.iterate(), selection.next()].map(|target| {
                     let contribution = BodyBehaviorCall::new(

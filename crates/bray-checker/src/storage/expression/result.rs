@@ -79,10 +79,35 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             return Ok(None);
         }
 
+        self.retain_returned_borrow(
+            expression,
+            bray_bound_tree::StorageIdentity::Temporary(expression),
+            ty,
+            kind,
+            target,
+            argument,
+            source.projections(),
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "returned-borrow retention requires its actual owner, input path and closed borrow types"
+    )]
+    pub(super) fn retain_returned_borrow(
+        &mut self,
+        expression: BoundExpressionId,
+        identity: bray_bound_tree::StorageIdentity,
+        ty: bray_symbols::TypeId,
+        kind: bray_symbols::BorrowKind,
+        target: bray_symbols::TypeId,
+        argument: BoundExpressionId,
+        projections: &[DependencyProjection],
+    ) -> Result<Option<StorageAccessId>, PlanError<C::UpstreamError>> {
         let argument = self.plan_expression(argument, None)?;
         let mut access = self.borrowed_value_access(expression, argument)?;
 
-        for projection in source.projections() {
+        for projection in projections {
             let projection = match projection {
                 DependencyProjection::ProductField(field) => {
                     StorageProjection::ProductField(*field)
@@ -145,7 +170,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         if creates_capability {
             let source = self.access_with_reached_type(expression, access, target)?;
 
-            access = self.borrow_access(expression, source, kind)?;
+            access = self.borrow_access(expression, source, kind, ty)?;
         }
 
         let capability = self
@@ -157,19 +182,87 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         let access = self.retain_borrow_value(
             expression,
             capability,
-            bray_bound_tree::StorageIdentity::Temporary(expression),
+            identity,
             ty,
-            self.expression_type(expression)?,
+            bray_bound_tree::ExpressionTypeResult::new(
+                ty,
+                self.expression_type(expression)?.status(),
+            ),
         )?;
 
         if creates_capability {
-            self.record_purpose(
-                expression,
-                Some(bray_bound_tree::StorageAccessPurpose::Borrow(kind)),
-                access,
-            )?;
+            let node = match identity {
+                bray_bound_tree::StorageIdentity::ScopedCapability { pattern, .. } => {
+                    pattern.into()
+                }
+                _ => expression.into(),
+            };
+
+            self.builder_mut()?
+                .plan_access(
+                    node,
+                    expression,
+                    bray_bound_tree::StorageAccessPurpose::Borrow(kind),
+                    access,
+                )
+                .map_err(CheckerInfrastructureError::StoragePlan)?;
         }
 
         Ok(Some(access))
+    }
+
+    pub(super) fn scoped_borrow_access(
+        &mut self,
+        scoped: &bray_bound_tree::SelectedScopedUse,
+        pattern: bray_bound_tree::BoundPatternId,
+    ) -> Result<Option<StorageAccessId>, PlanError<C::UpstreamError>> {
+        let ty = scoped.capability_type();
+        let data = self.request.semantic_values().type_data(ty);
+
+        let TypeData::Borrow { kind, target } = data.as_ref() else {
+            return Ok(None);
+        };
+
+        let callable = scoped.enter().0;
+
+        let template = self
+            .request
+            .context()
+            .callable_result_dependencies(callable.definition().callable_symbol())?;
+
+        let template =
+            crate::dependency::resolved_result_template(self.request, Some(callable), template)?;
+
+        let sources = template
+            .requirements()
+            .iter()
+            .filter_map(|requirement| match requirement {
+                DependencyRequirement::Direct { subject, .. } => Some(subject),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+
+        let mut sources = sources.into_iter();
+
+        let Some(source) = sources.next() else {
+            return Ok(None);
+        };
+
+        if sources.next().is_some() || source.subject_root() != DependencySubjectRoot::Receiver {
+            return Ok(None);
+        }
+
+        self.retain_returned_borrow(
+            scoped.expression(),
+            bray_bound_tree::StorageIdentity::ScopedCapability {
+                expression: scoped.expression(),
+                pattern,
+            },
+            ty,
+            *kind,
+            *target,
+            scoped.initializer(),
+            source.projections(),
+        )
     }
 }

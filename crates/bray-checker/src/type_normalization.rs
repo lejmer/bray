@@ -20,21 +20,32 @@ where
     TypeNormalizer {
         request,
         diagnostics,
+        substitution: None,
         normalized: BTreeMap::new(),
         active: BTreeSet::new(),
     }
     .normalize_type(ty)
 }
 
-pub fn normalize_callable_signature_type_valued_members<C>(
+/// Resolves implementation Self and type-valued members in an instantiated callable signature.
+pub fn normalize_callable_signature<C>(
     request: &C,
     signature: CallableSignature,
+    substitution: Option<GenericSubstitutionId>,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<CallableSignature, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    signature.try_map_types(|ty| normalize_type_valued_members(request, ty, diagnostics))
+    let mut normalizer = TypeNormalizer {
+        request,
+        diagnostics,
+        substitution,
+        normalized: BTreeMap::new(),
+        active: BTreeSet::new(),
+    };
+
+    signature.try_map_types(|ty| normalizer.normalize_type(ty))
 }
 
 struct TypeNormalizer<'request, 'diagnostics, C>
@@ -43,6 +54,7 @@ where
 {
     request: &'request C,
     diagnostics: &'diagnostics mut DiagnosticBag,
+    substitution: Option<GenericSubstitutionId>,
     normalized: BTreeMap<TypeId, TypeId>,
     active: BTreeSet<TypeId>,
 }
@@ -66,6 +78,25 @@ where
         let data = self.request.semantic_values().type_data(ty);
 
         let normalized = match data.as_ref() {
+            TypeData::ContextualSelf(bray_symbols::SelfTypeContext::Implementation(
+                implementation,
+            )) => {
+                let subject = self.request.implementation_subject_type(*implementation)?;
+
+                self.diagnostics
+                    .extend(subject.diagnostics().iter().cloned());
+
+                let subject = match self.substitution {
+                    Some(substitution) => self
+                        .request
+                        .semantic_values()
+                        .substitute_type(*subject.value(), substitution)
+                        .map_err(CheckerInfrastructureError::SemanticValueStore)?,
+                    None => *subject.value(),
+                };
+
+                self.normalize_type(subject)?
+            }
             TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => ty,
             TypeData::Named {
                 definition,

@@ -64,6 +64,16 @@ impl Compilation {
 
         let mut diagnostics = surface.diagnostics().clone();
 
+        let inherited = self.inherited_callable_substitution(&binding, callable)?;
+
+        diagnostics.add_range(inherited.diagnostics().iter().cloned());
+
+        let Some(substitution) = *inherited.value() else {
+            return Ok(DiagnosticResult::new(None, diagnostics));
+        };
+
+        let callable = CallableInstanceData::new(callable.definition(), substitution);
+
         let resolved =
             self.resolve_callable_instance_signature(&binding, callable, &mut diagnostics)?;
 

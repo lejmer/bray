@@ -69,21 +69,35 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
             .map_err(CheckerInfrastructureError::SemanticValueStore)?
     };
 
-    let template = match call.target() {
-        BoundCallableTarget::Declaration(instance) => store
+    let instance = match call.target() {
+        BoundCallableTarget::Declaration(instance) => Some(instance),
+        _ => None,
+    };
+
+    let template = resolved_result_template(request, instance, template)?;
+
+    super::defaults::expand_result_defaults(request, call, &template)
+}
+
+pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    instance: Option<bray_symbols::CallableInstanceData>,
+    template: DependencyContractTemplateId,
+) -> Result<DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>> {
+    let store = request.semantic_values();
+
+    let template = match instance {
+        Some(instance) => store
             .substitute_dependency_contract(template, instance.substitution())
             .map_err(CheckerInfrastructureError::SemanticValueStore)?,
-        _ => template,
+        None => template,
     };
 
     let template = store.dependency_contract_template_data(template);
 
-    let template = DependencyContractTemplateData::new(super::witness::resolve(
-        request,
-        template.requirements(),
-    )?);
-
-    super::defaults::expand_result_defaults(request, call, &template)
+    Ok(DependencyContractTemplateData::new(
+        super::witness::resolve(request, template.requirements())?,
+    ))
 }
 
 fn value_requirement(root: DependencySubjectRoot) -> DependencyRequirement {

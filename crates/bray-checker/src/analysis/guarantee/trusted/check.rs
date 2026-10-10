@@ -96,7 +96,7 @@ fn check_trusted_contracts_in_flow<C: CheckerRequestContext + ?Sized>(
                     storage,
                     flow,
                     &state,
-                    operation.kind().node(),
+                    operation.kind().occurrence(),
                     &contracts.required_witnesses,
                     &mut transfers,
                 );
@@ -124,11 +124,18 @@ fn check_trusted_contracts_in_flow<C: CheckerRequestContext + ?Sized>(
                 }
             }
 
-            let Some(contract) = contracts.calls.get(&expression) else {
+            let invocation = match operation.kind() {
+                super::super::super::model::AnalysisOperationKind::Call { invocation, .. } => {
+                    invocation
+                }
+                _ => expression.into(),
+            };
+
+            let Some(contract) = contracts.calls.get(&invocation) else {
                 continue;
             };
 
-            if let Some(evidence) = state.entries.get(&expression) {
+            if let Some(evidence) = state.entries.get(&invocation) {
                 if flow
                     .domain
                     .trusted_requirements_proven(evidence, &contract.requirements)
@@ -245,11 +252,11 @@ fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
     storage: &StoragePlan,
     flow: &super::super::flow::ExecutionFlow<'_, '_, C>,
     state: &ExecutionState,
-    node: AnyBoundNodeId,
+    occurrence: bray_bound_tree::BoundExecutionSite,
     requirements: &[(ExecutionCondition, crate::ExecutionPlace)],
     transfers: &mut BTreeSet<BoundExpressionId>,
 ) {
-    for plan in storage.node_plans(node).filter(|plan| {
+    for plan in storage.occurrence_plans(occurrence).filter(|plan| {
         matches!(
             plan.purpose(),
             bray_bound_tree::StorageAccessPurpose::Copy
@@ -257,7 +264,9 @@ fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
                 | bray_bound_tree::StorageAccessPurpose::Move
         )
     }) {
-        let value = flow.domain.storage_value(&state, plan);
+        let value = flow
+            .domain
+            .storage_value(&state, plan.expression(), plan.access());
 
         if plan.purpose() == bray_bound_tree::StorageAccessPurpose::ValueTransfer
             && storage

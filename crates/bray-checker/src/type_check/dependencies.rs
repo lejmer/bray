@@ -5,6 +5,8 @@ use crate::representation::{representation_type, type_representation};
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 pub(super) struct ExpressionTypeDependencies {
+    pub(super) scoped_failures:
+        std::collections::BTreeMap<bray_bound_tree::BoundExpressionId, TypeId>,
     pub(super) box_storage_policies:
         std::collections::BTreeMap<bray_bound_tree::BoundExpressionId, TypeId>,
     pub(super) error: TypeId,
@@ -21,6 +23,7 @@ pub(super) struct ExpressionTypeDependencies {
 impl ExpressionTypeDependencies {
     pub(super) fn new<C>(
         request: CheckerUnitView<'_, C>,
+        selections: &[bray_bound_tree::SemanticSelectionEntry],
     ) -> Result<Self, CheckerInfrastructureError>
     where
         C: CheckerRequestContext + ?Sized,
@@ -40,6 +43,15 @@ impl ExpressionTypeDependencies {
         let c128 = representation_type(request, RepresentationRole::ScalarC128)?;
 
         Ok(Self {
+            scoped_failures: selections
+                .iter()
+                .filter_map(|entry| match entry.selection() {
+                    bray_bound_tree::SemanticSelection::ScopedUse(scoped) => scoped
+                        .failure_type()
+                        .map(|failure| (scoped.expression(), failure)),
+                    _ => None,
+                })
+                .collect(),
             box_storage_policies: std::collections::BTreeMap::new(),
             error,
             unit,

@@ -331,6 +331,35 @@ fn standard_library_package_identity() -> CheckerQueryResult<PackageIdentity> {
 impl CheckerRequestContext for CompilationCheckerContext<'_> {
     type UpstreamError = FactQueryError;
 
+    fn inherited_callable_substitution(
+        &self,
+        instance: bray_symbols::CallableInstanceData,
+    ) -> CheckerQueryResult<DiagnosticResult<Option<bray_symbols::GenericSubstitutionId>>> {
+        self.binding_context
+            .compilation()
+            .inherited_callable_substitution(&self.binding_context, instance)
+            .map_err(checker_query_error)
+    }
+
+    fn implementation_subject_type(
+        &self,
+        implementation: bray_symbols::ImplementationSymbolId,
+    ) -> CheckerQueryResult<DiagnosticResult<TypeId>> {
+        let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
+
+        let ty = self
+            .binding_context
+            .compilation()
+            .resolve_implementation_self_type(
+                &self.binding_context,
+                implementation,
+                &mut diagnostics,
+            )
+            .map_err(checker_query_error)?;
+
+        Ok(DiagnosticResult::new(ty, diagnostics))
+    }
+
     fn result_dispatch_requirement(
         &self,
         dispatch: bray_symbols::TraitConstraintDispatch,
