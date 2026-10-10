@@ -1,8 +1,6 @@
-use bray_binder::SymbolQueryProvider;
-use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
+use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    CallableInstanceData, CallableSignature, CallableSignatureQuery, SymbolQueryRequest,
-    TypeAssociatedLifecycleSlot, TypeData, TypeId,
+    CallableInstanceData, CallableSignature, TypeAssociatedLifecycleSlot, TypeData, TypeId,
 };
 
 use super::{
@@ -64,33 +62,10 @@ impl Compilation {
         let callable = super::implementation::callable_instance(values, member, [*substitution])?;
         let binding = self.binding_context(cancellation)?;
 
-        let signature = binding
-            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
-                callable.definition().callable_symbol(),
-            ))
-            .map_err(super::binder::binding_query_error)?;
+        let mut diagnostics = surface.diagnostics().clone();
 
-        let constants = self.checked_constant_terms_for_templates_with_cancellation(
-            [
-                signature.value().callable_type(),
-                signature.value().result(),
-            ],
-            cancellation,
-        )?;
-
-        let resolved = bray_checker::resolve_callable_signature_template(
-            values,
-            signature.value(),
-            callable.substitution(),
-            constants.value(),
-        )
-        .map_err(FactQueryError::from)?;
-
-        let diagnostics = DiagnosticBag::merged_all([
-            surface.diagnostics(),
-            signature.diagnostics(),
-            constants.diagnostics(),
-        ]);
+        let resolved =
+            self.resolve_callable_instance_signature(&binding, callable, &mut diagnostics)?;
 
         if resolved.is_none() && diagnostics.has_errors() {
             return Ok(DiagnosticResult::new(None, diagnostics));

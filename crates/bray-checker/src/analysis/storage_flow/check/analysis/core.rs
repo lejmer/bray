@@ -463,8 +463,8 @@ where
 
         let refinements = self.refinements.refinements_before(operation.kind().node());
 
-        for plan in self.input.plans(operation.kind().node()) {
-            self.apply_plan(state, *plan, refinements);
+        for plan in self.storage.node_plans(operation.kind().node()) {
+            self.apply_plan(state, plan, refinements);
         }
 
         self.transfer_raw_pointer_state(state, operation.kind().node());

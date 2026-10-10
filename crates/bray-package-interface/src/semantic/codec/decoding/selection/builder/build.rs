@@ -52,6 +52,19 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_record_graph(
 
     builder.include_requested_semantics(&directory, kind)?;
 
+    if builder
+        .records
+        .callable_contracts
+        .values()
+        .values()
+        .any(|contract| {
+            !contract.execution_contract.domains.is_empty()
+                || !contract.execution_contract.evidence.is_empty()
+        })
+    {
+        return bundle::decode_semantics_with_context(sections, surface, builder.context.restart());
+    }
+
     let semantics = remap_selected_records(builder.records)?;
 
     if semantics.callable_signatures.iter().any(|signature| {
@@ -74,6 +87,7 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_record_graph(
 enum PendingRecord {
     Constraint(u32),
     CallableSignature(u32),
+    CallableContract(u32),
     GenericDeclaration(u32),
     DeclaredType(u32),
     Implementation(u32),
@@ -143,6 +157,12 @@ impl<'bytes> SelectionBuilder<'bytes> {
             )?;
 
             self.enqueue(PendingRecord::CallableSignature(index));
+        }
+
+        if kind == InterfaceSemanticRecordKind::CallableContracts {
+            let index = self.one_record_index(directory, kind, InterfaceSectionTag::Contracts)?;
+
+            self.enqueue(PendingRecord::CallableContract(index));
         }
 
         if kind == InterfaceSemanticRecordKind::GenericDeclaration {
@@ -223,6 +243,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 PendingRecord::CallableSignature(index) => {
                     self.include_callable_signature(index)?;
                 }
+                PendingRecord::CallableContract(index) => self.include_callable_contract(index)?,
                 PendingRecord::GenericDeclaration(index) => {
                     self.include_generic_declaration(index)?;
                 }
@@ -304,6 +325,72 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 crate::InterfaceValidationField::Reference,
             )),
         }
+    }
+
+    fn include_callable_contract(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
+        let contract = self.tables.contracts.callables.decode(
+            index,
+            &mut self.context,
+            |reader, context| contract::decode_callable_contract(reader, context.limits(), context),
+        )?;
+
+        if contract.owner != self.owner {
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
+        }
+
+        for clause in contract
+            .invocation_preconditions
+            .iter()
+            .chain(contract.static_constraints.iter())
+            .chain(contract.normal_completion_postconditions.iter())
+        {
+            match clause.value {
+                crate::InterfaceCallableContractClauseValue::Predicate(predicate) => {
+                    self.enqueue(PendingRecord::DependencyContract(
+                        predicate.dependency_contract.raw(),
+                    ));
+
+                    if let Some(term) = predicate.condition {
+                        self.enqueue(PendingRecord::ConstantTerm(term.raw()));
+                    }
+                }
+                crate::InterfaceCallableContractClauseValue::TraitSatisfaction {
+                    subject,
+                    application,
+                } => {
+                    self.enqueue(PendingRecord::Type(subject.raw()));
+                    self.enqueue(PendingRecord::TraitApplication(application.raw()));
+                }
+            }
+        }
+
+        for behavior in std::iter::once(&contract.invocation_behavior)
+            .chain(contract.deferred_execution_behavior.iter())
+        {
+            self.enqueue(PendingRecord::DependencyContract(
+                behavior.dependency_contract.raw(),
+            ));
+
+            for predicate in behavior
+                .predicate_requirements
+                .iter()
+                .chain(behavior.predicate_guarantees.iter())
+            {
+                self.enqueue(PendingRecord::DependencyContract(
+                    predicate.dependency_contract.raw(),
+                ));
+
+                if let Some(term) = predicate.condition {
+                    self.enqueue(PendingRecord::ConstantTerm(term.raw()));
+                }
+            }
+        }
+
+        self.records.callable_contracts.insert(index, contract);
+
+        Ok(())
     }
 
     fn include_callable_signature(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
@@ -412,9 +499,15 @@ impl<'bytes> SelectionBuilder<'bytes> {
         }
 
         match constraint.kind {
-            crate::InterfaceConstraintKind::Predicate(predicate) => self.enqueue(
-                PendingRecord::DependencyContract(predicate.dependency_contract.raw()),
-            ),
+            crate::InterfaceConstraintKind::Predicate(predicate) => {
+                self.enqueue(PendingRecord::DependencyContract(
+                    predicate.dependency_contract.raw(),
+                ));
+
+                if let Some(term) = predicate.condition {
+                    self.enqueue(PendingRecord::ConstantTerm(term.raw()));
+                }
+            }
             crate::InterfaceConstraintKind::TraitSatisfaction {
                 subject,
                 application,
@@ -682,6 +775,24 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 }
 
                 self.enqueue(PendingRecord::Type(result.raw()));
+
+                for behavior in
+                    std::iter::once(invocation_behavior).chain(deferred_execution_behavior.iter())
+                {
+                    for predicate in behavior
+                        .predicate_requirements
+                        .iter()
+                        .chain(behavior.predicate_guarantees.iter())
+                    {
+                        self.enqueue(PendingRecord::DependencyContract(
+                            predicate.dependency_contract.raw(),
+                        ));
+
+                        if let Some(term) = predicate.condition {
+                            self.enqueue(PendingRecord::ConstantTerm(term.raw()));
+                        }
+                    }
+                }
 
                 self.enqueue(PendingRecord::DependencyContract(
                     invocation_behavior.dependency_contract.raw(),

@@ -197,6 +197,13 @@ pub enum DiagnosticCallableContractMismatch {
         /// Index of the mismatching clause.
         index: u64,
     },
+    /// Trusted predicate meaning or acknowledgement differs at one clause index.
+    PredicateCondition {
+        /// Contract surface containing the clause.
+        surface: DiagnosticCallableContractSurface,
+        /// Index of the mismatching clause.
+        index: u64,
+    },
     /// Trait subject or application differs at one zero-based clause index.
     TraitSatisfaction {
         /// Contract surface containing the clause.

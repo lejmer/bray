@@ -149,9 +149,8 @@ impl DirectoryPublication {
         if previous.exists() {
             let obsolete = staging.path().join("abandoned-previous");
 
-            rename_directory(&previous, &obsolete).map_err(|error| {
-                DirectoryPublicationError::publish(&previous, &obsolete, error)
-            })?;
+            rename_directory(&previous, &obsolete)
+                .map_err(|error| DirectoryPublicationError::publish(&previous, &obsolete, error))?;
         }
 
         Ok(Self {
@@ -204,9 +203,8 @@ impl DirectoryPublication {
         if replaces_existing {
             let obsolete = self.staging.path().join("previous");
 
-            rename_directory(previous, &obsolete).map_err(|error| {
-                DirectoryPublicationError::publish(previous, &obsolete, error)
-            })?;
+            rename_directory(previous, &obsolete)
+                .map_err(|error| DirectoryPublicationError::publish(previous, &obsolete, error))?;
         }
 
         Ok(self.destination)
@@ -215,7 +213,10 @@ impl DirectoryPublication {
 
 fn previous_directory(destination: &Path) -> Result<PathBuf, DirectoryPublicationError> {
     let name = destination.file_name().ok_or_else(|| {
-        DirectoryPublicationError::write(destination, std::io::Error::new(ErrorKind::InvalidInput, "destination has no file name"))
+        DirectoryPublicationError::write(
+            destination,
+            std::io::Error::new(ErrorKind::InvalidInput, "destination has no file name"),
+        )
     })?;
 
     let mut previous = OsString::from(".");
@@ -228,9 +229,8 @@ fn previous_directory(destination: &Path) -> Result<PathBuf, DirectoryPublicatio
 
 fn recover_previous(destination: &Path, previous: &Path) -> Result<(), DirectoryPublicationError> {
     if !destination.exists() && previous.exists() {
-        rename_directory(previous, destination).map_err(|error| {
-            DirectoryPublicationError::publish(previous, destination, error)
-        })?;
+        rename_directory(previous, destination)
+            .map_err(|error| DirectoryPublicationError::publish(previous, destination, error))?;
     }
 
     Ok(())
@@ -379,21 +379,34 @@ mod tests {
 
         let child = |mode: &str| {
             std::process::Command::new(std::env::current_exe().expect("test executable"))
-                .args(["--exact", "bundle::tests::publication_child", "--ignored", "--nocapture"])
+                .args([
+                    "--exact",
+                    "bundle::tests::publication_child",
+                    "--ignored",
+                    "--nocapture",
+                ])
                 .env("BRAY_PUBLICATION_TEST_OUTPUT", &output)
                 .env("BRAY_PUBLICATION_TEST_MODE", mode)
-                .status().expect("publication subprocess")
+                .status()
+                .expect("publication subprocess")
         };
 
         assert!(child("interrupt").success());
         assert!(!output.exists());
         assert!(child("publish").success());
 
-        assert_eq!(std::fs::read(output.join("complete")).expect("published artifact"), b"complete");
+        assert_eq!(
+            std::fs::read(output.join("complete")).expect("published artifact"),
+            b"complete"
+        );
 
         assert!(child("interrupt").success());
 
-        assert_eq!(std::fs::read(output.join("complete")).expect("retained artifact"), b"complete");
+        assert_eq!(
+            std::fs::read(output.join("complete")).expect("retained artifact"),
+            b"complete"
+        );
+
         assert!(!output.join("partial").exists());
         assert!(child("publish").success());
 
@@ -401,18 +414,28 @@ mod tests {
         assert!(!output.exists());
         assert!(child("recover").success());
 
-        assert_eq!(std::fs::read(output.join("complete")).expect("recovered previous bundle"), b"complete");
+        assert_eq!(
+            std::fs::read(output.join("complete")).expect("recovered previous bundle"),
+            b"complete"
+        );
 
         assert!(child("interrupt-after-publication").success());
         assert!(child("recover").success());
-        assert_eq!(std::fs::read(output.join("new")).expect("new published bundle retained"), b"new");
+
+        assert_eq!(
+            std::fs::read(output.join("new")).expect("new published bundle retained"),
+            b"new"
+        );
+
         assert!(child("publish").success());
     }
 
     #[test]
     #[ignore = "invoked in a separate process by the publication recovery test"]
     fn publication_child() {
-        let output = PathBuf::from(std::env::var_os("BRAY_PUBLICATION_TEST_OUTPUT").expect("test output"));
+        let output =
+            PathBuf::from(std::env::var_os("BRAY_PUBLICATION_TEST_OUTPUT").expect("test output"));
+
         let mode = std::env::var("BRAY_PUBLICATION_TEST_MODE").expect("test mode");
 
         if mode == "recover" {
@@ -422,28 +445,37 @@ mod tests {
             return;
         }
 
-        let publication = DirectoryPublication::begin(&output, "interrupted-publication-").expect("begin publication");
+        let publication = DirectoryPublication::begin(&output, "interrupted-publication-")
+            .expect("begin publication");
 
         if mode == "interrupt" {
-            std::fs::write(publication.contents().join("partial"), b"partial").expect("partial artifact");
+            std::fs::write(publication.contents().join("partial"), b"partial")
+                .expect("partial artifact");
 
             // Exit without destructors, like an interrupted preparation process.
             std::process::exit(0);
         }
 
         if mode.starts_with("interrupt-") {
-            std::fs::write(publication.contents().join("complete"), b"complete").expect("new complete artifact");
-            std::fs::rename(&publication.destination, &publication.previous).expect("move previous bundle");
+            std::fs::write(publication.contents().join("complete"), b"complete")
+                .expect("new complete artifact");
+
+            std::fs::rename(&publication.destination, &publication.previous)
+                .expect("move previous bundle");
 
             if mode == "interrupt-after-publication" {
                 std::fs::write(publication.contents().join("new"), b"new").expect("new marker");
-                std::fs::rename(&publication.contents, &publication.destination).expect("publish replacement");
+
+                std::fs::rename(&publication.contents, &publication.destination)
+                    .expect("publish replacement");
             }
 
             std::process::exit(0);
         }
 
-        std::fs::write(publication.contents().join("complete"), b"complete").expect("complete artifact");
+        std::fs::write(publication.contents().join("complete"), b"complete")
+            .expect("complete artifact");
+
         publication.publish().expect("publish complete bundle");
     }
 

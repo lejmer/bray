@@ -174,11 +174,7 @@ pub(super) fn check_storage_accesses<C: CheckerRequestContext + ?Sized>(
     property: ExecutionProperty,
     dependencies: &mut Vec<ExecutionDependency>,
 ) -> bool {
-    for plan in storage
-        .access_plans()
-        .iter()
-        .filter(|plan| plan.node() == node)
-    {
+    for plan in storage.node_plans(node) {
         let Some(identity) = storage.root_identity(plan.access()) else {
             return false;
         };

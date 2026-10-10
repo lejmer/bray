@@ -17,20 +17,28 @@ pub(crate) fn current_target_bundle(
     let target = TargetIdentity::try_new(target.as_str())
         .ok_or_else(|| "standard library target identity is invalid".to_owned())?;
 
-    current(output, std::slice::from_ref(&target), |targets| input_identity(source, targets))
-        .map(|current| current.then(|| output.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME)))
-        .map_err(|error| error.to_string())
+    current(output, std::slice::from_ref(&target), |targets| {
+        input_identity(source, targets)
+    })
+    .map(|current| current.then(|| output.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME)))
+    .map_err(|error| error.to_string())
 }
 
-pub(super) fn input_identity(source: &Path, targets: &[TargetIdentity]) -> Result<String, BuildError> {
+pub(super) fn input_identity(
+    source: &Path,
+    targets: &[TargetIdentity],
+) -> Result<String, BuildError> {
     let root = crate::workspace::root().map_err(BuildError::Workspace)?;
 
     let sources =
         crate::input_identity::WorkspaceSources::load(&root).map_err(BuildError::InputIdentity)?;
 
-    let mut targets = targets.iter()
-        .map(|target| NativeTarget::for_identity(target)
-            .ok_or_else(|| BuildError::UnsupportedTarget(target.clone())))
+    let mut targets = targets
+        .iter()
+        .map(|target| {
+            NativeTarget::for_identity(target)
+                .ok_or_else(|| BuildError::UnsupportedTarget(target.clone()))
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     targets.sort_unstable();
@@ -75,13 +83,17 @@ pub(super) fn current(
     }
 
     // An installed bundle may contain more targets than this consumer requests.
-    let published_targets = manifest.targets().iter()
-        .map(|artifacts| artifacts.target().clone()).collect::<Vec<_>>();
+    let published_targets = manifest
+        .targets()
+        .iter()
+        .map(|artifacts| artifacts.target().clone())
+        .collect::<Vec<_>>();
 
     let input = input_identity(&published_targets)?;
 
     if !crate::input_identity::stored_digest_matches(output, &input)
-        .map_err(BuildError::InputIdentity)? {
+        .map_err(BuildError::InputIdentity)?
+    {
         return Ok(false);
     }
 
@@ -114,8 +126,8 @@ mod tests {
     use bray_runtime_interface::RuntimeAbiVersion;
     use bray_standard_library::{
         STANDARD_LIBRARY_MANIFEST_FILE_NAME, StandardLibraryArtifact, StandardLibraryArtifactKind,
-        StandardLibraryBundleManifest, StandardLibraryTargetArtifacts, encode_standard_library_manifest,
-        standard_library_target_artifact_directory,
+        StandardLibraryBundleManifest, StandardLibraryTargetArtifacts,
+        encode_standard_library_manifest, standard_library_target_artifact_directory,
     };
     use bray_target::{NativeTarget, TargetIdentity};
 
@@ -130,21 +142,33 @@ mod tests {
 
             let artifacts = [
                 (StandardLibraryArtifactKind::PackageInterface, "std.brayi"),
-                (StandardLibraryArtifactKind::PackageImplementation, "std.brayimpl"),
-            ].into_iter().map(|(kind, name)| {
+                (
+                    StandardLibraryArtifactKind::PackageImplementation,
+                    "std.brayimpl",
+                ),
+            ]
+            .into_iter()
+            .map(|(kind, name)| {
                 let path = format!("{prefix}/{name}");
 
                 fs::write(root.join(&path), b"artifact").expect("artifact");
 
-                StandardLibraryArtifact::try_for_bytes(kind, path, b"artifact").expect("artifact record")
+                StandardLibraryArtifact::try_for_bytes(kind, path, b"artifact")
+                    .expect("artifact record")
             });
 
-            StandardLibraryTargetArtifacts::try_new(target.clone(), abi, artifacts).expect("target inventory")
+            StandardLibraryTargetArtifacts::try_new(target.clone(), abi, artifacts)
+                .expect("target inventory")
         });
 
         let manifest = StandardLibraryBundleManifest::try_new(targets).expect("manifest");
 
-        fs::write(root.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME), encode_standard_library_manifest(&manifest).expect("encoded manifest")).expect("publish manifest");
+        fs::write(
+            root.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME),
+            encode_standard_library_manifest(&manifest).expect("encoded manifest"),
+        )
+        .expect("publish manifest");
+
         crate::input_identity::write_digest(root, "inputs").expect("publish identity");
 
         manifest
@@ -153,23 +177,43 @@ mod tests {
     #[test]
     fn installed_superset_checks_published_target_identity_and_every_artifact() {
         let directory = tempfile::tempdir().expect("standard library cache");
-        let targets = [NativeTarget::Aarch64LinuxGnu.identity(), NativeTarget::X86_64LinuxGnu.identity()];
+
+        let targets = [
+            NativeTarget::Aarch64LinuxGnu.identity(),
+            NativeTarget::X86_64LinuxGnu.identity(),
+        ];
+
         let manifest = publish(directory.path(), &targets);
 
-        assert!(current(directory.path(), &targets[..1], |actual| {
-            assert_eq!(actual, targets);
-            Ok("inputs".to_owned())
-        }).expect("superset hit"));
+        assert!(
+            current(directory.path(), &targets[..1], |actual| {
+                assert_eq!(actual, targets);
+                Ok("inputs".to_owned())
+            })
+            .expect("superset hit")
+        );
 
-        for artifact in manifest.targets().iter().flat_map(StandardLibraryTargetArtifacts::artifacts) {
+        for artifact in manifest
+            .targets()
+            .iter()
+            .flat_map(StandardLibraryTargetArtifacts::artifacts)
+        {
             let path = artifact.beneath(directory.path());
 
             fs::write(&path, b"corrupt!").expect("same-length corruption");
-            assert!(!current(directory.path(), &targets[..1], |_| Ok("inputs".to_owned())).expect("corruption miss"));
+
+            assert!(
+                !current(directory.path(), &targets[..1], |_| Ok("inputs".to_owned()))
+                    .expect("corruption miss")
+            );
+
             fs::write(path, b"artifact").expect("restore");
         }
 
-        assert!(!current(directory.path(), &targets, |_| Ok("changed".to_owned())).expect("identity miss"));
+        assert!(
+            !current(directory.path(), &targets, |_| Ok("changed".to_owned()))
+                .expect("identity miss")
+        );
     }
 
     #[test]
@@ -188,8 +232,15 @@ mod tests {
         assert!(!current(directory.path(), &target, identity).expect("missing artifact miss"));
 
         for bytes in [&b"{"[..], &[255][..]] {
-            fs::write(directory.path().join(STANDARD_LIBRARY_MANIFEST_FILE_NAME), bytes).expect("malformed manifest");
-            assert!(!current(directory.path(), &target, identity).expect("malformed manifest miss"));
+            fs::write(
+                directory.path().join(STANDARD_LIBRARY_MANIFEST_FILE_NAME),
+                bytes,
+            )
+            .expect("malformed manifest");
+
+            assert!(
+                !current(directory.path(), &target, identity).expect("malformed manifest miss")
+            );
         }
     }
 }

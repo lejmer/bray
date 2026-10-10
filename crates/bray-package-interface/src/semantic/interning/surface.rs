@@ -116,7 +116,17 @@ impl InternState {
 
                             CheckedConstraint::new(
                                 input.ordinal,
-                                PredicateSemanticSummary::new(dependency),
+                                PredicateSemanticSummary::new(dependency).with_condition(
+                                    predicate
+                                        .condition
+                                        .map(|term| {
+                                            self.constant_term_id(term).ok_or(
+                                                InterfaceSemanticInternError::UnresolvedValueGraph,
+                                            )
+                                        })
+                                        .transpose()?,
+                                    predicate.is_trusted,
+                                ),
                             )
                         }
                         crate::InterfaceConstraintKind::TraitSatisfaction {
@@ -174,7 +184,17 @@ impl InternState {
                             CallableContractClause::new(
                                 clause.ordinal,
                                 clause.kind,
-                                PredicateSemanticSummary::new(dependency),
+                                PredicateSemanticSummary::new(dependency).with_condition(
+                                    predicate
+                                        .condition
+                                        .map(|term| {
+                                            self.constant_term_id(term).ok_or(
+                                                InterfaceSemanticInternError::UnresolvedValueGraph,
+                                            )
+                                        })
+                                        .transpose()?,
+                                    predicate.is_trusted,
+                                ),
                             )
                         }
                         crate::InterfaceCallableContractClauseValue::TraitSatisfaction {
@@ -232,6 +252,26 @@ impl InternState {
             .collect()
     }
 
+    fn convert_predicate(
+        &self,
+        predicate: crate::InterfacePredicateSummary,
+    ) -> Result<PredicateSemanticSummary, InterfaceSemanticInternError> {
+        Ok(PredicateSemanticSummary::new(
+            self.dependency_contract_id(predicate.dependency_contract)
+                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
+        )
+        .with_condition(
+            predicate
+                .condition
+                .map(|term| {
+                    self.constant_term_id(term)
+                        .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)
+                })
+                .transpose()?,
+            predicate.is_trusted,
+        ))
+    }
+
     pub(super) fn convert_callable_behavior(
         &self,
         input: &InterfaceCallablePhaseBehavior,
@@ -283,7 +323,19 @@ impl InternState {
             dependency,
             input.current_run_cancellation,
         )
-        .with_execution_properties(input.execution_properties.iter().copied()))
+        .with_execution_properties(input.execution_properties.iter().copied())
+        .with_predicates(
+            input
+                .predicate_requirements
+                .iter()
+                .map(|predicate| self.convert_predicate(*predicate))
+                .collect::<Result<Vec<_>, _>>()?,
+            input
+                .predicate_guarantees
+                .iter()
+                .map(|predicate| self.convert_predicate(*predicate))
+                .collect::<Result<Vec<_>, _>>()?,
+        ))
     }
 
     pub(super) fn convert_implementations(

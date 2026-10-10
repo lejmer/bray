@@ -14,7 +14,7 @@ use bray_symbols::{AvailableCompilerKnownSymbols, SemanticValueStore};
 
 use crate::result::requires_mir;
 
-use super::storage::{storage_operation_indices, storage_plan_indices, temporary_storage_indices};
+use super::storage::{storage_operation_indices, temporary_storage_indices};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum ScopeExitCleanupStatus {
@@ -41,7 +41,6 @@ pub struct LoweringInput<'unit> {
     pub(super) storage: &'unit StoragePlan,
     liveness: &'unit Liveness,
     pub(super) storage_flow: &'unit StorageFlow,
-    pub(super) storage_plans: Arc<[usize]>,
     pub(super) storage_operations: Arc<[usize]>,
     pub(super) temporary_storage: Arc<[(BoundExpressionId, StorageIdentityId)]>,
     dependencies: &'unit CheckedDependencyContracts,
@@ -50,9 +49,7 @@ pub struct LoweringInput<'unit> {
     async_analysis: &'unit CheckedAsync,
     suspensions: BTreeMap<BoundExpressionId, usize>,
     task_operations: BTreeMap<BoundExpressionId, AsyncTaskOperationKind>,
-    scope_exits: BTreeMap<(BoundBlockId, AnyBoundNodeId), usize>,
     lifecycle_storage: BTreeSet<StorageIdentityId>,
-    replacements: BTreeMap<BoundExpressionId, usize>,
     completed: BTreeSet<(AnyBoundNodeId, StorageAccessId)>,
     body_behavior: &'unit CheckedBodyBehavior,
     semantic_values: &'unit SemanticValueStore,
@@ -195,19 +192,9 @@ impl<'unit> LoweringInput<'unit> {
             );
         }
 
-        let mut scope_exits = BTreeMap::new();
         let mut lifecycle_storage = BTreeSet::new();
 
-        for (index, plan) in async_analysis.scope_exits().iter().enumerate() {
-            assert!(
-                scope_exits
-                    .insert((plan.scope(), plan.exit()), index)
-                    .is_none(),
-                "checked async analysis contains duplicate scope-exit plan for {:?} at {:?}",
-                plan.scope(),
-                plan.exit()
-            );
-
+        for plan in async_analysis.scope_exits() {
             for decision in plan.storage() {
                 if let AsyncStorageExitDisposition::Cleanup { phases, .. } = decision.disposition()
                     && phases.includes_lifecycle()
@@ -215,18 +202,6 @@ impl<'unit> LoweringInput<'unit> {
                     lifecycle_storage.insert(decision.identity());
                 }
             }
-        }
-
-        let mut replacements = BTreeMap::new();
-
-        for (index, replacement) in async_analysis.replacements().iter().enumerate() {
-            assert!(
-                replacements
-                    .insert(replacement.expression(), index)
-                    .is_none(),
-                "checked async analysis contains duplicate replacement for {:?}",
-                replacement.expression()
-            );
         }
 
         Self {
@@ -239,7 +214,6 @@ impl<'unit> LoweringInput<'unit> {
             storage,
             liveness,
             storage_flow,
-            storage_plans: storage_plan_indices(storage),
             storage_operations: storage_operation_indices(storage_flow),
             temporary_storage: temporary_storage_indices(storage),
             dependencies,
@@ -248,9 +222,7 @@ impl<'unit> LoweringInput<'unit> {
             async_analysis,
             suspensions,
             task_operations,
-            scope_exits,
             lifecycle_storage,
-            replacements,
             completed,
             body_behavior,
             semantic_values,
@@ -346,9 +318,7 @@ impl<'unit> LoweringInput<'unit> {
         &self,
         expression: BoundExpressionId,
     ) -> Option<&'unit StorageReplacementPlan> {
-        self.replacements
-            .get(&expression)
-            .and_then(|index| self.async_analysis.replacements().get(*index))
+        self.async_analysis.replacement(expression)
     }
 
     /// Returns frame dependencies in the order published by checked async analysis.
@@ -386,9 +356,7 @@ impl<'unit> LoweringInput<'unit> {
             .iter()
             .rev()
             .map(|scope| {
-                self.scope_exits
-                    .get(&(*scope, exit))
-                    .and_then(|index| self.async_analysis.scope_exits().get(*index))
+                self.async_analysis.scope_exit_plan(*scope, exit)
                     // Lowering mutates its builder while retaining these shared immutable plans.
                     .cloned()
                     .unwrap_or_else(|| {
@@ -406,7 +374,7 @@ impl<'unit> LoweringInput<'unit> {
         scope: BoundBlockId,
         exit: AnyBoundNodeId,
     ) -> ScopeExitCleanupStatus {
-        let Some(index) = self.scope_exits.get(&(scope, exit)) else {
+        let Some(plan) = self.async_analysis.scope_exit_plan(scope, exit) else {
             let point = StorageExitPoint::new(scope, exit);
 
             if self
@@ -422,16 +390,6 @@ impl<'unit> LoweringInput<'unit> {
 
             return ScopeExitCleanupStatus::Unreachable;
         };
-
-        let plan = self
-            .async_analysis
-            .scope_exits()
-            .get(*index)
-            .unwrap_or_else(|| {
-                panic!(
-                    "lowering cleanup contract violated: scope-exit index for scope {scope:?} and exit {exit:?} is absent"
-                )
-            });
 
         if !plan.has_cleanup() {
             ScopeExitCleanupStatus::NoCleanup
@@ -475,9 +433,7 @@ impl<'unit> LoweringInput<'unit> {
         identity: StorageIdentityId,
     ) -> Option<&'unit [bray_bound_tree::StorageCleanupPart]> {
         self.async_analysis
-            .storage_requirements()
-            .iter()
-            .find(|requirement| requirement.identity() == identity)
+            .storage_requirement(identity)
             .and_then(bray_bound_tree::AsyncStorageRequirement::parts)
     }
 
@@ -822,12 +778,18 @@ mod tests {
         let plans = analysis.storage.access_plans();
 
         assert_eq!(
-            input.expression_storage_plans(first).collect::<Vec<_>>(),
+            input
+                .storage_plan()
+                .expression_plans(first)
+                .collect::<Vec<_>>(),
             plans[1..]
         );
 
         assert_eq!(
-            input.expression_storage_plans(second).collect::<Vec<_>>(),
+            input
+                .storage_plan()
+                .expression_plans(second)
+                .collect::<Vec<_>>(),
             plans[..1]
         );
 
@@ -836,11 +798,6 @@ mod tests {
         assert!(std::sync::Arc::ptr_eq(
             &input.storage_operations,
             &input.clone().storage_operations
-        ));
-
-        assert!(std::sync::Arc::ptr_eq(
-            &input.storage_plans,
-            &input.clone().storage_plans
         ));
     }
 

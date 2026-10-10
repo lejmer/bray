@@ -227,15 +227,6 @@ See [trusted implementation capabilities](https://github.com/lejmer/bray/blob/de
 `trusted expression` places an explicit trust boundary around exactly one operand. It records acceptance of the trusted caller obligations required by that operand and otherwise preserves the operand's type, value category, ownership, control flow, effects, and finalization behavior.
 
 ```bray
-func initialize_and_read(pos pointer: RawPointer<u8>, pos value: u8) -> u8
-{
-    trusted initialize_byte(pointer, value);
-
-    let readable: ReadableByte = trusted assume_readable_byte(pointer);
-
-    return read_byte(&readable);
-}
-
 trusted func read_pair(pos first: RawPointer<u8>, pos second: RawPointer<u8>) -> u16
     requires(
         trusted core.memory.valid_read<u8>(pointer = first, count = 1),
@@ -257,7 +248,7 @@ trusted func read_pair(pos first: RawPointer<u8>, pos second: RawPointer<u8>) ->
 }
 ```
 
-The first function uses single-expression boundaries. The second uses a block operand, so both raw reads fall within one visible boundary. A trust boundary acknowledges obligations for its operand. Runtime validation remains explicit through ordinary checks or trusted API contracts, and implementation authority remains declaration-owned through `uses(...)`.
+`initialize_byte` above uses a single-expression boundary. `read_pair` uses a block operand, so both raw reads fall within one visible boundary. A trust boundary acknowledges obligations for its operand. The surrounding declaration must still establish or expose those obligations in its contract. Runtime validation remains explicit through ordinary checks or trusted API contracts, and implementation authority remains declaration-owned through `uses(...)`.
 
 A witness value is an ordinary value whose live contract carries trusted guarantees. Its guarantees move with the value and remain available only while the value and every dependency named by those guarantees remain valid. Mutation, movement from the old path, destruction, finalization, replacement, partial separation, borrow expiry, or dependency invalidation removes affected guarantees.
 
@@ -309,4 +300,4 @@ See [obligation propagation](https://github.com/lejmer/bray/blob/develop/docs/la
 | Check and retain an ordinary runtime condition | `assert(condition[, message])`     |
 | Carry trusted guarantees with a value          | A value-returning `ensures(...)`   |
 
-**Remember:** Requirements belong to callers, guarantees belong to successful completion, static constraints belong to generic checking, capabilities belong to trusted implementations, and trusted obligations must remain visible until proof, a live witness, or an explicit boundary discharges them.
+**Remember:** Requirements belong to callers, guarantees belong to successful completion, static constraints belong to generic checking, and capabilities belong to trusted implementations. A boundary acknowledges its operand's obligations, while the surrounding declaration must prove or expose them.

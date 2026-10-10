@@ -141,6 +141,18 @@ where
             .with_upstream()
     );
 
+    let trusted = complete!(
+        diagnostics,
+        crate::analysis::guarantee::collect_trusted_memory_evidence(
+            request,
+            expressions,
+            storage,
+            graph,
+        )
+    );
+
+    let request = request.with_trusted_memory_evidence(&trusted);
+
     let flow = complete!(
         diagnostics,
         check_storage_flow_with_graph(
@@ -171,6 +183,17 @@ where
             &refinements,
             &flow,
             graph,
+        )
+    );
+
+    complete!(
+        diagnostics,
+        crate::analysis::guarantee::check_trusted_completion(
+            request,
+            expressions,
+            storage,
+            &asynchronous,
+            graph
         )
     );
 

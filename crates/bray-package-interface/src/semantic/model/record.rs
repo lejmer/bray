@@ -17,6 +17,8 @@ use crate::InterfaceSymbolReference;
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfacePredicateSummary {
     pub(crate) dependency_contract: InterfaceDependencyContractId,
+    pub(crate) condition: Option<super::InterfaceConstantTermId>,
+    pub(crate) is_trusted: bool,
 }
 
 impl InterfacePredicateSummary {
@@ -24,7 +26,31 @@ impl InterfacePredicateSummary {
     pub const fn new(dependency_contract: InterfaceDependencyContractId) -> Self {
         Self {
             dependency_contract,
+            condition: None,
+            is_trusted: false,
         }
+    }
+
+    /// Retains portable predicate meaning and caller trust authority.
+    pub const fn with_condition(
+        mut self,
+        condition: Option<super::InterfaceConstantTermId>,
+        is_trusted: bool,
+    ) -> Self {
+        self.condition = condition;
+        self.is_trusted = is_trusted;
+
+        self
+    }
+
+    /// Returns the checked predicate term in callable argument order.
+    pub const fn condition(self) -> Option<super::InterfaceConstantTermId> {
+        self.condition
+    }
+
+    /// Whether the predicate requires trusted caller evidence.
+    pub const fn is_trusted(self) -> bool {
+        self.is_trusted
     }
 
     /// Returns the predicate expression's portable dependency contract.
@@ -232,6 +258,8 @@ impl InterfaceTrustedCapabilityRequirement {
 /// Durable checked behavior for one callable contract phase.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceCallablePhaseBehavior {
+    pub(crate) predicate_requirements: Arc<[InterfacePredicateSummary]>,
+    pub(crate) predicate_guarantees: Arc<[InterfacePredicateSummary]>,
     pub(crate) execution_properties: Arc<[bray_symbols::ExecutionProperty]>,
     pub(crate) effects: Arc<[InterfaceSymbolReference]>,
     pub(crate) capabilities: Arc<[InterfaceSymbolReference]>,
@@ -259,10 +287,34 @@ impl InterfaceCallablePhaseBehavior {
             trusted_capabilities: trusted_capabilities.into_iter().collect(),
             execution_requirements: sorted_unique_shared_slice(execution_requirements),
             lifecycle_obligations: sorted_unique_shared_slice(lifecycle_obligations),
+            predicate_requirements: Arc::from([]),
+            predicate_guarantees: Arc::from([]),
             execution_properties: Arc::from([]),
             dependency_contract,
             current_run_cancellation,
         }
+    }
+
+    /// Retains portable trusted obligations and normal-completion guarantees.
+    pub fn with_predicates(
+        mut self,
+        requirements: impl IntoIterator<Item = InterfacePredicateSummary>,
+        guarantees: impl IntoIterator<Item = InterfacePredicateSummary>,
+    ) -> Self {
+        self.predicate_requirements = sorted_unique_shared_slice(requirements);
+        self.predicate_guarantees = sorted_unique_shared_slice(guarantees);
+
+        self
+    }
+
+    /// Returns trusted caller obligations on this phase.
+    pub fn predicate_requirements(&self) -> &[InterfacePredicateSummary] {
+        &self.predicate_requirements
+    }
+
+    /// Returns trusted guarantees on this phase's normal completion.
+    pub fn predicate_guarantees(&self) -> &[InterfacePredicateSummary] {
+        &self.predicate_guarantees
     }
 
     /// Retains declared execution promises separately from implementation evidence.

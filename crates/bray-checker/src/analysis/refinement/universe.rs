@@ -41,7 +41,9 @@ impl RefinementUniverse {
         C: CheckerRequestContext + ?Sized,
     {
         let direct_dependencies = direct_expression_dependencies(storage);
-        let invalidating_accesses = invalidating_operation_accesses(request, selections, storage);
+
+        let invalidating_accesses =
+            invalidating_operation_accesses(request, selections, storage, &BTreeSet::new());
 
         let mut universe = Self {
             refinements: Vec::new(),

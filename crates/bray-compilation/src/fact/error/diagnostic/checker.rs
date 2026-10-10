@@ -304,6 +304,7 @@ fn diagnostic_storage_flow_failure(
             bray_bound_tree::AsyncAnalysisBuildError::DuplicateReplacement => {
                 "duplicate_replacement"
             }
+            bray_bound_tree::AsyncAnalysisBuildError::DuplicateScopeExit => "duplicate_scope_exit",
         }),
         Failure::MissingAwaitDependencyContract { expression } => {
             DiagnosticFailure::MissingAwaitDependencyContract {

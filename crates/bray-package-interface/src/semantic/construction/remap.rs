@@ -239,6 +239,15 @@ fn remap_callable_behavior(
     behavior: &mut InterfaceCallablePhaseBehavior,
     remap: &InterfaceSemanticIdRemap,
 ) -> Result<(), InterfaceSemanticCommitError> {
+    for predicates in [
+        &mut behavior.predicate_requirements,
+        &mut behavior.predicate_guarantees,
+    ] {
+        for predicate in Arc::make_mut(predicates) {
+            remap_predicate(predicate, remap)?;
+        }
+    }
+
     behavior.dependency_contract = remap.dependency_contract(behavior.dependency_contract)?;
 
     Ok(())
@@ -249,6 +258,11 @@ fn remap_predicate(
     remap: &InterfaceSemanticIdRemap,
 ) -> Result<(), InterfaceSemanticCommitError> {
     predicate.dependency_contract = remap.dependency_contract(predicate.dependency_contract)?;
+
+    predicate.condition = predicate
+        .condition
+        .map(|term| remap.constant_term(term))
+        .transpose()?;
 
     Ok(())
 }

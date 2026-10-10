@@ -12,21 +12,14 @@ pub(super) fn record_cleanup_free_exits(
     exits: &mut CleanupFreeExits,
     asynchronous: &bray_bound_tree::CheckedAsync,
 ) -> bool {
-    let possible = asynchronous
-        .scope_exits()
-        .iter()
-        .filter(|plan| plan.is_recovered() || plan.has_cleanup())
-        .map(|plan| (plan.scope(), plan.exit()))
-        .collect::<CleanupFreeExits>();
-
     let previous = exits.len();
 
     exits.extend(
         asynchronous
             .scope_exits()
             .iter()
-            .map(|plan| (plan.scope(), plan.exit()))
-            .filter(|exit| !possible.contains(exit)),
+            .filter(|plan| !plan.is_recovered() && !plan.has_cleanup())
+            .map(|plan| (plan.scope(), plan.exit())),
     );
 
     exits.len() != previous

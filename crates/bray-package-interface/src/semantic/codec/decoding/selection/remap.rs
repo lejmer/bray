@@ -116,6 +116,11 @@ pub(super) fn remap_selected_records(
                 crate::InterfaceConstraintKind::Predicate(predicate) => {
                     predicate.dependency_contract =
                         maps.dependency_contract_id(predicate.dependency_contract)?;
+
+                    predicate.condition = predicate
+                        .condition
+                        .map(|term| maps.constant_term_id(term))
+                        .transpose()?;
                 }
                 crate::InterfaceConstraintKind::TraitSatisfaction {
                     subject,
@@ -149,6 +154,16 @@ pub(super) fn remap_selected_records(
             }
 
             Ok(signature)
+        })
+        .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+    let callable_contracts = records
+        .callable_contracts
+        .into_values()
+        .map(|mut contract| {
+            remap_callable_contract(&mut contract, &maps)?;
+
+            Ok(contract)
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
@@ -212,7 +227,7 @@ pub(super) fn remap_selected_records(
             implementation_instances,
         )
         .with_values(dependency_contracts, types, constant_values, constant_terms)
-        .with_contracts(constraints, [])
+        .with_contracts(constraints, callable_contracts)
         .with_declarations(
             callable_signatures,
             generic_declarations,
@@ -223,6 +238,46 @@ pub(super) fn remap_selected_records(
         .with_implementations(implementations, coherence)
         .with_target_dependencies(target_dependencies, [])
         .with_runtime_requirements(runtime_requirements))
+}
+
+fn remap_callable_contract(
+    contract: &mut crate::InterfaceCallableContract,
+    maps: &RecordMaps,
+) -> Result<(), InterfaceValidationError> {
+    for clauses in [
+        &mut contract.invocation_preconditions,
+        &mut contract.static_constraints,
+        &mut contract.normal_completion_postconditions,
+    ] {
+        for clause in Arc::make_mut(clauses) {
+            match &mut clause.value {
+                crate::InterfaceCallableContractClauseValue::Predicate(predicate) => {
+                    predicate.dependency_contract =
+                        maps.dependency_contract_id(predicate.dependency_contract)?;
+
+                    predicate.condition = predicate
+                        .condition
+                        .map(|term| maps.constant_term_id(term))
+                        .transpose()?;
+                }
+                crate::InterfaceCallableContractClauseValue::TraitSatisfaction {
+                    subject,
+                    application,
+                } => {
+                    *subject = maps.type_id(*subject)?;
+                    *application = maps.trait_application_id(*application)?;
+                }
+            }
+        }
+    }
+
+    for behavior in std::iter::once(&mut contract.invocation_behavior)
+        .chain(contract.deferred_execution_behavior.iter_mut())
+    {
+        remap_behavior(behavior, maps)?;
+    }
+
+    Ok(())
 }
 
 fn remap_type(ty: &mut InterfaceType, maps: &RecordMaps) -> Result<(), InterfaceValidationError> {
@@ -272,16 +327,38 @@ fn remap_type(ty: &mut InterfaceType, maps: &RecordMaps) -> Result<(), Interface
 
             *result = maps.type_id(*result)?;
 
-            invocation_behavior.dependency_contract =
-                maps.dependency_contract_id(invocation_behavior.dependency_contract)?;
+            remap_behavior(invocation_behavior, maps)?;
 
             if let Some(behavior) = deferred_execution_behavior {
-                behavior.dependency_contract =
-                    maps.dependency_contract_id(behavior.dependency_contract)?;
+                remap_behavior(behavior, maps)?;
             }
         }
         InterfaceType::TypeParameter(_) | InterfaceType::ContextualSelf(_) => {}
     }
+
+    Ok(())
+}
+
+fn remap_behavior(
+    behavior: &mut crate::InterfaceCallablePhaseBehavior,
+    maps: &RecordMaps,
+) -> Result<(), InterfaceValidationError> {
+    for predicates in [
+        &mut behavior.predicate_requirements,
+        &mut behavior.predicate_guarantees,
+    ] {
+        for predicate in Arc::make_mut(predicates) {
+            predicate.dependency_contract =
+                maps.dependency_contract_id(predicate.dependency_contract)?;
+
+            predicate.condition = predicate
+                .condition
+                .map(|term| maps.constant_term_id(term))
+                .transpose()?;
+        }
+    }
+
+    behavior.dependency_contract = maps.dependency_contract_id(behavior.dependency_contract)?;
 
     Ok(())
 }

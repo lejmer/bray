@@ -283,7 +283,7 @@ fn parallel_interface_discovery_preserves_encoded_identity() {
 
     let sources = [
         r#"
-            module app.first;
+            trusted module app.first;
 
             struct Boxed<T>
             {
@@ -294,13 +294,25 @@ fn parallel_interface_discovery_preserves_encoded_identity() {
             {
                 return value;
             }
+
+            trusted predicate ready0(value: &Boxed<i32>);
+
+            func observe0(pos value: &Boxed<i32>)
+                requires(trusted ready0(value))
+            {
+            }
         "#,
         r#"
-            module app.second;
+            trusted module app.second;
 
             func second(pos value: app.first.Boxed<i32>) -> app.first.Boxed<i32>
             {
                 return value;
+            }
+
+            func observe0(pos value: &app.first.Boxed<i32>)
+                requires(trusted app.first.ready0(value))
+            {
             }
         "#,
     ];

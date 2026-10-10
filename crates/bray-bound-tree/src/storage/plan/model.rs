@@ -5,9 +5,9 @@ use super::contracts::{
 use super::relationships::{identity_is_distinct_storage, path_contains, projection_relationship};
 use crate::storage::builder::StoragePlanBuilder;
 use crate::{
-    BorrowCapabilityId, BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccess,
-    StorageAccessId, StorageAlternativeId, StorageIdentity, StorageIdentityId, StorageProjection,
-    StorageRelationship,
+    AnyBoundNodeId, BorrowCapabilityId, BoundExpressionId, BoundUnitId, BoundUnitKind,
+    StorageAccess, StorageAccessId, StorageAlternativeId, StorageIdentity, StorageIdentityId,
+    StorageProjection, StorageRelationship,
 };
 use bray_base::shared_slice;
 use bray_symbols::{BorrowKind, TypeId};
@@ -27,7 +27,10 @@ pub struct StoragePlan {
     resolved_accesses: Arc<[Option<ResolvedStorageAccess>]>,
     borrow_capabilities: Arc<[PlannedBorrowCapability]>,
     bindings: Arc<[(StorageBindingTarget, StorageBinding)]>,
+    bindings_by_storage: Arc<[usize]>,
     plans: Arc<[StorageAccessPlan]>,
+    plans_by_node: Arc<[usize]>,
+    plans_by_expression: Arc<[usize]>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -67,6 +70,17 @@ impl StoragePlan {
             &borrow_capabilities,
         );
 
+        let mut plans_by_node = (0..plans.len()).collect::<Vec<_>>();
+        let mut plans_by_expression = plans_by_node.clone();
+
+        plans_by_node.sort_unstable_by_key(|index| (plans[*index].node(), *index));
+        plans_by_expression.sort_unstable_by_key(|index| (plans[*index].expression(), *index));
+
+        let bindings = bindings.into_iter().collect::<Vec<_>>();
+        let mut bindings_by_storage = (0..bindings.len()).collect::<Vec<_>>();
+
+        bindings_by_storage.sort_unstable_by_key(|index| (bindings[*index].1, *index));
+
         Self {
             unit,
             kind,
@@ -77,8 +91,11 @@ impl StoragePlan {
             alternatives: alternatives.into(),
             resolved_accesses: resolved_accesses.into(),
             borrow_capabilities: borrow_capabilities.into(),
-            bindings: bindings.into_iter().collect(),
+            bindings: bindings.into(),
+            bindings_by_storage: bindings_by_storage.into(),
             plans: plans.into(),
+            plans_by_node: plans_by_node.into(),
+            plans_by_expression: plans_by_expression.into(),
         }
     }
 
@@ -232,15 +249,48 @@ impl StoragePlan {
             .map(|index| self.bindings[index].1)
     }
 
+    /// Returns semantic targets naming one storage binding in canonical target order.
+    pub fn binding_targets(
+        &self,
+        binding: StorageBinding,
+    ) -> impl Iterator<Item = StorageBindingTarget> + '_ {
+        let first = self
+            .bindings_by_storage
+            .partition_point(|index| self.bindings[*index].1 < binding);
+
+        self.bindings_by_storage[first..]
+            .iter()
+            .map(|index| self.bindings[*index])
+            .take_while(move |(_, actual)| *actual == binding)
+            .map(|(target, _)| target)
+    }
+
     /// Returns every planned use of one expression occurrence.
     pub fn expression_plans(
         &self,
         expression: BoundExpressionId,
     ) -> impl Iterator<Item = StorageAccessPlan> + '_ {
-        self.plans
+        let first = self
+            .plans_by_expression
+            .partition_point(|index| self.plans[*index].expression() < expression);
+
+        self.plans_by_expression[first..]
             .iter()
-            .copied()
-            .filter(move |plan| plan.expression() == expression)
+            .map(|index| self.plans[*index])
+            .take_while(move |plan| plan.expression() == expression)
+    }
+
+    /// Returns the access plans for one node in their original evaluation order.
+    /// Lookup examines only the matching plans after a binary search of the immutable index.
+    pub fn node_plans(&self, node: AnyBoundNodeId) -> impl Iterator<Item = StorageAccessPlan> + '_ {
+        let first = self
+            .plans_by_node
+            .partition_point(|index| self.plans[*index].node() < node);
+
+        self.plans_by_node[first..]
+            .iter()
+            .map(|index| self.plans[*index])
+            .take_while(move |plan| plan.node() == node)
     }
 
     /// Returns the proven overlap relationship between two evaluated accesses.
@@ -538,6 +588,116 @@ mod tests {
         StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StorageIdentityId,
         StorageProjection, StorageRelationship,
     };
+
+    #[test]
+    fn access_plan_queries_preserve_occurrence_identity_and_evaluation_order() {
+        let unit = crate::BoundUnitId::new(8);
+        let expressions = [0, 1, 2].map(|slot| crate::BoundExpressionId::from_slot(unit, slot));
+        let pattern = crate::BoundPatternId::from_slot(unit, 0);
+        let mut builder = crate::StoragePlanBuilder::new(unit, crate::BoundUnitKind::CallableBody);
+
+        let identity = builder
+            .push_identity(crate::StorageIdentity::Temporary(expressions[0]))
+            .unwrap();
+
+        let access = builder
+            .push_access(crate::StorageAccess::new(
+                crate::StorageAccessRoot::Storage(identity),
+                [],
+                crate::test_support::error_type(),
+                crate::test_support::source_anchor(),
+                false,
+            ))
+            .unwrap();
+
+        let targets = [pattern, crate::BoundPatternId::from_slot(unit, 1)]
+            .map(crate::StorageBindingTarget::PatternSubject);
+
+        for target in targets.into_iter().rev() {
+            builder
+                .bind(target, crate::StorageBinding::Access(access))
+                .unwrap();
+        }
+
+        for (node, expression, purpose) in [
+            (
+                expressions[2].into(),
+                expressions[0],
+                crate::StorageAccessPurpose::Read,
+            ),
+            (
+                expressions[0].into(),
+                expressions[2],
+                crate::StorageAccessPurpose::Read,
+            ),
+            (
+                pattern.into(),
+                expressions[0],
+                crate::StorageAccessPurpose::ValueTransfer,
+            ),
+            (
+                expressions[2].into(),
+                expressions[2],
+                crate::StorageAccessPurpose::Copy,
+            ),
+            (
+                expressions[1].into(),
+                expressions[0],
+                crate::StorageAccessPurpose::Move,
+            ),
+        ] {
+            builder
+                .plan_access(node, expression, purpose, access)
+                .unwrap();
+        }
+
+        let plan = builder.finish();
+
+        assert_eq!(
+            plan.binding_targets(crate::StorageBinding::Access(access))
+                .collect::<Vec<_>>(),
+            targets
+        );
+
+        assert_eq!(
+            plan.binding_targets(crate::StorageBinding::Identity(identity))
+                .count(),
+            0
+        );
+
+        assert_eq!(
+            plan.expression_plans(expressions[0]).collect::<Vec<_>>(),
+            [
+                plan.access_plans()[0],
+                plan.access_plans()[2],
+                plan.access_plans()[4]
+            ]
+        );
+
+        assert_eq!(
+            plan.node_plans(expressions[2].into()).collect::<Vec<_>>(),
+            [plan.access_plans()[0], plan.access_plans()[3]]
+        );
+
+        assert_eq!(
+            plan.node_plans(pattern.into()).collect::<Vec<_>>(),
+            [plan.access_plans()[2]]
+        );
+
+        assert_eq!(
+            plan.expression_plans(crate::BoundExpressionId::from_slot(unit, 3))
+                .count(),
+            0
+        );
+
+        assert_eq!(
+            plan.node_plans(
+                crate::BoundExpressionId::from_slot(crate::BoundUnitId::new(9), 2).into()
+            )
+            .count(),
+            0
+        );
+    }
 
     #[test]
     fn storage_plans_are_send_and_sync() {

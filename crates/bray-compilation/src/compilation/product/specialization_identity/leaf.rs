@@ -90,6 +90,9 @@ impl StructuralValueEncoder<'_, '_> {
             ConstantUnaryOperation::Negate => 1,
             ConstantUnaryOperation::LogicalNot => 2,
             ConstantUnaryOperation::BitwiseNot => 3,
+            ConstantUnaryOperation::PredicateTrust => 4,
+            ConstantUnaryOperation::BorrowObservation => 5,
+            ConstantUnaryOperation::EntryCondition => 6,
         });
     }
 

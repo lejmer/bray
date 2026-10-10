@@ -7,8 +7,8 @@ use bray_source::{SourceId, TextRange, TextSize};
 
 use crate::green::GreenNode;
 use crate::{
-    CompilationUnitSyntax, SourceSyntaxNode, SourceUnitSyntax, SyntaxKind, SyntaxNodeView, SyntaxText,
-    SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_node,
+    CompilationUnitSyntax, SourceSyntaxNode, SourceUnitSyntax, SyntaxKind, SyntaxNodeView,
+    SyntaxText, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_node,
 };
 
 /// Immutable syntax tree rooted at a compilation unit.
@@ -113,7 +113,11 @@ struct IndexedSyntaxNode {
 
 impl IndexedSyntaxNode {
     fn view<'a>(&'a self, source_units: &'a [SourceUnitSyntax]) -> SyntaxNodeView<'a> {
-        SyntaxNodeView::new(source_units[self.source_unit].source(), &self.node, self.start)
+        SyntaxNodeView::new(
+            source_units[self.source_unit].source(),
+            &self.node,
+            self.start,
+        )
     }
 }
 
@@ -199,7 +203,8 @@ mod tests {
                 SourceOrigin::file(format!("source-{id}.bray")),
                 SourceVersion::new(3),
                 "",
-            ).expect("empty source must fit in TextSize");
+            )
+            .expect("empty source must fit in TextSize");
 
             SourceUnitSyntax::builder(snapshot)
                 .tokens([SyntaxToken::end_of_file(bray_source::TextSize::ZERO)])
@@ -211,12 +216,14 @@ mod tests {
         for source_unit in tree.source_units() {
             let source = source_unit.source();
 
-            let node = tree.find_node(
-                source.source_id(),
-                SyntaxKind::SourceUnit,
-                source_unit.full_range(),
-                source_unit.is_recovered(),
-            ).expect("indexed source unit must resolve exactly");
+            let node = tree
+                .find_node(
+                    source.source_id(),
+                    SyntaxKind::SourceUnit,
+                    source_unit.full_range(),
+                    source_unit.is_recovered(),
+                )
+                .expect("indexed source unit must resolve exactly");
 
             assert!(std::ptr::eq(node.source(), source));
             assert_eq!(node.source().origin(), source.origin());

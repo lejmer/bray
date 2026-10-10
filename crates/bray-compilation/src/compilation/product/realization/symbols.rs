@@ -440,11 +440,12 @@ impl Compilation {
             _ => product.source_namespace(),
         };
 
-        let (independent, storage_dependencies) = self
-            .codegen_native_publication_metadata(instance, realization, cancellation)?;
+        let (independent, storage_dependencies) =
+            self.codegen_native_publication_metadata(instance, realization, cancellation)?;
 
-        let mut compatibility = CodegenPartitionCompatibility::new(package, source_namespace, linkage, visibility)
-            .with_native_storage_dependencies_identity(storage_dependencies);
+        let mut compatibility =
+            CodegenPartitionCompatibility::new(package, source_namespace, linkage, visibility)
+                .with_native_storage_dependencies_identity(storage_dependencies);
 
         if independent {
             compatibility = compatibility.with_native_selection_boundary();

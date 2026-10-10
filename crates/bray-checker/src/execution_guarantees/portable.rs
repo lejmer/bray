@@ -51,7 +51,7 @@ fn encode(
         ExecutionCondition::Input(place) => {
             let Some(ordinal) = inputs
                 .iter()
-                .position(|input| *input == place.root)
+                .position(|input| Some(*input) == place.reference())
                 .and_then(|index| u32::try_from(index).ok())
             else {
                 return Ok(None);
@@ -61,10 +61,26 @@ fn encode(
                 SymbolOrdinal::new(ordinal),
             ))?;
 
-            for field in &*place.fields {
-                let Some(projected) = field_term(values, term, *field)? else {
-                    return Ok(None);
+            for field in &*place.projections {
+                let kind = match *field {
+                    ConstantProjectionKind::ProductField(field) => {
+                        ConstantProjectionKind::ProductField(field)
+                    }
+                    ConstantProjectionKind::UnionPayloadField(field) => {
+                        ConstantProjectionKind::UnionPayloadField(field)
+                    }
+                    ConstantProjectionKind::TupleElement(index) => {
+                        ConstantProjectionKind::TupleElement(index)
+                    }
+                    ConstantProjectionKind::ArrayElementOrdinal(index) => {
+                        ConstantProjectionKind::ArrayElementOrdinal(index)
+                    }
+                    _ => return Ok(None),
                 };
+
+                let projected = values.intern_constant_term(ConstantTermData::Projection(
+                    ConstantProjection::new(term, kind),
+                ))?;
 
                 term = projected;
             }
@@ -77,6 +93,40 @@ fn encode(
             };
 
             ConstantTermData::CallableArgument(SymbolOrdinal::new(ordinal))
+        }
+        ExecutionCondition::Borrowed(value) => {
+            let Some(operand) = encode(values, value, inputs, boolean_type, budget)? else {
+                return Ok(None);
+            };
+
+            ConstantTermData::Unary {
+                operation: bray_symbols::ConstantUnaryOperation::BorrowObservation,
+                operand,
+            }
+        }
+        ExecutionCondition::Entry {
+            condition,
+            captured: false,
+        } => {
+            let Some(operand) = encode(values, condition, inputs, boolean_type, budget)? else {
+                return Ok(None);
+            };
+
+            ConstantTermData::Unary {
+                operation: bray_symbols::ConstantUnaryOperation::EntryCondition,
+                operand,
+            }
+        }
+        ExecutionCondition::Entry { captured: true, .. } => return Ok(None),
+        ExecutionCondition::Trusted(value) => {
+            let Some(operand) = encode(values, value, inputs, boolean_type, budget)? else {
+                return Ok(None);
+            };
+
+            ConstantTermData::Unary {
+                operation: bray_symbols::ConstantUnaryOperation::PredicateTrust,
+                operand,
+            }
         }
         ExecutionCondition::Operation(operator, operands) => {
             let terms = operands
@@ -113,6 +163,17 @@ fn encode(
                 _ => return Ok(None),
             }
         }
+        ExecutionCondition::Call(callable, arguments) => {
+            let Some(arguments) = arguments
+                .iter()
+                .map(|argument| encode(values, argument, inputs, boolean_type, budget))
+                .collect::<Result<Option<Vec<_>>, _>>()?
+            else {
+                return Ok(None);
+            };
+
+            ConstantTermData::call(values.intern_callable_instance(*callable)?, None, arguments)
+        }
         ExecutionCondition::Predicate(predicate, substitution, arguments) => {
             let terms = arguments
                 .iter()
@@ -136,6 +197,7 @@ fn encode(
             return field_term(values, value, *field);
         }
         ExecutionCondition::Unknown
+        | ExecutionCondition::Constructed(_, _)
         | ExecutionCondition::Expression(_)
         | ExecutionCondition::PostState(_, _) => return Ok(None),
     };
@@ -168,7 +230,32 @@ pub fn execution_condition_from_term(
     term: ConstantTermId,
     inputs: &[BoundReferenceTarget],
 ) -> Result<ExecutionCondition, SemanticValueStoreError> {
-    decode(values, term, inputs, &mut {
+    let inputs = inputs
+        .iter()
+        .copied()
+        .map(super::ExecutionPlace::from)
+        .collect::<Vec<_>>();
+
+    decode(values, term, &inputs, &mut {
+        ExecutionCondition::WORK_LIMIT
+    })
+}
+
+/// Restores predicates carried by an opaque callable type using positional input identities.
+pub fn execution_condition_from_type_term(
+    values: &SemanticValueStore,
+    term: ConstantTermId,
+    parameter_count: usize,
+) -> Result<ExecutionCondition, SemanticValueStoreError> {
+    let inputs = (0..parameter_count)
+        .map(|index| {
+            super::ExecutionPlace::argument(SymbolOrdinal::new(
+                u32::try_from(index).expect("checked callable parameter count must fit ordinals"),
+            ))
+        })
+        .collect::<Vec<_>>();
+
+    decode(values, term, &inputs, &mut {
         ExecutionCondition::WORK_LIMIT
     })
 }
@@ -176,7 +263,7 @@ pub fn execution_condition_from_term(
 fn decode(
     values: &SemanticValueStore,
     term: ConstantTermId,
-    inputs: &[BoundReferenceTarget],
+    inputs: &[super::ExecutionPlace],
     budget: &mut usize,
 ) -> Result<ExecutionCondition, SemanticValueStoreError> {
     let Some(remaining) = budget.checked_sub(1) else {
@@ -204,11 +291,28 @@ fn decode(
                 Some(index) => inputs
                     .get(index)
                     .map_or(ExecutionCondition::Unknown, |input| {
-                        ExecutionCondition::Input((*input).into())
+                        ExecutionCondition::Input(input.clone())
                     }),
                 None => ExecutionCondition::Unknown,
             }
         }
+        ConstantTermData::Unary {
+            operation: bray_symbols::ConstantUnaryOperation::PredicateTrust,
+            operand,
+        } => ExecutionCondition::Trusted(std::sync::Arc::new(decode(
+            values, *operand, inputs, budget,
+        )?)),
+        ConstantTermData::Unary {
+            operation: bray_symbols::ConstantUnaryOperation::BorrowObservation,
+            operand,
+        } => decode(values, *operand, inputs, budget)?.borrowed(),
+        ConstantTermData::Unary {
+            operation: bray_symbols::ConstantUnaryOperation::EntryCondition,
+            operand,
+        } => ExecutionCondition::Entry {
+            condition: std::sync::Arc::new(decode(values, *operand, inputs, budget)?),
+            captured: false,
+        },
         ConstantTermData::Unary { operation, operand } => ExecutionCondition::operation(
             unary_operator(*operation),
             vec![decode(values, *operand, inputs, budget)?],
@@ -224,6 +328,17 @@ fn decode(
                 decode(values, *right, inputs, budget)?,
             ],
         ),
+        ConstantTermData::Call {
+            callable,
+            arguments,
+            ..
+        } => ExecutionCondition::call(
+            *values.callable_instance_data(*callable),
+            arguments
+                .iter()
+                .map(|argument| decode(values, *argument, inputs, budget))
+                .collect::<Result<_, _>>()?,
+        ),
         ConstantTermData::PredicateCall {
             predicate,
             arguments,
@@ -236,6 +351,16 @@ fn decode(
                 .collect::<Result<Vec<_>, _>>()?,
         ),
         ConstantTermData::Projection(projection) => {
+            if let ConstantProjectionKind::TupleElement(index) = projection.kind() {
+                return Ok(decode(values, projection.subject(), inputs, budget)?
+                    .project(bray_bound_tree::StorageProjection::TupleElement(index)));
+            }
+
+            if let ConstantProjectionKind::ArrayElementOrdinal(index) = projection.kind() {
+                return Ok(decode(values, projection.subject(), inputs, budget)?
+                    .project(bray_bound_tree::StorageProjection::ElementFromStart(index)));
+            }
+
             let field = match projection.kind() {
                 ConstantProjectionKind::ProductField(field) => Some(field.into()),
                 ConstantProjectionKind::UnionPayloadField(field) => Some(field.into()),

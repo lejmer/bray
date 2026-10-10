@@ -204,8 +204,16 @@ mod tests {
             (CompilationInputKey::PackageIdentity, fingerprint),
         ]);
 
-        let expected_facts = facts.iter().map(|(key, value)| (key.clone(), *value)).collect::<Vec<_>>();
-        let expected_inputs = inputs.iter().map(|(key, value)| (key.clone(), *value)).collect::<Vec<_>>();
+        let expected_facts = facts
+            .iter()
+            .map(|(key, value)| (key.clone(), *value))
+            .collect::<Vec<_>>();
+
+        let expected_inputs = inputs
+            .iter()
+            .map(|(key, value)| (key.clone(), *value))
+            .collect::<Vec<_>>();
+
         let record = FactDependencyRecord::new(fingerprint, facts, inputs);
         let snapshot = record.clone();
 

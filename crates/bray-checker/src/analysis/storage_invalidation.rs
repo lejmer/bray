@@ -4,7 +4,7 @@ use bray_bound_tree::{
     StorageAccessPurpose, StoragePlan, StorageRelationship,
 };
 use bray_symbols::{ExecutionProperty, TypeData};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) enum StorageInvalidation {
     All,
@@ -26,6 +26,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
     request: CheckerUnitView<'_, C>,
     selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
+    copied_types: &BTreeSet<bray_symbols::TypeId>,
 ) -> BTreeMap<AnyBoundNodeId, StorageInvalidation> {
     let mut accesses = BTreeMap::new();
 
@@ -38,7 +39,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
                         .type_data(access.reached_type())
                         .as_ref(),
                     TypeData::Borrow { .. }
-                )
+                ) || copied_types.contains(&access.reached_type())
             })
         {
             return false;
@@ -65,6 +66,8 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
             .invocation()
             .execution_properties()
             .contains(&ExecutionProperty::Pure)
+            || call.implementation_hook()
+                == Some(bray_compiler_known::ImplementationHook::RawPointerReinterpret)
         {
             continue;
         }

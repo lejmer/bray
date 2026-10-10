@@ -1,5 +1,5 @@
 use bray_bound_tree::BoundUnitKey;
-use bray_checker::{ExecutionCondition, execution_conditions};
+use bray_checker::ExecutionCondition;
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_source::SourceSpan;
@@ -17,6 +17,25 @@ impl Compilation {
         anchors: &[SyntaxAnchor],
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Vec<(ExecutionCondition, SourceSpan)>>, FactQueryError> {
+        let (conditions, diagnostics) = self
+            .predicate_condition_inputs(owner, anchors, cancellation)?
+            .into_parts();
+
+        Ok(DiagnosticResult::new(
+            conditions
+                .into_iter()
+                .map(|(condition, _, source)| (condition, source))
+                .collect(),
+            diagnostics,
+        ))
+    }
+
+    pub(in crate::compilation) fn predicate_condition_inputs(
+        &self,
+        owner: &BoundUnitKey,
+        anchors: &[SyntaxAnchor],
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<Vec<(ExecutionCondition, bool, SourceSpan)>>, FactQueryError> {
         let mut conditions = Vec::new();
         let mut diagnostics = DiagnosticBag::new();
 
@@ -49,16 +68,20 @@ impl Compilation {
 
             let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
 
-            let normalized = execution_conditions(
+            let normalized = bray_checker::predicate_conditions(
                 bound.result().value(),
                 semantics.result().value(),
                 self.semantic_value_store()?,
             )?;
 
             if clause_diagnostics.has_errors() {
-                conditions.push((ExecutionCondition::Unknown, span));
+                conditions.push((ExecutionCondition::Unknown, true, span));
             } else {
-                conditions.extend(normalized.into_iter().map(|condition| (condition, span)));
+                conditions.extend(
+                    normalized
+                        .into_iter()
+                        .map(|(_, condition, trusted)| (condition, trusted, span)),
+                );
             }
 
             diagnostics.add_range(clause_diagnostics);

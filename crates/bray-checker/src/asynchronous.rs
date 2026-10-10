@@ -10,3 +10,4 @@ pub(crate) use check::{check_async_analysis, check_async_analysis_with_graph};
 pub(crate) use cleanup::{cleanup_free_storage, cleanup_scopes};
 
 pub(crate) use execution::{ExecutionCleanupMode, execution_cleanup_dependencies};
+pub(crate) use parts::full_cleanup_parts;

@@ -552,6 +552,9 @@ pub(super) fn decode_constant_projection(
         1 => Ok(InterfaceConstantProjection::TupleElement(
             SymbolOrdinal::new(read_u32(reader)?),
         )),
+        7 => Ok(InterfaceConstantProjection::ArrayElementOrdinal(
+            SymbolOrdinal::new(read_u32(reader)?),
+        )),
         2 => Ok(InterfaceConstantProjection::ArrayElement(
             InterfaceConstantTermId::new(read_u32(reader)?),
         )),

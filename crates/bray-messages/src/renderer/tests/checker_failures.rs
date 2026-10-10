@@ -1,8 +1,9 @@
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticCheckerFailure, DiagnosticCheckerNode,
     DiagnosticCheckerSymbol, DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure,
-    DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote,
-    DiagnosticNoteKind, DiagnosticStorageFlowFailure, SeverityKind,
+    DiagnosticExpressionCategory, DiagnosticId, DiagnosticKind, DiagnosticLabel,
+    DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticStorageFlowFailure,
+    SeverityKind,
 };
 use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
 
@@ -21,14 +22,10 @@ fn checker_compiler_defects_hide_internal_identities_and_retain_source_context()
     let callable = DiagnosticCheckerSymbol::new("callable_overload", 41);
 
     let cases = [
-        CheckerFailure::StorageFlow(StorageFlowFailure::FlowConstruction(
-            "duplicate_suspension",
-        )),
+        CheckerFailure::StorageFlow(StorageFlowFailure::FlowConstruction("duplicate_suspension")),
         CheckerFailure::StorageFlow(StorageFlowFailure::FlowConstruction("future_reason")),
         CheckerFailure::StorageFlow(StorageFlowFailure::ForeignDependencyContract),
-        CheckerFailure::StorageFlow(StorageFlowFailure::UnresolvedDependencyWitness {
-            expression,
-        }),
+        CheckerFailure::StorageFlow(StorageFlowFailure::UnresolvedDependencyWitness { expression }),
         CheckerFailure::StorageFlow(StorageFlowFailure::DependencyContractsConstruction(
             "invalid_borrow",
         )),
@@ -102,9 +99,9 @@ fn checker_compiler_defects_hide_internal_identities_and_retain_source_context()
         )
         .with_primary_span(span)
         .with_arg(DiagnosticArg::emission_failure(
-            DiagnosticEmissionFailure::Evaluation(
-                DiagnosticEmissionEvaluationFailure::Checker(failure),
-            ),
+            DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Checker(
+                failure,
+            )),
         ))
         .with_label(DiagnosticLabel::primary(
             DiagnosticLabelKind::CompilerDefectSource,
@@ -190,4 +187,64 @@ fn renderer_localizes_semantic_analysis_limits() {
         DiagnosticRenderer::english().render(&singular).message(),
         "callable overload comparison 2 exceeds the configured limit of 1"
     );
+}
+
+#[test]
+fn trusted_contract_errors_identify_the_operation_and_correction() {
+    let span = SourceSpan::new(
+        SourceId::new(0),
+        TextRange::new(TextSize::new(10), TextSize::new(24)),
+    );
+
+    for (kind, category, note, expected) in [
+        (
+            DiagnosticKind::CheckingTrustedObligationNotProven,
+            DiagnosticExpressionCategory::Call,
+            DiagnosticNoteKind::TrustedObligationEvidenceRequired,
+            "this call requires a trusted condition that is not established by live evidence",
+        ),
+        (
+            DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
+            DiagnosticExpressionCategory::NameReference,
+            DiagnosticNoteKind::TrustedWitnessTransferRequired,
+            "this name reference would copy or separate a value without preserving its trusted guarantees",
+        ),
+    ] {
+        let diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
+            .with_primary_span(span)
+            .with_arg(DiagnosticArg::expression_category(category))
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::TrustedObligationFailure,
+                span,
+            ))
+            .with_label(
+                DiagnosticLabel::secondary(DiagnosticLabelKind::TrustedCallable, span)
+                    .with_arg(DiagnosticArg::declaration_name("observe")),
+            )
+            .with_note(DiagnosticNote::new(note));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(rendered.message(), expected);
+        assert_eq!(rendered.primary_span(), Some(span));
+
+        assert_eq!(
+            rendered.labels()[1].message(),
+            "trusted requirement of 'observe'"
+        );
+
+        assert_eq!(
+            rendered.notes()[0].rendered_kind(),
+            RenderedDiagnosticNoteKind::Help
+        );
+
+        assert!(
+            rendered.notes()[0].message().contains("preserv")
+                || rendered.notes()[0]
+                    .message()
+                    .contains("enclosing declaration")
+        );
+
+        assert!(forbidden_internal_term(rendered.message()).is_none());
+    }
 }

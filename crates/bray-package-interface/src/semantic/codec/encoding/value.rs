@@ -387,6 +387,9 @@ pub(super) fn encode_constant_projection(
         InterfaceConstantProjection::TupleElement(ordinal) => {
             write_tagged_id(encoder, 1, ordinal.raw());
         }
+        InterfaceConstantProjection::ArrayElementOrdinal(index) => {
+            write_tagged_id(encoder, 7, index.raw())
+        }
         InterfaceConstantProjection::ArrayElement(term) => {
             write_tagged_id(encoder, 2, term.raw());
         }

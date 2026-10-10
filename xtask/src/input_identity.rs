@@ -9,7 +9,12 @@ use sha2::{Digest as _, Sha256};
 
 const CACHE_FORMAT_REVISION: u8 = 1;
 pub(crate) const INPUT_IDENTITY_FILE_NAME: &str = "input.sha256";
-const ROOT_INPUTS: &[&str] = &[".cargo/config.toml", "Cargo.toml", "Cargo.lock", "xtask/Cargo.toml"];
+const ROOT_INPUTS: &[&str] = &[
+    ".cargo/config.toml",
+    "Cargo.toml",
+    "Cargo.lock",
+    "xtask/Cargo.toml",
+];
 const COMMON_SOURCE_INPUTS: &[&str] = &[
     "toolchains",
     "xtask/src/bundle.rs",
@@ -244,7 +249,10 @@ pub(crate) fn input_digest(
         hash_text(&mut digest, target.as_str());
     }
 
-    hash_text(&mut digest, &crate::preparation_tools::digest(root, targets)?);
+    hash_text(
+        &mut digest,
+        &crate::preparation_tools::digest(root, targets)?,
+    );
 
     for value in configuration {
         hash_text(&mut digest, value);
@@ -449,8 +457,8 @@ struct CargoDependencyKind {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
     use sha2::Digest as _;
+    use std::path::PathBuf;
 
     use super::{CargoPackage, WorkspaceSources};
 
@@ -462,14 +470,26 @@ mod tests {
         assert!(!super::stored_digest_matches(directory.path(), &expected).expect("cache miss"));
 
         for bytes in [&b""[..], &b"short"[..], &[255][..]] {
-            std::fs::write(directory.path().join(super::INPUT_IDENTITY_FILE_NAME), bytes).expect("record");
-            assert!(!super::stored_digest_matches(directory.path(), &expected).expect("corrupt cache miss"));
+            std::fs::write(
+                directory.path().join(super::INPUT_IDENTITY_FILE_NAME),
+                bytes,
+            )
+            .expect("record");
+
+            assert!(
+                !super::stored_digest_matches(directory.path(), &expected)
+                    .expect("corrupt cache miss")
+            );
         }
 
         super::write_digest(directory.path(), &expected).expect("publish identity");
 
         assert!(super::stored_digest_matches(directory.path(), &expected).expect("cache hit"));
-        assert!(!super::stored_digest_matches(directory.path(), &"b".repeat(64)).expect("changed input"));
+
+        assert!(
+            !super::stored_digest_matches(directory.path(), &"b".repeat(64))
+                .expect("changed input")
+        );
     }
 
     #[test]

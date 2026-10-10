@@ -11,12 +11,18 @@ const SOURCE_DIRECTORY: &str = "source";
 
 pub(super) const NATIVE_SOURCES: [(&str, &[u8]); 8] = [
     ("main.cpp", include_bytes!("../../native/lld/main.cpp")),
-    ("manifest.cpp", include_bytes!("../../native/lld/manifest.cpp")),
+    (
+        "manifest.cpp",
+        include_bytes!("../../native/lld/manifest.cpp"),
+    ),
     (
         "telemetry.cpp",
         include_bytes!("../../native/lld/telemetry.cpp"),
     ),
-    ("telemetry.h", include_bytes!("../../native/lld/telemetry.h")),
+    (
+        "telemetry.h",
+        include_bytes!("../../native/lld/telemetry.h"),
+    ),
     (
         "definition_sizes.cpp",
         include_bytes!("../../native/lld/definition_sizes.cpp"),
@@ -25,8 +31,14 @@ pub(super) const NATIVE_SOURCES: [(&str, &[u8]); 8] = [
         "definition_sizes_test.cpp",
         include_bytes!("../../native/lld/definition_sizes_test.cpp"),
     ),
-    ("instruction_sinking.cpp", include_bytes!("../../native/lld/instruction_sinking.cpp")),
-    ("instruction_sinking_test.cpp", include_bytes!("../../native/lld/instruction_sinking_test.cpp")),
+    (
+        "instruction_sinking.cpp",
+        include_bytes!("../../native/lld/instruction_sinking.cpp"),
+    ),
+    (
+        "instruction_sinking_test.cpp",
+        include_bytes!("../../native/lld/instruction_sinking_test.cpp"),
+    ),
 ];
 
 pub(super) const RUST_SOURCES: [&[u8]; 3] = [
@@ -38,7 +50,9 @@ pub(super) const RUST_SOURCES: [&[u8]; 3] = [
 pub(crate) fn digest() -> String {
     let mut digest = StableDigestHasher::new();
 
-    for input in RUST_SOURCES.into_iter().chain(NATIVE_SOURCES.map(|(_, contents)| contents))
+    for input in RUST_SOURCES
+        .into_iter()
+        .chain(NATIVE_SOURCES.map(|(_, contents)| contents))
     {
         digest.write_usize(input.len());
         digest.write(input);
@@ -127,9 +141,11 @@ pub(super) fn instrument_lto_source(path: &Path) -> Result<(), InstrumentationEr
     fs::write(path, source).map_err(|error| InstrumentationError::io("write", path, error))
 }
 
-pub(super) fn instrument_instruction_sinking_source(path: &Path) -> Result<(), InstrumentationError> {
-    let source = fs::read_to_string(path)
-        .map_err(|error| InstrumentationError::io("read", path, error))?;
+pub(super) fn instrument_instruction_sinking_source(
+    path: &Path,
+) -> Result<(), InstrumentationError> {
+    let source =
+        fs::read_to_string(path).map_err(|error| InstrumentationError::io("read", path, error))?;
 
     let source = replace_section(
         source,
@@ -164,8 +180,15 @@ fn replace_section(
     replacement: &str,
     path: &Path,
 ) -> Result<String, InstrumentationError> {
-    let starts = source.match_indices(start).map(|(offset, _)| offset).collect::<Vec<_>>();
-    let ends = source.match_indices(end).map(|(offset, _)| offset).collect::<Vec<_>>();
+    let starts = source
+        .match_indices(start)
+        .map(|(offset, _)| offset)
+        .collect::<Vec<_>>();
+
+    let ends = source
+        .match_indices(end)
+        .map(|(offset, _)| offset)
+        .collect::<Vec<_>>();
 
     let ([start], [end]) = (starts.as_slice(), ends.as_slice()) else {
         return Err(InstrumentationError::SourceContract(path.to_path_buf()));
@@ -204,7 +227,13 @@ mod tests {
     fn source_sections_require_unique_ordered_boundaries() {
         let path = Path::new("InstructionCombining.cpp");
 
-        for source in ["end", "start", "start start end", "start end end", "end start"] {
+        for source in [
+            "end",
+            "start",
+            "start start end",
+            "start end end",
+            "end start",
+        ] {
             assert!(matches!(
                 replace_section(source.into(), "start", "end", "replacement", path),
                 Err(InstrumentationError::SourceContract(_))

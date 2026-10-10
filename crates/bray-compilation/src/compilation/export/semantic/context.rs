@@ -315,6 +315,13 @@ impl<'a> SemanticExporter<'a> {
     ) -> Result<InterfacePredicateSummary, PackageInterfaceExportError> {
         Ok(InterfacePredicateSummary::new(
             self.dependency_contract_id(predicate.dependency_contract())?,
+        )
+        .with_condition(
+            predicate
+                .condition()
+                .map(|term| self.constant_term_id(term))
+                .transpose()?,
+            predicate.is_trusted(),
         ))
     }
 
@@ -539,6 +546,18 @@ impl<'a> SemanticExporter<'a> {
             self.dependency_contract_id(behavior.dependency_contract())?,
             behavior.current_run_cancellation(),
         )
-        .with_execution_properties(behavior.execution_properties().iter().copied()))
+        .with_execution_properties(behavior.execution_properties().iter().copied())
+        .with_predicates(
+            behavior
+                .predicate_requirements()
+                .iter()
+                .map(|predicate| self.predicate_summary(*predicate))
+                .collect::<Result<Vec<_>, _>>()?,
+            behavior
+                .predicate_guarantees()
+                .iter()
+                .map(|predicate| self.predicate_summary(*predicate))
+                .collect::<Result<Vec<_>, _>>()?,
+        ))
     }
 }

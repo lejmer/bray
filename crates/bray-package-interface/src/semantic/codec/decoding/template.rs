@@ -342,6 +342,10 @@ fn decode_operation(
             lower: read_optional_u32(reader)?.map(CheckedTemplateNodeId::new),
             upper: read_optional_u32(reader)?.map(CheckedTemplateNodeId::new),
         }),
+        18 => Ok(InterfaceCheckedTemplateOperation::TupleElement {
+            subject: CheckedTemplateNodeId::new(read_u32(reader)?),
+            index: bray_symbols::SymbolOrdinal::new(read_u32(reader)?),
+        }),
         17 => {
             let count = read_count(reader, limits, InterfaceLimit::TemplateGraphSize)?;
             let mut fields = context.allocate_items(reader, count)?;
@@ -799,6 +803,47 @@ mod tests {
                 crate::InterfaceValidationField::Support
             ))
         );
+    }
+
+    #[test]
+    fn template_validation_rejects_invalid_tuple_projections() {
+        let (surface, semantics) = operation_fixture();
+
+        let template = &semantics.checked_templates()[0];
+
+        for (subject, index, ty) in [(0, 0, 0), (5, 2, 0), (5, 0, 1)] {
+            let mut nodes = template.nodes().to_vec();
+
+            nodes[7] = InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::TupleElement {
+                    subject: CheckedTemplateNodeId::new(subject),
+                    index: SymbolOrdinal::new(index),
+                },
+                InterfaceTypeId::new(ty),
+            );
+
+            let invalid = InterfaceCheckedTemplate::new(
+                template.kind(),
+                template.inputs().iter().cloned(),
+                nodes,
+                template.temporaries().iter().copied(),
+                template.result(),
+                template.behavior().clone(),
+            );
+
+            let semantics = semantics.clone().with_templates(
+                [invalid],
+                semantics.declaration_templates().iter().cloned(),
+                semantics.support_entities().iter().cloned(),
+            );
+
+            assert_eq!(
+                encode_semantics(&semantics, &surface, InterfaceValidationLimits::default()),
+                Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template
+                ))
+            );
+        }
     }
 
     #[test]
@@ -1623,6 +1668,13 @@ mod tests {
                     upper: Some(CheckedTemplateNodeId::new(1)),
                 },
                 InterfaceTypeId::new(5),
+            ),
+            InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::TupleElement {
+                    subject: CheckedTemplateNodeId::new(5),
+                    index: SymbolOrdinal::new(1),
+                },
+                InterfaceTypeId::new(0),
             ),
         ];
 

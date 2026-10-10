@@ -280,6 +280,13 @@ where
                 .and_then(|index| elements.get(index))
                 .copied()
         }
+        (
+            ConstantValueKind::Array(elements),
+            ConstantProjectionKind::ArrayElementOrdinal(index),
+        ) => index
+            .to_index()
+            .and_then(|index| elements.get(index))
+            .copied(),
         (ConstantValueKind::Array(elements), ConstantProjectionKind::ArrayElement(index)) => {
             let index = evaluator.evaluate_term(index, ty)?;
 

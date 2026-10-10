@@ -395,6 +395,15 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
                 _ => Err(incomplete("unsupported_structured_expression")),
             },
             BoundExpression::MemberAccess(member) => {
+                if let Some(bray_bound_tree::BoundMemberSelector::TupleElement(index)) =
+                    member.selector()
+                {
+                    return Ok(InterfaceCheckedTemplateOperation::TupleElement {
+                        subject: self.expression(member.receiver())?,
+                        index: bray_symbols::SymbolOrdinal::new(*index),
+                    });
+                }
+
                 match self.selections.expression(expression_id) {
                     Some(SemanticSelection::Operation(SelectedOperation::Member(target))) => {
                         Ok(InterfaceCheckedTemplateOperation::Project {

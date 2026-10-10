@@ -27,10 +27,13 @@ mod target;
 mod target_control;
 mod target_control_contract;
 mod target_control_symbol;
+mod trusted_contracts;
 mod type_check;
 mod type_normalization;
 mod type_representation;
 mod unit;
+
+pub use trusted_contracts::{TrustedCallContract, TrustedContractInputs};
 
 #[cfg(test)]
 mod test_support;
@@ -64,8 +67,9 @@ pub use execution_guarantees::{
     ExecutionCompletionDependency, ExecutionCondition, ExecutionDeclaration, ExecutionDependency,
     ExecutionDomain, ExecutionObligation, ExecutionPlace, ExecutionProperty,
     check_execution_guarantees, declared_execution_properties, execution_condition_from_term,
-    execution_condition_is_implied, execution_condition_term, execution_conditions,
-    remap_execution_condition_inputs,
+    execution_condition_from_type_term, execution_condition_is_implied, execution_condition_term,
+    execution_conditions, map_execution_condition_substitutions, predicate_conditions,
+    predicate_conditions_with_inputs, remap_execution_condition_inputs,
 };
 pub use expression::{NestedCallableEvidence, check_generic_arguments};
 pub use lifecycle::{LifecycleSelectionContext, LifecycleSelectionError, select_lifecycle_action};

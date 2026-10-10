@@ -223,6 +223,20 @@ where
 
                 self.intern_value(ty, ConstantValueKind::product(values))
             }
+            CheckedTemplateOperation::TupleElement { subject, index } => {
+                let subject = self.evaluate_node(*subject)?;
+                let subject = self.context.semantic_values().constant_value_data(subject);
+
+                let ConstantValueKind::Tuple(elements) = subject.kind() else {
+                    return Err(TemplateEvaluationFailure::invalid_input());
+                };
+
+                index
+                    .to_index()
+                    .and_then(|index| elements.get(index))
+                    .copied()
+                    .ok_or_else(TemplateEvaluationFailure::invalid_input)
+            }
             CheckedTemplateOperation::Project { subject, member } => {
                 let subject = self.evaluate_node(*subject)?;
 
@@ -447,6 +461,15 @@ where
         operand: ConstantValueId,
         ty: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
+        if matches!(
+            operation,
+            ConstantUnaryOperation::PredicateTrust
+                | ConstantUnaryOperation::BorrowObservation
+                | ConstantUnaryOperation::EntryCondition
+        ) {
+            return Ok(operand);
+        }
+
         let operand = self.context.semantic_values().constant_value_data(operand);
 
         let representation = type_representation_for_context(self.context, ty);

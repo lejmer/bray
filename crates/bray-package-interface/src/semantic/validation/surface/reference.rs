@@ -41,7 +41,8 @@ pub(in crate::semantic::validation) fn relationship_members(
     relationship_kind: bray_symbols::SymbolRelationshipKind,
     member_kind: SymbolKind,
 ) -> Vec<InterfaceSymbolReference> {
-    surface.relationships_for(owner, relationship_kind)
+    surface
+        .relationships_for(owner, relationship_kind)
         .iter()
         .filter_map(|relationship| {
             let member = surface.symbols().symbol(relationship.member())?;

@@ -262,7 +262,7 @@ where
         .intern_generic_substitution(substitution)
         .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
-    let signature =
+    let mut signature =
         match resolve_signature(request, template.signature(), substitution, diagnostics)? {
             TemplateResolution::Resolved(signature) => signature,
             TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
@@ -288,6 +288,19 @@ where
                 ))
             })?
     };
+
+    {
+        let owner = bray_symbols::CallableSymbolId::try_from_any(template.definition().symbol())
+            .expect("declaration candidate must be callable");
+
+        let predicates = request.context().callable_predicate_contracts(owner)?;
+
+        diagnostics.add_range(predicates.diagnostics().iter().cloned());
+
+        signature = signature
+            .with_predicate_contracts(values, predicates.value(), callable_substitution)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    }
 
     let instance = CallableInstanceData::new(template.definition(), callable_substitution);
 

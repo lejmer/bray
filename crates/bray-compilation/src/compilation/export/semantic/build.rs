@@ -4,13 +4,13 @@ use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::CheckedTemplateKind;
 use bray_package_interface::{
     InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
-    InterfaceSemantics, InterfaceSymbolReference,
-    PackageInterfaceSurface, commit_interface_semantic_fragments,
+    InterfaceSemantics, InterfaceSymbolReference, PackageInterfaceSurface,
+    commit_interface_semantic_fragments,
 };
 use bray_symbols::{
     AnySymbolId, CallableConstness, CallableDefinitionId, CallableInstanceData,
-    CallableSignatureQuery, ExternalSymbolKey, GenericOwnerId,
-    SymbolQueryRequest, diagnostic_external_symbol_identity,
+    CallableSignatureQuery, ExternalSymbolKey, GenericOwnerId, SymbolQueryRequest,
+    diagnostic_external_symbol_identity,
 };
 
 use super::super::PackageInterfaceExportError;
@@ -19,9 +19,9 @@ use crate::fact::{BatchCompletionError, BatchWork, FactQueryError};
 
 use super::context::{CheckedConstantExpression, SemanticExporter};
 use super::defaults::target_dependencies;
+use super::executable::{executable_templates, prepare_executable_outputs};
 use super::fragment::SemanticFragment;
 use super::implementation::implementation_semantics;
-use super::executable::{executable_templates, prepare_executable_outputs};
 
 pub(in crate::compilation::export) fn build_semantics(
     compilation: &Compilation,

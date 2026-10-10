@@ -108,7 +108,14 @@ mod tests {
         assert!(output.contains("Selected runtime artifacts"));
         assert!(output.contains("bray.runtime.host"));
         assert!(output.contains("4.00 KiB"));
-        assert!(output.lines().find(|line| line.contains("total wait")).expect("duration metric must render").ends_with("1.5 min"));
+
+        assert!(
+            output
+                .lines()
+                .find(|line| line.contains("total wait"))
+                .expect("duration metric must render")
+                .ends_with("1.5 min")
+        );
 
         for (nanoseconds, expected) in [
             (125_125, "125.125 us"),
@@ -120,7 +127,13 @@ mod tests {
 
             let output = renderer.summary(&report);
 
-            assert!(output.lines().find(|line| line.starts_with("Elapsed")).expect("elapsed duration must render").ends_with(expected));
+            assert!(
+                output
+                    .lines()
+                    .find(|line| line.starts_with("Elapsed"))
+                    .expect("elapsed duration must render")
+                    .ends_with(expected)
+            );
         }
     }
 }

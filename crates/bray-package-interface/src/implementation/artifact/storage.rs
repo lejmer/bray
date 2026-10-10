@@ -142,10 +142,8 @@ impl ImplementationStorage {
         let mut hasher = blake3::Hasher::new();
         let mut metadata = None;
 
-        let mut identity_hasher = crate::implementation::hash::payload_hasher(
-            identity,
-            identity.payload.len() as u64,
-        );
+        let mut identity_hasher =
+            crate::implementation::hash::payload_hasher(identity, identity.payload.len() as u64);
 
         for start in (0..self.len()).step_by(64 * 1024) {
             let end = start.saturating_add(64 * 1024).min(self.len());
@@ -163,9 +161,8 @@ impl ImplementationStorage {
                     });
                 }
 
-                metadata = crate::implementation::hash::metadata_hasher(
-                    &bytes[..super::HEADER_LENGTH],
-                );
+                metadata =
+                    crate::implementation::hash::metadata_hasher(&bytes[..super::HEADER_LENGTH]);
             }
 
             if end > directory_offset {

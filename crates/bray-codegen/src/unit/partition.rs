@@ -258,7 +258,10 @@ impl<'a> PartitionGroup<'a> {
         let dependencies = if policy.identity()
             == CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION.identity()
         {
-            let owned = group_instances.iter().map(|instance| instance.key()).collect::<BTreeSet<_>>();
+            let owned = group_instances
+                .iter()
+                .map(|instance| instance.key())
+                .collect::<BTreeSet<_>>();
 
             PublicationDependencies {
                 instances: group_instances
@@ -267,7 +270,8 @@ impl<'a> PartitionGroup<'a> {
                     .map(|dependency| dependency.instance())
                     .filter(|key| !owned.contains(key))
                     .collect(),
-                statics: members.iter()
+                statics: members
+                    .iter()
                     .map(|&member| classes[member].native_storage_dependencies_identity())
                     .filter(|identity| *identity != [0; 32])
                     .collect(),
@@ -688,9 +692,17 @@ mod tests {
         assert!(units.iter().any(|unit| unit.instances().len() > 1));
 
         for unit in units.iter() {
-            let dependencies = unit.instances().iter().map(|instance| {
-                instance.dependencies().iter().map(|dependency| dependency.instance()).collect::<Vec<_>>()
-            }).collect::<BTreeSet<_>>();
+            let dependencies = unit
+                .instances()
+                .iter()
+                .map(|instance| {
+                    instance
+                        .dependencies()
+                        .iter()
+                        .map(|dependency| dependency.instance())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<BTreeSet<_>>();
 
             assert_eq!(dependencies.len(), 1);
         }
@@ -698,40 +710,78 @@ mod tests {
 
     #[test]
     fn runtime_provider_dependencies_bound_publication_but_not_required_groups() {
-        let instances = (0..16).map(|index| {
-            let bound = bray_testing::test_bound_unit_with_declaration(index, index);
-            let source = bray_ir::MirSourceAnchor::from(bound.key().source());
-            let mut builder = bray_ir::MirUnitBuilder::for_bound(bound.identity(), bray_ir::MirUnitKind::Synchronous, test_mir_target());
-            let block = builder.push_block(source.clone(), bray_ir::MirBlockKind::Ordinary).unwrap();
-            let ty = bray_testing::test_mir_type();
+        let instances = (0..16)
+            .map(|index| {
+                let bound = bray_testing::test_bound_unit_with_declaration(index, index);
+                let source = bray_ir::MirSourceAnchor::from(bound.key().source());
 
-            let runtime = bray_ir::MirRuntimeReference::new(
-                if index % 2 == 0 { bray_runtime_interface::RuntimeAbiRole::OutgoingAdmission }
-                else { bray_runtime_interface::RuntimeAbiRole::OutgoingDischarge },
-                RuntimeAbiVersion::new(1, 0),
-            );
+                let mut builder = bray_ir::MirUnitBuilder::for_bound(
+                    bound.identity(),
+                    bray_ir::MirUnitKind::Synchronous,
+                    test_mir_target(),
+                );
 
-            let operation = if index % 2 == 0 { bray_ir::MirOperationKind::AdmitOutgoing { ty, runtime } }
-                else { bray_ir::MirOperationKind::DischargeOutgoing { ty, runtime } };
+                let block = builder
+                    .push_block(source.clone(), bray_ir::MirBlockKind::Ordinary)
+                    .unwrap();
 
-            builder.push_operation(block, source.clone(), operation, None).unwrap();
-            builder.set_terminator(block, source, bray_ir::MirTerminatorKind::Return(None));
+                let ty = bray_testing::test_mir_type();
 
-            CodegenInstance::non_generic(builder.finish(block))
-        }).collect::<Vec<_>>();
+                let runtime = bray_ir::MirRuntimeReference::new(
+                    if index % 2 == 0 {
+                        bray_runtime_interface::RuntimeAbiRole::OutgoingAdmission
+                    } else {
+                        bray_runtime_interface::RuntimeAbiRole::OutgoingDischarge
+                    },
+                    RuntimeAbiVersion::new(1, 0),
+                );
 
-        let units = partitions(CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION, instances.iter().cloned(), |_| compatibility(1, CodegenLinkage::Export));
+                let operation = if index % 2 == 0 {
+                    bray_ir::MirOperationKind::AdmitOutgoing { ty, runtime }
+                } else {
+                    bray_ir::MirOperationKind::DischargeOutgoing { ty, runtime }
+                };
+
+                builder
+                    .push_operation(block, source.clone(), operation, None)
+                    .unwrap();
+
+                builder.set_terminator(block, source, bray_ir::MirTerminatorKind::Return(None));
+
+                CodegenInstance::non_generic(builder.finish(block))
+            })
+            .collect::<Vec<_>>();
+
+        let units = partitions(
+            CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION,
+            instances.iter().cloned(),
+            |_| compatibility(1, CodegenLinkage::Export),
+        );
 
         assert!(units.iter().any(|unit| unit.instances().len() > 1));
-        assert!(units.iter().all(|unit| crate::demanded_runtime_references(unit).len() == 1));
 
-        let cycle = (0..2).map(|index| CodegenInstance::try_new(
-            instances[index].key().clone(),
-            instances[index].mir().clone(),
-            [CodegenInstanceDependency::definition(instances[1-index].key().clone())],
-        ).unwrap());
+        assert!(
+            units
+                .iter()
+                .all(|unit| crate::demanded_runtime_references(unit).len() == 1)
+        );
 
-        let units = partitions(CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION, cycle, |_| compatibility(1, CodegenLinkage::Export));
+        let cycle = (0..2).map(|index| {
+            CodegenInstance::try_new(
+                instances[index].key().clone(),
+                instances[index].mir().clone(),
+                [CodegenInstanceDependency::definition(
+                    instances[1 - index].key().clone(),
+                )],
+            )
+            .unwrap()
+        });
+
+        let units = partitions(
+            CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION,
+            cycle,
+            |_| compatibility(1, CodegenLinkage::Export),
+        );
 
         assert_eq!(units.len(), 1);
         assert_eq!(crate::demanded_runtime_references(&units[0]).len(), 2);

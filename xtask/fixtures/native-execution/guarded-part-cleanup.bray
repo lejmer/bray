@@ -78,7 +78,9 @@ impl PairStorage(Storage<Pair>)
     trusted static func destroy(pos storage: &mut Self)
         uses(unchecked_init)
     {
-        let _: Pair = trusted core.memory.move_initialized<Pair>(&mut storage.value);
+        let initialized = initialized_pair(storage);
+
+        let _: Pair = trusted core.memory.move_initialized<Pair>(initialized);
     }
 
     trusted static func release(pos storage: Self)
@@ -96,11 +98,52 @@ impl PairStorage(Storage<Pair>)
     }
 }
 
+// These projections expose the invariant established by PairStorage.create. The storage protocol
+// supplies a live initialized Pair until destroy, and the borrow retains that storage's capability.
+trusted func initialized_pair(pos storage: &mut PairStorage) -> &mut Uninit<Pair>
+    executes(pure, total)
+    ensures(trusted core.memory.uninit_initialized<Pair>(storage = result))
+{
+    return &mut storage.value;
+}
+
+trusted func pair_pointer(pos storage: &PairStorage) -> RawPointer<Pair>
+    executes(pure, total)
+    ensures(
+        trusted core.memory.valid_read<Pair>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<Pair>(pointer = result),
+        trusted core.memory.initialized_as<Pair>(pointer = result),
+        trusted core.memory.shared_alias_valid<Pair>(pointer = result),
+        trusted core.memory.epoch_current<Pair>(pointer = result),
+        trusted core.memory.synchronized_access<Pair>(pointer = result),
+        trusted core.memory.movement_stable<Pair>(pointer = result),
+        trusted core.memory.finalization_pending<Pair>(pointer = result),
+    )
+{
+    return core.memory.uninit_pointer<Pair>(&storage.value);
+}
+
+trusted func pair_pointer_mut(pos storage: &mut PairStorage) -> RawPointer<Pair>
+    executes(pure, total)
+    ensures(
+        trusted core.memory.valid_write<Pair>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<Pair>(pointer = result),
+        trusted core.memory.initialized_as<Pair>(pointer = result),
+        trusted core.memory.exclusive_alias_valid<Pair>(pointer = result),
+        trusted core.memory.epoch_current<Pair>(pointer = result),
+        trusted core.memory.synchronized_access<Pair>(pointer = result),
+        trusted core.memory.movement_stable<Pair>(pointer = result),
+        trusted core.memory.finalization_pending<Pair>(pointer = result),
+    )
+{
+    return core.memory.uninit_pointer_mut<Pair>(&mut storage.value);
+}
+
 trusted func borrow_pair(pos storage: &PairStorage) -> &Pair
     executes(pure, total)
     uses(raw_memory, unchecked_alias)
 {
-    let pointer = core.memory.uninit_pointer<Pair>(&storage.value);
+    let pointer = pair_pointer(storage);
 
     return trusted core.memory.borrow_from<Pair, PairStorage>(storage, pointer);
 }
@@ -109,7 +152,7 @@ trusted func borrow_pair_mut(pos storage: &mut PairStorage) -> &mut Pair
     executes(pure, total)
     uses(raw_memory, unchecked_alias)
 {
-    let pointer = core.memory.uninit_pointer_mut<Pair>(&mut storage.value);
+    let pointer = pair_pointer_mut(storage);
 
     return trusted core.memory.borrow_mut_from<Pair, PairStorage>(storage, pointer);
 }

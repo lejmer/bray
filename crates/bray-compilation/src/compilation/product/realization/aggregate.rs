@@ -2,14 +2,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
 
 use bray_codegen::{
-    CodegenCallableSignature, CodegenFieldLayout,
-    CodegenTarget, CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout,
-    TargetAddressSpaceKind,
+    CodegenCallableSignature, CodegenFieldLayout, CodegenTarget, CodegenTypeKind,
+    CodegenTypeMapping, CodegenUnionVariantLayout, TargetAddressSpaceKind,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
-    BorrowKind, GenericSubstitutionId, NamedTypeSymbolId, StructSymbolId, TypeData,
-    TypeId,
+    BorrowKind, GenericSubstitutionId, NamedTypeSymbolId, StructSymbolId, TypeData, TypeId,
 };
 use bray_target::{TargetAtomicRepresentation, TargetLayoutContract, TargetValueLayout};
 
@@ -18,8 +16,8 @@ use super::super::super::Compilation;
 use super::super::super::substitution::named_type;
 use super::support::{
     align_to, atomic_representation_for_type, atomic_storage_is_padding_free,
-    ensure_target_alignment, packed_alignment,
-    pointer_mapping, signature_types, sized_layout, target_layout_contract,
+    ensure_target_alignment, packed_alignment, pointer_mapping, signature_types, sized_layout,
+    target_layout_contract,
 };
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::{CancellationToken, FactQueryError};
@@ -602,5 +600,4 @@ impl Compilation {
 
         Ok(())
     }
-
 }

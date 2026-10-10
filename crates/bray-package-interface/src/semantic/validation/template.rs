@@ -455,6 +455,7 @@ fn validate_operation_references(
         | InterfaceCheckedTemplateOperation::Borrow { .. }
         | InterfaceCheckedTemplateOperation::Tuple(_)
         | InterfaceCheckedTemplateOperation::Array(_)
+        | InterfaceCheckedTemplateOperation::TupleElement { .. }
         | InterfaceCheckedTemplateOperation::Conditional { .. }
         | InterfaceCheckedTemplateOperation::ShortCircuit { .. } => {}
         InterfaceCheckedTemplateOperation::Temporary(temporary) => {
@@ -555,6 +556,25 @@ fn validate_operation_type(
         InterfaceCheckedTemplateOperation::ShortCircuit { left, right, .. } => {
             node_type(template, *left) == Some(node.ty())
                 && node_type(template, *right) == Some(node.ty())
+        }
+        InterfaceCheckedTemplateOperation::TupleElement { subject, index } => {
+            let mut subject_type = node_type(template, *subject);
+
+            loop {
+                match subject_type.and_then(|ty| type_at(semantics, ty)) {
+                    Some(
+                        InterfaceType::Borrow { target, .. }
+                        | InterfaceType::OwnedIndirection { target, .. },
+                    ) => {
+                        subject_type = Some(*target);
+                    }
+                    Some(InterfaceType::Tuple(elements)) => {
+                        break index.to_index().and_then(|index| elements.get(index))
+                            == Some(&node.ty());
+                    }
+                    _ => break false,
+                }
+            }
         }
         InterfaceCheckedTemplateOperation::Temporary(temporary) => {
             let temporary_index =

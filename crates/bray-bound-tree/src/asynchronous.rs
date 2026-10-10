@@ -369,6 +369,8 @@ pub enum AsyncAnalysisBuildError {
     ForeignUnit,
     /// One assignment has more than one replacement cleanup plan.
     DuplicateReplacement,
+    /// One scope-exit occurrence has more than one cleanup plan.
+    DuplicateScopeExit,
 }
 
 /// Durable async frame, suspension, task, and cleanup analysis for one bound unit.
@@ -380,8 +382,10 @@ pub struct CheckedAsync {
     suspensions: Arc<[AsyncSuspensionPoint]>,
     task_operations: Arc<[AsyncTaskOperation]>,
     storage_requirements: Arc<[AsyncStorageRequirement]>,
+    storage_requirements_by_identity: Arc<[usize]>,
     cleanup_types: Arc<[crate::StorageCleanupType]>,
     scope_exits: Arc<[AsyncScopeExitPlan]>,
+    scope_exits_by_node: Arc<[usize]>,
     replacements: Arc<[crate::StorageReplacementPlan]>,
     is_recovered: bool,
 }
@@ -464,6 +468,31 @@ impl CheckedAsync {
             return Err(AsyncAnalysisBuildError::ForeignUnit);
         }
 
+        let mut storage_requirements_by_identity =
+            (0..storage_requirements.len()).collect::<Vec<_>>();
+
+        storage_requirements_by_identity
+            .sort_unstable_by_key(|index| (storage_requirements[*index].identity(), *index));
+
+        let mut scope_exits_by_node = (0..scope_exits.len()).collect::<Vec<_>>();
+
+        scope_exits_by_node.sort_unstable_by_key(|index| {
+            (
+                scope_exits[*index].scope(),
+                scope_exits[*index].exit(),
+                *index,
+            )
+        });
+
+        if scope_exits_by_node.windows(2).any(|pair| {
+            let left = &scope_exits[pair[0]];
+            let right = &scope_exits[pair[1]];
+
+            left.scope() == right.scope() && left.exit() == right.exit()
+        }) {
+            return Err(AsyncAnalysisBuildError::DuplicateScopeExit);
+        }
+
         Ok(Self {
             unit,
             kind,
@@ -471,8 +500,10 @@ impl CheckedAsync {
             suspensions,
             task_operations,
             storage_requirements,
+            storage_requirements_by_identity: storage_requirements_by_identity.into(),
             cleanup_types,
             scope_exits,
+            scope_exits_by_node: scope_exits_by_node.into(),
             replacements: Arc::from([]),
             is_recovered,
         })
@@ -514,6 +545,17 @@ impl CheckedAsync {
         &self.replacements
     }
 
+    /// Returns the cleanup selection for one replacement occurrence.
+    pub fn replacement(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Option<&crate::StorageReplacementPlan> {
+        self.replacements
+            .binary_search_by_key(&expression, crate::StorageReplacementPlan::expression)
+            .ok()
+            .map(|index| &self.replacements[index])
+    }
+
     /// Returns the checked bound unit.
     pub const fn unit(&self) -> BoundUnitId {
         self.unit
@@ -544,6 +586,21 @@ impl CheckedAsync {
         &self.storage_requirements
     }
 
+    /// Returns the first checked cleanup requirement for one storage identity.
+    pub fn storage_requirement(
+        &self,
+        identity: StorageIdentityId,
+    ) -> Option<&AsyncStorageRequirement> {
+        let first = self
+            .storage_requirements_by_identity
+            .partition_point(|index| self.storage_requirements[*index].identity() < identity);
+
+        self.storage_requirements_by_identity
+            .get(first)
+            .map(|index| &self.storage_requirements[*index])
+            .filter(|requirement| requirement.identity() == identity)
+    }
+
     /// Returns independently checked cleanup types, including hidden represented members.
     pub fn cleanup_types(&self) -> &[crate::StorageCleanupType] {
         &self.cleanup_types
@@ -552,6 +609,24 @@ impl CheckedAsync {
     /// Returns two-phase cleanup plans in control-flow order.
     pub fn scope_exits(&self) -> &[AsyncScopeExitPlan] {
         &self.scope_exits
+    }
+
+    /// Returns the cleanup plan for one scope-exit occurrence.
+    pub fn scope_exit_plan(
+        &self,
+        scope: BoundBlockId,
+        exit: AnyBoundNodeId,
+    ) -> Option<&AsyncScopeExitPlan> {
+        let first = self.scope_exits_by_node.partition_point(|index| {
+            let plan = &self.scope_exits[*index];
+
+            (plan.scope(), plan.exit()) < (scope, exit)
+        });
+
+        self.scope_exits_by_node
+            .get(first)
+            .map(|index| &self.scope_exits[*index])
+            .filter(|plan| plan.scope() == scope && plan.exit() == exit)
     }
 
     /// Returns whether recovery prevented complete async checking.
@@ -563,13 +638,13 @@ impl CheckedAsync {
 #[cfg(test)]
 mod tests {
     use super::{
-        AsyncCleanupPhases, AsyncScopeExitPlan, AsyncStorageExitDecision,
-        AsyncStorageExitDisposition, AsyncSuspensionKind, AsyncSuspensionPoint, AsyncTaskOperation,
-        AsyncTaskOperationKind, CheckedAsync,
+        AsyncAnalysisBuildError, AsyncCleanupPhases, AsyncScopeExitPlan, AsyncStorageExitDecision,
+        AsyncStorageExitDisposition, AsyncStorageRequirement, AsyncSuspensionKind,
+        AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind, CheckedAsync,
     };
     use crate::{
-        BoundBlockId, BoundDependencySubject, BoundExpressionId, BoundUnitId, BoundUnitKind,
-        StorageAccessId,
+        AsyncStorageCleanupRequirement, BoundBlockId, BoundDependencySubject, BoundExpressionId,
+        BoundUnitId, BoundUnitKind, StorageAccessId, StorageIdentityId, StorageReplacementPlan,
     };
 
     #[test]
@@ -634,6 +709,126 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<CheckedAsync>();
+    }
+
+    #[test]
+    fn cleanup_queries_preserve_occurrence_identity_and_original_order() {
+        let unit = BoundUnitId::new(7);
+        let first_scope = BoundBlockId::from_slot(unit, 1);
+        let second_scope = BoundBlockId::from_slot(unit, 2);
+        let first_exit = BoundExpressionId::from_slot(unit, 1);
+        let second_exit = BoundExpressionId::from_slot(unit, 2);
+        let first_identity = StorageIdentityId::from_slot(unit, 1);
+        let second_identity = StorageIdentityId::from_slot(unit, 2);
+
+        let coordinates = [
+            (second_scope, first_exit),
+            (first_scope, second_exit),
+            (first_scope, first_exit),
+        ];
+
+        let plans = coordinates.map(|(scope, exit)| {
+            AsyncScopeExitPlan::new(scope, exit.into(), [], [], [], [], false)
+        });
+
+        let requirements = [second_identity, first_identity].map(|identity| {
+            AsyncStorageRequirement::new(
+                identity,
+                None,
+                false,
+                AsyncStorageCleanupRequirement::None,
+            )
+        });
+
+        let replacements = [(second_exit, 2), (first_exit, 1)].map(|(expression, slot)| {
+            StorageReplacementPlan::new(
+                expression,
+                StorageAccessId::from_slot(unit, slot),
+                AsyncStorageCleanupRequirement::None,
+                None,
+            )
+        });
+
+        let analysis = CheckedAsync::try_new(
+            unit,
+            BoundUnitKind::CallableBody,
+            [],
+            [],
+            [],
+            requirements.clone(),
+            [],
+            plans.clone(),
+            false,
+        )
+        .unwrap()
+        .with_replacements(replacements)
+        .unwrap();
+
+        assert_eq!(analysis.scope_exits(), &plans);
+        assert_eq!(analysis.storage_requirements(), &requirements);
+
+        for (index, (scope, exit)) in coordinates.into_iter().enumerate() {
+            assert_eq!(
+                analysis.scope_exit_plan(scope, exit.into()),
+                Some(&plans[index])
+            );
+        }
+
+        assert_eq!(
+            analysis.storage_requirement(first_identity),
+            Some(&requirements[1])
+        );
+
+        assert_eq!(
+            analysis.storage_requirement(second_identity),
+            Some(&requirements[0])
+        );
+
+        assert_eq!(
+            analysis.replacement(first_exit).unwrap().expression(),
+            first_exit
+        );
+
+        assert_eq!(
+            analysis.replacement(second_exit).unwrap().expression(),
+            second_exit
+        );
+
+        assert_eq!(
+            analysis.scope_exit_plan(second_scope, second_exit.into()),
+            None
+        );
+
+        for missing_unit in [unit, BoundUnitId::new(8)] {
+            let missing_exit = BoundExpressionId::from_slot(missing_unit, 3);
+
+            assert!(analysis.replacement(missing_exit).is_none());
+
+            assert!(
+                analysis
+                    .storage_requirement(StorageIdentityId::from_slot(missing_unit, 3))
+                    .is_none()
+            );
+
+            assert_eq!(
+                analysis.scope_exit_plan(first_scope, missing_exit.into()),
+                None
+            );
+        }
+
+        let duplicate = CheckedAsync::try_new(
+            unit,
+            BoundUnitKind::CallableBody,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [plans[0].clone(), plans[0].clone()],
+            false,
+        );
+
+        assert_eq!(duplicate, Err(AsyncAnalysisBuildError::DuplicateScopeExit));
     }
 
     #[test]

@@ -2002,8 +2002,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                         normal,
                         alternates,
                         self.callable_references()?,
-                    )),
-                ))
+                    ),
+                )))
             }
             16 => Ok(MirTerminatorKind::RangeIterate {
                 cursor: self.place()?,

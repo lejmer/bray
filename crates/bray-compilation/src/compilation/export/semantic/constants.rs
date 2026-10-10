@@ -170,6 +170,9 @@ impl<'a> SemanticExporter<'a> {
                             ConstantProjectionKind::TupleElement(ordinal) => {
                                 InterfaceConstantProjection::TupleElement(ordinal)
                             }
+                            ConstantProjectionKind::ArrayElementOrdinal(index) => {
+                                InterfaceConstantProjection::ArrayElementOrdinal(index)
+                            }
                             ConstantProjectionKind::ArrayElement(index) => {
                                 InterfaceConstantProjection::ArrayElement(
                                     self.constant_term_id(index)?,

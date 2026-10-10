@@ -319,6 +319,11 @@ fn format_english_callable_contract_mismatch(
             format_english_callable_contract_surface(*surface),
             ordinal(*index),
         ),
+        DiagnosticCallableContractMismatch::PredicateCondition { surface, index } => format!(
+            "{} predicate clause {} requires a different trusted condition",
+            format_english_callable_contract_surface(*surface),
+            ordinal(*index),
+        ),
         DiagnosticCallableContractMismatch::TraitSatisfaction { surface, index } => format!(
             "{} trait clause {} has a different subject or trait application",
             format_english_callable_contract_surface(*surface),

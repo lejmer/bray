@@ -179,12 +179,12 @@ where
         let mut sources = Vec::new();
         let mut destinations = Vec::new();
 
-        for plan in self.input.plans(node) {
+        for plan in self.storage.node_plans(node) {
             let Some(root) = self.storage.root_identity(plan.access()) else {
                 continue;
             };
 
-            match self.effective_purpose(*plan) {
+            match self.effective_purpose(plan) {
                 StorageAccessPurpose::Move
                 | StorageAccessPurpose::Copy
                 | StorageAccessPurpose::ValueTransfer => sources.push((root, plan.purpose())),
@@ -229,11 +229,39 @@ where
             return;
         };
 
+        let proven = self
+            .request
+            .trusted_memory_evidence()
+            .is_some_and(|evidence| evidence.contains(&expression));
+
+        if proven {
+            if let CheckedMemoryOperationKind::Read { pointee, .. }
+            | CheckedMemoryOperationKind::VolatileRead { pointee, .. }
+            | CheckedMemoryOperationKind::UninitAssumeInitialized { element: pointee }
+            | CheckedMemoryOperationKind::UninitMove { element: pointee } = operation.kind()
+            {
+                if let Some(pointer) = operation
+                    .arguments()
+                    .first()
+                    .and_then(|argument| self.argument_storage(*argument))
+                {
+                    state
+                        .raw_initialized
+                        .entry(pointer)
+                        .or_default()
+                        .entry(pointee)
+                        .or_default()
+                        .insert(expression);
+                }
+            }
+        }
+
         let status = if !state.reachable {
             MemoryOperationStatus::Unreachable
         } else if state.recovered {
             MemoryOperationStatus::Recovered
         } else if operation_requires_trust(operation.kind())
+            && !proven
             && !refinements
                 .iter()
                 .any(|refinement| matches!(refinement.kind(), RefinementKind::TrustBoundary(_)))

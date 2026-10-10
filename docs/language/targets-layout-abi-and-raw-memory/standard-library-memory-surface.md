@@ -50,9 +50,30 @@ access, copy, allocation, and deallocation operations of `core.memory`.
 ```bray
 module std.memory;
 
-func address_of<T>(pos value: &T) -> RawPointer<T>;
+func address_of<T>(pos value: &T) -> RawPointer<T>
+    ensures(
+        trusted core.memory.valid_read<T>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = result),
+        trusted core.memory.initialized_as<T>(pointer = result),
+        trusted core.memory.shared_alias_valid<T>(pointer = result),
+        trusted core.memory.epoch_current<T>(pointer = result),
+        trusted core.memory.synchronized_access<T>(pointer = result),
+        trusted core.memory.movement_stable<T>(pointer = result),
+        trusted core.memory.finalization_pending<T>(pointer = result),
+    );
 
-func address_of_mut<T>(pos value: &mut T) -> RawPointer<T>;
+func address_of_mut<T>(pos value: &mut T) -> RawPointer<T>
+    ensures(
+        trusted core.memory.valid_read<T>(pointer = result, count = 1),
+        trusted core.memory.valid_write<T>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = result),
+        trusted core.memory.initialized_as<T>(pointer = result),
+        trusted core.memory.exclusive_alias_valid<T>(pointer = result),
+        trusted core.memory.epoch_current<T>(pointer = result),
+        trusted core.memory.synchronized_access<T>(pointer = result),
+        trusted core.memory.movement_stable<T>(pointer = result),
+        trusted core.memory.finalization_pending<T>(pointer = result),
+    );
 
 func null<T>() -> RawPointer<T>;
 

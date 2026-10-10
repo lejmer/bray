@@ -11,6 +11,7 @@ use crate::{CheckerQueryError, CheckerRequestContext};
 pub(super) enum CleanupExpansion {
     MovedPaths,
     DestructorReceiver,
+    FullDisposal,
 }
 
 impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
@@ -44,6 +45,30 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
         self.cleanup_types
             .entry(ty)
             .or_insert_with(|| bray_bound_tree::StorageCleanupType::new(ty, cleanup));
+
+        if expansion == CleanupExpansion::FullDisposal {
+            let definition = match self.request.semantic_values().type_data(ty).as_ref() {
+                TypeData::Named { definition, .. } => Some(*definition),
+                _ => None,
+            };
+
+            let repeated = path.iter().any(|projection| projection.source_type() == ty
+                || definition.is_some_and(|definition|
+                    matches!(self.request.semantic_values().type_data(projection.source_type()).as_ref(),
+                        TypeData::Named { definition: previous, .. } if *previous == definition)));
+
+            if repeated {
+                self.recursive_cleanup = true;
+
+                return Ok(true);
+            }
+        }
+
+        if expansion == CleanupExpansion::FullDisposal
+            && matches!(cleanup, AsyncStorageCleanupRequirement::None)
+        {
+            return Ok(true);
+        }
 
         if expansion == CleanupExpansion::MovedPaths && moved.iter().all(|path| path.is_empty()) {
             return Ok(match cleanup {
@@ -124,70 +149,17 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
 
                 requires_whole_value = *lifecycle.value();
 
-                let representation = self.request.declared_type_representation(*definition)?;
+                if expansion == CleanupExpansion::FullDisposal && requires_whole_value {
+                    parts.push(StorageCleanupPart::new(
+                        path.iter().copied(),
+                        bray_bound_tree::AsyncCleanupPhases::Lifecycle,
+                    ));
+                }
 
-                self.diagnostics
-                    .add_range(representation.diagnostics().clone());
-
-                if representation.value().is_recovered() {
+                let Some(children) = self.named_cleanup_children(*definition, *substitution)?
+                else {
                     return Ok(false);
-                }
-
-                let mut children = Vec::new();
-
-                match representation.value().storage() {
-                    DeclaredStorageShape::Structure(members) => {
-                        for (index, member) in members.iter().enumerate() {
-                            let projection = match member.field() {
-                                Some(field) => StorageProjection::ProductField(field),
-                                None => {
-                                    let Ok(index) = u32::try_from(index) else {
-                                        return Ok(false);
-                                    };
-
-                                    StorageProjection::TupleElement(SymbolOrdinal::new(index))
-                                }
-                            };
-
-                            let Some(ty) = self.member_type(member.ty(), *substitution)? else {
-                                return Ok(false);
-                            };
-
-                            children
-                                .push((StorageCleanupProjectionKind::Component(projection), ty));
-                        }
-                    }
-                    DeclaredStorageShape::Union(variants) => {
-                        for variant in variants.iter() {
-                            for (index, member) in variant.members().iter().enumerate() {
-                                let projection = match member.field() {
-                                    Some(field) => StorageCleanupProjectionKind::Component(
-                                        StorageProjection::ActiveUnionPayloadField {
-                                            variant: variant.variant(),
-                                            field,
-                                        },
-                                    ),
-                                    None => {
-                                        let Ok(index) = u32::try_from(index) else {
-                                            return Ok(false);
-                                        };
-
-                                        StorageCleanupProjectionKind::UnionPayloadElement {
-                                            variant: variant.variant(),
-                                            ordinal: SymbolOrdinal::new(index),
-                                        }
-                                    }
-                                };
-
-                                let Some(ty) = self.member_type(member.ty(), *substitution)? else {
-                                    return Ok(false);
-                                };
-
-                                children.push((projection, ty));
-                            }
-                        }
-                    }
-                }
+                };
 
                 children
             }
@@ -232,7 +204,11 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
             let complete = self.append_parts(
                 child_type,
                 &child_moves,
-                CleanupExpansion::MovedPaths,
+                if expansion == CleanupExpansion::FullDisposal {
+                    expansion
+                } else {
+                    CleanupExpansion::MovedPaths
+                },
                 source,
                 path,
                 parts,
@@ -255,6 +231,81 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
         Ok(true)
     }
 
+    fn named_cleanup_children(
+        &mut self,
+        definition: bray_symbols::NamedTypeSymbolId,
+        substitution: bray_symbols::GenericSubstitutionId,
+    ) -> Result<
+        Option<Vec<(StorageCleanupProjectionKind, TypeId)>>,
+        CheckerQueryError<C::UpstreamError>,
+    > {
+        let representation = self.request.declared_type_representation(definition)?;
+
+        self.diagnostics
+            .add_range(representation.diagnostics().clone());
+
+        if representation.value().is_recovered() {
+            return Ok(None);
+        }
+
+        let mut children = Vec::new();
+
+        match representation.value().storage() {
+            DeclaredStorageShape::Structure(members) => {
+                for (index, member) in members.iter().enumerate() {
+                    let projection = match member.field() {
+                        Some(field) => StorageProjection::ProductField(field),
+                        None => {
+                            let Ok(index) = u32::try_from(index) else {
+                                return Ok(None);
+                            };
+
+                            StorageProjection::TupleElement(SymbolOrdinal::new(index))
+                        }
+                    };
+
+                    let Some(ty) = self.member_type(member.ty(), substitution)? else {
+                        return Ok(None);
+                    };
+
+                    children.push((StorageCleanupProjectionKind::Component(projection), ty));
+                }
+            }
+            DeclaredStorageShape::Union(variants) => {
+                for variant in variants.iter() {
+                    for (index, member) in variant.members().iter().enumerate() {
+                        let projection = match member.field() {
+                            Some(field) => StorageCleanupProjectionKind::Component(
+                                StorageProjection::ActiveUnionPayloadField {
+                                    variant: variant.variant(),
+                                    field,
+                                },
+                            ),
+                            None => {
+                                let Ok(index) = u32::try_from(index) else {
+                                    return Ok(None);
+                                };
+
+                                StorageCleanupProjectionKind::UnionPayloadElement {
+                                    variant: variant.variant(),
+                                    ordinal: SymbolOrdinal::new(index),
+                                }
+                            }
+                        };
+
+                        let Some(ty) = self.member_type(member.ty(), substitution)? else {
+                            return Ok(None);
+                        };
+
+                        children.push((projection, ty));
+                    }
+                }
+            }
+        }
+
+        Ok(Some(children))
+    }
+
     fn storage_call(
         &mut self,
         storage: TypeId,
@@ -274,4 +325,77 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
 
         Ok(call)
     }
+}
+
+pub(crate) fn full_cleanup_parts<C: CheckerRequestContext + ?Sized>(
+    request: crate::CheckerUnitView<'_, C>,
+    ty: TypeId,
+    source: BoundSourceAnchor,
+    selected: Option<&[StorageCleanupPart]>,
+) -> Result<
+    bray_diagnostics::DiagnosticResult<Vec<(TypeId, Option<StorageCleanupPart>)>>,
+    CheckerQueryError<C::UpstreamError>,
+> {
+    let mut resolver = CleanupShapeResolver::new(request);
+    let mut result = Vec::new();
+
+    if let Some(selected) = selected {
+        for part in selected {
+            if part.release().is_some() || !part.phases().includes_lifecycle() {
+                result.push(part.clone());
+
+                continue;
+            }
+
+            let reached = part
+                .projections()
+                .last()
+                .map_or(ty, |projection| projection.result_type());
+
+            if let Some(parts) =
+                resolver.represented_parts(reached, &[], CleanupExpansion::FullDisposal, source)?
+            {
+                result.extend(parts.into_iter().map(|nested| {
+                    let projections = part
+                        .projections()
+                        .iter()
+                        .copied()
+                        .chain(nested.projections().iter().copied());
+
+                    match nested.release() {
+                        Some(release) => StorageCleanupPart::release_storage(projections, release),
+                        None => StorageCleanupPart::new(projections, nested.phases()),
+                    }
+                }));
+            }
+        }
+    } else if let Some(parts) =
+        resolver.represented_parts(ty, &[], CleanupExpansion::FullDisposal, source)?
+    {
+        result = parts;
+    }
+
+    let mut receivers = result
+        .into_iter()
+        .filter(|part| part.release().is_none() && part.phases().includes_lifecycle())
+        .map(|part| {
+            (
+                part.projections()
+                    .last()
+                    .map_or(ty, |projection| projection.result_type()),
+                Some(part),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    if resolver.recursive_cleanup {
+        // A recursive subtree has no finite source access path. Its selected declarations still
+        // incur their obligations, but a concrete parent's field evidence cannot prove them.
+        receivers.extend(resolver.cleanup_types.keys().copied().map(|ty| (ty, None)));
+    }
+
+    Ok(bray_diagnostics::DiagnosticResult::new(
+        receivers,
+        resolver.diagnostics,
+    ))
 }

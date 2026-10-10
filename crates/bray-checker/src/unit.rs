@@ -24,6 +24,9 @@ where
     unit: &'view BoundUnit,
     semantic_context: &'view SemanticUnitContext,
     context: &'view C,
+    source_snapshot: Option<&'view bray_source::SourceSnapshot>,
+    trusted_contracts: Option<&'view crate::TrustedContractInputs>,
+    trusted_memory_evidence: Option<&'view std::collections::BTreeSet<BoundExpressionId>>,
 }
 
 impl<C> Clone for CheckerUnitView<'_, C>
@@ -87,7 +90,66 @@ where
             unit,
             semantic_context,
             context,
+            source_snapshot: None,
+            trusted_contracts: None,
+            trusted_memory_evidence: None,
         }
+    }
+
+    /// Supplies the exact preparsed source snapshot owned by this unit's declaration fragment.
+    pub fn with_source_snapshot(mut self, source: &'view bray_source::SourceSnapshot) -> Self {
+        assert_eq!(
+            source.source_id(),
+            self.unit.key().source().syntax().source_id(),
+            "unit source identity must match its snapshot"
+        );
+
+        assert_eq!(
+            source.version(),
+            self.unit.key().source().source_version(),
+            "unit source version must match its snapshot"
+        );
+
+        self.source_snapshot = Some(source);
+
+        self
+    }
+
+    /// Supplies normalized trusted predicate contracts for body checking.
+    pub const fn with_trusted_contracts(
+        mut self,
+        contracts: &'view crate::TrustedContractInputs,
+    ) -> Self {
+        self.trusted_contracts = Some(contracts);
+
+        self
+    }
+
+    pub(crate) const fn trusted_contracts(self) -> Option<&'view crate::TrustedContractInputs> {
+        self.trusted_contracts
+    }
+
+    pub(crate) fn with_trusted_memory_evidence<'evidence>(
+        self,
+        evidence: &'evidence std::collections::BTreeSet<BoundExpressionId>,
+    ) -> CheckerUnitView<'evidence, C>
+    where
+        'view: 'evidence,
+    {
+        CheckerUnitView {
+            unit: self.unit,
+            semantic_context: self.semantic_context,
+            context: self.context,
+            source_snapshot: self.source_snapshot,
+            trusted_contracts: self.trusted_contracts,
+            trusted_memory_evidence: Some(evidence),
+        }
+    }
+
+    pub(crate) fn trusted_memory_evidence(
+        self,
+    ) -> Option<&'view std::collections::BTreeSet<BoundExpressionId>> {
+        self.trusted_memory_evidence
     }
 
     pub(crate) fn anonymous_callable_unit(self, call: BoundExpressionId) -> Option<BoundUnitKey> {
@@ -338,6 +400,25 @@ where
         self,
         anchor: bray_bound_tree::BoundSourceAnchor,
     ) -> Result<CheckerSource<'view>, CheckerInfrastructureError> {
+        if let Some(source) = self.source_snapshot {
+            let syntax = anchor.syntax();
+
+            assert_eq!(
+                source.source_id(),
+                syntax.source_id(),
+                "fragment expression source must match its unit"
+            );
+
+            let span = bray_source::SourceSpan::new(syntax.source_id(), syntax.full_range());
+
+            let text = syntax
+                .full_range()
+                .slice_str(source.text())
+                .expect("bound fragment range must lie within its supplied snapshot");
+
+            return Ok(CheckerSource::new(span, text));
+        }
+
         self.context.source(anchor)
     }
 
@@ -346,6 +427,23 @@ where
         self,
         anchor: bray_declarations::SyntaxAnchor,
     ) -> Result<CheckerSource<'view>, CheckerInfrastructureError> {
+        if let Some(source) = self.source_snapshot {
+            assert_eq!(
+                source.source_id(),
+                anchor.source_id(),
+                "fragment syntax source must match its unit"
+            );
+
+            let span = bray_source::SourceSpan::new(anchor.source_id(), anchor.full_range());
+
+            let text = anchor
+                .full_range()
+                .slice_str(source.text())
+                .expect("fragment syntax range must lie within its supplied snapshot");
+
+            return Ok(CheckerSource::new(span, text));
+        }
+
         self.context.source_syntax(anchor)
     }
 

@@ -162,22 +162,68 @@ pub struct ExecutionDomain {
 /// Values captured at a selected call's entry, before callee mutation can occur.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ExecutionCallEvidence {
+    pub(crate) trusted_boundary: bool,
+    pub(crate) pending_execution: bool,
     pub(crate) arguments:
         std::collections::BTreeMap<super::ExecutionPlace, super::ExecutionCondition>,
     pub(crate) assumptions: std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
+    pub(crate) trusted_assumptions: std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
 }
 
 impl ExecutionCallEvidence {
-    pub(crate) fn intersect(&mut self, other: &Self) {
+    pub(crate) fn intersect(&mut self, other: &Self) -> bool {
+        let before = (
+            self.trusted_boundary,
+            self.pending_execution,
+            self.assumptions.len(),
+            self.trusted_assumptions.len(),
+            self.arguments.len(),
+        );
+
+        self.trusted_boundary &= other.trusted_boundary;
+        self.pending_execution |= other.pending_execution;
+
         self.assumptions
             .retain(|condition| other.assumptions.contains(condition));
 
+        self.trusted_assumptions
+            .retain(|condition| other.trusted_assumptions.contains(condition));
+
         self.arguments
             .retain(|place, value| other.arguments.get(place) == Some(value));
+
+        before
+            != (
+                self.trusted_boundary,
+                self.pending_execution,
+                self.assumptions.len(),
+                self.trusted_assumptions.len(),
+                self.arguments.len(),
+            )
     }
 
     /// Whether every callee-entry condition follows from the captured argument values.
     pub fn proves(&self, conditions: &[super::ExecutionCondition]) -> bool {
+        self.proves_from(conditions, &self.assumptions)
+    }
+
+    /// Whether live trusted evidence supplies every selected caller obligation.
+    pub fn proves_trusted(&self, conditions: &[super::ExecutionCondition]) -> bool {
+        self.proves_from(conditions, &self.trusted_assumptions)
+    }
+
+    fn proves_from(
+        &self,
+        conditions: &[super::ExecutionCondition],
+        assumptions: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
+    ) -> bool {
+        let equalities = super::ExecutionCondition::equalities(&self.assumptions);
+
+        let known = assumptions
+            .iter()
+            .map(|(condition, value)| (condition.with_equalities(&equalities), *value))
+            .collect();
+
         conditions.iter().all(|condition| {
             let condition = condition.substitute(
                 &|input| {
@@ -189,9 +235,9 @@ impl ExecutionCallEvidence {
                 &mut { crate::ExecutionCondition::WORK_LIMIT },
             );
 
-            condition.prove(&self.assumptions, &mut {
-                crate::ExecutionCondition::WORK_LIMIT
-            }) == Some(true)
+            let condition = condition.with_equalities(&equalities);
+
+            condition.prove_trusted(&known, &self.assumptions) == Some(true)
         })
     }
 }

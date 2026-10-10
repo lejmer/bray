@@ -311,6 +311,12 @@ pub enum ConstantUnaryOperation {
     LogicalNot,
     /// Bitwise complement.
     BitwiseNot,
+    /// Retain a predicate's explicit requirement for trusted evidence without changing its Boolean value.
+    PredicateTrust,
+    /// Observe the referent of a borrowed predicate argument.
+    BorrowObservation,
+    /// Evaluate a conditional guarantee's guard in the callable entry state.
+    EntryCondition,
 }
 
 /// A selected checked binary operation in an open constant term.
@@ -367,6 +373,8 @@ pub enum ConstantProjectionKind<
     TupleElement(SymbolOrdinal),
     /// An array element selected by a checked constant term.
     ArrayElement(Term),
+    /// An array element by its statically checked storage ordinal.
+    ArrayElementOrdinal(SymbolOrdinal),
     /// A half-open array slice with checked optional bounds.
     ArraySlice {
         /// Inclusive start. Absence means zero.
@@ -389,6 +397,7 @@ impl<Term: Copy, ProductField, UnionField> ConstantProjectionKind<Term, ProductF
             Self::ArrayElement(index) => [Some(*index), None],
             Self::ArraySlice { lower, upper } => [*lower, *upper],
             Self::TupleElement(_)
+            | Self::ArrayElementOrdinal(_)
             | Self::ProductField(_)
             | Self::UnionPayloadField(_)
             | Self::NullableValue => [None, None],

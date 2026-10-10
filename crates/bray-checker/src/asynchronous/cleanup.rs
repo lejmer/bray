@@ -120,6 +120,7 @@ where
     pub(super) request: CheckerUnitView<'request, C>,
     completed: BTreeMap<TypeId, CleanupShape>,
     pub(super) cleanup_types: BTreeMap<TypeId, StorageCleanupType>,
+    pub(super) recursive_cleanup: bool,
     active: BTreeSet<TypeId>,
     // Query diagnostics are cloned because the cleanup result owns them independently.
     pub(super) diagnostics: DiagnosticBag,
@@ -134,6 +135,7 @@ where
             request,
             completed: BTreeMap::new(),
             cleanup_types: BTreeMap::new(),
+            recursive_cleanup: false,
             active: BTreeSet::new(),
             diagnostics: DiagnosticBag::new(),
         }

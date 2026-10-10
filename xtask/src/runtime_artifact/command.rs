@@ -158,16 +158,13 @@ fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, 
         .map(|component| component.archive.clone())
         .collect::<Vec<_>>();
 
-    let existing_identity = super::bootstrap::cache_identity(&root, target, output, &input, &expected_archives)
-        .map_err(CommandError::Bootstrap)?;
+    let existing_identity =
+        super::bootstrap::cache_identity(&root, target, output, &input, &expected_archives)
+            .map_err(CommandError::Bootstrap)?;
 
     if let Some(identity) = existing_identity
-        && super::reuse::current(
-            output,
-            &existing_package.metadata,
-            &identity,
-        )
-        .map_err(CommandError::InputIdentity)?
+        && super::reuse::current(output, &existing_package.metadata, &identity)
+            .map_err(CommandError::InputIdentity)?
     {
         crate::progress::message("Reusing native runtime artifacts");
 
@@ -182,12 +179,16 @@ fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, 
 
     build_contents(target, publication.contents(), profile, producer)?;
 
-    let archives = package(publication.contents(), target).components.into_iter()
-        .map(|component| component.archive).collect::<Vec<_>>();
+    let archives = package(publication.contents(), target)
+        .components
+        .into_iter()
+        .map(|component| component.archive)
+        .collect::<Vec<_>>();
 
-    let identity = super::bootstrap::cache_identity(&root, target, publication.contents(), &input, &archives)
-        .map_err(CommandError::Bootstrap)?
-        .ok_or_else(|| CommandError::Bootstrap("bootstrap artifacts are missing".to_owned()))?;
+    let identity =
+        super::bootstrap::cache_identity(&root, target, publication.contents(), &input, &archives)
+            .map_err(CommandError::Bootstrap)?
+            .ok_or_else(|| CommandError::Bootstrap("bootstrap artifacts are missing".to_owned()))?;
 
     crate::input_identity::write_digest(publication.contents(), &identity)
         .map_err(CommandError::InputIdentity)?;

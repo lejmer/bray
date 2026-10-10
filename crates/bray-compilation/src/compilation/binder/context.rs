@@ -408,6 +408,15 @@ impl BindingQueryContext for CompilationBindingContext<'_> {
         CompilationBindingContext::imported_symbols(self)
     }
 
+    fn callable_type_contracts(
+        &self,
+        owner: AnySymbolId,
+        syntax: bray_syntax::SyntaxNodeView<'_>,
+        callable: &TypeExpressionTemplate,
+    ) -> BindingQueryResult<DiagnosticResult<bray_symbols::CallablePhaseBehaviors>> {
+        super::symbol::checked_callable_type_contracts(self, owner, syntax, callable)
+    }
+
     fn callable_contract_type(
         &self,
         definition: CallableContractSymbolId,
@@ -1056,12 +1065,25 @@ mod tests {
             bray_symbols::ConstantTermData::Parameter(_)
         ));
 
+        let selected = compilation.state.imported_semantics.keys();
+
+        assert!(selected.iter().any(|key| key.kind()
+            == bray_package_interface::InterfaceSemanticRecordKind::CallableContracts));
+
+        assert!(selected.iter().all(|key| {
+            compilation
+                .state
+                .imported_semantics
+                .is_published(key)
+                .expect("selected imported records must have available cache state")
+        }));
+
         assert!(
             compilation
                 .state
                 .imported_semantic_graphs
                 .iter()
-                .any(|graph| graph.get().is_some())
+                .all(|graph| graph.get().is_none())
         );
     }
 

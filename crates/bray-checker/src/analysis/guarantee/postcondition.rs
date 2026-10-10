@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use bray_bound_tree::{BoundExpressionId, BoundReferenceTarget, SelectedCall};
 use bray_symbols::ReceiverMode;
 
-use super::flow::{ExecutionFlowDomain, ExecutionState};
+use super::flow::ExecutionFlowDomain;
+use super::state::ExecutionState;
 use crate::{
     CheckerRequestContext, ExecutionCompletionContract, ExecutionCondition, ExecutionPlace,
 };
@@ -32,7 +33,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if !contracts
             .iter()
             .flat_map(|contract| &contract.postconditions)
-            .any(|(condition, _)| condition.inputs().iter().any(|place| place.root == input))
+            .any(|(condition, _)| {
+                condition
+                    .inputs()
+                    .iter()
+                    .any(|place| place.reference() == Some(input))
+            })
         {
             return inputs;
         }
@@ -40,6 +46,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let Some(place) = crate::execution_guarantees::expression_place(
             self.request.unit(),
             self.semantics,
+            self.request.semantic_values(),
             receiver.expression(),
         ) else {
             return inputs;

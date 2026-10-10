@@ -355,6 +355,25 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         )
     }
 
+    fn callable_predicate_contracts(
+        &self,
+        callable: bray_symbols::CallableSymbolId,
+    ) -> CheckerQueryResult<
+        bray_diagnostics::DiagnosticResult<Arc<[bray_symbols::CallableContractClause]>>,
+    > {
+        self.binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<
+                bray_symbols::CallablePredicateContractsQuery,
+            >::new(callable))
+            .map(|result| {
+                bray_diagnostics::DiagnosticResult::new(
+                    Arc::clone(result.value()),
+                    result.diagnostics().clone(),
+                )
+            })
+            .map_err(checker_binder_error)
+    }
+
     fn callable_result_dependencies(
         &self,
         callable: bray_symbols::CallableSymbolId,

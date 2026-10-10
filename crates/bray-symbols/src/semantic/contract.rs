@@ -166,6 +166,13 @@ define_resolve_symbol_query_contract! {
         kind: CallableContracts,
         erase: |owner: CallableSymbolId| owner.into_any(),
     }
+    /// Checked caller predicates published independently of body effects.
+    CallablePredicateContractsQuery {
+        owner: CallableSymbolId,
+        value: std::sync::Arc<[crate::CallableContractClause]>,
+        kind: CallablePredicateContracts,
+        erase: |owner: CallableSymbolId| owner.into_any(),
+    }
     /// Unevaluated contract clauses for one callable.
     CallableContractTemplateQuery {
         owner: CallableSymbolId,

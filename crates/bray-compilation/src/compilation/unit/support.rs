@@ -1,8 +1,8 @@
 use bray_binder::{
     BinderDependency, BindingQueryContext, BoundUnitBindingError, BoundUnitComputation,
     bind_anonymous_callable, bind_callable_body, bind_constant_template, bind_constraint,
-    bind_contract_clause, bind_embedded_constant, bind_expression_candidates,
-    bind_predicate_definition, bind_runtime_default, bind_target_gate,
+    bind_contract_clause, bind_embedded_constant, bind_predicate_definition, bind_runtime_default,
+    bind_target_gate,
 };
 use bray_bound_tree::{
     AnyBoundNodeId, BoundUnit, BoundUnitKey, BoundUnitKind, BoundWalkControl, BoundWalkEvent,
@@ -58,9 +58,17 @@ pub(super) fn check_control_flow(
     Ok((result, Box::new([])))
 }
 
-pub(super) fn expression_candidates(
+pub(in crate::compilation) fn expression_candidates(
     binding_context: &CompilationBindingContext<'_>,
     bound: &BoundUnit,
+) -> Result<DiagnosticResult<Vec<ExpressionCandidateSet>>, FactQueryError> {
+    expression_candidates_in_syntax(binding_context, bound, None)
+}
+
+pub(in crate::compilation) fn expression_candidates_in_syntax(
+    binding_context: &CompilationBindingContext<'_>,
+    bound: &BoundUnit,
+    syntax: Option<bray_syntax::SyntaxNodeView<'_>>,
 ) -> Result<DiagnosticResult<Vec<ExpressionCandidateSet>>, FactQueryError> {
     let owner = binding_context
         .symbols()
@@ -85,7 +93,13 @@ pub(super) fn expression_candidates(
             return BoundWalkControl::Continue;
         };
 
-        match bind_expression_candidates(binding_context, bound, expression, &type_scope) {
+        match bray_binder::bind_expression_candidates_with_syntax(
+            binding_context,
+            bound,
+            expression,
+            &type_scope,
+            syntax,
+        ) {
             Ok(result) => {
                 let (candidate, candidate_diagnostics) = result.into_parts();
 
@@ -172,7 +186,9 @@ pub(super) fn plan_storage(
     ))
 }
 
-pub(super) fn map_binding_error(error: BoundUnitBindingError<FactQueryError>) -> FactQueryError {
+pub(in crate::compilation) fn map_binding_error(
+    error: BoundUnitBindingError<FactQueryError>,
+) -> FactQueryError {
     match error {
         BoundUnitBindingError::Cancelled => FactQueryError::Cancelled,
         BoundUnitBindingError::CheckerInfrastructure(error) => {
