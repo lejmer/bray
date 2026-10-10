@@ -75,6 +75,7 @@ struct SpinLockGuard<T>
     internal mut active: bool;
 
     trusted destruct()
+        executes(total)
     {
         if self.active
         {
@@ -119,6 +120,7 @@ trusted internal func spin_lock_guard_pointer<T>(pos guard: &mut SpinLockGuard<T
 }
 
 trusted internal func release_spin_lock<T>(pos lock: &SpinLock<T>)
+    executes(total)
 {
     let _: u32 = core.atomic.fetch_add<u32, 2>(&lock.serving_ticket, 1);
 }

@@ -8,7 +8,7 @@ use bray_symbols::{
     DependencySubjectRoot, ReceiverMode, SymbolOrdinal,
 };
 
-use crate::{CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerQueryError, CheckerQueryResult, CheckerRequestContext, CheckerUnitView};
 
 enum CallInstantiationInput<'check> {
     Selected {
@@ -74,12 +74,11 @@ where
         self.deferred = true;
     }
 
-    fn resolve_guard_access(&mut self, subject: &DependencySubject) -> StorageAccessId {
+    fn resolve_guard_access(&mut self, subject: &DependencySubject) -> CheckerQueryResult<StorageAccessId, C::UpstreamError> {
         match self
-            .resolve_subject(subject, DependencyRequirementKind::StorageAlive)
-            .unwrap_or_else(|error| match error {})
+            .resolve_subject(subject, DependencyRequirementKind::StorageAlive)?
         {
-            BoundDependencySubject::StorageAccess(access) => access,
+            BoundDependencySubject::StorageAccess(access) => Ok(access),
             BoundDependencySubject::Storage(_)
             | BoundDependencySubject::BorrowCapability(_)
             | BoundDependencySubject::ScopedCapability(_)
@@ -211,7 +210,7 @@ impl<C> DependencyContractInstantiationContext for CallInstantiationContext<'_, 
 where
     C: CheckerRequestContext + ?Sized,
 {
-    type Error = std::convert::Infallible;
+    type Error = CheckerQueryError<C::UpstreamError>;
 
     fn unit(&self) -> bray_bound_tree::BoundUnitId {
         self.request.unit().unit()
@@ -280,7 +279,7 @@ where
         let access = if frame_access.is_some() {
             base
         } else {
-            projected_access(self.storage, base, projections).unwrap_or(base)
+            projected_access(self.request, self.storage, base, projections)?.unwrap_or(base)
         };
 
         Ok(BoundDependencySubject::StorageAccess(access))
@@ -292,12 +291,12 @@ where
     ) -> Result<BoundDependencyGuard, Self::Error> {
         match guard {
             DependencyGuard::NullablePresent(subject) => {
-                let access = self.resolve_guard_access(subject);
+                let access = self.resolve_guard_access(subject)?;
 
                 Ok(BoundDependencyGuard::NullablePresent(access))
             }
             DependencyGuard::ActiveUnionVariant { subject, variant } => {
-                let access = self.resolve_guard_access(subject);
+                let access = self.resolve_guard_access(subject)?;
 
                 Ok(BoundDependencyGuard::ActiveUnionVariant {
                     access,
@@ -330,47 +329,30 @@ pub(super) fn identity_access(
     storage.root_access(identity)
 }
 
-fn projected_access(
+fn projected_access<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     base: StorageAccessId,
     projections: &[DependencyProjection],
-) -> Option<StorageAccessId> {
-    let root = storage.root_identity(base)?;
-    let base_projections = storage.resolved_projections(base)?;
+) -> CheckerQueryResult<Option<StorageAccessId>, C::UpstreamError> {
+    let mut projected = Vec::with_capacity(projections.len());
 
-    storage.access_entries().find_map(|(id, _)| {
-        let candidate = storage.resolved_projections(id)?;
+    for projection in projections {
+        projected.push(match *projection {
+            DependencyProjection::ProductField(field) => StorageProjection::ProductField(field),
+            DependencyProjection::TupleElement(index) => StorageProjection::TupleElement(index),
+            DependencyProjection::UnionPayloadField(field) => {
+                let variant = request.union_payload_field(field)?
+                    .unwrap_or_else(|| panic!("dependency projection requires union payload field {field:?}, base: {base:?}, unit: {:?}", request.unit().unit()))
+                    .variant();
 
-        (storage.root_identity(id) == Some(root)
-            && candidate.len() == base_projections.len() + projections.len()
-            && candidate.starts_with(base_projections)
-            && projections
-                .iter()
-                .zip(&candidate[base_projections.len()..])
-                .all(|(expected, actual)| projection_matches(*expected, *actual)))
-        .then_some(id)
-    })
-}
-
-fn projection_matches(expected: DependencyProjection, actual: StorageProjection) -> bool {
-    match (expected, actual) {
-        (DependencyProjection::ProductField(expected), StorageProjection::ProductField(actual)) => {
-            expected == actual
-        }
-        (DependencyProjection::TupleElement(expected), StorageProjection::TupleElement(actual)) => {
-            expected == actual
-        }
-        (
-            DependencyProjection::UnionPayloadField(expected),
-            StorageProjection::ActiveUnionPayloadField { field: actual, .. },
-        ) => expected == actual,
-        (DependencyProjection::NullableValue, StorageProjection::NullableValue)
-        | (DependencyProjection::OwnedTarget, StorageProjection::OwnedTarget) => true,
-        (DependencyProjection::Element(_), _)
-        | (_, StorageProjection::ElementFromStart(_))
-        | (_, StorageProjection::ElementFromEnd(_))
-        | (_, StorageProjection::Element(_))
-        | (_, StorageProjection::SliceRange { .. }) => false,
-        _ => false,
+                StorageProjection::ActiveUnionPayloadField { variant, field }
+            }
+            DependencyProjection::NullableValue => StorageProjection::NullableValue,
+            DependencyProjection::OwnedTarget => StorageProjection::OwnedTarget,
+            DependencyProjection::Element(_) => return Ok(None),
+        });
     }
+
+    Ok(storage.projected_access(base, &projected))
 }

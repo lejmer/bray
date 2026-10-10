@@ -6,6 +6,39 @@ use bray_symbols::PackageIdentity;
 use bray_testing::assert_goal_state_diagnostic_kind;
 
 #[test]
+fn bootstrap_pool_callbacks_reject_data_pointer_replacement() {
+    let sources = [
+        include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../runtime/bootstrap/src/records.bray"),
+        include_str!("../../../../../../../runtime/bootstrap/src/panic.bray"),
+        r#"module app;
+        using internal bray.runtime.bootstrap;
+
+        func poison(pos record: &mut bray.runtime.bootstrap.ReportRecord, pos pointer: RawPointer<u8>)
+        {
+            record.primary.release_message = pointer;
+        }
+        "#,
+    ];
+    let request = CompilationRequest::new(
+        PackageIdentity::try_new("std").expect("standard library identity must be valid"),
+        sources.iter().enumerate().map(|(index, source)| {
+            source_input(source, u32::try_from(index).expect("fixture source index must fit u32"))
+        }).collect(),
+    ).with_standard_library_source_authority();
+    let compilation = Compilation::load(request).expect("bootstrap callback fixture must load");
+    let checked = compilation.lowered_unit(source_function_body_key(&compilation, "poison"))
+        .expect("invalid callback assignment must retain diagnostics");
+
+    assert_goal_state_diagnostic_kind(
+        checked.diagnostics(),
+        DiagnosticKind::CheckingIncompatibleExpressionType,
+    );
+    assert!(checked.value().is_none());
+}
+
+#[test]
 fn callback_state_requires_the_exported_entry_context_parameter() {
     let compilation = standard_callback_compilation(
         r#"trusted module std.test;

@@ -56,8 +56,8 @@ trusted internal func reserve_slab_index(pos pool: &mut ReportPool) -> bool
     }
 
     let index: &mut std.memory.RawBuffer<ReportSlab> = trusted slab_index(pool);
-    let count: usize = std.memory.initialized_count<ReportSlab>(index);
-    let capacity: usize = std.memory.capacity<ReportSlab>(index);
+    let count: usize = std.memory.initialized_count<ReportSlab>(&index);
+    let capacity: usize = std.memory.capacity<ReportSlab>(&index);
 
     if count < capacity
     {
@@ -132,7 +132,7 @@ trusted internal func reserve_records(pos pool: &mut ReportPool, pos count: usiz
                 trusted internal std.memory.initialize_spare<ReportRecord>(
                     &mut slab,
                     {
-                        primary = empty_primary(),
+                        primary = trusted stored_primary(empty_primary()),
                         message = none,
                         next = head,
                         segment = { ordinal = 0, task = 0, frame = [0; 32], state = 0 },
@@ -168,7 +168,7 @@ trusted internal func record(pos pool: &mut ReportPool, pos handle: usize) -> &m
     let index: &mut std.memory.RawBuffer<ReportSlab> = trusted slab_index(pool);
     let slabs: &mut [ReportSlab] = trusted std.memory.initialized_slice_mut<ReportSlab>(index);
     let mut low: usize = 0;
-    let mut high: usize = slabs.length;
+    let mut high: usize = slabs.length();
 
     // Stable opaque ordinals select owned storage without reconstructing addresses.
     while low + 1 < high
@@ -313,13 +313,11 @@ trusted internal func pop_record_value(pos mut value: ReportRecords, pos chain: 
     let primary: ReportPrimary =
     {
         let entry: &mut ReportRecord = trusted record(pool, handle);
-        let primary: ReportPrimary = trusted serialized_primary(&entry.primary);
-
-        entry.primary = empty_primary();
+        let primary: StoredReportPrimary = trusted std.memory.replace_value<StoredReportPrimary>(&mut entry.primary, trusted stored_primary(empty_primary()));
         entry.segment_count = 0;
         entry.segment_tail = 0;
         entry.next = head;
-        yield primary;
+        yield trusted serialized_primary(primary);
     };
 
     pool.free = handle;

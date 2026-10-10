@@ -204,3 +204,38 @@ fn task_cleanup_checks_completed_payload_before_releasing_the_task() {
         1
     );
 }
+
+#[test]
+fn source_standard_buffer_cleanup_uses_the_imported_structural_allowance() {
+    use crate::test_support::{source_function_body_key, source_input};
+    use crate::{Compilation, CompilationRequest};
+
+    let compilation = Compilation::load(
+        CompilationRequest::new(
+            bray_symbols::PackageIdentity::try_new("std").expect("standard package is valid"),
+            vec![
+                source_input(include_str!("../../../../../../../../standard-library/std/src/std.bray"), 0),
+                source_input(include_str!("../../../../../../../../standard-library/std/src/memory.bray"), 1),
+                source_input("module std.test; func dispose(pos buffer: std.memory.RawBuffer<u8>) {}", 2),
+            ],
+        ).with_standard_library_source_authority(),
+    ).expect("actual standard memory source must load");
+
+    let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "dispose"))
+        .expect("buffer consumer must lower");
+    assert!(lowered.diagnostics().is_empty(), "{:?}", lowered.diagnostics());
+    let ty = lowered.value().as_ref().expect("consumer has lowered data").mir().expect("consumer has MIR").storages().iter()
+        .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
+        .expect("consumer has its owned buffer parameter").ty();
+    let cancellation = crate::CancellationToken::new();
+    assert_eq!(compilation.owner_outgoing_capacity(ty, &cancellation)
+        .expect("buffer allowance must resolve"), 0);
+
+    let cleanup = generated_lifecycle(&compilation, &codegen_target(&compilation),
+        MirHelperReference::Destroy(ty), 83);
+    assert!(cleanup.operations().iter().any(|operation| matches!(operation.kind(),
+        MirOperationKind::Memory(memory)
+            if matches!(memory.kind(), bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. }))));
+    assert!(!cleanup.operations().iter().any(|operation| matches!(operation.kind(),
+        MirOperationKind::Call(call) if call.is_cleanup())));
+}

@@ -4,6 +4,29 @@ use bray_diagnostics::DiagnosticKind;
 use bray_symbols::PackageIdentity;
 
 #[test]
+fn in_place_write_returns_initialized_borrowed_storage() {
+    let compilation = standard_memory_compilation(
+        r#"trusted module std.test;
+        func main()
+        {
+            let mut storage: Uninit<u32> = std.memory.uninit<u32>();
+            {
+                let mut placement = std.memory.in_place<u32>(&mut storage);
+                let placed: &mut u32 = placement.write(42);
+
+                assert(placed == 42);
+            };
+        }
+        "#,
+    );
+    let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "main"))
+        .expect("in-place initialization must lower");
+
+    assert!(lowered.diagnostics().is_empty(), "{:?}", lowered.diagnostics());
+    assert!(lowered.value().is_some());
+}
+
+#[test]
 fn raw_pointer_use_does_not_extend_the_source_borrow() {
     assert_standard_memory_body_has_no_conflicting_borrow(concat!(
         "module std.test;\n",
@@ -83,6 +106,21 @@ fn assert_standard_memory_body_has_no_conflicting_borrow(source: &str) {
 }
 
 fn assert_standard_memory_body_has_no_diagnostic(source: &str, diagnostic: DiagnosticKind) {
+    let compilation = standard_memory_compilation(source);
+
+    let key = source_function_body_key(&compilation, "main");
+
+    let analysis = compilation
+        .storage_flow(key)
+        .unwrap_or_else(|error| panic!("storage-flow checking must publish: {error:?}"));
+
+    assert!(
+        analysis.diagnostics().by_kind(diagnostic).next().is_none(),
+        "{analysis:#?}"
+    );
+}
+
+fn standard_memory_compilation(source: &str) -> Compilation {
     let package = PackageIdentity::try_new("std")
         .unwrap_or_else(|| panic!("standard library identity must be valid"));
 
@@ -102,17 +140,20 @@ fn assert_standard_memory_body_has_no_diagnostic(source: &str, diagnostic: Diagn
     )
     .with_standard_library_source_authority();
 
-    let compilation = Compilation::load(request)
-        .unwrap_or_else(|error| panic!("standard library compilation must load: {error:?}"));
+    Compilation::load(request)
+        .unwrap_or_else(|error| panic!("standard library compilation must load: {error:?}"))
 
-    let key = source_function_body_key(&compilation, "main");
+}
 
-    let analysis = compilation
-        .storage_flow(key)
-        .unwrap_or_else(|error| panic!("storage-flow checking must publish: {error:?}"));
+#[test]
+fn standard_spin_lock_guard_has_verified_non_reporting_cleanup() {
+    let compilation = standard_memory_compilation(include_str!(
+        "../../../../../../../standard-library/std/src/sync/spin_lock.bray"
+    ));
 
     assert!(
-        analysis.diagnostics().by_kind(diagnostic).next().is_none(),
-        "{analysis:#?}"
+        !compilation.check_diagnostics().has_errors(),
+        "{:?}",
+        compilation.check_diagnostics()
     );
 }

@@ -90,6 +90,56 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
 
     #[test]
+    fn non_waiting_atomic_operations_complete_without_cleanup_reporting() {
+        for operation in [
+            "core.atomic.initialize<u32>(0)",
+            "core.atomic.load<u32, 1>(storage)",
+            "core.atomic.store<u32, 2>(storage, 1)",
+            "core.atomic.exchange<u32, 0>(storage, 1)",
+            "core.atomic.compare_exchange<u32, 0, 0>(storage, expected = 0, desired = 1)",
+            "core.atomic.compare_exchange_weak<u32, 0, 0>(storage, expected = 0, desired = 1)",
+            "core.atomic.fetch_add<u32, 2>(storage, 1)",
+            "core.atomic.fetch_sub<u32, 0>(storage, 1)",
+            "core.atomic.fetch_and<u32, 0>(storage, 1)",
+            "core.atomic.fetch_or<u32, 0>(storage, 1)",
+            "core.atomic.fetch_xor<u32, 0>(storage, 1)",
+        ] {
+            let compilation = compilation(&format!(
+                "module app; func operation(pos storage: &core.atomic.Atomic<u32>) \
+                 executes(total) {{ let _ = {operation}; }}"
+            ));
+
+            assert!(
+                !compilation.check_diagnostics().has_errors(),
+                "{operation}: {:?}",
+                compilation.check_diagnostics()
+            );
+        }
+    }
+
+    #[test]
+    fn atomic_termination_evidence_preserves_wait_and_effect_constraints() {
+        for (property, operation) in [
+            ("total", "core.atomic.wait<u32, 1>(storage, 0)"),
+            ("pure", "core.atomic.load<u32, 1>(storage)"),
+            ("pure", "core.atomic.fetch_add<u32, 2>(storage, 1)"),
+        ] {
+            let compilation = compilation(&format!(
+                "module app; func operation(pos storage: &core.atomic.Atomic<u32>) \
+                 executes({property}) {{ let _ = {operation}; }}"
+            ));
+
+            assert!(
+                compilation.check_diagnostics().iter().any(|diagnostic| {
+                    diagnostic.kind() == DiagnosticKind::CheckingExecutionGuaranteeNotProven
+                }),
+                "{property}, {operation}: {:?}",
+                compilation.check_diagnostics()
+            );
+        }
+    }
+
+    #[test]
     fn callable_address_projections_are_pure_and_total() {
         let compilation = compilation(
             r#"

@@ -44,12 +44,56 @@ internal struct ReportSegment
 @layout(c)
 internal struct ReportRecord
 {
-    mut primary: ReportPrimary;
+    mut primary: StoredReportPrimary;
     mut message: std.memory.RawBuffer<u8>?;
     mut next: usize;
     mut segment: ReportSegment;
     mut segment_tail: usize;
     mut segment_count: usize;
+}
+
+// Pool storage retains actual callable values. The C header remains a wire format.
+internal struct StoredReportPrimary
+{
+    source_present: u32;
+    source_identity: u32;
+    source_start: u32;
+    source_end: u32;
+    source_version: u64;
+    source_namespace_word_0: u64;
+    source_namespace_word_1: u64;
+    source_namespace_word_2: u64;
+    source_namespace_word_3: u64;
+    cause: u32;
+    message: usize;
+    message_length: usize;
+    copy_message: PanicMessageCopy?;
+    release_message: PanicMessageRelease?;
+}
+
+trusted internal func stored_primary(pos primary: ReportPrimary) -> StoredReportPrimary
+    requires(trusted native_primary_callbacks(primary = &primary))
+{
+    let copy: PanicMessageCopy? = trusted primary_copy(&primary);
+    let release: PanicMessageRelease? = trusted primary_release(&primary);
+
+    return
+    {
+        source_present = primary.source_present,
+        source_identity = primary.source_identity,
+        source_start = primary.source_start,
+        source_end = primary.source_end,
+        source_version = primary.source_version,
+        source_namespace_word_0 = primary.source_namespace_word_0,
+        source_namespace_word_1 = primary.source_namespace_word_1,
+        source_namespace_word_2 = primary.source_namespace_word_2,
+        source_namespace_word_3 = primary.source_namespace_word_3,
+        cause = primary.cause,
+        message = primary.message,
+        message_length = primary.message_length,
+        copy_message = copy,
+        release_message = release,
+    };
 }
 
 trusted internal func empty_primary() -> ReportPrimary
@@ -70,11 +114,27 @@ internal func empty_records() -> ReportRecords
     };
 }
 
-// C headers contain addresses, not borrows of the pool's guarded metadata. Copy
-// their wire bits while retaining callable validation at the native report boundary.
-trusted internal func serialized_primary(pos primary: &ReportPrimary) -> ReportPrimary
-    uses(intrinsic)
+trusted internal func serialized_primary(pos primary: StoredReportPrimary) -> ReportPrimary
+    ensures(trusted native_primary_callbacks(primary = &result))
+    uses(layout_reinterpret)
 {
+    let copy: RawPointer<u8> = match primary.copy_message
+    {
+        case ?callback
+        {
+            yield trusted std.memory.reinterpret<u8, PanicMessageCopy>(trusted std.memory.pointer_from_callable<PanicMessageCopy>(callback));
+        }
+        case none { yield std.memory.null<u8>(); }
+    };
+    let release: RawPointer<u8> = match primary.release_message
+    {
+        case ?callback
+        {
+            yield trusted std.memory.reinterpret<u8, PanicMessageRelease>(trusted std.memory.pointer_from_callable<PanicMessageRelease>(callback));
+        }
+        case none { yield std.memory.null<u8>(); }
+    };
+
     return
     {
         source_present = primary.source_present,
@@ -89,12 +149,8 @@ trusted internal func serialized_primary(pos primary: &ReportPrimary) -> ReportP
         cause = primary.cause,
         message = primary.message,
         message_length = primary.message_length,
-        copy_message = trusted core.target.from_exposed_address<u8>(
-            address = trusted core.target.expose_address<u8>(primary.copy_message),
-        ),
-        release_message = trusted core.target.from_exposed_address<u8>(
-            address = trusted core.target.expose_address<u8>(primary.release_message),
-        ),
+        copy_message = copy,
+        release_message = release,
     };
 }
 
@@ -251,12 +307,12 @@ trusted internal func exchange_primary(pos handle: usize, pos value: ReportPrima
     requires(trusted native_primary_callbacks(primary = &value))
     ensures(trusted native_primary_callbacks(primary = &result))
 {
+    let replacement: StoredReportPrimary = trusted stored_primary(value);
     let mut guard = RECORD_POOL.lock();
     let entry: &mut ReportRecord = trusted record(guard.get(), handle);
-    let old: ReportPrimary = trusted serialized_primary(&entry.primary);
+    let old: StoredReportPrimary = trusted std.memory.replace_value<StoredReportPrimary>(&mut entry.primary, replacement);
 
-    entry.primary = value;
-    return old;
+    return trusted serialized_primary(old);
 }
 
 @abi(c)

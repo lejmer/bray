@@ -257,6 +257,18 @@ where
     prepared.defer(deferred);
     prepared.defer(supplemental_deferred.iter().copied());
 
+    // Selected value operations have complete type evidence. Keep generic method
+    // callees deferred while their call instantiates the member's open signature.
+    for entry in operation_input.operation_selections() {
+        let is_callee = request.view().expression_parent(entry.expression())
+            .and_then(|parent| request.view().expression(parent))
+            .is_some_and(|parent| matches!(parent, BoundExpression::Call(call) if call.callee() == entry.expression()));
+
+        if !is_callee {
+            prepared.deferred_mut().remove(&entry.expression());
+        }
+    }
+
     let Some(mut session) =
         ExpressionTypeSession::begin(request, operation_input.operation_selections()).into_value()
     else {

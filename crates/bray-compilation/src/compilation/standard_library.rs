@@ -225,7 +225,7 @@ fn storage_contract_substitution(
         .map_err(FactQueryError::SemanticValueStore)
 }
 
-fn recognized_declaration(
+pub(super) fn recognized_declaration(
     context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
     key: &str,

@@ -279,10 +279,18 @@ impl Compilation {
         let mut incomplete = false;
 
         bray_syntax::walk_syntax_tree(self.syntax_tree(), |event| {
-            if let bray_syntax::SyntaxWalkEvent::EnterNode(node) = event
-                && let Some(parameter) = node.cast::<bray_syntax::ParameterSyntax>()
-                && parameter.identifier_token().is_missing()
-            {
+            if let bray_syntax::SyntaxWalkEvent::EnterNode(node) = event {
+                let missing_name = node
+                    .cast::<bray_syntax::ParameterSyntax>()
+                    .is_some_and(|parameter| parameter.identifier_token().is_missing())
+                    || node
+                        .cast::<bray_syntax::PredicateParameterSyntax>()
+                        .is_some_and(|parameter| parameter.identifier_token().is_missing());
+
+                if !missing_name {
+                    return bray_syntax::SyntaxWalkControl::Continue;
+                }
+
                 incomplete = true;
 
                 return bray_syntax::SyntaxWalkControl::Stop;
@@ -1533,6 +1541,16 @@ func main(value: r16)
         );
 
         assert!(compilation.check_diagnostics().is_empty());
+    }
+
+    #[test]
+    fn malformed_predicate_parameters_stop_before_signature_binding() {
+        let compilation = compilation(
+            "trusted module app;\ntrusted predicate readable(pos pointer: RawPointer<u8>);\n"
+        );
+
+        assert!(compilation.syntax_tree_result().diagnostics().has_errors());
+        assert!(compilation.check_diagnostics().has_errors());
     }
 
     #[test]

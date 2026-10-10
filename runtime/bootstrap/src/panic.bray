@@ -219,19 +219,19 @@ trusted internal func message_storage(
 trusted internal func panic_message_copy(pos address: usize, pos offset: usize, pos destination: RawPointer<u8>, pos length: usize) -> u32
     requires(trusted core.memory.valid_write<u8>(pointer = destination, count = length))
     ensures(result != STATUS_SUCCESS || trusted core.memory.initialized_range_as<u8>(pointer = destination, count = length))
-    uses(raw_memory)
+    uses(raw_memory, unchecked_init)
 {
     let mut guard = trusted message_copy_lock(destination, length);
     let storage: &std.memory.RawBuffer<u8> = trusted message_storage(&mut guard, address, destination, length);
     let bytes: &[u8] = trusted std.memory.initialized_slice<u8>(storage);
 
-    if offset > bytes.length || length > bytes.length - offset
+    if offset > bytes.length() || length > bytes.length() - offset
     {
         return 3;
     }
 
     let selected: &[u8] = &bytes[offset..offset + length];
-    let count: usize = selected.length;
+    let count: usize = selected.length();
 
     if count != length
     {

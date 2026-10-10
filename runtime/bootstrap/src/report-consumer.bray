@@ -34,6 +34,7 @@ internal callable ReportConsumer = @abi(c) trusted func(
         trusted native_report_slot_callbacks(pointer = pointer),
     );
 
+@abi(c)
 trusted internal func consume_pointer() -> RawPointer<u8>
     executes(pure, total)
     uses(layout_reinterpret)
@@ -91,6 +92,7 @@ trusted internal func read_primary(pos pointer: RawPointer<ReportPrimary>) -> Re
 
 trusted internal func primary_release(pos primary: &ReportPrimary) -> PanicMessageRelease?
     requires(trusted native_primary_callbacks(primary = primary))
+    ensures(trusted native_primary_callbacks(primary = primary))
     uses(layout_reinterpret)
 {
     let mut callback: PanicMessageRelease? = none;
@@ -103,6 +105,32 @@ trusted internal func primary_release(pos primary: &ReportPrimary) -> PanicMessa
     }
 
     return callback;
+}
+
+trusted internal func primary_copy(pos primary: &ReportPrimary) -> PanicMessageCopy?
+    requires(trusted native_primary_callbacks(primary = primary))
+    ensures(trusted native_primary_callbacks(primary = primary))
+    uses(layout_reinterpret)
+{
+    let mut callback: PanicMessageCopy? = none;
+
+    if !std.memory.is_null<u8>(primary.copy_message)
+    {
+        let pointer: RawPointer<PanicMessageCopy> = trusted native_copy_address(primary);
+        callback = trusted std.memory.callable_from_pointer<PanicMessageCopy>(pointer);
+    }
+
+    return callback;
+}
+
+trusted internal func native_copy_address(pos primary: &ReportPrimary) -> RawPointer<PanicMessageCopy>
+    requires(trusted native_primary_callbacks(primary = primary), !std.memory.is_null<u8>(primary.copy_message))
+    ensures(trusted core.memory.callable_address_valid<PanicMessageCopy>(pointer = result))
+    uses(intrinsic)
+{
+    return trusted core.target.from_exposed_address<PanicMessageCopy>(
+        address = trusted core.target.expose_address<u8>(primary.copy_message),
+    );
 }
 
 trusted internal func native_release_address(pos primary: &ReportPrimary) -> RawPointer<PanicMessageRelease>

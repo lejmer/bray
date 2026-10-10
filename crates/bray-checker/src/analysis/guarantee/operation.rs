@@ -121,6 +121,12 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
                     | CheckedMemoryOperationKind::RawBufferPointer
                     | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
                     | CheckedMemoryOperationKind::RawBufferSetInitializedCount
+                    | CheckedMemoryOperationKind::AtomicInitialize { .. }
+                    | CheckedMemoryOperationKind::AtomicLoad { .. }
+                    | CheckedMemoryOperationKind::AtomicStore { .. }
+                    | CheckedMemoryOperationKind::AtomicExchange { .. }
+                    | CheckedMemoryOperationKind::AtomicCompareExchange { .. }
+                    | CheckedMemoryOperationKind::AtomicFetch { .. }
             )
         {
             // These checked primitives complete on their required storage domains.
