@@ -34,7 +34,6 @@ pub(super) struct ProductStatic {
 pub(super) struct ProductCleanup {
     pub(super) admission: super::super::cleanup::StaticAdmission,
     pub(super) entry: ProductStatic,
-    pub(super) incidents: [Option<crate::incident::OwnedCleanupIncident>; 8],
 }
 
 pub(super) struct ProductHost {

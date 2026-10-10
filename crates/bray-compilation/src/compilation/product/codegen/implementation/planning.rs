@@ -190,7 +190,10 @@ impl Compilation {
             || linker
                 .is_some_and(|(_, kind)| kind == bray_linker::LinkedProductKind::SharedLibrary);
 
-        let (host, runtime, units, mappings, host_statics, native_statics, native_main_thread) =
+        let super::super::preparation::NativeCodegenPreparation {
+            host, runtime, units, mappings, host_statics, native_statics, native_main_thread,
+            runtime_dependencies,
+        } =
             self.prepare_native_codegen(
                 &product,
                 semantic.value().kind(),
@@ -213,6 +216,7 @@ impl Compilation {
                     &mappings,
                     &host_statics,
                     &native_statics,
+                    runtime_dependencies,
                     &target,
                 )
             },

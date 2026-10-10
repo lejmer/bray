@@ -504,24 +504,31 @@ trusted internal func advance_native_environment(pos owner: &mut EnvironmentBloc
     ensures(trusted native_environment_live(owner = &owner))
     executes(total)
 {
-    let pointer: RawPointer<u16> = trusted internal native_environment_pointer(&owner);
-
-    if std.memory.is_null<u16>(pointer)
+    let advance: isize =
     {
-        return false;
-    }
+        let pointer: RawPointer<u16> = trusted internal native_environment_pointer(&owner);
 
-    let length: i32 = trusted internal terminated_u16_length(pointer);
+        if std.memory.is_null<u16>(pointer)
+        {
+            return false;
+        }
 
-    if length < 0
-    {
-        return false;
-    }
+        let length: i32 = trusted internal terminated_u16_length(pointer);
 
-    if length != 0
-    {
-        owner.current = std.memory.offset<u16>(pointer, elements = std.truncate_to<isize>(length) + 1);
-    }
+        if length < 0
+        {
+            return false;
+        }
+
+        if length == 0
+        {
+            return true;
+        }
+
+        yield std.truncate_to<isize>(length) + 1;
+    };
+
+    owner.current = std.memory.offset<u16>(owner.current, elements = advance);
 
     return true;
 }

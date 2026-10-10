@@ -447,18 +447,29 @@ fn prepare_cleanup(product: usize, host: &mut ProductHost) -> Option<PendingClea
 }
 
 fn finish_cleanup(mut cleanup: PendingCleanup) -> NativeProductHostObservation {
+    let mut incident_count = 0;
+    let mut last_incident = None;
+
     let (_, runtime_incident) =
         crate::native::with_retained_static_cleanup_runtime(&cleanup.runtime, || {
             for cleanup in &mut cleanup.statics {
                 let entry = cleanup.entry;
 
-                cleanup.incidents = run_static_cleanup(
+                let incidents = run_static_cleanup(
                     &mut cleanup.admission,
                     entry.prepare,
                     entry.finalizer,
                     entry.destroy,
                     entry.detach,
                 );
+
+                // Drain each consumer's incidents before cleaning the providers they retain.
+                for incident in incidents.into_iter().flatten() {
+                    incident_count += 1;
+                    last_incident = Some(entry.identity);
+
+                    let _ = incident.report();
+                }
             }
         });
 
@@ -468,19 +479,6 @@ fn finish_cleanup(mut cleanup: PendingCleanup) -> NativeProductHostObservation {
         .map_or(NativeStaticIdentity::new([0; 32]), |cleanup| {
             cleanup.entry.identity
         });
-
-    let mut incident_count = 0;
-    let mut last_incident = None;
-
-    for entry in &mut cleanup.statics {
-        for incident in entry.incidents.iter_mut().filter_map(Option::take) {
-            incident_count += 1;
-
-            last_incident = Some(entry.entry.identity);
-
-            let _ = incident.report();
-        }
-    }
 
     if let Some(incident) = runtime_incident {
         incident_count += 1;
@@ -686,7 +684,6 @@ fn read_descriptor(
         cleanups.push(ProductCleanup {
             entry,
             admission,
-            incidents: std::array::from_fn(|_| None),
         });
     }
 
@@ -776,6 +773,7 @@ mod tests {
         static THREAD_CLEANUP_ORDER: Cell<usize> = const { Cell::new(0) };
         static INCIDENT_PROVIDER: Cell<Option<&'static NativeProductHostDescriptor>> = const { Cell::new(None) };
         static RELEASED_PROVIDER: Cell<Option<(NativeProductHostState, usize)>> = const { Cell::new(None) };
+        static RELEASED_PRODUCT_PHASE: Cell<Option<usize>> = const { Cell::new(None) };
     }
 
     struct ProviderIncident(&'static NativeProductHostDescriptor);
@@ -785,6 +783,7 @@ mod tests {
             let provider = control(self.0, NativeProductHostOperation::OBSERVE);
 
             RELEASED_PROVIDER.set(Some((provider.state(), provider.thread_attachments())));
+            RELEASED_PRODUCT_PHASE.set(Some(PRODUCT_PHASE_ORDER.load(Ordering::SeqCst)));
         }
     }
 
@@ -1172,6 +1171,7 @@ mod tests {
         assert_eq!(CONTINUING_PRODUCT_CLEANUPS.load(Ordering::SeqCst), 1);
         assert_eq!(PRODUCT_DESTRUCTIONS.load(Ordering::SeqCst), 2);
         assert_eq!(PRODUCT_PHASE_ORDER.load(Ordering::SeqCst), 1212);
+        assert_eq!(RELEASED_PRODUCT_PHASE.take(), Some(12));
     }
 
     #[test]

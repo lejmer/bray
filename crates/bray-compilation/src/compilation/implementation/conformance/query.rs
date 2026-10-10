@@ -1998,7 +1998,7 @@ mod tests {
             "func select(pos holder: Holder<usize>) -> usize\n",
             "{\n",
             "    let selector: usize = 0;\n",
-            "    let selected: &usize = holder[selector];\n",
+            "    let selected: &usize = &holder[selector];\n",
             "\n",
             "    return 0;\n",
             "}\n",

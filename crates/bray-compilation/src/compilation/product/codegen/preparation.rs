@@ -19,15 +19,16 @@ use super::implementation::{GENERATED_HOST_UNIT, bound_template};
 use super::{ConcreteCodegenRoot, NativeDemand, NativeDemandReason};
 use crate::fact::{BatchWork, CancellationToken};
 
-type NativeCodegenPreparation = (
-    Option<ExecutableHostContract>,
-    Option<RuntimeArtifactPlan>,
-    Arc<[CodegenUnit]>,
-    Vec<CodegenMappings>,
-    Vec<ProductStaticHostEntry>,
-    Vec<bray_native_artifact::NativeStatic>,
-    BTreeSet<CodegenInstanceKey>,
-);
+pub(super) struct NativeCodegenPreparation {
+    pub(super) host: Option<ExecutableHostContract>,
+    pub(super) runtime: Option<RuntimeArtifactPlan>,
+    pub(super) units: Arc<[CodegenUnit]>,
+    pub(super) mappings: Vec<CodegenMappings>,
+    pub(super) host_statics: Vec<ProductStaticHostEntry>,
+    pub(super) native_statics: Vec<bray_native_artifact::NativeStatic>,
+    pub(super) native_main_thread: BTreeSet<CodegenInstanceKey>,
+    pub(super) runtime_dependencies: BTreeMap<bray_runtime_abi::NativeStaticIdentity, Vec<bray_runtime_abi::NativeStaticIdentity>>,
+}
 
 impl Compilation {
     #[expect(
@@ -54,6 +55,7 @@ impl Compilation {
             Vec<super::super::realization::ProductStaticHostEntry>,
             Vec<bray_native_artifact::NativeStatic>,
             super::super::realization::NativeCallableEffects,
+            BTreeMap<bray_runtime_abi::NativeStaticIdentity, Vec<bray_runtime_abi::NativeStaticIdentity>>,
         ),
         NativeProductPlanningError,
     > {
@@ -131,6 +133,7 @@ impl Compilation {
                     host_statics,
                     native_statics,
                     BTreeMap::new(),
+                    BTreeMap::new(),
                 ));
             };
 
@@ -145,7 +148,7 @@ impl Compilation {
             )?;
 
             let callable_effects =
-                self.native_callable_effects(reachability, &selected, cancellation)?;
+                self.native_callable_effects(reachability, &selected, runtime, cancellation)?;
 
             let entries = self.profile_native_product_operation(
                 crate::profile::ProfileOperation::NativeHostPreparation,
@@ -154,6 +157,7 @@ impl Compilation {
                         kind,
                         reachability,
                         &callable_effects,
+                        runtime_plan.as_ref(),
                         target,
                         cancellation,
                     )
@@ -161,8 +165,11 @@ impl Compilation {
                 },
             )?;
 
+            let runtime_dependencies = super::host::native_runtime_static_dependencies(
+                &selected, runtime_plan.as_ref(), target,
+            );
             let selected_statics =
-                super::host::native_static_host_entries(kind, selected.statics(), &entries);
+                super::host::native_static_host_entries(kind, selected.statics(), &entries, &runtime_dependencies);
 
             let stable = selected_statics == native_statics
                 && entries == host_statics
@@ -187,6 +194,7 @@ impl Compilation {
                     host_statics,
                     native_statics,
                     callable_effects,
+                    runtime_dependencies,
                 ));
             }
         }
@@ -211,15 +219,16 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<NativeCodegenPreparation, NativeProductPlanningError> {
         if source_roots.is_empty() && kind != ProductKind::Test {
-            return Ok((
-                None,
-                None,
-                Arc::from([]),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                BTreeSet::new(),
-            ));
+            return Ok(NativeCodegenPreparation {
+                host: None,
+                runtime: None,
+                units: Arc::from([]),
+                mappings: Vec::new(),
+                host_statics: Vec::new(),
+                native_statics: Vec::new(),
+                native_main_thread: BTreeSet::new(),
+                runtime_dependencies: BTreeMap::new(),
+            });
         }
 
         let mut source_reachability = if source_roots.is_empty() {
@@ -243,7 +252,7 @@ impl Compilation {
             Some(reachability)
         };
 
-        let (host, runtime_plan, host_statics, native_statics, callable_effects) = self
+        let (host, runtime_plan, host_statics, native_statics, callable_effects, runtime_dependencies) = self
             .close_executable_host(
                 product,
                 kind,
@@ -375,15 +384,16 @@ impl Compilation {
             BTreeSet::new()
         };
 
-        Ok((
+        Ok(NativeCodegenPreparation {
             host,
-            runtime_plan,
+            runtime: runtime_plan,
             units,
             mappings,
             host_statics,
             native_statics,
             native_main_thread,
-        ))
+            runtime_dependencies,
+        })
     }
 
     fn lower_native_host(

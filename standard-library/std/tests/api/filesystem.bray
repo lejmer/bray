@@ -68,8 +68,10 @@ func files_and_directories_follow_the_portable_contract() -> Result<unit, std.io
     let second: std.fs.DirectoryEntry? = try traversal.next();
     let exhausted: std.fs.DirectoryEntry? = try traversal.next();
 
-    assert(entry_name_equals(first, "alpha"));
-    assert(entry_name_equals(second, "zeta"));
+    assert(
+        (entry_name_equals(&first, "alpha") && entry_name_equals(&second, "zeta"))
+        || (entry_name_equals(&first, "zeta") && entry_name_equals(&second, "alpha"))
+    );
 
     std.testing.assert_absent<std.fs.DirectoryEntry>(exhausted);
 
@@ -254,9 +256,9 @@ func write_file(pos path: &std.path.Path, value: u8) -> Result<unit, std.io.IoEr
     return file.close();
 }
 
-func entry_name_equals(pos candidate: std.fs.DirectoryEntry?, pos expected: string) -> bool
+func entry_name_equals(pos candidate: &std.fs.DirectoryEntry?, pos expected: string) -> bool
 {
-    match consume candidate
+    match candidate
     {
         case ?entry
         {

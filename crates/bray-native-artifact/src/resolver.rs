@@ -72,7 +72,7 @@ impl NativeUnitSelection {
         &self.statics
     }
 
-    /// Returns the resolved static dependencies of one requested native symbol.
+    /// Returns resolved static accesses for a requested symbol or retained static host entry.
     pub fn static_accesses(&self, symbol: &NativeSymbolContract) -> Option<&[[u8; 32]]> {
         self.static_accesses
             .get(&symbol_key(symbol))
@@ -464,6 +464,20 @@ impl NativeUnitResolver {
                     selected[0].symbol().clone(),
                 ));
             }
+        }
+
+        // Static host records are already retained. Publish their access summaries alongside
+        // requested callable summaries so the final consumer can close runtime bindings.
+        for entry in state.statics.values() {
+            let (unit, _) = self.statics[&entry.identity()];
+            let target = self.artifacts[self.locations[unit].0].target();
+            let symbol = NativeSymbolContract::required_name(
+                bray_base::NonEmptySharedStr::try_new(target.object_symbol_name(entry.symbol()).as_ref())
+                    .expect("retained static host symbol must be nonempty"),
+            );
+
+            state.roots.entry(symbol_key(&symbol)).or_default()
+                .insert(SelectionDependency::Static(entry.identity()));
         }
 
         let (order, static_accesses) = state.close_dependencies();
@@ -1179,6 +1193,15 @@ mod tests {
 
         let resolver = NativeUnitResolver::new([index([first.clone()], []), index([second], [])]);
         let selected = resolver.select([required("first")]).unwrap();
+
+        assert_eq!(
+            selected.static_accesses(&required("first")),
+            Some([[1; 32], [2; 32]].as_slice())
+        );
+        assert_eq!(
+            selected.static_accesses(&required("second")),
+            Some([[2; 32]].as_slice())
+        );
 
         assert_eq!(
             selected.units(),
