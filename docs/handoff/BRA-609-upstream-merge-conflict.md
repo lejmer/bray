@@ -2,6 +2,15 @@
 
 Recorded on 2026-10-10 while checking the BRA-619 stack after pushing its dependency checkpoint, `bc33d054`.
 
+## Resolution
+
+The user subsequently authorized resolving this conflict and propagating the update through the stack. BRA-609 merge
+commit `f244c10c` resolves it against `develop` at `468dab0d`. The interface-discovery test retains the deterministic
+two-worker rendezvous and representative local and cross-module trusted contracts. The former generated 64-contract
+workload is unnecessary once the rendezvous proves overlap and was replaced with a small literal fixture.
+
+This resolves the Git conflict. BRA-619's native incident-transfer dependency remains open.
+
 ## Finding and scope
 
 [PR #601](https://github.com/lejmer/bray/pull/601) reports `CONFLICTING` against `develop`. This is independent of the
@@ -28,9 +37,8 @@ The conflict is at the start of `parallel_interface_discovery_preserves_encoded_
 Combining only the import hunk is insufficient. Reconcile the fixture construction with the deterministic concurrency
 mechanism and preserve both behaviors.
 
-## Follow-up
+## Validation scope
 
-Resolve on BRA-609 in a separately authorized task, run the focused interface discovery test and required style/format
-commands, then propagate the ancestor update through BRA-619, BRA-620, and BRA-621. Recheck source conflicts and native
-acceptance at the changed heads. Keep the unresolved BRA-619 incident-transfer dependency visible while updating the
-stack. This handoff records a merge conflict and does not change any issue's implementation status.
+Validate the focused interface-discovery regression and discovery suite, run required style/format commands, and check
+mergeability at each updated head. Existing native acceptance blockers are outside this conflict-resolution task.
+The update does not change any issue's implementation or PR readiness status.
