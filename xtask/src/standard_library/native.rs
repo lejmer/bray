@@ -28,7 +28,7 @@ const API_TEST_COUNT: usize = 159;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const CONCURRENCY_MODEL_TEST_COUNT: usize = 7;
 const CONCURRENCY_STRESS_TEST_COUNT: usize = 5;
-const OUTCOME_CASES: [OutcomeCase; 25] = [
+const OUTCOME_CASES: [OutcomeCase; 24] = [
     OutcomeCase::new(
         "assertion-failure",
         "assertion_failure",
@@ -156,13 +156,6 @@ const OUTCOME_CASES: [OutcomeCase; 25] = [
             cause: "message",
             message: "raw buffer element cleanup panic",
             source_available: true,
-        },
-    ),
-    OutcomeCase::new(
-        "raw-buffer-release-deallocation-failure",
-        "raw_buffer_release_preserves_deallocation_failure",
-        OutcomeExpectation::Assertion {
-            message: "memory deallocation received an invalid allocation",
         },
     ),
     OutcomeCase::new(
