@@ -76,6 +76,7 @@ where
     let mut evidence = Vec::with_capacity(expressions.len());
     let mut selections = Vec::with_capacity(expressions.len());
     let mut diagnostics = Vec::new();
+    let mut deferred = BTreeSet::new();
 
     for expression in &expressions {
         let Some(bound) = request.view().expression(*expression) else {
@@ -90,6 +91,10 @@ where
         if let Some(binding_type) = patterns.binding_type(binding_id) {
             evidence.push(ExpressionTypeEvidence::new(*expression, binding_type.ty()));
 
+            if binding_type.is_recovered() {
+                deferred.insert(*expression);
+            }
+
             if matches!(bound, BoundExpression::PatternReference(_)) {
                 selections.push(SemanticSelectionEntry::new(
                     *expression,
@@ -101,6 +106,8 @@ where
 
             continue;
         }
+
+        deferred.insert(*expression);
 
         let BoundExpression::PatternReference(reference) = bound else {
             evidence.push(ExpressionTypeEvidence::new(*expression, error_type));
@@ -144,7 +151,7 @@ where
     }
 
     PreparedPatternReferences {
-        deferred: expressions,
+        deferred,
         evidence,
         selections,
         diagnostics: DiagnosticBag::from(diagnostics),
