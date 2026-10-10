@@ -245,6 +245,7 @@ dependencies = [
  "serde",
  "serde_json",
  "target-lexicon",
+ "tempfile",
 ]
 
 [[package]]

@@ -19,8 +19,11 @@ pub(crate) fn digest(root: &Path, targets: &[NativeTarget]) -> Result<String, St
 
     let mut paths = vec![producer.clone()];
 
-    if cfg!(windows) {
-        paths.push(producer.with_file_name("LLVM-C.dll"));
+    #[cfg(windows)]
+    {
+        let search = env::var_os("PATH").unwrap_or_default();
+
+        paths.push(llvm_library_path(&producer, &search)?);
     }
 
     paths.push(
@@ -49,6 +52,28 @@ pub(crate) fn digest(root: &Path, targets: &[NativeTarget]) -> Result<String, St
     }
 
     digest_paths(root, &paths)
+}
+
+#[cfg(windows)]
+fn llvm_library_path(producer: &Path, search: &OsStr) -> Result<PathBuf, String> {
+    let sibling = producer.with_file_name("LLVM-C.dll");
+
+    if sibling.try_exists().map_err(|error| {
+        format!(
+            "could not inspect preparation library {}: {error}",
+            sibling.display()
+        )
+    })? {
+        return Ok(sibling);
+    }
+
+    // Cargo puts dependency DLL directories on PATH when running build scripts.
+    resolve_in_path(OsStr::new("LLVM-C.dll"), search).ok_or_else(|| {
+        format!(
+            "preparation library LLVM-C.dll is absent beside {} and from PATH",
+            producer.display()
+        )
+    })
 }
 
 pub(crate) fn provider_digest(
@@ -258,6 +283,87 @@ mod tests {
     use std::fs;
 
     use super::{digest_paths, resolve_in_path};
+
+    #[cfg(windows)]
+    #[test]
+    fn cargo_build_script_library_is_fingerprinted_from_dependency_path() {
+        let directory = tempfile::tempdir().expect("Cargo layout");
+
+        let producer = directory
+            .path()
+            .join("release/build/bray-runtime-id/build-script-build.exe");
+
+        let dependencies = directory.path().join("release/deps");
+        let library = dependencies.join("LLVM-C.dll");
+
+        fs::create_dir_all(producer.parent().expect("producer directory"))
+            .expect("build directory");
+
+        fs::create_dir_all(&dependencies).expect("dependency directory");
+        fs::write(&producer, b"build script").expect("producer");
+        fs::write(&library, b"first version").expect("LLVM library");
+
+        let search = std::env::join_paths([&dependencies]).expect("Cargo PATH");
+        let selected = super::llvm_library_path(&producer, &search).expect("LLVM dependency");
+
+        assert_eq!(selected, library);
+
+        let modified = library
+            .metadata()
+            .expect("library metadata")
+            .modified()
+            .expect("mtime");
+
+        let paths = [producer, selected];
+        let before = digest_paths(directory.path(), &paths).expect("producer identity");
+
+        fs::write(&library, b"other version").expect("replacement library");
+
+        fs::File::options()
+            .write(true)
+            .open(&library)
+            .expect("library file")
+            .set_modified(modified)
+            .expect("restore mtime");
+
+        assert_ne!(
+            before,
+            digest_paths(directory.path(), &paths).expect("replacement identity")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn producer_library_takes_precedence_over_path_library() {
+        let directory = tempfile::tempdir().expect("producer libraries");
+        let producer = directory.path().join("xtask.exe");
+        let sibling = directory.path().join("LLVM-C.dll");
+        let dependencies = directory.path().join("deps");
+
+        fs::create_dir(&dependencies).expect("dependency directory");
+        fs::write(&sibling, b"sibling library").expect("sibling");
+        fs::write(dependencies.join("LLVM-C.dll"), b"PATH library").expect("PATH library");
+
+        let search = std::env::join_paths([&dependencies]).expect("dependency PATH");
+
+        assert_eq!(super::llvm_library_path(&producer, &search), Ok(sibling));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn missing_producer_library_preserves_search_context() {
+        let directory = tempfile::tempdir().expect("missing library");
+        let producer = directory.path().join("build-script-build.exe");
+        let search = std::env::join_paths([directory.path()]).expect("empty directory PATH");
+
+        assert_eq!(
+            super::llvm_library_path(&producer, &search),
+            Err(format!(
+                "preparation library LLVM-C.dll is absent beside {} and from PATH",
+                producer.display()
+            ))
+        );
+    }
 
     #[cfg(unix)]
     #[test]
