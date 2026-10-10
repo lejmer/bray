@@ -1,4 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(test)]
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::ThreadId;
@@ -54,6 +56,8 @@ pub(crate) struct ProfileSession {
     runtime_roles: Mutex<BTreeSet<String>>,
     native_callback_entries: Mutex<BTreeSet<String>>,
     native_codegen: Mutex<CompilationProfileNativeCodegen>,
+    #[cfg(test)]
+    observer: OnceLock<Box<dyn Fn(ProfileOperation) + Send + Sync>>,
 }
 
 impl std::fmt::Debug for ProfileSession {
@@ -115,6 +119,8 @@ impl ProfileSession {
             runtime_roles: Mutex::new(BTreeSet::new()),
             native_callback_entries: Mutex::new(BTreeSet::new()),
             native_codegen: Mutex::new(CompilationProfileNativeCodegen::default()),
+            #[cfg(test)]
+            observer: OnceLock::new(),
         })
     }
 
@@ -171,7 +177,7 @@ impl ProfileSession {
             span_id
         };
 
-        ProfileSpan {
+        let span = ProfileSpan {
             session: self,
             operation,
             query,
@@ -181,7 +187,25 @@ impl ProfileSession {
             span_id,
             started_at,
             active: true,
+        };
+
+        #[cfg(test)]
+        if let Some(observer) = self.observer.get() {
+            observer(operation);
         }
+
+        span
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_observer(
+        &self,
+        observe: impl Fn(ProfileOperation) + Send + Sync + 'static,
+    ) {
+        assert!(
+            self.observer.set(Box::new(observe)).is_ok(),
+            "profile test observer must be installed only once"
+        );
     }
 
     pub(crate) fn start_query_request(&self, query: ProfileQueryKind) -> ProfileQueryRequest<'_> {
