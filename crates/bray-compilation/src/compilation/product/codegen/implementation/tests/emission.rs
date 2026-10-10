@@ -1,5 +1,6 @@
 use super::support::artifacts::{
     assert_source_emits_valid_native_units, generated_artifacts, generated_artifacts_of_kind,
+    generated_artifacts_of_kind_with_options,
 };
 use super::support::compilation::{codegen_compilation_for_product, test_product_identity};
 use super::support::dependencies::{GenericDependencyFixture, generic_dependency_from_fixture};
@@ -710,4 +711,75 @@ fn tuple_destructuring_projects_each_initializer_field_once() {
         .collect::<Vec<_>>();
 
     assert_eq!(fields, [0, 1]);
+}
+
+#[test]
+fn returned_padded_tuple_destructuring_preserves_the_aggregate_payload() {
+    let (backend, compilation) = codegen_compilation_for_product(
+        r#"
+module app;
+
+@copy
+@layout(c)
+struct Records
+{
+    head: usize;
+    tail: usize;
+    count: usize;
+}
+
+func admit(pos records: Records) -> (u32, Records)
+{
+    return (7, records);
+}
+
+public func update(pos records: Records) -> Records
+{
+    let (status, updated) = admit(records);
+
+    assert(status == 7);
+    return updated;
+}
+"#,
+        ProductKind::Library,
+    );
+
+    let plan = compilation
+        .native_product_plan(
+            test_product_identity(),
+            crate::BuildConfiguration::Development,
+            None,
+            [],
+            None,
+        )
+        .unwrap_or_else(|error| panic!("padded tuple source must realize: {error:?}"));
+
+    let options = plan.options().with_optimization(OptimizationLevel::None);
+
+    let artifacts = generated_artifacts_of_kind_with_options(
+        &backend,
+        &plan,
+        BackendArtifactKind::BackendIr,
+        &options,
+    );
+
+    let ir = artifacts
+        .iter()
+        .map(|artifact| String::from_utf8_lossy(artifact))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let tuple_type = ir
+        .lines()
+        .find(|line| line.contains("= type { i32, [4 x i8],"))
+        .and_then(|line| line.split_whitespace().next())
+        .expect("the returned tuple must contain padding before its records payload");
+
+    assert!(
+        ir.lines().any(|line| {
+            line.contains(&format!("extractvalue {tuple_type} "))
+                && line.split(", !dbg").next().unwrap().ends_with(", 2")
+        }),
+        "the records payload must be extracted after tuple padding: {ir}"
+    );
 }
