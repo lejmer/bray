@@ -225,7 +225,7 @@ fn storage_contract_substitution(
         .map_err(FactQueryError::SemanticValueStore)
 }
 
-fn recognized_declaration(
+pub(super) fn recognized_declaration(
     context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
     key: &str,
@@ -252,27 +252,40 @@ fn recognized_declaration(
         return Ok(false);
     };
 
-    if context
-        .member_name(symbol)
-        .map_err(binding_query_error)?
-        .map(bray_symbols::SymbolName::as_str)
-        != descriptor.identity().name()
-    {
-        return Ok(false);
-    }
-
     Ok(match symbol_key.data() {
         bray_symbols::SymbolKeyData::SourceDeclaration { owner, .. } => {
             context
                 .compilation()
                 .package_source_authority()
                 .is_standard_library()
+                && context
+                    .member_name(symbol)
+                    .map_err(binding_query_error)?
+                    .map(bray_symbols::SymbolName::as_str)
+                    == descriptor.identity().name()
                 && matches!(owner.data(), bray_symbols::SymbolKeyData::Module { owner: bray_symbols::SymbolRootKey::Package(package), path: module } if package.as_str() == bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY && module.segments().eq(path.segments()))
         }
         bray_symbols::SymbolKeyData::External(key) => {
-            key.package_identity().as_str()
-                == bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
-                && matches!(key.owner().map(bray_symbols::ExternalSymbolKey::data), Some(bray_symbols::ExternalSymbolKeyData::Module { path: module, .. }) if module.segments().eq(path.segments()))
+            if key.package_identity().as_str()
+                != bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
+            {
+                return Ok(false);
+            }
+
+            let imported = context
+                .compilation()
+                .imported_symbol_skeleton_result_with_cancellation(context.cancellation())?;
+
+            let Some(imported) = imported.value() else {
+                return Ok(false);
+            };
+
+            let target = context.compilation().selected_target().target();
+
+            std::sync::Arc::clone(imported)
+                .recognize_standard_library(key.package_identity(), |rule| target.supports(rule))
+                .descriptor(symbol)
+                == Some(descriptor.id())
         }
         _ => false,
     })

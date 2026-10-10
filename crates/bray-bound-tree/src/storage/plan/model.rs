@@ -25,6 +25,7 @@ pub struct StoragePlan {
     accesses: Arc<[StorageAccess]>,
     alternatives: Arc<[StorageAlternative]>,
     resolved_accesses: Arc<[Option<ResolvedStorageAccess>]>,
+    accesses_by_path: Arc<[usize]>,
     borrow_capabilities: Arc<[PlannedBorrowCapability]>,
     bindings: Arc<[(StorageBindingTarget, StorageBinding)]>,
     bindings_by_storage: Arc<[usize]>,
@@ -70,6 +71,28 @@ impl StoragePlan {
             &borrow_capabilities,
         );
 
+        let mut accesses_by_path = (0..accesses.len())
+            .filter(|index| resolved_accesses[*index].is_some())
+            .collect::<Vec<_>>();
+
+        let access_key = |index: usize| {
+            let resolved = resolved_accesses[index]
+                .as_ref()
+                .expect("indexed storage access must have its resolved path");
+
+            (
+                resolved.logical_root,
+                accesses[index].root().borrow_capability(),
+                resolved.logical_projections.as_ref(),
+            )
+        };
+
+        accesses_by_path.sort_unstable_by(|left, right| {
+            access_key(*left)
+                .cmp(&access_key(*right))
+                .then_with(|| left.cmp(right))
+        });
+
         let mut plans_by_occurrence = (0..plans.len()).collect::<Vec<_>>();
         let mut plans_by_expression = plans_by_occurrence.clone();
 
@@ -90,6 +113,7 @@ impl StoragePlan {
             accesses: accesses.into(),
             alternatives: alternatives.into(),
             resolved_accesses: resolved_accesses.into(),
+            accesses_by_path: accesses_by_path.into(),
             borrow_capabilities: borrow_capabilities.into(),
             bindings: bindings.into(),
             bindings_by_storage: bindings_by_storage.into(),
@@ -181,6 +205,53 @@ impl StoragePlan {
 
                 Some((id, access))
             })
+    }
+
+    /// Returns the matching projected access while retaining the base borrow capability.
+    pub fn projected_access(
+        &self,
+        base: StorageAccessId,
+        projections: &[StorageProjection],
+    ) -> Option<StorageAccessId> {
+        let capability = self.access(base)?.root().borrow_capability();
+
+        if projections.is_empty() {
+            return Some(base);
+        }
+
+        let root = self.root_identity(base)?;
+        let base_projections = self.resolved_projections(base)?;
+
+        let compare = |index: usize| {
+            let resolved = self.resolved_accesses[index]
+                .as_ref()
+                .expect("indexed storage access must have its resolved path");
+
+            (
+                resolved.logical_root,
+                self.accesses[index].root().borrow_capability(),
+            )
+                .cmp(&(root, capability))
+                .then_with(|| {
+                    resolved
+                        .logical_projections
+                        .iter()
+                        .cmp(base_projections.iter().chain(projections.iter()))
+                })
+        };
+
+        let position = self
+            .accesses_by_path
+            .partition_point(|index| compare(*index).is_lt());
+
+        let index = *self.accesses_by_path.get(position)?;
+
+        compare(index).is_eq().then(|| {
+            StorageAccessId::from_storage_slot(
+                self.unit,
+                u32::try_from(index).expect("allocated storage access index must fit u32"),
+            )
+        })
     }
 
     /// Returns branch-dependent aliases in deterministic allocation order.

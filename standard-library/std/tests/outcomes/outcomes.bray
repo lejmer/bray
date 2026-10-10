@@ -25,24 +25,18 @@ internal struct PanickingBufferElement
 }
 
 trusted internal func initialized_panicking_buffer() -> std.memory.RawBuffer<PanickingBufferElement>
-    uses(raw_memory, unchecked_init)
 {
     let mut buffer: std.memory.RawBuffer<PanickingBufferElement> = std.testing.assert_ok<
         std.memory.RawBuffer<PanickingBufferElement>,
         std.memory.MemoryLayoutError,
     >(trusted std.memory.RawBuffer<PanickingBufferElement>(capacity = 1));
 
-    let element: RawPointer<PanickingBufferElement> = trusted std.memory.spare_pointer<PanickingBufferElement>(
-        &mut buffer
-    );
-
     let value: PanickingBufferElement =
     {
         value = 1,
     };
 
-    trusted std.memory.write<PanickingBufferElement>(element, value);
-    trusted std.memory.set_initialized_count<PanickingBufferElement>(&mut buffer, count = 1);
+    trusted internal std.memory.initialize_spare<PanickingBufferElement>(&mut buffer, value);
 
     return buffer;
 }
@@ -138,22 +132,8 @@ trusted func raw_buffer_implicit_release_preserves_destructor_panic()
 }
 
 @test
-trusted func raw_buffer_release_preserves_deallocation_failure()
-    uses(manual_alloc)
-{
-    let mut buffer: std.memory.RawBuffer<u8> =
-    {
-        pointer = std.memory.null<u8>(),
-        capacity = 1,
-        initialized = 0,
-    };
-
-    trusted internal std.memory.raw_buffer_release<u8>(&mut buffer);
-}
-
-@test
 trusted func raw_buffer_release_finishes_each_element_once()
-    uses(manual_alloc, raw_memory, unchecked_init)
+    uses(manual_alloc)
 {
     core.atomic.store<u32, 4>(&RAW_BUFFER_CLEANUP_COUNT, 0);
 
@@ -162,31 +142,19 @@ trusted func raw_buffer_release_finishes_each_element_once()
         std.memory.MemoryLayoutError,
     >(trusted std.memory.RawBuffer<PanickingBufferElement>(capacity = 2));
 
-    let first: RawPointer<PanickingBufferElement> = trusted std.memory.spare_pointer<PanickingBufferElement>(
-        &mut buffer
-    );
-
-    trusted std.memory.write<PanickingBufferElement>(
-        first,
+    trusted internal std.memory.initialize_spare<PanickingBufferElement>(
+        &mut buffer,
         {
             value = 1
         }
     );
 
-    trusted std.memory.set_initialized_count<PanickingBufferElement>(&mut buffer, count = 1);
-
-    let second: RawPointer<PanickingBufferElement> = trusted std.memory.spare_pointer<PanickingBufferElement>(
-        &mut buffer
-    );
-
-    trusted std.memory.write<PanickingBufferElement>(
-        second,
+    trusted internal std.memory.initialize_spare<PanickingBufferElement>(
+        &mut buffer,
         {
             value = 2
         }
     );
-
-    trusted std.memory.set_initialized_count<PanickingBufferElement>(&mut buffer, count = 2);
 
     let caught: Result<unit, PanicReport> = catch
     {

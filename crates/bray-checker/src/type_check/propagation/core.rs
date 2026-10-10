@@ -584,7 +584,25 @@ fn add_transfer_value<C>(
     }
 
     match operand.and_then(|operand| variables.get(&operand).copied()) {
-        Some(operand) => inference.unify(target, operand, transfer),
+        Some(operand) => {
+            // A yielded value contributes to the join; the join cannot change its type.
+            // In particular, a never-valued operand stays never when another arm yields.
+            if let Some(actual) = inference.evidence(operand) {
+                inference.add_evidence(target, actual, transfer);
+            }
+
+            if let Some(expected) = inference
+                .evidence(target)
+                .filter(|expected| *expected != types.never && *expected != types.error)
+                .or_else(|| inference.unique_expectation(target))
+            {
+                inference.add_expectation(operand, expected, transfer);
+            }
+
+            if inference.is_recovered(operand) {
+                inference.mark_recovered(target);
+            }
+        }
         None => inference.add_evidence(target, types.unit, transfer),
     }
 }

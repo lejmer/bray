@@ -2047,7 +2047,7 @@ fn ordinary_conditions_do_not_create_trusted_authority() {
 
 #[test]
 fn ordinary_producer_requirements_guard_trusted_guarantees() {
-    for (value, valid) in [(1, true), (0, false)] {
+    for (value, valid) in [("1", true), ("0", false), ("epoch", true)] {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
@@ -2056,7 +2056,7 @@ fn ordinary_producer_requirements_guard_trusted_guarantees() {
             trusted func owner(pos epoch: u64) -> Owner requires(epoch == 1)
                 ensures(trusted live(&result)) {{ return {{ epoch = epoch }}; }}
             trusted func observe(pos value: &Owner) requires(trusted live(value)) {{}}
-            func caller() {{ let value = owner({value}); observe(&value); }}
+            func caller(pos epoch: u64) {{ let value = owner({value}); observe(&value); }}
         "#
         ));
 
@@ -2067,6 +2067,29 @@ fn ordinary_producer_requirements_guard_trusted_guarantees() {
             compilation.check_diagnostics()
         );
     }
+}
+
+#[test]
+fn runtime_checked_ordinary_requirements_establish_completion_guards() {
+    let compilation = compilation(
+        r#"
+        trusted module app;
+        struct Owner { epoch: u64; }
+        trusted predicate live(value: &Owner);
+        trusted func owner(pos epoch: u64) -> Owner
+            requires(epoch == 1)
+            when(epoch == 1) { ensures(trusted live(&result)) }
+        { return { epoch = epoch }; }
+        func observe(pos value: &Owner) requires(trusted live(value)) {}
+        func caller(pos epoch: u64) { let value = owner(epoch); observe(&value); }
+    "#,
+    );
+
+    assert!(
+        !compilation.check_diagnostics().has_errors(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
 }
 
 #[test]

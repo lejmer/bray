@@ -1,7 +1,9 @@
+use super::support::compilation::codegen_compilation_for_product;
 use super::support::compilation::test_product_identity;
 use super::support::dependencies::{
     GenericDependencyFixture, dependency_from_fixture_with_native, native_fixture_compilation,
 };
+use super::support::linker::test_linker;
 use super::support::runtime::runtime_artifact;
 use crate::compilation::product::codegen::NativeProductPlanningError;
 use crate::{
@@ -21,6 +23,156 @@ use bray_symbols::{
 };
 use std::fs;
 use std::sync::Arc;
+
+#[test]
+fn static_cleanup_retains_the_selected_runtime_role_provider() {
+    let (_, compilation) = codegen_compilation_for_product(
+        r#"
+            module application;
+
+            struct Resource {
+                state: i32;
+                destruct() { panic("cleanup incident"); }
+            }
+
+            static VALUE: Resource = { state = 42 };
+            func main() -> i32 { return VALUE.state; }
+        "#,
+        ProductKind::Executable,
+    );
+
+    let archive = bray_testing::TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
+    let original = runtime_artifact(&compilation, archive.path());
+
+    let provider = bray_native_artifact::NativeStatic::new(
+        NonEmptySharedStr::try_new("first_provider_host").expect("provider name must be valid"),
+        [77; 32],
+        Arc::from([0].as_slice()),
+        StaticStorageDuration::Product,
+        [],
+        false,
+        false,
+    );
+
+    let indexes = original
+        .native_indexes()
+        .iter()
+        .zip(RuntimeArtifactPurpose::ALL)
+        .map(|(artifact, purpose)| {
+            let original_index = artifact.index();
+
+            let units = original_index.units().iter().map(|unit| {
+                let NativeUnitSummary::Exact {
+                    definitions,
+                    references,
+                    roots,
+                } = unit.summary()
+                else {
+                    return unit.clone();
+                };
+
+                let definitions = definitions
+                    .iter()
+                    .cloned()
+                    .chain([NativeDefinition::new(
+                        NativeSymbolContract::required_name(
+                            NonEmptySharedStr::try_new(provider.symbol())
+                                .expect("host symbol must be valid"),
+                        ),
+                        NativeDefinitionSelection::Ordinary,
+                    )])
+                    .collect::<Vec<_>>();
+
+                NativeUnit::new(
+                    unit.digest(),
+                    unit.kind(),
+                    NativeUnitSummary::Exact {
+                        definitions: definitions.into(),
+                        references: Arc::clone(references),
+                        roots: Arc::clone(roots),
+                    },
+                    unit.native_links().iter().cloned(),
+                )
+                .with_statics([provider.clone()])
+            });
+
+            let index = NativeArtifactIndex::try_new(
+                original_index.target(),
+                original_index.producer(),
+                units,
+                [],
+            )
+            .expect("role provider index must validate");
+
+            let bytes = index.encode().expect("role provider index must encode");
+
+            let digest = NativeContentDigest::new(
+                bray_base::sha256_reader(bytes.as_slice()).expect("index must hash"),
+            );
+
+            let imported = NativeArtifactIndex::import(
+                &bytes,
+                digest,
+                index.target(),
+                index.producer(),
+                &original.directory().join("native"),
+            )
+            .expect("role provider payload must authenticate");
+
+            let reference = bray_runtime_interface::RuntimeNativeIndexMetadata::try_new(
+                purpose,
+                format!("{}.json", purpose.as_str()),
+                digest,
+            )
+            .expect("provider index reference must validate");
+
+            (reference, imported)
+        })
+        .collect::<Vec<_>>();
+
+    let metadata = RuntimeArtifactMetadata::try_new(
+        original.contract().clone(),
+        original.metadata().components().iter().cloned(),
+        indexes.iter().map(|(reference, _)| reference.clone()),
+    )
+    .expect("role provider metadata must validate");
+
+    let runtime = RuntimeArtifact::try_new(
+        metadata,
+        original.directory().to_path_buf(),
+        indexes
+            .into_iter()
+            .map(|(_, artifact)| artifact)
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("product and test runtime indexes must be present"),
+    )
+    .expect("role provider runtime must validate");
+
+    let plan = compilation
+        .native_product_plan(
+            test_product_identity(),
+            crate::BuildConfiguration::Development,
+            Some(runtime),
+            [],
+            Some((&test_linker(), bray_linker::LinkedProductKind::Executable)),
+        )
+        .expect("static cleanup must retain its runtime provider");
+
+    let host = plan
+        .product_host()
+        .expect("nontrivial static cleanup needs a host");
+
+    let provider_identity = bray_runtime_abi::NativeStaticIdentity::new(provider.identity());
+
+    assert_eq!(host.statics().len(), 2);
+    assert_eq!(host.statics()[1].identity(), provider_identity);
+
+    assert!(
+        host.statics()[0].dependencies().is_empty(),
+        "reusable records must not capture the final runtime binding"
+    );
+}
 
 #[test]
 fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {

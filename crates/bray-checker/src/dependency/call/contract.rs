@@ -85,8 +85,7 @@ where
             .cloned(),
     );
 
-    instantiated.result = BoundDependencyContract::try_instantiate(&concrete, &mut result_context)
-        .map_err(|error| error.map_resolution(|error| match error {}))?;
+    instantiated.result = BoundDependencyContract::try_instantiate(&concrete, &mut result_context)?;
 
     instantiated.escaping_evaluation_inputs = template.escaping_evaluation_inputs;
 
@@ -309,8 +308,7 @@ where
                 .cloned(),
         );
 
-        instantiated.result = BoundDependencyContract::try_instantiate(&concrete, &mut context)
-            .map_err(|error| error.map_resolution(|error| match error {}))?;
+        instantiated.result = BoundDependencyContract::try_instantiate(&concrete, &mut context)?;
     }
 
     Ok(instantiated)
@@ -353,8 +351,7 @@ where
         .semantic_values()
         .dependency_contract_template_data(contracts.invocation());
 
-    let invocation = BoundDependencyContract::try_instantiate(&invocation, context)
-        .map_err(|error| error.map_resolution(|error| match error {}))?;
+    let invocation = BoundDependencyContract::try_instantiate(&invocation, context)?;
 
     let deferred = contracts
         .deferred_execution()
@@ -366,7 +363,6 @@ where
                 .dependency_contract_template_data(deferred);
 
             BoundDependencyContract::try_instantiate(&deferred, context)
-                .map_err(|error| error.map_resolution(|error| match error {}))
         })
         .transpose()?;
 

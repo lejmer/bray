@@ -190,20 +190,28 @@ impl Compilation {
             || linker
                 .is_some_and(|(_, kind)| kind == bray_linker::LinkedProductKind::SharedLibrary);
 
-        let (host, runtime, units, mappings, host_statics, native_statics, native_main_thread) =
-            self.prepare_native_codegen(
-                &product,
-                semantic.value().kind(),
-                final_image,
-                source_roots,
-                &entry_roots,
-                runtime.as_ref(),
-                required_capabilities,
-                &target,
-                options,
-                configuration.uses_thin_lto(),
-                cancellation,
-            )?;
+        let super::super::preparation::NativeCodegenPreparation {
+            host,
+            runtime,
+            units,
+            mappings,
+            host_statics,
+            native_statics,
+            native_main_thread,
+            runtime_dependencies,
+        } = self.prepare_native_codegen(
+            &product,
+            semantic.value().kind(),
+            final_image,
+            source_roots,
+            &entry_roots,
+            runtime.as_ref(),
+            required_capabilities,
+            &target,
+            options,
+            configuration.uses_thin_lto(),
+            cancellation,
+        )?;
 
         let product_host = self.profile_native_product_operation(
             crate::profile::ProfileOperation::NativePlanFinalization,
@@ -213,6 +221,7 @@ impl Compilation {
                     &mappings,
                     &host_statics,
                     &native_statics,
+                    runtime_dependencies,
                     &target,
                 )
             },
@@ -310,45 +319,8 @@ impl Compilation {
             .map(|mapping| mapping.instance().clone())
             .collect::<BTreeSet<_>>();
 
-        let native_statics = product_host
-            .iter()
-            .flat_map(|host| host.statics())
-            .map(|entry| {
-                let local = host_statics.iter().find(|local| {
-                    crate::compilation::product::realization::generated_identity(
-                        "static_host",
-                        local.key(),
-                    ) == entry.identity().bytes()
-                });
-
-                let native = native_statics
-                    .iter()
-                    .find(|native| native.identity() == entry.identity().bytes());
-
-                let requires_main_thread = local
-                    .is_some_and(|local| local.requires_main_thread_cleanup())
-                    || native.is_some_and(|native| native.requires_main_thread());
-
-                let requires_host = local.is_some_and(|local| local.requires_host())
-                    || native.is_some_and(|native| native.requires_host());
-
-                let order_key = local
-                    .map(|local| local.order_key())
-                    .or_else(|| native.map(|native| native.order_key()))
-                    .expect("retained static must have a structural cleanup key");
-
-                bray_native_artifact::NativeStatic::new(
-                    bray_base::NonEmptySharedStr::try_new(entry.host_symbol().as_str())
-                        .expect("host symbol must be nonempty"),
-                    entry.identity().bytes(),
-                    Arc::from(order_key),
-                    entry.duration(),
-                    entry.dependencies().iter().map(|identity| identity.bytes()),
-                    requires_host,
-                    requires_main_thread,
-                )
-            })
-            .collect::<Vec<_>>();
+        let native_statics =
+            planned_native_statics(product_host.as_ref(), &host_statics, &native_statics);
 
         Ok(NativeProductPlan {
             backend,
@@ -435,4 +407,50 @@ pub(in super::super) fn bound_template(
     };
 
     Ok(template.clone())
+}
+
+fn planned_native_statics(
+    product_host: Option<&bray_codegen::CodegenProductHostMapping>,
+    host_statics: &[crate::compilation::product::realization::ProductStaticHostEntry],
+    native_statics: &[bray_native_artifact::NativeStatic],
+) -> Vec<bray_native_artifact::NativeStatic> {
+    product_host
+        .iter()
+        .flat_map(|host| host.statics())
+        .map(|entry| {
+            let local = host_statics.iter().find(|local| {
+                crate::compilation::product::realization::generated_identity(
+                    "static_host",
+                    local.key(),
+                ) == entry.identity().bytes()
+            });
+
+            let native = native_statics
+                .iter()
+                .find(|native| native.identity() == entry.identity().bytes());
+
+            let requires_main_thread = local
+                .is_some_and(|local| local.requires_main_thread_cleanup())
+                || native.is_some_and(|native| native.requires_main_thread());
+
+            let requires_host = local.is_some_and(|local| local.requires_host())
+                || native.is_some_and(|native| native.requires_host());
+
+            let order_key = local
+                .map(|local| local.order_key())
+                .or_else(|| native.map(|native| native.order_key()))
+                .expect("retained static must have a structural cleanup key");
+
+            bray_native_artifact::NativeStatic::new(
+                bray_base::NonEmptySharedStr::try_new(entry.host_symbol().as_str())
+                    .expect("host symbol must be nonempty"),
+                entry.identity().bytes(),
+                Arc::from(order_key),
+                entry.duration(),
+                entry.dependencies().iter().map(|identity| identity.bytes()),
+                requires_host,
+                requires_main_thread,
+            )
+        })
+        .collect()
 }

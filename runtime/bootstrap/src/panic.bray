@@ -1,12 +1,17 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap;
 
+using std.memory;
+using internal std.memory;
+using internal std.sync;
+
 internal callable PanicMessageCopy = @abi(c) trusted func(
     pos address: usize,
     pos offset: usize,
     pos destination: RawPointer<u8>,
     pos length: usize,
-) -> u32;
+) -> u32
+    requires(trusted core.memory.valid_write<u8>(pointer = destination, count = length));
 
 internal callable PanicMessageRelease = @abi(c) trusted func(
     pos address: usize,
@@ -14,8 +19,9 @@ internal callable PanicMessageRelease = @abi(c) trusted func(
     pos outcome: RawPointer<u8>,
 );
 
-@abi(c)
-internal func empty_panic_report() -> PanicReportData
+trusted internal func empty_panic_report() -> PanicReportData
+    ensures(trusted native_report_callbacks(report = &result))
+    executes(pure, total)
 {
     return
     {
@@ -56,13 +62,16 @@ trusted internal func panic_report_construction(
     pos message: RawPointer<u8>,
     pos message_length: usize,
 ) -> PanicReportData
+    ensures(trusted native_report_callbacks(report = &result))
     requires(
         trusted core.memory.valid_read<u8>(pointer = message, count = message_length),
         trusted core.memory.initialized_range_as<u8>(pointer = message, count = message_length),
     )
-    uses(intrinsic, layout_reinterpret, raw_memory, unchecked_init)
+    uses(intrinsic, layout_reinterpret)
 {
-    if cause > 2 || source_present > 1 || source_start > source_end || (message_length != 0 && std.memory.is_null<u8>(
+    let handle: usize = trusted retain_panic_message(message, message_length);
+
+    if cause > 2 || source_present > 1 || source_start > source_end || (message_length != 0 && core.memory.is_null<u8>(
         message
     ))
     {
@@ -84,16 +93,13 @@ trusted internal func panic_report_construction(
 
     if message_length != 0
     {
-        let copy: RawPointer<u8> = trusted internal bray.runtime.bootstrap.heap.allocate(message_length, align = 1);
-
-        if std.memory.is_null<u8>(copy)
+        if handle == 0
         {
             report.cause = PANIC_ALLOCATION_FAILURE;
         }
         else
         {
-            trusted internal std.memory.byte_buffer_copy(message, destination = copy, count = message_length);
-            report.message = trusted core.target.expose_address<u8>(copy);
+            report.message = handle;
             report.message_length = message_length;
         }
     }
@@ -116,6 +122,112 @@ trusted internal func panic_report_construction(
     return report;
 }
 
+trusted internal func retain_panic_message(pos source: RawPointer<u8>, pos count: usize) -> usize
+    uses(unchecked_init)
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = source, count = count),
+        trusted core.memory.initialized_range_as<u8>(pointer = source, count = count),
+    )
+{
+    if count == 0
+    {
+        return 0;
+    }
+
+    let allocation: std.memory.RawBuffer<u8>? = trusted allocate_message_storage(source, count);
+
+    return match consume allocation
+    {
+        case ?buffer
+        {
+            let mut storage: std.memory.RawBuffer<u8> = buffer;
+
+            let initialized: usize = trusted internal std.memory.copy_spare_raw_bytes(
+                &mut storage,
+                source = source,
+                count = count
+            );
+
+            trusted std.memory.set_initialized_count<u8>(&mut storage, count = initialized);
+            yield trusted retain_message_storage(storage);
+        }
+        case none { yield 0; }
+    };
+}
+
+// Fresh allocation does not access the native caller's immutable message range.
+trusted internal func allocate_message_storage(
+    pos source: RawPointer<u8>,
+    pos count: usize
+) -> std.memory.RawBuffer<u8>?
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = source, count = count),
+        trusted core.memory.initialized_range_as<u8>(pointer = source, count = count),
+    )
+    ensures(
+        trusted core.memory.valid_read<u8>(pointer = source, count = count),
+        trusted core.memory.initialized_range_as<u8>(pointer = source, count = count),
+    )
+{
+    return trusted internal bray.runtime.bootstrap.heap.try_buffer<u8>(count);
+}
+
+trusted internal func retain_message_storage(pos storage: std.memory.RawBuffer<u8>) -> usize
+{
+    let mut guard = RECORD_POOL.lock();
+    let pool: &mut ReportPool = guard.get();
+    let maximum: usize = ~0;
+
+    if pool.credits == maximum
+    {
+        return 0;
+    }
+
+    let requested: usize = pool.credits + 1;
+
+    if !trusted reserve_records(pool, requested)
+    {
+        return 0;
+    }
+
+    let handle: usize = trusted activate_record(pool);
+    let entry: &mut ReportRecord = trusted record(pool, handle);
+
+    entry.message = storage;
+    return handle;
+}
+
+trusted internal func message_copy_lock(
+    pos destination: RawPointer<u8>,
+    pos count: usize
+) -> std.sync.SpinLockGuard<ReportPool>
+    requires(trusted core.memory.valid_write<u8>(pointer = destination, count = count))
+    ensures(trusted core.memory.valid_write<u8>(pointer = destination, count = count))
+{
+    return RECORD_POOL.lock();
+}
+
+trusted internal func message_storage(
+    pos guard: &mut std.sync.SpinLockGuard<ReportPool>,
+    pos handle: usize,
+    pos destination: RawPointer<u8>,
+    pos count: usize,
+) -> &std.memory.RawBuffer<u8>
+    requires(trusted core.memory.valid_write<u8>(pointer = destination, count = count))
+    ensures(trusted core.memory.valid_write<u8>(pointer = destination, count = count))
+    uses(intrinsic)
+{
+    let pool: &mut ReportPool = guard.get();
+    let entry: &mut ReportRecord = trusted record(pool, handle);
+
+    if let ?storage = entry.message
+    {
+        return &storage;
+    }
+
+    trusted core.target.abort();
+}
+
 @abi(c)
 trusted internal func panic_message_copy(
     pos address: usize,
@@ -123,25 +235,77 @@ trusted internal func panic_message_copy(
     pos destination: RawPointer<u8>,
     pos length: usize
 ) -> u32
-    uses(intrinsic, raw_memory, unchecked_init)
+    requires(trusted core.memory.valid_write<u8>(pointer = destination, count = length))
+    ensures(
+        result != STATUS_SUCCESS || trusted core.memory.initialized_range_as<u8>(pointer = destination, count = length)
+    )
+    uses(raw_memory, unchecked_init)
 {
-    let source: RawPointer<u8> = trusted core.target.from_exposed_address<u8>(address = address + offset);
+    let mut guard = trusted message_copy_lock(destination, length);
+    let storage: &std.memory.RawBuffer<u8> = trusted message_storage(&mut guard, address, destination, length);
+    let bytes: &[u8] = trusted std.memory.initialized_slice<u8>(storage);
 
-    trusted internal std.memory.byte_buffer_copy(source, destination = destination, count = length);
+    if offset > bytes.length() || length > bytes.length() - offset
+    {
+        return 3;
+    }
+
+    let selected: &[u8] = &bytes[offset..offset + length];
+    let count: usize = selected.length();
+
+    if count != length
+    {
+        return 3;
+    }
+
+    let source: RawPointer<u8> = trusted internal std.memory.slice_pointer<u8>(selected, count = count);
+
+    let _: unit = trusted core.memory.copy_overlapping<u8>(source = source, destination = destination, count = count);
+
     return STATUS_SUCCESS;
+}
+
+trusted internal func take_message_storage(pos handle: usize) -> std.memory.RawBuffer<u8>?
+    uses(intrinsic)
+{
+    let mut guard = RECORD_POOL.lock();
+    let pool: &mut ReportPool = guard.get();
+    let next: usize = pool.free;
+
+    let storage: std.memory.RawBuffer<u8>? =
+    {
+        let entry: &mut ReportRecord = trusted record(pool, handle);
+
+        let previous: std.memory.RawBuffer<u8>? = trusted std.memory.replace_value<(std.memory.RawBuffer<u8>?)>(
+            &mut entry.message,
+            none
+        );
+
+        entry.next = next;
+
+        if previous matches none
+        {
+            trusted core.target.abort();
+        }
+
+        yield previous;
+    };
+
+    pool.free = handle;
+    pool.available += 1;
+    return storage;
 }
 
 @abi(c)
 trusted internal func panic_message_release(pos address: usize, pos length: usize, pos outcome: RawPointer<u8>)
-    uses(intrinsic)
 {
     let _ = outcome;
 
     if length != 0
     {
-        let bytes: RawPointer<u8> = trusted core.target.from_exposed_address<u8>(address = address);
-
-        trusted internal bray.runtime.bootstrap.heap.deallocate_bytes(bytes, bytes = length, align = ONE_USIZE);
+        // Move the real buffer owner out before unlocking; destruction runs outside
+        // the pool lock and resolves its actual allocation exactly once.
+        let storage: std.memory.RawBuffer<u8>? = trusted take_message_storage(address);
     }
 
     let _: u64 = core.atomic.fetch_add<u64, 0>(&CONSUMED_REPORTS, value = 1);

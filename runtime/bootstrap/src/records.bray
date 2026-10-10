@@ -3,7 +3,6 @@ trusted internal module bray.runtime.bootstrap;
 
 using std.memory;
 
-@copy
 @layout(c)
 internal struct ReportPrimary
 {
@@ -45,21 +44,67 @@ internal struct ReportSegment
 @layout(c)
 internal struct ReportRecord
 {
-    mut primary: ReportPrimary;
+    mut primary: StoredReportPrimary;
+    mut message: std.memory.RawBuffer<u8>?;
     mut next: usize;
     mut segment: ReportSegment;
     mut segment_tail: usize;
     mut segment_count: usize;
 }
 
-@abi(c)
-internal func empty_primary() -> ReportPrimary
+// Pool storage retains actual callable values. The C header remains a wire format.
+internal struct StoredReportPrimary
+{
+    source_present: u32;
+    source_identity: u32;
+    source_start: u32;
+    source_end: u32;
+    source_version: u64;
+    source_namespace_word_0: u64;
+    source_namespace_word_1: u64;
+    source_namespace_word_2: u64;
+    source_namespace_word_3: u64;
+    cause: u32;
+    message: usize;
+    message_length: usize;
+    copy_message: PanicMessageCopy?;
+    release_message: PanicMessageRelease?;
+}
+
+trusted internal func stored_primary(pos primary: ReportPrimary) -> StoredReportPrimary
+    requires(trusted native_primary_callbacks(primary = &primary))
+{
+    let copy: PanicMessageCopy? = trusted primary_copy(&primary);
+    let release: PanicMessageRelease? = trusted primary_release(&primary);
+
+    return
+    {
+        source_present = primary.source_present,
+        source_identity = primary.source_identity,
+        source_start = primary.source_start,
+        source_end = primary.source_end,
+        source_version = primary.source_version,
+        source_namespace_word_0 = primary.source_namespace_word_0,
+        source_namespace_word_1 = primary.source_namespace_word_1,
+        source_namespace_word_2 = primary.source_namespace_word_2,
+        source_namespace_word_3 = primary.source_namespace_word_3,
+        cause = primary.cause,
+        message = primary.message,
+        message_length = primary.message_length,
+        copy_message = copy,
+        release_message = release,
+    };
+}
+
+trusted internal func empty_primary() -> ReportPrimary
+    ensures(trusted native_primary_callbacks(primary = &result))
+    executes(pure, total)
 {
     return report_primary_value(empty_panic_report());
 }
 
-@abi(c)
 internal func empty_records() -> ReportRecords
+    executes(pure, total)
 {
     return
     {
@@ -69,27 +114,52 @@ internal func empty_records() -> ReportRecords
     };
 }
 
-trusted internal func record(pos owner: &mut usize) -> &mut ReportRecord
-    uses(intrinsic, raw_memory, unchecked_alias)
+trusted internal func serialized_primary(pos primary: StoredReportPrimary) -> ReportPrimary
+    ensures(trusted native_primary_callbacks(primary = &result))
+    uses(layout_reinterpret)
 {
-    let pointer: RawPointer<ReportRecord> = trusted core.target.from_exposed_address<ReportRecord>(
-        address = trusted std.memory.read<usize>(std.memory.address_of_mut<usize>(owner))
-    );
+    let copy: RawPointer<u8> = match primary.copy_message
+    {
+        case ?callback
+        {
+            yield trusted std.memory.reinterpret<u8, PanicMessageCopy>(
+                trusted std.memory.pointer_from_callable<PanicMessageCopy>(callback)
+            );
+        }
+        case none { yield std.memory.null<u8>(); }
+    };
 
-    return trusted std.memory.borrow_mut_from<ReportRecord, usize>(owner, pointer);
+    let release: RawPointer<u8> = match primary.release_message
+    {
+        case ?callback
+        {
+            yield trusted std.memory.reinterpret<u8, PanicMessageRelease>(
+                trusted std.memory.pointer_from_callable<PanicMessageRelease>(callback)
+            );
+        }
+        case none { yield std.memory.null<u8>(); }
+    };
+
+    return
+    {
+        source_present = primary.source_present,
+        source_identity = primary.source_identity,
+        source_start = primary.source_start,
+        source_end = primary.source_end,
+        source_version = primary.source_version,
+        source_namespace_word_0 = primary.source_namespace_word_0,
+        source_namespace_word_1 = primary.source_namespace_word_1,
+        source_namespace_word_2 = primary.source_namespace_word_2,
+        source_namespace_word_3 = primary.source_namespace_word_3,
+        cause = primary.cause,
+        message = primary.message,
+        message_length = primary.message_length,
+        copy_message = copy,
+        release_message = release,
+    };
 }
 
-trusted internal func records(pos owner: &mut RawPointer<ReportRecords>) -> &mut ReportRecords
-    uses(raw_memory, unchecked_alias)
-{
-    let pointer: RawPointer<ReportRecords> = trusted std.memory.read<RawPointer<ReportRecords>>(
-        std.memory.address_of_mut<RawPointer<ReportRecords>>(owner)
-    );
-
-    return trusted std.memory.borrow_mut_from<ReportRecords, RawPointer<ReportRecords>>(owner, pointer);
-}
-
-trusted internal func append_record(pos chain: &mut ReportRecords, pos handle: usize)
+trusted internal func append_record(pos pool: &mut ReportPool, pos chain: &mut ReportRecords, pos handle: usize)
 {
     if chain.count == 0
     {
@@ -97,7 +167,7 @@ trusted internal func append_record(pos chain: &mut ReportRecords, pos handle: u
     }
     else
     {
-        let last: &mut ReportRecord = trusted record(&mut chain.tail);
+        let last: &mut ReportRecord = trusted record(pool, chain.tail);
 
         last.next = handle;
     }
@@ -106,7 +176,7 @@ trusted internal func append_record(pos chain: &mut ReportRecords, pos handle: u
     chain.count += 1;
 }
 
-trusted internal func detach_record(pos chain: &mut ReportRecords) -> usize
+trusted internal func detach_record(pos pool: &mut ReportPool, pos chain: &mut ReportRecords) -> usize
     uses(intrinsic)
 {
     if chain.count == 0
@@ -115,7 +185,7 @@ trusted internal func detach_record(pos chain: &mut ReportRecords) -> usize
     }
 
     let mut handle: usize = chain.head;
-    let first: &mut ReportRecord = trusted record(&mut handle);
+    let first: &mut ReportRecord = trusted record(pool, handle);
 
     chain.head = first.next;
     first.next = 0;
@@ -131,38 +201,116 @@ trusted internal func detach_record(pos chain: &mut ReportRecords) -> usize
 
 @abi(c)
 trusted internal func report_records_take(
-    pos mut source: RawPointer<ReportRecords>,
+    pos source: RawPointer<ReportRecords>,
     pos count: usize,
-    pos mut destination: RawPointer<ReportRecords>,
+    pos destination: RawPointer<ReportRecords>,
 )
+    requires(
+        trusted core.memory.valid_write<ReportRecords>(pointer = source, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = source),
+        trusted core.memory.valid_read<ReportRecords>(pointer = source, count = 1),
+        trusted core.memory.initialized_as<ReportRecords>(pointer = source),
+        trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
+        trusted core.memory.valid_read<ReportRecords>(pointer = destination, count = 1),
+        trusted core.memory.initialized_as<ReportRecords>(pointer = destination)
+    )
+    uses(raw_memory, unchecked_init)
 {
-    let mut source_records: &mut ReportRecords = trusted records(&mut source);
-    let mut destination_records: &mut ReportRecords = trusted records(&mut destination);
+    let input: ReportRecords = trusted std.memory.read<ReportRecords>(source);
+    let output: ReportRecords = trusted std.memory.read<ReportRecords>(destination);
+    let (updated_input, updated_output) = trusted take_record_values(input, output, count, source, destination);
+
+    trusted std.memory.write<ReportRecords>(source, updated_input);
+    trusted std.memory.write<ReportRecords>(destination, updated_output);
+}
+
+trusted internal func take_record_values(
+    pos mut input: ReportRecords,
+    pos mut output: ReportRecords,
+    pos count: usize,
+    pos source: RawPointer<ReportRecords>,
+    pos destination: RawPointer<ReportRecords>
+) -> (ReportRecords, ReportRecords)
+    requires(
+        trusted core.memory.valid_write<ReportRecords>(pointer = source, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = source),
+        trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
+    )
+    ensures(
+        trusted core.memory.valid_write<ReportRecords>(pointer = source, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = source),
+        trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
+    )
+{
+    let mut guard = RECORD_POOL.lock();
+    let pool: &mut ReportPool = guard.get();
     let mut remaining: usize = count;
 
     while remaining != 0
     {
-        let handle: usize = trusted detach_record(&mut source_records);
+        let handle: usize = trusted detach_record(pool, &mut input);
 
-        trusted append_record(&mut destination_records, handle);
+        trusted append_record(pool, &mut output, handle);
         remaining -= 1;
     }
+
+    return (input, output);
 }
 
 @abi(c)
 trusted internal func report_records_append(
-    pos mut destination: RawPointer<ReportRecords>,
-    pos mut source: RawPointer<ReportRecords>,
+    pos destination: RawPointer<ReportRecords>,
+    pos source: RawPointer<ReportRecords>
 )
+    requires(
+        trusted core.memory.valid_write<ReportRecords>(pointer = source, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = source),
+        trusted core.memory.valid_read<ReportRecords>(pointer = source, count = 1),
+        trusted core.memory.initialized_as<ReportRecords>(pointer = source),
+        trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
+        trusted core.memory.valid_read<ReportRecords>(pointer = destination, count = 1),
+        trusted core.memory.initialized_as<ReportRecords>(pointer = destination)
+    )
     uses(raw_memory, unchecked_init)
 {
-    let left: &mut ReportRecords = trusted records(&mut destination);
-    let right: &mut ReportRecords = trusted records(&mut source);
+    let left: ReportRecords = trusted std.memory.read<ReportRecords>(destination);
+    let right: ReportRecords = trusted std.memory.read<ReportRecords>(source);
+    let (updated_left, updated_right) = trusted append_record_values(left, right, destination, source);
 
+    trusted std.memory.write<ReportRecords>(destination, updated_left);
+    trusted std.memory.write<ReportRecords>(source, updated_right);
+}
+
+trusted internal func append_record_values(
+    pos mut left: ReportRecords,
+    pos right: ReportRecords,
+    pos destination: RawPointer<ReportRecords>,
+    pos source: RawPointer<ReportRecords>
+) -> (ReportRecords, ReportRecords)
+    requires(
+        trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
+        trusted core.memory.valid_write<ReportRecords>(pointer = source, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = source),
+    )
+    ensures(
+        trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
+        trusted core.memory.valid_write<ReportRecords>(pointer = source, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = source),
+    )
+{
     if right.count == 0
     {
-        return;
+        return (left, right);
     }
+
+    let mut guard = RECORD_POOL.lock();
+    let pool: &mut ReportPool = guard.get();
 
     if left.count == 0
     {
@@ -170,80 +318,147 @@ trusted internal func report_records_append(
     }
     else
     {
-        let last: &mut ReportRecord = trusted record(&mut left.tail);
+        let last: &mut ReportRecord = trusted record(pool, left.tail);
 
         last.next = right.head;
     }
 
     left.tail = right.tail;
     left.count += right.count;
-    trusted std.memory.write<ReportRecords>(std.memory.address_of_mut<ReportRecords>(right), empty_records());
+    return (left, empty_records());
+}
+
+trusted internal func exchange_primary(pos handle: usize, pos value: ReportPrimary) -> ReportPrimary
+    requires(trusted native_primary_callbacks(primary = &value))
+    ensures(trusted native_primary_callbacks(primary = &result))
+{
+    let replacement: StoredReportPrimary = trusted stored_primary(value);
+    let mut guard = RECORD_POOL.lock();
+    let entry: &mut ReportRecord = trusted record(guard.get(), handle);
+
+    let old: StoredReportPrimary = trusted std.memory.replace_value<StoredReportPrimary>(
+        &mut entry.primary,
+        replacement
+    );
+
+    return trusted serialized_primary(old);
 }
 
 @abi(c)
-trusted internal func report_record_exchange(pos mut handle: usize, pos mut primary: RawPointer<ReportPrimary>)
-    uses(raw_memory, unchecked_init, unchecked_alias)
+trusted internal func report_record_exchange(pos handle: usize, pos primary: RawPointer<ReportPrimary>)
+    requires(
+        trusted native_primary_slot_callbacks(pointer = primary),
+        trusted core.memory.valid_write<ReportPrimary>(pointer = primary, count = 1),
+        trusted core.memory.aligned_for<ReportPrimary>(pointer = primary),
+        trusted core.memory.valid_read<ReportPrimary>(pointer = primary, count = 1),
+        trusted core.memory.initialized_as<ReportPrimary>(pointer = primary)
+    )
+    ensures(trusted native_primary_slot_callbacks(pointer = primary))
+    uses(raw_memory, unchecked_init)
 {
-    let entry: &mut ReportRecord = trusted record(&mut handle);
-    let primary_pointer: RawPointer<ReportPrimary> = primary;
+    let value: ReportPrimary = trusted read_primary(primary);
+    let old: ReportPrimary = trusted exchange_record_value(handle, value, primary);
 
-    let mut value: &mut ReportPrimary = trusted std.memory.borrow_mut_from<ReportPrimary, RawPointer<ReportPrimary>>(
-        &mut primary,
-        primary_pointer
-    );
+    trusted std.memory.write<ReportPrimary>(primary, old);
+}
 
-    let old: ReportPrimary = entry.primary;
-
-    entry.primary = trusted std.memory.read<ReportPrimary>(std.memory.address_of_mut<ReportPrimary>(&mut value));
-    trusted std.memory.write<ReportPrimary>(std.memory.address_of_mut<ReportPrimary>(&mut value), old);
+trusted internal func exchange_record_value(
+    pos handle: usize,
+    pos value: ReportPrimary,
+    pos primary: RawPointer<ReportPrimary>
+) -> ReportPrimary
+    requires(
+        trusted native_primary_callbacks(primary = &value),
+        trusted core.memory.valid_write<ReportPrimary>(pointer = primary, count = 1),
+        trusted core.memory.aligned_for<ReportPrimary>(pointer = primary),
+    )
+    ensures(
+        trusted core.memory.valid_write<ReportPrimary>(pointer = primary, count = 1),
+        trusted core.memory.aligned_for<ReportPrimary>(pointer = primary),
+    )
+{
+    return trusted exchange_primary(handle, value);
 }
 
 @abi(c)
-trusted internal func report_segment_mark(
-    pos mut chain: RawPointer<ReportRecords>,
-    pos mut metadata: RawPointer<ReportSegment>
-)
-    uses(raw_memory, unchecked_alias)
+trusted internal func report_segment_mark(pos chain: RawPointer<ReportRecords>, pos metadata: RawPointer<ReportSegment>)
+    requires(
+        trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
+        trusted core.memory.valid_read<ReportRecords>(pointer = chain, count = 1),
+        trusted core.memory.initialized_as<ReportRecords>(pointer = chain),
+        trusted core.memory.valid_write<ReportSegment>(pointer = metadata, count = 1),
+        trusted core.memory.aligned_for<ReportSegment>(pointer = metadata),
+        trusted core.memory.valid_read<ReportSegment>(pointer = metadata, count = 1),
+        trusted core.memory.initialized_as<ReportSegment>(pointer = metadata)
+    )
+    uses(raw_memory)
 {
-    let segment_records: &mut ReportRecords = trusted records(&mut chain);
+    let value: ReportRecords = trusted std.memory.read<ReportRecords>(chain);
+    let segment: ReportSegment = trusted std.memory.read<ReportSegment>(metadata);
+    let mut guard = RECORD_POOL.lock();
+    let pool: &mut ReportPool = guard.get();
+    let first: &mut ReportRecord = trusted record(pool, value.head);
 
-    let segment: &ReportSegment = trusted std.memory.borrow_from<ReportSegment, RawPointer<ReportSegment>>(
-        &metadata,
-        metadata
-    );
-
-    let first: &mut ReportRecord = trusted record(&mut segment_records.head);
-
-    first.segment = trusted std.memory.read<ReportSegment>(std.memory.address_of<ReportSegment>(segment));
-    first.segment_tail = segment_records.tail;
-    first.segment_count = segment_records.count;
+    first.segment = segment;
+    first.segment_tail = value.tail;
+    first.segment_count = value.count;
 }
 
 @abi(c)
 trusted internal func report_segment_take(
-    pos mut chain: RawPointer<ReportRecords>,
-    pos mut metadata: RawPointer<ReportSegment>,
-    pos mut destination: RawPointer<ReportRecords>,
+    pos chain: RawPointer<ReportRecords>,
+    pos metadata: RawPointer<ReportSegment>,
+    pos destination: RawPointer<ReportRecords>,
 )
-    uses(raw_memory, unchecked_init, unchecked_alias)
+    requires(
+        trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
+        trusted core.memory.valid_read<ReportRecords>(pointer = chain, count = 1),
+        trusted core.memory.initialized_as<ReportRecords>(pointer = chain),
+        trusted core.memory.valid_write<ReportSegment>(pointer = metadata, count = 1),
+        trusted core.memory.aligned_for<ReportSegment>(pointer = metadata),
+        trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
+    )
+    uses(raw_memory, unchecked_init)
 {
-    let source: &mut ReportRecords = trusted records(&mut chain);
-    let output: &mut ReportRecords = trusted records(&mut destination);
-    let head: usize = source.head;
-    let first: &mut ReportRecord = trusted record(&mut source.head);
-    let metadata_pointer: RawPointer<ReportSegment> = metadata;
+    let source: ReportRecords = trusted std.memory.read<ReportRecords>(chain);
+    let (updated_source, segment, output) = trusted take_segment_values(source, chain, metadata, destination);
 
-    let segment: &mut ReportSegment = trusted std.memory.borrow_mut_from<ReportSegment, RawPointer<ReportSegment>>(
-        &mut metadata,
-        metadata_pointer
-    );
+    trusted std.memory.write<ReportSegment>(metadata, segment);
+    trusted std.memory.write<ReportRecords>(chain, updated_source);
+    trusted std.memory.write<ReportRecords>(destination, output);
+}
 
-    trusted std.memory.write<ReportSegment>(std.memory.address_of_mut<ReportSegment>(segment), first.segment);
-    output.head = head;
-    output.tail = first.segment_tail;
-    output.count = first.segment_count;
+trusted internal func take_segment_values(
+    pos mut source: ReportRecords,
+    pos chain: RawPointer<ReportRecords>,
+    pos metadata: RawPointer<ReportSegment>,
+    pos destination: RawPointer<ReportRecords>
+) -> (ReportRecords, ReportSegment, ReportRecords)
+    requires(
+        trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
+        trusted core.memory.valid_write<ReportSegment>(pointer = metadata, count = 1),
+        trusted core.memory.aligned_for<ReportSegment>(pointer = metadata),
+        trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
+    )
+    ensures(
+        trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
+        trusted core.memory.valid_write<ReportSegment>(pointer = metadata, count = 1),
+        trusted core.memory.aligned_for<ReportSegment>(pointer = metadata),
+        trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
+    )
+{
+    let mut guard = RECORD_POOL.lock();
+    let pool: &mut ReportPool = guard.get();
+    let (segment, output) = trusted record_segment_value(pool, source.head);
 
-    let last: &mut ReportRecord = trusted record(&mut output.tail);
+    let last: &mut ReportRecord = trusted record(pool, output.tail);
 
     source.head = last.next;
     source.count -= output.count;
@@ -253,4 +468,31 @@ trusted internal func report_segment_take(
     {
         source.tail = 0;
     }
+
+    return (source, segment, output);
+}
+
+trusted internal func record_segment_value(
+    pos pool: &mut ReportPool,
+    pos handle: usize
+) -> (ReportSegment, ReportRecords)
+{
+    let first: &mut ReportRecord = trusted record(pool, handle);
+
+    let segment: ReportSegment =
+    {
+        ordinal = first.segment.ordinal,
+        task = first.segment.task,
+        frame = first.segment.frame,
+        state = first.segment.state,
+    };
+
+    let output: ReportRecords =
+    {
+        head = handle,
+        tail = first.segment_tail,
+        count = first.segment_count
+    };
+
+    return (segment, output);
 }

@@ -1,9 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use bray_codegen::{CodegenInstanceKey, CodegenStaticInstanceKey, CodegenTarget};
+use bray_codegen::{
+    CodegenInstanceKey, CodegenStaticInstanceKey, CodegenTarget,
+    demanded_runtime_references_for_mir,
+};
 use bray_ir::{MirStorageKind, MirUnit};
-use bray_runtime_interface::{BinarySymbolName, ExecutionLaneRequirement};
+use bray_runtime_interface::{
+    BinarySymbolName, ExecutionLaneRequirement, RuntimeArtifact, RuntimeArtifactPlan,
+};
 use bray_symbols::{StaticReferenceSelection, TypeId};
 
 use super::super::super::{CodegenPreparationError, Compilation};
@@ -23,6 +28,25 @@ impl CallableEffects {
     fn include(&mut self, other: &Self) {
         self.accesses.extend(other.accesses.iter().cloned());
         self.requires_main_thread |= other.requires_main_thread;
+    }
+
+    fn include_native_accesses(
+        &mut self,
+        identities: &[[u8; 32]],
+        statics: &BTreeMap<[u8; 32], &bray_native_artifact::NativeStatic>,
+        target: &bray_ir::MirTargetContract,
+    ) {
+        for identity in identities {
+            let entry = statics
+                .get(identity)
+                .expect("resolved native accesses must retain their static metadata");
+
+            self.accesses.insert(CodegenStaticInstanceKey::new(
+                Arc::from(entry.order_key()),
+                target.clone(),
+                entry.duration(),
+            ));
+        }
     }
 }
 
@@ -73,6 +97,7 @@ impl Compilation {
         &self,
         reachability: &ConcreteCodegenReachability,
         native: &bray_native_artifact::NativeUnitSelection,
+        runtime: Option<&RuntimeArtifact>,
         cancellation: &CancellationToken,
     ) -> Result<NativeCallableEffects, CodegenPreparationError> {
         let graph = reachability.graph();
@@ -122,17 +147,7 @@ impl Compilation {
                     .static_accesses(&symbol)
                     .expect("selected native callable must be a resolved native demand");
 
-                for identity in accesses {
-                    let entry = native_statics
-                        .get(identity)
-                        .expect("native binding accesses must have retained static metadata");
-
-                    effects.accesses.insert(CodegenStaticInstanceKey::new(
-                        Arc::from(entry.order_key()),
-                        key.target().clone(),
-                        entry.duration(),
-                    ));
-                }
+                effects.include_native_accesses(accesses, &native_statics, key.target());
             } else if let Some(instance) = graph.instance(key) {
                 effects.requires_main_thread =
                     instance.mir().frame_descriptor().is_some_and(|frame| {
@@ -146,6 +161,34 @@ impl Compilation {
                 let owner = reachability
                     .instance(key)
                     .expect("reachable MIR must have its concrete realization");
+
+                if let Some(runtime) = runtime {
+                    let target = bray_target::NativeTarget::for_identity(key.target().identity())
+                        .expect("native runtime effects require a native target");
+
+                    for reference in demanded_runtime_references_for_mir(instance.mir()) {
+                        let Some(binding) = runtime.contract().role_binding(reference.role())
+                        else {
+                            continue;
+                        };
+
+                        let symbol = bray_symbols::NativeSymbolContract::required_name(
+                            bray_base::NonEmptySharedStr::try_new(
+                                target
+                                    .object_symbol_name(binding.symbol_name().as_str())
+                                    .as_ref(),
+                            )
+                            .expect("validated runtime binding must have a nonempty symbol"),
+                        );
+
+                        // Newly mapped roles enter the host demand graph on the next closure pass.
+                        let Some(accesses) = native.static_accesses(&symbol) else {
+                            continue;
+                        };
+
+                        effects.include_native_accesses(accesses, &native_statics, key.target());
+                    }
+                }
 
                 for storage in instance.mir().storages() {
                     if let Some(reference) =
@@ -241,9 +284,17 @@ impl Compilation {
         product_kind: bray_symbols::ProductKind,
         reachability: &ConcreteCodegenReachability,
         callable_effects: &NativeCallableEffects,
+        runtime: Option<&RuntimeArtifactPlan>,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<Vec<ProductStaticHostEntry>, CodegenPreparationError> {
+        let runtime_providers = runtime
+            .into_iter()
+            .flat_map(|runtime| runtime.native_index().units())
+            .flat_map(bray_native_artifact::NativeUnit::statics)
+            .map(bray_native_artifact::NativeStatic::order_key)
+            .collect::<BTreeSet<_>>();
+
         // Host graph tables own their Arc-backed static keys independently of reachability.
         let mut realized = BTreeMap::new();
 
@@ -268,7 +319,7 @@ impl Compilation {
             }
         }
 
-        let effects = realized
+        let mut entries = realized
             .iter()
             .map(|(consumer_key, consumer)| {
                 let cleanup_roots = consumer
@@ -301,6 +352,17 @@ impl Compilation {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
+                // Runtime bindings close in the final product, whereas reusable static records
+                // retain their source-declared lifecycle dependencies.
+                let runtime_dependencies = accesses
+                    .iter()
+                    .filter(|provider| {
+                        *provider != consumer_key
+                            && runtime_providers.contains(provider.order_key())
+                    })
+                    .cloned()
+                    .collect();
+
                 accesses.retain(|provider| {
                     declarations
                         .iter()
@@ -309,48 +371,54 @@ impl Compilation {
 
                 Ok((
                     consumer_key.clone(),
-                    (
-                        accesses.into_iter().collect::<Vec<_>>(),
-                        requires_main_thread,
-                    ),
+                    ProductStaticHostEntry {
+                        key: consumer_key.clone(),
+                        reference: consumer.reference.clone(),
+                        ty: consumer.ty,
+                        dependencies: accesses.into_iter().collect(),
+                        runtime_dependencies,
+                        requires_host: consumer.requires_host(),
+                        requires_main_thread_cleanup: requires_main_thread,
+                    },
                 ))
             })
             .collect::<Result<BTreeMap<_, _>, CodegenPreparationError>>()?;
 
         let retained = bray_base::transitive_dependencies(
-            realized
+            entries
                 .iter()
                 .filter(|(_, instance)| {
                     product_kind == bray_symbols::ProductKind::Library || instance.requires_host()
                 })
                 .map(|(key, _)| key.clone()),
             |key| {
-                effects[key]
-                    .0
+                entries[key]
+                    .dependencies
                     .iter()
+                    .chain(entries[key].runtime_dependencies.iter())
                     .filter(|provider| realized.contains_key(*provider))
                     .cloned()
             },
         );
 
-        realized.retain(|key, _| retained.contains(key));
+        entries.retain(|key, _| retained.contains(key));
 
-        let local_dependencies = effects
+        let local_dependencies = entries
             .iter()
-            .filter(|(key, _)| retained.contains(*key))
-            .map(|(key, (providers, _))| {
+            .map(|(key, entry)| {
                 (
                     key.clone(),
-                    providers
+                    entry
+                        .dependencies
                         .iter()
-                        .filter(|provider| realized.contains_key(*provider))
+                        .filter(|provider| retained.contains(*provider))
                         .cloned()
                         .collect(),
                 )
             })
             .collect();
 
-        let keys = realized
+        let keys = entries
             .keys()
             .map(|key| (key.clone(), key.order_key()))
             .collect();
@@ -361,16 +429,9 @@ impl Compilation {
         let entries = ordered
             .into_iter()
             .map(|key| {
-                let static_instance = &realized[&key];
-
-                ProductStaticHostEntry::new(
-                    key.clone(),
-                    static_instance.reference.clone(),
-                    static_instance.ty,
-                    effects[&key].0.clone(),
-                    static_instance.requires_host(),
-                    effects[&key].1,
-                )
+                entries
+                    .remove(&key)
+                    .expect("ordered source static must have its host entry")
             })
             .collect();
 
@@ -384,29 +445,12 @@ pub(in crate::compilation::product) struct ProductStaticHostEntry {
     reference: StaticReferenceSelection,
     ty: TypeId,
     dependencies: Vec<CodegenStaticInstanceKey>,
+    runtime_dependencies: Vec<CodegenStaticInstanceKey>,
     requires_host: bool,
     requires_main_thread_cleanup: bool,
 }
 
 impl ProductStaticHostEntry {
-    pub(super) fn new(
-        key: CodegenStaticInstanceKey,
-        reference: StaticReferenceSelection,
-        ty: TypeId,
-        dependencies: Vec<CodegenStaticInstanceKey>,
-        requires_host: bool,
-        requires_main_thread_cleanup: bool,
-    ) -> Self {
-        Self {
-            key,
-            reference,
-            ty,
-            dependencies,
-            requires_host,
-            requires_main_thread_cleanup,
-        }
-    }
-
     pub(in crate::compilation::product) const fn key(&self) -> &CodegenStaticInstanceKey {
         &self.key
     }
@@ -417,6 +461,12 @@ impl ProductStaticHostEntry {
 
     pub(in crate::compilation::product) fn dependencies(&self) -> &[CodegenStaticInstanceKey] {
         &self.dependencies
+    }
+
+    pub(in crate::compilation::product) fn runtime_dependencies(
+        &self,
+    ) -> &[CodegenStaticInstanceKey] {
+        &self.runtime_dependencies
     }
 
     pub(in crate::compilation::product) const fn requires_host(&self) -> bool {

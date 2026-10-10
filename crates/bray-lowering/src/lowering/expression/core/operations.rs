@@ -1280,8 +1280,11 @@ impl Lowerer<'_> {
 
         operation.unwrap_or_else(|| {
             panic!(
-                "lowering contract violation: MissingSemanticSelection {value:?}",
-                value = expression
+                "expression {expression:?} must have a selected operation in {:?}, source: {:?}, selection: {:?}, node: {:?}",
+                self.input.unit().key(),
+                self.expression_source(expression),
+                self.input.semantic_selections().expression(expression),
+                self.input.unit().view().expression(expression),
             )
         })
     }

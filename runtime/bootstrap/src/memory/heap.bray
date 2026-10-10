@@ -22,3 +22,61 @@ trusted internal func deallocate_bytes(pos pointer: RawPointer<u8>, pos bytes: u
 {
     trusted core.memory.deallocate(pointer, bytes = bytes, align = align);
 }
+
+// Adopt the actual allocation into the standard buffer owner. Failure leaves no
+// live allocation, and moving the buffer retains its initialized prefix and disposal.
+trusted internal func try_buffer<T>(pos capacity: usize) -> std.memory.RawBuffer<T>?
+{
+    let stride: usize = std.memory.stride_of<T>();
+    let maximum: usize = ~0;
+
+    if stride != 0 && capacity > maximum / stride
+    {
+        return none;
+    }
+
+    let bytes: usize = stride * capacity;
+    let allocation: RawPointer<u8> = trusted allocate(bytes, align = std.memory.align_of<T>());
+
+    if std.memory.is_null<u8>(allocation)
+    {
+        return none;
+    }
+
+    let pointer: RawPointer<T> = trusted allocation_pointer<T>(allocation, capacity);
+
+    let buffer: std.memory.RawBuffer<T> =
+    {
+        pointer = pointer,
+        capacity = capacity,
+        initialized = 0
+    };
+
+    let mut result: std.memory.RawBuffer<T>? = none;
+
+    result = buffer;
+    return result;
+}
+
+trusted internal func allocation_pointer<T>(pos pointer: RawPointer<u8>, pos capacity: usize) -> RawPointer<T>
+    requires(
+        trusted core.memory.owned_allocation(
+            pointer = pointer,
+            bytes = std.memory.stride_of<T>() * capacity,
+            align = std.memory.align_of<T>(),
+        ),
+    )
+    ensures(
+        trusted core.memory.owned_allocation(
+            pointer = trusted std.memory.reinterpret<u8, T>(result),
+            bytes = std.memory.stride_of<T>() * capacity,
+            align = std.memory.align_of<T>(),
+        ),
+        trusted core.memory.valid_write<T>(pointer = result, count = capacity),
+        trusted core.memory.aligned_for<T>(pointer = result),
+        trusted core.memory.initialized_range_as<T>(pointer = result, count = 0),
+    )
+    uses(layout_reinterpret)
+{
+    return trusted std.memory.reinterpret<T, u8>(pointer);
+}

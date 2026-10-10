@@ -38,8 +38,8 @@ pub trait LifecycleSelectionContext {
         template: &TypeExpressionTemplate,
         substitution: GenericSubstitutionId,
     ) -> Result<TypeId, Self::Error>;
-    /// Recognizes an imported buffer under the standard-library authority contract.
-    fn imported_raw_buffer_element(
+    /// Recognizes a source or imported buffer under the standard-library authority contract.
+    fn raw_buffer_element(
         &self,
         definition: NamedTypeSymbolId,
         substitution: GenericSubstitutionId,
@@ -81,8 +81,7 @@ pub fn select_lifecycle_action<C: LifecycleSelectionContext + ?Sized>(
     } = data.as_ref()
     {
         if phase == LifecyclePhase::Destroy
-            && let Some(element) =
-                context.imported_raw_buffer_element(*definition, *substitution)?
+            && let Some(element) = context.raw_buffer_element(*definition, *substitution)?
         {
             return Ok(LifecycleAction::RawBuffer(element));
         }
@@ -276,7 +275,7 @@ mod tests {
         ) -> Result<TypeId, Self::Error> {
             panic!("no member substitution in this fixture")
         }
-        fn imported_raw_buffer_element(
+        fn raw_buffer_element(
             &self,
             _: NamedTypeSymbolId,
             _: GenericSubstitutionId,

@@ -114,12 +114,19 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
                     | CheckedMemoryOperationKind::IsNull { .. }
                     | CheckedMemoryOperationKind::Offset { .. }
                     | CheckedMemoryOperationKind::Reinterpret { .. }
+                    | CheckedMemoryOperationKind::PointerFromCallable { .. }
                     | CheckedMemoryOperationKind::LayoutQuery { .. }
                     | CheckedMemoryOperationKind::RawBufferCapacity
                     | CheckedMemoryOperationKind::RawBufferInitializedCount
                     | CheckedMemoryOperationKind::RawBufferPointer
                     | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
                     | CheckedMemoryOperationKind::RawBufferSetInitializedCount
+                    | CheckedMemoryOperationKind::AtomicInitialize { .. }
+                    | CheckedMemoryOperationKind::AtomicLoad { .. }
+                    | CheckedMemoryOperationKind::AtomicStore { .. }
+                    | CheckedMemoryOperationKind::AtomicExchange { .. }
+                    | CheckedMemoryOperationKind::AtomicCompareExchange { .. }
+                    | CheckedMemoryOperationKind::AtomicFetch { .. }
             )
         {
             // These checked primitives complete on their required storage domains.
@@ -138,6 +145,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
                 | CheckedMemoryOperationKind::IsNull { .. }
                 | CheckedMemoryOperationKind::Offset { .. }
                 | CheckedMemoryOperationKind::Reinterpret { .. }
+                | CheckedMemoryOperationKind::PointerFromCallable { .. }
                 | CheckedMemoryOperationKind::LayoutQuery { .. }
                 | CheckedMemoryOperationKind::Null { .. }
                 | CheckedMemoryOperationKind::Address { .. }

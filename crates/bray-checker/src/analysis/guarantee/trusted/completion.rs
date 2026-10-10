@@ -465,13 +465,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         };
 
-        let Some(entry) = state
+        let Some(mut entry) = state
             .entries
             .get(&invocation)
             .filter(|entry| {
-                (entry.trusted_boundary
-                    || self.trusted_requirements_proven(entry, &contract.requirements))
-                    && entry.proves(&contract.preconditions)
+                // Normal completion establishes ordinary requirements, including runtime
+                // checks. Trusted requirements still need authority at the call boundary.
+                entry.trusted_boundary
+                    || self.trusted_requirements_proven(entry, &contract.requirements)
             })
             .cloned()
         else {
@@ -482,6 +483,39 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             && matches!(result, ExecutionCondition::Expression(expression) if invocation == expression.into())
         {
             return;
+        }
+
+        let equalities = ExecutionCondition::equalities(&entry.assumptions, None);
+
+        let preconditions = contract
+            .preconditions
+            .iter()
+            .map(|condition| {
+                condition
+                    .substitute(
+                        &|place| {
+                            place
+                                .value_in(&entry.arguments)
+                                .unwrap_or(ExecutionCondition::Unknown)
+                        },
+                        &ExecutionCondition::Unknown,
+                        &mut { ExecutionCondition::WORK_LIMIT },
+                    )
+                    .with_equalities(&equalities)
+            })
+            .collect::<Vec<_>>();
+
+        // A disproven entry cannot complete normally. Unknown ordinary requirements
+        // can pass their runtime checks; capture that entry evidence for completion guards.
+        if preconditions.iter().any(|condition| {
+            condition.prove(&entry.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                == Some(false)
+        }) {
+            return;
+        }
+
+        for condition in preconditions {
+            condition.assume(true, &mut entry.assumptions);
         }
 
         let capture = |condition: &ExecutionCondition| {

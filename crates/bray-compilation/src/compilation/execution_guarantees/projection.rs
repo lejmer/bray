@@ -41,6 +41,7 @@ impl Compilation {
                         | bray_compiler_known::ImplementationHook::SequenceIsEmpty
                         | bray_compiler_known::ImplementationHook::AddressOf
                         | bray_compiler_known::ImplementationHook::AddressOfMut
+                        | bray_compiler_known::ImplementationHook::PointerFromCallable
                         | bray_compiler_known::ImplementationHook::UninitPointer
                         | bray_compiler_known::ImplementationHook::UninitPointerMut
                         | bray_compiler_known::ImplementationHook::BorrowFrom
@@ -80,5 +81,111 @@ impl Compilation {
                     })
                     .is_some_and(|symbol| callable.definition().symbol() == symbol.into())
             }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::compilation;
+    use bray_diagnostics::DiagnosticKind;
+
+    #[test]
+    fn non_waiting_atomic_operations_complete_without_cleanup_reporting() {
+        for operation in [
+            "core.atomic.initialize<u32>(0)",
+            "core.atomic.load<u32, 1>(storage)",
+            "core.atomic.store<u32, 2>(storage, 1)",
+            "core.atomic.exchange<u32, 0>(storage, 1)",
+            "core.atomic.compare_exchange<u32, 0, 0>(storage, expected = 0, desired = 1)",
+            "core.atomic.compare_exchange_weak<u32, 0, 0>(storage, expected = 0, desired = 1)",
+            "core.atomic.fetch_add<u32, 2>(storage, 1)",
+            "core.atomic.fetch_sub<u32, 0>(storage, 1)",
+            "core.atomic.fetch_and<u32, 0>(storage, 1)",
+            "core.atomic.fetch_or<u32, 0>(storage, 1)",
+            "core.atomic.fetch_xor<u32, 0>(storage, 1)",
+        ] {
+            let compilation = compilation(&format!(
+                "module app; func operation(pos storage: &core.atomic.Atomic<u32>) \
+                 executes(total) {{ let _ = {operation}; }}"
+            ));
+
+            assert!(
+                !compilation.check_diagnostics().has_errors(),
+                "{operation}: {:?}",
+                compilation.check_diagnostics()
+            );
+        }
+    }
+
+    #[test]
+    fn atomic_termination_evidence_preserves_wait_and_effect_constraints() {
+        for (property, operation) in [
+            ("total", "core.atomic.wait<u32, 1>(storage, 0)"),
+            ("pure", "core.atomic.load<u32, 1>(storage)"),
+            ("pure", "core.atomic.fetch_add<u32, 2>(storage, 1)"),
+        ] {
+            let compilation = compilation(&format!(
+                "module app; func operation(pos storage: &core.atomic.Atomic<u32>) \
+                 executes({property}) {{ let _ = {operation}; }}"
+            ));
+
+            assert!(
+                compilation.check_diagnostics().iter().any(|diagnostic| {
+                    diagnostic.kind() == DiagnosticKind::CheckingExecutionGuaranteeNotProven
+                }),
+                "{property}, {operation}: {:?}",
+                compilation.check_diagnostics()
+            );
+        }
+    }
+
+    #[test]
+    fn callable_address_projections_are_pure_and_total() {
+        let compilation = compilation(
+            r#"
+            trusted module app;
+            callable Callback = @abi(c) func();
+            @abi(c)
+            func entry() {}
+
+            trusted func address() -> RawPointer<u8>
+                executes(pure, total)
+                uses(layout_reinterpret)
+            {
+                let pointer: RawPointer<Callback> = trusted core.memory.pointer_from_callable<Callback>(entry);
+
+                return trusted core.memory.reinterpret<u8, Callback>(pointer);
+            }
+            "#,
+        );
+
+        assert!(
+            !compilation.check_diagnostics().has_errors(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+    }
+
+    #[test]
+    fn pointer_projection_certificates_do_not_create_callable_authority() {
+        let compilation = compilation(
+            r#"
+            trusted module app;
+            callable Callback = @abi(c) func();
+
+            trusted func caller(pos pointer: RawPointer<u8>) -> Callback
+                uses(layout_reinterpret)
+            {
+                let callable_pointer: RawPointer<Callback> = trusted core.memory.reinterpret<Callback, u8>(pointer);
+
+                return trusted core.memory.callable_from_pointer<Callback>(callable_pointer);
+            }
+            "#,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingTrustedObligationNotProven,
+        );
     }
 }

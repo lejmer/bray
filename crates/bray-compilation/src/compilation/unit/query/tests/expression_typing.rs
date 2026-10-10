@@ -1,9 +1,129 @@
 use super::support::representation::assert_expression_representation;
-use crate::test_support::{compilation, only_call_selection, source_callable_body_key};
+use crate::test_support::{
+    compilation, compilation_with_sources_and_worker_budget, only_call_selection,
+    source_callable_body_key, source_function_body_key,
+};
 use bray_bound_tree::{BoundCallableTarget, SelectedArgument, SemanticSelection};
 use bray_compiler_known::RepresentationRole;
-use bray_diagnostics::DiagnosticKind;
+use bray_diagnostics::{DiagnosticArg, DiagnosticKind, DiagnosticType};
 use bray_symbols::ConstantValueKind;
+
+#[test]
+fn incompatible_pointer_handle_reports_a_call_error_before_lowering() {
+    let compilation = compilation_with_sources_and_worker_budget(
+        &[
+            r#"trusted module app;
+
+using internal app.platform;
+
+trusted func main()
+{
+    let mut transferred: u64 = 99;
+    let progress: RawPointer<u64> = core.memory.address_of_mut<u64>(&mut transferred);
+    let handle: RawPointer<u8> = core.memory.null<u8>();
+
+    let read: u32 = trusted internal app.platform.handle_read(
+        handle,
+        destination = handle,
+        length = 0,
+        transferred = progress,
+    );
+}
+"#,
+            r#"trusted internal module app.platform;
+
+trusted internal func handle_read(
+    pos handle: u64,
+    standard_stream: u32 = 0,
+    destination: RawPointer<u8>,
+    length: u64,
+    transferred: RawPointer<u64>,
+) -> u32
+{
+    return 0;
+}
+"#,
+        ],
+        crate::WorkerBudget::serial(),
+    );
+
+    let key = source_function_body_key(&compilation, "main");
+    let selections = compilation.semantic_selections(key.clone()).unwrap();
+
+    let diagnostic = selections
+        .diagnostics()
+        .by_kind(DiagnosticKind::CheckingIncompatibleExpressionType)
+        .next()
+        .expect("invalid handle must retain its type diagnostic");
+
+    bray_testing::assert_goal_state_diagnostic(diagnostic);
+
+    assert!(
+        diagnostic
+            .args()
+            .contains(&DiagnosticArg::expected_type(DiagnosticType::U64))
+    );
+
+    let span = diagnostic
+        .primary_span()
+        .expect("type error must retain its argument span");
+
+    let source = compilation.source(span.source_id()).unwrap();
+
+    assert_eq!(
+        source.text_slice(span.range()).map(str::trim),
+        Some("handle")
+    );
+
+    let lowered = compilation.lowered_unit(key).unwrap();
+
+    assert!(lowered.value().is_none());
+    assert!(lowered.diagnostics().has_errors());
+}
+
+#[test]
+fn yielded_diverging_calls_preserve_never_at_a_value_join() {
+    for expression in [
+        "match choice { case true { yield 1; } case false { yield trusted core.target.abort(); } }",
+        "if choice { yield 1; } else { yield trusted core.target.abort(); }",
+        "loop { if choice { break 1; } break trusted core.target.abort(); }",
+    ] {
+        let source = format!(
+            "trusted module app;\ntrusted func choose(pos choice: bool) -> usize {{ return {expression}; }}"
+        );
+
+        let compilation = compilation(&source);
+        let key = source_callable_body_key(&compilation);
+
+        let selections = compilation
+            .semantic_selections(key.clone())
+            .expect("diverging call must retain its selected signature");
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "{:?}",
+            selections.diagnostics()
+        );
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("diverging join must lower");
+
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:?}",
+            lowered.diagnostics()
+        );
+
+        assert!(
+            lowered
+                .value()
+                .as_ref()
+                .and_then(|unit| unit.mir())
+                .is_some()
+        );
+    }
+}
 
 #[test]
 fn literal_values_are_adapted_once_to_final_types_and_selected_target() {

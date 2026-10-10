@@ -41,7 +41,7 @@ publication. The later stack branches have no source changes from this checkpoin
    `CleanupIncidentTransfer`. Adding a symbol or one fixed argument signature does not establish the error's owner.
 2. [Outgoing realization](../../crates/bray-compilation/src/compilation/product/realization/outgoing.rs)
    computes scalar record counts. [outgoing.bray](../../runtime/bootstrap/src/outgoing.bray) reserves those counts, and
-   [record-pool.bray](../../runtime/bootstrap/src/record-pool.bray) allocates fixed-size `ReportRecord` slabs.
+   [record_pool.bray](../../runtime/bootstrap/src/record_pool.bray) allocates fixed-size `ReportRecord` slabs.
    [records.bray](../../runtime/bootstrap/src/records.bray) stores a `ReportPrimary` with panic-message callbacks.
    These records do not secure the selected exit error's concrete size, alignment, destructor-generated outcomes, or
    backing-release obligations. `outgoing_retirement` retains an action record for a panic outcome and otherwise
@@ -56,7 +56,7 @@ publication. The later stack branches have no source changes from this checkpoin
    payload address, concrete type identity, source, and reporting/destruction callbacks. The existing
    [static cleanup bridge](../../crates/bray-runtime/src/product/cleanup.rs) consumes this representation.
    The ordinary [CleanupReportSink](../../crates/bray-runtime/src/shutdown.rs) instead accepts `RuntimePanic` through
-   admitted panic records. [Report consumption](../../runtime/bootstrap/src/report-consumer.bray) understands panic
+   admitted panic records. [Report consumption](../../runtime/bootstrap/src/report_consumer.bray) understands panic
    primary/message release, not the separate typed-error destruction and backing-release outcomes. There is no existing
    native route connecting the scoped typed operand to that sink while retaining the physical payload and its provider
    through final use.

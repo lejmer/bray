@@ -5,6 +5,7 @@ using std.io;
 using std.io.IoErrorKindEquatable;
 using internal std.io.checked_transfer;
 using std.memory;
+using internal std.memory;
 using std.os.windows;
 using internal std.platform;
 using std.testing;
@@ -23,15 +24,14 @@ func handle_requests_are_bounded_without_unsigned_wraparound()
 trusted func handle_zero_length_and_failure_preserve_progress()
 {
     let mut transferred: u64 = 99;
-    let progress: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
-    let handle: RawPointer<u8> = std.memory.null<u8>();
+    let handle: u64 = 0;
     let bytes: RawPointer<u8> = std.memory.null<u8>();
 
     let read: std.platform.PlatformStatus = trusted internal std.platform.handle_read(
         handle,
         destination = bytes,
         length = 0,
-        transferred = progress,
+        transferred = std.memory.address_of_mut<u64>(&mut transferred),
     );
 
     assert(read.category == 0);
@@ -43,7 +43,7 @@ trusted func handle_zero_length_and_failure_preserve_progress()
         handle,
         source = bytes,
         length = 0,
-        transferred = progress,
+        transferred = std.memory.address_of_mut<u64>(&mut transferred),
     );
 
     assert(write.category == 0);
@@ -58,20 +58,22 @@ trusted func handle_zero_length_and_failure_preserve_progress()
         handle,
         destination = destination,
         length = 1,
-        transferred = progress,
+        transferred = std.memory.address_of_mut<u64>(&mut transferred),
     );
 
     assert(failed_read.category != 0);
     assert(failed_read.native_code == 6);
     assert(transferred == 0);
 
+    let source: [u8; 1] = b"x";
+
     transferred = 99;
 
     let failed_write: std.platform.PlatformStatus = trusted internal std.platform.handle_write(
         handle,
-        source = destination,
+        source = trusted internal std.memory.slice_pointer<u8>(&source[..], count = 1),
         length = 1,
-        transferred = progress,
+        transferred = std.memory.address_of_mut<u64>(&mut transferred),
     );
 
     assert(failed_write.category != 0);
@@ -83,20 +85,13 @@ trusted func handle_zero_length_and_failure_preserve_progress()
 trusted func handle_failure_keeps_the_reported_prefix_in_the_caller_error()
     uses(foreign_call)
 {
-    let mut transferred: u64 = 0;
-    let progress: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
-
     // A message-mode pipe read can report ERROR_MORE_DATA with a successfully read prefix.
     trusted std.os.windows.set_last_error(234);
 
-    let status: std.platform.PlatformStatus = trusted internal std.platform.handle_transfer_result(
-        0,
-        count = 2,
-        transferred = progress,
-    );
+    let status: std.platform.PlatformStatus = trusted internal std.platform.handle_transfer_status(0);
 
     let error: std.io.IoError = std.testing.assert_error<usize, std.io.IoError>(
-        internal std.io.checked_transfer(status, transferred = transferred, maximum = 4, require_progress = false)
+        internal std.io.checked_transfer(status, transferred = 2, maximum = 4, require_progress = false)
     );
 
     assert(error.kind == std.io.IoErrorKind.Other);
@@ -105,14 +100,10 @@ trusted func handle_failure_keeps_the_reported_prefix_in_the_caller_error()
 
     trusted std.os.windows.set_last_error(std.os.windows.ERROR_OPERATION_ABORTED);
 
-    let interrupted: std.platform.PlatformStatus = trusted internal std.platform.handle_transfer_result(
-        0,
-        count = 1,
-        transferred = progress,
-    );
+    let interrupted: std.platform.PlatformStatus = trusted internal std.platform.handle_transfer_status(0);
 
     let interrupted_error: std.io.IoError = std.testing.assert_error<usize, std.io.IoError>(
-        internal std.io.checked_transfer(interrupted, transferred = transferred, maximum = 4, require_progress = false)
+        internal std.io.checked_transfer(interrupted, transferred = 1, maximum = 4, require_progress = false)
     );
 
     assert(interrupted_error.kind == std.io.IoErrorKind.Interrupted);
@@ -124,21 +115,23 @@ trusted func handle_failure_keeps_the_reported_prefix_in_the_caller_error()
 
     assert(interrupted_error.transferred == 1);
 
-    let partial: std.platform.PlatformStatus = trusted internal std.platform.handle_transfer_result(
-        1,
-        count = 3,
-        transferred = progress,
-    );
+    let partial: std.platform.PlatformStatus = trusted internal std.platform.handle_transfer_status(1);
 
     assert(partial.category == 0);
-    assert(transferred == 3);
 
-    let eof: std.platform.PlatformStatus = trusted internal std.platform.handle_transfer_result(
-        1,
-        count = 0,
-        transferred = progress,
+    assert(
+        std.testing.assert_ok<usize, std.io.IoError>(
+            internal std.io.checked_transfer(partial, transferred = 3, maximum = 4, require_progress = false)
+        ) == 3
     );
 
+    let eof: std.platform.PlatformStatus = trusted internal std.platform.handle_transfer_status(1);
+
     assert(eof.category == 0);
-    assert(transferred == 0);
+
+    assert(
+        std.testing.assert_ok<usize, std.io.IoError>(
+            internal std.io.checked_transfer(eof, transferred = 0, maximum = 4, require_progress = false)
+        ) == 0
+    );
 }

@@ -89,7 +89,7 @@ pub const TEST_CAPTURE_LIMIT: &str = "Capture at most BYTES from each output str
 pub const TEST_SHOW_OUTPUT: &str = "Show captured output for successful tests as well as failures";
 /// Describes test filters.
 pub const TEST_FILTER: &str =
-    "Run tests whose qualified identity contains FILTER. Multiple filters are combined";
+    "Run tests whose function name contains FILTER. Each name must match every filter";
 /// Describes format verification.
 pub const FORMAT_CHECK: &str = "Report files that would change without rewriting them";
 /// Describes formatter configuration.
