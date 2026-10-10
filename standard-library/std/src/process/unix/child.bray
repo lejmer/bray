@@ -19,18 +19,28 @@ internal struct SpawnStorage
 }
 
 trusted internal func platform_child_spawn(
-    pos executable: PlatformNativeText,
-    pos arguments: &[PlatformNativeText],
+    pos executable: (&[u8]),
+    pos arguments: &[(&[u8])],
     pos environment: &[PlatformEnvironmentEntry],
     pos child: RawPointer<u64>,
     pos standard_input: RawPointer<u64>,
     pos standard_output: RawPointer<u64>,
     pos standard_error: RawPointer<u64>,
-    working_directory: PlatformNativeText,
+    working_directory: (&[u8]),
     standard_input_policy: u32,
     standard_output_policy: u32,
     standard_error_policy: u32,
 ) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_write<u64>(pointer = child, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = child),
+        trusted core.memory.valid_write<u64>(pointer = standard_input, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = standard_input),
+        trusted core.memory.valid_write<u64>(pointer = standard_output, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = standard_output),
+        trusted core.memory.valid_write<u64>(pointer = standard_error, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = standard_error),
+    )
 {
     trusted std.memory.write<u64>(child, value = 0);
     trusted std.memory.write<u64>(standard_input, value = 0);
@@ -185,11 +195,54 @@ trusted internal func platform_child_wait(
     pos terminal: RawPointer<u32>,
     pos status: RawPointer<PlatformExitStatus>,
 ) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_write<u32>(pointer = terminal, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = terminal),
+        trusted core.memory.valid_write<PlatformExitStatus>(pointer = status, count = 1),
+        trusted core.memory.aligned_for<PlatformExitStatus>(pointer = status),
+    )
+{
+    let prepared: Result<PlatformExitStatus, std.platform.PlatformStatus> = trusted internal prepare_child_wait(
+        child,
+        terminal,
+        status,
+    );
+
+    match consume prepared
+    {
+        case Ok(value)
+        {
+            trusted std.memory.write<u32>(terminal, value = 1);
+            trusted std.memory.write<PlatformExitStatus>(status, value);
+
+            return internal std.platform.success_status();
+        }
+        case Error(error) { return error; }
+    }
+}
+
+trusted internal func prepare_child_wait(
+    pos child: u64,
+    pos terminal: RawPointer<u32>,
+    pos status: RawPointer<PlatformExitStatus>,
+) -> Result<PlatformExitStatus, std.platform.PlatformStatus>
+    requires(
+        trusted core.memory.valid_write<u32>(pointer = terminal, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = terminal),
+        trusted core.memory.valid_write<PlatformExitStatus>(pointer = status, count = 1),
+        trusted core.memory.aligned_for<PlatformExitStatus>(pointer = status),
+    )
+    ensures(
+        trusted core.memory.valid_write<u32>(pointer = terminal, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = terminal),
+        trusted core.memory.valid_write<PlatformExitStatus>(pointer = status, count = 1),
+        trusted core.memory.aligned_for<PlatformExitStatus>(pointer = status),
+    )
 {
     let process: i32 = match internal std.platform.checked_descriptor(child)
     {
         case Ok(value) { yield value; }
-        case Error(error) { return error; }
+        case Error(error) { return Error(error); }
     };
 
     let mut native_status: i32 = 0;
@@ -208,12 +261,10 @@ trusted internal func platform_child_wait(
             continue;
         }
 
-        return trusted internal std.platform.unix_error_status();
+        return Error(trusted internal std.platform.unix_error_status());
     }
 
-    trusted std.memory.write<u32>(terminal, value = 1);
-    trusted std.memory.write<PlatformExitStatus>(status, value = internal unix_exit_status(native_status));
-    return internal std.platform.success_status();
+    return Ok(internal unix_exit_status(native_status));
 }
 
 @abi(c)

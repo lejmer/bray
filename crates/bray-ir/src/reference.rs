@@ -243,7 +243,7 @@ impl MirCall {
     }
 
     /// Returns whether this call can propagate a panic through the synchronous Bray ABI.
-    pub const fn may_propagate_panic(&self) -> bool {
+    pub fn may_propagate_panic(&self) -> bool {
         matches!(
             &self.target,
             MirCallTarget::Direct(MirCallableReference {
@@ -256,6 +256,12 @@ impl MirCall {
                 }
         ) && matches!(self.result, BoundCallResult::Immediate(_))
             && self.intrinsic.is_none()
+            && !self.phase_behaviors().is_some_and(|behavior| {
+                behavior
+                    .invocation()
+                    .execution_properties()
+                    .contains(&bray_symbols::ExecutionProperty::Total)
+            })
     }
 
     /// Creates a checked call reconstructed from a compiled dependency.

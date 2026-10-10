@@ -66,6 +66,10 @@ define_catalog_enum! {
         Allocate => "Allocate",
         /// Releases an owned raw allocation.
         Deallocate => "Deallocate",
+        /// Creates an empty raw-buffer owner from a validated element layout.
+        RawBufferAllocate => "RawBufferAllocate",
+        RawBufferPush => "RawBufferPush",
+        RawBufferPop => "RawBufferPop",
         /// Reads a raw buffer's capacity.
         RawBufferCapacity => "RawBufferCapacity",
         /// Reads a raw buffer's initialized element count.
@@ -88,8 +92,6 @@ define_catalog_enum! {
         RawBufferRelocate => "RawBufferRelocate",
         /// Initializes a byte-buffer range to one repeated byte.
         ByteBufferFill => "ByteBufferFill",
-        /// Copies an initialized byte slice into distinct writable storage.
-        ByteBufferCopy => "ByteBufferCopy",
         /// Reads one initialized byte from byte-buffer storage.
         ByteBufferRead => "ByteBufferRead",
         /// Reads the element count of a slice or fixed array.
@@ -282,6 +284,9 @@ impl ImplementationHook {
         Self::RawDeallocate,
         Self::Allocate,
         Self::Deallocate,
+        Self::RawBufferAllocate,
+        Self::RawBufferPush,
+        Self::RawBufferPop,
         Self::RawBufferCapacity,
         Self::RawBufferInitializedCount,
         Self::RawBufferPointer,
@@ -293,7 +298,6 @@ impl ImplementationHook {
         Self::RawBufferReplace,
         Self::RawBufferRelocate,
         Self::ByteBufferFill,
-        Self::ByteBufferCopy,
         Self::ByteBufferRead,
         Self::CallbackState,
         Self::TransferredValueBorrow,

@@ -2,10 +2,10 @@
 trusted module std.process;
 
 trusted internal func windows_spawn_storage(
-    pos executable: PlatformNativeText,
-    pos arguments: &[PlatformNativeText],
+    pos executable: (&[u8]),
+    pos arguments: &[(&[u8])],
     pos environment: &[PlatformEnvironmentEntry],
-    working_directory: PlatformNativeText,
+    working_directory: (&[u8]),
 ) -> Result<WindowsSpawnStorage, std.platform.PlatformStatus>
 {
     let executable_storage: std.memory.RawBuffer<u8> = try trusted internal windows_terminated_text(
@@ -32,16 +32,14 @@ trusted internal func windows_spawn_storage(
 }
 
 internal func windows_text_units(
-    pos text: PlatformNativeText,
+    pos text: (&[u8]),
     allow_empty: bool,
     allow_equals: bool,
 ) -> Result<usize, std.platform.PlatformStatus>
 {
-    let bytes: usize = std.truncate_to<usize>(text.length);
+    let bytes: usize = text.length();
 
-    if bytes as u64 != text.length || bytes % 2 != 0 || !allow_empty && bytes == 0 || bytes > 0 && std.memory.is_null<
-        u8
-    >(text.address) || bytes / 2 > 2_147_483_647
+    if bytes % 2 != 0 || !allow_empty && bytes == 0 || bytes / 2 > 2_147_483_647
     {
         return Error(internal std.platform.invalid_input_status());
     }
@@ -64,21 +62,20 @@ internal func windows_text_units(
     return Ok(units);
 }
 
-trusted internal func windows_text_unit(pos text: PlatformNativeText, pos index: usize) -> u16
+trusted internal func windows_text_unit(pos text: (&[u8]), pos index: usize) -> u16
 {
     let byte: usize = index * 2;
 
-    return trusted internal std.memory.byte_buffer_read(text.address, index = byte) as u16 |
-        trusted internal std.memory.byte_buffer_read(text.address, index = byte + 1) as u16 << 8;
+    return text[byte] as u16 | text[byte + 1] as u16 << 8;
 }
 
 trusted internal func windows_terminated_text(
-    pos text: PlatformNativeText,
+    pos text: (&[u8]),
     allow_empty: bool,
 ) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
 {
     let _: usize = try internal windows_text_units(text, allow_empty = allow_empty, allow_equals = true);
-    let bytes: usize = std.truncate_to<usize>(text.length);
+    let bytes: usize = text.length();
 
     if bytes == 0
     {
@@ -92,7 +89,9 @@ trusted internal func windows_terminated_text(
 
     let mut storage: std.memory.RawBuffer<u8> = try trusted internal windows_buffer(bytes + 2);
 
-    trusted internal std.memory.byte_buffer_copy(text.address, std.memory.pointer<u8>(&storage), count = bytes);
+    let destination: &mut [u8] = trusted std.memory.initialized_slice_mut<u8>(&mut storage);
+
+    trusted internal std.memory.copy_bytes(destination, source = text);
     return Ok(storage);
 }
 
@@ -106,10 +105,9 @@ trusted internal func windows_buffer(pos size: usize) -> Result<std.memory.RawBu
 
     if size > 0
     {
-        let destination: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer);
+        let initialized: usize = trusted internal std.memory.fill_spare_bytes(&mut buffer, value = 0, count = size);
 
-        trusted internal std.memory.byte_buffer_fill(destination, value = 0, count = size);
-        trusted std.memory.set_initialized_count<u8>(&mut buffer, count = size);
+        trusted std.memory.set_initialized_count<u8>(&mut buffer, count = initialized);
     }
 
     return Ok(buffer);

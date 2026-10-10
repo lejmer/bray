@@ -40,7 +40,9 @@ fn infer_reachable_results(
     let empty = context
         .semantic_values()
         .empty_dependency_contract_template()
-        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+        .unwrap_or_else(|error| {
+            panic!("semantic_value_binding_error in infer_reachable_results: {error:?}")
+        });
 
     let mut templates = BTreeMap::new();
     let mut units = BTreeMap::new();
@@ -183,6 +185,22 @@ fn infer_checked_result(
     let semantic = semantic_unit_context(checker.symbols(), bound);
     let request = bray_checker::CheckerUnitView::new(bound, &semantic, &checker);
 
+    let static_roots = expressions
+        .selections()
+        .entries()
+        .iter()
+        .filter_map(|entry| match entry.selection() {
+            SemanticSelection::StaticReference(selection) => {
+                Some(selection.template().declaration())
+            }
+            _ => None,
+        })
+        .map(|declaration| {
+            super::declaration_body::static_dependency_root(context, declaration)
+                .map(|root| (declaration, root))
+        })
+        .collect::<BindingQueryResult<BTreeMap<_, _>>>()?;
+
     bray_checker::infer_result_dependencies(
         request,
         expressions.types(),
@@ -190,12 +208,10 @@ fn infer_checked_result(
         patterns,
         templates,
         recursive_callees,
+        &static_roots,
     )
     .map_err(|error| match error {
         bray_checker::CheckerQueryError::Cancelled => BindingQueryError::Cancelled,
-        bray_checker::CheckerQueryError::Infrastructure(error) => {
-            BindingQueryError::CheckerInfrastructure(error)
-        }
         bray_checker::CheckerQueryError::Upstream(error) => binder_error(error),
     })
 }

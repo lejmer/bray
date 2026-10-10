@@ -66,19 +66,6 @@ pub fn predicate_conditions_with_inputs(
 
     while let Some((root, trusted)) = pending.pop() {
         match unit.view().expression(root) {
-            Some(BoundExpression::Binary(binary))
-                if binary.operator() == bray_bound_tree::BoundOperator::LogicalAnd =>
-            {
-                pending.extend(
-                    binary
-                        .operands()
-                        .iter()
-                        .rev()
-                        .map(|operand| (*operand, trusted)),
-                );
-
-                continue;
-            }
             Some(BoundExpression::Structured(structured))
                 if matches!(
                     structured.kind(),
@@ -245,6 +232,11 @@ pub(crate) fn expression_condition(
                 return ExecutionCondition::Unknown;
             };
 
+            if let Some(value) = current.get(&BoundReferenceTarget::Surface(target.member()).into())
+            {
+                return value.clone();
+            }
+
             let Some(place) = expression_place(unit, semantics, values, expression) else {
                 return ExecutionCondition::Unknown;
             };
@@ -265,6 +257,27 @@ pub(crate) fn expression_condition(
             );
 
             ExecutionCondition::field(target.member(), receiver)
+        }
+        BoundExpression::Conversion(conversion)
+            if matches!(
+                semantics.selections().expression(expression),
+                Some(SemanticSelection::Operation(SelectedOperation::Conversion(selected)))
+                    if matches!(selected.target(),
+                        bray_bound_tree::ConversionTarget::Identity
+                            | bray_bound_tree::ConversionTarget::CallableContract
+                            | bray_bound_tree::ConversionTarget::BuiltInScalar)
+            ) =>
+        {
+            expression_condition(
+                unit,
+                semantics,
+                values,
+                literals,
+                current,
+                evaluated,
+                conversion.operand(),
+                budget,
+            )
         }
         BoundExpression::Unary(_) | BoundExpression::Binary(_) => {
             let (operator, operands) = match bound {
@@ -337,46 +350,33 @@ pub(crate) fn expression_condition(
                     | bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary
             ) =>
         {
-            if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary
-                && let Some(operand) = operation.operands().first()
-            {
-                return expression_condition(
-                    unit, semantics, values, literals, current, evaluated, *operand, budget,
-                )
-                .requiring_trusted_predicates();
-            }
+            let Some(operand) = operation.operands().first() else {
+                return ExecutionCondition::Unknown;
+            };
 
-            if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::Borrow
-                && let Some(operand) = operation.operands().first()
-            {
-                let value = expression_condition(
-                    unit, semantics, values, literals, current, evaluated, *operand, budget,
-                );
+            let value = expression_condition(
+                unit, semantics, values, literals, current, evaluated, *operand, budget,
+            );
 
-                return if matches!(
-                    value,
-                    ExecutionCondition::Literal(_)
-                        | ExecutionCondition::Boolean(_)
-                        | ExecutionCondition::Unknown
-                ) {
-                    // Scalar contents and unknown contents do not identify the storage being borrowed.
+            match operation.kind() {
+                bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary => {
+                    value.requiring_trusted_predicates()
+                }
+                bray_bound_tree::BoundStructuredExpressionKind::Borrow
+                    if matches!(
+                        value,
+                        ExecutionCondition::Literal(_)
+                            | ExecutionCondition::Boolean(_)
+                            | ExecutionCondition::Unknown
+                    ) =>
+                {
+                    // Scalar and unknown contents do not identify the borrowed storage.
                     expression_place(unit, semantics, values, *operand)
                         .map(ExecutionCondition::Input)
                         .unwrap_or(ExecutionCondition::Expression(*operand))
-                } else {
-                    value
-                };
+                }
+                _ => value,
             }
-
-            operation
-                .operands()
-                .first()
-                .map(|operand| {
-                    expression_condition(
-                        unit, semantics, values, literals, current, evaluated, *operand, budget,
-                    )
-                })
-                .unwrap_or(ExecutionCondition::Unknown)
         }
         _ => ExecutionCondition::Unknown,
     }
@@ -412,6 +412,23 @@ fn selected_condition(
             return Some(expression_condition(
                 unit, semantics, values, literals, current, evaluated, *pointer, budget,
             ));
+        }
+
+        if let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target()
+            && matches!(
+                call.implementation_hook(),
+                Some(
+                    bray_compiler_known::ImplementationHook::SequenceLength
+                        | bray_compiler_known::ImplementationHook::SequenceIsEmpty
+                        | bray_compiler_known::ImplementationHook::RawPointerIsNull
+                )
+            )
+        {
+            let arguments = call_argument_conditions(
+                call, unit, semantics, values, literals, current, evaluated, budget,
+            );
+
+            return Some(ExecutionCondition::call(callable, arguments));
         }
 
         if let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target()
@@ -773,6 +790,7 @@ fn call_argument_conditions(
                 conversion.target(),
                 bray_bound_tree::ConversionTarget::Identity
                     | bray_bound_tree::ConversionTarget::CallableContract
+                    | bray_bound_tree::ConversionTarget::BuiltInScalar
             ) =>
             {
                 let condition = expression_condition(

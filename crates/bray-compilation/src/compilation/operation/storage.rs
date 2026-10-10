@@ -131,8 +131,7 @@ pub(in crate::compilation) fn selected_storage_callable(
         signature.value(),
         callable.substitution(),
         checked.value(),
-    )
-    .map_err(FactQueryError::from)?;
+    );
 
     let signature = signature
         .map(|signature| {

@@ -204,6 +204,7 @@ impl Compilation {
                 ExecutionObligation::Property(property, _) => self
                     .applicable_execution_obligation(
                         &body,
+                        callable,
                         declaration.value(),
                         property,
                         evidence,

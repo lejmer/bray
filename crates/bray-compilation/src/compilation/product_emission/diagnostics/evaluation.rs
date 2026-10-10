@@ -98,29 +98,6 @@ pub(crate) fn diagnostic_evaluation_failure(
         FactQueryError::Foreign(error) => DiagnosticEmissionEvaluationFailure::Foreign(
             super::foreign_query::diagnostic_foreign_query_failure(error),
         ),
-        FactQueryError::CheckerInfrastructure(error) => match error {
-            bray_checker::CheckerInfrastructureError::AtomicRepresentationTypeUnavailable => {
-                DiagnosticEmissionEvaluationFailure::AtomicRepresentationTypeUnavailable
-            }
-            bray_checker::CheckerInfrastructureError::AtomicRepresentationArgumentsUnavailable => {
-                DiagnosticEmissionEvaluationFailure::AtomicRepresentationArgumentsUnavailable
-            }
-            bray_checker::CheckerInfrastructureError::AtomicInitializerArgumentUnavailable => {
-                DiagnosticEmissionEvaluationFailure::AtomicInitializerArgumentUnavailable
-            }
-            bray_checker::CheckerInfrastructureError::AtomicInitializerResultUnavailable => {
-                DiagnosticEmissionEvaluationFailure::AtomicInitializerResultUnavailable
-            }
-            bray_checker::CheckerInfrastructureError::UninitInitializerResultUnavailable => {
-                DiagnosticEmissionEvaluationFailure::UninitInitializerResultUnavailable
-            }
-            bray_checker::CheckerInfrastructureError::ImportedExecutableTemplateMismatch => {
-                DiagnosticEmissionEvaluationFailure::ImportedExecutableTemplateMismatch
-            }
-            error => DiagnosticEmissionEvaluationFailure::Checker(
-                crate::fact::diagnostic_checker_failure(*error),
-            ),
-        },
     }
 }
 

@@ -6,6 +6,7 @@ mod model;
 mod normalize;
 mod place;
 mod portable;
+mod trusted_implication;
 mod unsupported;
 
 pub use bray_symbols::ExecutionProperty;
@@ -22,6 +23,7 @@ pub use model::{
 };
 pub(crate) use normalize::{condition_literals, expression_condition, expression_place};
 pub use normalize::{execution_conditions, predicate_conditions, predicate_conditions_with_inputs};
+pub(crate) use place::ExecutionInput;
 pub use place::ExecutionPlace;
 pub(crate) use place::storage_binding_reference;
 pub use unsupported::check_execution_guarantees;
@@ -31,3 +33,5 @@ pub use portable::{
 };
 
 pub use clause::ExecutionClauseId;
+
+pub(crate) use trusted_implication::trusted_condition_closure;

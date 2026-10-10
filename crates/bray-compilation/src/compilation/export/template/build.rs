@@ -26,7 +26,7 @@ pub(in crate::compilation::export) fn export_checked_source_template(
     key: BoundUnitKey,
     kind: CheckedTemplateKind,
     expression: SyntaxAnchor,
-    inputs: Vec<SourceTemplateInput>,
+    mut inputs: Vec<SourceTemplateInput>,
     dependency: bray_symbols::DependencyContractTemplateId,
 ) -> Result<InterfaceCheckedTemplate, PackageInterfaceExportError> {
     let cancellation = &compilation.state.cancellation;
@@ -42,6 +42,26 @@ pub(in crate::compilation::export) fn export_checked_source_template(
     let context = compilation
         .binding_context(cancellation)
         .map_err(super::super::fact_query_export_error)?;
+
+    let declared = compilation
+        .declared_value_type_templates_with_cancellation(key.clone(), cancellation)
+        .map_err(super::super::fact_query_export_error)?;
+
+    for input in &mut inputs {
+        let Some(BoundReferenceTarget::Surface(owner)) = input.target else {
+            continue;
+        };
+
+        let term =
+            bray_bound_tree::DeclaredValueTypeTerm::Value(BoundReferenceTarget::Surface(owner));
+
+        let evidence = declared.result().value().evidence();
+        let index = evidence.partition_point(|entry| entry.term() < term);
+
+        if let Some(entry) = evidence.get(index).filter(|entry| entry.term() == term) {
+            input.ty = export.resolve_type_template(owner, entry.template())?;
+        }
+    }
 
     let result_dependencies = crate::compilation::binder::expression_result_dependencies(
         &context,
@@ -330,13 +350,15 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             BoundExpression::Conversion(conversion) => {
                 let value = self.expression(conversion.operand())?;
 
+                let Some(SemanticSelection::Operation(SelectedOperation::Conversion(selected))) =
+                    self.selections.expression(expression_id)
+                else {
+                    return Err(incomplete("missing_conversion_selection"));
+                };
+
                 Ok(InterfaceCheckedTemplateOperation::Convert {
                     value,
-                    target: self.export.type_id(
-                        conversion
-                            .target_type()
-                            .ok_or_else(|| incomplete("missing_conversion_target_type"))?,
-                    )?,
+                    target: self.export.type_id(selected.target_type())?,
                 })
             }
             BoundExpression::Structured(expression) => match expression.kind() {

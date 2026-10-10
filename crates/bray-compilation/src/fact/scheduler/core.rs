@@ -829,48 +829,57 @@ mod tests {
 
         let second_receiver = Mutex::new(second_receiver);
 
-        let results =
-            scheduler
-                .run(QueryPriority::Normal, || {
-                    let parent = std::thread::current().id();
+        let results = scheduler
+            .run(QueryPriority::Normal, || {
+                let parent = std::thread::current().id();
 
-                    scheduler.map_indexed(QueryPriority::Normal, 2, |_| {
-                        if std::thread::current().id() == parent {
-                            started_receiver
-                                .lock()
-                                .unwrap()
-                                .recv_timeout(Duration::from_secs(5))
-                                .unwrap();
+                scheduler.map_indexed(QueryPriority::Normal, 2, |_| {
+                    if std::thread::current().id() == parent {
+                        started_receiver
+                            .lock()
+                            .unwrap()
+                            .recv_timeout(Duration::from_secs(5))
+                            .unwrap();
 
-                            return Vec::new();
-                        }
-
-                        started_sender.send(()).unwrap();
-
-                        scheduler.map_indexed(QueryPriority::Normal, 3, |index| {
-                    match index {
-                        0 => {
-                            let deadline = std::time::Instant::now() + Duration::from_secs(5);
-
-                            while scheduler.slots.state().unwrap().active != 1 {
-                                assert!(std::time::Instant::now() < deadline);
-                                std::thread::yield_now();
-                            }
-                        }
-                        1 => {
-                            second_receiver.lock().unwrap().recv_timeout(Duration::from_secs(5))
-                                .expect("waiting parent must release its slot to the children");
-                        }
-                        2 => second_sender.send(()).unwrap(),
-                        _ => unreachable!(),
+                        return Vec::new();
                     }
 
-                    index
-                }).unwrap()
-                    })
+                    scheduler
+                        .map_indexed(QueryPriority::Normal, 3, |index| {
+                            match index {
+                                0 => {
+                                    // Keep the parent's slot held until the child starts serially.
+                                    // Otherwise nested work may already reuse that slot.
+                                    started_sender.send(()).unwrap();
+
+                                    let deadline =
+                                        std::time::Instant::now() + Duration::from_secs(5);
+
+                                    while scheduler.slots.state().unwrap().active != 1 {
+                                        assert!(std::time::Instant::now() < deadline);
+                                        std::thread::yield_now();
+                                    }
+                                }
+                                1 => {
+                                    second_receiver
+                                        .lock()
+                                        .unwrap()
+                                        .recv_timeout(Duration::from_secs(5))
+                                        .expect(
+                                            "waiting parent must release its slot to the children",
+                                        );
+                                }
+                                2 => second_sender.send(()).unwrap(),
+                                _ => unreachable!(),
+                            }
+
+                            index
+                        })
+                        .unwrap()
                 })
-                .unwrap()
-                .unwrap();
+            })
+            .unwrap()
+            .unwrap();
 
         assert_eq!(
             results.into_iter().flatten().collect::<Vec<_>>(),

@@ -1,4 +1,4 @@
-use crate::{CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext};
+use crate::{CheckerQueryError, CheckerRequestContext};
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundStructuredExpressionKind,
 };
@@ -10,6 +10,11 @@ use std::collections::BTreeSet;
 
 use super::core::{ResultInference, extend};
 use crate::dependency::projection::{binding_projection, pattern_projection};
+
+// Unknown indexes retain the owning aggregate, as in assignment inference. Keep that
+// boundary until publishing the portable subject so later payload projections cannot
+// be mistaken for projections directly from the aggregate.
+pub(super) type SourcePath = (DependencySubject, bool);
 
 impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
     pub(super) fn borrows_evaluation_storage(&self, mut expression: BoundExpressionId) -> bool {
@@ -38,9 +43,18 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
     pub(super) fn reborrowed_receiver(
         &self,
         mut expression: BoundExpressionId,
-    ) -> Result<Option<BoundExpressionId>, CheckerInfrastructureError> {
+    ) -> Option<BoundExpressionId> {
         loop {
             let receiver = match self.request.view().expression(expression) {
+                Some(BoundExpression::Name(name)) => match name.target() {
+                    BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(binding)) => {
+                        self.borrowed_bindings.get(&binding).copied()
+                    }
+                    _ => None,
+                },
+                Some(BoundExpression::PatternReference(reference)) => {
+                    self.borrowed_bindings.get(&reference.binding()).copied()
+                }
                 Some(BoundExpression::MemberAccess(member)) => Some(member.receiver()),
                 Some(BoundExpression::TraitQualifiedMember(member)) => Some(member.receiver()),
                 Some(BoundExpression::Structured(value))
@@ -57,19 +71,18 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
             };
 
             let Some(receiver) = receiver else {
-                return Ok(None);
+                return None;
             };
 
-            let ty = self
-                .types
-                .expression(receiver)
-                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            let ty = self.types.expression(receiver).unwrap_or_else(|| {
+                panic!("checked scoped receiver {receiver:?} must retain its expression type")
+            });
 
             let ty = self.request.semantic_values().type_data(ty.ty());
 
             if matches!(ty.as_ref(), bray_symbols::TypeData::Borrow { .. }) {
                 // Reborrowing a reached value retains the existing borrow, not the slot storing it.
-                return Ok(Some(receiver));
+                return Some(receiver);
             }
 
             expression = receiver;
@@ -94,24 +107,21 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         &mut self,
         root: bray_bound_tree::BoundPatternId,
         expression: Option<BoundExpressionId>,
-        sources: BTreeSet<DependencySubject>,
+        sources: BTreeSet<SourcePath>,
         values: BTreeSet<DependencyRequirement>,
     ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
         let mut changed = false;
         let mut pending = vec![(root, sources, Vec::new())];
 
         while let Some((id, mut sources, mut path)) = pending.pop() {
-            let pattern = self
-                .request
-                .unit()
-                .tree()
-                .pattern(id)
-                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            let pattern = self.request.unit().tree().pattern(id).unwrap_or_else(|| {
+                panic!("bound pattern {id:?} must exist for its checked binding")
+            });
 
             let checked = self
                 .patterns
                 .pattern(id)
-                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+                .unwrap_or_else(|| panic!("bound pattern {id:?} must retain its checked pattern"));
 
             if let Some(projection) = checked.projection().and_then(pattern_projection) {
                 sources = project_subjects(&sources, projection);
@@ -119,10 +129,42 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
             }
 
             for binding in checked.bindings(pattern) {
-                let binding_type = self
-                    .patterns
-                    .binding_type(binding)
-                    .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+                let binding_type = self.patterns.binding_type(binding).unwrap_or_else(|| {
+                    panic!(
+                        "checked binding {binding:?} must retain its type and ownership operation"
+                    )
+                });
+
+                let observes = matches!(
+                    binding_type.operation(),
+                    bray_bound_tree::PatternOperation::Observe
+                        | bray_bound_tree::PatternOperation::SharedBorrow
+                        | bray_bound_tree::PatternOperation::MutableBorrow
+                );
+
+                if observes && let Some(expression) = expression {
+                    let ty = self.types.expression(expression).unwrap_or_else(|| {
+                        panic!(
+                            "checked scoped receiver {expression:?} must retain its expression type"
+                        )
+                    });
+
+                    let receiver = if matches!(
+                        self.request.semantic_values().type_data(ty.ty()).as_ref(),
+                        bray_symbols::TypeData::Borrow { .. }
+                    ) {
+                        Some(expression)
+                    } else {
+                        self.reborrowed_receiver(expression)
+                    };
+
+                    if let Some(receiver) = receiver {
+                        // An observed payload reborrows the reached input, not the local slot
+                        // storing the intermediate slice or nullable pattern binding.
+                        changed |=
+                            self.borrowed_bindings.insert(binding, receiver) != Some(receiver);
+                    }
+                }
 
                 let projection =
                     binding_projection(pattern, binding_type).and_then(pattern_projection);
@@ -141,14 +183,16 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                     None => sources.clone(),
                 };
 
-                changed |= extend(
-                    self.local_sources.entry(binding).or_default(),
-                    binding_sources.iter().cloned(),
-                );
+                if observes {
+                    changed |= extend(
+                        self.local_sources.entry(binding).or_default(),
+                        binding_sources.iter().cloned(),
+                    );
+                }
 
                 let requirements = binding_sources.into_iter().map(|subject| {
                     DependencyRequirement::direct(
-                        subject,
+                        source_subject(&subject, []),
                         DependencyRequirementKind::ValueDependencies,
                     )
                 });
@@ -175,7 +219,20 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         &self,
         id: BoundExpressionId,
         expression: &BoundExpression,
-    ) -> BTreeSet<DependencySubject> {
+    ) -> BTreeSet<SourcePath> {
+        if let Some(bray_bound_tree::SemanticSelection::StaticReference(selection)) =
+            self.selections.expression(id)
+        {
+            let declaration = selection.template().declaration();
+
+            let root = *self
+                .static_roots
+                .get(&declaration)
+                .expect("selected static reference must retain its established storage duration");
+
+            return BTreeSet::from([(DependencySubject::root(root), true)]);
+        }
+
         match expression {
             BoundExpression::Name(name) => match name.target() {
                 BoundReferenceTarget::Surface(AnySymbolId::CallableParameter(parameter)) => self
@@ -183,14 +240,20 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                     .symbols()
                     .callable_parameter(parameter)
                     .map(|parameter| {
-                        DependencySubject::root(DependencySubjectRoot::Parameter(
-                            SymbolOrdinal::new(parameter.ordinal()),
-                        ))
+                        (
+                            DependencySubject::root(DependencySubjectRoot::Parameter(
+                                SymbolOrdinal::new(parameter.ordinal()),
+                            )),
+                            true,
+                        )
                     })
                     .into_iter()
                     .collect(),
                 BoundReferenceTarget::Surface(AnySymbolId::ReceiverParameter(_)) => {
-                    BTreeSet::from([DependencySubject::root(DependencySubjectRoot::Receiver)])
+                    BTreeSet::from([(
+                        DependencySubject::root(DependencySubjectRoot::Receiver),
+                        true,
+                    )])
                 }
                 BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(binding)) => self
                     .local_sources
@@ -216,7 +279,12 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                         .into_iter()
                         .flatten()
                         .filter_map(requirement_subject)
-                        .cloned()
+                        .map(|subject| {
+                            source_path(
+                                subject.subject_root(),
+                                subject.projections().iter().copied().map(Some),
+                            )
+                        })
                         .collect()
                 } else {
                     BTreeSet::new()
@@ -233,10 +301,20 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                 self.project_sources(member.receiver(), id)
             }
             BoundExpression::Structured(value)
+                if value.kind() == BoundStructuredExpressionKind::ElementIndex =>
+            {
+                value
+                    .operands()
+                    .first()
+                    .into_iter()
+                    .flat_map(|operand| self.sources.get(operand).into_iter().flatten())
+                    .map(|source| project_source(source, [None]))
+                    .collect()
+            }
+            BoundExpression::Structured(value)
                 if matches!(
                     value.kind(),
                     BoundStructuredExpressionKind::Borrow
-                        | BoundStructuredExpressionKind::ElementIndex
                         | BoundStructuredExpressionKind::SliceIndex
                         | BoundStructuredExpressionKind::NullablePropagation
                 ) =>
@@ -256,7 +334,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         &self,
         receiver: BoundExpressionId,
         expression: BoundExpressionId,
-    ) -> BTreeSet<DependencySubject> {
+    ) -> BTreeSet<SourcePath> {
         let projection = crate::dependency::assignment::member_projection(
             self.request.unit(),
             self.selections,
@@ -275,7 +353,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                     .into_iter()
                     .flatten()
                     .filter_map(requirement_subject)
-                    .cloned()
+                    .map(|subject| (subject.clone(), true))
                     .collect();
             }
         }
@@ -284,12 +362,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
             .get(&receiver)
             .into_iter()
             .flatten()
-            .map(|source| {
-                normalized_subject(
-                    source.subject_root(),
-                    source.projections().iter().copied().chain(projection),
-                )
-            })
+            .map(|source| project_source(source, projection.map(Some)))
             .collect()
     }
 
@@ -330,10 +403,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
 
             requirements.extend(sources.into_iter().flatten().map(|source| {
                 DependencyRequirement::direct(
-                    normalized_subject(
-                        source.subject_root(),
-                        source.projections().iter().chain(path).copied(),
-                    ),
+                    source_subject(source, path.iter().copied()),
                     DependencyRequirementKind::ValueDependencies,
                 )
             }));
@@ -354,27 +424,62 @@ fn requirement_subject(requirement: &DependencyRequirement) -> Option<&Dependenc
 }
 
 fn project_subjects(
-    sources: &BTreeSet<DependencySubject>,
+    sources: &BTreeSet<SourcePath>,
     projection: DependencyProjection,
-) -> BTreeSet<DependencySubject> {
+) -> BTreeSet<SourcePath> {
     sources
         .iter()
-        .map(|source| {
-            normalized_subject(
-                source.subject_root(),
-                source.projections().iter().copied().chain([projection]),
-            )
-        })
+        .map(|source| project_source(source, [Some(projection)]))
         .collect()
+}
+
+pub(super) fn source_subject(
+    source: &SourcePath,
+    projections: impl IntoIterator<Item = DependencyProjection>,
+) -> DependencySubject {
+    project_source(source, projections.into_iter().map(Some)).0
+}
+
+fn project_source(
+    source: &SourcePath,
+    projections: impl IntoIterator<Item = Option<DependencyProjection>>,
+) -> SourcePath {
+    if !source.1 {
+        return source.clone();
+    }
+
+    source_path(
+        source.0.subject_root(),
+        source
+            .0
+            .projections()
+            .iter()
+            .copied()
+            .map(Some)
+            .chain(projections),
+    )
 }
 
 pub(in crate::dependency) fn normalized_subject(
     root: bray_symbols::DependencySubjectRoot,
     projections: impl IntoIterator<Item = DependencyProjection>,
 ) -> DependencySubject {
+    source_path(root, projections.into_iter().map(Some)).0
+}
+
+fn source_path(
+    root: DependencySubjectRoot,
+    projections: impl IntoIterator<Item = Option<DependencyProjection>>,
+) -> SourcePath {
     let mut path = Vec::new();
+    let mut exact = true;
 
     for projection in projections {
+        let Some(projection) = projection else {
+            exact = false;
+            break;
+        };
+
         // A recursive field traversal retains the first repeated field's complete value contract.
         // This includes its nested dependencies and gives inference a finite set of storage paths.
         if matches!(
@@ -383,11 +488,12 @@ pub(in crate::dependency) fn normalized_subject(
         ) && let Some(index) = path.iter().position(|existing| *existing == projection)
         {
             path.truncate(index + 1);
+            exact = false;
             break;
         }
 
         path.push(projection);
     }
 
-    DependencySubject::new(root, path)
+    (DependencySubject::new(root, path), exact)
 }

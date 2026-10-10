@@ -57,10 +57,11 @@ Uniform [cleanup capacity](../async-and-concurrency/async-representation-and-sto
 discharge contribute their actual effects. A current-value completion proof can omit a finalizer invocation without
 making the owner's construction or disposal pure. Ordinary moves transfer the existing allowance without new admission.
 
-Forming a pointer to protected storage with `uninit_pointer` or `uninit_pointer_mut`, and deriving an anchored
-borrow with `borrow_from` or `borrow_mut_from`, are pure and total on their valid input domains. The pointer and
-borrow retain the source storage and capability dependencies. Exposing or comparing numerical addresses remains
-an address observation.
+Forming a pointer to supplied storage with `address_of`, `address_of_mut`, `uninit_pointer`, or
+`uninit_pointer_mut`, and deriving an anchored borrow with `borrow_from` or `borrow_mut_from`, are pure and total on their valid input domains. Trusted guarantees
+on the pointer remain valid only while their source storage and capability conditions remain valid. The raw address
+does not extend the source lifetime or create ordinary borrow protection. An anchored borrow retains the source
+storage and capability dependencies. Exposing or comparing numerical addresses remains an address observation.
 
 ## Total execution
 

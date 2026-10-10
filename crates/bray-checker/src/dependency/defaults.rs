@@ -1,6 +1,4 @@
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{SelectedArgument, SelectedCall};
 use bray_symbols::{
     DependencyContractTemplateData, DependencyRequirement, DependencyRequirementKind,
@@ -126,8 +124,7 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
         let template = match call.target() {
             bray_bound_tree::BoundCallableTarget::Declaration(instance) => request
                 .semantic_values()
-                .substitute_dependency_contract(template, instance.substitution())
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?,
+                .substitute_dependency_contract(template, instance.substitution()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in expand_result_defaults: {error:?}")),
             _ => template,
         };
 
@@ -217,20 +214,21 @@ fn default_borrows_argument_storage<C: CheckerRequestContext + ?Sized>(
                     match call.target() {
                         bray_bound_tree::BoundCallableTarget::Declaration(instance) => request
                             .semantic_values()
-                            .substitute_type(ty, instance.substitution())
-                            .map_err(CheckerInfrastructureError::SemanticValueStore)?,
+                            .substitute_type(ty, instance.substitution()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in default_borrows_argument_storage: {error:?}")),
                         _ => ty,
                     }
                 }
                 None => {
-                    return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                    panic!(
+                        "Semantic-selection inputs do not describe the requested bound unit or operation category. in default_borrows_argument_storage"
+                    );
                 }
             }
         }
         DependencySubjectRoot::Receiver => {
-            let receiver = call
-                .receiver()
-                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            let receiver = call.receiver().unwrap_or_else(|| {
+                panic!("default_borrows_argument_storage requires borrowed result receiver")
+            });
 
             if !matches!(
                 receiver.mode(),
@@ -274,27 +272,20 @@ pub(super) fn escaping_evaluation_diagnostic<C: CheckerRequestContext + ?Sized>(
     call: &SelectedCall,
     root: DependencySubjectRoot,
     id: bray_diagnostics::DiagnosticId,
-) -> Result<bray_diagnostics::Diagnostic, CheckerInfrastructureError> {
-    let origin = crate::diagnostic::bound_node_origin(request, expression.into())
-        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+) -> bray_diagnostics::Diagnostic {
+    let origin = crate::diagnostic::bound_node_origin(request, expression.into()).unwrap_or_else(|| panic!("escaping_evaluation_diagnostic requires bound node source origin, expression: {expression:?}, id: {id:?}"));
 
-    let source = request.source(origin.source_anchor())?;
+    let source = request.source(origin.source_anchor());
 
     let argument = super::result_argument(call, root)
         .or_else(|| match request.view().expression(expression) {
             Some(bray_bound_tree::BoundExpression::Call(call)) => Some(call.callee()),
             _ => None,
-        })
-        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+        }).unwrap_or_else(|| panic!("escaping_evaluation_diagnostic requires checked expression type or node, expression: {expression:?}, id: {id:?}"));
 
-    let argument = crate::diagnostic::bound_node_origin(request, argument.into())
-        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+    let argument = crate::diagnostic::bound_node_origin(request, argument.into()).unwrap_or_else(|| panic!("escaping_evaluation_diagnostic requires bound node source origin, expression: {expression:?}, id: {id:?}"));
 
-    let argument = request.source(argument.source_anchor())?;
+    let argument = request.source(argument.source_anchor());
 
-    Ok(crate::diagnostic::escaping_storage_dependency_diagnostic(
-        id,
-        source.span(),
-        argument.span(),
-    ))
+    crate::diagnostic::escaping_storage_dependency_diagnostic(id, source.span(), argument.span())
 }

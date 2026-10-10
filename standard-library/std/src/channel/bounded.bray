@@ -73,13 +73,19 @@ func bounded<T>(capacity: usize) -> Result<(Sender<T>, Receiver<T>), ChannelErro
 
     let sender: Sender<T> =
     {
-        core = pointer,
+        owner =
+        {
+            core = pointer
+        },
         active = true,
     };
 
     let receiver: Receiver<T> =
     {
-        core = pointer,
+        owner =
+        {
+            core = pointer
+        },
         active = true,
     };
 

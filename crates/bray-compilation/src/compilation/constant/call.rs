@@ -3,11 +3,11 @@ use std::sync::Arc;
 use bray_binder::SymbolQueryProvider;
 use bray_binder::semantic_unit_context;
 use bray_checker::{
-    CheckerInfrastructureError, CheckerRequestContext, ConstantCallRequest, ConstantCallResolution,
-    ConstantCallResolver, ConstantChecker, ConstantEvaluationInput, ConstantEvaluationUsage,
-    ConstantEvaluator, ConstantReferenceResolution, ConstantTemplateResolver,
-    DefaultConstantChecker, DefaultConstantEvaluator, EvaluatedConstantCall,
-    evaluate_constant_callable_template, resolve_callable_signature_template,
+    CheckerRequestContext, ConstantCallRequest, ConstantCallResolution, ConstantCallResolver,
+    ConstantChecker, ConstantEvaluationInput, ConstantEvaluationUsage, ConstantEvaluator,
+    ConstantReferenceResolution, ConstantTemplateResolver, DefaultConstantChecker,
+    DefaultConstantEvaluator, EvaluatedConstantCall, evaluate_constant_callable_template,
+    resolve_callable_signature_template,
 };
 use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -35,6 +35,7 @@ type CheckerQueryResult<T> = bray_checker::CheckerQueryResult<T, FactQueryError>
 pub(in crate::compilation) struct CompilationConstantCallResolver<'compilation> {
     compilation: &'compilation Compilation,
     cancellation: &'compilation CancellationToken,
+    substitution: Option<bray_symbols::GenericSubstitutionId>,
 }
 
 impl<'compilation> CompilationConstantCallResolver<'compilation> {
@@ -45,7 +46,16 @@ impl<'compilation> CompilationConstantCallResolver<'compilation> {
         Self {
             compilation,
             cancellation,
+            substitution: None,
         }
+    }
+    pub(in crate::compilation) const fn with_substitution(
+        mut self,
+        substitution: bray_symbols::GenericSubstitutionId,
+    ) -> Self {
+        self.substitution = Some(substitution);
+
+        self
     }
 }
 
@@ -62,6 +72,42 @@ impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
     }
 
     fn resolve(&self, request: &ConstantCallRequest) -> CheckerQueryResult<ConstantCallResolution> {
+        let substituted;
+
+        let request = if let Some(substitution) = self.substitution {
+            let values = self
+                .compilation
+                .semantic_value_store()
+                .map_err(checker_call_query_error)?;
+
+            let callable = values
+                .intern_callable_instance(request.callable())
+                .and_then(|callable| values.substitute_callable_instance(callable, substitution))
+                .map_err(|error| {
+                    checker_call_query_error(FactQueryError::SemanticValueStore(error))
+                })?;
+
+            let witness = request
+                .selected_implementation()
+                .map(|witness| values.substitute_implementation_instance(witness, substitution))
+                .transpose()
+                .map_err(|error| {
+                    checker_call_query_error(FactQueryError::SemanticValueStore(error))
+                })?;
+
+            substituted = ConstantCallRequest::new(
+                *values.callable_instance_data(callable),
+                witness,
+                request.arguments().iter().copied(),
+                request.result_type(),
+                request.limits(),
+            );
+
+            &substituted
+        } else {
+            request
+        };
+
         match self
             .compilation
             .constant_call_with_cancellation(request, self.cancellation)
@@ -169,10 +215,7 @@ impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
             .calls
             .compilation
             .static_initializer_key(declaration)
-            .map_err(checker_call_query_error)?
-            .ok_or(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::InvalidConstantEvaluationInput,
-            ))?;
+            .map_err(checker_call_query_error)?.unwrap_or_else(|| panic!("resolve_static requires retained checked input: self .calls .compilation .static_initializer_key(declaration) .map_err(checker_call_query_error)?, declaration: {declaration:?}, substitution: {substitution:?}"));
 
         let (selection, diagnostics) = self
             .calls
@@ -187,9 +230,9 @@ impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
             .map_err(checker_call_query_error)?;
 
         if selection.closed_instance().is_none() {
-            return Err(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::InvalidConstantEvaluationInput,
-            ));
+            panic!(
+                "Constant-evaluation inputs do not describe the requested bound unit. in resolve_static"
+            );
         }
 
         Ok(DiagnosticResult::new(selection, diagnostics))
@@ -241,7 +284,8 @@ impl Compilation {
             arguments,
         )?;
 
-        let resolver = CompilationConstantCallResolver::new(self, cancellation);
+        let resolver = CompilationConstantCallResolver::new(self, cancellation)
+            .with_substitution(callable.substitution());
 
         let input = ConstantEvaluationInput::new(&types, semantics.result().value().selections())
             .with_block_root(root, result_type)
@@ -351,7 +395,6 @@ impl Compilation {
             callable.substitution(),
             checked_terms.value(),
         )
-        .map_err(FactQueryError::from)?
         .ok_or_else(|| {
             SemanticQueryFailure::contract(
                 SemanticQueryContext::Symbol(callable.definition().callable_symbol().into_any()),
@@ -529,7 +572,8 @@ impl Compilation {
             cancellation,
         )?;
 
-        let resolver = CompilationConstantCallResolver::new(self, cancellation);
+        let resolver = CompilationConstantCallResolver::new(self, cancellation)
+            .with_substitution(callable.substitution());
 
         let input = ConstantEvaluationInput::new(&types, semantics.result().value().selections())
             .with_block_root(root, key.result_type())

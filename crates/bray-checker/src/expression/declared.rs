@@ -329,10 +329,7 @@ where
         return Ok(conversion.target_type());
     }
 
-    intrinsic_representation_role(expression)
-        .map(|role| representation_type(request, role))
-        .transpose()
-        .map_err(CheckerQueryError::Infrastructure)
+    Ok(intrinsic_representation_role(expression).map(|role| representation_type(request, role)))
 }
 
 fn is_contextual_numeric_literal<C>(

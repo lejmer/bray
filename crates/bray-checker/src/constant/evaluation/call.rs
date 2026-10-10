@@ -9,8 +9,7 @@ use bray_symbols::{
 use crate::constant::diagnostic::{ConstantDiagnostic, ConstantLimitKind};
 
 use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, ConstantCallRequest,
-    ConstantCallResolution,
+    CheckerQueryError, CheckerRequestContext, ConstantCallRequest, ConstantCallResolution,
 };
 
 use super::engine::Evaluator;
@@ -171,10 +170,12 @@ where
         let data = self.request.semantic_values().constant_value_data(value);
 
         if data.ty() != ty {
-            return Err(EvaluationFailure::invalid_input());
+            panic!(
+                "selected conversion at {expression:?} must produce type {ty:?}, actual: {data:?}"
+            );
         }
 
-        self.intern_term(ConstantTermData::Value(value))
+        Ok(self.intern_term(ConstantTermData::Value(value)))
     }
 
     pub(super) fn evaluate_call(
@@ -233,9 +234,6 @@ where
                 Ok(true) => {}
                 Ok(false) => return Err(EvaluationFailure::invalid_expression(expression)),
                 Err(CheckerQueryError::Cancelled) => return Err(EvaluationFailure::Cancelled),
-                Err(CheckerQueryError::Infrastructure(error)) => {
-                    return Err(EvaluationFailure::Infrastructure(error));
-                }
                 Err(CheckerQueryError::Upstream(error)) => {
                     self.upstream_failure = Some(error);
 
@@ -246,12 +244,7 @@ where
             let callable = self
                 .request
                 .semantic_values()
-                .intern_callable_instance(callable)
-                .map_err(|error| {
-                    EvaluationFailure::Infrastructure(
-                        CheckerInfrastructureError::SemanticValueStore(error),
-                    )
-                })?;
+                .intern_callable_instance(callable).unwrap_or_else(|error| panic!("evaluate_call_terms must satisfy its checked construction contract: {error:?}"));
 
             return self.intern_typed_term(
                 result_type,
@@ -273,7 +266,7 @@ where
             result_type,
         )?;
 
-        self.intern_term(ConstantTermData::Value(value))
+        Ok(self.intern_term(ConstantTermData::Value(value)))
     }
 
     fn merge_call_diagnostics(
@@ -285,8 +278,7 @@ where
             .iter()
             .any(|diagnostic| diagnostic.primary_span().is_none())
         {
-            let span = crate::diagnostic::expression_span(self.request, expression)
-                .map_err(EvaluationFailure::Infrastructure)?;
+            let span = crate::diagnostic::expression_span(self.request, expression);
 
             let anchored = diagnostics
                 .iter()
@@ -350,7 +342,9 @@ where
                 let value_data = self.request.semantic_values().constant_value_data(value);
 
                 if value_data.ty() != result_type {
-                    return Err(EvaluationFailure::invalid_input());
+                    panic!(
+                        "constant call at {expression:?} must produce type {result_type:?}, actual: {value_data:?}"
+                    );
                 }
 
                 self.merge_call_diagnostics(expression, result.diagnostics())?;
@@ -365,17 +359,12 @@ where
                 if diagnostics.has_errors() {
                     self.merge_call_diagnostics(expression, &diagnostics)?;
 
-                    return self
-                        .recovery_value(result_type)
-                        .map_err(EvaluationFailure::Infrastructure);
+                    return Ok(self.recovery_value(result_type));
                 }
 
                 Err(EvaluationFailure::invalid_expression(expression))
             }
             Err(CheckerQueryError::Cancelled) => Err(EvaluationFailure::Cancelled),
-            Err(CheckerQueryError::Infrastructure(error)) => {
-                Err(EvaluationFailure::Infrastructure(error))
-            }
             Err(CheckerQueryError::Upstream(error)) => {
                 self.upstream_failure = Some(error);
 

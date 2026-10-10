@@ -29,6 +29,8 @@ pub enum ExecutionCondition {
         bray_bound_tree::BoundExpressionId,
         bray_bound_tree::BoundReferenceTarget,
     ),
+    /// The current value of storage where control-flow predecessors meet.
+    Joined(bray_bound_tree::BoundUnitId, u32, super::ExecutionPlace),
     /// A selected built-in operation on other known values.
     Operation(BoundOperator, Arc<[ExecutionCondition]>),
     /// A checked predicate application, compared by declaration and selected arguments.
@@ -37,13 +39,16 @@ pub enum ExecutionCondition {
         bray_symbols::GenericSubstitutionId,
         Arc<[ExecutionCondition]>,
     ),
-    /// A checked constant callable application with stable declaration and argument identity.
+    /// A checked deterministic callable application with stable declaration and argument identity.
     Call(
         bray_symbols::CallableInstanceData,
         Arc<[ExecutionCondition]>,
     ),
-    /// One field of an observed immutable value.
-    Field(bray_symbols::AnySymbolId, Arc<ExecutionCondition>),
+    /// One component of an observed immutable value.
+    Projection(
+        bray_symbols::ConstantProjectionKind,
+        Arc<ExecutionCondition>,
+    ),
     /// A predicate occurrence that must be established by trusted evidence.
     Trusted(Arc<ExecutionCondition>),
     /// The contents reached through a borrowed predicate argument, rather than an immutable value snapshot.
@@ -70,43 +75,13 @@ impl ExecutionCondition {
             return Some(value);
         }
 
-        let mut known = trusted.clone();
-
-        for _ in 0..Self::WORK_LIMIT {
-            let mut established = Vec::new();
-
-            for (condition, holds) in known.iter().take(Self::WORK_LIMIT) {
-                if *holds
-                    && let Self::Operation(BoundOperator::LogicalOr, operands) = condition
-                    && let [left, right] = operands.as_ref()
-                {
-                    if left.prove_mixed(&known, ordinary, &mut { Self::WORK_LIMIT }) == Some(false)
-                    {
-                        established.push(right.clone());
-                    }
-
-                    if right.prove_mixed(&known, ordinary, &mut { Self::WORK_LIMIT }) == Some(false)
-                    {
-                        established.push(left.clone());
-                    }
-                }
-            }
-
-            let before = known.len();
-
-            for condition in established {
-                condition.assume(true, &mut known);
-            }
-
-            if known.len() == before {
-                break;
-            }
-        }
+        let known =
+            super::trusted_implication::trusted_condition_closure(trusted.clone(), ordinary);
 
         self.prove_mixed(&known, ordinary, &mut { Self::WORK_LIMIT })
     }
 
-    fn prove_mixed(
+    pub(crate) fn prove_mixed(
         &self,
         trusted: &BTreeSet<(Self, bool)>,
         ordinary: &BTreeSet<(Self, bool)>,
@@ -114,8 +89,24 @@ impl ExecutionCondition {
     ) -> Option<bool> {
         *budget = budget.checked_sub(1)?;
 
-        if let Some(value) = self.prove(trusted, &mut { Self::WORK_LIMIT }) {
-            return Some(value);
+        if matches!(self, Self::Unknown) {
+            return None;
+        }
+
+        if let Self::Boolean(value) = self {
+            return Some(*value);
+        }
+
+        if let Self::Entry { condition, .. } = self {
+            return condition.prove_mixed(trusted, ordinary, budget);
+        }
+
+        // Test exact evidence once per Boolean node. Recursively proving its entire
+        // subtree at each level makes a chain of clauses require quadratic work.
+        for value in [true, false] {
+            if trusted.contains(&(self.clone(), value)) {
+                return Some(value);
+            }
         }
 
         match self {
@@ -152,8 +143,8 @@ impl ExecutionCondition {
                 }
             }
             _ => self
-                .prove(trusted, &mut { Self::WORK_LIMIT })
-                .or_else(|| self.prove(ordinary, &mut { Self::WORK_LIMIT })),
+                .prove(trusted, budget)
+                .or_else(|| self.prove(ordinary, budget)),
         }
     }
 
@@ -168,7 +159,7 @@ impl ExecutionCondition {
                 Self::Operation(_, operands)
                 | Self::Predicate(_, _, operands)
                 | Self::Call(_, operands) => pending.extend(operands.iter()),
-                Self::Field(_, value)
+                Self::Projection(_, value)
                 | Self::Trusted(value)
                 | Self::Borrowed(value)
                 | Self::Entry {
@@ -226,8 +217,8 @@ impl ExecutionCondition {
                 condition: Arc::new(condition.substitute(input, result, budget)),
                 captured: false,
             },
-            Self::Field(field, value) => {
-                Self::field(*field, value.substitute(input, result, budget))
+            Self::Projection(field, value) => {
+                value.substitute(input, result, budget).component(*field)
             }
             Self::Constructed(expression, fields) => Self::Constructed(
                 *expression,
@@ -266,7 +257,7 @@ impl ExecutionCondition {
                 Self::Operation(_, operands)
                 | Self::Predicate(_, _, operands)
                 | Self::Call(_, operands) => pending.extend(operands.iter()),
-                Self::Field(_, value)
+                Self::Projection(_, value)
                 | Self::Trusted(value)
                 | Self::Borrowed(value)
                 | Self::Entry {
@@ -279,58 +270,61 @@ impl ExecutionCondition {
         false
     }
 
-    pub(crate) fn contains_value(&self, value: &Self) -> bool {
+    pub(crate) fn owned_values(&self) -> impl Iterator<Item = &Self> {
         let mut pending = vec![self];
 
-        while let Some(condition) = pending.pop() {
-            if condition == value {
-                return true;
-            }
+        std::iter::from_fn(move || {
+            let condition = pending.pop()?;
 
             if let Self::Constructed(_, fields) = condition {
                 pending.extend(fields.iter().map(|(_, value)| value));
             }
-        }
 
-        false
+            Some(condition)
+        })
     }
 
-    pub(crate) fn observes(&self, value: &Self) -> bool {
+    pub(crate) fn observations(&self) -> impl Iterator<Item = &Self> {
         let mut pending = vec![self];
 
-        while let Some(condition) = pending.pop() {
-            if condition == value {
-                return true;
-            }
+        std::iter::from_fn(move || {
+            let condition = pending.pop()?;
 
-            match (condition, value) {
-                (Self::Input(observed), Self::Input(changed)) if observed.overlaps(changed) => {
-                    return true;
+            match condition {
+                Self::Operation(_, operands)
+                | Self::Predicate(_, _, operands)
+                | Self::Call(_, operands) => {
+                    pending.extend(operands.iter());
                 }
-                (
-                    Self::Operation(_, operands)
-                    | Self::Predicate(_, _, operands)
-                    | Self::Call(_, operands),
-                    _,
-                ) => pending.extend(operands.iter()),
-                (Self::Field(_, subject) | Self::Trusted(subject) | Self::Borrowed(subject), _) => {
-                    pending.push(subject)
+                Self::Projection(_, subject) | Self::Trusted(subject) | Self::Borrowed(subject) => {
+                    pending.push(subject);
                 }
-                (
-                    Self::Entry {
-                        condition,
-                        captured: false,
-                    },
-                    _,
-                ) => pending.push(condition),
-                (Self::Constructed(_, fields), _) => {
-                    pending.extend(fields.iter().map(|(_, value)| value))
+                Self::Entry {
+                    condition,
+                    captured: false,
+                } => pending.push(condition),
+                Self::Constructed(_, fields) => {
+                    pending.extend(fields.iter().map(|(_, value)| value));
                 }
                 _ => {}
             }
-        }
 
-        false
+            Some(condition)
+        })
+    }
+
+    pub(crate) fn observes(&self, value: &Self) -> bool {
+        self.observations().any(|condition| {
+            condition == value
+                || matches!((condition, value), (Self::Input(observed), Self::Input(changed)) if observed.overlaps(changed))
+        })
+    }
+
+    /// Reports whether a completion clause observes its result. Unknown meaning
+    /// conservatively retains result authority until the owning query resolves it.
+    pub fn observes_completion_result(&self) -> bool {
+        self.observations()
+            .any(|condition| matches!(condition, Self::Result | Self::Unknown))
     }
 
     pub(crate) fn call(callable: bray_symbols::CallableInstanceData, arguments: Vec<Self>) -> Self {
@@ -353,17 +347,21 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn observes_borrowed(&self, changed: Option<&Self>) -> bool {
+        self.observes_borrowed_where(|value| changed.is_none_or(|changed| value.observes(changed)))
+    }
+
+    pub(crate) fn observes_borrowed_where(&self, observes: impl Fn(&Self) -> bool) -> bool {
         let mut pending = vec![self];
 
         while let Some(condition) = pending.pop() {
             match condition {
-                Self::Borrowed(value) if changed.is_none_or(|changed| value.observes(changed)) => {
+                Self::Borrowed(value) if observes(value) => {
                     return true;
                 }
                 Self::Operation(_, operands)
                 | Self::Predicate(_, _, operands)
                 | Self::Call(_, operands) => pending.extend(operands.iter()),
-                Self::Trusted(value) | Self::Field(_, value) => pending.push(value),
+                Self::Trusted(value) | Self::Projection(_, value) => pending.push(value),
                 Self::Entry {
                     condition,
                     captured: false,
@@ -447,25 +445,19 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn field(field: bray_symbols::AnySymbolId, value: Self) -> Self {
-        match value {
-            Self::Input(place) => Self::Input(place.field(field)),
-            Self::Constructed(_, fields) => fields
-                .iter()
-                .find(|(candidate, _)| match candidate {
-                    bray_bound_tree::StorageProjection::ProductField(candidate) => {
-                        bray_symbols::AnySymbolId::from(*candidate) == field
-                    }
-                    bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
-                        field: candidate,
-                        ..
-                    } => bray_symbols::AnySymbolId::from(*candidate) == field,
-                    _ => false,
-                })
-                .map(|(_, value)| value.clone())
-                .unwrap_or(Self::Unknown),
-            Self::Unknown => Self::Unknown,
-            value => Self::Field(field, Arc::new(value)),
-        }
+        let projection = match field {
+            bray_symbols::AnySymbolId::StructField(field) => {
+                bray_symbols::ConstantProjectionKind::ProductField(field)
+            }
+            bray_symbols::AnySymbolId::UnionPayloadField(field) => {
+                bray_symbols::ConstantProjectionKind::UnionPayloadField(field)
+            }
+            _ => panic!(
+                "checked execution field identifies a product or union payload field: {field:?}"
+            ),
+        };
+
+        value.component(projection)
     }
 
     pub(crate) fn project(self, projection: bray_bound_tree::StorageProjection) -> Self {
@@ -497,40 +489,71 @@ impl ExecutionCondition {
                 .unwrap_or(Self::Unknown);
         }
 
-        match projection {
-            StorageProjection::ProductField(field) => Self::field(field.into(), self),
-            StorageProjection::ActiveUnionPayloadField { field, .. } => {
-                Self::field(field.into(), self)
+        let projection = match projection {
+            StorageProjection::ProductField(field) => {
+                bray_symbols::ConstantProjectionKind::ProductField(field)
             }
-            StorageProjection::TupleElement(index) => match self {
-                Self::Input(place) => Self::Input(
-                    place.component(bray_symbols::ConstantProjectionKind::TupleElement(index)),
-                ),
-                _ => Self::Unknown,
-            },
-            StorageProjection::ElementFromStart(index) => match self {
-                Self::Input(place) => Self::Input(place.component(
-                    bray_symbols::ConstantProjectionKind::ArrayElementOrdinal(index),
-                )),
-                _ => Self::Unknown,
-            },
-            _ => Self::Unknown,
-        }
+            StorageProjection::ActiveUnionPayloadField { field, .. } => {
+                bray_symbols::ConstantProjectionKind::UnionPayloadField(field)
+            }
+            StorageProjection::TupleElement(index) => {
+                bray_symbols::ConstantProjectionKind::TupleElement(index)
+            }
+            StorageProjection::ElementFromStart(index) => {
+                bray_symbols::ConstantProjectionKind::ArrayElementOrdinal(index)
+            }
+            _ => return Self::Unknown,
+        };
+
+        self.component(projection)
     }
 
     pub(crate) fn component(self, projection: bray_symbols::ConstantProjectionKind) -> Self {
+        use bray_bound_tree::StorageProjection;
         use bray_symbols::ConstantProjectionKind;
 
-        match projection {
-            ConstantProjectionKind::ProductField(field) => Self::field(field.into(), self),
-            ConstantProjectionKind::UnionPayloadField(field) => Self::field(field.into(), self),
-            ConstantProjectionKind::TupleElement(index) => {
-                self.project(bray_bound_tree::StorageProjection::TupleElement(index))
-            }
-            ConstantProjectionKind::ArrayElementOrdinal(index) => {
-                self.project(bray_bound_tree::StorageProjection::ElementFromStart(index))
-            }
-            _ => Self::Unknown,
+        if !matches!(
+            projection,
+            ConstantProjectionKind::ProductField(_)
+                | ConstantProjectionKind::UnionPayloadField(_)
+                | ConstantProjectionKind::TupleElement(_)
+                | ConstantProjectionKind::ArrayElementOrdinal(_)
+        ) {
+            return Self::Unknown;
+        }
+
+        match self {
+            Self::Input(place) => Self::Input(place.component(projection)),
+            // A field access through a borrow observes the referent's field,
+            // rather than projecting a field from the borrow value itself.
+            Self::Borrowed(value) => value.as_ref().clone().component(projection),
+            Self::Constructed(_, fields) => fields
+                .iter()
+                .find(|(candidate, _)| match (candidate, projection) {
+                    (
+                        StorageProjection::ProductField(candidate),
+                        ConstantProjectionKind::ProductField(field),
+                    ) => *candidate == field,
+                    (
+                        StorageProjection::ActiveUnionPayloadField {
+                            field: candidate, ..
+                        },
+                        ConstantProjectionKind::UnionPayloadField(field),
+                    ) => *candidate == field,
+                    (
+                        StorageProjection::TupleElement(candidate),
+                        ConstantProjectionKind::TupleElement(index),
+                    )
+                    | (
+                        StorageProjection::ElementFromStart(candidate),
+                        ConstantProjectionKind::ArrayElementOrdinal(index),
+                    ) => *candidate == index,
+                    _ => false,
+                })
+                .map(|(_, value)| value.clone())
+                .unwrap_or(Self::Unknown),
+            Self::Unknown => Self::Unknown,
+            value => Self::Projection(projection, Arc::new(value)),
         }
     }
 
@@ -626,6 +649,28 @@ impl ExecutionCondition {
             return None;
         };
 
+        if let Some(value) =
+            super::implication::comparison_is_implied(*operator, operands, assumptions)
+        {
+            return Some(value);
+        }
+
+        let inverse = match operator {
+            BoundOperator::Equal => Some(BoundOperator::NotEqual),
+            BoundOperator::NotEqual => Some(BoundOperator::Equal),
+            _ => None,
+        };
+
+        if let Some(inverse) = inverse {
+            let inverse = Self::Operation(inverse, operands.clone());
+
+            for value in [true, false] {
+                if assumptions.contains(&(inverse.clone(), value)) {
+                    return Some(!value);
+                }
+            }
+        }
+
         match (operator, operands.as_ref()) {
             (BoundOperator::LogicalNot, [operand]) => {
                 operand.prove(assumptions, budget).map(|value| !value)
@@ -658,13 +703,16 @@ impl ExecutionCondition {
         let mut budget = Self::WORK_LIMIT;
 
         for (condition, value) in assumptions.iter().take(Self::WORK_LIMIT) {
-            if !value {
-                continue;
-            }
-
-            let Self::Operation(BoundOperator::Equal, operands) = condition else {
+            let Self::Operation(operator, operands) = condition else {
                 continue;
             };
+
+            if !matches!(
+                (operator, value),
+                (BoundOperator::Equal, true) | (BoundOperator::NotEqual, false)
+            ) {
+                continue;
+            }
 
             let [left, right] = operands.as_ref() else {
                 continue;
@@ -697,20 +745,30 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn with_equalities(&self, replacements: &BTreeMap<Self, Self>) -> Self {
-        rewrite_equalities(self, replacements, &mut { Self::WORK_LIMIT })
+        rewrite_equalities(self, replacements, false, &mut { Self::WORK_LIMIT })
+    }
+
+    pub(crate) fn with_joined_values(&self, replacements: &BTreeMap<Self, Self>) -> Self {
+        rewrite_equalities(self, replacements, true, &mut { Self::WORK_LIMIT })
     }
 
     pub(crate) fn assume(self, value: bool, assumptions: &mut BTreeSet<(Self, bool)>) {
+        self.assume_with(value, &mut |condition, value| {
+            assumptions.insert((condition, value));
+        });
+    }
+
+    pub(super) fn assume_with(self, value: bool, insert: &mut impl FnMut(Self, bool)) {
         match self {
             Self::Unknown => {}
             Self::Trusted(condition) => {
                 // Keep the occurrence qualifier for contract implication and authority-bearing values.
-                assumptions.insert((Self::Trusted(condition.clone()), value));
-                condition.as_ref().clone().assume(value, assumptions);
+                insert(Self::Trusted(condition.clone()), value);
+                condition.as_ref().clone().assume_with(value, insert);
             }
             Self::Operation(BoundOperator::LogicalNot, operands) if operands.len() == 1 => {
                 // The immutable operand is retained independently by the condition set.
-                operands[0].clone().assume(!value, assumptions);
+                operands[0].clone().assume_with(!value, insert);
             }
             Self::Operation(operator, operands)
                 if (operator == BoundOperator::LogicalAnd && value)
@@ -718,11 +776,11 @@ impl ExecutionCondition {
             {
                 for operand in operands.iter() {
                     // The immutable operand is retained independently by the condition set.
-                    operand.clone().assume(value, assumptions);
+                    operand.clone().assume_with(value, insert);
                 }
             }
             condition => {
-                assumptions.insert((condition, value));
+                insert(condition, value);
             }
         }
     }
@@ -750,6 +808,7 @@ fn resolve_equality(
 fn rewrite_equalities(
     value: &ExecutionCondition,
     replacements: &std::collections::BTreeMap<ExecutionCondition, ExecutionCondition>,
+    join: bool,
     budget: &mut usize,
 ) -> ExecutionCondition {
     let Some(next) = budget.checked_sub(1) else {
@@ -761,6 +820,9 @@ fn rewrite_equalities(
     let value = resolve_equality(value, replacements, budget);
 
     let value = match value {
+        ExecutionCondition::Trusted(value) if join => ExecutionCondition::Trusted(Arc::new(
+            rewrite_equalities(&value, replacements, join, budget),
+        )),
         ExecutionCondition::Trusted(value) => {
             // Ordinary Boolean equalities cannot rename the predicate that owns trusted authority.
             let value = match value.as_ref() {
@@ -770,7 +832,7 @@ fn rewrite_equalities(
                         *substitution,
                         operands
                             .iter()
-                            .map(|operand| rewrite_equalities(operand, replacements, budget))
+                            .map(|operand| rewrite_equalities(operand, replacements, join, budget))
                             .collect(),
                     )
                 }
@@ -779,6 +841,10 @@ fn rewrite_equalities(
 
             ExecutionCondition::Trusted(Arc::new(value))
         }
+        ExecutionCondition::Borrowed(value) if join => {
+            rewrite_equalities(&value, replacements, join, budget).borrowed()
+        }
+        ExecutionCondition::Entry { captured: true, .. } if join => value,
         ExecutionCondition::Borrowed(value) => {
             // Equal contents do not equate the physical referents of borrowed observations.
             ExecutionCondition::Borrowed(value)
@@ -787,17 +853,22 @@ fn rewrite_equalities(
             condition,
             captured,
         } => ExecutionCondition::Entry {
-            condition: Arc::new(rewrite_equalities(&condition, replacements, budget)),
+            condition: Arc::new(rewrite_equalities(&condition, replacements, join, budget)),
             captured,
         },
-        ExecutionCondition::Field(field, base) => {
-            ExecutionCondition::field(field, rewrite_equalities(&base, replacements, budget))
+        ExecutionCondition::Projection(field, base) => {
+            rewrite_equalities(&base, replacements, join, budget).component(field)
         }
         ExecutionCondition::Constructed(expression, fields) => ExecutionCondition::Constructed(
             expression,
             fields
                 .iter()
-                .map(|(field, value)| (*field, rewrite_equalities(value, replacements, budget)))
+                .map(|(field, value)| {
+                    (
+                        *field,
+                        rewrite_equalities(value, replacements, join, budget),
+                    )
+                })
                 .collect::<Vec<_>>()
                 .into(),
         ),
@@ -805,7 +876,7 @@ fn rewrite_equalities(
             operator,
             operands
                 .iter()
-                .map(|operand| rewrite_equalities(operand, replacements, budget))
+                .map(|operand| rewrite_equalities(operand, replacements, join, budget))
                 .collect(),
         ),
         ExecutionCondition::Predicate(predicate, substitution, operands) => {
@@ -814,7 +885,7 @@ fn rewrite_equalities(
                 substitution,
                 operands
                     .iter()
-                    .map(|operand| rewrite_equalities(operand, replacements, budget))
+                    .map(|operand| rewrite_equalities(operand, replacements, join, budget))
                     .collect(),
             )
         }
@@ -822,7 +893,7 @@ fn rewrite_equalities(
             callable,
             operands
                 .iter()
-                .map(|operand| rewrite_equalities(operand, replacements, budget))
+                .map(|operand| rewrite_equalities(operand, replacements, join, budget))
                 .collect(),
         ),
         value => value,

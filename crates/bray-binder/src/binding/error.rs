@@ -7,8 +7,6 @@ use crate::{BindingQueryError, unit::BoundUnitConstructionError};
 pub enum BindingError<Upstream = std::convert::Infallible> {
     /// Cancellation was observed before binding completed.
     Cancelled,
-    /// Semantic checking could not complete because a typed dependency was unavailable.
-    CheckerInfrastructure(bray_checker::CheckerInfrastructureError),
     /// The canonical semantic-value store rejected an operation.
     SemanticValue(bray_symbols::SemanticValueStoreError),
     /// The coordinating query layer returned one of its own exact failures.
@@ -153,7 +151,6 @@ impl<Upstream: Hash> Hash for BindingError<Upstream> {
         std::mem::discriminant(self).hash(state);
 
         match self {
-            Self::CheckerInfrastructure(error) => error.hash(state),
             Self::SemanticValue(error) => error.hash(state),
             Self::Upstream(error) => error.hash(state),
             Self::MissingSyntax { source } => source.hash(state),
@@ -290,7 +287,6 @@ impl<Upstream> From<BindingQueryError<Upstream>> for BindingError<Upstream> {
     fn from(error: BindingQueryError<Upstream>) -> Self {
         match error {
             BindingQueryError::Cancelled => Self::Cancelled,
-            BindingQueryError::CheckerInfrastructure(error) => Self::CheckerInfrastructure(error),
             BindingQueryError::SemanticValue(error) => Self::SemanticValue(error),
             BindingQueryError::Upstream(error) => Self::Upstream(error),
             BindingQueryError::DependencyUnavailable => Self::DependencyUnavailable,
@@ -321,7 +317,6 @@ impl BindingError {
     pub fn with_upstream<Upstream>(self) -> BindingError<Upstream> {
         match self {
             Self::Cancelled => BindingError::Cancelled,
-            Self::CheckerInfrastructure(error) => BindingError::CheckerInfrastructure(error),
             Self::SemanticValue(error) => BindingError::SemanticValue(error),
             Self::Upstream(error) => match error {},
             Self::DependencyUnavailable => BindingError::DependencyUnavailable,

@@ -4,102 +4,42 @@ using std.memory;
 using std.path;
 
 @copy
-internal struct ProcessContextTable
+internal struct ProcessContextEntry
 {
-    entries: RawPointer<u8>;
-    count: usize;
+    key_start: usize;
+    key_end: usize;
+    value_start: usize;
+    value_end: usize;
 }
 
-@copy
+internal struct ProcessContextTable
+{
+    text: std.memory.RawBuffer<u8>;
+    entries: std.memory.RawBuffer<ProcessContextEntry>;
+}
+
 internal struct ProcessContext
 {
     arguments: ProcessContextTable;
     environment: ProcessContextTable;
-    directory: std.platform.NativeTextSpan;
+    directory: std.memory.RawBuffer<u8>;
 }
 
-internal static PROCESS_CONTEXT_STATE: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+internal static PROCESS_CONTEXT: std.sync.Once<ProcessContext> = std.sync.Once<ProcessContext>.empty();
 
-internal static ARGUMENT_ENTRIES_ADDRESS: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
-
-internal static ARGUMENT_COUNT: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
-
-internal static ENVIRONMENT_ENTRIES_ADDRESS: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
-
-internal static ENVIRONMENT_COUNT: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
-
-internal static DIRECTORY_ADDRESS: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
-
-internal static DIRECTORY_LENGTH: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
-
-trusted internal func ensure_process_context() -> unit
-    uses(intrinsic)
-{
-    loop
-    {
-        let state: u32 = core.atomic.load<u32, 1>(&PROCESS_CONTEXT_STATE);
-
-        if state == 2
-        {
-            return;
-        }
-
-        if state == 0
-        {
-            let (_, selected) = core.atomic.compare_exchange<u32, 3, 1>(
-                &PROCESS_CONTEXT_STATE,
-                expected = 0,
-                desired = 1,
-            );
-
-            if selected
-            {
-                let context: ProcessContext = trusted internal create_process_context();
-
-                core.atomic.store<u64, 0>(
-                    &ARGUMENT_ENTRIES_ADDRESS,
-                    value = trusted core.target.expose_address<u8>(context.arguments.entries) as u64,
-                );
-
-                core.atomic.store<u64, 0>(&ARGUMENT_COUNT, value = context.arguments.count as u64);
-
-                core.atomic.store<u64, 0>(
-                    &ENVIRONMENT_ENTRIES_ADDRESS,
-                    value = trusted core.target.expose_address<u8>(context.environment.entries) as u64,
-                );
-
-                core.atomic.store<u64, 0>(&ENVIRONMENT_COUNT, value = context.environment.count as u64);
-
-                core.atomic.store<u64, 0>(
-                    &DIRECTORY_ADDRESS,
-                    value = trusted core.target.expose_address<u8>(context.directory.address) as u64,
-                );
-
-                core.atomic.store<u64, 0>(&DIRECTORY_LENGTH, value = context.directory.length);
-                core.atomic.store<u32, 2>(&PROCESS_CONTEXT_STATE, value = 2);
-                trusted internal std.atomic.platform_wake_word(&PROCESS_CONTEXT_STATE);
-
-                return;
-            }
-        }
-
-        trusted internal std.atomic.platform_wait_word(&PROCESS_CONTEXT_STATE, expected = 1);
-    }
-}
-
-trusted internal func create_process_context() -> ProcessContext
+internal func create_process_context() -> ProcessContext
 {
     return
     {
         arguments = trusted internal context_table(
             trusted internal std.platform.argument_storage(),
-            environment = false,
+            environment = false
         ),
         environment = trusted internal context_table(
             trusted internal required_environment_storage(),
-            environment = true,
+            environment = true
         ),
-        directory = trusted internal persistent_context_text(trusted internal std.platform.working_directory_storage()),
+        directory = trusted internal std.platform.working_directory_storage(),
     };
 }
 
@@ -112,47 +52,17 @@ trusted internal func required_environment_storage() -> std.memory.RawBuffer<u8>
     }
 }
 
-trusted internal func argument_context_table() -> ProcessContextTable
-    uses(intrinsic)
+trusted internal func argument_context_table() -> &ProcessContextTable
 {
-    trusted internal ensure_process_context();
-
-    return trusted internal published_context_table(&ARGUMENT_ENTRIES_ADDRESS, count = &ARGUMENT_COUNT);
+    return &PROCESS_CONTEXT.get_or_init(create_process_context).arguments;
 }
 
-trusted internal func environment_context_table() -> ProcessContextTable
-    uses(intrinsic)
+trusted internal func environment_context_table() -> &ProcessContextTable
 {
-    trusted internal ensure_process_context();
-
-    return trusted internal published_context_table(&ENVIRONMENT_ENTRIES_ADDRESS, count = &ENVIRONMENT_COUNT);
+    return &PROCESS_CONTEXT.get_or_init(create_process_context).environment;
 }
 
-trusted internal func published_context_table(
-    pos entries: &core.atomic.Atomic<u64>,
-    count: &core.atomic.Atomic<u64>,
-) -> ProcessContextTable
-    uses(intrinsic)
+trusted internal func directory_context() -> &[u8]
 {
-    let address: u64 = core.atomic.load<u64, 0>(entries);
-
-    return
-    {
-        entries = trusted core.target.from_exposed_address<u8>(address = std.truncate_to<usize>(address)),
-        count = std.truncate_to<usize>(core.atomic.load<u64, 0>(count)),
-    };
-}
-
-trusted internal func directory_context() -> std.platform.NativeTextSpan
-    uses(intrinsic)
-{
-    trusted internal ensure_process_context();
-
-    let address: u64 = core.atomic.load<u64, 0>(&DIRECTORY_ADDRESS);
-
-    return
-    {
-        address = trusted core.target.from_exposed_address<u8>(address = std.truncate_to<usize>(address)),
-        length = core.atomic.load<u64, 0>(&DIRECTORY_LENGTH),
-    };
+    return trusted std.memory.initialized_slice<u8>(&PROCESS_CONTEXT.get_or_init(create_process_context).directory);
 }

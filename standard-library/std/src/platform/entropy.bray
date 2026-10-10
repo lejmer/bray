@@ -1,0 +1,35 @@
+@target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin" || target.identity.SYSTEM == "windows")
+trusted internal module std.platform;
+
+@abi(c)
+trusted internal func entropy_fill(
+    pos destination: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> PlatformStatus
+    requires(
+        trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize),
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
+    ensures(trusted core.memory.initialized_as<u64>(pointer = transferred))
+{
+    trusted std.memory.write<u64>(transferred, value = 0);
+
+    let prepared: Result<usize, PlatformStatus> = trusted internal prepare_entropy_fill(
+        destination,
+        length,
+        transferred
+    );
+
+    match consume prepared
+    {
+        case Ok(count)
+        {
+            trusted std.memory.write<u64>(transferred, value = count as u64);
+
+            return success_status();
+        }
+        case Error(status) { return status; }
+    }
+}

@@ -265,11 +265,16 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
     }
 
     fn error_type_template(&self) -> BindingQueryResult<TypeExpressionTemplate> {
-        self.context
+        Ok(self
+            .context
             .semantic_values()
             .intern_type(TypeData::Error)
             .map(TypeExpressionTemplate::Resolved)
-            .map_err(super::semantic_value_binding_error)
+            .unwrap_or_else(|error| {
+                panic!(
+                    "error_type_template must satisfy its checked construction contract: {error:?}"
+                )
+            }))
     }
 
     pub(super) fn add_evidence(

@@ -597,11 +597,11 @@ impl SelectedOperation {
     /// Returns whether this operation can panic directly or through a selected implementation.
     pub fn may_propagate_synchronous_panic(&self) -> bool {
         match self {
-            Self::Operator { target, .. } => match target {
+            Self::Operator { target, .. }
+            | Self::CompoundAssignment(SelectedCompoundAssignment { target, .. }) => match target {
                 OperatorTarget::BuiltIn(operator) => operator.builtin_may_panic(),
                 OperatorTarget::Trait { .. } | OperatorTarget::TraitConstraint { .. } => true,
             },
-            Self::CompoundAssignment(_) => true,
             Self::Index { target, .. } => matches!(target, IndexTarget::Custom { .. }),
             Self::Conversion(conversion) => {
                 let mut may_panic = false;

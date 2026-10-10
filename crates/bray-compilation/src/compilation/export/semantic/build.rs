@@ -187,14 +187,18 @@ fn constant_callable_bodies(
 
             values
                 .substitute_contextual_self(result_type, context, replacement)
-                .map_err(super::super::semantic_value_export_error)?
+                .unwrap_or_else(|error| {
+                    panic!("semantic_value_export_error in constant_callable_bodies: {error:?}")
+                })
         } else {
             result_type
         };
 
         let result_type = values
             .substitute_type(result_type, substitution)
-            .map_err(super::super::semantic_value_export_error)?;
+            .unwrap_or_else(|error| {
+                panic!("semantic_value_export_error in constant_callable_bodies: {error:?}")
+            });
 
         let declaration = exported_declaration_identity(export, symbol)?;
 
@@ -215,7 +219,9 @@ fn constant_callable_bodies(
 
         let dependency = values
             .empty_dependency_contract_template()
-            .map_err(super::super::semantic_value_export_error)?;
+            .unwrap_or_else(|error| {
+                panic!("semantic_value_export_error in constant_callable_bodies: {error:?}")
+            });
 
         let template = export.checked_constant_template(
             CheckedTemplateKind::ConstantCallableBody,

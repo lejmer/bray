@@ -408,6 +408,27 @@ fn renderer_localizes_exact_refinement_capacity() {
 }
 
 #[test]
+fn renderer_names_raw_buffer_prefix_operations() {
+    for (operation, name) in [
+        (DiagnosticMemoryOperation::RawBufferPush, "raw buffer push"),
+        (DiagnosticMemoryOperation::RawBufferPop, "raw buffer pop"),
+    ] {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::CheckingTargetMemoryOperationUnavailable,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::target_triple("wasm32-unknown-unknown"))
+        .with_arg(DiagnosticArg::memory_operation(operation));
+
+        assert_eq!(
+            DiagnosticRenderer::english().render(&diagnostic).message(),
+            format!("target 'wasm32-unknown-unknown' does not provide the required {name}"),
+        );
+    }
+}
+
+#[test]
 fn renderer_localizes_memory_operation_and_callback_causes() {
     let unavailable = Diagnostic::new(
         DiagnosticId::new(0),

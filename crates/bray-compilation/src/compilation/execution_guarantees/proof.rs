@@ -256,6 +256,7 @@ impl Compilation {
                         ExecutionObligation::Property(property, _) => {
                             let selected = self.applicable_execution_obligation(
                                 &body,
+                                callable,
                                 declaration.value(),
                                 property,
                                 candidate.call_evidence(node),
@@ -295,14 +296,23 @@ impl Compilation {
 
                     diagnostics.add_range(foreign.diagnostics().iter().cloned());
 
+                    let applicable =
+                        if let Some(owner) = self.execution_contract_owner(function.into())? {
+                            self.applicable_execution_obligation(
+                                &owner,
+                                callable,
+                                declaration.value(),
+                                property,
+                                candidate.call_evidence(node),
+                                cancellation,
+                            )? == Some(None)
+                        } else {
+                            false
+                        };
+
                     if foreign.value().is_some()
                         && !foreign.diagnostics().has_errors()
-                        && !declaration.value().has_requirements()
-                        && declaration
-                            .value()
-                            .properties()
-                            .iter()
-                            .any(|declared| declared.property == property)
+                        && applicable
                     {
                         selected_dependencies.insert((proof_key.0, proof_key.1, target, required));
                         dependencies.insert((ExecutionProofOwner::Source(anchor), required));
@@ -331,28 +341,36 @@ impl Compilation {
             }
         }
 
-        let root_key = (
-            ExecutionProofOwner::Source(root.source().syntax()),
-            obligation,
-        );
-
-        if let Some(reason) = check_execution_proof_dependencies(&graph).get(&root_key) {
-            failure = Some(match reason {
-                ExecutionProofFailure::CircularCompletion(owner) => {
-                    (proof_owner_span(*owner, root.source().syntax()), true)
-                }
-                ExecutionProofFailure::MissingCandidate(owner) => {
-                    failure.unwrap_or((proof_owner_span(*owner, root.source().syntax()), false))
-                }
-            });
-        }
-
-        if !graph.contains_key(&root_key) {
-            failure.get_or_insert((proof_owner_span(root_key.0, root.source().syntax()), false));
-        }
+        let failure = execution_proof_failure(&graph, root.source().syntax(), obligation, failure);
 
         Ok((failure, assertions, selected_dependencies))
     }
+}
+
+fn execution_proof_failure(
+    graph: &ExecutionProofGraph,
+    source: SyntaxAnchor,
+    obligation: ExecutionObligation,
+    mut failure: Option<(SourceSpan, bool)>,
+) -> Option<(SourceSpan, bool)> {
+    let root_key = (ExecutionProofOwner::Source(source), obligation);
+
+    if let Some(reason) = check_execution_proof_dependencies(&graph).get(&root_key) {
+        failure = Some(match reason {
+            ExecutionProofFailure::CircularCompletion(owner) => {
+                (proof_owner_span(*owner, source), true)
+            }
+            ExecutionProofFailure::MissingCandidate(owner) => {
+                failure.unwrap_or((proof_owner_span(*owner, source), false))
+            }
+        });
+    }
+
+    if !graph.contains_key(&root_key) {
+        failure.get_or_insert((proof_owner_span(root_key.0, source), false));
+    }
+
+    failure
 }
 
 pub(super) fn guarantee_diagnostic(

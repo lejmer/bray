@@ -18,8 +18,8 @@ use crate::target_control_contract::{
     clobbers_valid, feature_name_valid, parse_constraint, separated_values,
 };
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitView,
+    CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider,
+    CheckerUnitView,
 };
 
 pub(crate) enum TargetControlCheck {
@@ -50,9 +50,9 @@ where
 {
     let one = || {
         let [ty] = types else {
-            return Err(CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
-            ));
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in classify_operation"
+            );
         };
 
         Ok(*ty)
@@ -60,9 +60,9 @@ where
 
     let no_types = || {
         if !types.is_empty() {
-            return Err(CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
-            ));
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in classify_operation"
+            );
         }
 
         Ok(())
@@ -159,11 +159,15 @@ where
     match hook {
         ImplementationHook::TargetFeatureEnabled => {
             if !types.is_empty() {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in check_contract"
+                );
             }
 
             let [feature] = arguments else {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in check_contract"
+                );
             };
 
             Ok(match literal_string(request, literals, *feature) {
@@ -177,11 +181,15 @@ where
         }
         ImplementationHook::CompilerFence | ImplementationHook::HardwareFence => {
             if !types.is_empty() {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in check_contract"
+                );
             }
 
             let [order] = arguments else {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in check_contract"
+                );
             };
 
             Ok(
@@ -216,7 +224,9 @@ where
                     AssemblyContinuation::Branching,
                 ),
                 _ => {
-                    return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                    panic!(
+                        "Semantic-selection inputs do not describe the requested bound unit or operation category. in check_contract"
+                    );
                 }
             };
 
@@ -287,7 +297,9 @@ where
             *options,
             *inputs,
         ),
-        _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into()),
+        _ => panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in assembly_contract"
+        ),
     };
 
     let Some((template_value, template)) = literal_string(request, literals, template) else {
@@ -399,13 +411,13 @@ where
         return Ok(None);
     }
 
-    let Some(inputs) = tuple_elements(request, inputs_type)? else {
+    let Some(inputs) = tuple_elements(request, inputs_type) else {
         return Ok(None);
     };
 
     let outputs = match output_type {
         Some(output) => {
-            let Some(outputs) = tuple_elements(request, output)? else {
+            let Some(outputs) = tuple_elements(request, output) else {
                 return Ok(None);
             };
 
@@ -416,7 +428,7 @@ where
 
     let labels = match labels_type {
         Some(labels) => {
-            let Some(labels) = tuple_elements(request, labels)? else {
+            let Some(labels) = tuple_elements(request, labels) else {
                 return Ok(None);
             };
 
@@ -426,7 +438,7 @@ where
     };
 
     for label in labels.iter().copied() {
-        if !label_type_valid(request, label)? {
+        if !label_type_valid(request, label) {
             return Ok(None);
         }
     }
@@ -537,7 +549,7 @@ where
             ty,
             constant,
             pointer_width,
-        )? {
+        ) {
             return Ok(None);
         }
 
@@ -637,13 +649,13 @@ fn operand_type_valid<C>(
     ty: TypeId,
     constant: Option<ConstantValueId>,
     pointer_width: u16,
-) -> Result<bool, CheckerInfrastructureError>
+) -> bool
 where
     C: CheckerRequestContext + ?Sized,
 {
     let representation = crate::representation::type_representation(request, ty);
 
-    Ok(match kind {
+    match kind {
         InlineAssemblyOperandKind::Immediate => match constant {
             Some(constant) => {
                 constant_integer(request, constant).is_some()
@@ -659,7 +671,7 @@ where
             representation,
             Some(RepresentationRole::RawPointer | RepresentationRole::DevicePointer)
         ),
-        InlineAssemblyOperandKind::Label => label_type_valid(request, ty)?,
+        InlineAssemblyOperandKind::Label => label_type_valid(request, ty),
         InlineAssemblyOperandKind::Input
         | InlineAssemblyOperandKind::Output
         | InlineAssemblyOperandKind::LateOutput
@@ -667,7 +679,7 @@ where
         | InlineAssemblyOperandKind::EarlyInOut => {
             register_type_valid(representation, class, pointer_width)
         }
-    })
+    }
 }
 
 fn register_type_valid(
@@ -740,35 +752,29 @@ fn floating_register_class(class: &str) -> bool {
         )
 }
 
-fn label_type_valid<C>(
-    request: CheckerUnitView<'_, C>,
-    ty: TypeId,
-) -> Result<bool, CheckerInfrastructureError>
+fn label_type_valid<C>(request: CheckerUnitView<'_, C>, ty: TypeId) -> bool
 where
     C: CheckerRequestContext + ?Sized,
 {
     let data = request.semantic_values().type_data(ty);
 
     let TypeData::Callable(callable) = data.as_ref() else {
-        return Ok(false);
+        return false;
     };
 
-    Ok(callable.parameters().is_empty()
+    callable.parameters().is_empty()
         && callable.execution() == CallableExecution::Synchronous
         && crate::representation::type_representation(request, callable.result())
-            == Some(RepresentationRole::Never))
+            == Some(RepresentationRole::Never)
 }
 
-fn tuple_elements<C>(
-    request: CheckerUnitView<'_, C>,
-    ty: TypeId,
-) -> Result<Option<Vec<TypeId>>, CheckerInfrastructureError>
+fn tuple_elements<C>(request: CheckerUnitView<'_, C>, ty: TypeId) -> Option<Vec<TypeId>>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let data = request.semantic_values().type_data(ty);
 
-    Ok(match data.as_ref() {
+    match data.as_ref() {
         TypeData::Tuple(elements) => Some(elements.to_vec()),
         _ if crate::representation::type_representation(request, ty)
             == Some(RepresentationRole::Unit) =>
@@ -776,7 +782,7 @@ where
             Some(Vec::new())
         }
         _ => None,
-    })
+    }
 }
 
 fn tuple_expression_elements<C>(

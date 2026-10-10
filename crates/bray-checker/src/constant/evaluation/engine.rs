@@ -30,8 +30,7 @@ use super::result::EvaluatedConstant;
 use super::support::EvaluationFailure;
 
 use crate::{
-    CheckerConstantEvaluationFailure, CheckerInfrastructureError, CheckerOutcome,
-    CheckerQueryError, CheckerRequestContext, CheckerUnitRoot, CheckerUnitView,
+    CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerUnitRoot, CheckerUnitView,
     ConstantEvaluationInput, ConstantReferenceResolution,
 };
 
@@ -49,9 +48,6 @@ where
             CheckerOutcome::complete(evaluated.value(), diagnostics)
         }
         CheckerOutcome::Cancelled => CheckerOutcome::Cancelled,
-        CheckerOutcome::InfrastructureFailure(error) => {
-            CheckerOutcome::InfrastructureFailure(error)
-        }
         CheckerOutcome::UpstreamFailure(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
@@ -66,9 +62,6 @@ where
     let mut evaluated = match evaluate_checked(request, input, false) {
         Ok(evaluated) => evaluated,
         Err(EvaluationAbort::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(EvaluationAbort::Infrastructure(error)) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         Err(EvaluationAbort::Upstream(error)) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
@@ -79,28 +72,21 @@ where
         .finalize_closed_value(evaluated.term, evaluated.diagnostic_anchor)
     {
         Ok(value) => value,
-        Err(EvaluationFailure::Infrastructure(error)) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         Err(EvaluationFailure::Upstream) => {
             return CheckerOutcome::UpstreamFailure(evaluated.evaluator.take_upstream_failure());
         }
         Err(EvaluationFailure::Cancelled) => return CheckerOutcome::Cancelled,
         Err(EvaluationFailure::Propagate(term)) => {
-            return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::ConstantEvaluation(
-                    CheckerConstantEvaluationFailure::UnexpectedPropagation { term },
-                ),
+            panic!(
+                "Closed evaluation unexpectedly retained a propagating term. in evaluate_constant_with_references, term: {:?}",
+                term
             );
         }
         Err(EvaluationFailure::Source {
             expression,
             diagnostic,
         }) => {
-            let value = match evaluated.evaluator.recovery_value(evaluated.result_type) {
-                Ok(value) => value,
-                Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-            };
+            let value = evaluated.evaluator.recovery_value(evaluated.result_type);
 
             let evaluated_references = evaluated.evaluator.evaluated_references;
             let mut diagnostics = evaluated.evaluator.diagnostics;
@@ -114,9 +100,6 @@ where
             ) {
                 Ok(diagnostic) => diagnostic,
                 Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-                Err(CheckerQueryError::Infrastructure(error)) => {
-                    return CheckerOutcome::InfrastructureFailure(error);
-                }
                 Err(CheckerQueryError::Upstream(error)) => {
                     return CheckerOutcome::UpstreamFailure(error);
                 }
@@ -151,7 +134,6 @@ where
     match evaluate_checked(request, input, true) {
         Ok(evaluated) => CheckerOutcome::complete(evaluated.term, evaluated.evaluator.diagnostics),
         Err(EvaluationAbort::Cancelled) => CheckerOutcome::Cancelled,
-        Err(EvaluationAbort::Infrastructure(error)) => CheckerOutcome::InfrastructureFailure(error),
         Err(EvaluationAbort::Upstream(error)) => CheckerOutcome::UpstreamFailure(error),
     }
 }
@@ -175,21 +157,23 @@ where
             ConstantEvaluationRoot::Expression(root)
         }
         (Some(ConstantEvaluationRoot::Expression(expression)), _) => {
-            return Err(EvaluationAbort::constant(
-                CheckerConstantEvaluationFailure::InvalidExpressionRoot { expression },
-            ));
+            panic!(
+                "The requested expression root is absent from the unit. in evaluate_checked, expression: {:?}",
+                expression
+            );
         }
         (Some(ConstantEvaluationRoot::Block(root)), _) if request.view().block(root).is_some() => {
             ConstantEvaluationRoot::Block(root)
         }
         (Some(ConstantEvaluationRoot::Block(block)), _) => {
-            return Err(EvaluationAbort::constant(
-                CheckerConstantEvaluationFailure::InvalidBlockRoot { block },
-            ));
+            panic!(
+                "The requested block root is absent from the unit. in evaluate_checked, block: {:?}",
+                block
+            );
         }
         (None, CheckerUnitRoot::Expression(root)) => ConstantEvaluationRoot::Expression(root),
         _ => {
-            return Err(EvaluationAbort::invalid_input());
+            panic!("constant evaluation requires an expression root or an explicit block root");
         }
     };
 
@@ -223,14 +207,9 @@ where
         ConstantEvaluationRoot::Expression(expression) => input
             .expression_types()
             .expression(expression)
-            .map(|result| result.ty())
-            .ok_or(EvaluationAbort::constant(
-                CheckerConstantEvaluationFailure::MissingExpressionType { expression },
-            ))?,
-        ConstantEvaluationRoot::Block(block) => {
-            input.result_type().ok_or(EvaluationAbort::constant(
-                CheckerConstantEvaluationFailure::MissingBlockResultType { block },
-            ))?
+            .map(|result| result.ty()).unwrap_or_else(|| panic!("evaluate_checked requires checked expression type or node, expression: {expression:?}")),
+        ConstantEvaluationRoot::Block(_) => {
+            input.result_type().unwrap_or_else(|| panic!("evaluate_checked requires constant block result type, root: {root:?}"))
         }
     };
 
@@ -248,7 +227,7 @@ where
             Err(EvaluationFailure::invalid_expression(expression))
         }
         Ok((EvaluationFlow::Yield { .. }, None)) => {
-            return Err(EvaluationAbort::invalid_input());
+            panic!("constant yield from {root:?} must retain its source expression");
         }
         evaluated => evaluated,
     };
@@ -265,23 +244,16 @@ where
             result_type,
             term,
         }),
-        Ok((EvaluationFlow::Yield { .. }, _)) => Err(EvaluationAbort::invalid_input()),
-        Err(EvaluationFailure::Cancelled) => Err(EvaluationAbort::Cancelled),
-        Err(EvaluationFailure::Infrastructure(error)) => {
-            Err(EvaluationAbort::Infrastructure(error))
+        Ok((EvaluationFlow::Yield { .. }, _)) => {
+            panic!("constant yield from {root:?} must be handled before result publication")
         }
+        Err(EvaluationFailure::Cancelled) => Err(EvaluationAbort::Cancelled),
         Err(EvaluationFailure::Upstream) => {
             Err(EvaluationAbort::Upstream(evaluator.take_upstream_failure()))
         }
         Err(EvaluationFailure::Propagate(term)) => {
             let term = evaluator
                 .materialize_propagation(term, result_type)
-                .map_err(|failure| match failure {
-                    EvaluationFailure::Upstream => {
-                        EvaluationAbort::Upstream(evaluator.take_upstream_failure())
-                    }
-                    failure => evaluation_abort(failure),
-                })?
                 .unwrap_or(term);
 
             Ok(EvaluationState {
@@ -304,20 +276,20 @@ where
             )
             .map_err(|error| match error {
                 CheckerQueryError::Cancelled => EvaluationAbort::Cancelled,
-                CheckerQueryError::Infrastructure(error) => EvaluationAbort::Infrastructure(error),
                 CheckerQueryError::Upstream(error) => EvaluationAbort::Upstream(error),
             })?;
 
             evaluator.diagnostics.add(diagnostic);
 
-            match evaluator.recovery_term(result_type) {
-                Ok(term) => Ok(EvaluationState {
+            {
+                let term = evaluator.recovery_term(result_type);
+
+                Ok(EvaluationState {
                     evaluator,
                     diagnostic_anchor: Some(expression),
                     result_type,
                     term,
-                }),
-                Err(error) => Err(EvaluationAbort::Infrastructure(error)),
+                })
             }
         }
     }
@@ -334,10 +306,12 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(bound) = request.view().expression(expression) else {
-        return Err(CheckerInfrastructureError::InvalidConstantEvaluationInput.into());
+        panic!(
+            "Constant-evaluation inputs do not describe the requested bound unit. in source_failure_diagnostic"
+        );
     };
 
-    let span = expression_span(request, expression)?;
+    let span = expression_span(request, expression);
 
     let problem = match problem {
         ConstantDiagnostic::InvalidExpression(None)
@@ -348,11 +322,13 @@ where
     };
 
     problem.render(request.context(), id, Some(span), || {
-        input
+        Ok(input
             .expression_types()
             .expression(expression)
             .map(|result| result.ty())
-            .ok_or_else(|| CheckerInfrastructureError::InvalidConstantEvaluationInput.into())
+            .unwrap_or_else(|| {
+                panic!("constant diagnostic expression {expression:?} must retain its checked type")
+            }))
     })
 }
 
@@ -382,31 +358,7 @@ where
 
 enum EvaluationAbort<Upstream> {
     Cancelled,
-    Infrastructure(CheckerInfrastructureError),
     Upstream(Upstream),
-}
-
-impl<Upstream> EvaluationAbort<Upstream> {
-    const fn invalid_input() -> Self {
-        Self::Infrastructure(CheckerInfrastructureError::InvalidConstantEvaluationInput)
-    }
-
-    const fn constant(failure: CheckerConstantEvaluationFailure) -> Self {
-        Self::Infrastructure(CheckerInfrastructureError::ConstantEvaluation(failure))
-    }
-}
-
-fn evaluation_abort<Upstream>(failure: EvaluationFailure) -> EvaluationAbort<Upstream> {
-    match failure {
-        EvaluationFailure::Cancelled => EvaluationAbort::Cancelled,
-        EvaluationFailure::Infrastructure(error) => EvaluationAbort::Infrastructure(error),
-        EvaluationFailure::Propagate(_) | EvaluationFailure::Source { .. } => {
-            EvaluationAbort::invalid_input()
-        }
-        EvaluationFailure::Upstream => {
-            unreachable!("upstream failures must be extracted from evaluator state")
-        }
-    }
 }
 
 pub(super) struct Evaluator<'view, 'input, 'types, C>
@@ -473,7 +425,6 @@ where
     ) -> EvaluationFailure {
         match error {
             CheckerQueryError::Cancelled => EvaluationFailure::Cancelled,
-            CheckerQueryError::Infrastructure(error) => EvaluationFailure::Infrastructure(error),
             CheckerQueryError::Upstream(error) => {
                 self.upstream_failure = Some(error);
 
@@ -496,37 +447,37 @@ where
             );
         };
 
-        let ty = self.expression_type(expression)?;
+        let ty = self.expression_type(expression);
 
         match bound {
-            BoundExpression::Literal(literal) => self.evaluate_literal(expression, *literal, ty),
+            BoundExpression::Literal(literal) => self.evaluate_literal(expression, *literal, ty?),
             BoundExpression::Name(name) => {
-                self.evaluate_reference(expression, Some(name.target()), ty)
+                self.evaluate_reference(expression, Some(name.target()), ty?)
             }
             BoundExpression::PatternReference(reference) => self.evaluate_reference(
                 expression,
                 Some(bray_bound_tree::BoundReferenceTarget::Local(
                     reference.binding().into(),
                 )),
-                ty,
+                ty?,
             ),
             BoundExpression::Unary(unary) => {
-                self.evaluate_operator(expression, unary.operator(), unary.operands(), ty)
+                self.evaluate_operator(expression, unary.operator(), unary.operands(), ty?)
             }
             BoundExpression::Binary(binary) if self.is_complex_literal(binary) => {
-                self.evaluate_complex_literal(expression, binary, ty)
+                self.evaluate_complex_literal(expression, binary, ty?)
             }
             BoundExpression::Binary(binary) => {
-                self.evaluate_operator(expression, binary.operator(), binary.operands(), ty)
+                self.evaluate_operator(expression, binary.operator(), binary.operands(), ty?)
             }
             BoundExpression::Conversion(conversion) => {
-                self.evaluate_conversion(expression, *conversion, ty)
+                self.evaluate_conversion(expression, *conversion, ty?)
             }
             BoundExpression::Structured(structured) => {
-                self.evaluate_structured(expression, structured, ty)
+                self.evaluate_structured(expression, structured, ty?)
             }
             BoundExpression::MemberAccess(member) => {
-                self.evaluate_member_projection(expression, member, ty)
+                self.evaluate_member_projection(expression, member, ty?)
             }
             BoundExpression::Call(_)
                 if matches!(
@@ -536,13 +487,13 @@ where
                     ))
                 ) =>
             {
-                self.evaluate_construction(expression, ty)
+                self.evaluate_construction(expression, ty?)
             }
-            BoundExpression::Call(_) => self.evaluate_selected_call(expression, ty),
+            BoundExpression::Call(_) => self.evaluate_selected_call(expression, ty?),
             BoundExpression::StructConstruction(_)
             | BoundExpression::BoxConstruction(_)
             | BoundExpression::LeadingDotVariant(_)
-            | BoundExpression::UnqualifiedVariant(_) => self.evaluate_construction(expression, ty),
+            | BoundExpression::UnqualifiedVariant(_) => self.evaluate_construction(expression, ty?),
             BoundExpression::Block(_)
             | BoundExpression::UnresolvedReference(_)
             | BoundExpression::Assignment(_)
@@ -569,34 +520,27 @@ where
         literal: bray_bound_tree::BoundLiteralExpression,
         ty: TypeId,
     ) -> Result<ConstantTermId, EvaluationFailure> {
-        let source = self
-            .request
-            .source(literal.origin().source_anchor())
-            .map_err(EvaluationFailure::Infrastructure)?;
+        let source = self.request.source(literal.origin().source_anchor());
 
         let Some(spelling) = source.text_for_range(literal.spelling_range()) else {
-            return Err(EvaluationFailure::Infrastructure(
-                CheckerInfrastructureError::InvalidSourceRange {
-                    span: bray_source::SourceSpan::new(
-                        source.span().source_id(),
-                        literal.spelling_range(),
-                    ),
-                },
-            ));
+            panic!(
+                "A bound anchor does not cover a valid UTF-8 range in its source revision. in evaluate_literal, span: {:?}",
+                bray_source::SourceSpan::new(source.span().source_id(), literal.spelling_range(),)
+            );
         };
 
         self.budget.charge_literal(expression, spelling.len())?;
 
         if literal.kind() == bray_bound_tree::BoundLiteralKind::ByteString {
             let kind = check_byte_string_literal(self.request.semantic_values(), ty, spelling)
-                .map_err(|error| {
-                    EvaluationFailure::Infrastructure(
-                        CheckerInfrastructureError::SemanticValueStore(error),
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "evaluate_literal must satisfy its checked construction contract: {error:?}"
                     )
-                })?
+                })
                 .map_err(|error| EvaluationFailure::literal(expression, error))?;
 
-            return self.intern_value_term(ty, kind);
+            return Ok(self.intern_value_term(ty, kind));
         }
 
         let representation = type_representation(self.request, ty)
@@ -615,10 +559,10 @@ where
                 let value = normalize_integer_literal(spelling)
                     .map_err(|error| EvaluationFailure::literal(expression, error))?;
 
-                return self.intern_term(ConstantTermData::IntegerLiteral {
+                return Ok(self.intern_term(ConstantTermData::IntegerLiteral {
                     ty: target_type,
                     value,
-                });
+                }));
             }
         }
 
@@ -630,7 +574,7 @@ where
         })
         .map_err(|error| EvaluationFailure::literal(expression, error))?;
 
-        self.intern_value_term(ty, kind)
+        Ok(self.intern_value_term(ty, kind))
     }
 
     pub(super) fn evaluate_reference(
@@ -678,7 +622,7 @@ where
         ty: TypeId,
     ) -> Result<ConstantTermId, EvaluationFailure> {
         let data = self.request.semantic_values().constant_value_data(value);
-        let term = self.intern_term(ConstantTermData::Value(value))?;
+        let term = self.intern_term(ConstantTermData::Value(value));
 
         self.adapt_nullable_present(term, data.ty(), ty)
     }
@@ -704,16 +648,18 @@ where
                 self.evaluate_pattern_test(expression, structured, ty)
             }
             BoundStructuredExpressionKind::Unit => {
-                self.intern_value_term(ty, ConstantValueKind::Unit)
+                Ok(self.intern_value_term(ty, ConstantValueKind::Unit))
             }
             BoundStructuredExpressionKind::Absence => {
-                self.intern_value_term(ty, ConstantValueKind::NullableAbsent)
+                Ok(self.intern_value_term(ty, ConstantValueKind::NullableAbsent))
             }
             BoundStructuredExpressionKind::Tuple | BoundStructuredExpressionKind::Range => {
                 let terms = self.evaluate_elements(expression, operands)?;
 
                 match self.closed_elements(&terms)? {
-                    Some(values) => self.intern_value_term(ty, ConstantValueKind::tuple(values)),
+                    Some(values) => {
+                        Ok(self.intern_value_term(ty, ConstantValueKind::tuple(values)))
+                    }
                     None => self.intern_typed_term(ty, ConstantTermData::tuple(terms)),
                 }
             }
@@ -721,7 +667,9 @@ where
                 let terms = self.evaluate_elements(expression, operands)?;
 
                 match self.closed_elements(&terms)? {
-                    Some(values) => self.intern_value_term(ty, ConstantValueKind::array(values)),
+                    Some(values) => {
+                        Ok(self.intern_value_term(ty, ConstantValueKind::array(values)))
+                    }
                     None => self.intern_typed_term(ty, ConstantTermData::array(terms)),
                 }
             }
@@ -773,7 +721,7 @@ where
                     return Err(EvaluationFailure::invalid_expression(expression));
                 }
 
-                self.intern_value_term(ty, ConstantValueKind::StaticAddress(selection.clone()))
+                Ok(self.intern_value_term(ty, ConstantValueKind::StaticAddress(selection.clone())))
             }
             BoundStructuredExpressionKind::NullablePropagation
             | BoundStructuredExpressionKind::ArrayGenerator
@@ -844,10 +792,10 @@ where
         self.budget.charge_expansion(expression, count)?;
 
         match self.term_value(value) {
-            Some(value) => self.intern_value_term(
+            Some(value) => Ok(self.intern_value_term(
                 ty,
                 ConstantValueKind::array(std::iter::repeat_n(value, count)),
-            ),
+            )),
             None => self.intern_typed_term(
                 ty,
                 ConstantTermData::array(std::iter::repeat_n(value, count)),
@@ -905,7 +853,7 @@ where
             imaginary = negate_real(imaginary);
         }
 
-        self.intern_value_term(ty, ConstantValueKind::Complex { real, imaginary })
+        Ok(self.intern_value_term(ty, ConstantValueKind::Complex { real, imaginary }))
     }
 
     pub(super) fn real_component(
@@ -2771,10 +2719,7 @@ mod tests {
 
         let request = CheckerUnitView::new(unit, &entry, context);
 
-        match representation_type(request, role) {
-            Ok(ty) => ty,
-            Err(error) => panic!("test representation must be available: {error:?}"),
-        }
+        representation_type(request, role)
     }
 
     fn constant_value(id: bray_symbols::ConstantValueId) -> std::sync::Arc<ConstantValueData> {

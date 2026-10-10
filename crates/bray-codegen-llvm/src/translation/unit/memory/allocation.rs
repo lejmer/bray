@@ -5,6 +5,7 @@ use bray_ir::{
     MirHelperReference, MirMemoryOperation, MirOperation, MirOperationId, MirStandardLibraryHelper,
 };
 use bray_runtime_abi::NativeRunState;
+use inkwell::IntPredicate;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
 
@@ -15,6 +16,93 @@ use super::super::support::{
 use super::support::LoadedMemoryAggregate;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
+    pub(super) fn translate_raw_buffer_allocation(
+        &mut self,
+        operation_id: MirOperationId,
+        operation: &MirOperation,
+        memory: &MirMemoryOperation,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let [capacity, bytes, alignment] = memory.operands() else {
+            panic!("checked raw buffer allocation retains its capacity and layout");
+        };
+
+        let capacity = self.pointer_sized_memory_operand(capacity)?;
+        let bytes = self.pointer_sized_memory_operand(bytes)?;
+        let alignment = self.pointer_sized_memory_operand(alignment)?;
+        let result = self.operation_result_type(operation);
+        let empty_value = self.types.map(result)?.const_zero();
+
+        let empty = self
+            .builder
+            .get_insert_block()
+            .expect("allocation has an entry block");
+
+        let allocate = self
+            .types
+            .context()
+            .append_basic_block(self.function, "memory.buffer.allocate");
+
+        let done = self
+            .types
+            .context()
+            .append_basic_block(self.function, "memory.buffer.allocated");
+
+        let present = llvm(self.builder.build_int_compare(
+            IntPredicate::NE,
+            capacity,
+            self.pointer_integer_type().const_zero(),
+            "memory.buffer.owns_storage",
+        ))?;
+
+        llvm(
+            self.builder
+                .build_conditional_branch(present, allocate, done),
+        )?;
+
+        self.builder.position_at_end(allocate);
+
+        let helpers = self.operation_helpers(operation_id)?;
+        let mut helpers = helpers.iter();
+
+        let helper = next_helper(
+            &mut helpers,
+            &MirHelperReference::StandardLibrary(MirStandardLibraryHelper::MemoryAllocate),
+        );
+
+        let pointer = self
+            .invoke_operation_helper(operation_id, helper, &[bytes.into(), alignment.into()])?
+            .and_then(pointer_value)
+            .expect("checked allocator produces a pointer on normal completion");
+
+        self.observe_memory_allocation(bytes)?;
+
+        let value = self.construct_positional_product(
+            result,
+            &[
+                pointer.into(),
+                capacity.into(),
+                self.pointer_integer_type().const_zero().into(),
+            ],
+        )?;
+
+        let allocated = self
+            .builder
+            .get_insert_block()
+            .expect("checked allocator retains its normal continuation");
+
+        llvm(self.builder.build_unconditional_branch(done))?;
+        self.builder.position_at_end(done);
+
+        let value_phi = llvm(
+            self.builder
+                .build_phi(value.get_type(), "memory.buffer.owner"),
+        )?;
+
+        value_phi.add_incoming(&[(&empty_value, empty), (&value, allocated)]);
+
+        Ok(value_phi.as_basic_value())
+    }
+
     pub(super) fn translate_raw_memory_allocation(
         &mut self,
         operation_id: MirOperationId,

@@ -211,6 +211,27 @@ mod tests {
     use super::super::state::Parser;
 
     #[test]
+    fn internal_access_starts_a_sequenced_expression() {
+        let source_text = "{ internal app.detail(); }";
+        let sources = source_store([source_text]);
+        let mut parser = Parser::new(source(&sources, 0));
+
+        let block = parser
+            .parse_block_expression_until(&mut |parser| parser.at(SyntaxKind::EndOfFileToken));
+
+        assert!(parser.finish().is_empty());
+        assert!(!block.is_recovered());
+
+        let item = block
+            .block_items()
+            .next()
+            .expect("internal call must remain in the block");
+
+        assert!(item.sequenced_expression().is_some());
+        assert_eq!(block.full_text(), source_text);
+    }
+
+    #[test]
     fn parser_parses_block_expression_items() {
         let source_text = "{ let value: Int = 1; const Answer: Int = 42; value + Answer; }";
 

@@ -2,9 +2,9 @@ use bray_bound_tree::{AnyBoundNodeId, BoundDependencySubject};
 use bray_diagnostics::DiagnosticKind;
 
 use super::core::StorageFlowCollector;
+use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::diagnostic::{bound_node_origin, diagnostic_id, escaping_storage_dependency_diagnostic};
-use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
 impl<C> StorageFlowCollector<'_, C>
 where
@@ -16,7 +16,7 @@ where
         block: bray_bound_tree::BoundBlockId,
         exit: AnyBoundNodeId,
     ) {
-        if !self.publish || self.infrastructure_failure.is_some() {
+        if !self.publish || self.query_failure.is_some() {
             return;
         }
 
@@ -30,11 +30,10 @@ where
             }
 
             let Some(capability) = self.storage.borrow_capability(borrow) else {
-                self.record_infrastructure_failure(CheckerInfrastructureError::StorageFlow(
-                    crate::CheckerStorageFlowFailure::MissingBorrowCapability { borrow },
-                ));
-
-                return;
+                panic!(
+                    "A storage borrow identity has no retained capability. in report_escaping_storage_dependencies, borrow: {:?}",
+                    borrow
+                );
             };
 
             let Some(storage) = self.storage.root_identity(capability.access()) else {
@@ -49,13 +48,8 @@ where
                 continue;
             }
 
-            match self.borrow_reaches_external_storage(capability.access()) {
-                Ok(true) => continue,
-                Ok(false) => {}
-                Err(error) => {
-                    self.record_infrastructure_failure(error);
-                    return;
-                }
+            if self.borrow_reaches_external_storage(capability.access()) {
+                continue;
             }
 
             if self.owners.identity_scope(self.storage, storage) != Some(block)
@@ -69,30 +63,14 @@ where
             }
 
             let Some(exit_origin) = bound_node_origin(self.request, exit) else {
-                self.record_infrastructure_failure(CheckerInfrastructureError::StorageFlow(
-                    crate::CheckerStorageFlowFailure::MissingExitOrigin { exit: exit.into() },
-                ));
-
-                return;
+                panic!(
+                    "A control-flow exit has no retained source origin. in report_escaping_storage_dependencies, exit: {:?}",
+                    exit
+                );
             };
 
-            let primary = match self.request.source(exit_origin.source_anchor()) {
-                Ok(source) => source.span(),
-                Err(error) => {
-                    self.record_infrastructure_failure(error);
-
-                    return;
-                }
-            };
-
-            let dependency = match self.request.source(capability.source()) {
-                Ok(source) => source.span(),
-                Err(error) => {
-                    self.record_infrastructure_failure(error);
-
-                    return;
-                }
-            };
+            let primary = self.request.source(exit_origin.source_anchor()).span();
+            let dependency = self.request.source(capability.source()).span();
 
             self.diagnostics.add(escaping_storage_dependency_diagnostic(
                 diagnostic_id(self.diagnostics.len()),
@@ -107,7 +85,7 @@ where
         state: &StorageFlowState,
         expression: bray_bound_tree::BoundExpressionId,
     ) {
-        if !self.publish || self.infrastructure_failure.is_some() {
+        if !self.publish || self.query_failure.is_some() {
             return;
         }
 
@@ -120,11 +98,10 @@ where
             }
 
             let Some(capability) = self.storage.borrow_capability(borrow) else {
-                self.record_infrastructure_failure(CheckerInfrastructureError::StorageFlow(
-                    crate::CheckerStorageFlowFailure::MissingBorrowCapability { borrow },
-                ));
-
-                return;
+                panic!(
+                    "A storage borrow identity has no retained capability. in report_escaping_default_storage, borrow: {:?}",
+                    borrow
+                );
             };
 
             if capability.entry_binding().is_some()
@@ -147,13 +124,8 @@ where
                 continue;
             }
 
-            match self.borrow_reaches_external_storage(capability.access()) {
-                Ok(true) => continue,
-                Ok(false) => {}
-                Err(error) => {
-                    self.record_infrastructure_failure(error);
-                    return;
-                }
+            if self.borrow_reaches_external_storage(capability.access()) {
+                continue;
             }
 
             if !self.reported_diagnostics.insert((
@@ -163,16 +135,10 @@ where
                 continue;
             }
 
-            let diagnostic = (|| {
-                let origin = bound_node_origin(self.request, expression.into()).ok_or(
-                    CheckerInfrastructureError::StorageFlow(
-                        crate::CheckerStorageFlowFailure::MissingExitOrigin {
-                            exit: expression.into(),
-                        },
-                    ),
-                )?;
+            let diagnostic = {
+                let origin = bound_node_origin(self.request, expression.into()).unwrap_or_else(|| panic!("report_escaping_default_storage requires bound node source origin, expression: {expression:?}"));
 
-                let source = self.request.source(origin.source_anchor())?;
+                let source = self.request.source(origin.source_anchor());
 
                 let dependency = identity
                     .definition_node()
@@ -180,22 +146,16 @@ where
                     .map(|origin| origin.source_anchor())
                     .unwrap_or(capability.source());
 
-                let dependency = self.request.source(dependency)?;
+                let dependency = self.request.source(dependency);
 
-                Ok::<_, CheckerInfrastructureError>(escaping_storage_dependency_diagnostic(
+                escaping_storage_dependency_diagnostic(
                     diagnostic_id(self.diagnostics.len()),
                     source.span(),
                     dependency.span(),
-                ))
-            })();
+                )
+            };
 
-            match diagnostic {
-                Ok(diagnostic) => self.diagnostics.add(diagnostic),
-                Err(error) => {
-                    self.record_infrastructure_failure(error);
-                    return;
-                }
-            }
+            self.diagnostics.add(diagnostic);
         }
     }
 
@@ -217,31 +177,29 @@ where
     fn borrow_reaches_external_storage(
         &self,
         mut access: bray_bound_tree::StorageAccessId,
-    ) -> Result<bool, CheckerInfrastructureError> {
+    ) -> bool {
         loop {
             if self.projected_storage_borrow_kind(access).is_some() {
-                return Ok(true);
+                return true;
             }
 
             let record =
                 self.storage
-                    .access(access)
-                    .ok_or(CheckerInfrastructureError::StorageFlow(
-                        crate::CheckerStorageFlowFailure::MissingStorageAccess { access },
-                    ))?;
+                    .access(access).unwrap_or_else(|| panic!("borrow_reaches_external_storage requires planned storage access, access: {access:?}"));
 
             let Some(borrow) = record.root().borrow_capability() else {
-                return Ok(false);
+                return matches!(
+                    self.storage
+                        .root_identity(access)
+                        .and_then(|root| self.storage.identity(root)),
+                    Some(bray_bound_tree::StorageIdentity::Static(_))
+                );
             };
 
-            let capability = self.storage.borrow_capability(borrow).ok_or(
-                CheckerInfrastructureError::StorageFlow(
-                    crate::CheckerStorageFlowFailure::MissingBorrowCapability { borrow },
-                ),
-            )?;
+            let capability = self.storage.borrow_capability(borrow).unwrap_or_else(|| panic!("borrow_reaches_external_storage requires planned borrow capability, access: {access:?}, borrow: {borrow:?}"));
 
             if capability.entry_binding().is_some() {
-                return Ok(true);
+                return true;
             }
 
             access = capability.access();
@@ -268,11 +226,10 @@ where
         };
 
         let Some(block) = self.request.view().block(block) else {
-            self.record_infrastructure_failure(CheckerInfrastructureError::StorageFlow(
-                crate::CheckerStorageFlowFailure::MissingBlock { block },
-            ));
-
-            return false;
+            panic!(
+                "A control-flow transfer names a block absent from its source body. in exit_leaves_scope, block: {:?}",
+                block
+            );
         };
 
         target != block.origin().source_anchor().syntax()

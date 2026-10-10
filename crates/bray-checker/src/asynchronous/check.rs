@@ -24,8 +24,8 @@ use crate::analysis::{
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::unit::assert_unit_inputs;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerStorageFlowFailure, CheckerUnitView,
+    CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider,
+    CheckerUnitView,
 };
 
 #[expect(
@@ -63,9 +63,6 @@ where
     let graph = match build_storage_control_flow_graph(request, storage, selections, None) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
@@ -109,9 +106,6 @@ where
     let execution = match containing_execution(request).map_err(CheckerQueryError::with_upstream) {
         Ok(execution) => execution,
         Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         Err(CheckerQueryError::Upstream(error)) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
@@ -141,14 +135,14 @@ where
                     .expression()
                     .expect("checked suspension has an expression owner");
 
-                if let Err(error) = add_suspension_context_diagnostic(
-                    request,
-                    execution,
-                    expression,
-                    kind,
-                    &mut diagnostics,
-                ) {
-                    return CheckerOutcome::InfrastructureFailure(error);
+                {
+                    add_suspension_context_diagnostic(
+                        request,
+                        execution,
+                        expression,
+                        kind,
+                        &mut diagnostics,
+                    );
                 }
 
                 let (kind, dependency_contract, calls, syntax_recovered) = match kind {
@@ -163,7 +157,7 @@ where
 
                         let operand = await_expression.operand();
 
-                        let calls = match expression_deferred_calls(
+                        let calls = expression_deferred_calls(
                             request,
                             selections,
                             types,
@@ -171,12 +165,7 @@ where
                             operand,
                             &mut deferred_calls,
                             &mut active,
-                        ) {
-                            Ok(calls) => calls,
-                            Err(error) => {
-                                return CheckerOutcome::InfrastructureFailure(error);
-                            }
-                        };
+                        );
 
                         (
                             AsyncSuspensionKind::Await { operand },
@@ -213,7 +202,7 @@ where
 
                 let dependency_failure = match &kind {
                     AsyncSuspensionKind::Await { .. } | AsyncSuspensionKind::ScopedCall => {
-                        match await_dependency_failure(
+                        await_dependency_failure(
                             request,
                             dependencies,
                             storage,
@@ -222,24 +211,19 @@ where
                             dependency_contract,
                             suspension_state,
                             syntax_recovered,
-                        ) {
-                            Ok(failure) => failure,
-                            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-                        }
+                        )
                     }
                     AsyncSuspensionKind::Yield => None,
                 };
 
-                if let Some(failure) = dependency_failure.as_ref()
-                    && let Err(error) = add_unavailable_await_dependency_diagnostic(
+                if let Some(failure) = dependency_failure.as_ref() {
+                    add_unavailable_await_dependency_diagnostic(
                         request,
                         storage,
                         expression,
                         failure,
                         &mut diagnostics,
-                    )
-                {
-                    return CheckerOutcome::InfrastructureFailure(error);
+                    );
                 }
 
                 let suspension_recovered = syntax_recovered || suspension_state.is_none();
@@ -264,16 +248,14 @@ where
             AnalysisOperationKind::TaskOperation { expression, kind } => {
                 let operation = AsyncTaskOperation::new(expression, task_operation_kind(kind));
 
-                if task_operations.insert(expression, operation).is_none()
-                    && let Err(error) = add_task_context_diagnostic(
+                if task_operations.insert(expression, operation).is_none() {
+                    add_task_context_diagnostic(
                         request,
                         execution,
                         expression,
                         kind,
                         &mut diagnostics,
-                    )
-                {
-                    return CheckerOutcome::InfrastructureFailure(error);
+                    );
                 }
             }
             AnalysisOperationKind::Recovery(_) => is_recovered = true,
@@ -284,23 +266,20 @@ where
         }
     }
 
-    if let Err(error) = add_selected_task_operations(
-        request,
-        selections,
-        execution,
-        &mut task_operations,
-        &mut diagnostics,
-    ) {
-        return CheckerOutcome::InfrastructureFailure(error);
+    {
+        add_selected_task_operations(
+            request,
+            selections,
+            execution,
+            &mut task_operations,
+            &mut diagnostics,
+        );
     }
 
     let (storage_requirements, cleanup_types, scope_exits, replacements, cleanup_diagnostics) =
         match scope_exit_plans(request, storage, flow, dependencies, selections, types) {
             Ok(plans) => plans,
             Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Infrastructure(error)) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
             Err(CheckerQueryError::Upstream(error)) => {
                 return CheckerOutcome::UpstreamFailure(error);
             }
@@ -325,9 +304,10 @@ where
     {
         Ok(analysis) => analysis,
         Err(error) => {
-            return CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::StorageFlow(
-                CheckerStorageFlowFailure::AsyncConstruction(error),
-            ));
+            panic!(
+                "Durable async-analysis construction rejected an exact invariant. in check_async_analysis_with_graph, value0: {:?}",
+                error
+            );
         }
     };
 
@@ -340,8 +320,7 @@ fn add_selected_task_operations<C>(
     execution: Option<CallableExecution>,
     task_operations: &mut BTreeMap<BoundExpressionId, AsyncTaskOperation>,
     diagnostics: &mut DiagnosticBag,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
     for entry in selections.entries() {
@@ -362,11 +341,9 @@ where
                 entry.expression(),
                 analysis_kind,
                 diagnostics,
-            )?;
+            );
         }
     }
-
-    Ok(())
 }
 
 fn assert_inputs<C>(
@@ -460,17 +437,17 @@ fn expression_deferred_calls<C>(
     expression: BoundExpressionId,
     memoized: &mut BTreeMap<BoundExpressionId, BTreeSet<BodyBehaviorCall>>,
     active: &mut BTreeSet<BoundExpressionId>,
-) -> Result<BTreeSet<BodyBehaviorCall>, CheckerInfrastructureError>
+) -> BTreeSet<BodyBehaviorCall>
 where
     C: CheckerRequestContext + ?Sized,
 {
     if let Some(calls) = memoized.get(&expression) {
         // The cached set remains available while each caller combines an independent result.
-        return Ok(calls.clone());
+        return calls.clone();
     }
 
     if !active.insert(expression) {
-        return Ok(BTreeSet::new());
+        return BTreeSet::new();
     }
 
     let mut calls = BTreeSet::new();
@@ -513,7 +490,7 @@ where
                 *initializer,
                 memoized,
                 active,
-            )?);
+            ));
         }
 
         if let BoundExpression::PatternReference(reference) = node
@@ -528,7 +505,7 @@ where
                 *initializer,
                 memoized,
                 active,
-            )?);
+            ));
         }
 
         for child in node.child_expressions() {
@@ -540,7 +517,7 @@ where
                 child,
                 memoized,
                 active,
-            )?);
+            ));
         }
 
         for block in node.child_blocks() {
@@ -558,7 +535,7 @@ where
                     result,
                     memoized,
                     active,
-                )?);
+                ));
             }
         }
     }
@@ -568,7 +545,7 @@ where
     // The cached set remains available while this caller takes ownership of its result.
     memoized.insert(expression, calls.clone());
 
-    Ok(calls)
+    calls
 }
 
 fn is_future_expression<C>(
@@ -633,24 +610,21 @@ fn add_task_context_diagnostic<C>(
     expression: BoundExpressionId,
     kind: AnalysisTaskOperationKind,
     diagnostics: &mut DiagnosticBag,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
     if kind != AnalysisTaskOperationKind::Start || execution != Some(CallableExecution::Synchronous)
     {
-        return Ok(());
+        return;
     }
 
-    let span = expression_span(request, expression)?;
+    let span = expression_span(request, expression);
 
     diagnostics.add(invalid_async_operation_diagnostic(
         diagnostic_id(diagnostics.len()),
         DiagnosticKind::CheckingTaskStartOutsideAsyncCallable,
         span,
     ));
-
-    Ok(())
 }
 
 fn invalid_async_operation_diagnostic(
@@ -762,8 +736,7 @@ mod tests {
             expressions[0],
             AnalysisTaskOperationKind::Start,
             &mut diagnostics,
-        )
-        .unwrap_or_else(|error| panic!("test expression span must resolve: {error:?}"));
+        );
 
         assert_eq!(
             diagnostics
@@ -780,16 +753,9 @@ mod tests {
     }
 
     #[test]
-    fn non_recovered_await_without_an_inferred_dependency_contract_is_infrastructure_failure() {
-        let CheckerOutcome::InfrastructureFailure(crate::CheckerInfrastructureError::StorageFlow(
-            crate::CheckerStorageFlowFailure::MissingAwaitDependencyContract { expression },
-        )) = await_outcome(false, true)
-        else {
-            panic!("missing await dependencies must retain the exact expression")
-        };
-
-        assert_eq!(expression.unit(), BoundUnitId::new(72));
-        assert_eq!(expression.ordinal(), 1);
+    #[should_panic(expected = "selected dependency contract")]
+    fn non_recovered_await_requires_its_inferred_dependency_contract() {
+        await_outcome(false, true);
     }
 
     #[test]
@@ -1053,9 +1019,9 @@ fn add_suspension_context_diagnostic<C: CheckerRequestContext + ?Sized>(
     expression: BoundExpressionId,
     kind: AnalysisSuspensionKind,
     diagnostics: &mut DiagnosticBag,
-) -> Result<(), CheckerInfrastructureError> {
+) {
     if kind != AnalysisSuspensionKind::Yield && execution == Some(CallableExecution::Synchronous) {
-        let span = expression_span(request, expression)?;
+        let span = expression_span(request, expression);
 
         diagnostics.add(invalid_async_operation_diagnostic(
             diagnostic_id(diagnostics.len()),
@@ -1063,8 +1029,6 @@ fn add_suspension_context_diagnostic<C: CheckerRequestContext + ?Sized>(
             span,
         ));
     }
-
-    Ok(())
 }
 
 fn scoped_deferred_call(

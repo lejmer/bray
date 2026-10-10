@@ -40,15 +40,17 @@ trusted internal func unix_thread_entry(pos context: RawPointer<u8>) -> RawPoint
     return std.memory.null<u8>();
 }
 
-internal callable NativeThreadEntry = @abi(c) trusted func(pos context: RawPointer<u8>) -> RawPointer<u8>
-    requires(blocking_execution(), compute_execution());
-
 trusted internal func native_thread_entry() -> RawPointer<u8>
+    ensures(
+        trusted core.memory.callable_address_valid<std.os.unix.ThreadStartRoutine>(
+            pointer = trusted std.memory.reinterpret<std.os.unix.ThreadStartRoutine, u8>(result)
+        )
+    )
 {
-    let entry: NativeThreadEntry = unix_thread_entry;
-    let pointer: RawPointer<NativeThreadEntry> = trusted std.memory.pointer_from_callable(entry);
+    let entry: std.os.unix.ThreadStartRoutine = unix_thread_entry;
+    let pointer: RawPointer<std.os.unix.ThreadStartRoutine> = trusted std.memory.pointer_from_callable(entry);
 
-    return trusted std.memory.reinterpret<u8, NativeThreadEntry>(pointer);
+    return trusted std.memory.reinterpret<u8, std.os.unix.ThreadStartRoutine>(pointer);
 }
 
 @abi(c)
@@ -58,6 +60,76 @@ trusted internal func platform_thread_create(
     pos owner: RawPointer<u64>,
     pos native_error: RawPointer<i64>,
 ) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_write<u64>(pointer = owner, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = owner),
+        trusted core.memory.exclusive_alias_valid<u64>(pointer = owner),
+        trusted core.memory.epoch_current<u64>(pointer = owner),
+        trusted core.memory.synchronized_access<u64>(pointer = owner),
+        trusted core.memory.movement_stable<u64>(pointer = owner),
+        trusted core.memory.finalization_pending<u64>(pointer = owner),
+        trusted core.memory.valid_write<i64>(pointer = native_error, count = 1),
+        trusted core.memory.aligned_for<i64>(pointer = native_error),
+        trusted core.memory.exclusive_alias_valid<i64>(pointer = native_error),
+        trusted core.memory.epoch_current<i64>(pointer = native_error),
+        trusted core.memory.synchronized_access<i64>(pointer = native_error),
+        trusted core.memory.movement_stable<i64>(pointer = native_error),
+        trusted core.memory.finalization_pending<i64>(pointer = native_error),
+        trusted core.memory.callable_address_valid<std.os.unix.ThreadStartRoutine>(
+            pointer = trusted std.memory.reinterpret<std.os.unix.ThreadStartRoutine, u8>(entry)
+        ),
+    )
+{
+    let observed: (std.platform.PlatformStatus, u64, i64) = trusted internal prepare_thread_create(
+        entry,
+        context,
+        owner,
+        native_error,
+    );
+
+    if internal std.platform.successful_status(observed.0)
+    {
+        trusted std.memory.write<u64>(owner, observed.1);
+    }
+    else
+    {
+        trusted std.memory.write<i64>(native_error, observed.2);
+    }
+
+    return observed.0;
+}
+
+trusted internal func prepare_thread_create(
+    pos entry: RawPointer<u8>,
+    pos context: RawPointer<u8>,
+    pos owner: RawPointer<u64>,
+    pos native_error: RawPointer<i64>,
+) -> (std.platform.PlatformStatus, u64, i64)
+    requires(
+        trusted core.memory.valid_write<u64>(pointer = owner, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = owner),
+        trusted core.memory.exclusive_alias_valid<u64>(pointer = owner),
+        trusted core.memory.epoch_current<u64>(pointer = owner),
+        trusted core.memory.synchronized_access<u64>(pointer = owner),
+        trusted core.memory.movement_stable<u64>(pointer = owner),
+        trusted core.memory.finalization_pending<u64>(pointer = owner),
+        trusted core.memory.valid_write<i64>(pointer = native_error, count = 1),
+        trusted core.memory.aligned_for<i64>(pointer = native_error),
+        trusted core.memory.exclusive_alias_valid<i64>(pointer = native_error),
+        trusted core.memory.epoch_current<i64>(pointer = native_error),
+        trusted core.memory.synchronized_access<i64>(pointer = native_error),
+        trusted core.memory.movement_stable<i64>(pointer = native_error),
+        trusted core.memory.finalization_pending<i64>(pointer = native_error),
+        trusted core.memory.callable_address_valid<std.os.unix.ThreadStartRoutine>(
+            pointer = trusted std.memory.reinterpret<std.os.unix.ThreadStartRoutine, u8>(entry)
+        ),
+    )
+    ensures(
+        trusted core.memory.valid_write<u64>(pointer = owner, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = owner),
+        trusted core.memory.valid_write<i64>(pointer = native_error, count = 1),
+        trusted core.memory.aligned_for<i64>(pointer = native_error),
+    )
 {
     let entry_pointer: RawPointer<std.os.unix.ThreadStartRoutine> = trusted std.memory.reinterpret<
         std.os.unix.ThreadStartRoutine,
@@ -65,25 +137,21 @@ trusted internal func platform_thread_create(
     >(entry);
 
     let callback: std.os.unix.ThreadStartRoutine = trusted std.memory.callable_from_pointer(entry_pointer);
-    let mut thread: u64 = 0;
 
-    let status: i32 = trusted std.os.unix.pthread_create(
-        std.memory.address_of_mut<u64>(&mut thread),
+    let observed: (i32, u64) = trusted std.os.unix.pthread_create(
         attributes = std.memory.null<std.os.unix.PThreadAttribute>(),
         entry = callback,
         context = context,
     );
 
+    let status: i32 = observed.0;
+
     if status != 0
     {
-        trusted std.memory.write<i64>(native_error, status as i64);
-
-        return internal std.platform.unix_error_status_from(status);
+        return (internal std.platform.unix_error_status_from(status), 0, status as i64);
     }
 
-    trusted std.memory.write<u64>(owner, thread);
-
-    return internal std.platform.success_status();
+    return (internal std.platform.success_status(), observed.1, 0);
 }
 
 @abi(c)
@@ -118,6 +186,46 @@ trusted internal func platform_thread_storage_create(
     pos destructor: RawPointer<u8>,
     pos key: RawPointer<u64>,
 ) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.callable_address_valid<std.os.unix.ThreadStorageDestructor>(
+            pointer = trusted std.memory.reinterpret<std.os.unix.ThreadStorageDestructor, u8>(destructor)
+        ),
+        trusted core.memory.valid_write<u64>(pointer = key, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = key),
+    )
+{
+    let observed: Result<u64, std.platform.PlatformStatus> = trusted internal prepare_thread_storage_create(
+        destructor,
+        key,
+    );
+
+    match consume observed
+    {
+        case Ok(native_key)
+        {
+            trusted std.memory.write<u64>(key, native_key);
+
+            return internal std.platform.success_status();
+        }
+        case Error(status) { return status; }
+    }
+}
+
+trusted internal func prepare_thread_storage_create(
+    pos destructor: RawPointer<u8>,
+    pos key: RawPointer<u64>,
+) -> Result<u64, std.platform.PlatformStatus>
+    requires(
+        trusted core.memory.callable_address_valid<std.os.unix.ThreadStorageDestructor>(
+            pointer = trusted std.memory.reinterpret<std.os.unix.ThreadStorageDestructor, u8>(destructor)
+        ),
+        trusted core.memory.valid_write<u64>(pointer = key, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = key),
+    )
+    ensures(
+        trusted core.memory.valid_write<u64>(pointer = key, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = key),
+    )
 {
     let destructor_pointer: RawPointer<std.os.unix.ThreadStorageDestructor> = trusted std.memory.reinterpret<
         std.os.unix.ThreadStorageDestructor,
@@ -125,25 +233,35 @@ trusted internal func platform_thread_storage_create(
     >(destructor);
 
     let callback: std.os.unix.ThreadStorageDestructor = trusted std.memory.callable_from_pointer(destructor_pointer);
-    let status: i32 = trusted std.os.unix.pthread_key_create(key, destructor = callback);
+    let mut native_key: u64 = 0;
+
+    let status: i32 = trusted std.os.unix.pthread_key_create(
+        std.memory.address_of_mut<u64>(&mut native_key),
+        destructor = callback,
+    );
 
     if status != 0
     {
-        return internal std.platform.unix_error_status_from(status);
+        return Error(internal std.platform.unix_error_status_from(status));
     }
 
-    return internal std.platform.success_status();
+    return Ok(native_key);
 }
 
-@abi(c)
-trusted internal func platform_thread_storage_load(
+trusted internal func prepare_thread_storage_load(
     pos key: u64,
     pos value: RawPointer<RawPointer<u8>>,
-) -> std.platform.PlatformStatus
+) -> Result<RawPointer<u8>, std.platform.PlatformStatus>
+    requires(
+        trusted core.memory.valid_write<RawPointer<u8>>(pointer = value, count = 1),
+        trusted core.memory.aligned_for<RawPointer<u8>>(pointer = value),
+    )
+    ensures(
+        trusted core.memory.valid_write<RawPointer<u8>>(pointer = value, count = 1),
+        trusted core.memory.aligned_for<RawPointer<u8>>(pointer = value),
+    )
 {
-    trusted std.memory.write<RawPointer<u8>>(value, trusted std.os.unix.pthread_getspecific(key));
-
-    return internal std.platform.success_status();
+    return Ok(trusted std.os.unix.pthread_getspecific(key));
 }
 
 @abi(c)

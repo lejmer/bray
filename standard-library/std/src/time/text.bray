@@ -49,20 +49,50 @@ trusted internal func format_temporal_value(
 
     let mut buffer: std.memory.RawBuffer<u8> = try trusted temporal_text_buffer(required);
 
-    outcome = TEMPORAL_SUCCESS;
+    let formatted: (std.platform.PlatformStatus, u32, usize) = trusted fill_temporal_value(kind, value, &mut buffer);
 
-    let formatted: std.platform.PlatformStatus = trusted platform_time_format(
+    trusted std.memory.set_initialized_count<u8>(&mut buffer, count = formatted.2);
+
+    try checked_temporal_call(formatted.0, formatted.1);
+
+    return trusted temporal_text(buffer);
+}
+
+trusted internal func fill_temporal_value(
+    pos kind: u32,
+    pos value: PlatformTemporalValue,
+    pos buffer: &mut std.memory.RawBuffer<u8>,
+) -> (std.platform.PlatformStatus, u32, usize)
+    ensures(trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result.2))
+    uses(foreign_call)
+{
+    let initialized: usize = buffer.initialized;
+    let capacity: usize = buffer.capacity - initialized;
+    let mut written: u64 = 0;
+    let mut outcome: u32 = TEMPORAL_SUCCESS;
+
+    let status: std.platform.PlatformStatus = trusted platform_time_format(
         kind,
         value,
-        destination = std.memory.pointer<u8>(&buffer),
-        capacity = required,
-        written_or_required = std.memory.address_of_mut<u64>(&mut required),
+        destination = trusted std.memory.spare_pointer<u8>(buffer),
+        capacity = capacity as u64,
+        written_or_required = std.memory.address_of_mut<u64>(&mut written),
         outcome = std.memory.address_of_mut<u32>(&mut outcome),
     );
 
-    try checked_temporal_call(formatted, outcome);
+    if status.category != 0 || outcome != TEMPORAL_SUCCESS
+    {
+        return (status, outcome, initialized);
+    }
 
-    return trusted temporal_text(buffer, required);
+    let length: usize = written as usize;
+
+    if length as u64 != written || length > capacity
+    {
+        panic("the platform temporal output exceeds its storage");
+    }
+
+    return (status, outcome, initialized + length);
 }
 
 internal func checked_variable_text_measure(
@@ -101,20 +131,8 @@ trusted internal func temporal_text_buffer(pos required: u64) -> Result<std.memo
     }
 }
 
-trusted internal func temporal_text(
-    pos mut buffer: std.memory.RawBuffer<u8>,
-    pos written: u64,
-) -> Result<string, TimeError>
+trusted internal func temporal_text(pos buffer: std.memory.RawBuffer<u8>) -> Result<string, TimeError>
 {
-    let length: usize = written as usize;
-
-    if length as u64 != written || length > std.memory.capacity<u8>(&buffer)
-    {
-        return Error(TimeError.OutOfRange);
-    }
-
-    trusted std.memory.set_initialized_count<u8>(&mut buffer, count = length);
-
     let bytes: &[u8] = trusted std.memory.initialized_slice<u8>(&buffer);
 
     match string.from_utf8(bytes)

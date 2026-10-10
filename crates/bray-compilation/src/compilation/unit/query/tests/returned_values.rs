@@ -3,6 +3,84 @@ use bray_diagnostics::DiagnosticKind;
 use bray_testing::assert_goal_state_diagnostic_kind;
 
 #[test]
+fn returned_nullable_sequence_borrows_preserve_the_input_storage() {
+    for extent in ["", "; 1"] {
+        for borrow in ["", "mut "] {
+            let source = format!(
+                r#"
+                module app;
+
+                func element<T>(pos items: &{borrow}[(T?){extent}], index: usize) -> &{borrow}T
+                {{
+                    return match items[index]
+                    {{
+                        case ?value {{ yield &{borrow}value; }}
+                        case none {{ panic("empty slot"); }}
+                    }};
+                }}
+
+                func caller<T>(pos items: &{borrow}[(T?){extent}]) -> &{borrow}T
+                {{
+                    return element<T>(items, index = 0);
+                }}
+                "#
+            );
+
+            let compilation = compilation(&source);
+            let key = source_function_body_key(&compilation, "caller");
+
+            let flow = compilation
+                .storage_flow(key)
+                .expect("returned nullable element retains its caller-owned sequence");
+
+            assert!(flow.diagnostics().is_empty(), "{source}\n{flow:#?}");
+        }
+    }
+}
+
+#[test]
+fn returned_nullable_sequence_borrows_reject_local_storage() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        func element<T>(pos items: &[(T?); 1], index: usize) -> &T
+        {
+            return match items[index]
+            {
+                case ?value { yield &value; }
+                case none { panic("empty slot"); }
+            };
+        }
+
+        func bad(pos item: i32?) -> &i32
+        {
+            let items: [(i32?); 1] = [item];
+
+            return element<i32>(&items, index = 0);
+        }
+        "#,
+    );
+
+    let key = source_function_body_key(&compilation, "bad");
+
+    let types = compilation
+        .expression_types(key.clone())
+        .expect("local nullable sequence escape has valid expression types");
+
+    assert!(types.diagnostics().is_empty(), "{types:#?}");
+
+    let flow = compilation
+        .storage_flow(key)
+        .expect("local nullable sequence escape publishes its diagnostic");
+
+    assert_goal_state_diagnostic_kind(
+        flow.diagnostics(),
+        DiagnosticKind::CheckingEscapingStorageDependency,
+    );
+}
+
+#[test]
 fn returned_values_reject_local_storage_dependencies() {
     for source in [
         r#"
@@ -910,6 +988,67 @@ fn returned_values_preserve_caller_storage_and_owned_results() {
             !flow.diagnostics().has_errors(),
             "{source}: {:?}",
             flow.diagnostics()
+        );
+    }
+}
+
+#[test]
+fn returned_static_borrows_preserve_their_owner_through_calls() {
+    for (directive, exact_thread) in [("", false), ("@thread_local", true)] {
+        let source = format!(
+            r#"
+            module app;
+            struct Holder {{
+                value: u32;
+                func borrow() -> &Self {{ return &self; }}
+            }}
+            {directive} static STATE: Holder = {{ value = 7 }};
+            func projected() -> &u32 {{ return &STATE.borrow().value; }}
+            func forwarded() -> &u32 {{ return projected(); }}
+            "#,
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "{source}\n{diagnostics:#?}");
+
+        let callable = crate::test_support::source_function(&application, "forwarded");
+
+        let context = application
+            .binding_context(&application.state.cancellation)
+            .expect("static borrow binding context must build");
+
+        let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
+            &context,
+            bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(
+                callable.into(),
+            ),
+        )
+        .expect("static borrow must publish its retained owner");
+
+        let template = application
+            .semantic_value_store()
+            .expect("semantic values must exist")
+            .dependency_contract_template_data(*dependencies.value());
+
+        assert!(
+            template.requirements().iter().any(|requirement| {
+                let bray_symbols::DependencyRequirement::Direct { subject, .. } = requirement
+                else {
+                    return false;
+                };
+                matches!(
+                    subject.subject_root(),
+                    bray_symbols::DependencySubjectRoot::ExactThreadStatic(_)
+                ) == exact_thread
+                    && matches!(
+                        subject.subject_root(),
+                        bray_symbols::DependencySubjectRoot::ProductStatic(_)
+                            | bray_symbols::DependencySubjectRoot::ExactThreadStatic(_)
+                    )
+            }),
+            "{template:#?}"
         );
     }
 }

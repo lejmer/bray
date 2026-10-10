@@ -20,8 +20,8 @@ use crate::expression::{TemplateResolution, resolve_type_template};
 use crate::pattern::input::{PatternCheckInput, PatternConstantEvidence};
 use crate::unit::assert_unit_inputs;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerQueryResult,
-    CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
+    CheckerOutcome, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 pub(crate) fn check_patterns<C>(
@@ -97,9 +97,6 @@ pub(in crate::pattern) fn available_dependency<T, Upstream>(
     match result {
         Ok(value) => Ok(Some(value)),
         Err(CheckerQueryError::Cancelled) => Ok(None),
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            Err(CheckerQueryError::Infrastructure(error))
-        }
         Err(CheckerQueryError::Upstream(error)) => Err(CheckerQueryError::Upstream(error)),
     }
 }
@@ -107,7 +104,6 @@ pub(in crate::pattern) fn available_dependency<T, Upstream>(
 fn query_outcome<T, Upstream>(error: CheckerQueryError<Upstream>) -> CheckerOutcome<T, Upstream> {
     match error {
         CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-        CheckerQueryError::Infrastructure(error) => CheckerOutcome::InfrastructureFailure(error),
         CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
@@ -158,8 +154,7 @@ where
 
         let error_type = request
             .semantic_values()
-            .intern_type(TypeData::Error)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            .intern_type(TypeData::Error).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in new: {error:?}"));
 
         let subject_types = input
             .subject_types()

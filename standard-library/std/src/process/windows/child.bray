@@ -19,18 +19,28 @@ internal struct WindowsSpawnStorage
 }
 
 trusted internal func platform_child_spawn(
-    pos executable: PlatformNativeText,
-    pos arguments: &[PlatformNativeText],
+    pos executable: (&[u8]),
+    pos arguments: &[(&[u8])],
     pos environment: &[PlatformEnvironmentEntry],
     pos child: RawPointer<u64>,
     pos standard_input: RawPointer<u64>,
     pos standard_output: RawPointer<u64>,
     pos standard_error: RawPointer<u64>,
-    working_directory: PlatformNativeText,
+    working_directory: (&[u8]),
     standard_input_policy: u32,
     standard_output_policy: u32,
     standard_error_policy: u32,
 ) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_write<u64>(pointer = child, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = child),
+        trusted core.memory.valid_write<u64>(pointer = standard_input, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = standard_input),
+        trusted core.memory.valid_write<u64>(pointer = standard_output, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = standard_output),
+        trusted core.memory.valid_write<u64>(pointer = standard_error, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = standard_error),
+    )
     uses(foreign_call)
 {
     trusted std.memory.write<u64>(child, value = 0);
@@ -56,13 +66,13 @@ trusted internal func platform_child_spawn(
     );
 
     trusted internal write_windows_u32(
-        security_pointer,
+        &mut security[..],
         offset = std.os.windows.SECURITY_ATTRIBUTES_LENGTH_OFFSET,
         value = std.truncate_to<u32>(std.os.windows.SECURITY_ATTRIBUTES_SIZE),
     );
 
     trusted internal write_windows_u32(
-        security_pointer,
+        &mut security[..],
         offset = std.os.windows.SECURITY_ATTRIBUTES_INHERIT_OFFSET,
         value = 1,
     );
@@ -186,37 +196,37 @@ trusted internal func platform_child_spawn(
     );
 
     trusted internal write_windows_u32(
-        startup_pointer,
+        &mut startup[..],
         offset = 0,
         value = std.truncate_to<u32>(std.os.windows.STARTUP_INFO_SIZE),
     );
 
     trusted internal write_windows_u32(
-        startup_pointer,
+        &mut startup[..],
         offset = std.os.windows.STARTUP_INFO_FLAGS_OFFSET,
         value = std.os.windows.STARTF_USESTDHANDLES,
     );
 
     trusted internal write_windows_pointer(
-        startup_pointer,
+        &mut startup[..],
         offset = std.os.windows.STARTUP_INFO_INPUT_OFFSET,
         value = input.child,
     );
 
     trusted internal write_windows_pointer(
-        startup_pointer,
+        &mut startup[..],
         offset = std.os.windows.STARTUP_INFO_OUTPUT_OFFSET,
         value = output.child,
     );
 
     trusted internal write_windows_pointer(
-        startup_pointer,
+        &mut startup[..],
         offset = std.os.windows.STARTUP_INFO_ERROR_OFFSET,
         value = error.child,
     );
 
     trusted internal write_windows_pointer(
-        startup_pointer,
+        &mut startup[..],
         offset = std.os.windows.STARTUP_INFO_ATTRIBUTE_LIST_OFFSET,
         value = attributes_pointer,
     );
@@ -258,12 +268,12 @@ trusted internal func platform_child_spawn(
     }
 
     let process_handle: RawPointer<u8> = trusted internal read_windows_pointer(
-        process_information_pointer,
+        &process_information[..],
         offset = std.os.windows.PROCESS_INFORMATION_PROCESS_OFFSET,
     );
 
     let thread_handle: RawPointer<u8> = trusted internal read_windows_pointer(
-        process_information_pointer,
+        &process_information[..],
         offset = std.os.windows.PROCESS_INFORMATION_THREAD_OFFSET,
     );
 

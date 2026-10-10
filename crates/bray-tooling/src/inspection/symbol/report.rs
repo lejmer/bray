@@ -55,7 +55,9 @@ pub(crate) fn render_symbol_inspection(
     compilation: &Compilation,
     output_format: OutputFormat,
 ) -> Result<InspectionOutput, SymbolInspectionRenderError> {
-    let declaration_result = compilation.declaration_table_result();
+    let source_graph = compilation
+        .product_source_graph()
+        .map_err(SymbolInspectionRenderError::Evaluation)?;
 
     let symbols = compilation
         .symbol_graph()
@@ -64,11 +66,11 @@ pub(crate) fn render_symbol_inspection(
     let diagnostics = compilation
         .syntax_tree_result()
         .diagnostics()
-        .merged(declaration_result.diagnostics());
+        .merged(source_graph.diagnostics());
 
     let (report, diagnostics) = SymbolInspectionReport::from_compilation(
         compilation,
-        declaration_result.table(),
+        source_graph.declarations(),
         symbols,
         diagnostics,
     )?;
@@ -759,6 +761,31 @@ mod tests {
             Some("func() -> T")
         );
 
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn json_inspection_uses_selected_declaration_identities() {
+        let compilation = compilation([
+            "@target(false) module example; internal struct Disabled {}",
+            "module example; trait Enabled {}",
+        ]);
+
+        let output = render_symbol_inspection(&compilation, OutputFormat::Json)
+            .expect("selected symbol inspection must render");
+
+        let (json, diagnostics) = output.into_parts();
+
+        let value: Value = serde_json::from_str(&json).expect("inspection JSON must parse");
+        let enabled = find_symbol(&value, "trait", Some("Enabled"));
+
+        let origins = enabled["declaration_origins"]
+            .as_array()
+            .expect("enabled trait must retain its origin");
+
+        assert_eq!(origins[0]["source_id"], 1);
+        assert_eq!(origins[0]["syntax_kind"], "trait_declaration");
+        assert_eq!(enabled["modifiers"], serde_json::json!([]));
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 

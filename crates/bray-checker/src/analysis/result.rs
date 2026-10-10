@@ -68,9 +68,6 @@ where
             diagnostics
         }
         CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        CheckerOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         CheckerOutcome::UpstreamFailure(error) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
@@ -82,9 +79,6 @@ where
         }
         Ok(expected) => expected,
         Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(crate::CheckerQueryError::Infrastructure(error)) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         Err(crate::CheckerQueryError::Upstream(error)) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
@@ -157,9 +151,6 @@ where
         ) {
             ControlFlowGraphBuildOutcome::Complete(graph) => graph,
             ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-            ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
             ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
                 return CheckerOutcome::UpstreamFailure(error);
             }
@@ -195,9 +186,6 @@ where
                 semantics
             }
             CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
-            CheckerOutcome::InfrastructureFailure(error) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
             CheckerOutcome::UpstreamFailure(error) => {
                 return CheckerOutcome::UpstreamFailure(error);
             }

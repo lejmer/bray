@@ -103,7 +103,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                             .or_insert((callable, result, evidence));
                     }
 
-                    state.invalidate_cleanup();
+                    if !self.domain.cleanup_preserves_inputs(&state, access) {
+                        state.invalidate_cleanup(None);
+                    }
                 }
 
                 self.domain.operation(&mut state, operation.kind());
@@ -117,6 +119,41 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                 let occurrence = operation.kind().occurrence();
 
                 if let Some(evidence) = state.entries.remove(&occurrence) {
+                    if let Some(contract) = self
+                        .domain
+                        .request
+                        .trusted_contracts()
+                        .and_then(|contracts| contracts.calls.get(&occurrence))
+                        && contract.preserves_inputs
+                        && evidence.proves(&contract.preconditions)
+                        && (evidence.trusted_boundary
+                            || self
+                                .domain
+                                .trusted_requirements_proven(&evidence, &contract.requirements))
+                    {
+                        let target = match self.domain.semantics.selections().expression(
+                            occurrence
+                                .expression()
+                                .expect("selected call has an expression"),
+                        ) {
+                            Some(bray_bound_tree::SemanticSelection::Call(call)) => call.target(),
+                            Some(bray_bound_tree::SemanticSelection::ScopedUse(scoped)) => {
+                                bray_bound_tree::BoundCallableTarget::Declaration(
+                                    scoped.invocation(occurrence).0,
+                                )
+                            }
+                            _ => panic!("preserving invocation retains its selected callable"),
+                        };
+
+                        candidate.dependencies.push(
+                            crate::execution_guarantees::ExecutionDependency {
+                                target,
+                                property: crate::execution_guarantees::ExecutionProperty::Pure,
+                                occurrence,
+                            },
+                        );
+                    }
+
                     candidate.calls.entry(occurrence).or_insert(evidence);
                 }
             }
@@ -249,6 +286,44 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(super) fn cleanup_preserves_inputs(
+        &self,
+        state: &ExecutionState,
+        access: StorageAccessId,
+    ) -> bool {
+        let ty = self
+            .storage
+            .access(access)
+            .expect("cleanup retains its checked storage access")
+            .reached_type();
+
+        if crate::representation::type_representation(self.request, ty)
+            != Some(bray_compiler_known::RepresentationRole::String)
+        {
+            return false;
+        }
+
+        let value = ExecutionPlace::storage(self.storage, access)
+            .and_then(|place| place.value_in(&state.current))
+            .or_else(|| {
+                let node = self
+                    .storage
+                    .identity(self.storage.root_identity(access)?)?
+                    .definition_node()?;
+
+                let AnyBoundNodeId::Expression(expression) = node else {
+                    return None;
+                };
+
+                Some(self.value(state, expression))
+            });
+
+        // Materialized string constants have static backing and no reference-counted owner.
+        // Disposing their local representation cannot execute storage release or user cleanup.
+        matches!(value, Some(ExecutionCondition::Literal(value))
+            if matches!(value.kind(), bray_symbols::ConstantValueKind::String(_)))
+    }
+
     pub(super) fn call_entry(
         &self,
         state: &ExecutionState,
@@ -261,7 +336,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let selection = self.semantics.selections().expression(expression)?;
 
         if let bray_bound_tree::SemanticSelection::ScopedUse(scoped) = selection {
-            let (input, value) = match invocation {
+            let (input, value, consumes) = match invocation {
                 bray_bound_tree::BoundExecutionSite::ScopedEnter(_) => (
                     scoped
                         .enter()
@@ -271,13 +346,41 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .parameter()
                         .into(),
                     self.value(state, scoped.initializer()),
+                    scoped.enter().1.receiver().is_some_and(|receiver| {
+                        matches!(
+                            receiver.mode(),
+                            bray_symbols::ReceiverMode::Consuming
+                                | bray_symbols::ReceiverMode::ConsumingMutable
+                        )
+                    }),
                 ),
                 bray_bound_tree::BoundExecutionSite::ScopedExit(_) => (
                     scoped.exit().1.parameters()[0].parameter().into(),
                     ExecutionCondition::ScopedCapability(expression),
+                    !matches!(
+                        self.request
+                            .semantic_values()
+                            .type_data(scoped.capability_type())
+                            .as_ref(),
+                        TypeData::Borrow { .. }
+                    ),
                 ),
                 bray_bound_tree::BoundExecutionSite::Node(_) => return None,
             };
+
+            let input = crate::ExecutionPlace::from(BoundReferenceTarget::Surface(input));
+            let ordinal = crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
+
+            let transferred = if consumes {
+                BTreeSet::from([input.clone(), ordinal.clone()])
+            } else {
+                BTreeSet::new()
+            };
+
+            let arguments = BTreeMap::from([(input, value.clone()), (ordinal, value)]);
+
+            let trusted_assumptions =
+                self.call_trusted_assumptions(state, invocation, &arguments, &transferred);
 
             return Some(crate::ExecutionCallEvidence {
                 trusted_boundary: !state.trust_boundaries.is_empty(),
@@ -285,18 +388,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     scoped.invocation(invocation).2,
                     bray_bound_tree::BoundCallResult::LazyFuture(_)
                 ),
-                arguments: BTreeMap::from([
-                    (
-                        crate::ExecutionPlace::from(BoundReferenceTarget::Surface(input)),
-                        value.clone(),
-                    ),
-                    (
-                        crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)),
-                        value,
-                    ),
-                ]),
+                arguments,
                 assumptions: state.assumptions.clone(),
-                trusted_assumptions: state.trusted_assumptions.clone(),
+                trusted_assumptions,
             });
         }
 
@@ -321,11 +415,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     })
                     .collect(),
                 assumptions: state.assumptions.clone(),
-                trusted_assumptions: state.trusted_assumptions.clone(),
+                trusted_assumptions: state.call_trusted_assumptions([]),
             });
         };
 
         let mut arguments = BTreeMap::new();
+        let mut transferred = BTreeSet::new();
 
         for argument in call.arguments() {
             if let bray_bound_tree::SelectedArgument::Explicit {
@@ -361,32 +456,59 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .checked_add(u32::from(call.receiver().is_some()))
                     .expect("selected call argument ordinal must fit receiver-first order");
 
-                arguments.insert(
-                    crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal)),
-                    value,
-                );
+                let ordinal =
+                    crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal));
+
+                if !matches!(
+                    self.request
+                        .semantic_values()
+                        .type_data(conversion.target_type())
+                        .as_ref(),
+                    TypeData::Borrow { .. }
+                ) {
+                    if let Some(parameter) = parameter {
+                        transferred
+                            .insert(BoundReferenceTarget::Surface((*parameter).into()).into());
+                    }
+
+                    transferred.insert(ordinal.clone());
+                }
+
+                arguments.insert(ordinal, value);
             }
         }
 
         if let Some(receiver) = call.receiver() {
-            arguments.insert(
-                BoundReferenceTarget::Surface(receiver.parameter().into()).into(),
-                self.value(state, receiver.expression()),
-            );
+            let reference = crate::ExecutionPlace::from(BoundReferenceTarget::Surface(
+                receiver.parameter().into(),
+            ));
 
-            arguments.insert(
-                crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)),
-                self.value(state, receiver.expression()),
-            );
+            let ordinal = crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
+            let value = self.value(state, receiver.expression());
+
+            if matches!(
+                receiver.mode(),
+                bray_symbols::ReceiverMode::Consuming
+                    | bray_symbols::ReceiverMode::ConsumingMutable
+            ) {
+                transferred.insert(reference.clone());
+                transferred.insert(ordinal.clone());
+            }
+
+            arguments.insert(reference, value.clone());
+            arguments.insert(ordinal, value);
         }
 
         // Call evidence retains the immutable entry conditions independently of subsequent mutation.
+        let trusted_assumptions =
+            self.call_trusted_assumptions(state, invocation, &arguments, &transferred);
+
         let mut evidence = crate::ExecutionCallEvidence {
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: false,
             arguments,
             assumptions: state.assumptions.clone(),
-            trusted_assumptions: state.trusted_assumptions.clone(),
+            trusted_assumptions,
         };
 
         if call.implementation_hook()

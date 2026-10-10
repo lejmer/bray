@@ -131,6 +131,11 @@ where
             Some(SemanticSelection::Call(selection)) => {
                 selection.evaluates_defaults()
                     || (hook_may_panic
+                        && !selection
+                            .phase_behaviors()
+                            .invocation()
+                            .execution_properties()
+                            .contains(&bray_symbols::ExecutionProperty::Total)
                         && selection.abi() == CallableAbi::Bray
                         && matches!(
                             selection.resolution().result(),
@@ -175,6 +180,7 @@ const fn implementation_hook_may_propagate_synchronous_panic(
             ImplementationHook::NativeThreadStart
                 | ImplementationHook::BranchingInlineAssembly
                 | ImplementationHook::RawAllocate
+                | ImplementationHook::RawBufferAllocate
                 | ImplementationHook::RawDeallocate
                 | ImplementationHook::Allocate
                 | ImplementationHook::Deallocate
@@ -202,6 +208,7 @@ mod tests {
 
         for hook in [
             ImplementationHook::RawAllocate,
+            ImplementationHook::RawBufferAllocate,
             ImplementationHook::RawDeallocate,
             ImplementationHook::Allocate,
             ImplementationHook::Deallocate,

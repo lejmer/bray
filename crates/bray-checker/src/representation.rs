@@ -7,9 +7,7 @@ use bray_symbols::{
     TypeData, TypeId, UnionSymbolId,
 };
 
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 pub(crate) fn type_supports_complete_fixed_layout<C>(
     request: CheckerUnitView<'_, C>,
@@ -44,8 +42,7 @@ where
                         request.semantic_values(),
                         RepresentationRole::Uninit,
                         ty,
-                    )
-                    .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+                    ).unwrap_or_else(|| panic!("type_supports_complete_fixed_layout_inner requires compiler-known unary type argument, ty: {ty:?}"));
 
                 type_supports_complete_fixed_layout_inner(request, element, pending)?
             }
@@ -158,17 +155,14 @@ pub(crate) fn type_representation_for_values(
 pub(crate) fn representation_type<C>(
     request: CheckerUnitView<'_, C>,
     role: RepresentationRole,
-) -> Result<TypeId, CheckerInfrastructureError>
+) -> TypeId
 where
     C: CheckerRequestContext + ?Sized,
 {
     representation_type_for_context(request.context(), role)
 }
 
-pub(crate) fn representation_type_for_context<C>(
-    request: &C,
-    role: RepresentationRole,
-) -> Result<TypeId, CheckerInfrastructureError>
+pub(crate) fn representation_type_for_context<C>(request: &C, role: RepresentationRole) -> TypeId
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -176,7 +170,10 @@ where
         .available_compiler_known_symbols()
         .representation_symbol::<StructSymbolId>(role)
     else {
-        return Err(CheckerInfrastructureError::CompilerKnownRepresentationUnavailable { role });
+        panic!(
+            "A required compiler-known representation is unavailable for the selected target. in representation_type_for_context, role: {:?}",
+            role
+        );
     };
 
     intern_named_type(
@@ -189,7 +186,7 @@ pub(crate) fn representation_union_type<C>(
     request: CheckerUnitView<'_, C>,
     role: RepresentationRole,
     arguments: impl IntoIterator<Item = TypeId>,
-) -> Result<TypeId, CheckerInfrastructureError>
+) -> TypeId
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -197,16 +194,23 @@ where
         .available_compiler_known_symbols()
         .representation_symbol::<UnionSymbolId>(role)
     else {
-        return Err(CheckerInfrastructureError::CompilerKnownRepresentationUnavailable { role });
+        panic!(
+            "A required compiler-known representation is unavailable for the selected target. in representation_union_type, role: {:?}",
+            role
+        );
     };
 
     let Some(symbol) = SymbolProvider::<UnionSymbolId>::symbol(request.symbols(), definition)
     else {
-        return Err(CheckerInfrastructureError::SemanticValueUnavailable);
+        panic!(
+            "Canonical semantic value construction or lookup failed without an available store cause. in representation_union_type"
+        );
     };
 
     if !symbol.generic_const_parameters().is_empty() {
-        return Err(CheckerInfrastructureError::SemanticValueUnavailable);
+        panic!(
+            "Canonical semantic value construction or lookup failed without an available store cause. in representation_union_type"
+        );
     }
 
     let parameters = symbol
@@ -218,30 +222,29 @@ where
     let arguments = arguments.into_iter().map(GenericArgument::Type);
 
     let Some(owner) = GenericOwnerId::try_new(definition.into()) else {
-        return Err(CheckerInfrastructureError::SemanticValueUnavailable);
+        panic!(
+            "Canonical semantic value construction or lookup failed without an available store cause. in representation_union_type"
+        );
     };
 
-    let substitution = GenericSubstitutionData::try_new(owner, parameters, arguments)
-        .map_err(CheckerInfrastructureError::GenericSubstitution)?;
+    let substitution = GenericSubstitutionData::try_new(owner, parameters, arguments).unwrap_or_else(|error| panic!("Generic substitution construction rejected an exact parameter-to-argument relationship. in representation_union_type: {error:?}"));
 
     let substitution = request
         .semantic_values()
-        .intern_generic_substitution(substitution)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .intern_generic_substitution(substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in representation_union_type: {error:?}"));
 
     request
         .semantic_values()
         .intern_type(TypeData::Named {
             definition: NamedTypeSymbolId::Union(definition),
             substitution,
-        })
-        .map_err(CheckerInfrastructureError::SemanticValueStore)
+        }).unwrap_or_else(|error| panic!("representation_union_type must satisfy its checked construction contract: {error:?}"))
 }
 
 pub(crate) fn named_type<C>(
     request: CheckerUnitView<'_, C>,
     definition: NamedTypeSymbolId,
-) -> Result<TypeId, CheckerInfrastructureError>
+) -> TypeId
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -251,8 +254,10 @@ where
 pub(crate) fn intern_named_type(
     values: &SemanticValueStore,
     definition: NamedTypeSymbolId,
-) -> Result<TypeId, CheckerInfrastructureError> {
+) -> TypeId {
     values
         .intern_non_generic_named_type(definition)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)
+        .unwrap_or_else(|error| {
+            panic!("intern_named_type must satisfy its checked construction contract: {error:?}")
+        })
 }

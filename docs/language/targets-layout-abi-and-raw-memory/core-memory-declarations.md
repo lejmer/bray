@@ -90,6 +90,7 @@ trusted func callable_from_pointer<F>(pos pointer: RawPointer<F>) -> F
     uses(layout_reinterpret);
 
 trusted func pointer_from_callable<F>(pos value: F) -> RawPointer<F>
+    ensures(trusted core.memory.callable_address_valid<F>(pointer = result))
     uses(layout_reinterpret);
 ```
 

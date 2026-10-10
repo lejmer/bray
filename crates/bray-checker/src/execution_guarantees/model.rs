@@ -221,12 +221,18 @@ impl ExecutionCallEvidence {
         conditions: &[super::ExecutionCondition],
         assumptions: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
     ) -> bool {
+        if conditions.is_empty() {
+            return true;
+        }
+
         let equalities = super::ExecutionCondition::equalities(&self.assumptions, None);
 
         let known = assumptions
             .iter()
             .map(|(condition, value)| (condition.with_equalities(&equalities), *value))
             .collect();
+
+        let known = super::trusted_condition_closure(known, &self.assumptions);
 
         conditions.iter().all(|condition| {
             let condition = condition.substitute(
@@ -241,7 +247,9 @@ impl ExecutionCallEvidence {
 
             let condition = condition.with_equalities(&equalities);
 
-            condition.prove_trusted(&known, &self.assumptions) == Some(true)
+            condition.prove_mixed(&known, &self.assumptions, &mut {
+                super::ExecutionCondition::WORK_LIMIT
+            }) == Some(true)
         })
     }
 }

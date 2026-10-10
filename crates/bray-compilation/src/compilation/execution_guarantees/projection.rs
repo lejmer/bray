@@ -36,29 +36,41 @@ impl Compilation {
             hook.is_available()
                 && matches!(
                     hook.hook(),
-                    bray_compiler_known::ImplementationHook::UninitPointer
+                    bray_compiler_known::ImplementationHook::SequenceLength
+                        | bray_compiler_known::ImplementationHook::ByteBufferRead
+                        | bray_compiler_known::ImplementationHook::SequenceIsEmpty
+                        | bray_compiler_known::ImplementationHook::AddressOf
+                        | bray_compiler_known::ImplementationHook::AddressOfMut
+                        | bray_compiler_known::ImplementationHook::UninitPointer
                         | bray_compiler_known::ImplementationHook::UninitPointerMut
                         | bray_compiler_known::ImplementationHook::BorrowFrom
                         | bray_compiler_known::ImplementationHook::BorrowMutFrom
+                        | bray_compiler_known::ImplementationHook::RawBufferInitializedSlice
+                        | bray_compiler_known::ImplementationHook::RawBufferInitializedSliceMut
                 )
         }))
     }
 
-    pub(super) fn synthetic_heap_projection_obligation(
+    pub(super) fn intrinsic_projection_obligation(
         &self,
         callable: CallableInstanceData,
         obligation: ExecutionObligation,
-    ) -> bool {
+        cancellation: &crate::fact::CancellationToken,
+    ) -> Result<bool, crate::fact::FactQueryError> {
         if !matches!(
             obligation,
             ExecutionObligation::Property(ExecutionProperty::Pure | ExecutionProperty::Total, None)
         ) {
-            return false;
+            return Ok(false);
+        }
+
+        if self.intrinsic_projection_symbol(callable.definition().symbol(), cancellation)? {
+            return Ok(true);
         }
 
         // These catalog identities select compiler-emitted heap projections. Source storage
         // implementations retain ordinary callable proof dependencies.
-        ["HeapStorageBorrow", "HeapStorageBorrowMut"]
+        Ok(["HeapStorageBorrow", "HeapStorageBorrowMut"]
             .into_iter()
             .any(|name| {
                 CompilerKnownDeclarationKey::try_new(name)
@@ -67,6 +79,6 @@ impl Compilation {
                             .declaration_symbol::<TraitCallableFulfillmentSymbolId>(&key)
                     })
                     .is_some_and(|symbol| callable.definition().symbol() == symbol.into())
-            })
+            }))
     }
 }

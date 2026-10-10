@@ -25,7 +25,9 @@ struct Once<T>
     {
         if core.atomic.load<u32, 1>(&self.state) == ONCE_INITIALIZED
         {
-            trusted std.memory.destroy_initialized<T>(&mut self.storage);
+            let storage: &mut Uninit<T> = trusted internal once_initialized_slot<T>(&mut self);
+
+            trusted std.memory.destroy_initialized<T>(storage);
         }
     }
 
@@ -92,7 +94,7 @@ struct OnceAttempt<T>
             panic("Once initialization reentered");
         }
 
-        let storage_pointer: RawPointer<Uninit<T>> = std.memory.address_of<Uninit<T>>(&self.once.storage);
+        let storage_pointer: RawPointer<Uninit<T>> = trusted internal once_attempt_pointer<T>(&mut self);
 
         let storage: &mut Uninit<T> = trusted std.memory.borrow_mut_from<Uninit<T>, OnceAttempt<T>>(
             &mut self,
@@ -187,9 +189,63 @@ internal func once_thread_identity() -> usize
 
 trusted internal func initialized_once_value<T>(pos once: &Once<T>) -> &T
 {
-    let pointer: RawPointer<T> = std.memory.uninit_pointer<T>(&once.storage);
+    let pointer: RawPointer<T> = trusted internal once_value_pointer<T>(once);
 
     return trusted std.memory.borrow_from<T, Once<T>>(once, pointer);
+}
+
+trusted internal func once_value_pointer<T>(pos once: &Once<T>) -> RawPointer<T>
+    ensures(
+        trusted core.memory.valid_read<T>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = result),
+        trusted core.memory.initialized_as<T>(pointer = result),
+        trusted core.memory.shared_alias_valid<T>(pointer = result),
+        trusted core.memory.epoch_current<T>(pointer = result),
+        trusted core.memory.synchronized_access<T>(pointer = result),
+        trusted core.memory.movement_stable<T>(pointer = result),
+        trusted core.memory.finalization_pending<T>(pointer = result),
+    )
+{
+    if core.atomic.load<u32, 1>(&once.state) != ONCE_INITIALIZED
+    {
+        panic("Once storage is not initialized");
+    }
+
+    return std.memory.uninit_pointer<T>(&once.storage);
+}
+
+trusted internal func once_attempt_pointer<T>(pos attempt: &mut OnceAttempt<T>) -> RawPointer<Uninit<T>>
+    ensures(
+        trusted core.memory.valid_write<Uninit<T>>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<Uninit<T>>(pointer = result),
+        trusted core.memory.initialized_as<Uninit<T>>(pointer = result),
+        trusted core.memory.exclusive_alias_valid<Uninit<T>>(pointer = result),
+        trusted core.memory.epoch_current<Uninit<T>>(pointer = result),
+        trusted core.memory.synchronized_access<Uninit<T>>(pointer = result),
+        trusted core.memory.movement_stable<Uninit<T>>(pointer = result),
+        trusted core.memory.finalization_pending<Uninit<T>>(pointer = result),
+    )
+{
+    if !attempt.active || core.atomic.load<u32, 1>(&attempt.once.state) != ONCE_INITIALIZING || core.atomic.load<
+        usize,
+        0
+    >(&attempt.once.owner) != internal once_thread_identity()
+    {
+        panic("Once initialization attempt is not active on this thread");
+    }
+
+    return std.memory.address_of<Uninit<T>>(&attempt.once.storage);
+}
+
+trusted internal func once_initialized_slot<T>(pos once: &mut Once<T>) -> &mut Uninit<T>
+    ensures(trusted core.memory.uninit_initialized<T>(storage = &result))
+{
+    if core.atomic.load<u32, 1>(&once.state) != ONCE_INITIALIZED
+    {
+        panic("Once storage is not initialized");
+    }
+
+    return &mut once.storage;
 }
 
 internal const func empty_once<T>() -> Once<T>

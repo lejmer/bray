@@ -128,14 +128,22 @@ pub(in crate::compilation::binder::symbol) fn checked_catalog_predicates(
     ))
     .map_err(super::super::binding::binder_error)?;
 
-    let ((types, selections, literals), diagnostics) = checked.into_parts();
+    let ((types, selections, literals), mut diagnostics) = checked.into_parts();
 
     let semantics = CheckedExpressionSemantics::try_new(types, selections, literals)
         .expect("catalog expression semantics must describe the supplied unit");
 
-    let normalized =
-        bray_checker::predicate_conditions(bound, &semantics, context.semantic_values())
-            .map_err(BindingQueryError::SemanticValue)?;
+    let constants = compilation
+        .execution_constant_inputs(bound, &semantics, context.cancellation, &mut diagnostics)
+        .map_err(super::super::binding::binder_error)?;
+
+    let normalized = bray_checker::predicate_conditions_with_inputs(
+        bound,
+        &semantics,
+        context.semantic_values(),
+        &constants,
+    )
+    .map_err(BindingQueryError::SemanticValue)?;
 
     let inputs = compilation
         .execution_callable_inputs(owner, context.cancellation)

@@ -12,8 +12,8 @@ use bray_symbols::{
 use bray_target::TargetProfile;
 
 use crate::{
-    CheckerInfrastructureError, CheckerQueryResult, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerSource, ImplementationHookResolution, SemanticUnitContext,
+    CheckerQueryResult, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerSource,
+    ImplementationHookResolution, SemanticUnitContext,
 };
 
 /// A read-only view of one bound unit for focused checker services.
@@ -26,7 +26,8 @@ where
     context: &'view C,
     source_snapshot: Option<&'view bray_source::SourceSnapshot>,
     trusted_contracts: Option<&'view crate::TrustedContractInputs>,
-    trusted_memory_evidence: Option<&'view std::collections::BTreeSet<BoundExpressionId>>,
+    // Proven sites map to whether a raw copy is known to have an empty extent.
+    trusted_memory_evidence: Option<&'view std::collections::BTreeMap<BoundExpressionId, bool>>,
 }
 
 impl<C> Clone for CheckerUnitView<'_, C>
@@ -131,7 +132,7 @@ where
 
     pub(crate) fn with_trusted_memory_evidence<'evidence>(
         self,
-        evidence: &'evidence std::collections::BTreeSet<BoundExpressionId>,
+        evidence: &'evidence std::collections::BTreeMap<BoundExpressionId, bool>,
     ) -> CheckerUnitView<'evidence, C>
     where
         'view: 'evidence,
@@ -148,7 +149,7 @@ where
 
     pub(crate) fn trusted_memory_evidence(
         self,
-    ) -> Option<&'view std::collections::BTreeSet<BoundExpressionId>> {
+    ) -> Option<&'view std::collections::BTreeMap<BoundExpressionId, bool>> {
         self.trusted_memory_evidence
     }
 
@@ -383,11 +384,11 @@ where
             terms.insert(occurrence.key(), *result.value());
         }
 
-        let checked = crate::CheckedConstantTerms::try_from_terms(terms).map_err(|error| {
-            crate::CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::CheckedConstantTerms(error),
+        let checked = crate::CheckedConstantTerms::try_from_terms(terms).unwrap_or_else(|error| {
+            panic!(
+                "checked_constant_terms must satisfy its checked construction contract: {error:?}"
             )
-        })?;
+        });
 
         Ok(bray_diagnostics::DiagnosticResult::new(
             checked,
@@ -396,10 +397,7 @@ where
     }
 
     /// Resolves a bound source anchor without exposing its source snapshot.
-    pub fn source(
-        self,
-        anchor: bray_bound_tree::BoundSourceAnchor,
-    ) -> Result<CheckerSource<'view>, CheckerInfrastructureError> {
+    pub fn source(self, anchor: bray_bound_tree::BoundSourceAnchor) -> CheckerSource<'view> {
         if let Some(source) = self.source_snapshot {
             let syntax = anchor.syntax();
 
@@ -416,17 +414,14 @@ where
                 .slice_str(source.text())
                 .expect("bound fragment range must lie within its supplied snapshot");
 
-            return Ok(CheckerSource::new(span, text));
+            return CheckerSource::new(span, text);
         }
 
         self.context.source(anchor)
     }
 
     /// Resolves one declaration syntax anchor from the current compilation snapshot.
-    pub fn source_syntax(
-        self,
-        anchor: bray_declarations::SyntaxAnchor,
-    ) -> Result<CheckerSource<'view>, CheckerInfrastructureError> {
+    pub fn source_syntax(self, anchor: bray_declarations::SyntaxAnchor) -> CheckerSource<'view> {
         if let Some(source) = self.source_snapshot {
             assert_eq!(
                 source.source_id(),
@@ -441,7 +436,7 @@ where
                 .slice_str(source.text())
                 .expect("fragment syntax range must lie within its supplied snapshot");
 
-            return Ok(CheckerSource::new(span, text));
+            return CheckerSource::new(span, text);
         }
 
         self.context.source_syntax(anchor)

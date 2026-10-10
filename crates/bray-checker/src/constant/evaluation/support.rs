@@ -6,12 +6,12 @@ use bray_symbols::{
     GenericArgument, TypeData, TypeId,
 };
 
+use crate::CheckerRequestContext;
 use crate::constant::diagnostic::ConstantDiagnostic;
 use crate::constant::integer::fits_integer_representation;
 use crate::constant::literal::ConstantLiteralError;
 use crate::constant::operation::ConstantOperationError;
 use crate::representation::type_representation;
-use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
 use super::engine::Evaluator;
 
@@ -50,9 +50,10 @@ where
         expression: BoundExpressionId,
     ) -> Result<TypeId, EvaluationFailure> {
         let Some(result) = self.input.expression_types().expression(expression) else {
-            return Err(EvaluationFailure::constant(
-                crate::CheckerConstantEvaluationFailure::MissingExpressionType { expression },
-            ));
+            panic!(
+                "The selected expression has no checked type. in expression_type, expression: {:?}",
+                expression
+            );
         };
 
         if result.status() == ExpressionTypeStatus::Recovered {
@@ -62,64 +63,47 @@ where
         Ok(result.ty())
     }
 
-    pub(super) fn recovery_value(
-        &self,
-        ty: TypeId,
-    ) -> Result<ConstantValueId, CheckerInfrastructureError> {
+    pub(super) fn recovery_value(&self, ty: TypeId) -> ConstantValueId {
         self.request
             .semantic_values()
             .intern_error_constant_value(ty)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)
+            .unwrap_or_else(|error| {
+                panic!("recovery_value must satisfy its checked construction contract: {error:?}")
+            })
     }
 
-    pub(super) fn recovery_term(
-        &self,
-        ty: TypeId,
-    ) -> Result<ConstantTermId, CheckerInfrastructureError> {
-        let value = self.recovery_value(ty)?;
+    pub(super) fn recovery_term(&self, ty: TypeId) -> ConstantTermId {
+        let value = self.recovery_value(ty);
 
         self.request
             .semantic_values()
             .intern_constant_term(ConstantTermData::Value(value))
-            .map_err(CheckerInfrastructureError::SemanticValueStore)
-    }
-
-    pub(super) fn intern_value(
-        &self,
-        ty: TypeId,
-        kind: ConstantValueKind,
-    ) -> Result<ConstantValueId, EvaluationFailure> {
-        self.request
-            .semantic_values()
-            .intern_constant_value(ConstantValueData::new(ty, kind))
-            .map_err(|error| {
-                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
+            .unwrap_or_else(|error| {
+                panic!("recovery_term must satisfy its checked construction contract: {error:?}")
             })
     }
 
-    pub(super) fn intern_value_term(
-        &self,
-        ty: TypeId,
-        kind: ConstantValueKind,
-    ) -> Result<ConstantTermId, EvaluationFailure> {
-        let value = self.intern_value(ty, kind)?;
+    pub(super) fn intern_value(&self, ty: TypeId, kind: ConstantValueKind) -> ConstantValueId {
+        self.request
+            .semantic_values()
+            .intern_constant_value(ConstantValueData::new(ty, kind))
+            .unwrap_or_else(|error| {
+                panic!("intern_value must satisfy its checked construction contract: {error:?}")
+            })
+    }
+
+    pub(super) fn intern_value_term(&self, ty: TypeId, kind: ConstantValueKind) -> ConstantTermId {
+        let value = self.intern_value(ty, kind);
 
         self.intern_term(ConstantTermData::Value(value))
     }
 
-    pub(super) fn intern_term(
-        &self,
-        data: ConstantTermData,
-    ) -> Result<ConstantTermId, EvaluationFailure> {
+    pub(super) fn intern_term(&self, data: ConstantTermData) -> ConstantTermId {
         self.request
             .semantic_values()
             .intern_constant_term(data)
-            .map_err(|error| {
-                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
+            .unwrap_or_else(|error| {
+                panic!("intern_term must satisfy its checked construction contract: {error:?}")
             })
     }
 
@@ -136,12 +120,14 @@ where
         let target = self.request.semantic_values().type_data(target_type);
 
         if !matches!(target.as_ref(), TypeData::Nullable(contained) if *contained == source_type) {
-            return Err(EvaluationFailure::invalid_input());
+            panic!(
+                "nullable adaptation must contain source type {source_type:?}, target type: {target_type:?}"
+            );
         }
 
         match self.term_value(term) {
             Some(value) => {
-                self.intern_value_term(target_type, ConstantValueKind::NullablePresent(value))
+                Ok(self.intern_value_term(target_type, ConstantValueKind::NullablePresent(value)))
             }
             None => self.intern_typed_term(target_type, ConstantTermData::NullablePresent(term)),
         }
@@ -152,7 +138,7 @@ where
         ty: TypeId,
         data: ConstantTermData,
     ) -> Result<ConstantTermId, EvaluationFailure> {
-        let term = self.intern_term(data)?;
+        let term = self.intern_term(data);
 
         self.type_term(term, ty)
     }
@@ -166,7 +152,7 @@ where
             return Ok(term);
         }
 
-        self.intern_term(ConstantTermData::typed(term, ty))
+        Ok(self.intern_term(ConstantTermData::typed(term, ty)))
     }
 
     pub(super) fn term_value(&self, term: ConstantTermId) -> Option<ConstantValueId> {
@@ -211,7 +197,9 @@ where
         let Some(value) = self.term_value(term) else {
             return match expression {
                 Some(expression) => Err(EvaluationFailure::invalid_expression(expression)),
-                None => Err(EvaluationFailure::invalid_input()),
+                None => panic!(
+                    "constant term {term:?} must be closed before materialization without a source expression"
+                ),
             };
         };
 
@@ -376,7 +364,6 @@ where
 
 pub(in crate::constant) enum EvaluationFailure {
     Cancelled,
-    Infrastructure(CheckerInfrastructureError),
     Upstream,
     Propagate(ConstantTermId),
     Source {
@@ -386,14 +373,6 @@ pub(in crate::constant) enum EvaluationFailure {
 }
 
 impl EvaluationFailure {
-    pub(super) const fn invalid_input() -> Self {
-        Self::Infrastructure(CheckerInfrastructureError::InvalidConstantEvaluationInput)
-    }
-
-    pub(super) const fn constant(failure: crate::CheckerConstantEvaluationFailure) -> Self {
-        Self::Infrastructure(CheckerInfrastructureError::ConstantEvaluation(failure))
-    }
-
     pub(super) const fn invalid_expression(expression: BoundExpressionId) -> Self {
         Self::Source {
             expression,

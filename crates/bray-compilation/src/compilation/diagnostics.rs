@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundBlock, BoundCallableBody, BoundExpression, BoundPattern, BoundUnit,
-    BoundUnitKey, BoundUnitKind, CheckedExpressionSemantics, SelectedArgument, SemanticSelection,
+    BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedExpressionSemantics,
+    SelectedArgument, SemanticSelection,
 };
 use bray_checker::{
     TargetAbiValue, TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
@@ -87,31 +87,6 @@ pub(super) fn with_compiler_defect_note(diagnostic: Diagnostic) -> Diagnostic {
     ))
 }
 
-fn checker_failure_diagnostics(
-    key: &BoundUnitKey,
-    bound: Option<&BoundUnit>,
-    error: bray_checker::CheckerInfrastructureError,
-) -> DiagnosticBag {
-    let anchor = key.source().syntax();
-
-    let source = checker_failure_source(&error, bound)
-        .unwrap_or_else(|| SourceSpan::new(anchor.source_id(), anchor.full_range()));
-
-    let failure =
-        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Checker(
-            crate::fact::diagnostic_checker_failure(error),
-        ));
-
-    let diagnostic = Diagnostic::new(
-        DiagnosticId::new(anchor.full_range().start().bytes()),
-        DiagnosticKind::CheckingCompilerDefect,
-        SeverityKind::Error,
-    )
-    .with_arg(DiagnosticArg::emission_failure(failure));
-
-    DiagnosticBag::single(with_compiler_defect_source(diagnostic, source))
-}
-
 fn semantic_query_failure_diagnostics(
     key: &BoundUnitKey,
     error: &crate::compilation::SemanticQueryError,
@@ -135,104 +110,6 @@ fn semantic_query_failure_diagnostics(
     .with_arg(DiagnosticArg::emission_failure(failure));
 
     DiagnosticBag::single(with_compiler_defect_source(diagnostic, source))
-}
-
-fn checker_failure_source(
-    error: &bray_checker::CheckerInfrastructureError,
-    bound: Option<&BoundUnit>,
-) -> Option<SourceSpan> {
-    use bray_checker::{
-        CheckedConstantTermsBuildError, CheckerConstantEvaluationFailure,
-        CheckerInfrastructureError as Error,
-    };
-
-    match error {
-        Error::CheckedConstantTerms(CheckedConstantTermsBuildError::DuplicateOccurrence(key)) => {
-            let syntax = key.syntax();
-
-            Some(SourceSpan::new(syntax.source_id(), syntax.full_range()))
-        }
-        Error::ConstantEvaluation(CheckerConstantEvaluationFailure::MissingPatternBinding {
-            binding,
-        }) => bound.and_then(|bound| local_symbol_source(bound, (*binding).into())),
-        _ => checker_failure_node(error)
-            .and_then(|node| bound.and_then(|bound| bound_node_source(bound, node))),
-    }
-}
-
-fn checker_failure_node(
-    error: &bray_checker::CheckerInfrastructureError,
-) -> Option<AnyBoundNodeId> {
-    use bray_checker::{
-        CheckerConstantEvaluationFailure as ConstantEvaluation,
-        CheckerInfrastructureError as Error, CheckerLiteralValueFailure as Literal,
-        CheckerStorageFlowFailure as Flow,
-    };
-
-    match error {
-        Error::InvalidStorageOperation { expression, .. } => Some((*expression).into()),
-        Error::LiteralValue(failure) => match failure {
-            Literal::InvalidLiteral { expression }
-            | Literal::MissingExpressionType { expression }
-            | Literal::MissingLiteralValue { expression }
-            | Literal::ValueTypeMismatch { expression }
-            | Literal::DuplicateExpression { expression } => Some((*expression).into()),
-            Literal::ForeignExpressionTypes => None,
-        },
-        Error::ConstantEvaluation(failure) => match failure {
-            ConstantEvaluation::InvalidExpressionRoot { expression }
-            | ConstantEvaluation::MissingExpressionType { expression }
-            | ConstantEvaluation::MissingExpression { expression } => Some((*expression).into()),
-            ConstantEvaluation::InvalidBlockRoot { block }
-            | ConstantEvaluation::MissingBlockResultType { block }
-            | ConstantEvaluation::MissingBlock { block } => Some((*block).into()),
-            ConstantEvaluation::MissingPatternInput { pattern }
-            | ConstantEvaluation::MissingPattern { pattern } => Some((*pattern).into()),
-            ConstantEvaluation::MissingPatternBinding { .. }
-            | ConstantEvaluation::UnexpectedPropagation { .. } => None,
-        },
-        Error::StorageFlow(failure) => match failure {
-            Flow::MissingAwaitDependencyContract { expression }
-            | Flow::MissingDependencyContract { expression, .. } => Some((*expression).into()),
-            Flow::MissingExitOrigin { exit } => Some(*exit),
-            Flow::MissingBlock { block }
-            | Flow::UnbalancedScopes {
-                open_scope: Some(block),
-            } => Some((*block).into()),
-            Flow::MissingPattern { pattern } => Some((*pattern).into()),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-fn local_symbol_source(
-    bound: &BoundUnit,
-    local: bray_symbols::AnyLocalSymbolId,
-) -> Option<SourceSpan> {
-    let anchor = bound.local_symbols().syntax_anchor(local)?;
-
-    Some(SourceSpan::new(anchor.source_id(), anchor.full_range()))
-}
-
-fn bound_node_source(bound: &BoundUnit, node: AnyBoundNodeId) -> Option<SourceSpan> {
-    let view = bound.view();
-
-    let origin = match node {
-        AnyBoundNodeId::Expression(expression) => {
-            view.expression(expression).map(BoundExpression::origin)
-        }
-        AnyBoundNodeId::Pattern(pattern) => view.pattern(pattern).map(BoundPattern::origin),
-        AnyBoundNodeId::Block(block) => view.block(block).map(BoundBlock::origin),
-        AnyBoundNodeId::CallableBody(body) => view
-            .callable_body(body)
-            .copied()
-            .map(BoundCallableBody::origin),
-    }?;
-
-    let anchor = origin.source_anchor().syntax();
-
-    Some(SourceSpan::new(anchor.source_id(), anchor.full_range()))
 }
 
 pub(super) const fn diagnostic_product_kind(kind: ProductKind) -> DiagnosticProductKind {
@@ -645,36 +522,18 @@ impl Compilation {
             return Ok((output.diagnostics.to_vec(), output.nested.to_vec()));
         }
 
-        let (bound, sources) = match self
-            .semantic_unit_diagnostic_sources(key.clone(), cancellation)
-        {
-            Ok((bound, sources)) => (Some(bound), sources),
-            Err(
-                error @ (FactQueryError::CheckerInfrastructure(_)
-                | FactQueryError::SemanticQuery(_)),
-            ) => {
-                let bound = self
-                    .bound_unit_with_cancellation(key.clone(), cancellation)
-                    .ok();
+        let (bound, sources) =
+            match self.semantic_unit_diagnostic_sources(key.clone(), cancellation) {
+                Ok((bound, sources)) => (Some(bound), sources),
+                Err(FactQueryError::SemanticQuery(error)) => {
+                    let bound = self
+                        .bound_unit_with_cancellation(key.clone(), cancellation)
+                        .ok();
 
-                let diagnostic = match error {
-                    FactQueryError::CheckerInfrastructure(error) => checker_failure_diagnostics(
-                        key,
-                        bound.as_ref().map(|bound| bound.result().value()),
-                        error,
-                    ),
-                    FactQueryError::SemanticQuery(error) => {
-                        semantic_query_failure_diagnostics(key, &error)
-                    }
-                    _ => {
-                        unreachable!("recoverable unit failure must be a checker or semantic error")
-                    }
-                };
-
-                (bound, vec![diagnostic])
-            }
-            Err(error) => return Err(error),
-        };
+                    (bound, vec![semantic_query_failure_diagnostics(key, &error)])
+                }
+                Err(error) => return Err(error),
+            };
 
         let nested = bound
             .iter()
@@ -1008,7 +867,6 @@ mod tests {
         CallableContractClauseKind, ConstantTermData, PackageIdentity, ProductKind,
     };
     use bray_target::NativeTarget;
-    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use crate::fact::{CancellationToken, FactCellTestEvent};
     use crate::test_support::{
@@ -1109,20 +967,6 @@ mod tests {
 
         assert!(diagnostics.iter().all(DiagnosticBag::is_empty));
         assert_eq!(Arc::strong_count(&body), owners);
-    }
-
-    #[test]
-    fn checker_infrastructure_failures_publish_the_compiler_defect_diagnostic() {
-        let compilation = compilation("module app; func main() {}");
-        let key = source_callable_body_key(&compilation);
-
-        let diagnostics = super::checker_failure_diagnostics(
-            &key,
-            None,
-            bray_checker::CheckerInfrastructureError::SemanticValueUnavailable,
-        );
-
-        assert_goal_state_diagnostic_kind(&diagnostics, DiagnosticKind::CheckingCompilerDefect);
     }
 
     #[test]

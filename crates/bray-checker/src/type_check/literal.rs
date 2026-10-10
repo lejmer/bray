@@ -4,7 +4,7 @@ use bray_bound_tree::{BoundExpression, BoundExpressionId, BoundLiteralKind, Boun
 use bray_compiler_known::{NumericRepresentationKind, RepresentationRole};
 use bray_symbols::TypeId;
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitView};
 
 use crate::representation::{representation_type, type_representation};
 
@@ -15,12 +15,12 @@ pub(crate) fn numeric_literal_accepts_type<C>(
     request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
     ty: TypeId,
-) -> Result<bool, CheckerInfrastructureError>
+) -> bool
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(BoundExpression::Literal(literal)) = request.view().expression(expression) else {
-        return Ok(false);
+        return false;
     };
 
     let kind = match literal.kind() {
@@ -31,11 +31,11 @@ where
         | BoundLiteralKind::Character
         | BoundLiteralKind::String
         | BoundLiteralKind::ByteString => {
-            return Ok(false);
+            return false;
         }
     };
 
-    numeric_kind(request, ty).map(|candidate| candidate == Some(kind))
+    numeric_kind(request, ty) == Some(kind)
 }
 
 pub(super) fn adapt_contextual_literals<C>(
@@ -43,19 +43,19 @@ pub(super) fn adapt_contextual_literals<C>(
     expressions: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
-) -> Result<Option<bool>, CheckerInfrastructureError>
+) -> Option<bool>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let before = inference.revision();
 
-    if adapt_contextual_complex_literals(request, expressions, variables, inference)?.is_none() {
-        return Ok(None);
+    if adapt_contextual_complex_literals(request, expressions, variables, inference).is_none() {
+        return None;
     }
 
     for &expression in expressions {
         if request.is_cancelled() {
-            return Ok(None);
+            return None;
         }
 
         let Some((_, kind, variable)) = numeric_literal(request, expression, variables) else {
@@ -66,16 +66,15 @@ where
             continue;
         }
 
-        let expected = inference.try_unique_matching_expectation(variable, |ty| {
-            numeric_kind(request, ty).map(|expected| expected == Some(kind))
-        })?;
+        let expected = inference
+            .unique_matching_expectation(variable, |ty| numeric_kind(request, ty) == Some(kind));
 
         if let Some(expected) = expected {
             inference.add_evidence(variable, expected, expression);
         }
     }
 
-    Ok(Some(inference.revision() != before))
+    Some(inference.revision() != before)
 }
 
 fn adapt_contextual_complex_literals<C>(
@@ -83,13 +82,13 @@ fn adapt_contextual_complex_literals<C>(
     expressions: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
-) -> Result<Option<()>, CheckerInfrastructureError>
+) -> Option<()>
 where
     C: CheckerRequestContext + ?Sized,
 {
     for &expression in expressions {
         if request.is_cancelled() {
-            return Ok(None);
+            return None;
         }
 
         let Some((result, real, imaginary)) = complex_literal(request, expression, variables)
@@ -101,16 +100,16 @@ where
 
         let expected = match evidence {
             Some(evidence) => Some(evidence),
-            None => inference.try_unique_matching_expectation(result, |ty| {
-                complex_component_type(request, ty).map(|component| component.is_some())
-            })?,
+            None => inference.unique_matching_expectation(result, |ty| {
+                complex_component_type(request, ty).is_some()
+            }),
         };
 
         let Some(expected) = expected else {
             continue;
         };
 
-        let Some(component) = complex_component_type(request, expected)? else {
+        let Some(component) = complex_component_type(request, expected) else {
             continue;
         };
 
@@ -122,7 +121,7 @@ where
         inference.add_evidence(imaginary, component, expression);
     }
 
-    Ok(Some(()))
+    Some(())
 }
 
 pub(super) fn apply_literal_defaults<C>(
@@ -247,20 +246,17 @@ where
     ))
 }
 
-fn complex_component_type<C>(
-    request: CheckerUnitView<'_, C>,
-    ty: TypeId,
-) -> Result<Option<TypeId>, CheckerInfrastructureError>
+fn complex_component_type<C>(request: CheckerUnitView<'_, C>, ty: TypeId) -> Option<TypeId>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(component) =
         type_representation(request, ty).and_then(RepresentationRole::complex_component)
     else {
-        return Ok(None);
+        return None;
     };
 
-    representation_type(request, component).map(Some)
+    Some(representation_type(request, component))
 }
 
 fn numeric_literal<C>(
@@ -494,12 +490,12 @@ mod tests {
 
         let request = CheckerUnitView::new(&unit, &entry, &context);
 
-        let Ok(SessionProgress::Complete(mut session)) = ExpressionTypeSession::begin(request, &[])
+        let SessionProgress::Complete(mut session) = ExpressionTypeSession::begin(request, &[])
         else {
             panic!("literal type session must start");
         };
 
-        let Ok(SessionProgress::Complete(())) = session.propagate() else {
+        let SessionProgress::Complete(()) = session.propagate() else {
             panic!("initial propagation must complete");
         };
 
@@ -507,11 +503,9 @@ mod tests {
 
         let u64 = representation(&unit, RepresentationRole::ScalarU64);
 
-        if let Err(error) = session.add_expectation(expressions[0], u64) {
-            panic!("literal expectation must be accepted: {error:?}");
-        }
+        session.add_expectation(expressions[0], u64);
 
-        let Ok(SessionProgress::Complete(())) = session.propagate() else {
+        let SessionProgress::Complete(()) = session.propagate() else {
             panic!("contextual propagation must complete");
         };
 
@@ -789,10 +783,7 @@ mod tests {
 
         let request = CheckerUnitView::new(unit, &entry, &context);
 
-        match representation_type(request, role) {
-            Ok(ty) => ty,
-            Err(error) => panic!("literal test representation must be available: {error:?}"),
-        }
+        representation_type(request, role)
     }
 
     fn assert_expression_types(

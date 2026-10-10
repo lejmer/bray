@@ -18,17 +18,23 @@ internal struct PlatformFileOptions
 }
 
 internal func platform_path(pos path: &std.path.Path) -> PlatformPath
+    executes(pure)
+    ensures(
+        trusted core.memory.valid_read<u8>(pointer = result.address, count = result.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = result.address, count = result.length as usize),
+    )
 {
     let bytes: &[u8] = internal std.path.native_bytes(path.to_native());
 
     return
     {
-        address = internal std.memory.byte_slice_pointer(bytes),
+        address = internal std.memory.slice_pointer(bytes, count = bytes.length()),
         length = bytes.length() as u64,
     };
 }
 
 internal func file_access_value(pos value: FileAccess) -> u32
+    executes(pure, total)
 {
     return match value
     {
@@ -40,6 +46,7 @@ internal func file_access_value(pos value: FileAccess) -> u32
 }
 
 internal func file_creation_value(pos value: FileCreation) -> u32
+    executes(pure, total)
 {
     return match value
     {
@@ -52,6 +59,7 @@ internal func file_creation_value(pos value: FileCreation) -> u32
 }
 
 internal func seek_origin_value(pos value: std.io.SeekOrigin) -> u32
+    executes(pure, total)
 {
     return match value
     {
@@ -70,21 +78,31 @@ trusted internal func directory_entry_path(
     pos source: RawPointer<u8>,
     bytes: usize,
 ) -> Result<std.path.Path, std.io.IoError>
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = source, count = bytes),
+        trusted core.memory.initialized_range_as<u8>(pointer = source, count = bytes),
+    )
 {
-    let mut buffer: std.bytes.Buffer = try internal std.io.allocate_fixed_buffer(capacity = bytes);
+    let mut storage: std.memory.RawBuffer<u8> = trusted internal std.memory.allocate_buffer<u8>(
+        capacity = bytes,
+        bytes = bytes,
+        align = 1,
+    );
 
-    if bytes > 0
-    {
-        trusted internal std.memory.byte_buffer_copy(
-            source,
-            internal std.memory.byte_slice_pointer_mut(buffer.as_slice_mut()),
-            count = bytes,
-        );
-    }
+    let initialized: usize = trusted internal std.memory.copy_spare_raw_bytes(
+        &mut storage,
+        source = source,
+        count = bytes,
+    );
+
+    trusted std.memory.set_initialized_count<u8>(&mut storage, count = initialized);
 
     let native: std.path.NativeText =
     {
-        bytes = buffer,
+        bytes = std.bytes.Buffer
+        {
+            storage = storage
+        },
     };
 
     match std.path.Path.from_native(native)
@@ -92,4 +110,98 @@ trusted internal func directory_entry_path(
         case Ok(path) { return Ok(path); }
         case Error(_) { return Error(internal std.io.invalid_transfer_error()); }
     }
+}
+
+@abi(c)
+trusted internal func platform_file_seek(
+    pos handle: u64,
+    pos offset_bits: u64,
+    pos origin: u32,
+    pos position: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_write<u64>(pointer = position, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = position),
+    )
+{
+    let observed: Result<u64, std.platform.PlatformStatus> = trusted internal prepare_file_seek(
+        handle,
+        offset_bits,
+        origin,
+        position,
+    );
+
+    match consume observed
+    {
+        case Ok(value)
+        {
+            trusted std.memory.write<u64>(position, value);
+
+            return internal std.platform.success_status();
+        }
+        case Error(status) { return status; }
+    }
+}
+
+@abi(c)
+trusted internal func platform_file_open(
+    pos path: PlatformPath,
+    pos options: PlatformFileOptions,
+    pos opened: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.valid_write<u64>(pointer = opened, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = opened),
+    )
+{
+    let prepared: Result<u64, std.platform.PlatformStatus> = trusted internal prepare_file_open(path, options, opened);
+
+    match consume prepared
+    {
+        case Ok(descriptor)
+        {
+            trusted std.memory.write<u64>(opened, value = descriptor);
+
+            return internal std.platform.success_status();
+        }
+        case Error(status) { return status; }
+    }
+}
+
+trusted internal func prepare_rename_source(
+    pos source: &PlatformPath,
+    pos new_path: &PlatformPath,
+) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = source.address, count = source.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = source.address, count = source.length as usize),
+        trusted core.memory.valid_read<u8>(pointer = new_path.address, count = new_path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = new_path.address, count = new_path.length as usize),
+    )
+    ensures(
+        trusted core.memory.valid_read<u8>(pointer = new_path.address, count = new_path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = new_path.address, count = new_path.length as usize),
+    )
+{
+    let terminator_bytes: usize = if target.identity.SYSTEM == "windows"
+    {
+        yield 2;
+    }
+    else
+    {
+        yield 1;
+    };
+
+    if source.length % terminator_bytes as u64 != 0
+    {
+        return Error(internal std.platform.invalid_input_status());
+    }
+
+    return trusted internal std.platform.terminated_native_text(
+        source.address,
+        length = source.length,
+        terminator_bytes = terminator_bytes,
+    );
 }

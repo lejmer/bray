@@ -7,7 +7,7 @@ use bray_bound_tree::{
     BoundUnitKind, StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageBindingTarget,
     StorageIdentity, StorageProjection,
 };
-use bray_checker::CheckerInfrastructureError;
+
 use bray_diagnostics::DiagnosticKind;
 use bray_symbols::TypeData;
 use std::sync::Arc;
@@ -471,8 +471,9 @@ func main(pos value: &(Guard?, Guard?)) -> usize
 }
 
 #[test]
+#[should_panic(expected = "InactiveProjection")]
 fn missing_projection_refinements_remain_storage_invariant_failures() {
-    use bray_bound_tree::{CheckedRefinements, StorageOperationStatus};
+    use bray_bound_tree::CheckedRefinements;
     use bray_checker::{CheckerOutcome, DefaultStorageFlowChecker, StorageFlowChecker};
 
     let compilation = compilation(
@@ -533,26 +534,13 @@ func main(pos value: &Guard?) -> usize
 
     let missing = CheckedRefinements::try_new(bound.value().unit(), key.kind(), [], false).unwrap();
 
-    let outcome = DefaultStorageFlowChecker.check_storage_flow(
+    DefaultStorageFlowChecker.check_storage_flow(
         request,
         expressions.result().value(),
         patterns.value(),
         storage.value(),
         &missing,
         memory.value(),
-    );
-
-    assert!(
-        matches!(
-            outcome,
-            CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidStorageOperation {
-                    status: StorageOperationStatus::InactiveProjection,
-                    ..
-                }
-            )
-        ),
-        "{outcome:?}"
     );
 }
 

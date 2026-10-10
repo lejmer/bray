@@ -184,6 +184,23 @@ impl StorageFlowInput {
         self.borrows.get(&plan).copied()
     }
 
+    pub(super) fn borrowed_access(
+        &self,
+        plan: StorageAccessPlan,
+        storage: &StoragePlan,
+    ) -> Option<StorageAccessId> {
+        self.borrow(plan)
+            .and_then(|borrow| storage.borrow_capability(borrow))
+            .map(|borrow| {
+                if borrow.expression() == Some(plan.expression()) {
+                    borrow.access()
+                } else {
+                    // Reusing an input capability still accesses the reached field or element.
+                    plan.access()
+                }
+            })
+    }
+
     pub(super) fn definitions(&self, node: AnyBoundNodeId) -> &[StorageIdentityId] {
         self.definitions
             .get(&node)
@@ -210,10 +227,9 @@ impl StorageFlowInput {
     ) -> Option<StorageAccessId> {
         match purpose {
             StorageAccessPurpose::Write | StorageAccessPurpose::Assignment => Some(plan.access()),
-            StorageAccessPurpose::Borrow(BorrowKind::Mutable) => self
-                .borrow(plan)
-                .and_then(|borrow| storage.borrow_capability(borrow))
-                .map(|borrow| borrow.access()),
+            StorageAccessPurpose::Borrow(BorrowKind::Mutable) => {
+                self.borrowed_access(plan, storage)
+            }
             StorageAccessPurpose::Read
             | StorageAccessPurpose::Initialize
             | StorageAccessPurpose::Copy

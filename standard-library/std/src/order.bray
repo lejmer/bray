@@ -90,32 +90,49 @@ trait OrderedSequence
 
     /// Sorts the sequence without preserving the relative order of equal elements.
     mut func sort_unstable() -> unit
+        with(Self: OrderedSequence)
     {
         let count: usize = self.order_length();
-        let mut index: usize = 0;
+        let mut parent: usize = count / 2;
 
-        while index < count
+        while parent > 0
         {
-            let mut minimum_index: usize = index;
-            let mut candidate: usize = index + 1;
-
-            while candidate < count
-            {
-                if self.compare_indices(candidate, minimum_index) == Ordering.Less
-                {
-                    minimum_index = candidate;
-                }
-
-                candidate += 1;
-            }
-
-            if minimum_index != index
-            {
-                self.swap_indices(index, minimum_index);
-            }
-
-            index += 1;
+            parent -= 1;
+            internal sift_down<Self>(&mut self, start = parent, end = count);
         }
+
+        let mut end: usize = count;
+
+        while end > 1
+        {
+            end -= 1;
+            self.swap_indices(0, end);
+            internal sift_down<Self>(&mut self, start = 0, end = end);
+        }
+    }
+}
+
+internal func sift_down<S>(pos sequence: &mut S, start: usize, end: usize)
+    with(S: OrderedSequence)
+{
+    let mut root: usize = start;
+
+    while root < end / 2
+    {
+        let mut child: usize = root * 2 + 1;
+
+        if child + 1 < end && sequence(OrderedSequence).compare_indices(child, child + 1) == Ordering.Less
+        {
+            child += 1;
+        }
+
+        if sequence(OrderedSequence).compare_indices(root, child) != Ordering.Less
+        {
+            return;
+        }
+
+        sequence(OrderedSequence).swap_indices(root, child);
+        root = child;
     }
 }
 

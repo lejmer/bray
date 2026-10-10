@@ -44,9 +44,6 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     let graph = match graph {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
@@ -69,9 +66,6 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         CheckerOutcome::Cancelled => {
             return CheckerOutcome::Cancelled;
         }
-        CheckerOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         CheckerOutcome::UpstreamFailure(error) => return CheckerOutcome::UpstreamFailure(error),
     };
 
@@ -80,9 +74,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
             match $result {
                 Ok(value) => value,
                 Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-                Err(crate::CheckerQueryError::Infrastructure(error)) => {
-                    return CheckerOutcome::InfrastructureFailure(error)
-                }
+
                 Err(crate::CheckerQueryError::Upstream(error)) => {
                     return CheckerOutcome::UpstreamFailure(error)
                 }
@@ -241,7 +233,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     }
 
     check_completion(request, &graph, &reachable, property, &mut candidate);
-    check_postconditions(&graph, &reachable, postconditions, &mut candidate);
+    check_postconditions(&reachable, postconditions, &mut candidate);
 
     CheckerOutcome::complete(candidate, diagnostics)
 }
@@ -303,46 +295,14 @@ fn record_failure<C: CheckerRequestContext + ?Sized>(
 }
 
 fn check_postconditions<C: CheckerRequestContext + ?Sized>(
-    graph: &super::super::model::ControlFlowGraph,
     flow: &super::flow::ExecutionFlow<'_, '_, C>,
     postconditions: &[(crate::ExecutionCondition, bray_source::SourceSpan)],
     candidate: &mut ExecutionCandidate,
 ) {
-    for (condition, source) in postconditions {
-        let proven = graph
-            .exits()
-            .iter()
-            .filter(|exit| {
-                matches!(
-                    exit.kind(),
-                    AnalysisExitKind::Return
-                        | AnalysisExitKind::NormalFallthrough
-                        | AnalysisExitKind::ResultErrorPropagation
-                )
-            })
-            .all(|exit| {
-                let Some(state) = flow.output(exit.block()) else {
-                    return true;
-                };
-
-                let condition = condition.substitute(
-                    &|input| {
-                        input
-                            .value_in(&state.current)
-                            .unwrap_or_else(|| crate::ExecutionCondition::Input(input.clone()))
-                    },
-                    &state.result,
-                    &mut { crate::ExecutionCondition::WORK_LIMIT },
-                );
-
-                condition.prove(&state.assumptions, &mut {
-                    crate::ExecutionCondition::WORK_LIMIT
-                }) == Some(true)
-            });
-
-        if !proven {
-            candidate.failure.get_or_insert(*source);
-        }
+    if let Some(source) =
+        super::postcondition::unproven_postconditions(flow, postconditions).first()
+    {
+        candidate.failure.get_or_insert(*source);
     }
 }
 

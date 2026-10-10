@@ -15,16 +15,16 @@ pub(crate) fn collect_trusted_memory_evidence<C: CheckerRequestContext + ?Sized>
     expressions: &CheckedExpressionSemantics,
     storage: &StoragePlan,
     graph: &super::super::super::model::ControlFlowGraph,
-) -> CheckerOutcome<BTreeSet<BoundExpressionId>, C::UpstreamError> {
+) -> CheckerOutcome<BTreeMap<BoundExpressionId, bool>, C::UpstreamError> {
     let Some(contracts) = request.trusted_contracts() else {
-        return CheckerOutcome::complete(BTreeSet::new(), DiagnosticBag::new());
+        return CheckerOutcome::complete(BTreeMap::new(), DiagnosticBag::new());
     };
 
     if contracts.requirements.is_empty()
         && contracts.guarantees.is_empty()
         && contracts.calls.is_empty()
     {
-        return CheckerOutcome::complete(BTreeSet::new(), DiagnosticBag::new());
+        return CheckerOutcome::complete(BTreeMap::new(), DiagnosticBag::new());
     }
 
     let literals =
@@ -44,9 +44,6 @@ pub(crate) fn collect_trusted_memory_evidence<C: CheckerRequestContext + ?Sized>
     ) {
         CheckerOutcome::Complete(flow) => flow.into_parts().0,
         CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        CheckerOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         CheckerOutcome::UpstreamFailure(error) => return CheckerOutcome::UpstreamFailure(error),
     };
 
@@ -59,21 +56,21 @@ fn check_trusted_contracts_in_flow<C: CheckerRequestContext + ?Sized>(
     storage: &StoragePlan,
     flow: &ExecutionFlow<'_, '_, C>,
     final_check: bool,
-) -> CheckerOutcome<BTreeSet<BoundExpressionId>, C::UpstreamError> {
+) -> CheckerOutcome<BTreeMap<BoundExpressionId, bool>, C::UpstreamError> {
     let Some(contracts) = request.trusted_contracts() else {
-        return CheckerOutcome::without_diagnostics(BTreeSet::new());
+        return CheckerOutcome::without_diagnostics(BTreeMap::new());
     };
 
     if contracts.requirements.is_empty()
         && contracts.guarantees.is_empty()
         && contracts.calls.is_empty()
     {
-        return CheckerOutcome::without_diagnostics(BTreeSet::new());
+        return CheckerOutcome::without_diagnostics(BTreeMap::new());
     }
 
     let graph = flow.domain.graph;
     let mut diagnostics = DiagnosticBag::new();
-    let mut proven = BTreeSet::new();
+    let mut proven = BTreeMap::new();
     let mut failed = BTreeSet::new();
     let mut transfers = BTreeSet::new();
 
@@ -140,7 +137,13 @@ fn check_trusted_contracts_in_flow<C: CheckerRequestContext + ?Sized>(
                     .domain
                     .trusted_requirements_proven(evidence, &contract.requirements)
                 {
-                    proven.insert(expression);
+                    let empty_copy = flow.domain.empty_memory_copy(&state, invocation);
+
+                    // A copy is empty only when every reachable entry proves that extent.
+                    proven
+                        .entry(expression)
+                        .and_modify(|empty| *empty &= empty_copy)
+                        .or_insert(empty_copy);
                 } else {
                     failed.insert(expression);
                 }
@@ -156,72 +159,49 @@ fn check_trusted_contracts_in_flow<C: CheckerRequestContext + ?Sized>(
 
     let boundary = super::super::super::fixed_point::FixedPointDomain::boundary(&flow.domain);
 
-    for (condition, span) in &contracts.guarantees {
-        let Some(boundary) = &boundary else {
-            continue;
-        };
+    let guarantees = boundary
+        .as_ref()
+        .map(|boundary| {
+            contracts
+                .guarantees
+                .iter()
+                .map(|(condition, span)| {
+                    let condition = condition.capture_entry(
+                        &|place| {
+                            place
+                                .value_in(&boundary.current)
+                                .unwrap_or_else(|| ExecutionCondition::Input(place.clone()))
+                        },
+                        &boundary.trusted_assumptions,
+                        &boundary.assumptions,
+                        &mut { ExecutionCondition::WORK_LIMIT },
+                    );
 
-        let condition = condition.capture_entry(
-            &|place| {
-                place
-                    .value_in(&boundary.current)
-                    .unwrap_or_else(|| ExecutionCondition::Input(place.clone()))
-            },
-            &boundary.trusted_assumptions,
-            &boundary.assumptions,
-            &mut { ExecutionCondition::WORK_LIMIT },
+                    (condition, *span)
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    for span in super::super::postcondition::unproven_postconditions(flow, &guarantees) {
+        diagnostics.add(
+            Diagnostic::new(
+                bray_diagnostics::DiagnosticId::new(span.start().bytes()),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::TrustedObligationFailure,
+                span,
+            ))
+            .with_arg(DiagnosticArg::expression_category(
+                DiagnosticExpressionCategory::Call,
+            ))
+            .with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::TrustedObligationEvidenceRequired,
+            )),
         );
-
-        let proven = graph
-            .exits()
-            .iter()
-            .filter(|exit| {
-                matches!(
-                    exit.kind(),
-                    super::super::super::model::AnalysisExitKind::Return
-                        | super::super::super::model::AnalysisExitKind::NormalFallthrough
-                        | super::super::super::model::AnalysisExitKind::ResultErrorPropagation
-                )
-            })
-            .all(|exit| {
-                let Some(state) = flow.output(exit.block()) else {
-                    return true;
-                };
-
-                let condition = condition.substitute(
-                    &|place| {
-                        place
-                            .value_in(&state.current)
-                            .unwrap_or_else(|| ExecutionCondition::Input(place.clone()))
-                    },
-                    &state.result,
-                    &mut { ExecutionCondition::WORK_LIMIT },
-                );
-
-                condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
-                    == Some(true)
-            });
-
-        if !proven {
-            diagnostics.add(
-                Diagnostic::new(
-                    bray_diagnostics::DiagnosticId::new(span.start().bytes()),
-                    DiagnosticKind::CheckingTrustedObligationNotProven,
-                    SeverityKind::Error,
-                )
-                .with_primary_span(*span)
-                .with_label(DiagnosticLabel::primary(
-                    DiagnosticLabelKind::TrustedObligationFailure,
-                    *span,
-                ))
-                .with_arg(DiagnosticArg::expression_category(
-                    DiagnosticExpressionCategory::Call,
-                ))
-                .with_note(DiagnosticNote::new(
-                    DiagnosticNoteKind::TrustedObligationEvidenceRequired,
-                )),
-            );
-        }
     }
 
     for expression in transfers {
@@ -288,7 +268,7 @@ fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
         let mut is_witness = state.is_witness(&value);
 
         let mut partial_witness =
-            matches!(&value, ExecutionCondition::Field(_, base) if state.is_witness(base));
+            matches!(&value, ExecutionCondition::Projection(_, base) if state.is_witness(base));
 
         for (condition, subject) in requirements {
             let condition = condition.substitute(
@@ -338,7 +318,7 @@ fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
         }
 
         let copies = plan.purpose() != bray_bound_tree::StorageAccessPurpose::Move
-            && flow.copied_types.contains(&ty);
+            && flow.domain.copied_types.contains(&ty);
 
         if (is_witness && copies) || (partial_witness && !copies) {
             transfers.insert(plan.expression());
@@ -377,9 +357,7 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
             match $query {
                 Ok(value) => value,
                 Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-                Err(crate::CheckerQueryError::Infrastructure(error)) => {
-                    return CheckerOutcome::InfrastructureFailure(error)
-                }
+
                 Err(crate::CheckerQueryError::Upstream(error)) => {
                     return CheckerOutcome::UpstreamFailure(error)
                 }
@@ -438,8 +416,9 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
             let contract = match cleanup_contract(request.semantic_values(), signature) {
                 Ok(contract) => contract,
                 Err(error) => {
-                    return CheckerOutcome::InfrastructureFailure(
-                        crate::CheckerInfrastructureError::SemanticValueStore(error),
+                    panic!(
+                        "The canonical semantic value store rejected a construction or lookup operation. in check_trusted_completion, value0: {:?}",
+                        error
                     );
                 }
             };
@@ -486,9 +465,6 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
             flow
         }
         CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        CheckerOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         CheckerOutcome::UpstreamFailure(error) => return CheckerOutcome::UpstreamFailure(error),
     };
 
@@ -510,6 +486,8 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
                 let targets = cleanup_targets(cleanup, operation.kind());
 
                 for access in targets {
+                    let preserves_inputs = flow.domain.cleanup_preserves_inputs(&state, access);
+
                     for (ty, part) in parts
                         .get(&access)
                         .expect("cleanup access has its selected expansion")
@@ -544,7 +522,9 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
                                 failed.insert(operation.kind().node());
                             }
 
-                            state.invalidate_cleanup();
+                            if !preserves_inputs {
+                                state.invalidate_cleanup(None);
+                            }
 
                             if established
                                 && contract.completes
@@ -559,7 +539,9 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
                             }
                         }
 
-                        state.invalidate_cleanup();
+                        if !preserves_inputs {
+                            state.invalidate_cleanup(None);
+                        }
                     }
                 }
 
@@ -580,9 +562,6 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
     match check_trusted_contracts_in_flow(request, expressions, storage, &flow, true) {
         CheckerOutcome::Complete(result) => diagnostics.add_range(result.into_parts().1),
         CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        CheckerOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         CheckerOutcome::UpstreamFailure(error) => return CheckerOutcome::UpstreamFailure(error),
     }
 

@@ -1,6 +1,4 @@
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{BoundCallableTarget, SelectedArgument, SelectedCall};
 use bray_symbols::{
     CallableSymbolId, DependencyContractTemplateData, DependencyContractTemplateId,
@@ -35,15 +33,13 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
         store
             .intern_dependency_contract_template(DependencyContractTemplateData::new([
                 value_requirement(DependencySubjectRoot::Parameter(parameter)),
-            ]))
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?
+            ])).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in call_result_template: {error:?}"))
     } else if let Some(dispatch) = call.resolution().trait_dispatch() {
         let requirement = request.context().result_dispatch_requirement(dispatch)?;
         let template = super::witness::deferred_result(request, call, Some(requirement))?;
 
         store
-            .intern_dependency_contract_template(template)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?
+            .intern_dependency_contract_template(template).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in call_result_template: {error:?}"))
     } else if !opaque_result(call)
         && let BoundCallableTarget::Declaration(instance) = call.target()
     {
@@ -65,8 +61,7 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
             );
 
         store
-            .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements))
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?
+            .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements)).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in call_result_template: {error:?}"))
     };
 
     let instance = match call.target() {
@@ -88,8 +83,7 @@ pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
 
     let template = match instance {
         Some(instance) => store
-            .substitute_dependency_contract(template, instance.substitution())
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?,
+            .substitute_dependency_contract(template, instance.substitution()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in resolved_result_template: {error:?}")),
         None => template,
     };
 

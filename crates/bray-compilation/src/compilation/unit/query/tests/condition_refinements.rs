@@ -288,3 +288,27 @@ fn opaque_calls_invalidate_storage_refinements_while_pure_calls_preserve_them() 
         assert_eq!(actual, expected.into_iter().collect::<Vec<_>>(), "{call}");
     }
 }
+
+#[test]
+fn copied_pattern_payload_fields_preserve_refinements_between_call_arguments() {
+    let compilation = compilation(
+        r#"module app;
+func produce() -> Result<(i64, u32), unit> {
+    let seconds: i64 = 1;
+    let nanos: u32 = 2;
+    return Ok((seconds, nanos));
+}
+func combine(seconds: i64, nanos: u32) -> i64 { return seconds + nanos as i64; }
+func main() -> i64 {
+    return match produce() {
+        case Ok(parts) { yield combine(seconds = parts.0, nanos = parts.1); }
+        case Error(_) { yield 0; }
+    };
+}
+"#,
+    );
+
+    let diagnostics = compilation.check_diagnostics();
+
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}

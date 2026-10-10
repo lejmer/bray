@@ -1,0 +1,46 @@
+trusted internal module std.platform;
+
+@abi(c)
+trusted internal func clock_monotonic_now(pos ticks: RawPointer<u64>) -> PlatformStatus
+    requires(
+        trusted core.memory.valid_write<u64>(pointer = ticks, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = ticks),
+    )
+{
+    let prepared: Result<u64, PlatformStatus> = trusted internal prepare_clock_monotonic_now(ticks);
+
+    match consume prepared
+    {
+        case Ok(value)
+        {
+            trusted std.memory.write<u64>(ticks, value = value);
+
+            return success_status();
+        }
+        case Error(status) { return status; }
+    }
+}
+
+@abi(c)
+trusted internal func clock_wall_now(pos seconds: RawPointer<i64>, pos nanoseconds: RawPointer<u32>) -> PlatformStatus
+    requires(
+        trusted core.memory.valid_write<i64>(pointer = seconds, count = 1),
+        trusted core.memory.aligned_for<i64>(pointer = seconds),
+        trusted core.memory.valid_write<u32>(pointer = nanoseconds, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = nanoseconds),
+    )
+{
+    let prepared: Result<(i64, u32), PlatformStatus> = trusted internal prepare_clock_wall_now(seconds, nanoseconds);
+
+    match consume prepared
+    {
+        case Ok(value)
+        {
+            trusted std.memory.write<i64>(seconds, value = value.0);
+            trusted std.memory.write<u32>(nanoseconds, value = value.1);
+
+            return success_status();
+        }
+        case Error(status) { return status; }
+    }
+}

@@ -222,7 +222,6 @@ impl<'a> SemanticExporter<'a> {
         }
 
         resolve_type_expression_template(self.values, template, constants.value())
-            .map_err(super::super::checker_infrastructure_export_error)?
             .ok_or_else(|| incomplete(owner))
     }
 
@@ -359,7 +358,11 @@ impl<'a> SemanticExporter<'a> {
         let result_dependencies = self
             .values
             .empty_dependency_contract_template()
-            .map_err(super::super::semantic_value_export_error)?;
+            .unwrap_or_else(|error| {
+                panic!(
+                    "semantic_value_export_error in checked_constant_template_with_usage: {error:?}"
+                )
+            });
 
         let behavior = InterfaceCheckedTemplateBehavior::new(
             [],

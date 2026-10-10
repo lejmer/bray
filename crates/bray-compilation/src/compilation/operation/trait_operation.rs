@@ -110,8 +110,7 @@ impl Compilation {
             let mut built_in = false;
 
             for operand in std::iter::once(subject).chain(arguments.iter().copied()) {
-                built_in |= bray_checker::built_in_operator_supported(&context, operand, operator)
-                    .map_err(FactQueryError::from)?;
+                built_in |= bray_checker::built_in_operator_supported(&context, operand, operator);
             }
 
             if built_in {

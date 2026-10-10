@@ -84,7 +84,7 @@ struct SpinLockGuard<T>
 
     mut func get() -> &mut T
     {
-        let pointer: RawPointer<T> = std.memory.address_of<T>(&self.lock.storage);
+        let pointer: RawPointer<T> = trusted internal spin_lock_guard_pointer<T>(&mut self);
 
         return trusted std.memory.borrow_mut_from<T, SpinLockGuard<T>>(&mut self, pointer);
     }
@@ -94,6 +94,28 @@ struct SpinLockGuard<T>
         trusted internal release_spin_lock<T>(self.lock);
         self.active = false;
     }
+}
+
+trusted internal func spin_lock_guard_pointer<T>(pos guard: &mut SpinLockGuard<T>) -> RawPointer<T>
+    ensures(
+        trusted core.memory.valid_write<T>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = result),
+        trusted core.memory.initialized_as<T>(pointer = result),
+        trusted core.memory.exclusive_alias_valid<T>(pointer = result),
+        trusted core.memory.epoch_current<T>(pointer = result),
+        trusted core.memory.synchronized_access<T>(pointer = result),
+        trusted core.memory.movement_stable<T>(pointer = result),
+        trusted core.memory.finalization_pending<T>(pointer = result),
+    )
+{
+    if !guard.active
+    {
+        panic("storage access requires a live lock guard");
+    }
+
+    // Guard construction follows successful exclusive acquisition. The guard keeps the
+    // lock alive and release consumes it, so this access cannot outlive that acquisition.
+    return std.memory.address_of<T>(&guard.lock.storage);
 }
 
 trusted internal func release_spin_lock<T>(pos lock: &SpinLock<T>)

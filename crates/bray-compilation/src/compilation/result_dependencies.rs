@@ -1,5 +1,5 @@
 use bray_binder::{BindingQueryContext, SymbolQueryProvider};
-use bray_checker::CheckerInfrastructureError;
+
 use bray_symbols::{
     ExactSymbolId, ImplementationRequirementKey, ImplementationSelection, SymbolQueryRequest,
 };
@@ -24,7 +24,7 @@ pub(super) fn result_dispatch_requirement(
                 )
                 .map_err(checker_binder_error)?;
 
-            constraints
+            Ok(constraints
                 .value()
                 .constraints()
                 .iter()
@@ -37,7 +37,11 @@ pub(super) fn result_dispatch_requirement(
                     }
                     _ => None,
                 })
-                .ok_or_else(|| CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "result_dispatch_requirement must satisfy its checked construction contract"
+                    )
+                }))
         }
     }
 }
@@ -72,8 +76,7 @@ pub(super) fn result_witness_callable(
 
     let member = bray_symbols::TraitCallableMemberSymbolId::try_from_any(
         abstract_callable.definition().symbol(),
-    )
-    .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+    ).unwrap_or_else(|| panic!("result_witness_callable requires retained checked input: bray_symbols::TraitCallableMemberSymbolId::try_from_any( abstract_callable.definition().symbol(), ), callable: {callable:?}"));
 
     let fulfillments = implementation_fulfillments(binding_context, instance.definition())
         .map_err(checker_query_error)?;

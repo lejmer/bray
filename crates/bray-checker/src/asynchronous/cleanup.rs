@@ -12,14 +12,18 @@ use bray_symbols::{GenericArgument, TypeData, TypeExpressionTemplate, TypeId};
 
 use super::parts::CleanupExpansion;
 use crate::storage::storage_scope_owners;
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 pub(crate) fn cleanup_scopes<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
-) -> Result<BTreeSet<bray_bound_tree::BoundBlockId>, CheckerQueryError<C::UpstreamError>>
+) -> Result<
+    (
+        BTreeSet<bray_bound_tree::BoundBlockId>,
+        BTreeSet<bray_bound_tree::BoundExpressionId>,
+    ),
+    CheckerQueryError<C::UpstreamError>,
+>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -40,7 +44,34 @@ where
         }
     }
 
-    Ok(scopes)
+    let mut replacements = BTreeMap::new();
+
+    for plan in storage
+        .access_plans()
+        .iter()
+        .filter(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment)
+    {
+        let ty = storage
+            .access(plan.access())
+            .expect("assignment retains its checked destination")
+            .reached_type();
+
+        let shape = resolver.resolve(ty)?;
+
+        let free = !shape.cancellation && !shape.lifecycle && !shape.recovered;
+
+        replacements
+            .entry(plan.expression())
+            .and_modify(|previous| *previous &= free)
+            .or_insert(free);
+    }
+
+    let cleanup_free_replacements = replacements
+        .into_iter()
+        .filter_map(|(expression, free)| free.then_some(expression))
+        .collect();
+
+    Ok((scopes, cleanup_free_replacements))
 }
 
 pub(crate) fn cleanup_free_storage<C>(
@@ -329,7 +360,7 @@ where
             SeverityKind,
         };
 
-        let span = self.request.source(source)?.span();
+        let span = self.request.source(source).span();
         let ty = crate::diagnostic::diagnostic_type(self.request.context(), ty)?;
 
         self.diagnostics.add(
@@ -402,8 +433,7 @@ where
 
                 if let Some(receiver) = call.receiver() {
                     let ty = receiver
-                        .input_type(request.semantic_values())
-                        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                        .input_type(request.semantic_values()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in scope_exit_plans: {error:?}"));
 
                     cleanup_shapes.include_input(ty)?;
                 }
@@ -425,8 +455,7 @@ where
         ) {
             for operand in expression.operands() {
                 let ty = types
-                    .expression(*operand)
-                    .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?
+                    .expression(*operand).unwrap_or_else(|| panic!("scope_exit_plans requires checked expression type or node, operand: {operand:?}"))
                     .ty();
 
                 cleanup_shapes.include_input(ty)?;

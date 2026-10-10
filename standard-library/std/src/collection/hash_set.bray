@@ -264,7 +264,7 @@ impl HashSetMoveCursorIterator = HashSetMoveCursor<Value>(Iterator)
         while self.index < bucket_count
         {
             let index: usize = self.index;
-            let occupied: bool = trusted hash_table_occupied(self.set.table.states.pointer, index = index);
+            let occupied: bool = trusted hash_table_occupied(&self.set.table.states, index = index);
 
             self.index += 1;
 

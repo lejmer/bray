@@ -11,7 +11,7 @@ use bray_diagnostics::{
 };
 
 use crate::unit::assert_unit_inputs;
-use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 use super::super::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 use super::super::fixed_point::{
@@ -51,15 +51,12 @@ where
     let graph = match build_storage_control_flow_graph(request, storage, selections, None) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
     };
 
-    check_refinements_with_graph(request, patterns, selections, storage, &graph).with_upstream()
+    check_refinements_with_graph(request, patterns, selections, storage, &graph)
 }
 
 pub(crate) fn check_refinements_with_graph<C>(
@@ -68,7 +65,7 @@ pub(crate) fn check_refinements_with_graph<C>(
     selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
     graph: &ControlFlowGraph,
-) -> CheckerOutcome<CheckedRefinements>
+) -> CheckerOutcome<CheckedRefinements, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -80,23 +77,24 @@ where
         return CheckerOutcome::Cancelled;
     };
 
-    let universe = match RefinementUniverse::new(graph, request, patterns, selections, storage) {
-        Ok(universe) => universe,
-        Err(RefinementUniverseError::CapacityExceeded(capacity)) => {
-            return capacity_recovery(request, capacity);
-        }
-        Err(RefinementUniverseError::CountUnrepresentable) => {
-            return CheckerOutcome::InfrastructureFailure(
-                crate::CheckerInfrastructureError::RefinementCapacityUnrepresentable,
-            );
-        }
-        Err(RefinementUniverseError::AllocationFailed) => {
-            return CheckerOutcome::InfrastructureFailure(
-                crate::CheckerInfrastructureError::RefinementStorageUnavailable,
-            );
-        }
-        Err(RefinementUniverseError::Cancelled) => return CheckerOutcome::Cancelled,
-    };
+    let (copied_types, diagnostics) =
+        match super::super::storage_flow::copyability::storage_copyable_types(request, storage) {
+            Ok(result) => result,
+            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(CheckerQueryError::Upstream(error)) => {
+                return CheckerOutcome::UpstreamFailure(error);
+            }
+        };
+
+    let universe =
+        match RefinementUniverse::new(graph, request, patterns, selections, storage, &copied_types)
+        {
+            Ok(universe) => universe,
+            Err(RefinementUniverseError::CapacityExceeded(capacity)) => {
+                return capacity_recovery(request, capacity).with_upstream();
+            }
+            Err(RefinementUniverseError::Cancelled) => return CheckerOutcome::Cancelled,
+        };
 
     let result = match analyze_refinements(graph, &reachability, &universe, storage, request) {
         Some(result) => result,
@@ -106,17 +104,7 @@ where
     let occurrences = match result.occurrences(graph, storage) {
         Ok(occurrences) => occurrences,
         Err(RefinementUniverseError::CapacityExceeded(capacity)) => {
-            return capacity_recovery(request, capacity);
-        }
-        Err(RefinementUniverseError::CountUnrepresentable) => {
-            return CheckerOutcome::InfrastructureFailure(
-                crate::CheckerInfrastructureError::RefinementCapacityUnrepresentable,
-            );
-        }
-        Err(RefinementUniverseError::AllocationFailed) => {
-            return CheckerOutcome::InfrastructureFailure(
-                crate::CheckerInfrastructureError::RefinementStorageUnavailable,
-            );
+            return capacity_recovery(request, capacity).with_upstream();
         }
         Err(RefinementUniverseError::Cancelled) => return CheckerOutcome::Cancelled,
     };
@@ -134,7 +122,7 @@ where
     )
     .unwrap_or_else(|error| panic!("checker produced invalid refinements: {error:?}"));
 
-    CheckerOutcome::without_diagnostics(refinements)
+    CheckerOutcome::complete(refinements, diagnostics)
 }
 
 fn capacity_recovery<C>(
@@ -144,10 +132,7 @@ fn capacity_recovery<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let source = match request.source(request.unit().key().source()) {
-        Ok(source) => source,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-    };
+    let source = request.source(request.unit().key().source());
 
     let diagnostic = capacity_diagnostic(source.span(), capacity);
 
@@ -214,11 +199,11 @@ impl RefinementResult<'_> {
         let actual_refinements =
             occurrence_refinements
                 .values()
-                .try_fold(0usize, |count, refinements| {
+                .fold(0usize, |count, refinements| {
                     count
                         .checked_add(refinements.len())
-                        .ok_or(RefinementUniverseError::CountUnrepresentable)
-                })?;
+                        .expect("published refinement counts must fit the host address space")
+                });
 
         if actual_refinements > MAX_REFINEMENT_CELLS {
             return Err(capacity_error(

@@ -19,12 +19,6 @@ pub(super) fn collect_preservation_dependencies(
 ) {
     // Retaining entry facts across a pure call depends on that call's proof, even when
     // the enclosing obligation is only a completion predicate or termination promise.
-    let memory_expressions = memory
-        .operations()
-        .iter()
-        .map(|operation| operation.expression())
-        .collect::<std::collections::BTreeSet<_>>();
-
     for occurrence in occurrences {
         let bray_bound_tree::BoundExecutionSite::Node(node) = occurrence else {
             if scoped_invocation_preserves_inputs(selections, values, occurrence) {
@@ -52,7 +46,7 @@ pub(super) fn collect_preservation_dependencies(
             .invocation()
             .execution_properties()
             .contains(&ExecutionProperty::Pure)
-            && !memory_expressions.contains(&expression)
+            && memory.operation(expression).is_none()
         {
             dependencies.push(ExecutionDependency {
                 target: call.target(),
@@ -110,15 +104,51 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
         return false;
     }
 
-    if let Some(operation) = memory
-        .operations()
-        .iter()
-        .find(|operation| operation.expression() == expression)
-    {
+    if let Some(operation) = memory.operation(expression) {
+        if property == ExecutionProperty::Total
+            && matches!(
+                operation.kind(),
+                CheckedMemoryOperationKind::Read { .. }
+                    | CheckedMemoryOperationKind::Write { .. }
+                    | CheckedMemoryOperationKind::Copy { .. }
+                    | CheckedMemoryOperationKind::IsNull { .. }
+                    | CheckedMemoryOperationKind::Offset { .. }
+                    | CheckedMemoryOperationKind::Reinterpret { .. }
+                    | CheckedMemoryOperationKind::LayoutQuery { .. }
+                    | CheckedMemoryOperationKind::RawBufferCapacity
+                    | CheckedMemoryOperationKind::RawBufferInitializedCount
+                    | CheckedMemoryOperationKind::RawBufferPointer
+                    | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
+                    | CheckedMemoryOperationKind::RawBufferSetInitializedCount
+            )
+        {
+            // These checked primitives complete on their required storage domains.
+            // Allocation and selected cleanup retain their fallible call dependencies.
+            return true;
+        }
+
         return matches!(
             operation.kind(),
-            CheckedMemoryOperationKind::BorrowFrom { .. }
+            CheckedMemoryOperationKind::SequenceLength
+                | CheckedMemoryOperationKind::ByteBufferRead
+                | CheckedMemoryOperationKind::Read {
+                    kind: bray_bound_tree::MemoryReadKind::Copy,
+                    ..
+                }
+                | CheckedMemoryOperationKind::IsNull { .. }
+                | CheckedMemoryOperationKind::Offset { .. }
+                | CheckedMemoryOperationKind::Reinterpret { .. }
+                | CheckedMemoryOperationKind::LayoutQuery { .. }
+                | CheckedMemoryOperationKind::Null { .. }
+                | CheckedMemoryOperationKind::Address { .. }
+                | CheckedMemoryOperationKind::BorrowFrom { .. }
                 | CheckedMemoryOperationKind::UninitPointer { .. }
+                | CheckedMemoryOperationKind::RawBufferInitializedSlice
+                | CheckedMemoryOperationKind::RawBufferInitializedSliceMut
+                | CheckedMemoryOperationKind::RawBufferCapacity
+                | CheckedMemoryOperationKind::RawBufferInitializedCount
+                | CheckedMemoryOperationKind::RawBufferPointer
+                | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
         );
     }
 
@@ -146,6 +176,13 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
                 {
                     return false;
                 }
+            }
+
+            if call.implementation_hook()
+                == Some(bray_compiler_known::ImplementationHook::NumericTruncate)
+                && integer_truncation(request, call)
+            {
+                return true;
             }
 
             dependencies.push(ExecutionDependency {
@@ -262,6 +299,25 @@ pub(super) fn check_storage_accesses<C: CheckerRequestContext + ?Sized>(
     true
 }
 
+fn integer_truncation<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    call: &bray_bound_tree::SelectedCall,
+) -> bool {
+    let [SelectedArgument::Explicit { conversion, .. }] = call.arguments() else {
+        panic!("selected numeric truncation retains its single explicit argument");
+    };
+
+    let BoundCallResult::Immediate(target) = call.resolution().result() else {
+        panic!("selected numeric truncation returns its result immediately");
+    };
+
+    [conversion.target_type(), target].into_iter().all(|ty| {
+        crate::representation::type_representation(request, ty)
+            .and_then(bray_compiler_known::RepresentationRole::numeric_kind)
+            == Some(bray_compiler_known::NumericRepresentationKind::Integer)
+    })
+}
+
 fn check_operation(
     operation: &SelectedOperation,
     property: ExecutionProperty,
@@ -296,9 +352,23 @@ fn check_operation(
                     .iter()
                     .all(|input| matches!(input, SelectedConstructionInput::Explicit { .. }))
         }
-        SelectedOperation::CompoundAssignment(_) => {
-            property != ExecutionProperty::Pure && !calls.is_empty()
+        SelectedOperation::CompoundAssignment(selection) => {
+            property != ExecutionProperty::Pure
+                && match selection.target() {
+                    OperatorTarget::BuiltIn(operator) => !operator.builtin_may_panic(),
+                    OperatorTarget::Trait { .. } | OperatorTarget::TraitConstraint { .. } => {
+                        !calls.is_empty()
+                    }
+                }
         }
+        SelectedOperation::Index {
+            target:
+                bray_bound_tree::IndexTarget::ArrayElement
+                | bray_bound_tree::IndexTarget::SliceElement
+                | bray_bound_tree::IndexTarget::ArraySlice
+                | bray_bound_tree::IndexTarget::Slice,
+            ..
+        } => property == ExecutionProperty::Pure,
         SelectedOperation::Index { .. } => !calls.is_empty(),
         _ => true,
     }

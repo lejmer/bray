@@ -259,6 +259,11 @@
           "dependencies": [
             "foreign_call",
             "raw_memory"
+          ],
+          "ensures": [
+            "trusted core.memory.valid_read<i32>(pointer = result, count = 1)",
+            "trusted core.memory.aligned_for<i32>(pointer = result)",
+            "trusted core.memory.initialized_as<i32>(pointer = result)"
           ]
         },
         {
@@ -275,6 +280,11 @@
           "dependencies": [
             "foreign_call",
             "raw_memory"
+          ],
+          "ensures": [
+            "trusted core.memory.valid_read<RawPointer<RawPointer<u8>>>(pointer = result, count = 1)",
+            "trusted core.memory.aligned_for<RawPointer<RawPointer<u8>>>(pointer = result)",
+            "trusted core.memory.initialized_as<RawPointer<RawPointer<u8>>>(pointer = result)"
           ]
         },
         {
@@ -290,6 +300,7 @@
           "initialization": "the returned storage contains the current error code",
           "ensures": [
             "trusted core.memory.valid_read<i32>(pointer = result, count = 1)",
+            "trusted core.memory.valid_write<i32>(pointer = result, count = 1)",
             "trusted core.memory.aligned_for<i32>(pointer = result)",
             "trusted core.memory.initialized_as<i32>(pointer = result)"
           ],

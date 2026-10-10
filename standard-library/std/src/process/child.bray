@@ -327,13 +327,13 @@ trusted internal func spawn_child(pos state: ChildCommandState) -> Result<ChildP
     requires(blocking_execution())
     uses(foreign_call)
 {
-    let argument_views: std.collection.List<PlatformNativeText> = try argument_spans(&state.argument_values);
+    let argument_views: std.collection.List<(&[u8])> = try argument_spans(&state.argument_values);
 
     let environment_views: std.collection.List<PlatformEnvironmentEntry> = try environment_spans(
         &state.environment_values
     );
 
-    let executable: PlatformNativeText = internal std.process.path_span(&state.executable);
+    let executable: (&[u8]) = internal std.process.path_span(&state.executable);
     let working_directory: std.path.Path? = state.working_directory;
 
     match consume working_directory
@@ -366,10 +366,10 @@ trusted internal func spawn_child(pos state: ChildCommandState) -> Result<ChildP
 }
 
 trusted internal func spawn_child_request(
-    pos executable: PlatformNativeText,
-    pos arguments: &std.collection.List<PlatformNativeText>,
+    pos executable: (&[u8]),
+    pos arguments: &std.collection.List<(&[u8])>,
     pos environment: &std.collection.List<PlatformEnvironmentEntry>,
-    working_directory: PlatformNativeText,
+    working_directory: (&[u8]),
     standard_input: ChildStreamPolicy,
     standard_output: ChildStreamPolicy,
     standard_error: ChildStreamPolicy,
@@ -414,20 +414,18 @@ trusted internal func spawn_child_request(
 
 trusted internal func argument_spans(
     pos values: &std.collection.List<std.path.NativeText>
-) -> Result<std.collection.List<PlatformNativeText>, ChildError>
+) -> Result<std.collection.List<(&[u8])>, ChildError>
 {
-    let mut spans: std.collection.List<PlatformNativeText> = try trusted empty_list<PlatformNativeText>(
-        kind = Creation
-    );
+    let mut spans: std.collection.List<(&[u8])> = try trusted empty_list<(&[u8])>(kind = Creation);
 
     let entries: &[std.path.NativeText] = values.as_slice();
     let mut index: usize = 0;
 
     while index < std.collection.length<std.path.NativeText>(values)
     {
-        try trusted push_value<PlatformNativeText>(
+        try trusted push_value<(&[u8])>(
             &mut spans,
-            internal std.process.native_text_span(&entries[index]),
+            internal std.process.native_text_bytes(&entries[index]),
             kind = Creation,
         );
 
@@ -453,8 +451,8 @@ trusted internal func environment_spans(
         try trusted push_value<PlatformEnvironmentEntry>(
             &mut spans,
             {
-                key = internal std.process.native_text_span(&entries[index].key),
-                value = internal std.process.native_text_span(&entries[index].value),
+                key = internal std.process.native_text_bytes(&entries[index].key),
+                value = internal std.process.native_text_bytes(&entries[index].value),
             },
             kind = Creation,
         );

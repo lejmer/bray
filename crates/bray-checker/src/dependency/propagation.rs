@@ -4,9 +4,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::{DependencyProjection, UnionPayloadFieldSymbolId};
 
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 impl super::ValueInputs {
     pub(super) fn collect_propagation<C: CheckerRequestContext + ?Sized>(
@@ -33,22 +31,30 @@ impl super::ValueInputs {
             let Some(BoundExpression::Structured(expression)) =
                 request.unit().tree().expression(entry.expression())
             else {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in collect_propagation"
+                );
             };
 
             let Some(operand) = expression.operands().first().copied() else {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in collect_propagation"
+                );
             };
 
             let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(
                 "ResultVariant1ErrorError",
             )
-            .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            .unwrap_or_else(|| {
+                panic!("collect_propagation requires compiler-known declaration key")
+            });
 
             let field = request
                 .available_compiler_known_symbols()
                 .declaration_symbol::<UnionPayloadFieldSymbolId>(&key)
-                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+                .unwrap_or_else(|| {
+                    panic!("collect_propagation requires compiler-known declaration symbol")
+                });
 
             let projection = DependencyProjection::UnionPayloadField(field);
 
@@ -62,8 +68,7 @@ impl super::ValueInputs {
                 SelectedPropagationBoundary::YieldRegion(target) => {
                     let owner = targets
                         .get(target)
-                        .copied()
-                        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+                        .copied().unwrap_or_else(|| panic!("collect_propagation requires control transfer target, target: {target:?}"));
 
                     self.projected
                         .entry(owner)

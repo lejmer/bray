@@ -14,8 +14,8 @@ use super::call::{
 use super::operation::{operation_access_requirements, operation_requirements};
 use crate::unit::assert_unit_inputs;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerStorageFlowFailure, CheckerUnitView,
+    CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider,
+    CheckerUnitView,
 };
 
 pub(crate) fn check_dependency_contracts<C>(
@@ -104,9 +104,10 @@ where
                                 crate::diagnostic::diagnostic_id(diagnostics.len()),
                             );
 
-                            match diagnostic {
-                                Ok(diagnostic) => diagnostics.add(diagnostic),
-                                Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+                            {
+                                let diagnostic = diagnostic;
+
+                                diagnostics.add(diagnostic)
                             }
 
                             is_recovered = true;
@@ -169,11 +170,6 @@ where
                 ))
                 .or_insert_with(Vec::new)
                 .extend(contract.requirements().iter().cloned()),
-            Err(DependencyContractInstantiationError::Resolution(
-                CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                ),
-            )) => is_recovered = true,
             Err(error) => return failed_contract(error, entry.expression()),
         }
     }
@@ -229,9 +225,10 @@ where
     ) {
         Ok(contracts) => contracts,
         Err(error) => {
-            return CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::StorageFlow(
-                CheckerStorageFlowFailure::DependencyContractsConstruction(error),
-            ));
+            panic!(
+                "Durable dependency-contract construction rejected an exact invariant. in check_dependency_contracts, value0: {:?}",
+                error
+            );
         }
     };
 
@@ -272,23 +269,21 @@ fn failed_contract<E, T>(
         DependencyContractInstantiationError::Resolution(CheckerQueryError::Cancelled) => {
             CheckerOutcome::Cancelled
         }
-        DependencyContractInstantiationError::Resolution(CheckerQueryError::Infrastructure(
-            error,
-        )) => CheckerOutcome::InfrastructureFailure(error),
         DependencyContractInstantiationError::Resolution(CheckerQueryError::Upstream(error)) => {
             CheckerOutcome::UpstreamFailure(error)
         }
         DependencyContractInstantiationError::UnresolvedWitness => {
             // rust-style: allow(context-erasing-failure-conversion, reason = "unresolved witness error has no payload and its exact expression is retained")
-            CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::StorageFlow(
-                CheckerStorageFlowFailure::UnresolvedDependencyWitness { expression },
-            ))
+            panic!(
+                "A call reached concrete dependency checking without its selected witness. in failed_contract, expression: {:?}",
+                expression
+            )
         }
         DependencyContractInstantiationError::ForeignUnit => {
             // rust-style: allow(context-erasing-failure-conversion, reason = "foreign unit error has no payload and its exact cause is retained")
-            CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::StorageFlow(
-                CheckerStorageFlowFailure::ForeignDependencyContract,
-            ))
+            panic!(
+                "A selected call or iteration produced a dependency contract for another source body. in failed_contract"
+            )
         }
     }
 }

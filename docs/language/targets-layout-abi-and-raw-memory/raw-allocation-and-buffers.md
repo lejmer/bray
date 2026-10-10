@@ -83,14 +83,21 @@ struct RawBuffer<T>
 
 func capacity<T>(pos buffer: &RawBuffer<T>) -> usize;
 
-func initialized_count<T>(pos buffer: &RawBuffer<T>) -> usize;
+func initialized_count<T>(pos buffer: &RawBuffer<T>) -> usize
+    ensures(
+        result == buffer.initialized,
+        result <= buffer.capacity,
+        trusted core.memory.initialized_range_as<T>(pointer = buffer.pointer, count = result),
+    );
 
 func pointer<T>(pos buffer: &RawBuffer<T>) -> RawPointer<T>;
 
 trusted func initialized_slice<T>(pos buffer: &RawBuffer<T>) -> &[T]
+    ensures(trusted core.memory.initialized_range_as<T>(pointer = buffer.pointer, count = buffer.initialized))
     uses(raw_memory);
 
 trusted func initialized_slice_mut<T>(pos buffer: &mut RawBuffer<T>) -> &mut [T]
+    ensures(trusted core.memory.initialized_range_as<T>(pointer = buffer.pointer, count = buffer.initialized))
     uses(raw_memory);
 
 trusted func spare_pointer<T>(pos buffer: &mut RawBuffer<T>) -> RawPointer<T>
@@ -172,6 +179,19 @@ initialized elements.
 
 Constructing a `RawBuffer<T>` value from arbitrary field values is rejected unless the surrounding trusted context
 establishes the required allocation ownership, valid-write, and initialized-prefix conditions for those fields.
+
+Field construction transfers the allocation authority into the linear owner. Copying the pointer and counts cannot
+reuse that authority to construct another owner.
+
+The recognized internal `allocate_buffer<T>(capacity, bytes, align)` operation creates an empty buffer from the validated
+element layout. It requires `bytes == stride_of<T>() * capacity` and `align == align_of<T>()`. A zero-capacity buffer
+does not allocate. A nonzero-capacity buffer uses the selected standard-library allocator and its normal panic contract.
+
+The recognized internal `raw_buffer_push<T>(&mut buffer, value)` and `raw_buffer_pop<T>(&mut buffer)` operations transfer
+one value and update the initialized-prefix count as one ownership operation. Push requires
+`buffer.initialized < buffer.capacity`; pop requires `buffer.initialized > 0`. The standard-library wrappers check these
+bounds before invoking the internal operations. Push initializes the first spare slot; pop transfers the last
+initialized value out. Neither operation copies the value or invokes its destruction or finalization behavior.
 
 `RawBuffer<T>` is a low-level storage owner, not a growable collection contract.
 

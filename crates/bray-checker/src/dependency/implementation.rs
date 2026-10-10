@@ -7,9 +7,14 @@ pub(crate) const fn implementation_dependency_source(
     match implementation {
         ImplementationHook::StringUtf8
         | ImplementationHook::CallableFromPointer
-        | ImplementationHook::PointerFromCallable => Some((SymbolOrdinal::new(0), None)),
-        ImplementationHook::BorrowFrom => Some((SymbolOrdinal::new(0), Some(BorrowKind::Shared))),
-        ImplementationHook::BorrowMutFrom => {
+        | ImplementationHook::PointerFromCallable
+        | ImplementationHook::RawPointerOffset
+        | ImplementationHook::RawPointerByteOffset
+        | ImplementationHook::RawPointerReinterpret => Some((SymbolOrdinal::new(0), None)),
+        ImplementationHook::BorrowFrom | ImplementationHook::RawBufferInitializedSlice => {
+            Some((SymbolOrdinal::new(0), Some(BorrowKind::Shared)))
+        }
+        ImplementationHook::BorrowMutFrom | ImplementationHook::RawBufferInitializedSliceMut => {
             Some((SymbolOrdinal::new(0), Some(BorrowKind::Mutable)))
         }
         ImplementationHook::NativeThreadStart => Some((SymbolOrdinal::new(1), None)),

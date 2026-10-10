@@ -16,8 +16,7 @@ use super::subjects::{
 use crate::analysis::model::{AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind};
 use crate::dependency::{ValueInputs, selected_call_contracts};
 use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitView,
+    CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -343,18 +342,15 @@ impl OperationEffects {
                     )
                     .map_err(|error| match error {
                         DependencyContractInstantiationError::Resolution(error) => error,
-                        DependencyContractInstantiationError::UnresolvedWitness => {
-                            CheckerInfrastructureError::StorageFlow(
-                                crate::CheckerStorageFlowFailure::UnresolvedDependencyWitness {
-                                    expression: entry.expression(),
-                                },
-                            )
-                            .into()
-                        }
-                        DependencyContractInstantiationError::ForeignUnit => {
-                            // rust-style: allow(context-erasing-failure-conversion, reason = "foreign-unit leaf has no payload and the liveness input unit is retained by this query")
-                            CheckerInfrastructureError::InvalidLiveness.into()
-                        }
+                        DependencyContractInstantiationError::UnresolvedWitness => panic!(
+                            "selected scoped operation {:?} must retain its dependency witness",
+                            occurrence
+                        ),
+                        DependencyContractInstantiationError::ForeignUnit => panic!(
+                            "selected scoped operation {:?} must belong to liveness unit {:?}",
+                            occurrence,
+                            request.unit().unit()
+                        ),
                     })?;
 
                     let mut subjects =
@@ -395,29 +391,19 @@ impl OperationEffects {
                 &self.value_inputs,
             ) {
                 Ok(contracts) => contracts,
-                Err(DependencyContractInstantiationError::Resolution(
-                    CheckerQueryError::Infrastructure(
-                        CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                    ),
-                )) => {
-                    self.recovered_nodes
-                        .insert(AnyBoundNodeId::Expression(entry.expression()));
-
-                    continue;
-                }
                 Err(DependencyContractInstantiationError::Resolution(error)) => {
                     return Err(error);
                 }
                 Err(DependencyContractInstantiationError::UnresolvedWitness) => {
-                    return Err(CheckerInfrastructureError::StorageFlow(
-                        crate::CheckerStorageFlowFailure::UnresolvedDependencyWitness {
-                            expression: entry.expression(),
-                        },
-                    )
-                    .into());
+                    panic!(
+                        "A call reached concrete dependency checking without its selected witness. in add_selected_call_dependencies, expression: {:?}",
+                        entry.expression()
+                    );
                 }
                 Err(DependencyContractInstantiationError::ForeignUnit) => {
-                    return Err(CheckerInfrastructureError::InvalidLiveness.into());
+                    panic!(
+                        "Liveness inputs or durable decisions violate the requested unit contract. in add_selected_call_dependencies"
+                    );
                 }
             };
 

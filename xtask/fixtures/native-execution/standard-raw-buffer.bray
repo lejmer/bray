@@ -69,41 +69,29 @@ trusted internal func probe_buffer() -> RawBuffer<CleanupProbe>
         case Error(_) { panic("raw buffer cleanup probe layout is unavailable"); }
     };
 
-    let first: RawPointer<CleanupProbe> = trusted spare_pointer<CleanupProbe>(&mut buffer);
-
-    trusted write<CleanupProbe>(
-        first,
-        value = CleanupProbe
+    trusted internal initialize_spare<CleanupProbe>(
+        &mut buffer,
+        CleanupProbe
         {
             digit = 1,
         },
     );
 
-    trusted set_initialized_count<CleanupProbe>(&mut buffer, count = 1);
-
-    let second: RawPointer<CleanupProbe> = trusted spare_pointer<CleanupProbe>(&mut buffer);
-
-    trusted write<CleanupProbe>(
-        second,
-        value = CleanupProbe
+    trusted internal initialize_spare<CleanupProbe>(
+        &mut buffer,
+        CleanupProbe
         {
             digit = 2,
         },
     );
 
-    trusted set_initialized_count<CleanupProbe>(&mut buffer, count = 2);
-
-    let third: RawPointer<CleanupProbe> = trusted spare_pointer<CleanupProbe>(&mut buffer);
-
-    trusted write<CleanupProbe>(
-        third,
-        value = CleanupProbe
+    trusted internal initialize_spare<CleanupProbe>(
+        &mut buffer,
+        CleanupProbe
         {
             digit = 3,
         },
     );
-
-    trusted set_initialized_count<CleanupProbe>(&mut buffer, count = 3);
 
     return buffer;
 }

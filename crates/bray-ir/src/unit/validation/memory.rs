@@ -71,6 +71,11 @@ pub(super) fn validate_memory_operation(
         CheckedMemoryOperationKind::LayoutQuery { .. } => true,
         CheckedMemoryOperationKind::RawAllocate => types[0] == types[1],
         CheckedMemoryOperationKind::RawDeallocate => types[1] == types[2],
+        CheckedMemoryOperationKind::RawBufferPush { element } => types[1] == element,
+        CheckedMemoryOperationKind::RawBufferPop { element } => {
+            memory.result_type() == Some(element)
+        }
+        CheckedMemoryOperationKind::RawBufferAllocate => types.iter().all(|ty| *ty == types[0]),
         CheckedMemoryOperationKind::Allocate
         | CheckedMemoryOperationKind::Deallocate
         | CheckedMemoryOperationKind::RawBufferCapacity
@@ -84,7 +89,6 @@ pub(super) fn validate_memory_operation(
         CheckedMemoryOperationKind::RawBufferReplace { .. }
         | CheckedMemoryOperationKind::RawBufferRelocate { .. } => types[0] == types[1],
         CheckedMemoryOperationKind::ByteBufferFill
-        | CheckedMemoryOperationKind::ByteBufferCopy
         | CheckedMemoryOperationKind::ByteBufferRead
         | CheckedMemoryOperationKind::SequenceLength
         | CheckedMemoryOperationKind::CallbackState { .. }

@@ -11,9 +11,7 @@ use bray_diagnostics::{
 
 use super::dependency::{UnsatisfiedDependency, unsatisfied_dependency_subjects};
 use crate::diagnostic::{bound_node_origin, diagnostic_id, expression_span};
-use crate::{
-    CheckerInfrastructureError, CheckerRequestContext, CheckerStorageFlowFailure, CheckerUnitView,
-};
+use crate::{CheckerRequestContext, CheckerUnitView};
 
 pub(super) enum AwaitDependencyFailure {
     MissingSuspensionState,
@@ -33,31 +31,30 @@ pub(super) fn await_dependency_failure<C>(
     dependency_contract: Option<BoundDependencyContractId>,
     suspension_state: Option<&bray_bound_tree::StorageSuspensionState>,
     syntax_recovered: bool,
-) -> Result<Option<AwaitDependencyFailure>, CheckerInfrastructureError>
+) -> Option<AwaitDependencyFailure>
 where
     C: CheckerRequestContext + ?Sized,
 {
     if syntax_recovered {
-        return Ok(None);
+        return None;
     }
 
     let Some(dependency_contract) = dependency_contract else {
-        return Err(CheckerInfrastructureError::StorageFlow(
-            CheckerStorageFlowFailure::MissingAwaitDependencyContract { expression },
-        ));
+        panic!(
+            "A non-recovered await expression has no selected dependency contract. in await_dependency_failure, expression: {:?}",
+            expression
+        );
     };
 
     let Some(contract) = dependencies.contract(dependency_contract) else {
-        return Err(CheckerInfrastructureError::StorageFlow(
-            CheckerStorageFlowFailure::MissingDependencyContract {
-                expression,
-                contract: dependency_contract,
-            },
-        ));
+        panic!(
+            "An await expression names a dependency contract absent from its source body. in await_dependency_failure, expression: {:?}, contract: {:?}",
+            expression, dependency_contract
+        );
     };
 
     let Some(suspension_state) = suspension_state else {
-        return Ok(Some(AwaitDependencyFailure::MissingSuspensionState));
+        return Some(AwaitDependencyFailure::MissingSuspensionState);
     };
 
     let unsatisfied = unsatisfied_dependency_subjects(
@@ -67,10 +64,9 @@ where
         expression,
         suspension_state,
         contract,
-    )
-    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    ).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in await_dependency_failure: {error:?}"));
 
-    Ok((!unsatisfied.is_empty()).then_some(AwaitDependencyFailure::Unsatisfied(unsatisfied)))
+    (!unsatisfied.is_empty()).then_some(AwaitDependencyFailure::Unsatisfied(unsatisfied))
 }
 
 pub(super) fn add_unavailable_await_dependency_diagnostic<C>(
@@ -79,11 +75,10 @@ pub(super) fn add_unavailable_await_dependency_diagnostic<C>(
     expression: BoundExpressionId,
     failure: &AwaitDependencyFailure,
     diagnostics: &mut DiagnosticBag,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
-    let span = expression_span(request, expression)?;
+    let span = expression_span(request, expression);
 
     let mut diagnostic = Diagnostic::new(
         diagnostic_id(diagnostics.len()),
@@ -130,7 +125,7 @@ where
                 .with_arg(requirement),
         );
 
-        if let Some(origin) = await_dependency_origin(request, storage, dependency.subject)? {
+        if let Some(origin) = await_dependency_origin(request, storage, dependency.subject) {
             if origin == span {
                 continue;
             }
@@ -143,8 +138,6 @@ where
     }
 
     diagnostics.add(diagnostic);
-
-    Ok(())
 }
 
 fn with_missing_await_dependency(
@@ -169,7 +162,7 @@ fn await_dependency_origin<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     subject: BoundDependencySubject,
-) -> Result<Option<bray_source::SourceSpan>, CheckerInfrastructureError>
+) -> Option<bray_source::SourceSpan>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -190,9 +183,7 @@ where
         | BoundDependencySubject::LifecycleObligation(_) => None,
     };
 
-    source
-        .map(|source| request.source(source).map(|source| source.span()))
-        .transpose()
+    source.map(|source| request.source(source).span())
 }
 
 fn storage_identity_source<C>(

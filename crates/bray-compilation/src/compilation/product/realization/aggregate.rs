@@ -516,8 +516,7 @@ impl Compilation {
             self.semantic_value_store()?,
             template,
             constants.value(),
-        )
-        .map_err(FactQueryError::from)?;
+        );
 
         let Some(ty) = ty else {
             return Err(ProductQueryFailure::missing(

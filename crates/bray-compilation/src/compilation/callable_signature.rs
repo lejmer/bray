@@ -165,7 +165,6 @@ impl Compilation {
             subject.value().ty(),
             checked.value(),
         )
-        .map_err(FactQueryError::from)?
         .ok_or_else(|| {
             SemanticQueryFailure::contract(
                 SemanticQueryContext::Symbol(implementation.into_any()),
@@ -201,8 +200,7 @@ impl Compilation {
             result.value(),
             instance.substitution(),
             checked.value(),
-        )
-        .map_err(FactQueryError::from)?;
+        );
 
         let Some(signature) = signature else {
             return Ok(None);

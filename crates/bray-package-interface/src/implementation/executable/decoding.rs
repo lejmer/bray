@@ -1388,6 +1388,13 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 },
             }),
             9 => Ok(Kind::RawAllocate),
+            57 => Ok(Kind::RawBufferPush {
+                element: self.ty()?,
+            }),
+            58 => Ok(Kind::RawBufferPop {
+                element: self.ty()?,
+            }),
+            56 => Ok(Kind::RawBufferAllocate),
             10 => Ok(Kind::RawDeallocate),
             11 => Ok(Kind::Allocate),
             12 => Ok(Kind::Deallocate),
@@ -1413,7 +1420,6 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             24 => Ok(Kind::ByteBufferRead),
             25 => Ok(Kind::SequenceLength),
             26 => Ok(Kind::CallbackState { state: self.ty()? }),
-            27 => Ok(Kind::ByteBufferCopy),
             28 => Ok(Kind::VolatileRead {
                 pointee: self.ty()?,
                 address_space: match read_u32(&mut self.reader)? {

@@ -30,25 +30,26 @@ struct Buffer
         }
 
         let mut buffer: Buffer = try Buffer(capacity = byte_count);
-        let destination: RawPointer<u8> = buffer.storage.pointer;
 
-        trusted internal std.memory.byte_buffer_copy(
-            source = internal std.memory.byte_slice_pointer(bytes),
-            destination = destination,
+        let initialized: usize = trusted internal std.memory.copy_spare_bytes(
+            &mut buffer.storage,
+            bytes,
             count = byte_count,
         );
 
-        trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = byte_count);
+        trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = initialized);
 
         return Ok(buffer);
     }
 
     func as_slice() -> &[u8]
+        executes(pure, total)
     {
         return trusted std.memory.initialized_slice<u8>(&self.storage);
     }
 
     mut func as_slice_mut() -> &mut [u8]
+        executes(pure, total)
     {
         return trusted std.memory.initialized_slice_mut<u8>(&mut self.storage);
     }
@@ -128,22 +129,20 @@ trusted func resize(
 
     try reserve(additional = additional, buffer = &mut buffer);
 
-    let pointer: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
-
-    trusted internal std.memory.byte_buffer_fill(
-        destination = pointer,
+    let initialized: usize = trusted internal std.memory.fill_spare_bytes(
+        &mut buffer.storage,
         value = fill,
         count = new_length - current_length,
     );
 
-    trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = new_length);
+    trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = initialized);
 
     return Ok(unit);
 }
 
 trusted func truncate(pos buffer: &mut Buffer, new_length: usize) -> unit
 {
-    let current_length: usize = buffer.storage.initialized;
+    let current_length: usize = std.memory.initialized_count<u8>(&buffer.storage);
 
     if new_length < current_length
     {
@@ -172,11 +171,7 @@ trusted func push(pos buffer: &mut Buffer, value: u8) -> Result<unit, std.memory
 
 trusted internal func initialize_spare_byte(pos buffer: &mut Buffer, value: u8) -> unit
 {
-    let current_length: usize = buffer.storage.initialized;
-    let pointer: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
-
-    trusted internal std.memory.byte_buffer_fill(destination = pointer, value = value, count = 1);
-    trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = current_length + 1);
+    trusted internal std.memory.initialize_spare<u8>(&mut buffer.storage, value);
 }
 
 trusted internal func append_slice(
@@ -193,16 +188,13 @@ trusted internal func append_slice(
 
     try reserve(additional = byte_count, buffer = &mut buffer);
 
-    let current_length: usize = buffer.storage.initialized;
-    let destination: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
-
-    trusted internal std.memory.byte_buffer_copy(
-        source = internal std.memory.byte_slice_pointer(bytes),
-        destination = destination,
+    let initialized: usize = trusted internal std.memory.copy_spare_bytes(
+        &mut buffer.storage,
+        bytes,
         count = byte_count,
     );
 
-    trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = current_length + byte_count);
+    trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = initialized);
 
     return Ok(unit);
 }
@@ -220,11 +212,13 @@ trusted internal func append_repeated(
 
     try reserve(additional = count, buffer = &mut buffer);
 
-    let current_length: usize = buffer.storage.initialized;
-    let destination: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
+    let initialized: usize = trusted internal std.memory.fill_spare_bytes(
+        &mut buffer.storage,
+        value = value,
+        count = count,
+    );
 
-    trusted internal std.memory.byte_buffer_fill(destination = destination, value = value, count = count);
-    trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = current_length + count);
+    trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = initialized);
 
     return Ok(unit);
 }
@@ -245,10 +239,7 @@ trusted func pop(pos buffer: &mut Buffer) -> u8?
         return none;
     }
 
-    let new_length: usize = current_length - 1;
-    let value: u8 = trusted internal std.memory.byte_buffer_read(buffer.storage.pointer, index = new_length);
-
-    truncate(new_length = new_length, buffer = buffer);
+    let value: u8 = trusted std.memory.take_last<u8>(&mut buffer.storage);
 
     let mut result: u8? = none;
 

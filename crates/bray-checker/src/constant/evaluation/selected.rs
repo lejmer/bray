@@ -39,7 +39,9 @@ where
 
         match target {
             OperatorTarget::BuiltIn(selected) if *selected != operation => {
-                return Err(EvaluationFailure::invalid_input());
+                panic!(
+                    "built-in operator selection at {expression:?} must match {operation:?}, actual: {target:?}"
+                );
             }
             OperatorTarget::BuiltIn(_) => {}
             OperatorTarget::Trait {
@@ -51,13 +53,17 @@ where
                 return self.evaluate_call(expression, *fulfillment, Some(*witness), operands, ty);
             }
             OperatorTarget::Trait { .. } => {
-                return Err(EvaluationFailure::invalid_input());
+                panic!(
+                    "trait operator selection at {expression:?} must match {operation:?}, actual: {target:?}"
+                );
             }
             OperatorTarget::TraitConstraint { operator, .. } if *operator == operation => {
                 return Err(EvaluationFailure::invalid_expression(expression));
             }
             OperatorTarget::TraitConstraint { .. } => {
-                return Err(EvaluationFailure::invalid_input());
+                panic!(
+                    "trait constraint selection at {expression:?} must match {operation:?}, actual: {target:?}"
+                );
             }
         }
 
@@ -66,7 +72,9 @@ where
             [left, right] => {
                 self.evaluate_binary_operator(expression, operation, *left, *right, ty)
             }
-            _ => Err(EvaluationFailure::invalid_input()),
+            _ => panic!(
+                "checked operator {operation:?} at {expression:?} must have unary or binary operands, actual: {operands:?}"
+            ),
         }
     }
 
@@ -98,7 +106,7 @@ where
                 EvaluationFailure::operation(expression, diagnostic_operation(operation), error)
             })?;
 
-        self.intern_value_term(ty, kind)
+        Ok(self.intern_value_term(ty, kind))
     }
 
     pub(super) fn evaluate_binary_operator(
@@ -154,7 +162,7 @@ where
             EvaluationFailure::operation(expression, diagnostic_operation(operation), error)
         })?;
 
-        self.intern_value_term(ty, kind)
+        Ok(self.intern_value_term(ty, kind))
     }
 
     pub(super) fn short_circuit(
@@ -187,9 +195,7 @@ where
             _ => None,
         };
 
-        result
-            .map(|value| self.intern_value_term(ty, ConstantValueKind::Boolean(value)))
-            .transpose()
+        Ok(result.map(|value| self.intern_value_term(ty, ConstantValueKind::Boolean(value))))
     }
 
     pub(super) fn evaluate_conversion(
@@ -224,7 +230,9 @@ where
         let operand = self.evaluate(source.operand())?;
 
         if conversion.target_type() != ty {
-            return Err(EvaluationFailure::invalid_input());
+            panic!(
+                "selected conversion at {expression:?} must have result type {ty:?}, actual: {conversion:?}"
+            );
         }
 
         self.apply_selected_conversion(expression, &conversion, operand)
@@ -239,7 +247,9 @@ where
         let data = self.request.semantic_values().constant_value_data(value);
 
         if data.ty() != conversion.source_type() {
-            return Err(EvaluationFailure::invalid_input());
+            panic!(
+                "selected conversion at {expression:?} must accept constant {value:?}, conversion: {conversion:?}, value: {data:?}"
+            );
         }
 
         let kind = match conversion.target() {
@@ -289,7 +299,7 @@ where
             }
         };
 
-        self.intern_value(conversion.target_type(), kind)
+        Ok(self.intern_value(conversion.target_type(), kind))
     }
 
     pub(super) fn convert_composite(
@@ -362,7 +372,9 @@ where
         let operands = structured.operands();
 
         let [subject, index] = operands else {
-            return Err(EvaluationFailure::invalid_input());
+            panic!(
+                "checked index expression {expression:?} must have exactly subject and index operands, actual: {operands:?}"
+            );
         };
 
         let subject = self.evaluate(*subject)?;
@@ -395,7 +407,7 @@ where
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
-        self.intern_term(ConstantTermData::Value(value))
+        Ok(self.intern_term(ConstantTermData::Value(value)))
     }
 
     fn evaluate_slice(
@@ -468,7 +480,7 @@ where
 
         self.budget.charge_elements(expression, values.len())?;
 
-        self.intern_value_term(ty, ConstantValueKind::array(values.iter().copied()))
+        Ok(self.intern_value_term(ty, ConstantValueKind::array(values.iter().copied())))
     }
 
     pub(super) fn evaluate_member_projection(
@@ -540,10 +552,12 @@ where
         let value_data = self.request.semantic_values().constant_value_data(value);
 
         if value_data.ty() != ty {
-            return Err(EvaluationFailure::invalid_input());
+            panic!(
+                "constant member projection at {expression:?} must produce type {ty:?}, actual: {value_data:?}"
+            );
         }
 
-        self.intern_term(ConstantTermData::Value(value))
+        Ok(self.intern_term(ConstantTermData::Value(value)))
     }
 
     pub(super) fn evaluate_construction(
@@ -612,7 +626,7 @@ where
         }
 
         match self.closed_fields(&fields)? {
-            Some(fields) => self.intern_value_term(ty, ConstantValueKind::product(fields)),
+            Some(fields) => Ok(self.intern_value_term(ty, ConstantValueKind::product(fields))),
             None => self.intern_typed_term(ty, ConstantTermData::product(fields)),
         }
     }
@@ -636,7 +650,9 @@ where
         }
 
         match self.closed_fields(&fields)? {
-            Some(fields) => self.intern_value_term(ty, ConstantValueKind::union(variant, fields)),
+            Some(fields) => {
+                Ok(self.intern_value_term(ty, ConstantValueKind::union(variant, fields)))
+            }
             None => self.intern_typed_term(ty, ConstantTermData::union(variant, fields)),
         }
     }

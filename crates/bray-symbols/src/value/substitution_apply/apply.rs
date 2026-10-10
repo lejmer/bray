@@ -107,6 +107,17 @@ impl SemanticValueStore {
         self.substitute_callable_instance_data(callable, &substitution)
     }
 
+    /// Applies one generic substitution to an exact implementation witness.
+    pub fn substitute_implementation_instance(
+        &self,
+        implementation: super::super::ImplementationInstanceId,
+        substitution: GenericSubstitutionId,
+    ) -> Result<super::super::ImplementationInstanceId, SemanticValueStoreError> {
+        let substitution = self.generic_substitution_data(substitution);
+
+        self.substitute_implementation_instance_data(implementation, &substitution)
+    }
+
     /// Applies one generic substitution throughout a trait application.
     pub fn substitute_trait_application(
         &self,
@@ -419,7 +430,7 @@ impl SemanticValueStore {
             } => {
                 let selected_implementation = selected_implementation
                     .map(|implementation| {
-                        self.substitute_implementation_instance(implementation, substitution)
+                        self.substitute_implementation_instance_data(implementation, substitution)
                     })
                     .transpose()?;
 
@@ -437,7 +448,7 @@ impl SemanticValueStore {
             } => {
                 let selected_implementation = selected_implementation
                     .map(|implementation| {
-                        self.substitute_implementation_instance(implementation, substitution)
+                        self.substitute_implementation_instance_data(implementation, substitution)
                     })
                     .transpose()?;
 
@@ -581,7 +592,7 @@ impl SemanticValueStore {
         let selected_witnesses = selected_witnesses
             .iter()
             .copied()
-            .map(|witness| self.substitute_implementation_instance(witness, substitution))
+            .map(|witness| self.substitute_implementation_instance_data(witness, substitution))
             .collect::<Result<Vec<_>, _>>()?;
 
         match self.substitution_is_concrete(nested) {
@@ -765,7 +776,7 @@ impl SemanticValueStore {
         let root = match subject.subject_root() {
             DependencySubjectRoot::ImplementationWitness(instance) => {
                 DependencySubjectRoot::ImplementationWitness(
-                    self.substitute_implementation_instance(instance, substitution)?,
+                    self.substitute_implementation_instance_data(instance, substitution)?,
                 )
             }
             root => root,
@@ -798,7 +809,7 @@ impl SemanticValueStore {
         self.intern_callable_instance(CallableInstanceData::new(callable.definition(), nested))
     }
 
-    fn substitute_implementation_instance(
+    fn substitute_implementation_instance_data(
         &self,
         implementation: super::super::ImplementationInstanceId,
         substitution: &GenericSubstitutionData,
