@@ -276,9 +276,12 @@ fn public_module_re_exports_enter_the_interface_lookup_surface() {
 
 #[test]
 fn parallel_interface_discovery_preserves_encoded_identity() {
-    use std::fmt::Write;
+    use std::sync::{Condvar, Mutex};
+    use std::time::Duration;
 
-    let mut first = String::from(
+    use crate::profile::ProfileOperation;
+
+    let sources = [
         r#"
             trusted module app.first;
 
@@ -291,10 +294,14 @@ fn parallel_interface_discovery_preserves_encoded_identity() {
             {
                 return value;
             }
-        "#,
-    );
 
-    let mut second = String::from(
+            trusted predicate ready0(value: &Boxed<i32>);
+
+            func observe0(pos value: &Boxed<i32>)
+                requires(trusted ready0(value))
+            {
+            }
+        "#,
         r#"
             trusted module app.second;
 
@@ -302,24 +309,13 @@ fn parallel_interface_discovery_preserves_encoded_identity() {
             {
                 return value;
             }
+
+            func observe0(pos value: &app.first.Boxed<i32>)
+                requires(trusted app.first.ready0(value))
+            {
+            }
         "#,
-    );
-
-    // Keep enough independently exported contracts to observe worker overlap even after
-    // the declaration queries have been warmed by body checking.
-    for index in 0..64 {
-        writeln!(first, "trusted predicate ready{index}(value: &Boxed<i32>);").unwrap();
-
-        writeln!(
-            first,
-            "func observe{index}(pos value: &Boxed<i32>) requires(trusted ready{index}(value)) {{}}"
-        )
-        .unwrap();
-
-        writeln!(second, "func observe{index}(pos value: &app.first.Boxed<i32>) requires(trusted app.first.ready{index}(value)) {{}}").unwrap();
-    }
-
-    let sources = [first.as_str(), second.as_str()];
+    ];
 
     let serial = compilation_from_sources_with_worker_budget(sources, WorkerBudget::serial());
 
@@ -327,6 +323,42 @@ fn parallel_interface_discovery_preserves_encoded_identity() {
         .unwrap_or_else(|error| panic!("parallel worker budget must be valid: {error:?}"));
 
     let parallel = profiled_compilation_from_sources_with_worker_budget(sources, parallel_budget);
+
+    let rendezvous = (Mutex::new(0), Condvar::new());
+
+    parallel
+        .state
+        .fact_runtime
+        .profile()
+        .expect("parallel compilation must retain its profile session")
+        .set_test_observer(move |operation| {
+            if operation != ProfileOperation::InterfaceFragmentDiscovery {
+                return;
+            }
+
+            // Hold the first fragment span open until another scheduled worker enters one.
+            let (arrivals, ready) = &rendezvous;
+
+            let mut arrivals = arrivals
+                .lock()
+                .expect("fragment rendezvous must remain available");
+
+            if *arrivals >= 2 {
+                return;
+            }
+
+            *arrivals += 1;
+            ready.notify_all();
+
+            let (arrivals, _) = ready
+                .wait_timeout_while(arrivals, Duration::from_secs(10), |arrivals| *arrivals < 2)
+                .expect("fragment rendezvous must remain available");
+
+            assert_eq!(
+                *arrivals, 2,
+                "two fragment workers must reach the rendezvous"
+            );
+        });
 
     let serial_artifact = encode_package_interface(export(&serial))
         .unwrap_or_else(|error| panic!("serial interface must encode: {error:?}"));
