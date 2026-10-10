@@ -25,7 +25,10 @@ impl Compilation {
         mappings: &[CodegenMappings],
         entries: &[super::super::realization::ProductStaticHostEntry],
         native_statics: &[bray_native_artifact::NativeStatic],
-        mut runtime_dependencies: BTreeMap<bray_runtime_abi::NativeStaticIdentity, Vec<bray_runtime_abi::NativeStaticIdentity>>,
+        mut runtime_dependencies: BTreeMap<
+            bray_runtime_abi::NativeStaticIdentity,
+            Vec<bray_runtime_abi::NativeStaticIdentity>,
+        >,
         target: &CodegenTarget,
     ) -> Result<Option<CodegenProductHostMapping>, NativeProductPlanningError> {
         if entries.is_empty() && native_statics.is_empty() {
@@ -88,9 +91,10 @@ impl Compilation {
                     super::super::realization::generated_identity("static_host", entry.key()),
                 );
 
-                let dependencies = entry.dependencies().iter().map(|dependency| {
-                    static_dependency_identity(dependency, native_statics)
-                });
+                let dependencies = entry
+                    .dependencies()
+                    .iter()
+                    .map(|dependency| static_dependency_identity(dependency, native_statics));
 
                 let order = u64::try_from(order)
                     .expect("retained static ordinal must fit the native host ABI");
@@ -157,7 +161,10 @@ impl Compilation {
             );
 
             runtime_dependencies.entry(identity).or_default().extend(
-                entry.runtime_dependencies().iter().map(|provider| static_dependency_identity(provider, native_statics)),
+                entry
+                    .runtime_dependencies()
+                    .iter()
+                    .map(|provider| static_dependency_identity(provider, native_statics)),
             );
         }
 
@@ -477,7 +484,10 @@ pub(super) fn native_static_host_entries(
     kind: ProductKind,
     native_statics: &[bray_native_artifact::NativeStatic],
     source_statics: &[super::super::realization::ProductStaticHostEntry],
-    runtime_dependencies: &BTreeMap<bray_runtime_abi::NativeStaticIdentity, Vec<bray_runtime_abi::NativeStaticIdentity>>,
+    runtime_dependencies: &BTreeMap<
+        bray_runtime_abi::NativeStaticIdentity,
+        Vec<bray_runtime_abi::NativeStaticIdentity>,
+    >,
 ) -> Vec<bray_native_artifact::NativeStatic> {
     let contributions = native_statics
         .iter()
@@ -492,7 +502,12 @@ pub(super) fn native_static_host_entries(
             .chain(
                 source_statics
                     .iter()
-                    .flat_map(|entry| entry.dependencies().iter().chain(entry.runtime_dependencies()))
+                    .flat_map(|entry| {
+                        entry
+                            .dependencies()
+                            .iter()
+                            .chain(entry.runtime_dependencies())
+                    })
                     .map(|key| static_dependency_identity(key, native_statics).bytes()),
             ),
         |identity| {
@@ -501,8 +516,13 @@ pub(super) fn native_static_host_entries(
                 .into_iter()
                 .flat_map(|entry| entry.dependencies())
                 .copied()
-                .chain(runtime_dependencies.get(&bray_runtime_abi::NativeStaticIdentity::new(*identity))
-                    .into_iter().flatten().map(|identity| identity.bytes()))
+                .chain(
+                    runtime_dependencies
+                        .get(&bray_runtime_abi::NativeStaticIdentity::new(*identity))
+                        .into_iter()
+                        .flatten()
+                        .map(|identity| identity.bytes()),
+                )
         },
     );
 
@@ -517,7 +537,8 @@ fn static_dependency_identity(
     key: &bray_codegen::CodegenStaticInstanceKey,
     native_statics: &[bray_native_artifact::NativeStatic],
 ) -> bray_runtime_abi::NativeStaticIdentity {
-    let identity = native_statics.iter()
+    let identity = native_statics
+        .iter()
         .find(|entry| entry.order_key() == key.order_key() && entry.duration() == key.duration())
         .map_or_else(
             || super::super::realization::generated_identity("static_host", key),
@@ -532,27 +553,46 @@ pub(super) fn native_runtime_static_dependencies(
     runtime: Option<&bray_runtime_interface::RuntimeArtifactPlan>,
     target: &CodegenTarget,
 ) -> BTreeMap<bray_runtime_abi::NativeStaticIdentity, Vec<bray_runtime_abi::NativeStaticIdentity>> {
-    let providers = runtime.into_iter()
+    let providers = runtime
+        .into_iter()
         .flat_map(|runtime| runtime.native_index().units())
         .flat_map(bray_native_artifact::NativeUnit::statics)
         .map(bray_native_artifact::NativeStatic::identity)
         .collect::<BTreeSet<_>>();
+
     let target = bray_target::NativeTarget::for_identity(target.identity())
         .expect("native static hosting requires a native target");
 
-    selected.statics().iter().filter_map(|entry| {
-        let symbol = bray_symbols::NativeSymbolContract::required_name(
-            bray_base::NonEmptySharedStr::try_new(target.object_symbol_name(entry.symbol()).as_ref())
+    selected
+        .statics()
+        .iter()
+        .filter_map(|entry| {
+            let symbol = bray_symbols::NativeSymbolContract::required_name(
+                bray_base::NonEmptySharedStr::try_new(
+                    target.object_symbol_name(entry.symbol()).as_ref(),
+                )
                 .expect("retained native static host symbol must be nonempty"),
-        );
-        let accesses = selected.static_accesses(&symbol)
-            .expect("retained native static must publish its access summary");
-        let dependencies = accesses.iter().copied()
-            .filter(|provider| *provider != entry.identity() && providers.contains(provider))
-            .map(bray_runtime_abi::NativeStaticIdentity::new).collect::<Vec<_>>();
+            );
 
-        (!dependencies.is_empty()).then(|| (bray_runtime_abi::NativeStaticIdentity::new(entry.identity()), dependencies))
-    }).collect()
+            let accesses = selected
+                .static_accesses(&symbol)
+                .expect("retained native static must publish its access summary");
+
+            let dependencies = accesses
+                .iter()
+                .copied()
+                .filter(|provider| *provider != entry.identity() && providers.contains(provider))
+                .map(bray_runtime_abi::NativeStaticIdentity::new)
+                .collect::<Vec<_>>();
+
+            (!dependencies.is_empty()).then(|| {
+                (
+                    bray_runtime_abi::NativeStaticIdentity::new(entry.identity()),
+                    dependencies,
+                )
+            })
+        })
+        .collect()
 }
 
 pub(super) fn native_host_runtime_roles(
@@ -601,7 +641,10 @@ pub(super) fn requires_main_thread_cleanup(
 fn order_product_statics(
     entries: Vec<CodegenProductHostStatic>,
     order_keys: &BTreeMap<bray_runtime_abi::NativeStaticIdentity, &[u8]>,
-    runtime_dependencies: &BTreeMap<bray_runtime_abi::NativeStaticIdentity, Vec<bray_runtime_abi::NativeStaticIdentity>>,
+    runtime_dependencies: &BTreeMap<
+        bray_runtime_abi::NativeStaticIdentity,
+        Vec<bray_runtime_abi::NativeStaticIdentity>,
+    >,
 ) -> Result<Vec<CodegenProductHostStatic>, bray_native_artifact::NativeResolutionError> {
     use bray_native_artifact::NativeResolutionError as Error;
 
@@ -633,7 +676,12 @@ fn order_product_statics(
     }
 
     for entry in unique.values() {
-        for provider in entry.dependencies().iter().chain(runtime_dependencies.get(&entry.identity()).into_iter().flatten()) {
+        for provider in entry.dependencies().iter().chain(
+            runtime_dependencies
+                .get(&entry.identity())
+                .into_iter()
+                .flatten(),
+        ) {
             assert!(
                 unique.contains_key(provider),
                 "resolved static lifecycle provider {provider:?} must have a product host entry"
@@ -643,9 +691,25 @@ fn order_product_statics(
 
     let dependencies = unique
         .iter()
-        .map(|(identity, entry)| (*identity, entry.dependencies().iter().copied()
-            .chain(runtime_dependencies.get(identity).into_iter().flatten().copied())
-            .collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>()))
+        .map(|(identity, entry)| {
+            (
+                *identity,
+                entry
+                    .dependencies()
+                    .iter()
+                    .copied()
+                    .chain(
+                        runtime_dependencies
+                            .get(identity)
+                            .into_iter()
+                            .flatten()
+                            .copied(),
+                    )
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>(),
+            )
+        })
         .collect();
 
     let ordered = super::super::structural_order::dependency_order(&dependencies, order_keys)
@@ -717,17 +781,32 @@ mod tests {
         ];
 
         assert_eq!(
-            super::native_static_host_entries(bray_symbols::ProductKind::Executable, &statics, &[], &BTreeMap::new()),
+            super::native_static_host_entries(
+                bray_symbols::ProductKind::Executable,
+                &statics,
+                &[],
+                &BTreeMap::new()
+            ),
             statics[..2]
         );
 
         assert_eq!(
-            super::native_static_host_entries(bray_symbols::ProductKind::Test, &statics, &[], &BTreeMap::new()),
+            super::native_static_host_entries(
+                bray_symbols::ProductKind::Test,
+                &statics,
+                &[],
+                &BTreeMap::new()
+            ),
             statics[..2]
         );
 
         assert_eq!(
-            super::native_static_host_entries(bray_symbols::ProductKind::Library, &statics, &[], &BTreeMap::new()),
+            super::native_static_host_entries(
+                bray_symbols::ProductKind::Library,
+                &statics,
+                &[],
+                &BTreeMap::new()
+            ),
             statics
         );
 
@@ -753,6 +832,7 @@ mod tests {
             true,
             false,
         );
+
         let provider = bray_native_artifact::NativeStatic::new(
             bray_base::NonEmptySharedStr::try_new("provider").unwrap(),
             [1; 32],
@@ -762,10 +842,12 @@ mod tests {
             false,
             false,
         );
+
         let first = NativeStaticIdentity::new([1; 32]);
         let second = NativeStaticIdentity::new([2; 32]);
         let dependencies = BTreeMap::from([(second, vec![first])]);
         let statics = [provider, consumer];
+
         let retained = super::native_static_host_entries(
             bray_symbols::ProductKind::Executable,
             &statics,
@@ -776,13 +858,19 @@ mod tests {
         assert_eq!(retained, statics);
 
         let keys = BTreeMap::from([(first, b"a".as_slice()), (second, b"b".as_slice())]);
-        let ordered = order_product_statics(
-            vec![entry(1, &[]), entry(2, &[])],
-            &keys,
-            &dependencies,
-        ).unwrap();
 
-        assert_eq!(ordered.iter().map(CodegenProductHostStatic::identity).collect::<Vec<_>>(), [second, first]);
+        let ordered =
+            order_product_statics(vec![entry(1, &[]), entry(2, &[])], &keys, &dependencies)
+                .unwrap();
+
+        assert_eq!(
+            ordered
+                .iter()
+                .map(CodegenProductHostStatic::identity)
+                .collect::<Vec<_>>(),
+            [second, first]
+        );
+
         assert!(ordered.iter().all(|entry| entry.dependencies().is_empty()));
     }
 
@@ -801,25 +889,40 @@ mod tests {
         let keys = BTreeMap::from([(first, b"a".as_slice()), (second, b"b".as_slice())]);
 
         assert!(matches!(
-            order_product_statics(vec![entry(1, &[2]), entry(2, &[1])], &keys, &BTreeMap::new()),
+            order_product_statics(
+                vec![entry(1, &[2]), entry(2, &[1])],
+                &keys,
+                &BTreeMap::new()
+            ),
             Err(NativeResolutionError::StaticLifecycleCycle(_))
         ));
 
         assert!(matches!(
-            order_product_statics(vec![entry(1, &[]), entry(1, &[2]), entry(2, &[])], &keys, &BTreeMap::new()),
+            order_product_statics(
+                vec![entry(1, &[]), entry(1, &[2]), entry(2, &[])],
+                &keys,
+                &BTreeMap::new()
+            ),
             Err(NativeResolutionError::ConflictingStatic(_))
         ));
 
         let same_key = BTreeMap::from([(first, b"a".as_slice()), (second, b"a".as_slice())]);
 
         assert!(matches!(
-            order_product_statics(vec![entry(1, &[]), entry(2, &[])], &same_key, &BTreeMap::new()),
+            order_product_statics(
+                vec![entry(1, &[]), entry(2, &[])],
+                &same_key,
+                &BTreeMap::new()
+            ),
             Err(NativeResolutionError::AmbiguousStaticOrder { .. })
         ));
 
-        let ordered =
-            order_product_statics(vec![entry(1, &[]), entry(1, &[]), entry(2, &[1])], &keys, &BTreeMap::new())
-                .unwrap();
+        let ordered = order_product_statics(
+            vec![entry(1, &[]), entry(1, &[]), entry(2, &[1])],
+            &keys,
+            &BTreeMap::new(),
+        )
+        .unwrap();
 
         assert_eq!(
             ordered

@@ -44,7 +44,14 @@ trusted internal func try_buffer<T>(pos capacity: usize) -> std.memory.RawBuffer
     }
 
     let pointer: RawPointer<T> = trusted allocation_pointer<T>(allocation, capacity);
-    let buffer: std.memory.RawBuffer<T> = { pointer = pointer, capacity = capacity, initialized = 0 };
+
+    let buffer: std.memory.RawBuffer<T> =
+    {
+        pointer = pointer,
+        capacity = capacity,
+        initialized = 0
+    };
+
     let mut result: std.memory.RawBuffer<T>? = none;
 
     result = buffer;

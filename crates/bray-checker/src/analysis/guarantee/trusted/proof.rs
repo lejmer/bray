@@ -165,7 +165,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             // Unsigned representations establish their zero lower bound even when
             // caller evidence does not otherwise constrain the current value.
-            if let ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LessEqual, operands) = condition
+            if let ExecutionCondition::Operation(
+                bray_bound_tree::BoundOperator::LessEqual,
+                operands,
+            ) = condition
                 && let [ExecutionCondition::Literal(lower), value] = operands.as_ref()
                 && matches!(lower.kind(), bray_symbols::ConstantValueKind::Integer(integer) if integer.to_u64() == Some(0))
                 && self.unsigned_value(value)

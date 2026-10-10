@@ -19,10 +19,17 @@ fn in_place_write_returns_initialized_borrowed_storage() {
         }
         "#,
     );
-    let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "main"))
+
+    let lowered = compilation
+        .lowered_unit(source_function_body_key(&compilation, "main"))
         .expect("in-place initialization must lower");
 
-    assert!(lowered.diagnostics().is_empty(), "{:?}", lowered.diagnostics());
+    assert!(
+        lowered.diagnostics().is_empty(),
+        "{:?}",
+        lowered.diagnostics()
+    );
+
     assert!(lowered.value().is_some());
 }
 
@@ -142,7 +149,6 @@ fn standard_memory_compilation(source: &str) -> Compilation {
 
     Compilation::load(request)
         .unwrap_or_else(|error| panic!("standard library compilation must load: {error:?}"))
-
 }
 
 #[test]

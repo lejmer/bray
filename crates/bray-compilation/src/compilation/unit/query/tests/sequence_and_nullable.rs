@@ -16,12 +16,20 @@ func inspect(pos slice: &[u8]) -> usize
 "#,
     );
 
-    assert!(compilation.check_diagnostics().by_kind(
-        bray_diagnostics::DiagnosticKind::CheckingIncompatibleExpressionType
-    ).next().is_some());
+    assert!(
+        compilation
+            .check_diagnostics()
+            .by_kind(bray_diagnostics::DiagnosticKind::CheckingIncompatibleExpressionType)
+            .next()
+            .is_some()
+    );
 
     let key = source_callable_body_key(&compilation);
-    let lowered = compilation.lowered_unit(key).expect("invalid source must retain diagnostics");
+
+    let lowered = compilation
+        .lowered_unit(key)
+        .expect("invalid source must retain diagnostics");
+
     assert!(lowered.diagnostics().has_errors());
     assert!(lowered.value().is_none());
 }

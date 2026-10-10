@@ -69,36 +69,93 @@ pub(super) fn reachable_cleanup_operations(
 
 pub(super) fn standard_memory_dependency() -> crate::DependencyInterfaceInput {
     use crate::test_support::source_input;
-    use crate::{Compilation, CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest};
-    use bray_package_interface::{InterfaceLanguageRevision, InterfaceValidationPolicy, PackageInterfaceIdentity,
-        InterfaceProductKind, InterfaceProductIdentity, ValidatedPackageInterface, PackageImplementationArtifact,
-        InterfaceValidationLimits, encode_package_interface};
+
+    use crate::{
+        Compilation, CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest,
+    };
+
+    use bray_package_interface::{
+        InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
+        InterfaceValidationLimits, InterfaceValidationPolicy, PackageImplementationArtifact,
+        PackageInterfaceIdentity, ValidatedPackageInterface, encode_package_interface,
+    };
+
     use std::sync::Arc;
 
-    let package = bray_symbols::PackageIdentity::try_new("std").expect("standard package identity is valid");
-    let product = InterfaceProductIdentity::try_new("library").expect("library product identity is valid");
-    let identity = PackageInterfaceIdentity::try_new(package.clone(), crate::test_support::package_version(),
-        product.clone(), InterfaceProductKind::Library, "public").expect("standard interface identity is valid");
-    let provider = Compilation::load(CompilationRequest::with_options(package.clone(), vec![
-        source_input(include_str!("../../../../../../../../standard-library/std/src/std.bray"), 0),
-        source_input(include_str!("../../../../../../../../standard-library/std/src/memory.bray"), 1),
-    ], crate::CompilationOptions::new(crate::WorkerBudget::serial(), bray_symbols::ProductKind::Library,
-        crate::SelectedTarget::baseline()))
+    let package =
+        bray_symbols::PackageIdentity::try_new("std").expect("standard package identity is valid");
+
+    let product =
+        InterfaceProductIdentity::try_new("library").expect("library product identity is valid");
+
+    let identity = PackageInterfaceIdentity::try_new(
+        package.clone(),
+        crate::test_support::package_version(),
+        product.clone(),
+        InterfaceProductKind::Library,
+        "public",
+    )
+    .expect("standard interface identity is valid");
+
+    let provider = Compilation::load(
+        CompilationRequest::with_options(
+            package.clone(),
+            vec![
+                source_input(
+                    include_str!("../../../../../../../../standard-library/std/src/std.bray"),
+                    0,
+                ),
+                source_input(
+                    include_str!("../../../../../../../../standard-library/std/src/memory.bray"),
+                    1,
+                ),
+            ],
+            crate::CompilationOptions::new(
+                crate::WorkerBudget::serial(),
+                bray_symbols::ProductKind::Library,
+                crate::SelectedTarget::baseline(),
+            ),
+        )
         .with_standard_library_source_authority()
-        .with_package_interface_export(PackageInterfaceExportRequest::new(identity, InterfaceLanguageRevision::new(0))))
-        .expect("actual standard memory provider must load");
-    let bundle = provider.package_interface_export_bundle().as_ref().expect("provider export must resolve").as_ref().expect("provider export must succeed");
+        .with_package_interface_export(PackageInterfaceExportRequest::new(
+            identity,
+            InterfaceLanguageRevision::new(0),
+        )),
+    )
+    .expect("actual standard memory provider must load");
+
+    let bundle = provider
+        .package_interface_export_bundle()
+        .as_ref()
+        .expect("provider export must resolve")
+        .as_ref()
+        .expect("provider export must succeed");
+
     let encoded = encode_package_interface(bundle).expect("standard interface must encode");
     let policy = InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0));
-    let validated = ValidatedPackageInterface::try_new(encoded.bytes(), policy).expect("standard interface must validate");
-    let implementation = PackageImplementationArtifact::try_new(&validated, bundle.surface(), bundle.semantics(),
-        bundle.implementation_configuration().clone(), [], bundle.executable_templates().iter().cloned(), [], [],
-        InterfaceValidationLimits::default()).expect("standard portable implementation must retain exported templates");
+
+    let validated = ValidatedPackageInterface::try_new(encoded.bytes(), policy)
+        .expect("standard interface must validate");
+
+    let implementation = PackageImplementationArtifact::try_new(
+        &validated,
+        bundle.surface(),
+        bundle.semantics(),
+        bundle.implementation_configuration().clone(),
+        [],
+        bundle.executable_templates().iter().cloned(),
+        [],
+        [],
+        InterfaceValidationLimits::default(),
+    )
+    .expect("standard portable implementation must retain exported templates");
+
     DependencyInterfaceInput::new(
         package,
         product,
         "std.brayi",
         encoded.shared_bytes(),
         policy,
-    ).with_implementation_artifact("std.brayimpl", Arc::new(implementation))
+    )
+    .with_implementation_artifact("std.brayimpl", Arc::new(implementation))
 }

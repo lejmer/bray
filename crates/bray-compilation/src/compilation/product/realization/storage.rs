@@ -1,9 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use bray_codegen::{CodegenInstanceKey, CodegenStaticInstanceKey, CodegenTarget, demanded_runtime_references_for_mir};
+use bray_codegen::{
+    CodegenInstanceKey, CodegenStaticInstanceKey, CodegenTarget,
+    demanded_runtime_references_for_mir,
+};
 use bray_ir::{MirStorageKind, MirUnit};
-use bray_runtime_interface::{BinarySymbolName, ExecutionLaneRequirement, RuntimeArtifact, RuntimeArtifactPlan};
+use bray_runtime_interface::{
+    BinarySymbolName, ExecutionLaneRequirement, RuntimeArtifact, RuntimeArtifactPlan,
+};
 use bray_symbols::{StaticReferenceSelection, TypeId};
 
 use super::super::super::{CodegenPreparationError, Compilation};
@@ -162,13 +167,16 @@ impl Compilation {
                         .expect("native runtime effects require a native target");
 
                     for reference in demanded_runtime_references_for_mir(instance.mir()) {
-                        let Some(binding) = runtime.contract().role_binding(reference.role()) else {
+                        let Some(binding) = runtime.contract().role_binding(reference.role())
+                        else {
                             continue;
                         };
 
                         let symbol = bray_symbols::NativeSymbolContract::required_name(
                             bray_base::NonEmptySharedStr::try_new(
-                                target.object_symbol_name(binding.symbol_name().as_str()).as_ref(),
+                                target
+                                    .object_symbol_name(binding.symbol_name().as_str())
+                                    .as_ref(),
                             )
                             .expect("validated runtime binding must have a nonempty symbol"),
                         );
@@ -280,7 +288,8 @@ impl Compilation {
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<Vec<ProductStaticHostEntry>, CodegenPreparationError> {
-        let runtime_providers = runtime.into_iter()
+        let runtime_providers = runtime
+            .into_iter()
             .flat_map(|runtime| runtime.native_index().units())
             .flat_map(bray_native_artifact::NativeUnit::statics)
             .map(bray_native_artifact::NativeStatic::order_key)
@@ -345,9 +354,14 @@ impl Compilation {
 
                 // Runtime bindings close in the final product, whereas reusable static records
                 // retain their source-declared lifecycle dependencies.
-                let runtime_dependencies = accesses.iter()
-                    .filter(|provider| *provider != consumer_key && runtime_providers.contains(provider.order_key()))
-                    .cloned().collect();
+                let runtime_dependencies = accesses
+                    .iter()
+                    .filter(|provider| {
+                        *provider != consumer_key
+                            && runtime_providers.contains(provider.order_key())
+                    })
+                    .cloned()
+                    .collect();
 
                 accesses.retain(|provider| {
                     declarations
@@ -394,7 +408,8 @@ impl Compilation {
             .map(|(key, entry)| {
                 (
                     key.clone(),
-                    entry.dependencies
+                    entry
+                        .dependencies
                         .iter()
                         .filter(|provider| retained.contains(*provider))
                         .cloned()
@@ -414,7 +429,9 @@ impl Compilation {
         let entries = ordered
             .into_iter()
             .map(|key| {
-                entries.remove(&key).expect("ordered source static must have its host entry")
+                entries
+                    .remove(&key)
+                    .expect("ordered source static must have its host entry")
             })
             .collect();
 
@@ -446,7 +463,9 @@ impl ProductStaticHostEntry {
         &self.dependencies
     }
 
-    pub(in crate::compilation::product) fn runtime_dependencies(&self) -> &[CodegenStaticInstanceKey] {
+    pub(in crate::compilation::product) fn runtime_dependencies(
+        &self,
+    ) -> &[CodegenStaticInstanceKey] {
         &self.runtime_dependencies
     }
 

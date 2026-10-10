@@ -1546,7 +1546,7 @@ func main(value: r16)
     #[test]
     fn malformed_predicate_parameters_stop_before_signature_binding() {
         let compilation = compilation(
-            "trusted module app;\ntrusted predicate readable(pos pointer: RawPointer<u8>);\n"
+            "trusted module app;\ntrusted predicate readable(pos pointer: RawPointer<u8>);\n",
         );
 
         assert!(compilation.syntax_tree_result().diagnostics().has_errors());

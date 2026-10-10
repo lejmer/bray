@@ -591,7 +591,8 @@ fn add_transfer_value<C>(
                 inference.add_evidence(target, actual, transfer);
             }
 
-            if let Some(expected) = inference.evidence(target)
+            if let Some(expected) = inference
+                .evidence(target)
                 .filter(|expected| *expected != types.never && *expected != types.error)
                 .or_else(|| inference.unique_expectation(target))
             {

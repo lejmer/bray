@@ -62,6 +62,7 @@ trusted func descriptor_zero_length_and_failure_preserve_progress()
     assert(transferred == 0);
 
     transferred = 99;
+
     let source: [u8; 1] = b"x";
     let progress: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
 
@@ -76,11 +77,25 @@ trusted func descriptor_zero_length_and_failure_preserve_progress()
     assert(failed_write.native_code == 9);
     assert(transferred == 0);
 
-    let partial: usize = std.testing.assert_ok<usize, std.io.IoError>(internal std.io.checked_transfer(internal std.platform.success_status(), transferred = 3, maximum = 4, require_progress = false));
+    let partial: usize = std.testing.assert_ok<usize, std.io.IoError>(
+        internal std.io.checked_transfer(
+            internal std.platform.success_status(),
+            transferred = 3,
+            maximum = 4,
+            require_progress = false
+        )
+    );
 
     assert(partial == 3);
 
-    let eof: usize = std.testing.assert_ok<usize, std.io.IoError>(internal std.io.checked_transfer(internal std.platform.success_status(), transferred = 0, maximum = 4, require_progress = false));
+    let eof: usize = std.testing.assert_ok<usize, std.io.IoError>(
+        internal std.io.checked_transfer(
+            internal std.platform.success_status(),
+            transferred = 0,
+            maximum = 4,
+            require_progress = false
+        )
+    );
 
     assert(eof == 0);
 }

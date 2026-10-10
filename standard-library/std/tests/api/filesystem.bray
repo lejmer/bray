@@ -69,8 +69,10 @@ func files_and_directories_follow_the_portable_contract() -> Result<unit, std.io
     let exhausted: std.fs.DirectoryEntry? = try traversal.next();
 
     assert(
-        (entry_name_equals(&first, "alpha") && entry_name_equals(&second, "zeta"))
-        || (entry_name_equals(&first, "zeta") && entry_name_equals(&second, "alpha"))
+        (entry_name_equals(&first, "alpha") && entry_name_equals(&second, "zeta")) || (entry_name_equals(
+            &first,
+            "zeta"
+        ) && entry_name_equals(&second, "alpha"))
     );
 
     std.testing.assert_absent<std.fs.DirectoryEntry>(exhausted);

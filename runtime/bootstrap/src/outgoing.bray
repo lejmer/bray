@@ -5,8 +5,10 @@ using std.memory;
 
 @abi(c)
 trusted internal func outgoing_admission(pos count: usize, pos outcome: RawPointer<ReportOutcome>)
-    requires(trusted core.memory.valid_write<ReportOutcome>(pointer = outcome, count = 1),
-        trusted core.memory.aligned_for<ReportOutcome>(pointer = outcome))
+    requires(
+        trusted core.memory.valid_write<ReportOutcome>(pointer = outcome, count = 1),
+        trusted core.memory.aligned_for<ReportOutcome>(pointer = outcome)
+    )
     uses(raw_memory, unchecked_init)
 {
     if trusted admit_outgoing_values(count, outcome)
@@ -18,7 +20,15 @@ trusted internal func outgoing_admission(pos count: usize, pos outcome: RawPoint
 
     failure.cause = PANIC_ALLOCATION_FAILURE;
     failure.consumer = trusted consume_pointer();
-    trusted std.memory.write<ReportOutcome>(outcome, { state = RUN_PANICKED, payload = 0, report = failure });
+
+    trusted std.memory.write<ReportOutcome>(
+        outcome,
+        {
+            state = RUN_PANICKED,
+            payload = 0,
+            report = failure
+        }
+    );
 }
 
 trusted internal func admit_outgoing_values(pos count: usize, pos outcome: RawPointer<ReportOutcome>) -> bool
@@ -76,10 +86,12 @@ trusted internal func outgoing_activation() -> usize
 
 @abi(c)
 trusted internal func outgoing_retirement(pos handle: usize, pos outcome: RawPointer<ReportOutcome>)
-    requires(trusted core.memory.valid_write<ReportOutcome>(pointer = outcome, count = 1),
+    requires(
+        trusted core.memory.valid_write<ReportOutcome>(pointer = outcome, count = 1),
         trusted core.memory.aligned_for<ReportOutcome>(pointer = outcome),
         trusted core.memory.valid_read<ReportOutcome>(pointer = outcome, count = 1),
-        trusted core.memory.initialized_as<ReportOutcome>(pointer = outcome))
+        trusted core.memory.initialized_as<ReportOutcome>(pointer = outcome)
+    )
     uses(raw_memory, unchecked_init)
 {
     let mut result: ReportOutcome = trusted std.memory.read<ReportOutcome>(outcome);
@@ -98,16 +110,21 @@ trusted internal func outgoing_retirement(pos handle: usize, pos outcome: RawPoi
 
 @abi(c)
 trusted internal func take_report(pos pointer: RawPointer<PanicReportData>) -> PanicReportData
-    requires(trusted native_report_slot_callbacks(pointer = pointer), trusted core.memory.valid_write<PanicReportData>(pointer = pointer, count = 1),
-        trusted core.memory.aligned_for<PanicReportData>(pointer = pointer),
-        trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
-        trusted core.memory.initialized_as<PanicReportData>(pointer = pointer))
-    ensures(trusted native_report_callbacks(report = &result),
+    requires(
         trusted native_report_slot_callbacks(pointer = pointer),
         trusted core.memory.valid_write<PanicReportData>(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<PanicReportData>(pointer = pointer),
         trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
-        trusted core.memory.initialized_as<PanicReportData>(pointer = pointer))
+        trusted core.memory.initialized_as<PanicReportData>(pointer = pointer)
+    )
+    ensures(
+        trusted native_report_callbacks(report = &result),
+        trusted native_report_slot_callbacks(pointer = pointer),
+        trusted core.memory.valid_write<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<PanicReportData>(pointer = pointer),
+        trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.initialized_as<PanicReportData>(pointer = pointer)
+    )
     uses(raw_memory, unchecked_init)
 {
     let owned: PanicReportData = trusted std.memory.read<PanicReportData>(pointer);
@@ -117,18 +134,28 @@ trusted internal func take_report(pos pointer: RawPointer<PanicReportData>) -> P
 }
 
 // Moving the primary header leaves the disjoint incident slot untouched.
-trusted internal func take_primary_report(pos primary: RawPointer<PanicReportData>, pos incident: RawPointer<PanicReportData>) -> PanicReportData
+trusted internal func take_primary_report(
+    pos primary: RawPointer<PanicReportData>,
+    pos incident: RawPointer<PanicReportData>
+) -> PanicReportData
     requires(
         trusted native_report_slot_callbacks(pointer = primary),
         trusted native_report_slot_callbacks(pointer = incident),
-        trusted core.memory.non_overlapping<PanicReportData>(left = primary, left_count = 1, right = incident, right_count = 1),
+        trusted core.memory.non_overlapping<PanicReportData>(
+            left = primary,
+            left_count = 1,
+            right = incident,
+            right_count = 1
+        ),
         trusted core.memory.valid_write<PanicReportData>(pointer = primary, count = 1),
         trusted core.memory.aligned_for<PanicReportData>(pointer = primary),
         trusted core.memory.valid_read<PanicReportData>(pointer = primary, count = 1),
-        trusted core.memory.initialized_as<PanicReportData>(pointer = primary), trusted core.memory.valid_write<PanicReportData>(pointer = incident, count = 1),
+        trusted core.memory.initialized_as<PanicReportData>(pointer = primary),
+        trusted core.memory.valid_write<PanicReportData>(pointer = incident, count = 1),
         trusted core.memory.aligned_for<PanicReportData>(pointer = incident),
         trusted core.memory.valid_read<PanicReportData>(pointer = incident, count = 1),
-        trusted core.memory.initialized_as<PanicReportData>(pointer = incident))
+        trusted core.memory.initialized_as<PanicReportData>(pointer = incident)
+    )
     ensures(
         trusted native_report_callbacks(report = &result),
         trusted native_report_slot_callbacks(pointer = incident),
@@ -153,14 +180,21 @@ trusted internal func panic_report_suppression(
     requires(
         trusted native_report_slot_callbacks(pointer = primary),
         trusted native_report_slot_callbacks(pointer = incident),
-        trusted core.memory.non_overlapping<PanicReportData>(left = primary, left_count = 1, right = incident, right_count = 1),
+        trusted core.memory.non_overlapping<PanicReportData>(
+            left = primary,
+            left_count = 1,
+            right = incident,
+            right_count = 1
+        ),
         trusted core.memory.valid_write<PanicReportData>(pointer = primary, count = 1),
         trusted core.memory.aligned_for<PanicReportData>(pointer = primary),
         trusted core.memory.valid_read<PanicReportData>(pointer = primary, count = 1),
-        trusted core.memory.initialized_as<PanicReportData>(pointer = primary), trusted core.memory.valid_write<PanicReportData>(pointer = incident, count = 1),
+        trusted core.memory.initialized_as<PanicReportData>(pointer = primary),
+        trusted core.memory.valid_write<PanicReportData>(pointer = incident, count = 1),
         trusted core.memory.aligned_for<PanicReportData>(pointer = incident),
         trusted core.memory.valid_read<PanicReportData>(pointer = incident, count = 1),
-        trusted core.memory.initialized_as<PanicReportData>(pointer = incident))
+        trusted core.memory.initialized_as<PanicReportData>(pointer = incident)
+    )
     uses(intrinsic)
 {
     let mut report: PanicReportData = trusted take_primary_report(primary, incident);

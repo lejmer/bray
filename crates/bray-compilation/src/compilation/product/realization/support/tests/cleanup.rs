@@ -214,30 +214,73 @@ fn source_standard_buffer_cleanup_uses_the_imported_structural_allowance() {
         CompilationRequest::new(
             bray_symbols::PackageIdentity::try_new("std").expect("standard package is valid"),
             vec![
-                source_input(include_str!("../../../../../../../../standard-library/std/src/std.bray"), 0),
-                source_input(include_str!("../../../../../../../../standard-library/std/src/memory.bray"), 1),
-                source_input("module std.test; func dispose(pos buffer: std.memory.RawBuffer<u8>) {}", 2),
+                source_input(
+                    include_str!("../../../../../../../../standard-library/std/src/std.bray"),
+                    0,
+                ),
+                source_input(
+                    include_str!("../../../../../../../../standard-library/std/src/memory.bray"),
+                    1,
+                ),
+                source_input(
+                    "module std.test; func dispose(pos buffer: std.memory.RawBuffer<u8>) {}",
+                    2,
+                ),
             ],
-        ).with_standard_library_source_authority(),
-    ).expect("actual standard memory source must load");
+        )
+        .with_standard_library_source_authority(),
+    )
+    .expect("actual standard memory source must load");
 
-    let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "dispose"))
+    let lowered = compilation
+        .lowered_unit(source_function_body_key(&compilation, "dispose"))
         .expect("buffer consumer must lower");
-    assert!(lowered.diagnostics().is_empty(), "{:?}", lowered.diagnostics());
-    let ty = lowered.value().as_ref().expect("consumer has lowered data").mir().expect("consumer has MIR").storages().iter()
-        .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
-        .expect("consumer has its owned buffer parameter").ty();
-    let cancellation = crate::CancellationToken::new();
-    assert_eq!(compilation.owner_outgoing_capacity(ty, &cancellation)
-        .expect("buffer allowance must resolve"), 0);
 
-    let cleanup = generated_lifecycle(&compilation, &codegen_target(&compilation),
-        MirHelperReference::Destroy(ty), 83);
+    assert!(
+        lowered.diagnostics().is_empty(),
+        "{:?}",
+        lowered.diagnostics()
+    );
+
+    let ty = lowered
+        .value()
+        .as_ref()
+        .expect("consumer has lowered data")
+        .mir()
+        .expect("consumer has MIR")
+        .storages()
+        .iter()
+        .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
+        .expect("consumer has its owned buffer parameter")
+        .ty();
+
+    let cancellation = crate::CancellationToken::new();
+
+    assert_eq!(
+        compilation
+            .owner_outgoing_capacity(ty, &cancellation)
+            .expect("buffer allowance must resolve"),
+        0
+    );
+
+    let cleanup = generated_lifecycle(
+        &compilation,
+        &codegen_target(&compilation),
+        MirHelperReference::Destroy(ty),
+        83,
+    );
+
     assert!(cleanup.operations().iter().any(|operation| matches!(operation.kind(),
         MirOperationKind::Memory(memory)
             if matches!(memory.kind(), bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. }))));
-    assert!(!cleanup.operations().iter().any(|operation| matches!(operation.kind(),
-        MirOperationKind::Call(call) if call.is_cleanup())));
+
+    assert!(
+        !cleanup
+            .operations()
+            .iter()
+            .any(|operation| matches!(operation.kind(),
+        MirOperationKind::Call(call) if call.is_cleanup()))
+    );
 }
 
 #[test]
@@ -246,17 +289,48 @@ fn imported_standard_buffer_cleanup_uses_structural_allowance() {
     use crate::{Compilation, CompilationRequest};
 
     let dependency = super::lifecycle_fixtures::standard_memory_dependency();
+
     let compilation = Compilation::load(CompilationRequest::new(
         crate::test_support::package_identity(),
         vec![source_input("module app; using internal std.memory; func dispose(pos buffer: std.memory.RawBuffer<u8>) {}", 0)],
     ).with_dependency_interfaces([dependency])).expect("imported storage consumer must load");
-    let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "dispose")).expect("imported storage consumer must load");
-    assert!(lowered.diagnostics().is_empty(), "{:?}", lowered.diagnostics());
-    let ty = lowered.value().as_ref().expect("consumer has lowered data").mir().expect("consumer has MIR").storages().iter()
-        .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0))).expect("consumer retains its owned buffer parameter").ty();
-    assert_eq!(compilation.owner_outgoing_capacity(ty, &crate::CancellationToken::new()).expect("buffer allowance must resolve"), 0);
-    let cleanup = generated_lifecycle(&compilation, &codegen_target(&compilation),
-        MirHelperReference::Destroy(ty), 84);
+
+    let lowered = compilation
+        .lowered_unit(source_function_body_key(&compilation, "dispose"))
+        .expect("imported storage consumer must load");
+
+    assert!(
+        lowered.diagnostics().is_empty(),
+        "{:?}",
+        lowered.diagnostics()
+    );
+
+    let ty = lowered
+        .value()
+        .as_ref()
+        .expect("consumer has lowered data")
+        .mir()
+        .expect("consumer has MIR")
+        .storages()
+        .iter()
+        .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
+        .expect("consumer retains its owned buffer parameter")
+        .ty();
+
+    assert_eq!(
+        compilation
+            .owner_outgoing_capacity(ty, &crate::CancellationToken::new())
+            .expect("buffer allowance must resolve"),
+        0
+    );
+
+    let cleanup = generated_lifecycle(
+        &compilation,
+        &codegen_target(&compilation),
+        MirHelperReference::Destroy(ty),
+        84,
+    );
+
     assert!(cleanup.operations().iter().any(|operation| matches!(operation.kind(),
         MirOperationKind::Memory(memory)
             if matches!(memory.kind(), bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. }))));
@@ -268,15 +342,24 @@ fn imported_raw_storage_formation_requires_allocation_ownership() {
     use crate::{Compilation, CompilationRequest};
 
     let dependency = super::lifecycle_fixtures::standard_memory_dependency();
+
     for source in [
         "trusted module app; using internal std.memory; func forge() -> std.memory.RawAllocation { return { pointer = core.memory.null<u8>(), bytes = 8, align = 8 }; }",
         "trusted module app; using internal std.memory; func forge() -> std.memory.RawBuffer<u8> { return { pointer = core.memory.null<u8>(), capacity = 1, initialized = 0 }; }",
     ] {
-        let compilation = Compilation::load(CompilationRequest::new(
-            crate::test_support::package_identity(), vec![source_input(source, 0)],
-        ).with_dependency_interfaces([dependency.clone()])).expect("imported storage consumer must load");
-        bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(),
-            bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+        let compilation = Compilation::load(
+            CompilationRequest::new(
+                crate::test_support::package_identity(),
+                vec![source_input(source, 0)],
+            )
+            .with_dependency_interfaces([dependency.clone()]),
+        )
+        .expect("imported storage consumer must load");
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+        );
     }
 
     let compilation = Compilation::load(CompilationRequest::new(
@@ -290,14 +373,21 @@ fn imported_raw_storage_formation_requires_allocation_ownership() {
             }
         "#, 0)],
     ).with_dependency_interfaces([dependency])).expect("imported storage consumer must load");
-    assert!(compilation.check_diagnostics().is_empty(), "{:?}", compilation.check_diagnostics());
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
 }
 
 #[test]
 fn imported_standard_buffer_accepts_live_generic_storage() {
     use crate::test_support::source_input;
     use crate::{Compilation, CompilationRequest};
+
     let dependency = super::lifecycle_fixtures::standard_memory_dependency();
+
     let compilation = Compilation::load(CompilationRequest::new(
         crate::test_support::package_identity(), vec![source_input(r"
             trusted module app;
@@ -314,7 +404,12 @@ fn imported_standard_buffer_accepts_live_generic_storage() {
             }
         ", 0)],
     ).with_dependency_interfaces([dependency])).expect("imported storage consumer must load");
-    assert!(compilation.check_diagnostics().is_empty(), "{:?}", compilation.check_diagnostics());
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
 }
 
 #[test]
@@ -325,7 +420,8 @@ fn imported_standard_buffer_requires_bounded_initialized_prefix() {
     let dependency = super::lifecycle_fixtures::standard_memory_dependency();
 
     for (bound, valid) in [("initialized <= capacity,", true), ("", false)] {
-        let source = format!(r"
+        let source = format!(
+            r"
             trusted module app;
             using internal std.memory;
             func pack<T>(pointer: RawPointer<T>, capacity: usize, initialized: usize) -> std.memory.RawBuffer<T>
@@ -339,17 +435,29 @@ fn imported_standard_buffer_requires_bounded_initialized_prefix() {
             {{
                 return {{ pointer = pointer, capacity = capacity, initialized = initialized }};
             }}
-        ");
-        let compilation = Compilation::load(CompilationRequest::new(
-            crate::test_support::package_identity(), vec![source_input(&source, 0)],
-        ).with_dependency_interfaces([dependency.clone()]))
-            .expect("imported storage consumer must load");
+        "
+        );
+
+        let compilation = Compilation::load(
+            CompilationRequest::new(
+                crate::test_support::package_identity(),
+                vec![source_input(&source, 0)],
+            )
+            .with_dependency_interfaces([dependency.clone()]),
+        )
+        .expect("imported storage consumer must load");
 
         if valid {
-            assert!(compilation.check_diagnostics().is_empty(), "{:?}", compilation.check_diagnostics());
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{:?}",
+                compilation.check_diagnostics()
+            );
         } else {
-            bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(),
-                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            bray_testing::assert_goal_state_diagnostic_kind(
+                compilation.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
         }
     }
 }
@@ -365,7 +473,8 @@ fn imported_raw_storage_cannot_adopt_an_allocation_twice() {
         "let first: std.memory.RawBuffer<u8> = { pointer = pointer, capacity = capacity, initialized = 0 };",
         "let first: std.memory.RawAllocation = { pointer = pointer, bytes = std.memory.stride_of<u8>() * capacity, align = std.memory.align_of<u8>() };",
     ] {
-        let source = format!(r"
+        let source = format!(
+            r"
             trusted module app;
             using internal std.memory;
             func duplicate(pointer: RawPointer<u8>, capacity: usize) -> std.memory.RawBuffer<u8>
@@ -379,13 +488,21 @@ fn imported_raw_storage_cannot_adopt_an_allocation_twice() {
                 {owner}
                 return {{ pointer = pointer, capacity = capacity, initialized = 0 }};
             }}
-        ");
-        let compilation = Compilation::load(CompilationRequest::new(
-            crate::test_support::package_identity(), vec![source_input(&source, 0)],
-        ).with_dependency_interfaces([dependency.clone()]))
-            .expect("imported storage consumer must load");
+        "
+        );
 
-        bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(),
-            bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+        let compilation = Compilation::load(
+            CompilationRequest::new(
+                crate::test_support::package_identity(),
+                vec![source_input(&source, 0)],
+            )
+            .with_dependency_interfaces([dependency.clone()]),
+        )
+        .expect("imported storage consumer must load");
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+        );
     }
 }

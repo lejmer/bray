@@ -25,7 +25,14 @@ internal static RECORD_POOL: std.sync.SpinLock<ReportPool> =
 {
     next_ticket = core.atomic.initialize<u32>(0),
     serving_ticket = core.atomic.initialize<u32>(0),
-    storage = { slabs = none, free = 0, available = 0, total = 0, credits = 0 },
+    storage =
+    {
+        slabs = none,
+        free = 0,
+        available = 0,
+        total = 0,
+        credits = 0
+    },
 };
 
 trusted internal func slab_index(pos pool: &mut ReportPool) -> &mut std.memory.RawBuffer<ReportSlab>
@@ -44,7 +51,9 @@ trusted internal func reserve_slab_index(pos pool: &mut ReportPool) -> bool
 {
     if pool.slabs matches none
     {
-        let allocation: std.memory.RawBuffer<ReportSlab>? = trusted internal bray.runtime.bootstrap.heap.try_buffer<ReportSlab>(1);
+        let allocation: std.memory.RawBuffer<ReportSlab>? = trusted internal bray.runtime.bootstrap.heap.try_buffer<
+            ReportSlab
+        >(1);
 
         if allocation matches none
         {
@@ -71,7 +80,9 @@ trusted internal func reserve_slab_index(pos pool: &mut ReportPool) -> bool
         return false;
     }
 
-    let allocation: std.memory.RawBuffer<ReportSlab>? = trusted internal bray.runtime.bootstrap.heap.try_buffer<ReportSlab>(capacity * 2);
+    let allocation: std.memory.RawBuffer<ReportSlab>? = trusted internal bray.runtime.bootstrap.heap.try_buffer<
+        ReportSlab
+    >(capacity * 2);
 
     return match consume allocation
     {
@@ -110,7 +121,9 @@ trusted internal func reserve_records(pos pool: &mut ReportPool, pos count: usiz
         additional = pool.total;
     }
 
-    let allocation: std.memory.RawBuffer<ReportRecord>? = trusted internal bray.runtime.bootstrap.heap.try_buffer<ReportRecord>(additional);
+    let allocation: std.memory.RawBuffer<ReportRecord>? = trusted internal bray.runtime.bootstrap.heap.try_buffer<
+        ReportRecord
+    >(additional);
 
     return match consume allocation
     {
@@ -135,7 +148,13 @@ trusted internal func reserve_records(pos pool: &mut ReportPool, pos count: usiz
                         primary = trusted stored_primary(empty_primary()),
                         message = none,
                         next = head,
-                        segment = { ordinal = 0, task = 0, frame = [0; 32], state = 0 },
+                        segment =
+                        {
+                            ordinal = 0,
+                            task = 0,
+                            frame = [0; 32],
+                            state = 0
+                        },
                         segment_tail = 0,
                         segment_count = 0,
                     },
@@ -145,7 +164,11 @@ trusted internal func reserve_records(pos pool: &mut ReportPool, pos count: usiz
                 index += 1;
             }
 
-            let entry: ReportSlab = { first = first, records = slab };
+            let entry: ReportSlab =
+            {
+                first = first,
+                records = slab
+            };
 
             trusted internal std.memory.initialize_spare<ReportSlab>(trusted slab_index(pool), entry);
             pool.free = head;
@@ -217,10 +240,12 @@ trusted internal func activate_record(pos pool: &mut ReportPool) -> usize
 
 @abi(c)
 trusted internal func report_records_admit(pos count: usize, pos destination: RawPointer<ReportRecords>) -> u32
-    requires(trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
+    requires(
+        trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
         trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
         trusted core.memory.valid_read<ReportRecords>(pointer = destination, count = 1),
-        trusted core.memory.initialized_as<ReportRecords>(pointer = destination))
+        trusted core.memory.initialized_as<ReportRecords>(pointer = destination)
+    )
     uses(raw_memory, unchecked_init)
 {
     let output: ReportRecords = trusted std.memory.read<ReportRecords>(destination);
@@ -230,7 +255,11 @@ trusted internal func report_records_admit(pos count: usize, pos destination: Ra
     return status;
 }
 
-trusted internal func admit_record_values(pos count: usize, pos mut output: ReportRecords, pos destination: RawPointer<ReportRecords>) -> (u32, ReportRecords)
+trusted internal func admit_record_values(
+    pos count: usize,
+    pos mut output: ReportRecords,
+    pos destination: RawPointer<ReportRecords>
+) -> (u32, ReportRecords)
     requires(
         trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
         trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
@@ -270,12 +299,18 @@ trusted internal func admit_record_values(pos count: usize, pos mut output: Repo
 }
 
 @abi(c)
-trusted internal func report_records_pop(pos chain: RawPointer<ReportRecords>, pos destination: RawPointer<ReportPrimary>)
-    requires(trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
+trusted internal func report_records_pop(
+    pos chain: RawPointer<ReportRecords>,
+    pos destination: RawPointer<ReportPrimary>
+)
+    requires(
+        trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
         trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
         trusted core.memory.valid_read<ReportRecords>(pointer = chain, count = 1),
-        trusted core.memory.initialized_as<ReportRecords>(pointer = chain), trusted core.memory.valid_write<ReportPrimary>(pointer = destination, count = 1),
-        trusted core.memory.aligned_for<ReportPrimary>(pointer = destination))
+        trusted core.memory.initialized_as<ReportRecords>(pointer = chain),
+        trusted core.memory.valid_write<ReportPrimary>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<ReportPrimary>(pointer = destination)
+    )
     ensures(
         trusted native_primary_slot_callbacks(pointer = destination),
         trusted core.memory.valid_write<ReportPrimary>(pointer = destination, count = 1),
@@ -292,7 +327,11 @@ trusted internal func report_records_pop(pos chain: RawPointer<ReportRecords>, p
     trusted std.memory.write<ReportRecords>(chain, remaining);
 }
 
-trusted internal func pop_record_value(pos mut value: ReportRecords, pos chain: RawPointer<ReportRecords>, pos destination: RawPointer<ReportPrimary>) -> (ReportRecords, ReportPrimary)
+trusted internal func pop_record_value(
+    pos mut value: ReportRecords,
+    pos chain: RawPointer<ReportRecords>,
+    pos destination: RawPointer<ReportPrimary>
+) -> (ReportRecords, ReportPrimary)
     requires(
         trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
         trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
@@ -310,10 +349,16 @@ trusted internal func pop_record_value(pos mut value: ReportRecords, pos chain: 
     let pool: &mut ReportPool = guard.get();
     let handle: usize = trusted detach_record(pool, &mut value);
     let head: usize = pool.free;
+
     let primary: ReportPrimary =
     {
         let entry: &mut ReportRecord = trusted record(pool, handle);
-        let primary: StoredReportPrimary = trusted std.memory.replace_value<StoredReportPrimary>(&mut entry.primary, trusted stored_primary(empty_primary()));
+
+        let primary: StoredReportPrimary = trusted std.memory.replace_value<StoredReportPrimary>(
+            &mut entry.primary,
+            trusted stored_primary(empty_primary())
+        );
+
         entry.segment_count = 0;
         entry.segment_tail = 0;
         entry.next = head;

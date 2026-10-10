@@ -486,18 +486,31 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         let equalities = ExecutionCondition::equalities(&entry.assumptions, None);
-        let preconditions = contract.preconditions.iter().map(|condition| {
-            condition.substitute(
-                &|place| place.value_in(&entry.arguments).unwrap_or(ExecutionCondition::Unknown),
-                &ExecutionCondition::Unknown,
-                &mut { ExecutionCondition::WORK_LIMIT },
-            ).with_equalities(&equalities)
-        }).collect::<Vec<_>>();
+
+        let preconditions = contract
+            .preconditions
+            .iter()
+            .map(|condition| {
+                condition
+                    .substitute(
+                        &|place| {
+                            place
+                                .value_in(&entry.arguments)
+                                .unwrap_or(ExecutionCondition::Unknown)
+                        },
+                        &ExecutionCondition::Unknown,
+                        &mut { ExecutionCondition::WORK_LIMIT },
+                    )
+                    .with_equalities(&equalities)
+            })
+            .collect::<Vec<_>>();
 
         // A disproven entry cannot complete normally. Unknown ordinary requirements
         // can pass their runtime checks; capture that entry evidence for completion guards.
-        if preconditions.iter().any(|condition| condition.prove(
-            &entry.assumptions, &mut { ExecutionCondition::WORK_LIMIT }) == Some(false)) {
+        if preconditions.iter().any(|condition| {
+            condition.prove(&entry.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                == Some(false)
+        }) {
             return;
         }
 

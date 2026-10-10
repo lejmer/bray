@@ -27,7 +27,10 @@ pub(super) struct NativeCodegenPreparation {
     pub(super) host_statics: Vec<ProductStaticHostEntry>,
     pub(super) native_statics: Vec<bray_native_artifact::NativeStatic>,
     pub(super) native_main_thread: BTreeSet<CodegenInstanceKey>,
-    pub(super) runtime_dependencies: BTreeMap<bray_runtime_abi::NativeStaticIdentity, Vec<bray_runtime_abi::NativeStaticIdentity>>,
+    pub(super) runtime_dependencies: BTreeMap<
+        bray_runtime_abi::NativeStaticIdentity,
+        Vec<bray_runtime_abi::NativeStaticIdentity>,
+    >,
 }
 
 impl Compilation {
@@ -55,7 +58,10 @@ impl Compilation {
             Vec<super::super::realization::ProductStaticHostEntry>,
             Vec<bray_native_artifact::NativeStatic>,
             super::super::realization::NativeCallableEffects,
-            BTreeMap<bray_runtime_abi::NativeStaticIdentity, Vec<bray_runtime_abi::NativeStaticIdentity>>,
+            BTreeMap<
+                bray_runtime_abi::NativeStaticIdentity,
+                Vec<bray_runtime_abi::NativeStaticIdentity>,
+            >,
         ),
         NativeProductPlanningError,
     > {
@@ -166,10 +172,17 @@ impl Compilation {
             )?;
 
             let runtime_dependencies = super::host::native_runtime_static_dependencies(
-                &selected, runtime_plan.as_ref(), target,
+                &selected,
+                runtime_plan.as_ref(),
+                target,
             );
-            let selected_statics =
-                super::host::native_static_host_entries(kind, selected.statics(), &entries, &runtime_dependencies);
+
+            let selected_statics = super::host::native_static_host_entries(
+                kind,
+                selected.statics(),
+                &entries,
+                &runtime_dependencies,
+            );
 
             let stable = selected_statics == native_statics
                 && entries == host_statics
@@ -252,20 +265,26 @@ impl Compilation {
             Some(reachability)
         };
 
-        let (host, runtime_plan, host_statics, native_statics, callable_effects, runtime_dependencies) = self
-            .close_executable_host(
-                product,
-                kind,
-                final_image,
-                entry_roots,
-                &mut source_reachability,
-                runtime,
-                required_capabilities,
-                target,
-                options,
-                allow_bitcode,
-                cancellation,
-            )?;
+        let (
+            host,
+            runtime_plan,
+            host_statics,
+            native_statics,
+            callable_effects,
+            runtime_dependencies,
+        ) = self.close_executable_host(
+            product,
+            kind,
+            final_image,
+            entry_roots,
+            &mut source_reachability,
+            runtime,
+            required_capabilities,
+            target,
+            options,
+            allow_bitcode,
+            cancellation,
+        )?;
 
         let platform_overrides =
             super::link::runtime_platform_services(runtime_plan.as_ref()).collect();

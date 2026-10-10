@@ -12,14 +12,40 @@ fn yielded_diverging_calls_preserve_never_at_a_value_join() {
         "if choice { yield 1; } else { yield trusted core.target.abort(); }",
         "loop { if choice { break 1; } break trusted core.target.abort(); }",
     ] {
-        let source = format!("trusted module app;\ntrusted func choose(pos choice: bool) -> usize {{ return {expression}; }}");
+        let source = format!(
+            "trusted module app;\ntrusted func choose(pos choice: bool) -> usize {{ return {expression}; }}"
+        );
+
         let compilation = compilation(&source);
         let key = source_callable_body_key(&compilation);
-        let selections = compilation.semantic_selections(key.clone()).expect("diverging call must retain its selected signature");
-        assert!(selections.diagnostics().is_empty(), "{:?}", selections.diagnostics());
-        let lowered = compilation.lowered_unit(key).expect("diverging join must lower");
-        assert!(lowered.diagnostics().is_empty(), "{:?}", lowered.diagnostics());
-        assert!(lowered.value().as_ref().and_then(|unit|unit.mir()).is_some());
+
+        let selections = compilation
+            .semantic_selections(key.clone())
+            .expect("diverging call must retain its selected signature");
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "{:?}",
+            selections.diagnostics()
+        );
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("diverging join must lower");
+
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:?}",
+            lowered.diagnostics()
+        );
+
+        assert!(
+            lowered
+                .value()
+                .as_ref()
+                .and_then(|unit| unit.mir())
+                .is_some()
+        );
     }
 }
 

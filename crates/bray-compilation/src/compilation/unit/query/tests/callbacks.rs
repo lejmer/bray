@@ -21,20 +21,33 @@ fn bootstrap_pool_callbacks_reject_data_pointer_replacement() {
         }
         "#,
     ];
+
     let request = CompilationRequest::new(
         PackageIdentity::try_new("std").expect("standard library identity must be valid"),
-        sources.iter().enumerate().map(|(index, source)| {
-            source_input(source, u32::try_from(index).expect("fixture source index must fit u32"))
-        }).collect(),
-    ).with_standard_library_source_authority();
+        sources
+            .iter()
+            .enumerate()
+            .map(|(index, source)| {
+                source_input(
+                    source,
+                    u32::try_from(index).expect("fixture source index must fit u32"),
+                )
+            })
+            .collect(),
+    )
+    .with_standard_library_source_authority();
+
     let compilation = Compilation::load(request).expect("bootstrap callback fixture must load");
-    let checked = compilation.lowered_unit(source_function_body_key(&compilation, "poison"))
+
+    let checked = compilation
+        .lowered_unit(source_function_body_key(&compilation, "poison"))
         .expect("invalid callback assignment must retain diagnostics");
 
     assert_goal_state_diagnostic_kind(
         checked.diagnostics(),
         DiagnosticKind::CheckingIncompatibleExpressionType,
     );
+
     assert!(checked.value().is_none());
 }
 

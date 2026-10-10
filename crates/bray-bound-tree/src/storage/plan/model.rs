@@ -74,15 +74,23 @@ impl StoragePlan {
         let mut accesses_by_path = (0..accesses.len())
             .filter(|index| resolved_accesses[*index].is_some())
             .collect::<Vec<_>>();
+
         let access_key = |index: usize| {
-            let resolved = resolved_accesses[index].as_ref()
+            let resolved = resolved_accesses[index]
+                .as_ref()
                 .expect("indexed storage access must have its resolved path");
 
-            (resolved.logical_root, accesses[index].root().borrow_capability(), resolved.logical_projections.as_ref())
+            (
+                resolved.logical_root,
+                accesses[index].root().borrow_capability(),
+                resolved.logical_projections.as_ref(),
+            )
         };
 
         accesses_by_path.sort_unstable_by(|left, right| {
-            access_key(*left).cmp(&access_key(*right)).then_with(|| left.cmp(right))
+            access_key(*left)
+                .cmp(&access_key(*right))
+                .then_with(|| left.cmp(right))
         });
 
         let mut plans_by_occurrence = (0..plans.len()).collect::<Vec<_>>();
@@ -213,21 +221,36 @@ impl StoragePlan {
 
         let root = self.root_identity(base)?;
         let base_projections = self.resolved_projections(base)?;
+
         let compare = |index: usize| {
-            let resolved = self.resolved_accesses[index].as_ref()
+            let resolved = self.resolved_accesses[index]
+                .as_ref()
                 .expect("indexed storage access must have its resolved path");
 
-            (resolved.logical_root, self.accesses[index].root().borrow_capability())
+            (
+                resolved.logical_root,
+                self.accesses[index].root().borrow_capability(),
+            )
                 .cmp(&(root, capability))
-                .then_with(|| resolved.logical_projections.iter()
-                    .cmp(base_projections.iter().chain(projections.iter())))
+                .then_with(|| {
+                    resolved
+                        .logical_projections
+                        .iter()
+                        .cmp(base_projections.iter().chain(projections.iter()))
+                })
         };
-        let position = self.accesses_by_path.partition_point(|index| compare(*index).is_lt());
+
+        let position = self
+            .accesses_by_path
+            .partition_point(|index| compare(*index).is_lt());
+
         let index = *self.accesses_by_path.get(position)?;
 
         compare(index).is_eq().then(|| {
-            StorageAccessId::from_storage_slot(self.unit,
-                u32::try_from(index).expect("allocated storage access index must fit u32"))
+            StorageAccessId::from_storage_slot(
+                self.unit,
+                u32::try_from(index).expect("allocated storage access index must fit u32"),
+            )
         })
     }
 

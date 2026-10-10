@@ -74,10 +74,11 @@ where
         self.deferred = true;
     }
 
-    fn resolve_guard_access(&mut self, subject: &DependencySubject) -> CheckerQueryResult<StorageAccessId, C::UpstreamError> {
-        match self
-            .resolve_subject(subject, DependencyRequirementKind::StorageAlive)?
-        {
+    fn resolve_guard_access(
+        &mut self,
+        subject: &DependencySubject,
+    ) -> CheckerQueryResult<StorageAccessId, C::UpstreamError> {
+        match self.resolve_subject(subject, DependencyRequirementKind::StorageAlive)? {
             BoundDependencySubject::StorageAccess(access) => Ok(access),
             BoundDependencySubject::Storage(_)
             | BoundDependencySubject::BorrowCapability(_)

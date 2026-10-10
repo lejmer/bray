@@ -2071,7 +2071,8 @@ fn ordinary_producer_requirements_guard_trusted_guarantees() {
 
 #[test]
 fn runtime_checked_ordinary_requirements_establish_completion_guards() {
-    let compilation = compilation(r#"
+    let compilation = compilation(
+        r#"
         trusted module app;
         struct Owner { epoch: u64; }
         trusted predicate live(value: &Owner);
@@ -2081,9 +2082,14 @@ fn runtime_checked_ordinary_requirements_establish_completion_guards() {
         { return { epoch = epoch }; }
         func observe(pos value: &Owner) requires(trusted live(value)) {}
         func caller(pos epoch: u64) { let value = owner(epoch); observe(&value); }
-    "#);
+    "#,
+    );
 
-    assert!(!compilation.check_diagnostics().has_errors(), "{:?}", compilation.check_diagnostics());
+    assert!(
+        !compilation.check_diagnostics().has_errors(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
 }
 
 #[test]

@@ -470,13 +470,20 @@ impl NativeUnitResolver {
         // requested callable summaries so the final consumer can close runtime bindings.
         for entry in state.statics.values() {
             let (unit, _) = self.statics[&entry.identity()];
+
             let target = self.artifacts[self.locations[unit].0].target();
+
             let symbol = NativeSymbolContract::required_name(
-                bray_base::NonEmptySharedStr::try_new(target.object_symbol_name(entry.symbol()).as_ref())
-                    .expect("retained static host symbol must be nonempty"),
+                bray_base::NonEmptySharedStr::try_new(
+                    target.object_symbol_name(entry.symbol()).as_ref(),
+                )
+                .expect("retained static host symbol must be nonempty"),
             );
 
-            state.roots.entry(symbol_key(&symbol)).or_default()
+            state
+                .roots
+                .entry(symbol_key(&symbol))
+                .or_default()
                 .insert(SelectionDependency::Static(entry.identity()));
         }
 
@@ -1198,6 +1205,7 @@ mod tests {
             selected.static_accesses(&required("first")),
             Some([[1; 32], [2; 32]].as_slice())
         );
+
         assert_eq!(
             selected.static_accesses(&required("second")),
             Some([[2; 32]].as_slice())

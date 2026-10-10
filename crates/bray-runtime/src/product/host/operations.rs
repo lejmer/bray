@@ -681,10 +681,7 @@ fn read_descriptor(
     {
         let admission = admit_finalizer(entry.finalizer).map_err(|_| host_failure())?;
 
-        cleanups.push(ProductCleanup {
-            entry,
-            admission,
-        });
+        cleanups.push(ProductCleanup { entry, admission });
     }
 
     Ok(ProductHost {

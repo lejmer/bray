@@ -29,9 +29,16 @@ fn successive_returned_views_retain_their_own_borrow_capabilities() {
         "#,
     );
 
-    let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "probe"))
+    let lowered = compilation
+        .lowered_unit(source_function_body_key(&compilation, "probe"))
         .expect("successive transient views must lower");
-    assert!(lowered.diagnostics().is_empty(), "{:?}", lowered.diagnostics());
+
+    assert!(
+        lowered.diagnostics().is_empty(),
+        "{:?}",
+        lowered.diagnostics()
+    );
+
     assert!(lowered.value().is_some());
 }
 

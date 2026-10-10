@@ -117,6 +117,7 @@ trusted internal func primary_copy(pos primary: &ReportPrimary) -> PanicMessageC
     if !std.memory.is_null<u8>(primary.copy_message)
     {
         let pointer: RawPointer<PanicMessageCopy> = trusted native_copy_address(primary);
+
         callback = trusted std.memory.callable_from_pointer<PanicMessageCopy>(pointer);
     }
 
@@ -134,10 +135,7 @@ trusted internal func native_copy_address(pos primary: &ReportPrimary) -> RawPoi
 }
 
 trusted internal func native_release_address(pos primary: &ReportPrimary) -> RawPointer<PanicMessageRelease>
-    requires(
-        trusted native_primary_callbacks(primary = primary),
-        !std.memory.is_null<u8>(primary.release_message),
-    )
+    requires(trusted native_primary_callbacks(primary = primary), !std.memory.is_null<u8>(primary.release_message))
     ensures(trusted core.memory.callable_address_valid<PanicMessageRelease>(pointer = result))
     uses(intrinsic)
 {
@@ -194,6 +192,7 @@ trusted internal func recycle_reservation(pos handle: usize)
 
     trusted report_records_pop(std.memory.address_of_mut<ReportRecords>(&mut reserved), pointer);
     primary = trusted read_primary(pointer);
+
     let callback: PanicMessageRelease? = trusted primary_release(&primary);
     let outcome: ReportOutcome = trusted release_primary(&primary, callback);
 
