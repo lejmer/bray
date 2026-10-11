@@ -35,7 +35,7 @@ internal struct HostStorage
 }
 
 // The owner holds its backing and no active attachment. Its key is either live
-// or recorded as released; only a live key may return to resident storage.
+// or recorded as released. Only a live key may return to resident storage.
 trusted internal predicate prepared_host_storage(owner: &(HostStorage?));
 
 // Resident storage owns the key and every initialized attachment epoch. TLS contains
