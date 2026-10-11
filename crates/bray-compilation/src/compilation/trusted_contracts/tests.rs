@@ -3,6 +3,103 @@ use bray_diagnostics::DiagnosticKind;
 use crate::test_support::compilation;
 
 #[test]
+fn initialized_protected_storage_transfers_and_consumes_its_witness() {
+    for (intervening, valid) in [
+        ("", true),
+        (
+            "let _ = trusted core.memory.move_initialized<u32>(&mut storage);",
+            false,
+        ),
+        ("storage = core.memory.uninit<u32>();", false),
+    ] {
+        let source = format!(
+            r#"
+                trusted module app;
+
+                trusted func probe() -> u32
+                    uses(unchecked_init)
+                {{
+                    let mut storage = core.memory.uninit_from<u32>(42);
+                    {intervening}
+                    return trusted core.memory.move_initialized<u32>(&mut storage);
+                }}
+            "#,
+        );
+
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+    }
+}
+
+#[test]
+fn bootstrap_host_access_requires_owner_bound_acquisition_evidence() {
+    for (body, valid) in [
+        ("observe(&guard);", true),
+        ("let moved = guard; observe(&moved);", true),
+        (
+            "let fake: HostAccess = { owner = guard.owner, lock = guard.lock, active = guard.active }; observe(&fake);",
+            false,
+        ),
+        (
+            "let fake: HostAccess = { owner = &host, lock = &lock, active = true }; observe(&fake);",
+            false,
+        ),
+        ("guard.owner = &other; observe(&guard);", false),
+        ("guard.lock = &other_lock; observe(&guard);", false),
+        ("guard.active = true; observe(&guard);", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct HostOwner {{ mut value: u64; }}
+            trusted predicate acquired(owner: &HostAccess);
+            struct HostAccess {{
+                owner: &HostOwner;
+                lock: &core.atomic.Atomic<u32>;
+                active: bool;
+                trusted destruct() requires(trusted acquired(&self)) executes(total) {{
+                    if self.active {{
+                        let decrement: u32 = ~0;
+                        let _: u32 = core.atomic.fetch_add<u32, 2>(self.lock, decrement);
+                    }}
+                }}
+            }}
+            trusted func acquire(pos host: &HostOwner, pos lock: &core.atomic.Atomic<u32>) -> HostAccess
+                ensures(trusted acquired(&result)) {{
+                let (_, selected) = core.atomic.compare_exchange<u32, 3, 1>(lock, expected = 0, desired = 1);
+                return {{ owner = host, lock = lock, active = selected }};
+            }}
+            func observe(pos value: &HostAccess)
+                requires(trusted acquired(value)) ensures(trusted acquired(value)) executes(pure, total) {{}}
+            func caller() {{
+                let host: HostOwner = {{ value = 0 }};
+                let other: HostOwner = {{ value = 0 }};
+                let lock = core.atomic.initialize<u32>(0);
+                let other_lock = core.atomic.initialize<u32>(0);
+                let mut guard = acquire(&host, &lock);
+                {body}
+            }}
+            "#,
+        );
+
+        let compilation = compilation(&source);
+
+        assert_eq!(
+            !compilation.check_diagnostics().has_errors(),
+            valid,
+            "{body}: {:#?}",
+            compilation.check_diagnostics(),
+        );
+    }
+}
+
+#[test]
 fn ordinary_observers_supply_extents_to_trusted_memory_operations() {
     for (postcondition, valid) in [("ensures(result == count)", true), ("", false)] {
         let source = format!(
@@ -708,6 +805,60 @@ fn address_guarantees_expire_with_the_borrowed_storage_owner() {
             bray_testing::assert_goal_state_diagnostic_kind(
                 diagnostics,
                 DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn whole_owner_guarantees_retain_the_result_dependencies() {
+    for (arguments, valid) in [("&local, &outer", true), ("&outer, &local", false)] {
+        let compilation = compilation(&format!(
+            r#"
+            trusted module app;
+            struct Value {{ byte: u8; }}
+            struct View {{ value: &Value; }}
+            trusted predicate live(owner: &View);
+            trusted func make_view(pos observed: &Value, pos retained: &Value) -> View
+                ensures(trusted live(owner = &result)) executes(pure, total)
+            {{ return {{ value = retained }}; }}
+            func observe(pos owner: &View) -> u8
+                requires(trusted live(owner = owner)) executes(pure, total)
+            {{ return owner.value.byte; }}
+            func caller() -> u8 {{
+                let outer: Value = {{ byte = 1 }};
+                let returned: View = {{
+                    let local: Value = {{ byte = 2 }};
+                    yield trusted make_view({arguments});
+                }};
+                return observe(&returned);
+            }}
+        "#
+        ));
+
+        assert!(
+            !compilation.syntax_tree_result().diagnostics().has_errors(),
+            "{:?}",
+            compilation.syntax_tree_result().diagnostics()
+        );
+
+        let checked = compilation
+            .lowered_unit(crate::test_support::source_function_body_key(
+                &compilation,
+                "caller",
+            ))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{arguments}: {checked:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingEscapingStorageDependency,
             );
         }
     }

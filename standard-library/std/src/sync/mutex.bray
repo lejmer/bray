@@ -86,7 +86,8 @@ struct MutexGuard<T>
         }
     }
 
-    mut func get() -> &mut T
+    trusted mut func get() -> &mut T
+        uses(raw_memory, unchecked_alias)
     {
         let pointer: RawPointer<T> = trusted internal mutex_guard_pointer<T>(&mut self);
 

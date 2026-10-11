@@ -471,6 +471,13 @@ pub enum CodegenPreparationError {
         /// Target-classified ABI produced by the source declaration.
         actual: CodegenCallableSignature,
     },
+    /// A runtime source entry lacks the authority contract granted by its native boundary.
+    InvalidRuntimeRoleSourceContract {
+        /// Closed runtime role selected by build metadata.
+        role: bray_runtime_interface::RuntimeAbiRole,
+        /// Source implementation whose contract was rejected.
+        instance: bray_codegen::CodegenInstanceKey,
+    },
     /// A constant term needed by code generation still contains unresolved parameters.
     OpenConstantTerm(bray_symbols::ConstantTermId),
     /// A closed array length term did not contain its checked integer value.

@@ -226,6 +226,7 @@ where
 
     pub(super) fn refinements_allow_access(
         &self,
+        state: &StorageFlowState,
         access: StorageAccessId,
         refinements: &[Refinement],
     ) -> bool {
@@ -234,12 +235,42 @@ where
         };
 
         for (depth, projection) in projections.iter().enumerate() {
-            if !projection_is_available(self.storage, access, *projection, depth, refinements) {
+            if !projection_is_available(self.storage, access, *projection, depth, refinements)
+                && !self.borrow_establishes_projection(state, access, depth)
+            {
                 return false;
             }
         }
 
         true
+    }
+
+    fn borrow_establishes_projection(
+        &self,
+        state: &StorageFlowState,
+        access: StorageAccessId,
+        depth: usize,
+    ) -> bool {
+        self.borrow_chain(access).is_some_and(|chain| {
+            chain.into_iter().any(|borrow| {
+                if !state.definitely_active_borrows.contains(&borrow) {
+                    return false;
+                }
+
+                let capability = self
+                    .storage
+                    .borrow_capability(borrow)
+                    .expect("a checked borrow chain retains its capabilities");
+
+                // The reached payload cannot outlive or replace an enclosing
+                // nullable or union while its checked borrow remains live.
+                self.storage.access_contains(capability.access(), access)
+                    && self
+                        .storage
+                        .resolved_projections(capability.access())
+                        .is_some_and(|path| depth < path.len())
+            })
+        })
     }
 
     pub(super) fn borrow_chain(&self, access: StorageAccessId) -> Option<Vec<BorrowCapabilityId>> {

@@ -660,6 +660,9 @@
           "native_result": "DWORD",
           "link": "Kernel32",
           "error_state": "returns the calling thread's last-error state",
+          "executes": [
+            "total"
+          ],
           "dependencies": [
             "foreign_call"
           ]

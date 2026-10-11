@@ -566,6 +566,9 @@ pub(super) fn native_runtime_static_dependencies(
     selected
         .statics()
         .iter()
+        // A trivial static has no lifecycle that can call these providers. Native
+        // unit references may also belong to functions co-emitted with its data.
+        .filter(|entry| entry.requires_host())
         .filter_map(|entry| {
             let symbol = bray_symbols::NativeSymbolContract::required_name(
                 bray_base::NonEmptySharedStr::try_new(

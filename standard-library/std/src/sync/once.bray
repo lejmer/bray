@@ -88,6 +88,7 @@ struct OnceAttempt<T>
     }
 
     trusted consume mut func publish(pos value: T) -> &T
+        uses(raw_memory, unchecked_alias)
     {
         if core.atomic.load<u32, 1>(&self.once.state) == ONCE_REENTERED
         {
@@ -179,7 +180,8 @@ trusted internal func claim_initialization<T>(pos once: &Once<T>) -> bool
     return false;
 }
 
-internal func once_thread_identity() -> usize
+trusted internal func once_thread_identity() -> usize
+    uses(layout_reinterpret)
 {
     let marker: RawPointer<core.atomic.Atomic<u8>> = std.memory.address_of<core.atomic.Atomic<u8>>(&ONCE_THREAD_MARKER);
     let bytes: RawPointer<u8> = trusted std.memory.reinterpret<u8, core.atomic.Atomic<u8>>(marker);
@@ -188,6 +190,7 @@ internal func once_thread_identity() -> usize
 }
 
 trusted internal func initialized_once_value<T>(pos once: &Once<T>) -> &T
+    uses(raw_memory, unchecked_alias)
 {
     let pointer: RawPointer<T> = trusted internal once_value_pointer<T>(once);
 

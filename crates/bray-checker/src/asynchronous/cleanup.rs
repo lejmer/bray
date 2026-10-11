@@ -30,6 +30,7 @@ where
     let owners = storage_scope_owners(request).map_err(CheckerQueryError::with_upstream)?;
     let mut resolver = CleanupShapeResolver::new(request);
     let mut scopes = BTreeSet::new();
+    let mut cleanup_free_operations = BTreeSet::new();
 
     for (id, identity) in storage.identity_entries() {
         let (Some(scope), Some(ty)) = (owners.scope(Some(identity)), storage.storage_type(id))
@@ -41,6 +42,14 @@ where
 
         if shape.cancellation || shape.lifecycle {
             scopes.insert(scope);
+        } else if !shape.recovered
+            && let bray_bound_tree::StorageIdentity::Temporary(expression) = identity
+            && !matches!(
+                request.unit().tree().expression(expression),
+                Some(bray_bound_tree::BoundExpression::Assignment(_))
+            )
+        {
+            cleanup_free_operations.insert(expression);
         }
     }
 
@@ -66,12 +75,13 @@ where
             .or_insert(free);
     }
 
-    let cleanup_free_replacements = replacements
-        .into_iter()
-        .filter_map(|(expression, free)| free.then_some(expression))
-        .collect();
+    cleanup_free_operations.extend(
+        replacements
+            .into_iter()
+            .filter_map(|(expression, free)| free.then_some(expression)),
+    );
 
-    Ok((scopes, cleanup_free_replacements))
+    Ok((scopes, cleanup_free_operations))
 }
 
 pub(crate) fn cleanup_free_storage<C>(
@@ -412,6 +422,8 @@ where
             bray_bound_tree::SemanticSelection::Operation(
                 bray_bound_tree::SelectedOperation::Construction(construction),
             ) => {
+                cleanup_shapes.include_input(construction.result_type())?;
+
                 for input in construction.inputs() {
                     let (bray_bound_tree::SelectedConstructionInput::Explicit { ty, .. }
                     | bray_bound_tree::SelectedConstructionInput::Default { ty, .. }) = input;

@@ -5,6 +5,7 @@ trusted internal func windows_command_line(
     pos executable: (&[u8]),
     pos arguments: &[(&[u8])],
 ) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
+    uses(raw_memory)
 {
     let mut units: usize = try internal quoted_windows_units(executable);
     let count: usize = arguments.length();

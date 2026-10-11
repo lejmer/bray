@@ -65,7 +65,7 @@ where
         self.scopes.truncate(retained_depth);
 
         self.storage
-            .push_scope_exit(current, block, exit, self.scoped_exit(block))
+            .push_scope_exit(current, block, exit, true, self.scoped_exit(block))
     }
 
     pub(super) fn push_exit(
@@ -74,20 +74,22 @@ where
         kind: AnalysisExitKind,
         exit: AnyBoundNodeId,
     ) {
-        if matches!(
+        let preserves_exit_value = matches!(
             kind,
             AnalysisExitKind::Return
                 | AnalysisExitKind::ResultErrorPropagation
                 | AnalysisExitKind::Yield
                 | AnalysisExitKind::NormalFallthrough
-        ) {
+        );
+
+        if preserves_exit_value {
             self.push_cleanup_failures(block, 0, exit);
         }
 
         if kind == AnalysisExitKind::Panic
             && let Some(catch) = self.catches.last().copied()
         {
-            let block = self.resolve_scopes(block, catch.scope_depth, exit);
+            let block = self.resolve_scopes(block, catch.scope_depth, exit, false);
 
             self.push_edge(block, catch.target, AnalysisEdgeKind::Catch, None);
 
@@ -96,7 +98,7 @@ where
 
         let block = match kind {
             AnalysisExitKind::Divergence => block,
-            _ => self.resolve_scopes(block, 0, exit),
+            _ => self.resolve_scopes(block, 0, exit, preserves_exit_value),
         };
 
         self.storage.push_exit(block, kind);
@@ -129,11 +131,11 @@ where
                 .copied();
 
             if let Some(catch) = catch {
-                let failure = self.resolve_scopes(block, catch.scope_depth, exit);
+                let failure = self.resolve_scopes(block, catch.scope_depth, exit, false);
 
                 self.push_edge(failure, catch.target, AnalysisEdgeKind::Catch, None);
             } else {
-                let failure = self.resolve_scopes(block, 0, exit);
+                let failure = self.resolve_scopes(block, 0, exit, false);
 
                 self.storage.push_exit(failure, AnalysisExitKind::Panic);
             }
@@ -161,13 +163,18 @@ where
         mut current: AnalysisBlockId,
         retained_depth: usize,
         exit: AnyBoundNodeId,
+        preserves_exit_value: bool,
     ) -> AnalysisBlockId {
         for index in (retained_depth..self.scopes.len()).rev() {
             let scope = self.scopes[index];
 
-            current = self
-                .storage
-                .push_scope_exit(current, scope, exit, self.scoped_exit(scope));
+            current = self.storage.push_scope_exit(
+                current,
+                scope,
+                exit,
+                preserves_exit_value,
+                self.scoped_exit(scope),
+            );
         }
 
         current

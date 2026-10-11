@@ -82,23 +82,23 @@ impl Lowerer<'_> {
             }
         };
 
-        let Some(projection) = place.projections().last() else {
-            return Ok(subject);
+        let (mut projections, source_type) = match place.projections().last() {
+            Some(projection)
+                if matches!(projection.kind(), bray_ir::MirProjectionKind::NullableValue)
+                    && projection.source_type() == check.input_type() =>
+            {
+                (
+                    place.projections()[..place.projections().len() - 1].to_vec(),
+                    projection.source_type(),
+                )
+            }
+            _ => (place.projections().to_vec(), place.ty()),
         };
 
-        if !matches!(projection.kind(), bray_ir::MirProjectionKind::NullableValue)
-            || projection.source_type() != check.input_type()
-        {
-            return Ok(subject);
-        }
-
-        let source = MirPlace::new(
-            place.storage(),
-            place.projections()[..place.projections().len() - 1]
-                .iter()
-                .cloned(),
-            projection.source_type(),
-        );
+        // A borrow of an optional value tests the referent's discriminant. Testing
+        // the non-null borrow itself would turn an absent payload into a match.
+        let source_type = self.append_projection_dereferences(source_type, &mut projections);
+        let source = MirPlace::new(place.storage(), projections, source_type);
 
         Ok(MirOperand::Copy(source))
     }
@@ -340,6 +340,8 @@ impl Lowerer<'_> {
         } else {
             self.project_pattern_subject(pattern, subject, current, PatternOperation::Observe)?
         };
+
+        let subject = self.pattern_test_subject(pattern, subject)?;
 
         let children_entry = match (check.test(), pattern_node.children().is_empty()) {
             (Some(_), true) => matched,

@@ -35,7 +35,10 @@ fn main() {
         .unwrap_or_else(|error| panic!("could not build the runtime report provider: {error}"));
 
     println!("cargo:rustc-link-search=native={}", output.display());
-    println!("cargo:rustc-link-lib=static:-bundle=bray_runtime_bootstrap");
+
+    // Load the selected provider objects, including COFF fallback alias directives.
+    // Native section collection still removes unreachable implementation code.
+    println!("cargo:rustc-link-lib=static:-bundle,+whole-archive=bray_runtime_bootstrap");
 
     for link in native_links {
         println!(

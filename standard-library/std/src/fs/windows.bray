@@ -72,7 +72,7 @@ trusted internal func prepare_file_seek(
         trusted core.memory.valid_write<u64>(pointer = position, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = position),
     )
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret)
 {
     let native_origin: u32 = match origin
     {
@@ -146,7 +146,7 @@ trusted internal func prepare_file_open(
         trusted core.memory.valid_write<u64>(pointer = opened, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = opened),
     )
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret)
 {
     if options.reserved != 0
     {
@@ -225,7 +225,7 @@ trusted internal func platform_path_create_directory(pos path: PlatformPath) -> 
         trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
         trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
     )
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret)
 {
     let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
         trusted internal terminated_windows_path(path);
@@ -251,7 +251,7 @@ trusted internal func platform_path_remove_file(pos path: PlatformPath) -> std.p
         trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
         trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
     )
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret)
 {
     let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
         trusted internal terminated_windows_path(path);
@@ -274,7 +274,7 @@ trusted internal func platform_path_remove_directory(pos path: PlatformPath) -> 
         trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
         trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
     )
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret)
 {
     let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
         trusted internal terminated_windows_path(path);
@@ -304,7 +304,7 @@ trusted internal func platform_path_rename(
         trusted core.memory.valid_read<u8>(pointer = new_path.address, count = new_path.length as usize),
         trusted core.memory.initialized_range_as<u8>(pointer = new_path.address, count = new_path.length as usize),
     )
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret)
 {
     let terminated_source: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
         trusted internal prepare_rename_source(&source, &new_path);
@@ -366,7 +366,7 @@ trusted internal func windows_path_operation_status(pos result: i32) -> std.plat
 }
 
 trusted internal func platform_file_metadata_value(pos handle: u64) -> Result<FileMetadata, std.io.IoError>
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret)
 {
     let mut storage: [u64; 7] = [0; 7];
     let data: RawPointer<u8> = trusted std.memory.reinterpret<u8, u64>(std.memory.address_of_mut<u64>(&mut storage[0]));
@@ -387,7 +387,7 @@ trusted internal func platform_path_metadata_value(pos path: PlatformPath) -> Re
         trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
         trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
     )
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret)
 {
     let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
         trusted internal terminated_windows_path(path);
@@ -430,7 +430,7 @@ trusted internal func platform_directory_open(
         trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
         trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
     )
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret)
 {
     let pattern: std.memory.RawBuffer<u8> = match trusted internal windows_directory_pattern(path)
     {
@@ -460,7 +460,7 @@ trusted internal func platform_directory_next(
     pos state: &mut [u64],
     pos first: &mut u8,
 ) -> Result<DirectoryEntry?, std.io.IoError>
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret)
 {
     let native_handle: RawPointer<u8> = trusted internal std.platform.handle_pointer(handle);
 
@@ -588,6 +588,7 @@ trusted internal func windows_directory_pattern(
         trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
         trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
     )
+    uses(manual_alloc, raw_memory, unchecked_init)
 {
     if path.length % 2 != 0 || path.length > 9_223_372_036_854_775_801
     {

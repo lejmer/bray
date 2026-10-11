@@ -3,7 +3,7 @@ module std.atomic;
 
 trusted internal func platform_wait_word(pos storage: &core.atomic.Atomic<u32>, pos expected: u32)
     requires(blocking_execution())
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret)
 {
     let address: RawPointer<u32> = trusted internal word_pointer(storage);
     let bytes: RawPointer<u8> = trusted std.memory.reinterpret<u8, u32>(address);
@@ -22,7 +22,7 @@ trusted internal func platform_wait_word_for(
     pos timeout_milliseconds: u32,
 )
     requires(blocking_execution())
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret)
 {
     let address: RawPointer<u32> = trusted internal word_pointer(storage);
     let bytes: RawPointer<u8> = trusted std.memory.reinterpret<u8, u32>(address);
@@ -38,7 +38,7 @@ trusted internal func platform_wait_word_for(
 }
 
 trusted internal func platform_wake_word(pos storage: &core.atomic.Atomic<u32>)
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret)
 {
     let address: RawPointer<u32> = trusted internal word_pointer(storage);
     let bytes: RawPointer<u8> = trusted std.memory.reinterpret<u8, u32>(address);
@@ -51,7 +51,7 @@ trusted internal func platform_wake_word(pos storage: &core.atomic.Atomic<u32>)
 }
 
 trusted internal func platform_wake_all_words(pos storage: &core.atomic.Atomic<u32>)
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret)
 {
     let address: RawPointer<u32> = trusted internal word_pointer(storage);
     let bytes: RawPointer<u8> = trusted std.memory.reinterpret<u8, u32>(address);

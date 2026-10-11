@@ -10,6 +10,40 @@ use bray_target::NativeTarget;
 use std::collections::BTreeSet;
 
 #[test]
+fn initialized_protected_statics_preserve_scalar_and_product_representations() {
+    let source = r#"
+        trusted module app;
+
+        struct State { count: u64; ready: bool; }
+
+        static COUNTER: Uninit<core.atomic.Atomic<u64>> =
+            core.memory.uninit_from<core.atomic.Atomic<u64>>(core.atomic.initialize<u64>(17));
+        static STATE: Uninit<State> = core.memory.uninit_from<State>({ count = 23, ready = true });
+
+        func main() -> i32
+        {
+            let counter = core.memory.uninit_pointer<core.atomic.Atomic<u64>>(&COUNTER);
+            let state = core.memory.uninit_pointer<State>(&STATE);
+
+            if core.memory.is_null<core.atomic.Atomic<u64>>(counter) || core.memory.is_null<State>(state)
+            {
+                return 1;
+            }
+
+            return 0;
+        }
+    "#;
+
+    let (backend, plan) = runtime_native_plan(source);
+
+    assert!(
+        generated_artifacts(&backend, &plan)
+            .iter()
+            .all(|artifact| !artifact.is_empty())
+    );
+}
+
+#[test]
 fn trivial_generic_statics_use_direct_native_storage() {
     let source = concat!(
         "module app;\n",

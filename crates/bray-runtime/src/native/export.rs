@@ -131,12 +131,16 @@ native_export! {
 }
 
 native_export! {
+    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this report export to the Bray provider"))]
+    #[cfg_attr(test, unsafe(no_mangle))]
     pub extern "C" fn bray_runtime_panic_reporting(report: &mut bray_runtime_abi::NativePanicReport) -> NativeRuntimeStatus {
         report.consume(true)
     }
 }
 
 native_export! {
+    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this report export to the Bray provider"))]
+    #[cfg_attr(test, unsafe(no_mangle))]
     pub extern "C" fn bray_runtime_panic_report_destruction(report: &mut bray_runtime_abi::NativePanicReport) -> NativeRuntimeStatus {
         report.consume(false)
     }
@@ -1673,12 +1677,15 @@ mod tests {
     #[test]
     fn foreign_callback_boundary_attaches_threads_for_the_callback_lifetime() {
         let (outcome, attached_after_return) = std::thread::spawn(|| {
-            assert!(bray_platform::current_runtime_thread().is_none());
+            assert!(crate::bootstrap::current_runtime_thread().is_none());
 
             let outcome =
                 bray_runtime_foreign_callback_execution(assert_callback_runtime_thread, 41);
 
-            (outcome, bray_platform::current_runtime_thread().is_some())
+            (
+                outcome,
+                crate::bootstrap::current_runtime_thread().is_some(),
+            )
         })
         .join()
         .unwrap_or_else(|_| panic!("foreign callback test thread must join"));
@@ -1690,7 +1697,7 @@ mod tests {
 
     #[test]
     fn foreign_callback_boundary_reuses_an_attached_runtime_thread() {
-        let _thread = bray_platform::RuntimeThreadScope::enter()
+        let _thread = crate::bootstrap::RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must attach: {error:?}"));
 
         let outcome = bray_runtime_foreign_callback_execution(assert_callback_runtime_thread, 41);
@@ -1730,7 +1737,7 @@ mod tests {
 
         assert_eq!(
             PENDING_CHILD_CLEANUP_THREAD.load(Ordering::Relaxed),
-            bray_platform::main_runtime_thread()
+            crate::bootstrap::main_runtime_thread()
                 .unwrap_or_else(|| panic!("test runtime must retain its main thread"))
                 .id()
                 .raw() as usize
@@ -2238,7 +2245,7 @@ mod tests {
         PENDING_CHILD_BROADCASTS.fetch_add(1, Ordering::Relaxed);
 
         PENDING_CHILD_CLEANUP_THREAD.store(
-            bray_platform::current_runtime_thread()
+            crate::bootstrap::current_runtime_thread()
                 .unwrap_or_else(|| panic!("cleanup callback must run on a runtime thread"))
                 .id()
                 .raw() as usize,
@@ -2409,7 +2416,7 @@ mod tests {
         outcome: &mut NativeRunOutcome,
     ) {
         assert_eq!(destination, 41);
-        assert!(bray_platform::current_runtime_thread().is_some());
+        assert!(crate::bootstrap::current_runtime_thread().is_some());
 
         *outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, destination);
     }

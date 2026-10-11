@@ -1309,6 +1309,9 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         use bray_bound_tree::CheckedMemoryOperationKind as Kind;
 
         match read_u32(&mut self.reader)? {
+            59 => Ok(Kind::UninitFrom {
+                element: self.ty()?,
+            }),
             48 => Ok(Kind::UninitNew {
                 element: self.ty()?,
             }),
@@ -2500,6 +2503,12 @@ fn protected_memory_types_valid(
     use bray_symbols::BorrowKind;
 
     match kind {
+        Kind::UninitFrom { element } => {
+            operands == [element]
+                && result.is_some_and(|result| {
+                    wrapper_argument(result, ProtectedMemoryWrapper::Uninit) == Some(element)
+                })
+        }
         Kind::UninitNew { element } => {
             operands.is_empty()
                 && result.is_some_and(|result| {
@@ -2977,6 +2986,11 @@ mod tests {
                 vec![fixture.mutable_authority, fixture.pointer],
                 Some(fixture.mutable_result),
             ),
+            (
+                CheckedMemoryOperationKind::UninitFrom { element },
+                vec![element],
+                Some(fixture.uninit),
+            ),
         ];
 
         for (kind, operands, result) in &valid {
@@ -3004,6 +3018,8 @@ mod tests {
                 vec![fixture.mutable_authority, fixture.pointer],
                 Some(fixture.shared_result),
             ),
+            (valid[8].0, vec![fixture.other], valid[8].2),
+            (valid[8].0, vec![element], Some(element)),
         ];
 
         for (kind, operands, result) in malformed {

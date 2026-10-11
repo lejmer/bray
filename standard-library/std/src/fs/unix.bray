@@ -520,6 +520,7 @@ trusted internal func unix_status_storage(pos storage: &mut [u64; 18]) -> RawPoi
         trusted core.memory.valid_write<u8>(pointer = result, count = 144),
         trusted core.memory.initialized_range_as<u8>(pointer = result, count = 144),
     )
+    uses(layout_reinterpret)
 {
     assert(std.os.unix.FILE_STATUS_SIZE <= 144, "native file status exceeds its storage");
 
@@ -638,6 +639,7 @@ trusted internal func unix_dot_entry(pos name: RawPointer<u8>, length: usize) ->
         trusted core.memory.initialized_range_as<u8>(pointer = name, count = length),
     )
     executes(pure)
+    uses(raw_memory)
 {
     if length == 1
     {

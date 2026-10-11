@@ -1,0 +1,177 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host;
+
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal std.platform;
+using internal std.thread;
+
+@abi(c)
+trusted internal func thread_attachment_enter() -> u32
+{
+    let status: u32 = trusted initialize_host();
+
+    if status != bray.runtime.bootstrap.STATUS_SUCCESS
+    {
+        return status;
+    }
+
+    let mut prepared: std.memory.RawBuffer<Attachment>? = none;
+
+    while true
+    {
+        let entered: Result<u32, usize> =
+        {
+            let lease: HostLease = trusted host_access();
+
+            if !lease.active
+            {
+                return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+            }
+
+            yield trusted enter_attachment_locked(&lease, &mut prepared);
+        };
+
+        let capacity: usize = match consume entered
+        {
+            case Ok(entered_status) { return entered_status; }
+            case Error(capacity) { yield capacity; }
+        };
+
+        // Allocation and retirement run after releasing the lease. Reentry sees
+        // the initialized host and either an existing epoch or independent backing.
+        prepared = trusted internal bray.runtime.bootstrap.heap.try_buffer<Attachment>(capacity);
+
+        if prepared matches none
+        {
+            return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+        }
+    }
+}
+
+trusted internal func enter_attachment_locked(
+    pos lease: &HostLease,
+    pos prepared: &mut(std.memory.RawBuffer<Attachment>?)
+) -> Result<u32, usize>
+    requires(lease.active, trusted host_access_idle(owner = lease), trusted host_access_live(owner = lease))
+    ensures(
+        trusted host_access_live(owner = lease),
+        trusted host_access_idle(owner = lease),
+        trusted attachment_cleanup_completed(owner = lease)
+    )
+    executes(total)
+    uses(foreign_call, intrinsic, raw_memory, unchecked_alias)
+{
+    let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
+        lease.synchronization,
+        trusted lease_synchronization_pointer(lease)
+    );
+
+    let native_thread = core.atomic.load<u64, 1>(&synchronization.lock);
+    let identity = trusted current_attachment_locked(lease);
+
+    if !lease.active
+    {
+        return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+    }
+
+    let mut anchor = trusted host_anchor(lease);
+    let host: &mut HostOwner = trusted host_value(lease, &mut anchor);
+
+    if host.storage matches none
+    {
+        return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+    }
+
+    let next: u64 = host.next_identity;
+
+    if identity == 0
+    {
+        if next == ~0
+        {
+            return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+        }
+
+        host.next_identity += 1;
+    }
+
+    let storage: &mut HostStorage = if let ?storage = host.storage
+    {
+        yield &mut storage;
+    }
+    else
+    {
+        return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+    };
+
+    let key: u64 = storage.key;
+
+    if identity != 0
+    {
+        let selected = trusted find_attachment(storage, identity, 0);
+
+        match consume selected
+        {
+            case ?entry
+            {
+                if entry.closing || entry.native_thread != native_thread || entry.depth == ~0
+                {
+                    return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+                }
+
+                entry.depth += 1;
+                return Ok(bray.runtime.bootstrap.STATUS_SUCCESS);
+            }
+            case none {}
+        }
+
+        return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+    }
+
+    if storage.active == ~0
+    {
+        return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+    }
+
+    let inserted: bool = match consume trusted insert_attachment(storage, next, native_thread, prepared)
+    {
+        case Ok(inserted) { yield inserted; }
+        case Error(capacity) { return Error(capacity); }
+    };
+
+    if !inserted
+    {
+        return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+    }
+
+    storage.active += 1;
+
+    let pointer: RawPointer<u8> = trusted core.target.from_exposed_address<u8>(address = next as usize);
+
+    let published: std.platform.PlatformStatus = trusted internal std.thread.platform_thread_storage_store(
+        key,
+        pointer
+    );
+
+    if published.category != 0
+    {
+        {
+            let selected = trusted find_attachment(storage, next, 0);
+
+            match consume selected
+            {
+                case ?entry
+                {
+                    entry.identity = 0;
+                    entry.depth = 0;
+                }
+                case none {}
+            }
+        }
+
+        storage.active -= 1;
+        return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+    }
+
+    return Ok(bray.runtime.bootstrap.STATUS_SUCCESS);
+}

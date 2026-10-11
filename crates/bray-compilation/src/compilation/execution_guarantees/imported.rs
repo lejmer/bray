@@ -114,7 +114,7 @@ impl Compilation {
 
                     if evidence
                         .unwrap_or(&ExecutionCallEvidence::default())
-                        .proves(&entry)
+                        .proves_trusted(&entry)
                     {
                         return Ok(Some(ExecutionObligation::Property(
                             property,

@@ -47,7 +47,7 @@ pub(crate) const fn diagnostic_memory_operation(
         Hook::UninitNew => Operation::UninitializedStorage,
         Hook::UninitPointer => Operation::UninitializedStoragePointer,
         Hook::UninitPointerMut => Operation::MutableUninitializedStoragePointer,
-        Hook::UninitWrite => Operation::ProtectedStorageWrite,
+        Hook::UninitFrom | Hook::UninitWrite => Operation::ProtectedStorageWrite,
         Hook::UninitAssumeInitialized => Operation::AssumeInitialized,
         Hook::UninitMove => Operation::MoveInitialized,
         Hook::BorrowFrom => Operation::AnchoredSharedBorrow,
@@ -128,7 +128,8 @@ pub(crate) const fn diagnostic_checked_memory_operation(
             kind: MemoryAddressKind::Mutable,
             ..
         } => Operation::MutableUninitializedStoragePointer,
-        CheckedMemoryOperationKind::UninitWrite { .. } => Operation::ProtectedStorageWrite,
+        CheckedMemoryOperationKind::UninitFrom { .. }
+        | CheckedMemoryOperationKind::UninitWrite { .. } => Operation::ProtectedStorageWrite,
         CheckedMemoryOperationKind::UninitAssumeInitialized { .. } => Operation::AssumeInitialized,
         CheckedMemoryOperationKind::UninitMove { .. } => Operation::MoveInitialized,
         CheckedMemoryOperationKind::BorrowFrom {

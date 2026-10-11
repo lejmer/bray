@@ -202,6 +202,42 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
 
     #[test]
+    fn returned_owned_fields_use_the_latest_mutation() {
+        for (body, valid) in [
+            ("value.ready = true;", true),
+            ("value.ready = false;", false),
+            ("value.ready = true; value.ready = false;", false),
+            ("value.ready = false; value.ready = true;", true),
+            ("value.ready = true; change(&mut value);", false),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+                struct Flags {{ mut ready: bool; }}
+                func change(pos value: &mut Flags) {{ value.ready = false; }}
+                func root(pos mut value: Flags) -> Flags ensures(result.ready)
+                {{ {body} return value; }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+
+            let checked = compilation
+                .execution_properties(crate::test_support::source_function_body_key(
+                    &compilation,
+                    "root",
+                ))
+                .unwrap();
+
+            assert_eq!(
+                !checked.diagnostics().has_errors(),
+                valid,
+                "{source}: {checked:#?}"
+            );
+        }
+    }
+
+    #[test]
     fn projection_preserves_completion_until_mutation() {
         for (body, valid) in [
             (
@@ -849,7 +885,7 @@ impl Compilation {
 
             if evidence
                 .unwrap_or(&bray_checker::ExecutionCallEvidence::default())
-                .proves(&conditions)
+                .proves_trusted(&conditions)
             {
                 return Ok(Some(
                     (!domain.guards.is_empty()).then_some(obligation.source),

@@ -191,6 +191,7 @@ trusted internal func channel_owner_pointer<T>(pos owner: &ChannelOwner<T>) -> R
 }
 
 trusted internal func channel_core<T>(pos owner: &ChannelOwner<T>) -> &ChannelCore<T>
+    uses(raw_memory, unchecked_alias)
 {
     let pointer: RawPointer<ChannelCore<T>> = trusted internal channel_owner_pointer<T>(owner);
 
@@ -258,6 +259,7 @@ trusted internal func release_receiver<T>(pos owner: &ChannelOwner<T>)
 }
 
 trusted internal func release_core<T>(pos owner: &ChannelOwner<T>, pos shared: &ChannelCore<T>)
+    uses(manual_alloc)
 {
     let owners: usize = core.atomic.fetch_sub<usize, 3>(&shared.owners, 1);
 

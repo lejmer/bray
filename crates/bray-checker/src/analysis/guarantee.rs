@@ -1,9 +1,11 @@
+mod bounds;
 mod check;
 mod cleanup;
 mod completion;
 mod operation;
 mod postcondition;
 mod state;
+mod termination;
 mod trusted;
 
 pub use check::check_execution_candidate;

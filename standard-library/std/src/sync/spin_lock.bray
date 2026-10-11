@@ -83,7 +83,8 @@ struct SpinLockGuard<T>
         }
     }
 
-    mut func get() -> &mut T
+    trusted mut func get() -> &mut T
+        uses(raw_memory, unchecked_alias)
     {
         let pointer: RawPointer<T> = trusted internal spin_lock_guard_pointer<T>(&mut self);
 

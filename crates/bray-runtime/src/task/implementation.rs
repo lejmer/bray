@@ -712,7 +712,7 @@ mod tests {
     use std::sync::{Arc, Barrier, Mutex};
     use std::thread;
 
-    use bray_platform::RuntimeThreadScope;
+    use crate::bootstrap::RuntimeThreadScope;
     use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
 
     use super::{
@@ -729,6 +729,8 @@ mod tests {
 
     #[test]
     fn task_snapshots_retain_creation_and_cleanup_context() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 
@@ -799,6 +801,8 @@ mod tests {
 
     #[test]
     fn starting_moves_the_frame_into_stable_task_owned_storage() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let task = TaskControlBlock::start(
             crate::test_support::admit_task(),
             TestFrame::suspending_then_completing(29),
@@ -839,6 +843,8 @@ mod tests {
 
     #[test]
     fn dropping_nonterminal_task_storage_resolves_retained_frame_state() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let broadcasts = Arc::new(AtomicUsize::new(0));
         let resolutions = Arc::new(AtomicUsize::new(0));
 
@@ -864,6 +870,8 @@ mod tests {
 
     #[test]
     fn erased_inactive_frames_use_the_same_task_storage_contract() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let frame = erase_sendable_protected_frame(TestFrame::completing(41));
 
         let task = TaskControlBlock::start_erased(crate::test_support::admit_task(), frame);
@@ -878,6 +886,8 @@ mod tests {
 
     #[test]
     fn local_task_storage_accepts_thread_affine_frames() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let frame = LocalFrame {
             inner: TestFrame::completing(43),
             _thread_affinity: Rc::new(()),
@@ -895,6 +905,8 @@ mod tests {
 
     #[test]
     fn cancellation_is_observed_by_frames_and_terminal_waiters() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let task = TaskControlBlock::start(
             crate::test_support::admit_task(),
             TestFrame::cancellation_aware(),
@@ -924,6 +936,8 @@ mod tests {
 
     #[test]
     fn dropping_join_registration_withdraws_the_waiter() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let task =
             TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(9));
 
@@ -948,6 +962,8 @@ mod tests {
 
     #[test]
     fn parent_cancellation_reaches_child_task_frames() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let parent = crate::CancellationContext::root();
 
         let task = TaskControlBlock::start_child(
@@ -968,6 +984,8 @@ mod tests {
 
     #[test]
     fn one_task_is_never_resumed_concurrently() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let entered = Arc::new(Barrier::new(2));
         let release = Arc::new(Barrier::new(2));
 
@@ -996,6 +1014,8 @@ mod tests {
 
     #[test]
     fn panics_are_captured_and_later_cleanup_panics_are_suppressed() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let task = TaskControlBlock::start(
             crate::test_support::admit_task(),
             TestFrame::panicking_with_cleanup_panic(),
@@ -1019,6 +1039,8 @@ mod tests {
 
     #[test]
     fn propagated_cancellation_reaches_task_cleanup_as_cancellation() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let task = TaskControlBlock::start(
             crate::test_support::admit_task(),
             TestFrame::propagating_cancellation(false),
@@ -1034,6 +1056,8 @@ mod tests {
 
     #[test]
     fn propagated_cancellation_preserves_a_real_cleanup_panic() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let task = TaskControlBlock::start(
             crate::test_support::admit_task(),
             TestFrame::propagating_cancellation(true),
@@ -1053,6 +1077,8 @@ mod tests {
 
     #[test]
     fn invalid_suspension_state_fails_without_resuming_again() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let task = TaskControlBlock::start(
             crate::test_support::admit_task(),
             TestFrame::invalid_suspension(),
@@ -1092,6 +1118,8 @@ mod tests {
 
     #[test]
     fn runtime_failure_retains_cleanup_panic_after_frame_disposal() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let task = TaskControlBlock::start(
             crate::test_support::admit_task(),
             TestFrame::failing_with_cleanup_panic(),
@@ -1115,6 +1143,8 @@ mod tests {
 
     #[test]
     fn failure_resolution_preserves_a_completed_outcome() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let task =
             TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(47));
 
@@ -1126,6 +1156,8 @@ mod tests {
 
     #[test]
     fn frame_callbacks_and_release_run_once_without_the_task_data_lock() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         for runtime_failure in [false, true] {
             let callback = Arc::new(Mutex::new(None));
             let callbacks = Arc::new(AtomicUsize::new(0));
@@ -1182,6 +1214,8 @@ mod tests {
 
     #[test]
     fn observation_before_terminal_state_is_rejected() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let task =
             TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
 
@@ -1193,6 +1227,8 @@ mod tests {
 
     #[test]
     fn unobserved_outcomes_follow_the_explicit_resolution_path() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let task =
             TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(47));
 

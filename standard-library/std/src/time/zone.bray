@@ -263,7 +263,7 @@ trusted internal func retained_zone(pos zone: &TimeZone) -> Result<TimeZone, Tim
 }
 
 trusted internal func zone_name(pos handle: u64) -> Result<string, TimeError>
-    uses(foreign_call)
+    uses(foreign_call, unchecked_init)
 {
     let mut required: u64 = 0;
     let mut outcome: u32 = TEMPORAL_SUCCESS;
@@ -294,7 +294,7 @@ trusted internal func fill_zone_name(
     pos buffer: &mut std.memory.RawBuffer<u8>,
 ) -> (std.platform.PlatformStatus, u32, usize)
     ensures(trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result.2))
-    uses(foreign_call)
+    uses(foreign_call, raw_memory)
 {
     let initialized: usize = buffer.initialized;
     let capacity: usize = buffer.capacity - initialized;
@@ -363,7 +363,7 @@ trusted internal func observe_timestamp(
     pos fixed_offset_seconds: i32,
     pos timestamp: &Timestamp,
 ) -> Result<TemporalObservation, TimeError>
-    uses(foreign_call)
+    uses(foreign_call, unchecked_init)
 {
     let mut value: PlatformTemporalObservation =
     {
@@ -421,7 +421,7 @@ trusted internal func fill_temporal_observation(
     pos buffer: &mut std.memory.RawBuffer<u8>,
 ) -> (std.platform.PlatformStatus, u32, usize)
     ensures(trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result.2))
-    uses(foreign_call)
+    uses(foreign_call, raw_memory)
 {
     let initialized: usize = buffer.initialized;
     let capacity: usize = buffer.capacity - initialized;

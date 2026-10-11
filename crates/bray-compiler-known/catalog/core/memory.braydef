@@ -226,6 +226,17 @@ scope CoreMemory at core.memory {
         surface { const func uninit<T>() -> Uninit<T>; }
     }
 
+    declaration UninitFrom {
+        availability RawMemory;
+        implementation UninitFrom;
+
+        surface {
+            const func uninit_from<T>(pos value: T) -> Uninit<T>
+                ensures(trusted core.memory.uninit_initialized<T>(storage = &result))
+                executes(pure, total);
+        }
+    }
+
     declaration UninitPointer {
         availability RawMemory;
         implementation UninitPointer;

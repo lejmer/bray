@@ -11,17 +11,39 @@ impl Compilation {
         declaration: &bray_checker::ExecutionDeclaration,
         cancellation: &crate::fact::CancellationToken,
     ) -> Result<bool, crate::fact::FactQueryError> {
-        Ok(self.intrinsic_projection_symbol(symbol, cancellation)?
+        let projection = self.intrinsic_projection_symbol(symbol, cancellation)?;
+        let transfer = self.intrinsic_transfer_symbol(symbol, cancellation)?;
+
+        Ok((projection || transfer)
             && declaration.domains().iter().all(|domain| {
                 domain.guards.is_empty()
                     && domain.postconditions.is_empty()
                     && domain.properties.iter().all(|property| {
-                        matches!(
-                            property.property,
-                            ExecutionProperty::Pure | ExecutionProperty::Total
-                        )
+                        (projection
+                            && matches!(
+                                property.property,
+                                ExecutionProperty::Pure | ExecutionProperty::Total
+                            ))
+                            || (transfer && property.property == ExecutionProperty::Total)
                     })
             }))
+    }
+
+    fn intrinsic_transfer_symbol(
+        &self,
+        symbol: bray_symbols::AnySymbolId,
+        cancellation: &crate::fact::CancellationToken,
+    ) -> Result<bool, crate::fact::FactQueryError> {
+        let context = self.checker_context(cancellation)?;
+
+        Ok(context.implementation_hook(symbol)?.is_some_and(|hook| {
+            hook.is_available()
+                && matches!(
+                    hook.hook(),
+                    bray_compiler_known::ImplementationHook::RawBufferPush
+                        | bray_compiler_known::ImplementationHook::RawBufferRelocate
+                )
+        }))
     }
 
     pub(super) fn intrinsic_projection_symbol(
@@ -66,6 +88,14 @@ impl Compilation {
         }
 
         if self.intrinsic_projection_symbol(callable.definition().symbol(), cancellation)? {
+            return Ok(true);
+        }
+
+        if matches!(
+            obligation,
+            ExecutionObligation::Property(ExecutionProperty::Total, None)
+        ) && self.intrinsic_transfer_symbol(callable.definition().symbol(), cancellation)?
+        {
             return Ok(true);
         }
 

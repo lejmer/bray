@@ -46,7 +46,9 @@ pub(super) fn collect_preservation_dependencies(
             .invocation()
             .execution_properties()
             .contains(&ExecutionProperty::Pure)
-            && memory.operation(expression).is_none()
+            && !memory.operation(expression).is_some_and(|operation| {
+                checked_memory_guarantee(operation.kind(), ExecutionProperty::Pure)
+            })
         {
             dependencies.push(ExecutionDependency {
                 target: call.target(),
@@ -83,6 +85,72 @@ pub(super) fn scoped_invocation_preserves_inputs(
         .contains(&ExecutionProperty::Pure)
 }
 
+pub(super) fn checked_memory_guarantee(
+    kind: CheckedMemoryOperationKind,
+    property: ExecutionProperty,
+) -> bool {
+    if property == ExecutionProperty::Total
+        && matches!(
+            kind,
+            CheckedMemoryOperationKind::Read { .. }
+                | CheckedMemoryOperationKind::Write { .. }
+                | CheckedMemoryOperationKind::Copy { .. }
+                | CheckedMemoryOperationKind::IsNull { .. }
+                | CheckedMemoryOperationKind::Offset { .. }
+                | CheckedMemoryOperationKind::Reinterpret { .. }
+                | CheckedMemoryOperationKind::PointerFromCallable { .. }
+                | CheckedMemoryOperationKind::CallableFromPointer { .. }
+                | CheckedMemoryOperationKind::ExposeAddress { .. }
+                | CheckedMemoryOperationKind::FromExposedAddress { .. }
+                | CheckedMemoryOperationKind::LayoutQuery { .. }
+                | CheckedMemoryOperationKind::RawBufferCapacity
+                | CheckedMemoryOperationKind::RawBufferInitializedCount
+                | CheckedMemoryOperationKind::RawBufferPointer
+                | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
+                | CheckedMemoryOperationKind::RawBufferSetInitializedCount
+                | CheckedMemoryOperationKind::RawBufferPush { .. }
+                | CheckedMemoryOperationKind::RawBufferRelocate { .. }
+                | CheckedMemoryOperationKind::AtomicInitialize { .. }
+                | CheckedMemoryOperationKind::AtomicLoad { .. }
+                | CheckedMemoryOperationKind::AtomicStore { .. }
+                | CheckedMemoryOperationKind::AtomicExchange { .. }
+                | CheckedMemoryOperationKind::AtomicCompareExchange { .. }
+                | CheckedMemoryOperationKind::AtomicFetch { .. }
+        )
+    {
+        // These checked primitives complete on their required storage domains.
+        // Allocation and selected cleanup retain their fallible call dependencies.
+        return true;
+    }
+
+    return matches!(
+        kind,
+        CheckedMemoryOperationKind::SequenceLength
+            | CheckedMemoryOperationKind::ByteBufferRead
+            | CheckedMemoryOperationKind::Read {
+                kind: bray_bound_tree::MemoryReadKind::Copy,
+                ..
+            }
+            | CheckedMemoryOperationKind::IsNull { .. }
+            | CheckedMemoryOperationKind::Offset { .. }
+            | CheckedMemoryOperationKind::Reinterpret { .. }
+            | CheckedMemoryOperationKind::PointerFromCallable { .. }
+            | CheckedMemoryOperationKind::CallableFromPointer { .. }
+            | CheckedMemoryOperationKind::LayoutQuery { .. }
+            | CheckedMemoryOperationKind::Null { .. }
+            | CheckedMemoryOperationKind::Address { .. }
+            | CheckedMemoryOperationKind::BorrowFrom { .. }
+            | CheckedMemoryOperationKind::UninitFrom { .. }
+            | CheckedMemoryOperationKind::UninitPointer { .. }
+            | CheckedMemoryOperationKind::RawBufferInitializedSlice
+            | CheckedMemoryOperationKind::RawBufferInitializedSliceMut
+            | CheckedMemoryOperationKind::RawBufferCapacity
+            | CheckedMemoryOperationKind::RawBufferInitializedCount
+            | CheckedMemoryOperationKind::RawBufferPointer
+            | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
+    );
+}
+
 pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
@@ -90,6 +158,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
     selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
     memory: &CheckedMemoryOperations,
+    index_in_bounds: bool,
     dependencies: &mut Vec<ExecutionDependency>,
 ) -> bool {
     let Some(bound) = request.view().expression(expression) else {
@@ -105,59 +174,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
     }
 
     if let Some(operation) = memory.operation(expression) {
-        if property == ExecutionProperty::Total
-            && matches!(
-                operation.kind(),
-                CheckedMemoryOperationKind::Read { .. }
-                    | CheckedMemoryOperationKind::Write { .. }
-                    | CheckedMemoryOperationKind::Copy { .. }
-                    | CheckedMemoryOperationKind::IsNull { .. }
-                    | CheckedMemoryOperationKind::Offset { .. }
-                    | CheckedMemoryOperationKind::Reinterpret { .. }
-                    | CheckedMemoryOperationKind::PointerFromCallable { .. }
-                    | CheckedMemoryOperationKind::LayoutQuery { .. }
-                    | CheckedMemoryOperationKind::RawBufferCapacity
-                    | CheckedMemoryOperationKind::RawBufferInitializedCount
-                    | CheckedMemoryOperationKind::RawBufferPointer
-                    | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
-                    | CheckedMemoryOperationKind::RawBufferSetInitializedCount
-                    | CheckedMemoryOperationKind::AtomicInitialize { .. }
-                    | CheckedMemoryOperationKind::AtomicLoad { .. }
-                    | CheckedMemoryOperationKind::AtomicStore { .. }
-                    | CheckedMemoryOperationKind::AtomicExchange { .. }
-                    | CheckedMemoryOperationKind::AtomicCompareExchange { .. }
-                    | CheckedMemoryOperationKind::AtomicFetch { .. }
-            )
-        {
-            // These checked primitives complete on their required storage domains.
-            // Allocation and selected cleanup retain their fallible call dependencies.
-            return true;
-        }
-
-        return matches!(
-            operation.kind(),
-            CheckedMemoryOperationKind::SequenceLength
-                | CheckedMemoryOperationKind::ByteBufferRead
-                | CheckedMemoryOperationKind::Read {
-                    kind: bray_bound_tree::MemoryReadKind::Copy,
-                    ..
-                }
-                | CheckedMemoryOperationKind::IsNull { .. }
-                | CheckedMemoryOperationKind::Offset { .. }
-                | CheckedMemoryOperationKind::Reinterpret { .. }
-                | CheckedMemoryOperationKind::PointerFromCallable { .. }
-                | CheckedMemoryOperationKind::LayoutQuery { .. }
-                | CheckedMemoryOperationKind::Null { .. }
-                | CheckedMemoryOperationKind::Address { .. }
-                | CheckedMemoryOperationKind::BorrowFrom { .. }
-                | CheckedMemoryOperationKind::UninitPointer { .. }
-                | CheckedMemoryOperationKind::RawBufferInitializedSlice
-                | CheckedMemoryOperationKind::RawBufferInitializedSliceMut
-                | CheckedMemoryOperationKind::RawBufferCapacity
-                | CheckedMemoryOperationKind::RawBufferInitializedCount
-                | CheckedMemoryOperationKind::RawBufferPointer
-                | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
-        );
+        return checked_memory_guarantee(operation.kind(), property);
     }
 
     match selections.expression(expression) {
@@ -202,7 +219,13 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
             return true;
         }
         Some(SemanticSelection::Operation(operation)) => {
-            if !check_operation(operation, property, expression, dependencies) {
+            if !check_operation(
+                operation,
+                property,
+                expression,
+                index_in_bounds,
+                dependencies,
+            ) {
                 return false;
             }
         }
@@ -330,6 +353,7 @@ fn check_operation(
     operation: &SelectedOperation,
     property: ExecutionProperty,
     expression: BoundExpressionId,
+    index_in_bounds: bool,
     dependencies: &mut Vec<ExecutionDependency>,
 ) -> bool {
     let mut calls = Vec::new();
@@ -376,7 +400,7 @@ fn check_operation(
                 | bray_bound_tree::IndexTarget::ArraySlice
                 | bray_bound_tree::IndexTarget::Slice,
             ..
-        } => property == ExecutionProperty::Pure,
+        } => property == ExecutionProperty::Pure || index_in_bounds,
         SelectedOperation::Index { .. } => !calls.is_empty(),
         _ => true,
     }

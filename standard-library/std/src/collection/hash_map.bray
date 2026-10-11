@@ -121,6 +121,7 @@ struct HashMap<Key, Value>
     /// Inserts an entry and returns the replaced value when the key was already present.
     trusted mut func insert(pos key: Key, pos value: Value) -> Result<Value?, std.memory.MemoryLayoutError>
         with(Key: std.hash.Hashable<std.hash.StableHasher>, Key: Equatable<Key>)
+        uses(raw_memory, unchecked_init)
     {
         let hash: u128 = std.hash.stable_hash<Key>(&key);
 
@@ -297,6 +298,7 @@ struct OccupiedEntry<Key, Value>
 
     /// Replaces and returns the entry value.
     trusted mut func insert(pos value: Value) -> Value
+        uses(raw_memory, unchecked_init)
     {
         let item: &mut MapItem<Key, Value> = trusted hash_table_item_mut<MapItem<Key, Value>>(
             &mut self.map.table,
@@ -415,7 +417,6 @@ impl HashMapReadCursorIterator = HashMapReadCursor<Key, Value>(Iterator)
     mut func next() -> HashMapReference<Key, Value>?
     {
         let bucket_count: usize = std.memory.capacity<u8>(&self.map.table.states);
-        let states: &[u8] = trusted std.memory.initialized_slice<u8>(&self.map.table.states);
 
         while self.index < bucket_count
         {
@@ -423,7 +424,7 @@ impl HashMapReadCursorIterator = HashMapReadCursor<Key, Value>(Iterator)
 
             self.index += 1;
 
-            if states[index] == HASH_TABLE_OCCUPIED
+            if trusted hash_table_occupied(&self.map.table.states, index = index)
             {
                 let item: &MapItem<Key, Value> = trusted hash_table_item<MapItem<Key, Value>>(
                     &self.map.table,

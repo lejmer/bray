@@ -27,8 +27,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::UninitWrite { .. } => self
                 .translate_uninit_write(memory)
                 .map(|pointer| Some(pointer.into())),
-            CheckedMemoryOperationKind::UninitAssumeInitialized { .. } => {
-                self.translate_assume_initialized(memory).map(Some)
+            CheckedMemoryOperationKind::UninitFrom { .. }
+            | CheckedMemoryOperationKind::UninitAssumeInitialized { .. } => {
+                self.translate_protected_value(memory).map(Some)
             }
             CheckedMemoryOperationKind::UninitMove { element } => {
                 self.translate_uninit_move(memory, element).map(Some)
@@ -192,6 +193,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::UninitNew { .. }
             | CheckedMemoryOperationKind::UninitPointer { .. }
             | CheckedMemoryOperationKind::UninitWrite { .. }
+            | CheckedMemoryOperationKind::UninitFrom { .. }
             | CheckedMemoryOperationKind::UninitAssumeInitialized { .. }
             | CheckedMemoryOperationKind::UninitMove { .. }
             | CheckedMemoryOperationKind::BorrowFrom { .. } => {
@@ -400,6 +402,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::UninitNew { .. }
             | CheckedMemoryOperationKind::UninitPointer { .. }
             | CheckedMemoryOperationKind::UninitWrite { .. }
+            | CheckedMemoryOperationKind::UninitFrom { .. }
             | CheckedMemoryOperationKind::UninitAssumeInitialized { .. }
             | CheckedMemoryOperationKind::UninitMove { .. }
             | CheckedMemoryOperationKind::BorrowFrom { .. }

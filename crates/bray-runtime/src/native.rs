@@ -10,6 +10,8 @@ pub mod implementation;
 mod outgoing;
 mod run;
 mod state;
+#[cfg(test)]
+pub(crate) use state::test_runtime_isolation;
 mod static_finalizer;
 mod task_observation;
 mod workers;

@@ -712,7 +712,8 @@ mod tests {
     use std::num::NonZeroUsize;
     use std::time::Duration;
 
-    use bray_platform::{MonotonicClock, RuntimeThreadScope};
+    use crate::bootstrap::RuntimeThreadScope;
+    use bray_platform::MonotonicClock;
     use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
 
     use super::{Scheduler, SchedulerError, SchedulerLimits};
@@ -724,6 +725,8 @@ mod tests {
 
     #[test]
     fn observed_schedulers_publish_structured_queue_observations_on_demand() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 
@@ -771,6 +774,8 @@ mod tests {
 
     #[test]
     fn ready_tasks_are_distributed_in_stable_lane_order() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 
@@ -817,6 +822,8 @@ mod tests {
 
     #[test]
     fn cooperative_yield_places_the_current_task_behind_ready_work() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 
@@ -878,6 +885,8 @@ mod tests {
 
     #[test]
     fn duplicate_wakes_coalesce_and_running_wakes_are_not_lost() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 
@@ -926,6 +935,8 @@ mod tests {
 
     #[test]
     fn running_wakes_dispatch_the_newly_suspended_state() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 
@@ -975,6 +986,8 @@ mod tests {
 
     #[test]
     fn cancellation_makes_a_suspended_task_ready() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 
@@ -999,6 +1012,8 @@ mod tests {
 
     #[test]
     fn elapsed_timers_make_tasks_ready_without_worker_count_assumptions() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 
@@ -1029,6 +1044,8 @@ mod tests {
 
     #[test]
     fn elapsed_timer_coalesces_with_an_already_queued_dispatch() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 
@@ -1074,6 +1091,8 @@ mod tests {
 
     #[test]
     fn dropping_timer_registration_withdraws_the_pending_wake() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 
@@ -1103,6 +1122,8 @@ mod tests {
 
     #[test]
     fn scheduler_limits_fail_without_partial_registration() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 
@@ -1141,6 +1162,8 @@ mod tests {
 
     #[test]
     fn deregistration_reclaims_ready_and_timer_storage() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 

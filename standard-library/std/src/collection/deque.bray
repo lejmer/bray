@@ -219,6 +219,7 @@ internal func wrapped_deque_index(head: usize, storage_capacity: usize, logical_
 }
 
 trusted internal func borrow_deque_element<T>(pos deque: &Deque<T>, logical_index: usize) -> &T
+    uses(raw_memory)
 {
     let index: usize = wrapped_deque_index(
         head = deque.head,
@@ -236,6 +237,7 @@ trusted internal func borrow_deque_element<T>(pos deque: &Deque<T>, logical_inde
 }
 
 trusted internal func borrow_deque_element_mut<T>(pos deque: &mut Deque<T>, logical_index: usize) -> &mut T
+    uses(raw_memory)
 {
     let index: usize = wrapped_deque_index(
         head = deque.head,
@@ -253,6 +255,7 @@ trusted internal func borrow_deque_element_mut<T>(pos deque: &mut Deque<T>, logi
 }
 
 trusted internal func write_deque_slot<T>(pos deque: &mut Deque<T>, pos value: T, physical_index: usize)
+    uses(raw_memory)
 {
     let slots: &mut [(T?)] = trusted std.memory.initialized_slice_mut(&mut deque.storage);
 
@@ -262,6 +265,7 @@ trusted internal func write_deque_slot<T>(pos deque: &mut Deque<T>, pos value: T
 }
 
 trusted internal func take_deque_slot<T>(pos deque: &mut Deque<T>, physical_index: usize) -> T
+    uses(raw_memory)
 {
     let slots: &mut [(T?)] = trusted std.memory.initialized_slice_mut(&mut deque.storage);
     let pending: T? = std.memory.replace_value(&mut slots[physical_index], none);
@@ -356,6 +360,7 @@ trusted internal func reallocate_deque<T>(
     pos deque: &mut Deque<T>,
     new_capacity: usize
 ) -> Result<unit, std.memory.MemoryLayoutError>
+    uses(manual_alloc, raw_memory)
 {
     let mut replacement: std.memory.RawBuffer<(T?)> = try trusted internal std.memory.nullable_buffer<T>(
         capacity = new_capacity

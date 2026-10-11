@@ -469,10 +469,6 @@ impl Compilation {
             );
         }
 
-        if candidates.is_empty() {
-            return Ok(None);
-        }
-
         let mut operation_candidates = Vec::with_capacity(candidates.len());
 
         for (subject_type, application, member, requirement, witness) in candidates {

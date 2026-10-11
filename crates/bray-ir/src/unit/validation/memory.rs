@@ -52,6 +52,7 @@ pub(super) fn validate_memory_operation(
         | CheckedMemoryOperationKind::Reinterpret { .. }
         | CheckedMemoryOperationKind::CallableFromPointer { .. }
         | CheckedMemoryOperationKind::PointerFromCallable { .. } => true,
+        CheckedMemoryOperationKind::UninitFrom { element } => types[0] == element,
         CheckedMemoryOperationKind::UninitWrite { element } => types[1] == element,
         CheckedMemoryOperationKind::UninitAssumeInitialized { element }
         | CheckedMemoryOperationKind::UninitMove { element } => {

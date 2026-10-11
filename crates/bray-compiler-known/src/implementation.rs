@@ -34,6 +34,8 @@ define_catalog_enum! {
         MemoryCopyOverlapping => "MemoryCopyOverlapping",
         /// Creates protected storage without creating a value of its represented type.
         UninitNew => "UninitNew",
+        /// Moves an initialized value into protected storage.
+        UninitFrom => "UninitFrom",
         /// Produces a shared raw pointer to protected storage.
         UninitPointer => "UninitPointer",
         /// Produces a mutable raw pointer to protected storage.
@@ -268,6 +270,7 @@ impl ImplementationHook {
         Self::MemoryCopy,
         Self::MemoryCopyOverlapping,
         Self::UninitNew,
+        Self::UninitFrom,
         Self::UninitPointer,
         Self::UninitPointerMut,
         Self::UninitWrite,

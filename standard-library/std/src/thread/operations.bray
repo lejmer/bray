@@ -15,6 +15,7 @@ trusted internal func start_with_completion<State, T>(
     pos state: State,
     pos completion_event: usize,
 ) -> Result<Thread<T>, ThreadError>
+    uses(layout_reinterpret)
 {
     let mut construction: ThreadConstruction<State, T> =
     {
@@ -199,7 +200,7 @@ func set_current_name(pos name: &string) -> Result<unit, ThreadNameError>
 
 trusted internal func execute_thread_entry<State, T>(pos context: usize)
     requires(blocking_execution(), compute_execution())
-    uses(intrinsic)
+    uses(intrinsic, raw_memory)
 {
     let pointer: RawPointer<NativeThreadStart<State, T>> = trusted core.target.from_exposed_address<
         NativeThreadStart<State, T>
@@ -245,7 +246,7 @@ trusted internal func execute_thread_entry<State, T>(pos context: usize)
 
 @abi(c)
 trusted internal func native_thread_cancellation_requested(pos context: usize) -> u32
-    uses(intrinsic)
+    uses(intrinsic, raw_memory)
 {
     let control_pointer: RawPointer<ThreadControl> = trusted core.target.from_exposed_address<ThreadControl>(
         address = context
@@ -257,6 +258,7 @@ trusted internal func native_thread_cancellation_requested(pos context: usize) -
 }
 
 trusted internal func publish_native_thread_outcome(pos control_pointer: RawPointer<ThreadControl>, pos outcome: u32)
+    uses(raw_memory)
 {
     let control: &ThreadControl = trusted internal transferred_shared_value<ThreadControl>(control_pointer);
 
@@ -280,7 +282,7 @@ trusted internal func publish_native_thread_outcome(pos control_pointer: RawPoin
 
 trusted internal func run_native_thread_start(pos context: RawPointer<u8>)
     requires(blocking_execution(), compute_execution())
-    uses(intrinsic)
+    uses(intrinsic, layout_reinterpret, raw_memory)
 {
     let pointer: RawPointer<NativeThreadDispatch> = trusted std.memory.reinterpret<NativeThreadDispatch, u8>(context);
 
@@ -293,7 +295,7 @@ trusted internal func run_native_thread_start(pos context: RawPointer<u8>)
 
 trusted internal func run_owned_native_thread_start<State, T>(pos context: usize)
     requires(blocking_execution(), compute_execution())
-    uses(intrinsic)
+    uses(intrinsic, raw_memory, unchecked_init)
 {
     let pointer: RawPointer<TransferredThreadValue<NativeThreadStart<State, T>>> =
         trusted core.target.from_exposed_address<TransferredThreadValue<NativeThreadStart<State, T>>>(
@@ -329,7 +331,7 @@ trusted internal func run_owned_native_thread_start<State, T>(pos context: usize
 
 trusted internal func execute_owned_native_thread<State, T>(pos mut native_start: NativeThreadStart<State, T>) -> u32
     requires(blocking_execution(), compute_execution())
-    uses(intrinsic)
+    uses(intrinsic, layout_reinterpret, raw_memory)
 {
 
     let operation: ThreadOperation = execute_thread_entry<State, T>;
@@ -382,6 +384,7 @@ trusted internal func observe_thread<T>(
     pos propagate_caller_cancellation: bool,
 ) -> RunResult<T>
     requires(blocking_execution())
+    uses(unchecked_init)
 {
     assert(thread.active, "native thread ownership has already been observed");
 

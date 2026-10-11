@@ -886,6 +886,9 @@ fn memory_operation_parts(
     }
 
     let (name, types) = match memory.kind() {
+        CheckedMemoryOperationKind::UninitFrom { element } => {
+            ("uninit_from", vec![("element", element)])
+        }
         CheckedMemoryOperationKind::UninitNew { element } => {
             ("uninit_new", vec![("element", element)])
         }

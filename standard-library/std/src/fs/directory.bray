@@ -13,8 +13,9 @@ struct Directory
     internal mut first: u8;
     internal mut is_open: bool;
 
-    construct open(pos path: &std.path.Path) -> Result<Self, std.io.IoError>
+    trusted construct open(pos path: &std.path.Path) -> Result<Self, std.io.IoError>
         requires(blocking_execution())
+        uses(raw_memory)
     {
         let capacity: usize = trusted internal platform_directory_state_capacity();
 
@@ -65,8 +66,9 @@ struct Directory
         }
     }
 
-    mut func next() -> Result<DirectoryEntry?, std.io.IoError>
+    trusted mut func next() -> Result<DirectoryEntry?, std.io.IoError>
         requires(blocking_execution())
+        uses(raw_memory)
     {
         if !self.is_open
         {

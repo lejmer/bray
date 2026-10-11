@@ -108,7 +108,8 @@ struct Environment
 
 /// Reads one current native environment value without initializing the cached process-context snapshot.
 /// Returns an I/O error when the target cannot retrieve the current environment.
-func current_environment_value(pos key: &std.path.NativeText) -> Result<std.path.NativeText?, std.io.IoError>
+trusted func current_environment_value(pos key: &std.path.NativeText) -> Result<std.path.NativeText?, std.io.IoError>
+    uses(raw_memory)
 {
     let expected: &[u8] = internal std.path.native_bytes(key);
 

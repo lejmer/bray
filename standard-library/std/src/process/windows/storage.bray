@@ -73,6 +73,7 @@ trusted internal func windows_terminated_text(
     pos text: (&[u8]),
     allow_empty: bool,
 ) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
+    uses(raw_memory)
 {
     let _: usize = try internal windows_text_units(text, allow_empty = allow_empty, allow_equals = true);
     let bytes: usize = text.length();
@@ -96,6 +97,7 @@ trusted internal func windows_terminated_text(
 }
 
 trusted internal func windows_buffer(pos size: usize) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
+    uses(unchecked_init)
 {
     let mut buffer: std.memory.RawBuffer<u8> = match trusted std.memory.RawBuffer<u8>(capacity = size)
     {

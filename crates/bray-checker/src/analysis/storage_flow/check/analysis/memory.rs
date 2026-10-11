@@ -297,6 +297,13 @@ where
 
         match operation.kind() {
             CheckedMemoryOperationKind::UninitNew { .. } => {}
+            CheckedMemoryOperationKind::UninitFrom { element } => {
+                let Some(result) = self.operation_result_storage(operation.expression()) else {
+                    return MemoryOperationStatus::Recovered;
+                };
+
+                return apply_raw_write(state, result, element, operation.expression());
+            }
             CheckedMemoryOperationKind::UninitPointer { .. } => {
                 let Some(source) = arguments
                     .first()

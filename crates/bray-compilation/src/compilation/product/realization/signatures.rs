@@ -243,6 +243,14 @@ impl Compilation {
             callable.is_variadic(),
         );
 
+        if self
+            .codegen_runtime_source_role(instance.key())?
+            .and_then(bray_codegen::CodegenNativeEntryKind::for_runtime_role)
+            .is_some()
+        {
+            return Ok(signature.with_panic_report_context());
+        }
+
         Ok(synchronous_bray_signature(
             signature,
             callable.abi(),

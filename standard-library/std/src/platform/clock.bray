@@ -6,6 +6,7 @@ trusted internal func clock_monotonic_now(pos ticks: RawPointer<u64>) -> Platfor
         trusted core.memory.valid_write<u64>(pointer = ticks, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = ticks),
     )
+    uses(raw_memory, unchecked_init)
 {
     let prepared: Result<u64, PlatformStatus> = trusted internal prepare_clock_monotonic_now(ticks);
 
@@ -29,6 +30,7 @@ trusted internal func clock_wall_now(pos seconds: RawPointer<i64>, pos nanosecon
         trusted core.memory.valid_write<u32>(pointer = nanoseconds, count = 1),
         trusted core.memory.aligned_for<u32>(pointer = nanoseconds),
     )
+    uses(raw_memory, unchecked_init)
 {
     let prepared: Result<(i64, u32), PlatformStatus> = trusted internal prepare_clock_wall_now(seconds, nanoseconds);
 

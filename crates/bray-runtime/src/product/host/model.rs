@@ -160,9 +160,7 @@ impl ThreadStaticRegistry {
             return true;
         }
 
-        if !bray_platform::register_runtime_thread_exit_callback(
-            super::thread::drain_thread_statics,
-        ) {
+        if !crate::bootstrap::register_thread_cleanup(super::thread::thread_exit_cleanup) {
             return false;
         }
 

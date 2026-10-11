@@ -66,6 +66,8 @@ impl WorkerPool {
         let control = Arc::new(WorkerControl::default());
         let worker_control = Arc::clone(&control);
 
+        let (attached_sender, attached_receiver) = std::sync::mpsc::sync_channel(1);
+
         let mut workers = self
             .workers
             .lock()
@@ -79,11 +81,29 @@ impl WorkerPool {
             self.idle_blocking_workers.fetch_add(1, Ordering::AcqRel);
         }
 
-        let thread = NativeThread::spawn(None, move |thread| {
-            super::state::run_worker(worker_runtime, thread, workload, worker_control);
+        let thread = NativeThread::spawn(None, move || {
+            let attachment = crate::bootstrap::RuntimeThreadScope::enter_or_reuse();
+
+            if attached_sender.send(attachment.is_ok()).is_err() {
+                return;
+            }
+
+            if let Ok(attachment) = attachment {
+                super::state::run_worker(worker_runtime, attachment, workload, worker_control);
+            }
         });
 
-        let Ok(thread) = thread else {
+        let thread = thread.ok().and_then(|thread| {
+            if attached_receiver.recv().unwrap_or(false) {
+                Some(thread)
+            } else {
+                let _ = thread.join();
+
+                None
+            }
+        });
+
+        let Some(thread) = thread else {
             if workload == ExecutionWorkload::Blocking {
                 self.idle_blocking_workers.fetch_sub(1, Ordering::AcqRel);
             }

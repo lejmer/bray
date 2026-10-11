@@ -140,7 +140,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             retired.push(value);
         }
 
-        state.invalidate_trusted_values(retired);
+        // An input aggregate can retire after one of its complete children moved
+        // into the result. The child's value survives, but dependencies on the
+        // expired storage were invalidated above and cannot be restored here.
+        state.retire_trusted_values(retired, &retained);
     }
 
     pub(in crate::analysis::guarantee) fn complete_trusted_await(
@@ -234,6 +237,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut replacements = BTreeMap::new();
         let mut assignments = BTreeMap::new();
 
+        // Whole-owner guarantees follow the returned value's dependency contract.
+        // Address and field guarantees also depend on the borrowed storage that
+        // established them, even when the raw value has no ordinary borrow.
+        let returned = |operand| {
+            self.result_inputs
+                .get(&expression)
+                .is_none_or(|inputs| inputs.contains(&operand))
+        };
+
         let preserves = preserves_inputs
             || super::super::super::storage_invalidation::call_preserves_storage(
                 call,
@@ -308,7 +320,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             ) else {
                 // Indexed storage has no scalar field path. Its enclosing owner still bounds
                 // the lifetime of a returned address or capability.
-                for access in self.storage.expression_plans(*operand) {
+                for access in self
+                    .storage
+                    .expression_plans(*operand)
+                    .filter(|_| returned(*operand))
+                {
                     if let Some(owner) =
                         crate::ExecutionPlace::storage_owner(self.storage, access.access())
                     {
@@ -328,7 +344,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             // A local borrow alias retains the referent, rather than the slot holding
             // the alias. Its returned view can outlive that slot while the input lives.
-            self.retain_trusted_borrow_owners(&mut owners, *operand, &input, &place);
+            if returned(*operand) {
+                self.retain_trusted_borrow_owners(&mut owners, *operand, &input, &place);
+            }
 
             let value = complete_input(input, &place, reference);
 
@@ -368,7 +386,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let input = self.value(state, receiver.expression());
 
-            self.retain_trusted_borrow_owners(&mut owners, receiver.expression(), &input, &place);
+            if returned(receiver.expression()) {
+                self.retain_trusted_borrow_owners(
+                    &mut owners,
+                    receiver.expression(),
+                    &input,
+                    &place,
+                );
+            }
 
             let value = complete_input(input, &place, reference);
 

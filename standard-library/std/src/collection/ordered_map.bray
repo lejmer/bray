@@ -121,6 +121,7 @@ struct OrderedMap<Key, Value>
     /// Inserts an entry and returns the replaced value when the key was already present.
     trusted mut func insert(pos key: Key, pos value: Value) -> Result<Value?, std.memory.MemoryLayoutError>
         with(Key: Comparable<Key>)
+        uses(raw_memory, unchecked_init)
     {
         let search: OrderedTreeSearch = ordered_tree_search<OrderedMapItem<Key, Value>, Key>(
             &self.tree,

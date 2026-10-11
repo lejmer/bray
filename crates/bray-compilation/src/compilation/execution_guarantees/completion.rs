@@ -301,6 +301,42 @@ mod tests {
     use bray_ir::MirOperationKind;
 
     #[test]
+    fn destructor_guarantees_require_the_current_receiver() {
+        for (requirements, body, valid) in [
+            ("value.ready", "", true),
+            ("!value.ready", "", false),
+            ("value.ready", "value.ready = false;", false),
+            ("!value.ready", "value.ready = true;", true),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+                struct Value {{
+                    mut ready: bool;
+                    destruct() when(self.ready) {{ executes(total) }}
+                    {{ if !self.ready {{ panic("unfinished"); }} }}
+                }}
+                func root(pos mut value: Value)
+                    requires({requirements}) executes(total)
+                {{ {body} }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+
+            let checked = compilation
+                .execution_properties(source_function_body_key(&compilation, "root"))
+                .unwrap();
+
+            assert_eq!(
+                !checked.diagnostics().has_errors(),
+                valid,
+                "{source}: {checked:#?}"
+            );
+        }
+    }
+
+    #[test]
     fn current_value_selects_cleanup_after_mutation() {
         for (requirement, operation, completed) in [
             ("value.ready", "", true),

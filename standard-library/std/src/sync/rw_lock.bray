@@ -157,7 +157,8 @@ struct RwLockReadGuard<T>
         }
     }
 
-    func get() -> &T
+    trusted func get() -> &T
+        uses(raw_memory, unchecked_alias)
     {
         let pointer: RawPointer<T> = std.memory.address_of<T>(&self.lock.storage);
 
@@ -184,7 +185,8 @@ struct RwLockWriteGuard<T>
         }
     }
 
-    mut func get() -> &mut T
+    trusted mut func get() -> &mut T
+        uses(raw_memory, unchecked_alias)
     {
         let pointer: RawPointer<T> = trusted internal rw_lock_guard_pointer<T>(&mut self);
 

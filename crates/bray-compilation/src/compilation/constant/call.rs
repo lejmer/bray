@@ -673,6 +673,18 @@ impl Compilation {
                     ))
                     .map_err(FactQueryError::SemanticValueStore)?
             }
+            (ImplementationHook::UninitFrom, [argument]) => {
+                let argument = values.constant_value_data(*argument);
+
+                // Protected storage retains the value's representation. Aggregate children
+                // are interned IDs, so this copies no represented payload or ownership.
+                values
+                    .intern_constant_value(ConstantValueData::new(
+                        result_type,
+                        argument.kind().clone(),
+                    ))
+                    .map_err(FactQueryError::SemanticValueStore)?
+            }
             (ImplementationHook::UninitNew, []) => values
                 .intern_constant_value(ConstantValueData::new(
                     result_type,

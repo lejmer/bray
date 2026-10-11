@@ -128,12 +128,19 @@ pub fn frame_creation_runtime_role(initializer: &MirFrameInitializer) -> Option<
 
 /// Returns runtime roles required by a mapped callable symbol.
 pub fn mapped_symbol_runtime_roles(
-    native_entry: bool,
+    native_entry: Option<crate::CodegenNativeEntryKind>,
     panic_report_context: bool,
 ) -> impl Iterator<Item = RuntimeAbiRole> {
     FOREIGN_CALLBACK_RUNTIME_ROLES
         .into_iter()
-        .filter(move |_| native_entry)
+        .filter(move |role| match native_entry {
+            Some(crate::CodegenNativeEntryKind::ForeignCallback) => true,
+            Some(
+                crate::CodegenNativeEntryKind::ThreadStorageExit
+                | crate::CodegenNativeEntryKind::RuntimeStatus,
+            ) => *role == RuntimeAbiRole::PanicReporting,
+            None => false,
+        })
         .chain(
             [
                 RuntimeAbiRole::PanicPropagation,
@@ -151,13 +158,18 @@ pub fn mapped_runtime_references(
 ) -> BTreeSet<MirRuntimeReference> {
     let mut references = demanded_runtime_references(unit);
 
-    let native_entry = symbols.iter().any(|symbol| {
-        symbol.native_entry().is_some()
-            && matches!(
-                symbol.key(),
-                CodegenSymbolKey::Instance(instance)
-                    if unit.instances().iter().any(|member| member.key() == instance)
-            )
+    let native_entries = symbols.iter().filter_map(|symbol| {
+        matches!(
+            symbol.key(),
+            CodegenSymbolKey::Instance(instance)
+                if unit.instances().iter().any(|member| member.key() == instance)
+        )
+        .then(|| {
+            symbol
+                .native_entry()
+                .map(crate::CodegenNativeEntryMapping::kind)
+        })
+        .flatten()
     });
 
     let panic_report_context = symbols
@@ -165,7 +177,10 @@ pub fn mapped_runtime_references(
         .any(|symbol| symbol.signature().has_panic_report_context());
 
     references.extend(
-        mapped_symbol_runtime_roles(native_entry, panic_report_context)
+        native_entries
+            .map(Some)
+            .chain([None])
+            .flat_map(|entry| mapped_symbol_runtime_roles(entry, panic_report_context))
             .map(|role| MirRuntimeReference::new(role, unit.target().runtime_abi())),
     );
 
@@ -307,6 +322,7 @@ fn terminator_runtime_references(
 #[cfg(test)]
 mod tests {
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiRole};
+    use std::collections::BTreeSet;
 
     use crate::test_support::codegen_request;
     use crate::{
@@ -374,6 +390,19 @@ mod tests {
 
         for role in crate::FOREIGN_CALLBACK_RUNTIME_ROLES {
             assert!(references.iter().any(|reference| reference.role() == role));
+        }
+    }
+
+    #[test]
+    fn terminal_thread_callbacks_report_panics_without_recursive_attachment() {
+        for kind in [
+            crate::CodegenNativeEntryKind::ThreadStorageExit,
+            crate::CodegenNativeEntryKind::RuntimeStatus,
+        ] {
+            let roles: BTreeSet<_> =
+                super::mapped_symbol_runtime_roles(Some(kind), false).collect();
+
+            assert_eq!(roles, BTreeSet::from([RuntimeAbiRole::PanicReporting]));
         }
     }
 

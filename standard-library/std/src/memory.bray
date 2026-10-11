@@ -85,6 +85,8 @@ extern trusted func copy_overlapping<T>(pos source: RawPointer<T>, pos destinati
     uses(raw_memory, unchecked_init);
 
 trusted func replace_value<T>(pos storage: &mut T, pos value: T) -> T
+    executes(total)
+    uses(raw_memory, unchecked_init)
 {
     let value_pointer: RawPointer<T> = address_of_mut<T>(storage);
     let previous: T = trusted read<T>(value_pointer);
@@ -94,7 +96,20 @@ trusted func replace_value<T>(pos storage: &mut T, pos value: T) -> T
     return previous;
 }
 
+trusted internal func swap_values<T>(pos left: &mut T, pos right: &mut T)
+    executes(total)
+    uses(raw_memory, unchecked_init)
+{
+    let previous: T = trusted read<T>(address_of_mut<T>(left));
+    let replacement: T = trusted replace_value<T>(right, previous);
+
+    trusted write<T>(address_of_mut<T>(left), replacement);
+}
+
 extern const func uninit<T>() -> Uninit<T>;
+
+extern const func uninit_from<T>(pos value: T) -> Uninit<T>
+    ensures(trusted core.memory.uninit_initialized<T>(storage = &result));
 
 extern func uninit_pointer<T>(pos storage: &Uninit<T>) -> RawPointer<T>
     executes(pure, total);
@@ -115,6 +130,7 @@ extern trusted func move_initialized<T>(pos storage: &mut Uninit<T>) -> T
 
 trusted func destroy_initialized<T>(pos storage: &mut Uninit<T>) -> unit
     requires(trusted core.memory.uninit_initialized<T>(storage = &storage))
+    uses(unchecked_init)
 {
     let _: T = trusted move_initialized<T>(storage);
 }
@@ -164,9 +180,7 @@ struct Output<T>
 
     consume mut func write(pos value: T) -> T
     {
-        let _: &mut T = uninit_write<T>(&mut self.storage, value);
-
-        return trusted assume_initialized<T>(self.storage);
+        return internal write_out<T>(self.storage, value);
     }
 
     trusted mut func pointer() -> RawPointer<T>
@@ -176,9 +190,18 @@ struct Output<T>
 
     trusted consume mut func into_value() -> T
         requires(trusted core.memory.uninit_initialized<T>(storage = &self.storage))
+        uses(unchecked_init)
     {
         return trusted assume_initialized<T>(self.storage);
     }
+}
+
+trusted internal func write_out<T>(pos mut storage: Uninit<T>, pos value: T) -> T
+    uses(unchecked_init)
+{
+    let _: &mut T = uninit_write<T>(&mut storage, value);
+
+    return trusted assume_initialized<T>(storage);
 }
 
 struct InPlace<T>
@@ -227,6 +250,7 @@ trusted func anchored_view<T, Owner>(pos owner: &Owner, pos pointer: RawPointer<
         trusted core.memory.movement_stable<T>(pointer = pointer),
         trusted core.memory.finalization_pending<T>(pointer = pointer),
     )
+    uses(raw_memory, unchecked_alias)
 {
     let value: &T = trusted borrow_from<T, Owner>(owner, pointer);
 
@@ -261,6 +285,7 @@ trusted func anchored_view_mut<T, Capability>(
         trusted core.memory.movement_stable<T>(pointer = pointer),
         trusted core.memory.finalization_pending<T>(pointer = pointer),
     )
+    uses(raw_memory, unchecked_alias)
 {
     let value: &mut T = trusted borrow_mut_from<T, Capability>(capability, pointer);
 
@@ -348,6 +373,7 @@ struct RawAllocation
     align: usize;
 
     trusted destruct()
+        uses(manual_alloc)
     {
         trusted deallocate(self);
     }
@@ -377,7 +403,7 @@ trusted internal func allocate_value<T>(pos value: T) -> RawPointer<T>
         trusted core.memory.aligned_for<T>(pointer = result),
         trusted core.memory.initialized_as<T>(pointer = result),
     )
-    uses(manual_alloc)
+    uses(manual_alloc, raw_memory, unchecked_init)
 {
     let bytes: usize = internal value_allocation_bytes<T>();
     let align: usize = align_of<T>();
@@ -406,6 +432,7 @@ trusted internal func value_allocation_pointer<T>(pos allocation: RawPointer<u8>
         trusted core.memory.valid_write<T>(pointer = result, count = 1),
         trusted core.memory.aligned_for<T>(pointer = result),
     )
+    uses(layout_reinterpret)
 {
     return trusted reinterpret<T, u8>(allocation);
 }
@@ -418,7 +445,7 @@ trusted internal func deallocate_value<T>(pos pointer: RawPointer<T>)
             align = align_of<T>(),
         ),
     )
-    uses(manual_alloc)
+    uses(layout_reinterpret, manual_alloc)
 {
     let allocation: RawPointer<u8> = trusted reinterpret<u8, T>(pointer);
 
@@ -474,6 +501,7 @@ struct RawBuffer<T>
     }
 
     trusted destruct()
+        uses(manual_alloc)
     {
         trusted raw_buffer_release<T>(&mut self);
     }
@@ -506,6 +534,7 @@ trusted internal func nullable_buffer<T>(capacity: usize) -> Result<RawBuffer<(T
 }
 
 trusted internal func initialize_spare<T>(pos buffer: &mut RawBuffer<T>, pos value: T) -> unit
+    uses(raw_memory, unchecked_init)
 {
     if buffer.initialized >= buffer.capacity
     {
@@ -516,6 +545,7 @@ trusted internal func initialize_spare<T>(pos buffer: &mut RawBuffer<T>, pos val
 }
 
 trusted internal func take_last<T>(pos buffer: &mut RawBuffer<T>) -> T
+    uses(raw_memory, unchecked_init)
 {
     if buffer.initialized == 0
     {
@@ -527,6 +557,7 @@ trusted internal func take_last<T>(pos buffer: &mut RawBuffer<T>) -> T
 
 extern trusted internal func raw_buffer_push<T>(pos buffer: &mut RawBuffer<T>, pos value: T) -> unit
     requires(buffer.initialized < buffer.capacity)
+    executes(total)
     uses(raw_memory, unchecked_init);
 
 extern trusted internal func raw_buffer_pop<T>(pos buffer: &mut RawBuffer<T>) -> T
@@ -596,6 +627,7 @@ extern trusted internal func raw_buffer_relocate<T>(
             right_count = source.initialized,
         ),
     )
+    executes(total)
     uses(raw_memory, unchecked_init);
 
 trusted internal func reserve_raw_buffer<T>(
@@ -603,6 +635,7 @@ trusted internal func reserve_raw_buffer<T>(
     additional: usize,
     growth: CapacityGrowth,
 ) -> Result<unit, MemoryLayoutError>
+    uses(manual_alloc, raw_memory, unchecked_init)
 {
     let current_length: usize = buffer.initialized;
 
@@ -659,6 +692,7 @@ trusted internal func copy_bytes_from_pointer(pos destination: &mut [u8], source
         trusted core.memory.valid_read<u8>(pointer = source, count = count),
         trusted core.memory.initialized_range_as<u8>(pointer = source, count = count),
     )
+    uses(raw_memory, unchecked_init)
 {
     if !(count <= destination.length())
     {
@@ -671,6 +705,7 @@ trusted internal func copy_bytes_from_pointer(pos destination: &mut [u8], source
 }
 
 trusted internal func fill_bytes(pos destination: &mut [u8], value: u8)
+    uses(raw_memory, unchecked_init)
 {
     let count: usize = destination.length();
     let destination_pointer: RawPointer<u8> = internal slice_pointer_mut<u8>(destination, count = count);
@@ -683,6 +718,7 @@ trusted internal func fill_spare_bytes(pos buffer: &mut RawBuffer<u8>, value: u8
         result <= buffer.capacity,
         trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result),
     )
+    uses(raw_memory, unchecked_init)
 {
     let initialized: usize = buffer.initialized;
 
@@ -727,6 +763,7 @@ trusted internal func copy_spare_raw_bytes(
         result <= buffer.capacity,
         trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result),
     )
+    uses(raw_memory, unchecked_init)
     when(count <= buffer.capacity - buffer.initialized)
     {
         executes(total)

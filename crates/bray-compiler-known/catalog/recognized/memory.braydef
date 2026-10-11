@@ -232,6 +232,18 @@ scope StandardMemory at std.memory {
         surface { const func uninit<T>() -> Uninit<T>; }
     }
 
+    declaration StandardMemoryUninitFrom {
+        identity name uninit_from;
+        availability RawMemory;
+        implementation UninitFrom;
+
+        surface {
+            const func uninit_from<T>(pos value: T) -> Uninit<T>
+                ensures(trusted core.memory.uninit_initialized<T>(storage = &result))
+                executes(pure, total);
+        }
+    }
+
     declaration StandardMemoryUninitPointer {
         identity name uninit_pointer;
         availability RawMemory;

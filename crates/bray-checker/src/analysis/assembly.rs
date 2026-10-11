@@ -82,6 +82,7 @@ impl ControlFlowGraphAssembler {
         current: AnalysisBlockId,
         block: bray_bound_tree::BoundBlockId,
         exit: bray_bound_tree::AnyBoundNodeId,
+        preserves_exit_value: bool,
         scoped: Option<(
             bray_bound_tree::BoundExpressionId,
             bray_bound_tree::BoundCallResult,
@@ -97,6 +98,7 @@ impl ControlFlowGraphAssembler {
                 block,
                 exit,
                 phase: AnalysisScopeExitPhase::TaskCancellationBroadcast,
+                preserves_exit_value,
             },
         );
 
@@ -147,6 +149,7 @@ impl ControlFlowGraphAssembler {
                 block,
                 exit,
                 phase: AnalysisScopeExitPhase::LifecycleResolution,
+                preserves_exit_value,
             },
         );
 

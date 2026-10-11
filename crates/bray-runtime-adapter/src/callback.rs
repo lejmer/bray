@@ -4,18 +4,6 @@ use bray_runtime_abi::{
 };
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_current_native_thread_identity() -> u64 {
-        implementation::bray_runtime_current_native_thread_identity()
-    }
-}
-
-native_adapter! {
-    pub extern "C" fn bray_runtime_main_native_thread_identity() -> u64 {
-        implementation::bray_runtime_main_native_thread_identity()
-    }
-}
-
-native_adapter! {
     pub extern "C" fn bray_runtime_foreign_callback_execution(
         callback: NativeSynchronousRootCallback,
         context: usize,

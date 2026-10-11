@@ -52,6 +52,7 @@ internal struct ChannelState<T>
     }
 
     trusted mut func store_message(pos value: T)
+        uses(raw_memory)
     {
         let storage_capacity: usize = std.memory.capacity<Uninit<T>>(&self.storage);
 
@@ -74,6 +75,7 @@ internal struct ChannelState<T>
     }
 
     trusted mut func take_message() -> T
+        uses(unchecked_init)
     {
         let storage_capacity: usize = std.memory.capacity<Uninit<T>>(&self.storage);
         let slot: &mut Uninit<T> = trusted internal channel_initialized_head<T>(&mut self);
@@ -110,6 +112,7 @@ internal struct ChannelState<T>
 
 trusted internal func channel_initialized_head<T>(pos state: &mut ChannelState<T>) -> &mut Uninit<T>
     ensures(trusted core.memory.uninit_initialized<T>(storage = &result))
+    uses(raw_memory)
 {
     if state.length == 0
     {

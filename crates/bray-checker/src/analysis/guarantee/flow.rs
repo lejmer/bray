@@ -51,8 +51,23 @@ pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
     let mut assigned_places = BTreeSet::new();
     let mut targets = BTreeMap::new();
     let mut yields = Vec::new();
+    let mut sequence_lengths = Vec::new();
+
+    let result_inputs = match witness_result_inputs(request, semantics) {
+        Ok(inputs) => inputs,
+        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
+    };
 
     for (expression, node) in request.unit().tree().expressions() {
+        if let Some(bray_bound_tree::SemanticSelection::Call(call)) =
+            semantics.selections().expression(expression)
+            && call.implementation_hook()
+                == Some(bray_compiler_known::ImplementationHook::SequenceLength)
+        {
+            sequence_lengths.push(expression);
+        }
+
         targets.insert(node.origin().source_anchor().syntax(), expression);
 
         if let BoundExpression::ControlTransfer(transfer) = node
@@ -181,6 +196,8 @@ pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
     }
 
     let domain = ExecutionFlowDomain {
+        result_inputs,
+        sequence_lengths,
         copied_types,
         observed_types,
         assigned_places,
@@ -252,6 +269,42 @@ pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
     CheckerOutcome::complete(ExecutionFlow { domain, states }, diagnostics)
 }
 
+fn witness_result_inputs<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    semantics: &CheckedExpressionSemantics,
+) -> Result<
+    BTreeMap<BoundExpressionId, BTreeSet<BoundExpressionId>>,
+    CheckerQueryError<C::UpstreamError>,
+> {
+    let mut inputs = BTreeMap::new();
+
+    let Some(contracts) = request.trusted_contracts() else {
+        return Ok(inputs);
+    };
+
+    for (site, contract) in &contracts.calls {
+        let Some(expression) = site.expression() else {
+            continue;
+        };
+
+        if contract.result_guarantees_name_whole_owner()
+            && let Some(bray_bound_tree::SemanticSelection::Call(call)) =
+                semantics.selections().expression(expression)
+        {
+            let template = crate::dependency::call_result_template(request, call, |callable| {
+                request.context().callable_result_dependencies(callable)
+            })?;
+
+            inputs.insert(
+                expression,
+                crate::dependency::result_inputs(call, template.template.requirements()),
+            );
+        }
+    }
+
+    Ok(inputs)
+}
+
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
     pub(super) fn is_block_reachable(&self, block: AnalysisBlockId) -> bool {
         self.states.state(block).is_some_and(Option::is_some)
@@ -277,6 +330,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
 }
 
 pub(super) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Sized> {
+    pub(super) result_inputs: BTreeMap<BoundExpressionId, BTreeSet<BoundExpressionId>>,
+    pub(super) sequence_lengths: Vec<BoundExpressionId>,
     pub(super) copied_types: BTreeSet<bray_symbols::TypeId>,
     observed_types: BTreeMap<crate::ExecutionPlace, Option<bray_symbols::TypeId>>,
     assigned_places: BTreeSet<crate::ExecutionPlace>,
@@ -305,7 +360,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         expression: BoundExpressionId,
     ) -> ExecutionCondition {
-        expression_condition(
+        let value = expression_condition(
             self.request.unit(),
             self.semantics,
             self.request.semantic_values(),
@@ -314,7 +369,62 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             &state.expressions,
             expression,
             &mut { crate::ExecutionCondition::WORK_LIMIT },
-        )
+        );
+
+        if value != ExecutionCondition::Unknown {
+            return value;
+        }
+
+        self.aggregate_snapshot(state, expression).unwrap_or(value)
+    }
+
+    fn aggregate_snapshot(
+        &self,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+    ) -> Option<ExecutionCondition> {
+        let ty = self.semantics.types().expression(expression)?.ty();
+
+        if matches!(
+            self.request.semantic_values().type_data(ty).as_ref(),
+            bray_symbols::TypeData::Borrow { .. }
+        ) {
+            return None;
+        }
+
+        let place = crate::execution_guarantees::expression_place(
+            self.request.unit(),
+            self.semantics,
+            self.request.semantic_values(),
+            expression,
+        )?;
+
+        let fields = state
+            .current
+            .range(place.clone()..)
+            .take_while(|(observed, _)| place.contains(observed))
+            .filter_map(|(observed, value)| {
+                let [projection] = &observed.projections[place.projections.len()..] else {
+                    return None;
+                };
+
+                let projection = match projection {
+                    bray_symbols::ConstantProjectionKind::ProductField(field) => {
+                        bray_bound_tree::StorageProjection::ProductField(*field)
+                    }
+                    bray_symbols::ConstantProjectionKind::TupleElement(index) => {
+                        bray_bound_tree::StorageProjection::TupleElement(*index)
+                    }
+                    _ => return None,
+                };
+
+                Some((projection, value.clone()))
+            })
+            .collect::<Vec<_>>();
+
+        // Mutation retires the old whole-value identity. The new snapshot carries
+        // only observed component values, never the retired owner's witnesses.
+        (!fields.is_empty()).then(|| ExecutionCondition::Constructed(expression, fields.into()))
     }
 
     pub(super) fn invocation_value(
@@ -556,8 +666,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        if let super::super::model::AnalysisOperationKind::ScopeExit { block, exit, phase } =
-            operation
+        if let super::super::model::AnalysisOperationKind::ScopeExit {
+            block, exit, phase, ..
+        } = operation
         {
             let invalidates = self.cleanup.is_some_and(|cleanup| {
                 cleanup

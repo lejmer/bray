@@ -23,6 +23,7 @@ pub(crate) enum AnalysisOperationKind {
         block: bray_bound_tree::BoundBlockId,
         exit: AnyBoundNodeId,
         phase: AnalysisScopeExitPhase,
+        preserves_exit_value: bool,
     },
     Recovery(AnyBoundNodeId),
 }

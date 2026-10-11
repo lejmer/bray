@@ -84,6 +84,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
 
     let mut candidate = checked!(reachable.candidate(
         body.asynchronous(),
+        memory,
         property == Some(ExecutionProperty::Total)
     ));
 
@@ -110,6 +111,18 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
             return CheckerOutcome::Cancelled;
         }
 
+        let mut state = (property == ExecutionProperty::Total
+            && !reachable.domain.sequence_lengths.is_empty())
+        .then(|| {
+            // Replay operations on a copy without changing the solved block entry.
+            reachable
+                .states
+                .state(block.id())
+                .and_then(Option::as_ref)
+                .expect("reachable block retains its execution state")
+                .clone()
+        });
+
         for operation in block
             .operations()
             .iter()
@@ -118,7 +131,9 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
             let node = operation.kind().node();
 
             let preserves = match operation.kind() {
-                AnalysisOperationKind::ScopeExit { block, exit, phase } => {
+                AnalysisOperationKind::ScopeExit {
+                    block, exit, phase, ..
+                } => {
                     checked!(super::cleanup::check_scope_cleanup(
                         request,
                         storage,
@@ -176,35 +191,17 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
                     let mut valid = true;
 
                     if visited.insert(expression.into()) {
-                        valid &= super::operation::check_expression(
-                            request,
-                            expression,
-                            property,
-                            expressions.selections(),
-                            storage,
-                            memory,
-                            &mut candidate.dependencies,
-                        );
-
-                        for replacement in body.asynchronous().replacement(expression).into_iter() {
-                            valid &= checked!(super::cleanup::check_cleanup(
-                                request,
-                                storage,
-                                replacement.access(),
-                                replacement.parts(),
-                                property,
-                                node,
-                                &mut candidate.dependencies,
-                                &mut diagnostics
-                            ));
-                        }
-
-                        valid &= checked!(super::operation::check_construction_admission(
+                        valid &= checked!(check_expression_execution(
                             request,
                             expression,
                             property,
                             expressions,
                             storage,
+                            body,
+                            memory,
+                            state.as_ref().is_some_and(|state| {
+                                reachable.domain.index_in_bounds(state, expression)
+                            }),
                             &mut candidate.dependencies,
                             &mut diagnostics
                         ));
@@ -229,13 +226,85 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
             if !preserves {
                 record_failure(request, &mut candidate, node);
             }
+
+            if let Some(state) = &mut state {
+                reachable.domain.operation(state, operation.kind());
+            }
         }
     }
 
-    check_completion(request, &graph, &reachable, property, &mut candidate);
+    let bounded_loops = if property == Some(ExecutionProperty::Total)
+        && graph
+            .edges()
+            .iter()
+            .any(|edge| edge.kind() == AnalysisEdgeKind::LoopBack)
+    {
+        super::termination::bounded_loop_headers(request, &graph, expressions, storage, &literals)
+    } else {
+        BTreeSet::new()
+    };
+
+    check_completion(
+        request,
+        &graph,
+        &reachable,
+        property,
+        &bounded_loops,
+        &mut candidate,
+    );
+
     check_postconditions(&reachable, postconditions, &mut candidate);
 
     CheckerOutcome::complete(candidate, diagnostics)
+}
+
+fn check_expression_execution<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    expression: bray_bound_tree::BoundExpressionId,
+    property: ExecutionProperty,
+    expressions: &CheckedExpressionSemantics,
+    storage: &StoragePlan,
+    body: &CheckedBodySemantics,
+    memory: &CheckedMemoryOperations,
+    index_in_bounds: bool,
+    dependencies: &mut Vec<crate::execution_guarantees::ExecutionDependency>,
+    diagnostics: &mut bray_diagnostics::DiagnosticBag,
+) -> Result<bool, crate::CheckerQueryError<C::UpstreamError>> {
+    let mut valid = super::operation::check_expression(
+        request,
+        expression,
+        property,
+        expressions.selections(),
+        storage,
+        memory,
+        index_in_bounds,
+        dependencies,
+    );
+
+    for replacement in body.asynchronous().replacement(expression).into_iter() {
+        valid &= super::cleanup::check_cleanup(
+            request,
+            storage,
+            replacement.access(),
+            replacement.parts(),
+            property,
+            expression.into(),
+            dependencies,
+            diagnostics,
+        )?;
+    }
+
+    valid &= super::operation::check_construction_admission(
+        request,
+        expression,
+        property,
+        expressions,
+        storage,
+        dependencies,
+        diagnostics,
+    )?;
+
+    Ok(valid)
 }
 
 fn check_completion<C: CheckerRequestContext + ?Sized>(
@@ -243,6 +312,7 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
     graph: &super::super::model::ControlFlowGraph,
     reachable: &super::flow::ExecutionFlow<'_, '_, C>,
     property: Option<ExecutionProperty>,
+    bounded_loops: &BTreeSet<super::super::id::AnalysisBlockId>,
     candidate: &mut ExecutionCandidate,
 ) {
     if property == Some(ExecutionProperty::Total) {
@@ -264,10 +334,9 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
 
         if graph.edges().iter().any(|edge| {
             reachable.is_edge_reachable(edge.id())
-                && matches!(
-                    edge.kind(),
-                    AnalysisEdgeKind::LoopBack | AnalysisEdgeKind::LoopContinue
-                )
+                && (edge.kind() == AnalysisEdgeKind::LoopContinue
+                    || (edge.kind() == AnalysisEdgeKind::LoopBack
+                        && !bounded_loops.contains(&edge.target())))
         }) {
             record_failure(request, candidate, request.unit().root().into());
         }

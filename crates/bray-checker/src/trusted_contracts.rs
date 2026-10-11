@@ -47,3 +47,20 @@ pub struct TrustedCallContract {
     /// Ordinary completion predicates used for path and equality reasoning.
     pub postconditions: Vec<ExecutionCondition>,
 }
+
+impl TrustedCallContract {
+    pub(crate) fn result_guarantees_name_whole_owner(&self) -> bool {
+        let mut subjects = self
+            .witness_subjects
+            .iter()
+            .filter(|(_, subject)| subject.observes_completion_result())
+            .peekable();
+
+        self.result_is_witness
+            && subjects.peek().is_some()
+            && subjects.all(|(_, subject)| {
+                matches!(subject, ExecutionCondition::Result)
+                    || matches!(subject, ExecutionCondition::Borrowed(value) if **value == ExecutionCondition::Result)
+            })
+    }
+}

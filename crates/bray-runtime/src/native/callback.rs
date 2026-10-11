@@ -1,4 +1,4 @@
-use bray_platform::RuntimeThreadScope;
+use crate::bootstrap::RuntimeThreadScope;
 use bray_runtime_abi::{
     NativeRunOutcome, NativeRunState, NativeRuntimeStatus, NativeSynchronousRootCallback,
     NativeThreadCancellationCallback, NativeThreadOperationCallback,
@@ -35,19 +35,6 @@ native_export! {
         }
 
         outcome.state().code()
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_current_native_thread_identity() -> u64 {
-        bray_platform::current_runtime_thread()
-            .map_or(0, |thread| thread.id().raw())
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_main_native_thread_identity() -> u64 {
-        bray_platform::main_runtime_thread().map_or(0, |thread| thread.id().raw())
     }
 }
 
@@ -111,7 +98,7 @@ fn execute_callback_boundary(
     let thread = RuntimeThreadScope::enter_or_reuse();
 
     let outcome = match &thread {
-        Ok(_) if !main_thread || bray_platform::mark_current_runtime_thread_as_main() => {
+        Ok(_) if !main_thread || crate::bootstrap::mark_current_runtime_thread_as_main() => {
             execute_synchronous_root(
                 || {
                     published = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
@@ -143,7 +130,7 @@ fn execute_callback_boundary(
         }
     };
 
-    let cleanup_incidents = thread.map_or(0, bray_platform::RuntimeThreadEntry::finish);
+    let cleanup_incidents = thread.map_or(0, crate::bootstrap::RuntimeThreadEntry::finish);
 
     if cleanup_incidents != 0 {
         super::host::record_cleanup_failure(cleanup_incidents);
@@ -297,14 +284,14 @@ mod tests {
         let _isolation = super::super::state::test_runtime_isolation();
         let _failure = crate::outgoing::tests::reject_admission();
 
-        assert!(bray_platform::current_runtime_thread().is_none());
+        assert!(crate::bootstrap::current_runtime_thread().is_none());
 
         let mut called = false;
 
         let mut outcome = super::execute_callback_boundary(|_| called = true, |_| {}, false);
 
         assert!(!called);
-        assert!(bray_platform::current_runtime_thread().is_none());
+        assert!(crate::bootstrap::current_runtime_thread().is_none());
         assert_eq!(outcome.state(), NativeRunState::PANICKED);
 
         assert_eq!(

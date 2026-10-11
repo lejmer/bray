@@ -10,6 +10,11 @@ value or another placeholder value of `T`.
 without changing its initialization state. `uninit_write` consumes an owned `T`, writes it into the storage, records the
 storage as initialized, and returns a mutable borrow of the committed value.
 
+`uninit_from<T>(value)` consumes an initialized `T` and returns protected storage containing that value. It preserves the
+value's representation and records the same initialized ownership as `uninit_write`. It is a constant operation when
+its input is constant, including in static initializers. It does not acquire resources or invent an initialized value
+from uninitialized bytes. Access to its contents still requires the ordinary protected-storage authority.
+
 `assume_initialized` consumes `Uninit<T>` and produces its `T`. `move_initialized` moves the `T` out through a mutable
 storage borrow. Both declarations are trusted boundaries. The caller must prove that the storage contains one live `T`
 and that no earlier move, destruction, finalization, or invalidating epoch change has consumed that value. The checked

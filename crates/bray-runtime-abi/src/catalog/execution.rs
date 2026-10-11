@@ -169,13 +169,58 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [PublishTerminalState, ObserveCancellation, EstablishVisibility]
             }
+            ThreadAttachmentEnter {
+                "Acquire primitive exact-thread attachment ownership.", "thread_attachment_enter",
+                native: (THREAD_ATTACHMENT_ENTER_SYMBOL = "bray_runtime_thread_attachment_enter", [] -> U32),
+                call_hook: (),
+                compiler: C [] -> U32,
+                owner: Host, availability: All, bootstrap: ("host.thread_attachment_enter"), host_control: false,
+                capabilities: [],
+                effects: [ObserveThreadAttachment]
+            }
+            ThreadAttachmentLeave {
+                "Release primitive exact-thread attachment ownership.", "thread_attachment_leave",
+                native: (THREAD_ATTACHMENT_LEAVE_SYMBOL = "bray_runtime_thread_attachment_leave", [] -> U32),
+                call_hook: (),
+                compiler: C [] -> U32,
+                owner: Host, availability: All, bootstrap: ("host.thread_attachment_leave"), host_control: false,
+                capabilities: [],
+                effects: [ObserveThreadAttachment]
+            }
+            ThreadAttachmentMarkMain {
+                "Select the current initialized attachment as the main thread.", "thread_attachment_mark_main",
+                native: (THREAD_ATTACHMENT_MARK_MAIN_SYMBOL = "bray_runtime_thread_attachment_mark_main", [] -> U32),
+                call_hook: (),
+                compiler: C [] -> U32,
+                owner: Host, availability: All, bootstrap: ("host.thread_attachment_mark_main"), host_control: false,
+                capabilities: [],
+                effects: [ObserveThreadAttachment]
+            }
+            ThreadAttachmentCleanup {
+                "Bind existing exact-thread local cleanup to its primitive owner.", "thread_attachment_cleanup",
+                native: (THREAD_ATTACHMENT_CLEANUP_SYMBOL = "bray_runtime_thread_attachment_cleanup", [Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("host.thread_attachment_cleanup"), host_control: false,
+                capabilities: [],
+                effects: [ObserveThreadAttachment]
+            }
+            ThreadStorageExit {
+                "Resolve the cleared target TLS slot on its exact native thread.", "thread_storage_exit",
+                native: (THREAD_STORAGE_EXIT_SYMBOL = "bray_runtime_thread_storage_exit", [Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("thread.destruction.thread_storage_exit"), host_control: false,
+                capabilities: [],
+                effects: [ObserveThreadAttachment]
+            }
             CurrentNativeThreadIdentity {
                 "Read the process-wide identity of the current Bray native thread.", "current_native_thread_identity",
                 native: (CURRENT_NATIVE_THREAD_IDENTITY_SYMBOL = "bray_runtime_current_native_thread_identity", [] -> U64),
                 service: Host,
                 call_hook: (CurrentNativeThreadIdentity),
                 compiler: Bray [] -> U64,
-                owner: Callback, availability: All, bootstrap: (), host_control: false,
+                owner: Callback, availability: All, bootstrap: ("host.current_native_thread_identity"), host_control: false,
                 capabilities: [],
                 effects: [ObserveThreadAttachment]
             }
@@ -185,7 +230,7 @@ macro_rules! runtime_role_catalog {
                 service: Host,
                 call_hook: (MainNativeThreadIdentity),
                 compiler: Bray [] -> U64,
-                owner: Callback, availability: All, bootstrap: (), host_control: false,
+                owner: Callback, availability: All, bootstrap: ("host.main_native_thread_identity"), host_control: false,
                 capabilities: [],
                 effects: [ObserveThreadAttachment]
             }

@@ -124,6 +124,12 @@ pub(super) fn standard_memory_dependency() -> crate::DependencyInterfaceInput {
     )
     .expect("actual standard memory provider must load");
 
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "standard memory provider must check before export: {:?}",
+        provider.check_diagnostics()
+    );
+
     let bundle = provider
         .package_interface_export_bundle()
         .as_ref()

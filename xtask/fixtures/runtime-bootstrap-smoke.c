@@ -4,12 +4,79 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifdef _WIN32
+#define FlsAlloc SystemFlsAlloc
+#define FlsFree SystemFlsFree
+#include <windows.h>
+#undef FlsAlloc
+#undef FlsFree
+#else
+#include <pthread.h>
+#include <sched.h>
+#endif
+
 static atomic_bool reject_allocations;
 static atomic_uint allocation_attempts;
+static atomic_uint live_allocations;
+static atomic_size_t allocated_bytes;
+static atomic_bool reenter_allocation;
+static atomic_uint recursive_attachment_status;
+
+#ifdef _WIN32
+static atomic_bool reject_key_creation;
+static atomic_bool reject_key_destruction;
+static atomic_uint key_creation_attempts;
+static atomic_uint key_destruction_attempts;
+
+DWORD WINAPI FlsAlloc(PFLS_CALLBACK_FUNCTION callback)
+{
+    atomic_fetch_add(&key_creation_attempts, 1);
+
+    if (atomic_load(&reject_key_creation))
+    {
+        SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+        return FLS_OUT_OF_INDEXES;
+    }
+
+    DWORD (WINAPI *allocate)(PFLS_CALLBACK_FUNCTION) =
+        (DWORD (WINAPI *)(PFLS_CALLBACK_FUNCTION))GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "FlsAlloc");
+
+    return allocate(callback);
+}
+
+BOOL WINAPI FlsFree(DWORD key)
+{
+    atomic_fetch_add(&key_destruction_attempts, 1);
+
+    if (atomic_load(&reject_key_destruction))
+    {
+        SetLastError(ERROR_BUSY);
+        return FALSE;
+    }
+
+    BOOL (WINAPI *release)(DWORD) =
+        (BOOL (WINAPI *)(DWORD))GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "FlsFree");
+
+    return release(key);
+}
+
+DWORD (WINAPI *__imp_FlsAlloc)(PFLS_CALLBACK_FUNCTION) = FlsAlloc;
+BOOL (WINAPI *__imp_FlsFree)(DWORD) = FlsFree;
+#endif
+
+extern uint32_t bray_runtime_thread_attachment_enter(void);
+extern uint32_t bray_runtime_thread_attachment_leave(void);
+extern uint32_t bray_runtime_thread_attachment_cleanup(uint32_t (*callback)(uint64_t));
+extern uint32_t bray_runtime_thread_attachment_mark_main(void);
+extern uint64_t bray_runtime_current_native_thread_identity(void);
+extern uint64_t bray_runtime_main_native_thread_identity(void);
 
 static void* allocate_report_memory(size_t bytes, size_t alignment)
 {
     atomic_fetch_add(&allocation_attempts, 1);
+
+    if (atomic_exchange(&reenter_allocation, 0))
+        atomic_store(&recursive_attachment_status, bray_runtime_thread_attachment_enter());
 
     if (atomic_load(&reject_allocations))
         return NULL;
@@ -17,7 +84,15 @@ static void* allocate_report_memory(size_t bytes, size_t alignment)
     if (alignment > _Alignof(max_align_t))
         abort();
 
-    return malloc(bytes);
+    void* allocation = malloc(bytes);
+
+    if (allocation != NULL)
+    {
+        atomic_fetch_add(&live_allocations, 1);
+        atomic_fetch_add(&allocated_bytes, bytes);
+    }
+
+    return allocation;
 }
 
 #ifdef _WIN32
@@ -28,6 +103,9 @@ void* _aligned_malloc(size_t bytes, size_t alignment)
 
 void _aligned_free(void* memory)
 {
+    if (memory != NULL)
+        atomic_fetch_sub(&live_allocations, 1);
+
     free(memory);
 }
 #else
@@ -316,8 +394,357 @@ static int consume_after_allocator_failure(void)
     return 0;
 }
 
+static atomic_uint attachment_cleanup_calls;
+static atomic_uint attachment_cleanup_failures;
+static uint64_t previous_attachment;
+static _Thread_local uint64_t cleanup_attachment;
+
+#ifdef _WIN32
+static _Thread_local DWORD attachment_native_thread;
+#else
+static _Thread_local pthread_t attachment_native_thread;
+#endif
+
+static uint32_t attachment_cleanup(uint64_t identity)
+{
+    int same_thread;
+
+#ifdef _WIN32
+    same_thread = attachment_native_thread == GetCurrentThreadId();
+#else
+    same_thread = pthread_equal(attachment_native_thread, pthread_self());
+#endif
+
+    if (
+        !same_thread || identity == 0 || identity != cleanup_attachment ||
+        bray_runtime_current_native_thread_identity() != 0 ||
+        bray_runtime_thread_attachment_enter() != 4
+    )
+        atomic_fetch_add(&attachment_cleanup_failures, 1);
+
+    atomic_fetch_add(&attachment_cleanup_calls, 1);
+    return 1;
+}
+
+static int attach_with_cleanup(void)
+{
+    uint32_t entered = bray_runtime_thread_attachment_enter();
+
+    if (entered != 0)
+    {
+        fprintf(stderr, "attachment enter failed: status=%u allocations=%u recursive_status=%u\n",
+            entered, atomic_load(&allocation_attempts), atomic_load(&recursive_attachment_status));
+        return 20;
+    }
+
+    uint64_t identity = bray_runtime_current_native_thread_identity();
+
+    if (identity == 0 || identity == previous_attachment)
+        return 21;
+
+    previous_attachment = identity;
+    cleanup_attachment = identity;
+
+#ifdef _WIN32
+    attachment_native_thread = GetCurrentThreadId();
+#else
+    attachment_native_thread = pthread_self();
+#endif
+
+    if (
+        bray_runtime_thread_attachment_enter() != 0 ||
+        bray_runtime_current_native_thread_identity() != identity ||
+        bray_runtime_thread_attachment_cleanup(attachment_cleanup) != 0 ||
+        bray_runtime_thread_attachment_cleanup(attachment_cleanup) != 4
+    )
+        return 22;
+
+    return 0;
+}
+
+#ifdef _WIN32
+static DWORD WINAPI attached_native_thread(void* context)
+#else
+static void* attached_native_thread(void* context)
+#endif
+{
+    int* status = context;
+
+    *status = attach_with_cleanup();
+    return 0;
+}
+
+static int check_primitive_attachment(void)
+{
+#ifdef _WIN32
+    unsigned initial_live_allocations = atomic_load(&live_allocations);
+    atomic_store(&reject_key_creation, 1);
+
+    if (bray_runtime_thread_attachment_enter() != 4 ||
+        bray_runtime_current_native_thread_identity() != 0 ||
+        atomic_load(&key_creation_attempts) != 1 ||
+        atomic_load(&live_allocations) != initial_live_allocations)
+        return 33;
+
+    atomic_store(&reject_key_creation, 0);
+#endif
+
+    atomic_store(&reject_allocations, 1);
+
+    if (bray_runtime_thread_attachment_enter() != 4 || bray_runtime_current_native_thread_identity() != 0)
+        return 23;
+
+    atomic_store(&reject_allocations, 0);
+    atomic_store(&reenter_allocation, 1);
+    unsigned startup_allocations = atomic_load(&allocation_attempts);
+    size_t startup_bytes = atomic_load(&allocated_bytes);
+
+    if (bray_runtime_thread_attachment_enter() != 0)
+        return 29;
+
+    printf("bootstrap startup: allocations=%u bytes=%zu\n",
+        atomic_load(&allocation_attempts) - startup_allocations,
+        atomic_load(&allocated_bytes) - startup_bytes);
+
+    unsigned empty_exit_allocations = atomic_load(&allocation_attempts);
+    atomic_store(&reject_allocations, 1);
+
+    if (bray_runtime_thread_attachment_leave() != 0 ||
+        bray_runtime_current_native_thread_identity() != 0 ||
+        atomic_load(&allocation_attempts) != empty_exit_allocations)
+        return 30;
+
+    atomic_store(&reject_allocations, 0);
+
+    if (bray_runtime_thread_attachment_enter() != 0)
+        return 31;
+
+    uint64_t rejected_owner_identity = bray_runtime_current_native_thread_identity();
+    atomic_store(&reject_allocations, 1);
+    uint32_t rejected_registration = bray_runtime_thread_attachment_cleanup(attachment_cleanup);
+
+    if (rejected_registration != 4 ||
+        bray_runtime_current_native_thread_identity() != rejected_owner_identity ||
+        bray_runtime_thread_attachment_leave() != 0 ||
+        bray_runtime_current_native_thread_identity() != 0 ||
+        atomic_load(&attachment_cleanup_calls) != 0)
+    {
+        fprintf(stderr, "failed cleanup registration changed attachment state: status=%u\n", rejected_registration);
+        return 32;
+    }
+
+    atomic_store(&reject_allocations, 0);
+
+    int status = attach_with_cleanup();
+
+    if (status != 0)
+        return status;
+
+    if (
+        atomic_load(&recursive_attachment_status) != 4 ||
+        bray_runtime_thread_attachment_mark_main() != 0 ||
+        bray_runtime_main_native_thread_identity() != previous_attachment ||
+        bray_runtime_thread_attachment_leave() != 0 ||
+        bray_runtime_current_native_thread_identity() != previous_attachment
+    )
+        return 24;
+
+    unsigned before = atomic_load(&allocation_attempts);
+    atomic_store(&reject_allocations, 1);
+
+    for (unsigned lookup = 0; lookup < 1000; ++lookup)
+        if (bray_runtime_current_native_thread_identity() != previous_attachment)
+            return 25;
+
+    if (
+        before != atomic_load(&allocation_attempts) ||
+        bray_runtime_thread_attachment_leave() != 1 ||
+        bray_runtime_current_native_thread_identity() != 0 ||
+        bray_runtime_main_native_thread_identity() != 0 ||
+        atomic_load(&attachment_cleanup_calls) != 1
+    )
+        return 26;
+
+    atomic_store(&reject_allocations, 0);
+
+    status = 0;
+
+#ifdef _WIN32
+    HANDLE thread = CreateThread(NULL, 0, attached_native_thread, &status, 0, NULL);
+
+    if (thread == NULL || WaitForSingleObject(thread, INFINITE) != WAIT_OBJECT_0)
+        return 27;
+
+    CloseHandle(thread);
+#else
+    pthread_t thread;
+
+    if (pthread_create(&thread, NULL, attached_native_thread, &status) != 0 || pthread_join(thread, NULL) != 0)
+        return 27;
+#endif
+
+    if (
+        status != 0 || atomic_load(&attachment_cleanup_calls) != 2 ||
+        atomic_load(&attachment_cleanup_failures) != 0 ||
+        before != atomic_load(&allocation_attempts)
+    )
+    {
+        fprintf(stderr, "native attachment exit failed: status=%d cleanups=%u failures=%u allocations=%u->%u\n",
+            status, atomic_load(&attachment_cleanup_calls), atomic_load(&attachment_cleanup_failures),
+            before, atomic_load(&allocation_attempts));
+        return 28;
+    }
+
+    return 0;
+}
+
+enum { concurrent_threads = 8 };
+static atomic_uint concurrent_ready;
+static atomic_bool concurrent_release;
+
+typedef struct ConcurrentAttachment
+{
+    uint64_t identity;
+    int status;
+} ConcurrentAttachment;
+
+#ifdef _WIN32
+static DWORD WINAPI concurrent_attachment(void* context)
+#else
+static void* concurrent_attachment(void* context)
+#endif
+{
+    ConcurrentAttachment* attachment = context;
+
+#ifdef _WIN32
+    attachment_native_thread = GetCurrentThreadId();
+#else
+    attachment_native_thread = pthread_self();
+#endif
+
+    attachment->status = bray_runtime_thread_attachment_enter();
+    attachment->identity = bray_runtime_current_native_thread_identity();
+    cleanup_attachment = attachment->identity;
+
+    if (attachment->status == 0)
+        attachment->status = bray_runtime_thread_attachment_cleanup(attachment_cleanup);
+
+    atomic_fetch_add_explicit(&concurrent_ready, 1, memory_order_release);
+
+    while (!atomic_load_explicit(&concurrent_release, memory_order_acquire))
+    {
+#ifdef _WIN32
+        Sleep(0);
+#else
+        sched_yield();
+#endif
+    }
+
+    if (bray_runtime_current_native_thread_identity() != attachment->identity)
+        attachment->status = 1;
+
+    return 0;
+}
+
+static int check_concurrent_attachments(void)
+{
+    ConcurrentAttachment attachments[concurrent_threads] = {0};
+    unsigned before = atomic_load(&attachment_cleanup_calls);
+
+#ifdef _WIN32
+    HANDLE threads[concurrent_threads];
+#else
+    pthread_t threads[concurrent_threads];
+#endif
+
+    for (unsigned index = 0; index < concurrent_threads; ++index)
+    {
+#ifdef _WIN32
+        threads[index] = CreateThread(NULL, 0, concurrent_attachment, &attachments[index], 0, NULL);
+
+        if (threads[index] == NULL)
+            return 36;
+#else
+        if (pthread_create(&threads[index], NULL, concurrent_attachment, &attachments[index]) != 0)
+            return 36;
+#endif
+    }
+
+    while (atomic_load_explicit(&concurrent_ready, memory_order_acquire) != concurrent_threads)
+    {
+#ifdef _WIN32
+        Sleep(0);
+#else
+        sched_yield();
+#endif
+    }
+
+    int status = bray_runtime_structured_shutdown() == 4 ? 0 : 37;
+
+    for (unsigned index = 0; index < concurrent_threads; ++index)
+    {
+        if (attachments[index].status != 0 || attachments[index].identity == 0)
+            status = 38;
+
+        for (unsigned other = 0; other < index; ++other)
+            if (attachments[index].identity == attachments[other].identity)
+                status = 39;
+    }
+
+    atomic_store_explicit(&concurrent_release, 1, memory_order_release);
+
+    for (unsigned index = 0; index < concurrent_threads; ++index)
+    {
+#ifdef _WIN32
+        if (WaitForSingleObject(threads[index], INFINITE) != WAIT_OBJECT_0)
+            status = 40;
+
+        CloseHandle(threads[index]);
+#else
+        if (pthread_join(threads[index], NULL) != 0)
+            status = 40;
+#endif
+
+        if (attachments[index].status != 0)
+            status = 38;
+    }
+
+    if (atomic_load(&attachment_cleanup_calls) != before + concurrent_threads ||
+        atomic_load(&attachment_cleanup_failures) != 0)
+        status = 41;
+
+    return status;
+}
+
 int main(void)
 {
+    int attachment_status = check_primitive_attachment();
+
+    if (attachment_status != 0)
+        return attachment_status;
+
+    int concurrent_status = check_concurrent_attachments();
+
+    if (concurrent_status != 0)
+        return concurrent_status;
+
+#ifdef _WIN32
+    atomic_store(&reject_key_destruction, 1);
+
+    if (bray_runtime_structured_shutdown() != 4 ||
+        atomic_load(&key_destruction_attempts) != 1 ||
+        bray_runtime_thread_attachment_enter() != 0 ||
+        bray_runtime_current_native_thread_identity() == 0 ||
+        bray_runtime_thread_attachment_leave() != 0)
+        return 34;
+
+    atomic_store(&reject_key_destruction, 0);
+
+    if (bray_runtime_structured_shutdown() != 1 ||
+        atomic_load(&key_destruction_attempts) != 2)
+        return 35;
+#endif
+
     if (bray_runtime_initialization(1, 1) != 0 || bray_runtime_initialization(1, 1) != 2)
         return 1;
 

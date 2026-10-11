@@ -19,6 +19,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
     pub(super) fn candidate(
         &self,
         cleanup: &CheckedAsync,
+        memory: &bray_bound_tree::CheckedMemoryOperations,
         collect_cleanup: bool,
     ) -> Result<crate::ExecutionCandidate, CheckerQueryError<C::UpstreamError>> {
         let mut candidate = crate::ExecutionCandidate::default();
@@ -59,6 +60,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                         block,
                         exit,
                         phase: AnalysisScopeExitPhase::LifecycleResolution,
+                        ..
                     } if collect_cleanup => cleanup
                         .scope_exit_plan(block, exit)
                         .into_iter()
@@ -88,19 +90,33 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                 };
 
                 for (node, access) in targets {
-                    if let Some((callable, result, evidence)) = self.cleanup_entry(
-                        &state,
-                        access,
+                    for slot in [
                         TypeAssociatedLifecycleSlot::Finalizer,
-                        true,
-                    )? {
-                        candidate
-                            .cleanup
-                            .entry((node, access))
-                            .and_modify(|(_, _, previous)| {
-                                previous.intersect(&evidence);
-                            })
-                            .or_insert((callable, result, evidence));
+                        TypeAssociatedLifecycleSlot::Destructor,
+                    ] {
+                        if let Some((callable, result, evidence)) =
+                            self.cleanup_entry(&state, access, slot, true)?
+                        {
+                            if slot == TypeAssociatedLifecycleSlot::Finalizer {
+                                // Cleanup discharge and execution certification independently
+                                // retain this receiver evidence, so share the query and copy its result.
+                                candidate
+                                    .cleanup
+                                    .entry((node, access))
+                                    .and_modify(|(_, _, previous)| {
+                                        previous.intersect(&evidence);
+                                    })
+                                    .or_insert_with(|| (callable, result, evidence.clone()));
+                            }
+
+                            candidate
+                                .disposal
+                                .entry((node.into(), callable))
+                                .and_modify(|previous| {
+                                    previous.intersect(&evidence);
+                                })
+                                .or_insert(evidence);
+                        }
                     }
 
                     if !self.domain.cleanup_preserves_inputs(&state, access) {
@@ -125,6 +141,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                         .trusted_contracts()
                         .and_then(|contracts| contracts.calls.get(&occurrence))
                         && contract.preserves_inputs
+                        && !occurrence
+                            .expression()
+                            .and_then(|expression| memory.operation(expression))
+                            .is_some_and(|operation| {
+                                super::operation::checked_memory_guarantee(
+                                    operation.kind(),
+                                    crate::ExecutionProperty::Pure,
+                                )
+                            })
                         && evidence.proves(&contract.preconditions)
                         && (evidence.trusted_boundary
                             || self

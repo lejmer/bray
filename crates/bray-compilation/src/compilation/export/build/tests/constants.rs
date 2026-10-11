@@ -13,6 +13,49 @@ use crate::{Compilation, CompilationRequest, DependencyInterfaceInput};
 use super::fixtures::{compilation, execution_consumer, export};
 
 #[test]
+fn initialized_protected_storage_round_trips_through_an_interface() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct State { count: u64; ready: bool; }
+        static STATE: Uninit<State> = core.memory.uninit_from<State>({ count = 23, ready = true });
+        const func protect<T>(pos value: T) -> Uninit<T>
+            ensures(trusted core.memory.uninit_initialized<T>(storage = &result))
+        {
+            return core.memory.uninit_from<T>(value);
+        }
+    "#,
+    );
+
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        trusted module app;
+        using example.package.api;
+
+        trusted func main() -> u32 uses(unchecked_init)
+        {
+            let mut storage = example.package.api.protect<u32>(42);
+            let _ = core.memory.uninit_pointer<example.package.api.State>(&example.package.api.STATE);
+            return trusted core.memory.move_initialized<u32>(&mut storage);
+        }
+    "#,
+    );
+
+    assert!(
+        consumer.check_diagnostics().is_empty(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
+}
+
+#[test]
 fn imported_constant_templates_preserve_materialization_checks() {
     let provider = compilation(
         r#"

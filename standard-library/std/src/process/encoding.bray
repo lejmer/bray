@@ -5,6 +5,7 @@ using std.path;
 using std.order;
 
 trusted internal func context_table(pos storage: std.memory.RawBuffer<u8>, environment: bool) -> ProcessContextTable
+    uses(raw_memory)
 {
     let width: usize = trusted internal std.platform.native_text_width() / 8;
     let source: &[u8] = trusted std.memory.initialized_slice<u8>(&storage);
@@ -177,21 +178,24 @@ internal func native_unit_is_equals(pos source: &[u8], index: usize, width: usiz
     return internal context_native_unit(source, index = index, width = width) == 61;
 }
 
-internal func table_entry(pos table: &ProcessContextTable, index: usize) -> ProcessContextEntry
+trusted internal func table_entry(pos table: &ProcessContextTable, index: usize) -> ProcessContextEntry
+    uses(raw_memory)
 {
     let entries: &[ProcessContextEntry] = trusted std.memory.initialized_slice<ProcessContextEntry>(&table.entries);
 
     return entries[index];
 }
 
-internal func table_key(pos table: &ProcessContextTable, pos entry: ProcessContextEntry) -> &[u8]
+trusted internal func table_key(pos table: &ProcessContextTable, pos entry: ProcessContextEntry) -> &[u8]
+    uses(raw_memory)
 {
     let text: &[u8] = trusted std.memory.initialized_slice<u8>(&table.text);
 
     return &text[entry.key_start..entry.key_end];
 }
 
-internal func table_value(pos table: &ProcessContextTable, pos entry: ProcessContextEntry) -> &[u8]
+trusted internal func table_value(pos table: &ProcessContextTable, pos entry: ProcessContextEntry) -> &[u8]
+    uses(raw_memory)
 {
     let text: &[u8] = trusted std.memory.initialized_slice<u8>(&table.text);
 

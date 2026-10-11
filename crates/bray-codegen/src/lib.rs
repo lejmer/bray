@@ -36,7 +36,7 @@ pub use mapping::{
     CodegenCallableMapping, CodegenCallableSignature, CodegenCallableTarget,
     CodegenConstantMapping, CodegenConstantTermMapping, CodegenDebugLocation, CodegenFieldLayout,
     CodegenHelperMapping, CodegenIndirectParameterKind, CodegenInstanceTypeMapping,
-    CodegenIntegerExtension, CodegenMappings, CodegenNativeEntryMapping,
+    CodegenIntegerExtension, CodegenMappings, CodegenNativeEntryKind, CodegenNativeEntryMapping,
     CodegenNativeStaticMapping, CodegenOperationMapping, CodegenParameterMapping,
     CodegenProductHostMapping, CodegenProductHostStatic, CodegenResultMapping, CodegenSourceFile,
     CodegenStaticFinalization, CodegenStaticIncidentMemory, CodegenStaticInstanceKey,

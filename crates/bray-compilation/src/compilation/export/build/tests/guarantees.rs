@@ -19,6 +19,60 @@ use super::fixtures::{
 };
 
 #[test]
+fn imported_execution_domains_require_live_authority_and_ordinary_conditions() {
+    let provider = compilation(
+        r#"
+        trusted module api;
+        struct Owner { mut value: u64; }
+        trusted predicate live(owner: &Owner);
+        trusted func produce(pos value: u64) -> Owner
+            ensures(result.value == value, trusted live(owner = &result)) executes(total)
+        { return { value = value }; }
+        trusted func observe(pos owner: &Owner) -> u64
+            requires(trusted live(owner = owner), owner.value == 1) executes(total)
+        { return owner.value; }
+        func change(pos owner: &mut Owner) executes(total) { owner.value = 2; }
+        "#,
+    );
+
+    for (body, valid) in [
+        (
+            "let owner = trusted produce(1); return trusted observe(&owner);",
+            true,
+        ),
+        (
+            "let owner = trusted produce(2); return trusted observe(&owner);",
+            false,
+        ),
+        (
+            "let owner: Owner = { value = 1 }; return trusted observe(&owner);",
+            false,
+        ),
+        (
+            "let mut owner = trusted produce(1); change(&mut owner); return trusted observe(&owner);",
+            false,
+        ),
+    ] {
+        let source = format!(
+            "module app; using example.package.api; func root() -> u64 executes(total) {{ {} }}",
+            body.replace("Owner", "example.package.api.Owner")
+                .replace("produce(", "example.package.api.produce(")
+                .replace("observe(", "example.package.api.observe(")
+                .replace("change(", "example.package.api.change(")
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(
+            !consumer.check_diagnostics().has_errors(),
+            valid,
+            "{body}: {:?}",
+            consumer.check_diagnostics()
+        );
+    }
+}
+
+#[test]
 fn execution_guarantees_reject_malformed_interface_evidence() {
     use bray_symbols::{CallableExecutionOrigin, SymbolOrdinal};
 

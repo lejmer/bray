@@ -59,7 +59,7 @@ pub(crate) fn control(
 }
 
 pub(crate) fn thread_attachment_identity(descriptor: &'static NativeProductHostDescriptor) -> u64 {
-    if bray_platform::current_runtime_thread().is_none() {
+    if crate::bootstrap::current_runtime_thread().is_none() {
         return 0;
     }
 
@@ -98,7 +98,7 @@ pub(crate) fn thread_attachment_identity(descriptor: &'static NativeProductHostD
 pub(crate) fn register_thread_static(
     registration: &NativeThreadStaticCleanupRegistration,
 ) -> NativeRuntimeStatus {
-    if bray_platform::current_runtime_thread().is_none() {
+    if crate::bootstrap::current_runtime_thread().is_none() {
         return NativeRuntimeStatus::NOT_INITIALIZED;
     }
 
@@ -1202,7 +1202,7 @@ mod tests {
             detach_thread_static,
         );
 
-        let scope = bray_platform::RuntimeThreadScope::enter()
+        let scope = crate::bootstrap::RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("test thread must attach: {error:?}"));
 
         assert!(register_thread_static(&second_registration).is_success());
@@ -1218,7 +1218,7 @@ mod tests {
         assert_eq!(observed.state(), NativeProductHostState::OPEN);
         assert_eq!(observed.thread_attachments(), 0);
 
-        let scope = bray_platform::RuntimeThreadScope::enter()
+        let scope = crate::bootstrap::RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("test thread must reattach: {error:?}"));
 
         assert!(register_thread_static(&first_registration).is_success());
@@ -1266,7 +1266,7 @@ mod tests {
 
         INCIDENT_PROVIDER.set(Some(descriptor));
 
-        let scope = bray_platform::RuntimeThreadScope::enter()
+        let scope = crate::bootstrap::RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("test thread must attach: {error:?}"));
 
         assert!(register_thread_static(&panicking_registration).is_success());
@@ -1455,7 +1455,7 @@ mod tests {
             2,
         )));
 
-        let scope = bray_platform::RuntimeThreadScope::enter().expect("runtime thread enters");
+        let scope = crate::bootstrap::RuntimeThreadScope::enter().expect("runtime thread enters");
 
         let registration = NativeThreadStaticCleanupRegistration::new(
             descriptor,

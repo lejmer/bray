@@ -31,6 +31,7 @@ trusted internal func prepare_dynamic_library_open_path(
         trusted core.memory.movement_stable<u64>(pointer = opened),
         trusted core.memory.finalization_pending<u64>(pointer = opened),
     )
+    uses(raw_memory)
 {
     let count: usize = path.length as usize;
 

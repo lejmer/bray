@@ -115,7 +115,8 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
 
 fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<TypeId>) {
     match kind {
-        CheckedMemoryOperationKind::UninitNew { element: pointee }
+        CheckedMemoryOperationKind::UninitFrom { element: pointee }
+        | CheckedMemoryOperationKind::UninitNew { element: pointee }
         | CheckedMemoryOperationKind::UninitPointer {
             element: pointee, ..
         }

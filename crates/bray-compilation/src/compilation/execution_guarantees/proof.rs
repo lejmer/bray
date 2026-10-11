@@ -219,7 +219,7 @@ impl Compilation {
                     let selected = self.select_imported_execution_obligation(
                         callable,
                         required,
-                        candidate.call_evidence(node),
+                        candidate.dependency_evidence(node, target),
                         diagnostics,
                         cancellation,
                     )?;
@@ -259,7 +259,7 @@ impl Compilation {
                                 callable,
                                 declaration.value(),
                                 property,
-                                candidate.call_evidence(node),
+                                candidate.dependency_evidence(node, target),
                                 cancellation,
                             )?;
 
@@ -303,7 +303,7 @@ impl Compilation {
                                 callable,
                                 declaration.value(),
                                 property,
-                                candidate.call_evidence(node),
+                                candidate.dependency_evidence(node, target),
                                 cancellation,
                             )? == Some(None)
                         } else {

@@ -122,6 +122,48 @@ pub(crate) fn result_argument(
     }
 }
 
+/// Retains the call inputs named by its resolved result contract.
+pub(crate) fn result_inputs(
+    call: &SelectedCall,
+    requirements: &[DependencyRequirement],
+) -> std::collections::BTreeSet<bray_bound_tree::BoundExpressionId> {
+    let mut inputs = std::collections::BTreeSet::new();
+    let mut pending = requirements.iter().collect::<Vec<_>>();
+
+    while let Some(requirement) = pending.pop() {
+        match requirement {
+            DependencyRequirement::Direct { subject, .. } => {
+                inputs.extend(result_argument(call, subject.subject_root()));
+            }
+            DependencyRequirement::Guarded(guarded) => {
+                let subject = match guarded.guard() {
+                    bray_symbols::DependencyGuard::NullablePresent(subject)
+                    | bray_symbols::DependencyGuard::ActiveUnionVariant { subject, .. } => subject,
+                };
+
+                inputs.extend(result_argument(call, subject.subject_root()));
+                pending.extend(guarded.requirements());
+            }
+            DependencyRequirement::ResultCall { inputs, .. } => {
+                for input in inputs.iter() {
+                    pending.extend(input.values());
+                    pending.extend(input.storage());
+                }
+            }
+            DependencyRequirement::FixedPoint {
+                definitions,
+                result,
+            } => {
+                pending.extend(result.iter());
+                pending.extend(definitions.iter().flat_map(|definition| definition.iter()));
+            }
+            DependencyRequirement::Variable { .. } => {}
+        }
+    }
+
+    inputs
+}
+
 impl super::ValueInputs {
     pub(super) fn collect_returned_borrows<C: CheckerRequestContext + ?Sized>(
         &mut self,

@@ -25,7 +25,7 @@ use std::fs;
 use std::sync::Arc;
 
 #[test]
-fn static_cleanup_retains_the_selected_runtime_role_provider() {
+fn static_cleanup_retains_runtime_providers_without_ordering_co_emitted_trivial_statics() {
     let (_, compilation) = codegen_compilation_for_product(
         r#"
             module application;
@@ -54,6 +54,16 @@ fn static_cleanup_retains_the_selected_runtime_role_provider() {
         false,
     );
 
+    let companion = bray_native_artifact::NativeStatic::new(
+        NonEmptySharedStr::try_new("second_provider_host").unwrap(),
+        [78; 32],
+        Arc::from([1].as_slice()),
+        StaticStorageDuration::Product,
+        [],
+        false,
+        false,
+    );
+
     let indexes = original
         .native_indexes()
         .iter()
@@ -74,13 +84,15 @@ fn static_cleanup_retains_the_selected_runtime_role_provider() {
                 let definitions = definitions
                     .iter()
                     .cloned()
-                    .chain([NativeDefinition::new(
-                        NativeSymbolContract::required_name(
-                            NonEmptySharedStr::try_new(provider.symbol())
-                                .expect("host symbol must be valid"),
-                        ),
-                        NativeDefinitionSelection::Ordinary,
-                    )])
+                    .chain([&provider, &companion].map(|provider| {
+                        NativeDefinition::new(
+                            NativeSymbolContract::required_name(
+                                NonEmptySharedStr::try_new(provider.symbol())
+                                    .expect("host symbol must be valid"),
+                            ),
+                            NativeDefinitionSelection::Ordinary,
+                        )
+                    }))
                     .collect::<Vec<_>>();
 
                 NativeUnit::new(
@@ -93,7 +105,7 @@ fn static_cleanup_retains_the_selected_runtime_role_provider() {
                     },
                     unit.native_links().iter().cloned(),
                 )
-                .with_statics([provider.clone()])
+                .with_statics([provider.clone(), companion.clone()])
             });
 
             let index = NativeArtifactIndex::try_new(
@@ -165,8 +177,9 @@ fn static_cleanup_retains_the_selected_runtime_role_provider() {
 
     let provider_identity = bray_runtime_abi::NativeStaticIdentity::new(provider.identity());
 
-    assert_eq!(host.statics().len(), 2);
+    assert_eq!(host.statics().len(), 3);
     assert_eq!(host.statics()[1].identity(), provider_identity);
+    assert_eq!(host.statics()[2].identity().bytes(), companion.identity());
 
     assert!(
         host.statics()[0].dependencies().is_empty(),

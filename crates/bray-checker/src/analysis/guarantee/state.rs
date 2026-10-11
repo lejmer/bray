@@ -212,6 +212,14 @@ impl ExecutionState {
         &mut self,
         values: impl IntoIterator<Item = ExecutionCondition>,
     ) {
+        self.retire_trusted_values(values, &BTreeSet::new());
+    }
+
+    pub(super) fn retire_trusted_values(
+        &mut self,
+        values: impl IntoIterator<Item = ExecutionCondition>,
+        retained: &BTreeSet<ExecutionCondition>,
+    ) {
         let mut pending = values.into_iter().collect::<Vec<_>>();
 
         if pending.is_empty() {
@@ -281,10 +289,20 @@ impl ExecutionState {
             }
         }
 
+        let retained_inputs = retained
+            .iter()
+            .filter_map(|value| match value {
+                ExecutionCondition::Input(place) => Some(place.clone()),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+
         let observes = |condition: &ExecutionCondition| {
             condition.observations().any(|observed| {
                 invalidated.contains(observed)
-                    || matches!(observed, ExecutionCondition::Input(place) if place.overlaps_any(&invalidated_inputs))
+                    || matches!(observed, ExecutionCondition::Input(place)
+                        if place.overlaps_any(&invalidated_inputs)
+                            && !place.is_contained_by_any(&retained_inputs))
             })
         };
 
@@ -372,6 +390,54 @@ mod tests {
 
     fn input(ordinal: u32) -> ExecutionCondition {
         ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)))
+    }
+
+    #[test]
+    fn retiring_a_container_preserves_only_its_transferred_child_value() {
+        let root = ExecutionPlace::argument(SymbolOrdinal::new(0));
+
+        let left = root
+            .clone()
+            .component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+
+        let right = root
+            .clone()
+            .component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)));
+
+        let child = ExecutionCondition::Input(left);
+        let mut state = ExecutionState::default();
+
+        for value in [
+            ExecutionCondition::Input(root.clone()),
+            child.clone(),
+            ExecutionCondition::Input(right),
+        ] {
+            state.witness_carriers.insert(value.clone());
+            state.trusted_assumptions.insert((value, true));
+        }
+
+        let retained = BTreeSet::from([child.clone()]);
+        let mut moved = state.clone();
+
+        moved.retire_trusted_values([ExecutionCondition::Input(root.clone())], &retained);
+
+        assert_eq!(moved.witness_carriers, retained);
+
+        assert_eq!(
+            moved.trusted_assumptions,
+            BTreeSet::from([(child.clone(), true)])
+        );
+
+        // Retaining a value cannot extend the storage required by its witness.
+        state
+            .witness_dependencies
+            .insert(child, BTreeSet::from([root.clone()]));
+
+        state.invalidate_trusted_roots(&BTreeSet::from([root.root]));
+        state.retire_trusted_values([ExecutionCondition::Input(root)], &retained);
+
+        assert!(state.witness_carriers.is_empty());
+        assert!(state.trusted_assumptions.is_empty());
     }
 
     #[test]

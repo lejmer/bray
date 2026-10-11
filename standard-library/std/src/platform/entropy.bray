@@ -13,6 +13,7 @@ trusted internal func entropy_fill(
         trusted core.memory.aligned_for<u64>(pointer = transferred),
     )
     ensures(trusted core.memory.initialized_as<u64>(pointer = transferred))
+    uses(raw_memory, unchecked_init)
 {
     trusted std.memory.write<u64>(transferred, value = 0);
 

@@ -41,7 +41,7 @@ trusted internal func platform_child_spawn(
         trusted core.memory.valid_write<u64>(pointer = standard_error, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = standard_error),
     )
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret, raw_memory, unchecked_init)
 {
     trusted std.memory.write<u64>(child, value = 0);
     trusted std.memory.write<u64>(standard_input, value = 0);
@@ -302,7 +302,7 @@ trusted internal func platform_child_wait(
     pos terminal: RawPointer<u32>,
     pos status: RawPointer<PlatformExitStatus>,
 ) -> std.platform.PlatformStatus
-    uses(foreign_call)
+    uses(foreign_call, raw_memory, unchecked_init)
 {
     let process: RawPointer<u8> = trusted internal std.platform.handle_pointer(child);
 

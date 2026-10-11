@@ -20,6 +20,7 @@ trusted internal func prepare_dynamic_library_open_path(
         trusted core.memory.valid_write<u64>(pointer = opened, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = opened),
     )
+    uses(layout_reinterpret)
 {
     if !supported_windows_load_policy(policy)
     {
@@ -186,6 +187,7 @@ trusted internal func absolute_windows_path(pos path: &std.fs.PlatformPath) -> b
         trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
         trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
     )
+    uses(raw_memory)
 {
     let count: usize = path.length as usize;
 

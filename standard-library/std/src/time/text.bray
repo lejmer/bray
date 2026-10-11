@@ -31,7 +31,7 @@ trusted internal func format_temporal_value(
     pos kind: u32,
     pos value: PlatformTemporalValue,
 ) -> Result<string, TimeError>
-    uses(foreign_call)
+    uses(foreign_call, unchecked_init)
 {
     let mut required: u64 = 0;
     let mut outcome: u32 = TEMPORAL_SUCCESS;
@@ -64,7 +64,7 @@ trusted internal func fill_temporal_value(
     pos buffer: &mut std.memory.RawBuffer<u8>,
 ) -> (std.platform.PlatformStatus, u32, usize)
     ensures(trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result.2))
-    uses(foreign_call)
+    uses(foreign_call, raw_memory)
 {
     let initialized: usize = buffer.initialized;
     let capacity: usize = buffer.capacity - initialized;
@@ -132,6 +132,7 @@ trusted internal func temporal_text_buffer(pos required: u64) -> Result<std.memo
 }
 
 trusted internal func temporal_text(pos buffer: std.memory.RawBuffer<u8>) -> Result<string, TimeError>
+    uses(raw_memory)
 {
     let bytes: &[u8] = trusted std.memory.initialized_slice<u8>(&buffer);
 

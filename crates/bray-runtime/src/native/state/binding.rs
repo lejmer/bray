@@ -3,7 +3,8 @@ use std::io::Write;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use bray_platform::{RuntimeThreadId, RuntimeThreadScope};
+use crate::bootstrap::RuntimeThreadScope;
+use bray_platform::RuntimeThreadId;
 use bray_runtime_abi::{
     NativeExecutionLane, NativeExecutionLaneResult, NativeRunOutcome, NativeRunState,
     NativeRuntimeStatus, NativeTaskHandle,

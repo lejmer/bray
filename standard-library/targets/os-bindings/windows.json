@@ -386,6 +386,9 @@
           "error_state": "returns FLS_OUT_OF_INDEXES and records GetLastError state on failure",
           "ownership": "success creates one process-owned fiber-local storage key",
           "initialization": "the returned key has no values",
+          "executes": [
+            "total"
+          ],
           "dependencies": [
             "foreign_call",
             "native_thread"
@@ -406,8 +409,8 @@
           "native_result": "BOOL",
           "link": "Kernel32",
           "error_state": "returns zero and records GetLastError state on failure",
-          "ownership": "success releases one quiescent fiber-local storage key",
-          "initialization": "existing thread values are not destroyed",
+          "ownership": "success releases one process-owned fiber-local storage key",
+          "initialization": "non-null fiber values invoke the associated callback before key release",
           "dependencies": [
             "foreign_call",
             "native_thread"
@@ -430,6 +433,9 @@
           "error_state": "returns null when unset or after recording GetLastError state on failure",
           "ownership": "the platform does not own the stored value",
           "initialization": "the returned address is opaque",
+          "executes": [
+            "total"
+          ],
           "dependencies": [
             "foreign_call",
             "native_thread",
@@ -458,6 +464,9 @@
           "error_state": "returns zero and records GetLastError state on failure",
           "ownership": "the platform stores but does not own the value",
           "initialization": "null clears the current thread value",
+          "executes": [
+            "total"
+          ],
           "dependencies": [
             "foreign_call",
             "native_thread",
@@ -481,6 +490,9 @@
           "error_state": "sets the calling native thread error state",
           "ownership": "no resource transfer",
           "initialization": "no output storage",
+          "executes": [
+            "total"
+          ],
           "dependencies": [
             "foreign_call",
             "native_thread"

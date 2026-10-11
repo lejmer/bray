@@ -276,8 +276,14 @@ fn block_transfer(
             continue;
         }
 
-        if let AnalysisOperationKind::ScopeExit { exit, phase, .. } = operation.kind() {
-            if phase == AnalysisScopeExitPhase::LifecycleResolution {
+        if let AnalysisOperationKind::ScopeExit {
+            exit,
+            phase,
+            preserves_exit_value,
+            ..
+        } = operation.kind()
+        {
+            if preserves_exit_value && phase == AnalysisScopeExitPhase::LifecycleResolution {
                 transfer
                     .generated
                     .extend(effects.retained_at_exit(exit).copied());
@@ -313,8 +319,14 @@ fn transfer_operation(
         return;
     }
 
-    if let AnalysisOperationKind::ScopeExit { exit, phase, .. } = operation.kind() {
-        if phase == AnalysisScopeExitPhase::LifecycleResolution {
+    if let AnalysisOperationKind::ScopeExit {
+        exit,
+        phase,
+        preserves_exit_value,
+        ..
+    } = operation.kind()
+    {
+        if preserves_exit_value && phase == AnalysisScopeExitPhase::LifecycleResolution {
             state.extend(effects.retained_at_exit(exit).copied());
         }
 
@@ -374,13 +386,19 @@ fn collect_liveness(
                 block,
                 exit,
                 phase: AnalysisScopeExitPhase::LifecycleResolution,
+                preserves_exit_value,
             } = operation.kind()
             {
                 live_across_scopes.extend(
                     state
                         .iter()
                         .copied()
-                        .chain(effects.retained_at_exit(exit).copied())
+                        .chain(
+                            effects
+                                .retained_at_exit(exit)
+                                .copied()
+                                .filter(|_| preserves_exit_value),
+                        )
                         .map(|subject| LiveAcrossScope::new(block, exit, subject)),
                 );
             }

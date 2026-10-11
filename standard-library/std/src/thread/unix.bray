@@ -46,6 +46,7 @@ trusted internal func native_thread_entry() -> RawPointer<u8>
             pointer = trusted std.memory.reinterpret<std.os.unix.ThreadStartRoutine, u8>(result)
         )
     )
+    uses(layout_reinterpret)
 {
     let entry: std.os.unix.ThreadStartRoutine = unix_thread_entry;
     let pointer: RawPointer<std.os.unix.ThreadStartRoutine> = trusted std.memory.pointer_from_callable(entry);
@@ -79,6 +80,7 @@ trusted internal func platform_thread_create(
             pointer = trusted std.memory.reinterpret<std.os.unix.ThreadStartRoutine, u8>(entry)
         ),
     )
+    uses(raw_memory, unchecked_init)
 {
     let observed: (std.platform.PlatformStatus, u64, i64) = trusted internal prepare_thread_create(
         entry,
@@ -130,6 +132,7 @@ trusted internal func prepare_thread_create(
         trusted core.memory.valid_write<i64>(pointer = native_error, count = 1),
         trusted core.memory.aligned_for<i64>(pointer = native_error),
     )
+    uses(layout_reinterpret)
 {
     let entry_pointer: RawPointer<std.os.unix.ThreadStartRoutine> = trusted std.memory.reinterpret<
         std.os.unix.ThreadStartRoutine,
@@ -186,6 +189,7 @@ trusted internal func platform_thread_storage_create(
     pos destructor: RawPointer<u8>,
     pos key: RawPointer<u64>,
 ) -> std.platform.PlatformStatus
+    executes(total)
     requires(
         trusted core.memory.callable_address_valid<std.os.unix.ThreadStorageDestructor>(
             pointer = trusted std.memory.reinterpret<std.os.unix.ThreadStorageDestructor, u8>(destructor)
@@ -193,6 +197,7 @@ trusted internal func platform_thread_storage_create(
         trusted core.memory.valid_write<u64>(pointer = key, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = key),
     )
+    uses(raw_memory, unchecked_init)
 {
     let observed: Result<u64, std.platform.PlatformStatus> = trusted internal prepare_thread_storage_create(
         destructor,
@@ -215,6 +220,7 @@ trusted internal func prepare_thread_storage_create(
     pos destructor: RawPointer<u8>,
     pos key: RawPointer<u64>,
 ) -> Result<u64, std.platform.PlatformStatus>
+    executes(total)
     requires(
         trusted core.memory.callable_address_valid<std.os.unix.ThreadStorageDestructor>(
             pointer = trusted std.memory.reinterpret<std.os.unix.ThreadStorageDestructor, u8>(destructor)
@@ -226,6 +232,7 @@ trusted internal func prepare_thread_storage_create(
         trusted core.memory.valid_write<u64>(pointer = key, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = key),
     )
+    uses(layout_reinterpret)
 {
     let destructor_pointer: RawPointer<std.os.unix.ThreadStorageDestructor> = trusted std.memory.reinterpret<
         std.os.unix.ThreadStorageDestructor,
@@ -252,6 +259,7 @@ trusted internal func prepare_thread_storage_load(
     pos key: u64,
     pos value: RawPointer<RawPointer<u8>>,
 ) -> Result<RawPointer<u8>, std.platform.PlatformStatus>
+    executes(total)
     requires(
         trusted core.memory.valid_write<RawPointer<u8>>(pointer = value, count = 1),
         trusted core.memory.aligned_for<RawPointer<u8>>(pointer = value),
@@ -269,6 +277,7 @@ trusted internal func platform_thread_storage_store(
     pos key: u64,
     pos value: RawPointer<u8>,
 ) -> std.platform.PlatformStatus
+    executes(total)
 {
     let status: i32 = trusted std.os.unix.pthread_setspecific(key, value);
 
@@ -282,6 +291,7 @@ trusted internal func platform_thread_storage_store(
 
 @abi(c)
 trusted internal func platform_thread_storage_destroy(pos key: u64) -> std.platform.PlatformStatus
+    executes(total)
 {
     let status: i32 = trusted std.os.unix.pthread_key_delete(key);
 

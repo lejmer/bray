@@ -224,6 +224,9 @@ where
         ImplementationHook::UninitNew => CheckedMemoryOperationKind::UninitNew {
             element: one_type_argument(types)?,
         },
+        ImplementationHook::UninitFrom => CheckedMemoryOperationKind::UninitFrom {
+            element: one_type_argument(types)?,
+        },
         ImplementationHook::UninitPointer => CheckedMemoryOperationKind::UninitPointer {
             kind: MemoryAddressKind::Shared,
             element: one_type_argument(types)?,
@@ -367,7 +370,8 @@ const fn layout_query_kind(hook: ImplementationHook) -> Option<MemoryLayoutQuery
 const fn memory_operation_requires_complete_pointee(hook: ImplementationHook) -> bool {
     matches!(
         hook,
-        ImplementationHook::UninitNew
+        ImplementationHook::UninitFrom
+            | ImplementationHook::UninitNew
             | ImplementationHook::UninitPointer
             | ImplementationHook::UninitPointerMut
             | ImplementationHook::UninitWrite

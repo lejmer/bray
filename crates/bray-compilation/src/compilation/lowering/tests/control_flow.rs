@@ -3,6 +3,70 @@ use bray_ir::{MirAggregateKind, MirOperand, MirOperationKind, MirPanicCause, Mir
 use super::support::lowered_mir;
 use crate::test_support::{compilation, source_callable_body_key, source_function_body_key};
 
+#[test]
+fn borrowed_nullable_patterns_test_the_payload_discriminant() {
+    for parameter in ["&i32?", "&mut i32?", "(&i32)?"] {
+        for (input, condition) in [
+            (parameter, "let ?present = value"),
+            (parameter, "value matches none"),
+            ("Wrapper", "let { slot = ?present } = value"),
+            ("Wrapper", "value matches { slot = none }"),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+                struct Wrapper {{ slot: {parameter}; }}
+                func inspect(pos value: {input}) -> bool {{
+                    if {condition} {{ return true; }}
+                    return false;
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+
+            let lowered = compilation
+                .lowered_unit(source_function_body_key(&compilation, "inspect"))
+                .unwrap();
+
+            assert!(
+                !lowered.diagnostics().has_errors(),
+                "{source}: {lowered:#?}"
+            );
+
+            let mir = lowered_mir(&lowered);
+            let mut tested = false;
+
+            for block in mir.blocks() {
+                if let MirTerminatorKind::PatternBranch {
+                    subject: MirOperand::Copy(place),
+                    predicate:
+                        bray_ir::MirPatternPredicate::NullableAbsent
+                        | bray_ir::MirPatternPredicate::NullablePresent,
+                    ..
+                } = block.terminator().kind()
+                {
+                    assert!(
+                        matches!(
+                            compilation
+                                .semantic_value_store()
+                                .unwrap()
+                                .type_data(place.ty())
+                                .as_ref(),
+                            bray_symbols::TypeData::Nullable(_)
+                        ),
+                        "{source}: {place:#?}"
+                    );
+
+                    tested = true;
+                }
+            }
+
+            assert!(tested, "fixture must retain its nullable branch: {source}");
+        }
+    }
+}
+
 const CONTROL_LOWERING_SOURCE: &str = concat!(
     "module app;\n",
     "\n",

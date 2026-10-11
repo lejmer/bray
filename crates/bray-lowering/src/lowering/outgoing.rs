@@ -12,6 +12,12 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         ty: TypeId,
     ) -> Result<MirBlockId, LoweringError> {
+        if self.input.cleanup_type(ty).is_some_and(|shape| {
+            shape.cleanup() == bray_bound_tree::AsyncStorageCleanupRequirement::None
+        }) {
+            return Ok(block);
+        }
+
         self.push_operation(
             block,
             Self::retained_source(source),
@@ -43,6 +49,12 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         ty: TypeId,
     ) -> Result<(), LoweringError> {
+        if self.input.cleanup_type(ty).is_some_and(|shape| {
+            shape.cleanup() == bray_bound_tree::AsyncStorageCleanupRequirement::None
+        }) {
+            return Ok(());
+        }
+
         self.push_operation(
             block,
             Self::retained_source(source),

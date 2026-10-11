@@ -63,6 +63,15 @@ where
         let current = self.build_expressions(operands, current)?;
         let hook = self.implementation_hook(id, expression);
 
+        if hook == Some(ImplementationHook::CatastrophicAbort) {
+            // Catastrophic termination skips source cleanup. Record it before the
+            // later result analysis supplies the never type, matching MIR lowering.
+            self.push_bound(current, id.into());
+            self.push_exit(current, AnalysisExitKind::Divergence, id.into());
+
+            return Some(None);
+        }
+
         if hook == Some(ImplementationHook::CurrentRunCancellationPropagation) {
             self.push_bound(current, id.into());
             self.push_exit(current, AnalysisExitKind::Cancellation, id.into());

@@ -786,6 +786,11 @@ pub enum CheckedMemoryOperationKind {
         /// Value type whose size and alignment govern the storage.
         element: TypeId,
     },
+    /// Move one initialized value into protected storage.
+    UninitFrom {
+        /// Value type whose ownership moves into the storage.
+        element: TypeId,
+    },
     /// Form a raw pointer to protected uninitialized storage.
     UninitPointer {
         /// Authority exposed by the source storage reference.
@@ -1100,7 +1105,8 @@ impl CheckedMemoryOperationKind {
     /// Returns the exact number of runtime operands required by this operation.
     pub const fn operand_count(self) -> usize {
         match self {
-            Self::UninitPointer { .. }
+            Self::UninitFrom { .. }
+            | Self::UninitPointer { .. }
             | Self::UninitAssumeInitialized { .. }
             | Self::UninitMove { .. }
             | Self::Address { .. }
@@ -1167,7 +1173,8 @@ impl CheckedMemoryOperationKind {
     /// Maps a selected source-argument ordinal to its runtime MIR operand index.
     pub const fn runtime_argument_index(self, ordinal: usize) -> Option<usize> {
         match self {
-            Self::UninitPointer { .. }
+            Self::UninitFrom { .. }
+            | Self::UninitPointer { .. }
             | Self::UninitAssumeInitialized { .. }
             | Self::UninitMove { .. }
             | Self::Address { .. }
@@ -1822,6 +1829,7 @@ mod tests {
 
         let cases = [
             (CheckedMemoryOperationKind::UninitNew { element }, 0, true),
+            (CheckedMemoryOperationKind::UninitFrom { element }, 1, true),
             (
                 CheckedMemoryOperationKind::UninitPointer {
                     kind: MemoryAddressKind::Shared,

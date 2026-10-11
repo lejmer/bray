@@ -64,6 +64,13 @@ pub struct ExecutionDependency {
 /// Locally checked behavior whose dependencies still require certification.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ExecutionCandidate {
+    pub(crate) disposal: std::collections::BTreeMap<
+        (
+            bray_bound_tree::BoundExecutionSite,
+            bray_symbols::CallableInstanceData,
+        ),
+        ExecutionCallEvidence,
+    >,
     pub(crate) cleanup: std::collections::BTreeMap<
         (AnyBoundNodeId, bray_bound_tree::StorageAccessId),
         (
@@ -81,6 +88,21 @@ pub struct ExecutionCandidate {
 }
 
 impl ExecutionCandidate {
+    /// Returns the receiver evidence for an implicit lifecycle invocation, or the explicit call evidence.
+    pub fn dependency_evidence(
+        &self,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        target: BoundCallableTarget,
+    ) -> Option<&ExecutionCallEvidence> {
+        if let BoundCallableTarget::Declaration(callable) = target
+            && let Some(evidence) = self.disposal.get(&(occurrence, callable))
+        {
+            return Some(evidence);
+        }
+
+        self.call_evidence(occurrence)
+    }
+
     /// Returns finalizers and the value evidence available at their cleanup sites.
     /// Each candidate still requires execution and completion-dependency certification.
     pub fn cleanup_candidates(

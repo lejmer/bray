@@ -41,6 +41,7 @@ trusted internal func platform_child_spawn(
         trusted core.memory.valid_write<u64>(pointer = standard_error, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = standard_error),
     )
+    uses(layout_reinterpret, raw_memory, unchecked_init)
 {
     trusted std.memory.write<u64>(child, value = 0);
     trusted std.memory.write<u64>(standard_input, value = 0);
@@ -201,6 +202,7 @@ trusted internal func platform_child_wait(
         trusted core.memory.valid_write<PlatformExitStatus>(pointer = status, count = 1),
         trusted core.memory.aligned_for<PlatformExitStatus>(pointer = status),
     )
+    uses(raw_memory, unchecked_init)
 {
     let prepared: Result<PlatformExitStatus, std.platform.PlatformStatus> = trusted internal prepare_child_wait(
         child,

@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn cleanup_runtime_reuses_an_active_foreign_thread_attachment() {
-        let _attachment = bray_platform::RuntimeThreadScope::enter()
+        let _attachment = crate::bootstrap::RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("test thread must attach: {error:?}"));
 
         let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {

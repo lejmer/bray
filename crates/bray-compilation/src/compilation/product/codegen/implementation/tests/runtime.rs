@@ -62,6 +62,7 @@ fn demanded_runtime_roles_cannot_disappear_from_product_validation() {
 fn runtime_native_plan_with_source_roles(
     sources: &[&str],
     product_kind: ProductKind,
+    target: SelectedTarget,
     runtime_roles: impl IntoIterator<Item = bray_runtime_interface::RuntimeRoleSourceBinding>,
 ) -> (
     Arc<bray_codegen_llvm::LlvmCodeGenerator>,
@@ -70,7 +71,7 @@ fn runtime_native_plan_with_source_roles(
     let (backend, compilation) = codegen_compilation_for_sources_target_with_source_roles(
         sources,
         product_kind,
-        SelectedTarget::baseline(),
+        target,
         &[],
         [],
         runtime_roles,
@@ -156,8 +157,12 @@ fn runtime_source_imports_share_generated_runtime_calls() {
     let binding = bray_runtime_interface::RuntimeRoleSourceBinding::try_new(role, "app.reserve")
         .unwrap_or_else(|| panic!("runtime source binding must validate"));
 
-    let (backend, plan) =
-        runtime_native_plan_with_source_roles(&[source], ProductKind::Library, [binding]);
+    let (backend, plan) = runtime_native_plan_with_source_roles(
+        &[source],
+        ProductKind::Library,
+        SelectedTarget::baseline(),
+        [binding],
+    );
 
     assert!(plan.mappings().iter().any(|mappings| mappings.symbols().iter().any(|symbol| matches!(symbol.key(), bray_codegen::CodegenSymbolKey::Runtime(reference) if reference.role() == role))));
 
@@ -195,8 +200,12 @@ fn runtime_source_bindings_export_and_retain_the_canonical_role_symbol() {
         bray_runtime_interface::RuntimeRoleSourceBinding::try_new(role, "app.attachment_identity")
             .unwrap_or_else(|| panic!("runtime source binding must validate"));
 
-    let (backend, plan) =
-        runtime_native_plan_with_source_roles(&[source], ProductKind::Library, [binding]);
+    let (backend, plan) = runtime_native_plan_with_source_roles(
+        &[source],
+        ProductKind::Library,
+        SelectedTarget::baseline(),
+        [binding],
+    );
 
     let symbol = role
         .native_symbol()
@@ -221,6 +230,165 @@ fn runtime_source_bindings_export_and_retain_the_canonical_role_symbol() {
 }
 
 #[test]
+fn bootstrap_status_entries_contain_body_failures_without_attaching() {
+    for target in bray_target::NativeTarget::ALL {
+        for body in [
+            "return 73;",
+            "panic(\"registration failed\");",
+            "let outcome: RunResult<unit> = Cancelled; try outcome; return 0;",
+        ] {
+            let source = format!(
+                r#"
+            trusted module app;
+            @abi(c)
+            trusted internal func register(pos callback: RawPointer<u8>) -> u32
+            {{ let _ = callback; {body} }}
+        "#
+            );
+
+            let role = RuntimeAbiRole::ThreadAttachmentCleanup;
+
+            let binding =
+                bray_runtime_interface::RuntimeRoleSourceBinding::try_new(role, "app.register")
+                    .unwrap();
+
+            let (backend, plan) = runtime_native_plan_with_source_roles(
+                &[&source],
+                ProductKind::Library,
+                SelectedTarget::for_native(target),
+                [binding],
+            );
+
+            let symbol = role.native_symbol().unwrap();
+
+            let mapping = plan
+                .mappings()
+                .iter()
+                .flat_map(bray_codegen::CodegenMappings::symbols)
+                .find(|mapping| {
+                    mapping
+                        .native_entry()
+                        .is_some_and(|entry| entry.name().as_str() == symbol)
+                })
+                .expect("bootstrap status operation has a native containment boundary");
+
+            assert_eq!(
+                mapping.native_entry().unwrap().kind(),
+                bray_codegen::CodegenNativeEntryKind::RuntimeStatus
+            );
+
+            assert!(mapping.signature().has_panic_report_context());
+
+            let artifacts =
+                generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+
+            let ir = artifacts
+                .iter()
+                .map(|artifact| String::from_utf8_lossy(artifact))
+                .collect::<String>();
+
+            assert!(
+                ir.lines()
+                    .any(|line| line.starts_with("define ") && line.contains(symbol))
+            );
+
+            assert!(
+                !ir.contains(
+                    RuntimeAbiRole::ForeignCallbackExecution
+                        .native_symbol()
+                        .unwrap()
+                )
+            );
+
+            assert!(
+                generated_artifacts(&backend, &plan)
+                    .iter()
+                    .all(|artifact| !artifact.is_empty())
+            );
+        }
+    }
+}
+
+#[test]
+#[cfg(all(windows, target_arch = "x86_64"))]
+fn bootstrap_status_cancellation_returns_native_failure_without_reporting_a_panic() {
+    let source = r#"
+        trusted module app;
+        @abi(c)
+        trusted internal func register(pos callback: RawPointer<u8>) -> u32 {
+            let _ = callback;
+            let outcome: RunResult<unit> = Cancelled;
+            try outcome;
+            return 0;
+        }
+    "#;
+
+    let role = RuntimeAbiRole::ThreadAttachmentCleanup;
+
+    let binding =
+        bray_runtime_interface::RuntimeRoleSourceBinding::try_new(role, "app.register").unwrap();
+
+    let (backend, plan) = runtime_native_plan_with_source_roles(
+        &[source],
+        ProductKind::Library,
+        SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc),
+        [binding],
+    );
+
+    let directory = tempfile::tempdir().unwrap();
+    let mut objects = Vec::new();
+
+    for (index, bytes) in generated_artifacts(&backend, &plan).into_iter().enumerate() {
+        let path = directory.path().join(format!("unit-{index}.obj"));
+
+        std::fs::write(&path, bytes).unwrap();
+        objects.push(path);
+    }
+
+    let caller = format!(
+        r#"
+        static unsigned reports;
+        unsigned {report}(void* value) {{ (void)value; ++reports; return 0; }}
+        extern unsigned {entry}(void* callback);
+        int main(void) {{
+            unsigned status = {entry}(0);
+            return status == {failure} && reports == 0 ? 0 : 1;
+        }}
+        "#,
+        report = RuntimeAbiRole::PanicReporting.native_symbol().unwrap(),
+        entry = role.native_symbol().unwrap(),
+        failure = bray_runtime_abi::NativeRuntimeStatus::RUNTIME_FAILURE.code(),
+    );
+
+    let source = directory.path().join("caller.c");
+    let executable = directory.path().join("caller.exe");
+
+    std::fs::write(&source, caller).unwrap();
+
+    let compiler = std::path::Path::new(bray_codegen_llvm::COMPILED_LLVM_PREFIX.unwrap())
+        .join("bin/clang.exe");
+
+    let linked = std::process::Command::new(compiler)
+        .args(["--target=x86_64-pc-windows-msvc", "-fuse-ld=lld"])
+        .arg(&source)
+        .args(objects)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .unwrap();
+
+    assert!(
+        linked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&linked.stderr)
+    );
+
+    let result = std::process::Command::new(executable).status().unwrap();
+
+    assert_eq!(result.code(), Some(0));
+}
+
+#[test]
 fn runtime_source_bindings_retain_referenced_static_atomic_storage() {
     let source = concat!(
         "trusted module app;\n",
@@ -242,8 +410,12 @@ fn runtime_source_bindings_retain_referenced_static_atomic_storage() {
     let binding = bray_runtime_interface::RuntimeRoleSourceBinding::try_new(role, "app.initialize")
         .unwrap_or_else(|| panic!("runtime source binding must validate"));
 
-    let (backend, plan) =
-        runtime_native_plan_with_source_roles(&[source], ProductKind::Library, [binding]);
+    let (backend, plan) = runtime_native_plan_with_source_roles(
+        &[source],
+        ProductKind::Library,
+        SelectedTarget::baseline(),
+        [binding],
+    );
 
     let symbol = role
         .native_symbol()

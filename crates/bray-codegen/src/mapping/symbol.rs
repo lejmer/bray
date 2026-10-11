@@ -10,17 +10,61 @@ pub const FOREIGN_CALLBACK_RUNTIME_ROLES: [RuntimeAbiRole; 2] = [
     RuntimeAbiRole::PanicReporting,
 ];
 
-/// Exact binary spelling and linkage for a native entry into one Bray callable.
+/// The authority and execution boundary established by a generated native entry.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CodegenNativeEntryKind {
+    /// Enter an ordinary foreign callback through the runtime attachment service.
+    ForeignCallback,
+    /// Finish an existing exact-thread owner without recursively attaching.
+    ThreadStorageExit,
+    /// Contain bootstrap failures and return the native runtime failure status.
+    RuntimeStatus,
+}
+
+impl CodegenNativeEntryKind {
+    /// Selects the non-attaching entry boundary required by a bootstrap role.
+    pub const fn for_runtime_role(role: RuntimeAbiRole) -> Option<Self> {
+        match role {
+            RuntimeAbiRole::ThreadStorageExit => Some(Self::ThreadStorageExit),
+            RuntimeAbiRole::RuntimeInitialization
+            | RuntimeAbiRole::ThreadAttachmentEnter
+            | RuntimeAbiRole::ThreadAttachmentLeave
+            | RuntimeAbiRole::ThreadAttachmentMarkMain
+            | RuntimeAbiRole::ThreadAttachmentCleanup
+            | RuntimeAbiRole::StructuredShutdown => Some(Self::RuntimeStatus),
+            _ => None,
+        }
+    }
+}
+
+/// Exact binary spelling, linkage, and entry contract for one native callback.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenNativeEntryMapping {
     name: BinarySymbolName,
     linkage: CodegenLinkage,
+    kind: CodegenNativeEntryKind,
 }
 
 impl CodegenNativeEntryMapping {
     /// Creates one native entry mapping.
     pub const fn new(name: BinarySymbolName, linkage: CodegenLinkage) -> Self {
-        Self { name, linkage }
+        Self {
+            name,
+            linkage,
+            kind: CodegenNativeEntryKind::ForeignCallback,
+        }
+    }
+
+    /// Selects the validated native entry contract.
+    pub const fn with_kind(mut self, kind: CodegenNativeEntryKind) -> Self {
+        self.kind = kind;
+
+        self
+    }
+
+    /// Returns the validated native entry contract.
+    pub const fn kind(&self) -> CodegenNativeEntryKind {
+        self.kind
     }
 
     /// Returns the exact binary symbol name.

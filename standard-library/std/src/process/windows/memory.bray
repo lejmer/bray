@@ -2,6 +2,7 @@
 trusted module std.process;
 
 trusted internal func windows_text_pointer(pos buffer: &std.memory.RawBuffer<u8>) -> RawPointer<u16>
+    uses(layout_reinterpret)
 {
     return trusted std.memory.reinterpret<u16, u8>(std.memory.pointer<u8>(buffer));
 }

@@ -306,7 +306,11 @@ where
             return Ok(representation);
         }
 
-        if role != bray_compiler_known::RepresentationRole::Atomic {
+        if !matches!(
+            role,
+            bray_compiler_known::RepresentationRole::Atomic
+                | bray_compiler_known::RepresentationRole::Uninit
+        ) {
             return Err(EvaluationFailure::invalid_expression(expression));
         }
 
@@ -328,9 +332,7 @@ where
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
-        type_representation(self.request, value_type)
-            .and_then(bray_compiler_known::RepresentationRole::integer_representation)
-            .ok_or_else(|| EvaluationFailure::invalid_expression(expression))
+        self.integer_constant_representation(value_type, expression)
     }
 
     pub(super) fn target_integer_width(

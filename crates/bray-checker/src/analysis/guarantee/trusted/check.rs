@@ -577,6 +577,7 @@ fn cleanup_targets(
             block,
             exit,
             phase: super::super::super::model::AnalysisScopeExitPhase::LifecycleResolution,
+            ..
         } => cleanup
             .scope_exit_plan(block, exit)
             .into_iter()

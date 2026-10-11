@@ -17,6 +17,7 @@ trusted internal func native_text_width() -> usize
 }
 
 trusted internal func working_directory_storage() -> std.memory.RawBuffer<u8>
+    uses(unchecked_init)
 {
     let mut capacity: usize = 256;
 
@@ -184,6 +185,7 @@ trusted internal func prepare_native_text_copy(
 trusted internal func copy_native_text_entry(pos cursor: &NativeTextCursor, pos buffer: &mut std.memory.RawBuffer<u8>)
     requires(trusted native_text_cursor_valid(cursor = cursor))
     ensures(trusted native_text_cursor_valid(cursor = cursor))
+    uses(unchecked_init)
 {
     let observed: (RawPointer<u8>, usize) = trusted internal native_text_cursor_entry(cursor);
 
@@ -263,6 +265,7 @@ trusted internal func read_process_file(pos path: RawPointer<u8>) -> std.memory.
 }
 
 trusted internal func read_descriptor_to_end(pos descriptor: i32) -> std.memory.RawBuffer<u8>
+    uses(unchecked_init)
 {
     let mut buffer: std.memory.RawBuffer<u8> = trusted internal context_buffer(4_096);
 
@@ -324,6 +327,7 @@ trusted internal func read_descriptor_to_end(pos descriptor: i32) -> std.memory.
 
 trusted internal func fill_working_directory(pos buffer: &mut std.memory.RawBuffer<u8>) -> (bool, usize)
     ensures(trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result.1))
+    uses(raw_memory)
 {
     let initialized: usize = buffer.initialized;
     let capacity: usize = buffer.capacity - initialized;
@@ -353,6 +357,7 @@ trusted internal func read_context_buffer(
     pos buffer: &mut std.memory.RawBuffer<u8>
 ) -> (isize, usize)
     ensures(trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result.1))
+    uses(raw_memory)
 {
     let initialized: usize = buffer.initialized;
     let available: usize = buffer.capacity - initialized;
@@ -376,6 +381,7 @@ trusted internal func read_context_buffer(
 }
 
 trusted internal func context_buffer_needs_terminator(pos buffer: &std.memory.RawBuffer<u8>) -> bool
+    uses(raw_memory)
 {
     let bytes: &[u8] = trusted std.memory.initialized_slice<u8>(buffer);
     let length: usize = bytes.length();
@@ -422,6 +428,7 @@ trusted internal func descriptor_read(
         trusted core.memory.aligned_for<u64>(pointer = transferred),
     )
     ensures(trusted core.memory.initialized_as<u64>(pointer = transferred))
+    uses(raw_memory, unchecked_init)
 {
     let observed: (PlatformStatus, u64) = trusted internal prepare_descriptor_read(
         descriptor,
@@ -480,6 +487,7 @@ trusted internal func descriptor_write(
         trusted core.memory.aligned_for<u64>(pointer = transferred),
     )
     ensures(trusted core.memory.initialized_as<u64>(pointer = transferred))
+    uses(raw_memory, unchecked_init)
 {
     let observed: (PlatformStatus, u64) = trusted internal prepare_descriptor_write(
         descriptor,

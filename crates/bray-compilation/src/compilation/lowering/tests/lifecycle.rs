@@ -9,6 +9,125 @@ use crate::test_support::{
 };
 
 #[test]
+fn empty_construction_skips_admission_but_preserves_implicit_calls() {
+    for (declaration, initializer, admission, outcome_check) in [
+        (
+            "struct Value { payload: u64; }",
+            "Value { payload = 1 }",
+            false,
+            false,
+        ),
+        (
+            "struct Value { payload: u64 = risky(); }",
+            "Value {}",
+            false,
+            true,
+        ),
+        (
+            "struct Value { construct() -> Self { risky(); return Value {}; } }",
+            "Value()",
+            false,
+            true,
+        ),
+        (
+            "struct Value { destruct() { risky(); } }",
+            "Value {}",
+            true,
+            true,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            {declaration}
+            extern func risky() -> u64;
+            func caller() -> Value {{ return {initializer}; }}
+        "#
+        );
+
+        let compilation = compilation(&source);
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "caller"))
+            .unwrap();
+
+        assert!(
+            !lowered.diagnostics().has_errors(),
+            "{source}: {lowered:#?}"
+        );
+
+        let mir = lowered_mir(&lowered);
+
+        assert_eq!(
+            mir.operations().iter().any(|operation| matches!(
+                operation.kind(),
+                MirOperationKind::AdmitOutgoing { .. }
+            )),
+            admission,
+            "{source}"
+        );
+
+        assert_eq!(
+            mir.blocks().iter().any(|block| matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::CheckCallOutcome { .. }
+            )),
+            outcome_check,
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn empty_adapted_constructions_keep_checker_and_lowering_exit_plans_aligned() {
+    for (result, body) in [
+        (
+            "Value?",
+            "let value: Value = { payload = 1 }; return value;",
+        ),
+        ("Result<Value, u32>", "return Ok(Value { payload = 1 });"),
+        ("Result<Value, u32>", "return Error(1);"),
+        ("Value", "let other = Value { payload = 1 }; return other;"),
+    ] {
+        let compilation = compilation(&format!(
+            "module app; struct Value {{ payload: u64; }} func caller() -> {result} {{ {body} }}"
+        ));
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "caller"))
+            .unwrap();
+
+        assert!(
+            !lowered.diagnostics().has_errors(),
+            "{result} {body}: {lowered:#?}"
+        );
+    }
+}
+
+#[test]
+fn unit_valued_replacement_retains_old_owner_cleanup_exits() {
+    let compilation = compilation(
+        r#"
+        module app;
+        struct Resource { destruct() {} }
+        struct Container { mut value: Resource?; }
+        func replace(pos owner: &mut Container, pos value: Resource) { owner.value = value; }
+    "#,
+    );
+
+    let lowered = compilation
+        .lowered_unit(source_function_body_key(&compilation, "replace"))
+        .unwrap();
+
+    assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
+
+    assert!(lowered_mir(&lowered).blocks().iter().any(|block| matches!(
+        block.terminator().kind(),
+        MirTerminatorKind::CheckCallOutcome { .. }
+    )));
+}
+
+#[test]
 fn scoped_invocations_retain_distinct_inputs_and_clear_activity_before_exit() {
     for body in ["yield lease;", "return lease;", "panic(\"body failed\");"] {
         let compilation = compilation(&format!(

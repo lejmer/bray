@@ -15,7 +15,7 @@ thread_local! {
 }
 
 struct ForeignAttachments {
-    scope: Option<bray_platform::RuntimeThreadScope>,
+    scope: Option<crate::bootstrap::RuntimeThreadScope>,
     products: BTreeMap<usize, usize>,
 }
 
@@ -46,8 +46,8 @@ pub(super) fn attach_current_thread(product: usize) -> NativeProductHostObservat
             return Some(false);
         }
 
-        if bray_platform::current_runtime_thread().is_none() && attachments.scope.is_none() {
-            let Ok(scope) = bray_platform::RuntimeThreadScope::enter() else {
+        if crate::bootstrap::current_runtime_thread().is_none() && attachments.scope.is_none() {
+            let Ok(scope) = crate::bootstrap::RuntimeThreadScope::enter() else {
                 return None;
             };
 

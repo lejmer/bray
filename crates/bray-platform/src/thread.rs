@@ -1,36 +1,11 @@
-use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
 use std::num::NonZeroU64;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::{self, JoinHandle, Thread};
 
 use crate::{PlatformError, PlatformErrorKind, PlatformOperation};
-
-static NEXT_RUNTIME_THREAD_ID: AtomicU64 = AtomicU64::new(1);
-static MAIN_RUNTIME_THREAD_ID: AtomicU64 = AtomicU64::new(0);
-
-thread_local! {
-    static CURRENT_RUNTIME_THREAD: Cell<Option<RuntimeThreadId>> = const { Cell::new(None) };
-    static RUNTIME_THREAD_EXIT_CALLBACKS: RefCell<Vec<RuntimeThreadExitCallback>> =
-        const { RefCell::new(Vec::new()) };
-}
-
-/// One infallible native callback owned by an exact Bray thread attachment.
-pub type RuntimeThreadExitCallback = extern "C-unwind" fn();
-
-/// Registers cleanup to run in reverse order before the current attachment ends.
-pub fn register_runtime_thread_exit_callback(callback: RuntimeThreadExitCallback) -> bool {
-    if current_runtime_thread().is_none() {
-        return false;
-    }
-
-    RUNTIME_THREAD_EXIT_CALLBACKS.with(|callbacks| callbacks.borrow_mut().push(callback));
-
-    true
-}
 
 /// Process-local identity of a native thread initialized for Bray execution.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -43,7 +18,7 @@ impl RuntimeThreadId {
     }
 }
 
-/// Runtime state installed for the duration of one native thread callback.
+/// Thread-bound observation of an identity owned by the resident runtime.
 #[derive(Debug, Eq, Hash, PartialEq)]
 pub struct RuntimeThread {
     id: RuntimeThreadId,
@@ -51,6 +26,17 @@ pub struct RuntimeThread {
 }
 
 impl RuntimeThread {
+    /// Observes a nonzero identity supplied by a resident native runtime.
+    /// The view owns no attachment and grants no initialization authority.
+    pub fn from_native_identity(identity: u64) -> Option<Self> {
+        NonZeroU64::new(identity)
+            .map(RuntimeThreadId)
+            .map(|id| Self {
+                id,
+                thread_bound: PhantomData,
+            })
+    }
+
     /// Returns this initialized thread's process-local identity.
     pub const fn id(&self) -> RuntimeThreadId {
         self.id
@@ -59,156 +45,6 @@ impl RuntimeThread {
     /// Parks the current native thread until woken or spuriously resumed.
     pub fn park(&self) {
         thread::park();
-    }
-}
-
-/// Returns the current runtime thread when called inside initialized native execution.
-pub fn current_runtime_thread() -> Option<RuntimeThread> {
-    CURRENT_RUNTIME_THREAD.get().map(RuntimeThread::new)
-}
-
-/// Marks the current initialized runtime thread as the distinguished process main thread.
-pub fn mark_current_runtime_thread_as_main() -> bool {
-    let Some(current) = current_runtime_thread() else {
-        return false;
-    };
-
-    MAIN_RUNTIME_THREAD_ID
-        .compare_exchange(0, current.id().raw(), Ordering::AcqRel, Ordering::Acquire)
-        .is_ok()
-        || MAIN_RUNTIME_THREAD_ID.load(Ordering::Acquire) == current.id().raw()
-}
-
-/// Returns the distinguished process main thread when it has been initialized.
-pub fn main_runtime_thread() -> Option<RuntimeThread> {
-    NonZeroU64::new(MAIN_RUNTIME_THREAD_ID.load(Ordering::Acquire))
-        .map(RuntimeThreadId)
-        .map(RuntimeThread::new)
-}
-
-/// Scoped initialization of Bray runtime state on an existing native thread.
-#[derive(Debug)]
-pub struct RuntimeThreadScope {
-    runtime: RuntimeThread,
-    active: bool,
-    thread_bound: PhantomData<Rc<()>>,
-}
-
-/// One callback entry on either an already initialized or newly attached runtime thread.
-#[derive(Debug)]
-pub enum RuntimeThreadEntry {
-    /// The caller thread already belongs to Bray runtime execution.
-    Current(RuntimeThread),
-    /// The foreign caller thread is initialized for this entry's lifetime.
-    Attached(RuntimeThreadScope),
-}
-
-impl RuntimeThreadEntry {
-    /// Returns the runtime-thread identity active for this entry.
-    pub const fn runtime(&self) -> &RuntimeThread {
-        match self {
-            Self::Current(runtime) => runtime,
-            Self::Attached(scope) => scope.runtime(),
-        }
-    }
-
-    /// Finishes an attached entry and returns the number of cleanup callbacks that panicked.
-    pub fn finish(self) -> usize {
-        match self {
-            Self::Current(_) => 0,
-            Self::Attached(scope) => scope.finish(),
-        }
-    }
-}
-
-impl RuntimeThreadScope {
-    /// Initializes the current thread until this scope is dropped.
-    pub fn enter() -> Result<Self, PlatformError> {
-        Self::enter_with_id(next_runtime_thread_id()?)
-    }
-
-    /// Reuses an active runtime thread or attaches the current foreign thread for this entry.
-    pub fn enter_or_reuse() -> Result<RuntimeThreadEntry, PlatformError> {
-        match current_runtime_thread() {
-            Some(runtime) => Ok(RuntimeThreadEntry::Current(runtime)),
-            None => Self::enter().map(RuntimeThreadEntry::Attached),
-        }
-    }
-
-    /// Returns the runtime identity installed by this scope.
-    pub const fn runtime(&self) -> &RuntimeThread {
-        &self.runtime
-    }
-
-    fn enter_with_id(id: RuntimeThreadId) -> Result<Self, PlatformError> {
-        let previous = CURRENT_RUNTIME_THREAD.replace(Some(id));
-
-        if previous.is_some() {
-            CURRENT_RUNTIME_THREAD.set(previous);
-
-            return Err(PlatformError::new(
-                PlatformOperation::ThreadRuntimeInitialization,
-                PlatformErrorKind::RuntimeThreadAlreadyInitialized,
-            ));
-        }
-
-        RUNTIME_THREAD_EXIT_CALLBACKS.with(|callbacks| callbacks.borrow_mut().clear());
-
-        Ok(Self {
-            runtime: RuntimeThread::new(id),
-            active: true,
-            thread_bound: PhantomData,
-        })
-    }
-
-    /// Finishes this attachment and returns the number of cleanup callbacks that panicked.
-    pub fn finish(mut self) -> usize {
-        self.finish_attachment()
-    }
-
-    fn finish_attachment(&mut self) -> usize {
-        if !self.active {
-            return 0;
-        }
-
-        self.active = false;
-
-        let mut incidents = 0usize;
-
-        let mut callbacks = RUNTIME_THREAD_EXIT_CALLBACKS
-            .with(|callbacks| std::mem::take(&mut *callbacks.borrow_mut()));
-
-        while let Some(callback) = callbacks.pop() {
-            if catch_unwind(AssertUnwindSafe(|| callback())).is_err() {
-                incidents = incidents.saturating_add(1);
-            }
-        }
-
-        let _ = MAIN_RUNTIME_THREAD_ID.compare_exchange(
-            self.runtime.id().raw(),
-            0,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        );
-
-        CURRENT_RUNTIME_THREAD.set(None);
-
-        incidents
-    }
-}
-
-impl RuntimeThread {
-    const fn new(id: RuntimeThreadId) -> Self {
-        Self {
-            id,
-            thread_bound: PhantomData,
-        }
-    }
-}
-
-impl Drop for RuntimeThreadScope {
-    fn drop(&mut self) {
-        let _ = self.finish_attachment();
     }
 }
 
@@ -247,12 +83,11 @@ pub struct NativeThread<T> {
 }
 
 impl<T: Send + 'static> NativeThread<T> {
-    /// Creates an initialized native thread and transfers callback ownership to it.
+    /// Creates a native thread whose caller supplies any runtime attachment.
     pub fn spawn(
         name: Option<NativeThreadName>,
-        callback: impl FnOnce(RuntimeThread) -> T + Send + 'static,
+        callback: impl FnOnce() -> T + Send + 'static,
     ) -> Result<Self, PlatformError> {
-        let id = next_runtime_thread_id()?;
         let mut builder = thread::Builder::new();
 
         if let Some(name) = name {
@@ -260,7 +95,12 @@ impl<T: Send + 'static> NativeThread<T> {
         }
 
         let join = builder
-            .spawn(move || run_initialized_thread(id, callback))
+            .spawn(move || {
+                catch_unwind(AssertUnwindSafe(callback)).map_or(
+                    NativeThreadOutcome::Panicked,
+                    NativeThreadOutcome::Completed,
+                )
+            })
             .map_err(|error| PlatformError::from_io(PlatformOperation::ThreadSpawn, &error))?;
 
         // The wake authority must remain available after the join handle is moved.
@@ -290,231 +130,45 @@ impl<T: Send + 'static> NativeThread<T> {
     }
 }
 
-fn next_runtime_thread_id() -> Result<RuntimeThreadId, PlatformError> {
-    let id = NEXT_RUNTIME_THREAD_ID
-        .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-            current.checked_add(1)
-        })
-        .map_err(|_| {
-            PlatformError::new(
-                PlatformOperation::ThreadRuntimeInitialization,
-                PlatformErrorKind::ThreadIdentityExhausted,
-            )
-        })?;
-
-    NonZeroU64::new(id).map(RuntimeThreadId).ok_or_else(|| {
-        PlatformError::new(
-            PlatformOperation::ThreadRuntimeInitialization,
-            PlatformErrorKind::ThreadIdentityExhausted,
-        )
-    })
-}
-
-fn run_initialized_thread<T>(
-    id: RuntimeThreadId,
-    callback: impl FnOnce(RuntimeThread) -> T,
-) -> NativeThreadOutcome<T> {
-    let Ok(_scope) = RuntimeThreadScope::enter_with_id(id) else {
-        return NativeThreadOutcome::Panicked;
-    };
-
-    catch_unwind(AssertUnwindSafe(|| callback(RuntimeThread::new(id)))).map_or(
-        NativeThreadOutcome::Panicked,
-        NativeThreadOutcome::Completed,
-    )
-}
-
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
-
-    use super::{
-        NativeThread, NativeThreadName, NativeThreadOutcome, RuntimeThread, RuntimeThreadEntry,
-        RuntimeThreadScope, current_runtime_thread, main_runtime_thread,
-        mark_current_runtime_thread_as_main, register_runtime_thread_exit_callback,
-    };
-
-    thread_local! {
-        static EXIT_ORDER: Cell<u64> = const { Cell::new(0) };
-    }
-
-    extern "C-unwind" fn first_exit() {
-        append_exit(1);
-    }
-
-    extern "C-unwind" fn second_exit() {
-        append_exit(2);
-    }
-
-    extern "C-unwind" fn panicking_exit() {
-        panic!("test attachment cleanup incident");
-    }
-
-    fn append_exit(exit: u64) {
-        EXIT_ORDER.with(|order| {
-            let value = order
-                .get()
-                .checked_mul(10)
-                .and_then(|value| value.checked_add(exit))
-                .unwrap_or_else(|| panic!("test exit order must remain representable"));
-
-            order.set(value);
-        });
-    }
+    use super::{NativeThread, NativeThreadName, NativeThreadOutcome, RuntimeThread};
 
     #[test]
-    fn native_threads_install_and_remove_runtime_context() {
+    fn native_threads_preserve_their_name_and_return_value() {
         let name = NativeThreadName::try_new("bray-test-worker");
 
-        let worker = NativeThread::spawn(name, |runtime| {
-            assert_eq!(
-                current_runtime_thread().as_ref().map(RuntimeThread::id),
-                Some(runtime.id())
-            );
+        let worker = NativeThread::spawn(name, || {
+            assert_eq!(std::thread::current().name(), Some("bray-test-worker"));
 
-            runtime.id()
+            42
         })
-        .unwrap_or_else(|error| panic!("native thread must spawn: {error:?}"));
+        .expect("native thread must spawn");
 
-        let outcome = worker
-            .join()
-            .unwrap_or_else(|error| panic!("native thread must join: {error:?}"));
-
-        assert!(matches!(outcome, NativeThreadOutcome::Completed(_)));
-        assert_eq!(current_runtime_thread(), None);
+        assert!(matches!(
+            worker.join().expect("native thread must join"),
+            NativeThreadOutcome::Completed(42)
+        ));
     }
 
     #[test]
     fn native_thread_panics_do_not_cross_the_join_boundary() {
-        let worker = NativeThread::spawn(None, |_| {
-            panic!("test panic");
-        })
-        .unwrap_or_else(|error| panic!("native thread must spawn: {error:?}"));
+        let worker =
+            NativeThread::spawn(None, || panic!("test panic")).expect("native thread must spawn");
 
-        let outcome = worker
-            .join()
-            .unwrap_or_else(|error| panic!("native thread must join: {error:?}"));
-
-        assert!(matches!(outcome, NativeThreadOutcome::Panicked));
+        assert!(matches!(
+            worker.join().expect("native thread must join"),
+            NativeThreadOutcome::Panicked
+        ));
     }
 
     #[test]
-    fn existing_native_threads_use_scoped_runtime_initialization() {
-        assert_eq!(current_runtime_thread(), None);
-
-        let scope = RuntimeThreadScope::enter()
-            .unwrap_or_else(|error| panic!("current thread must initialize: {error:?}"));
+    fn native_identity_observations_require_nonzero_values() {
+        assert!(RuntimeThread::from_native_identity(0).is_none());
 
         assert_eq!(
-            current_runtime_thread().as_ref().map(RuntimeThread::id),
-            Some(scope.runtime().id())
+            RuntimeThread::from_native_identity(42).unwrap().id().raw(),
+            42
         );
-
-        assert!(RuntimeThreadScope::enter().is_err());
-
-        drop(scope);
-
-        assert_eq!(current_runtime_thread(), None);
-    }
-
-    #[test]
-    fn callback_entries_reuse_runtime_threads_and_attach_foreign_threads() {
-        let attached = RuntimeThreadScope::enter_or_reuse()
-            .unwrap_or_else(|error| panic!("foreign thread must attach: {error:?}"));
-
-        assert!(matches!(attached, RuntimeThreadEntry::Attached(_)));
-
-        let id = attached.runtime().id();
-
-        let current = RuntimeThreadScope::enter_or_reuse()
-            .unwrap_or_else(|error| panic!("runtime thread must be reused: {error:?}"));
-
-        assert!(matches!(current, RuntimeThreadEntry::Current(_)));
-        assert_eq!(current.runtime().id(), id);
-
-        drop(current);
-
-        assert_eq!(
-            current_runtime_thread().map(|runtime| runtime.id()),
-            Some(id)
-        );
-
-        drop(attached);
-        assert_eq!(current_runtime_thread(), None);
-    }
-
-    #[test]
-    fn attachment_exit_callbacks_run_in_reverse_order_for_each_scope() {
-        EXIT_ORDER.set(0);
-
-        let scope = RuntimeThreadScope::enter()
-            .unwrap_or_else(|error| panic!("runtime thread must attach: {error:?}"));
-
-        assert!(register_runtime_thread_exit_callback(first_exit));
-        assert!(register_runtime_thread_exit_callback(second_exit));
-
-        drop(scope);
-
-        assert_eq!(EXIT_ORDER.get(), 21);
-        assert!(!register_runtime_thread_exit_callback(first_exit));
-
-        let scope = RuntimeThreadScope::enter()
-            .unwrap_or_else(|error| panic!("runtime thread must reattach: {error:?}"));
-
-        assert!(register_runtime_thread_exit_callback(first_exit));
-
-        drop(scope);
-
-        assert_eq!(EXIT_ORDER.get(), 211);
-    }
-
-    #[test]
-    fn attachment_exit_continues_after_a_cleanup_callback_panics() {
-        EXIT_ORDER.set(0);
-
-        let scope = RuntimeThreadScope::enter()
-            .unwrap_or_else(|error| panic!("runtime thread must attach: {error:?}"));
-
-        assert!(register_runtime_thread_exit_callback(first_exit));
-        assert!(register_runtime_thread_exit_callback(panicking_exit));
-        assert!(register_runtime_thread_exit_callback(second_exit));
-
-        drop(scope);
-
-        assert_eq!(EXIT_ORDER.get(), 21);
-        assert_eq!(current_runtime_thread(), None);
-    }
-
-    #[test]
-    fn explicit_attachment_finish_reports_cleanup_callback_panics() {
-        EXIT_ORDER.set(0);
-
-        let scope = RuntimeThreadScope::enter()
-            .unwrap_or_else(|error| panic!("runtime thread must attach: {error:?}"));
-
-        assert!(register_runtime_thread_exit_callback(first_exit));
-        assert!(register_runtime_thread_exit_callback(panicking_exit));
-        assert!(register_runtime_thread_exit_callback(second_exit));
-
-        assert_eq!(scope.finish(), 1);
-        assert_eq!(EXIT_ORDER.get(), 21);
-        assert_eq!(current_runtime_thread(), None);
-    }
-
-    #[test]
-    fn main_thread_identity_is_scoped_to_its_runtime_attachment() {
-        let scope = RuntimeThreadScope::enter()
-            .unwrap_or_else(|error| panic!("runtime thread must attach: {error:?}"));
-
-        assert!(mark_current_runtime_thread_as_main());
-
-        assert_eq!(
-            main_runtime_thread().map(|thread| thread.id()),
-            Some(scope.runtime().id())
-        );
-
-        drop(scope);
-
-        assert_eq!(main_runtime_thread(), None);
     }
 }

@@ -57,6 +57,7 @@ trusted internal func equals(
         trusted core.memory.valid_read<u8>(pointer = right_data, count = right_length),
         trusted core.memory.initialized_range_as<u8>(pointer = right_data, count = right_length),
     )
+    uses(raw_memory)
 {
     if left_length != right_length
     {
@@ -375,7 +376,7 @@ trusted internal func copy_text(pos data: RawPointer<u8>, pos length: usize) -> 
         trusted core.memory.valid_read<u8>(pointer = data, count = length),
         trusted core.memory.initialized_range_as<u8>(pointer = data, count = length),
     )
-    uses(manual_alloc)
+    uses(manual_alloc, raw_memory, unchecked_init)
 {
     let header_bytes: usize = std.memory.size_of<usize>();
     let maximum_bytes: usize = ~0;
@@ -422,6 +423,7 @@ trusted internal func text_reference_count(pos text: &OwnedText) -> RawPointer<u
         trusted core.memory.valid_write<usize>(pointer = result, count = 1),
         trusted core.memory.aligned_for<usize>(pointer = result),
     )
+    uses(layout_reinterpret)
 {
     assert(!std.memory.is_null<u8>(text.owner), "empty string storage has no reference count");
 
@@ -449,6 +451,7 @@ trusted internal func byte(pos data: RawPointer<u8>, pos length: usize, pos inde
         trusted core.memory.valid_read<u8>(pointer = data, count = length),
         trusted core.memory.initialized_range_as<u8>(pointer = data, count = length),
     )
+    uses(raw_memory)
 {
     if !(index < length) || !(index != 18_446_744_073_709_551_615)
     {

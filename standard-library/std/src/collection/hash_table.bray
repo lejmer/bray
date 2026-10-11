@@ -130,6 +130,7 @@ internal func hash_table_probe_distance(pos ideal: usize, pos actual: usize, pos
 }
 
 trusted internal func hash_table_item<Item>(pos table: &HashTable<Item>, index: usize) -> &Item
+    uses(raw_memory, unchecked_alias)
 {
     let pointer: RawPointer<Item> = trusted hash_table_item_pointer(table, index = index);
 
@@ -137,6 +138,7 @@ trusted internal func hash_table_item<Item>(pos table: &HashTable<Item>, index: 
 }
 
 trusted internal func hash_table_item_mut<Item>(pos table: &mut HashTable<Item>, index: usize) -> &mut Item
+    uses(raw_memory, unchecked_alias)
 {
     let pointer: RawPointer<Item> = trusted hash_table_item_pointer_mut(table, index = index);
 
@@ -154,6 +156,7 @@ trusted internal func hash_table_item_pointer<Item>(pos table: &HashTable<Item>,
         trusted core.memory.movement_stable<Item>(pointer = result),
         trusted core.memory.finalization_pending<Item>(pointer = result),
     )
+    uses(raw_memory)
 {
     let states: &[u8] = trusted std.memory.initialized_slice<u8>(&table.states);
 
@@ -192,6 +195,7 @@ trusted internal func hash_table_initialized_slot<Item>(
     index: usize
 ) -> &mut Uninit<Item>
     ensures(trusted core.memory.uninit_initialized<Item>(storage = &result))
+    uses(raw_memory)
 {
     let states: &[u8] = trusted std.memory.initialized_slice<u8>(&table.states);
 
@@ -206,6 +210,7 @@ trusted internal func hash_table_initialized_slot<Item>(
 }
 
 trusted internal func hash_table_hash(pos hashes: &std.memory.RawBuffer<u128>, index: usize) -> u128
+    uses(raw_memory)
 {
     let values: &[u128] = trusted std.memory.initialized_slice<u128>(hashes);
     let pointer: RawPointer<u128> = std.memory.address_of<u128>(&values[index]);
@@ -214,11 +219,13 @@ trusted internal func hash_table_hash(pos hashes: &std.memory.RawBuffer<u128>, i
 }
 
 trusted internal func hash_table_occupied(pos states: &std.memory.RawBuffer<u8>, index: usize) -> bool
+    uses(raw_memory)
 {
     return std.memory.initialized_slice<u8>(states)[index] == HASH_TABLE_OCCUPIED;
 }
 
 trusted internal func hash_table_write<Item>(pos table: &mut HashTable<Item>, pos item: Item, hash: u128, index: usize)
+    uses(raw_memory)
 {
     trusted hash_table_write_storage<Item>(&mut table.items, &mut table.states, item, index = index);
 
@@ -233,6 +240,7 @@ trusted internal func hash_table_write_storage<Item>(
     pos item: Item,
     index: usize
 )
+    uses(raw_memory)
 {
     let occupied: &[u8] = trusted std.memory.initialized_slice<u8>(&states);
 
@@ -249,6 +257,7 @@ trusted internal func hash_table_write_storage<Item>(
 }
 
 trusted internal func hash_table_take<Item>(pos table: &mut HashTable<Item>, index: usize) -> Item
+    uses(raw_memory, unchecked_init)
 {
     let slot: &mut Uninit<Item> = trusted hash_table_initialized_slot(table, index = index);
     let value: Item = trusted std.memory.move_initialized<Item>(slot);
@@ -263,6 +272,7 @@ trusted internal func hash_table_transfer_at<Item>(
     pos destination: &mut HashTable<Item>,
     index: usize
 )
+    uses(raw_memory)
 {
     let hash: u128 =
     {
@@ -277,6 +287,7 @@ trusted internal func hash_table_transfer_at<Item>(
 }
 
 trusted internal func hash_table_find_hash<Item>(pos table: &HashTable<Item>, pos after: usize?, hash: u128) -> usize?
+    uses(raw_memory)
 {
     let bucket_count: usize = std.memory.capacity<u8>(&table.states);
 
@@ -373,6 +384,7 @@ trusted internal func hash_table_reallocate<Item>(
     pos table: &mut HashTable<Item>,
     bucket_count: usize
 ) -> Result<unit, std.memory.MemoryLayoutError>
+    uses(manual_alloc)
 {
     let requested_capacity: usize = hash_table_bucket_capacity(bucket_count);
     let mut replacement: HashTable<Item> = try trusted HashTable<Item>(capacity = requested_capacity);
@@ -424,6 +436,7 @@ trusted internal func hash_table_remove_at<Item>(pos table: &mut HashTable<Item>
 }
 
 trusted internal func hash_table_close_hole<Item>(pos table: &mut HashTable<Item>, hole: usize)
+    uses(raw_memory)
 {
     let bucket_count: usize = std.memory.capacity<u8>(&table.states);
     let mut open: usize = hole;

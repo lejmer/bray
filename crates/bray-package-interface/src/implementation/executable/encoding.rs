@@ -1739,6 +1739,10 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         use bray_bound_tree::CheckedMemoryOperationKind as Kind;
 
         match kind {
+            Kind::UninitFrom { element } => {
+                self.wire.write_u32(59);
+                self.ty(element)?;
+            }
             Kind::UninitNew { element } => {
                 self.wire.write_u32(48);
                 self.ty(element)?;

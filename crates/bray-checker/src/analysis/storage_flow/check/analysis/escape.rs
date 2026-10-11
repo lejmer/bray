@@ -53,7 +53,6 @@ where
             }
 
             if self.owners.identity_scope(self.storage, storage) != Some(block)
-                || !self.exit_leaves_scope(exit, block)
                 || !self.reported_diagnostics.insert((
                     DiagnosticKind::CheckingEscapingStorageDependency,
                     capability.access(),
@@ -204,35 +203,6 @@ where
 
             access = capability.access();
         }
-    }
-
-    fn exit_leaves_scope(
-        &mut self,
-        exit: AnyBoundNodeId,
-        block: bray_bound_tree::BoundBlockId,
-    ) -> bool {
-        let AnyBoundNodeId::Expression(exit) = exit else {
-            return true;
-        };
-
-        let Some(bray_bound_tree::BoundExpression::ControlTransfer(transfer)) =
-            self.request.view().expression(exit)
-        else {
-            return true;
-        };
-
-        let Some(target) = transfer.target() else {
-            return true;
-        };
-
-        let Some(block) = self.request.view().block(block) else {
-            panic!(
-                "A control-flow transfer names a block absent from its source body. in exit_leaves_scope, block: {:?}",
-                block
-            );
-        };
-
-        target != block.origin().source_anchor().syntax()
     }
 }
 

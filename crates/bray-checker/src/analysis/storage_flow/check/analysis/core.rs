@@ -218,6 +218,7 @@ where
                 block,
                 exit,
                 phase: AnalysisScopeExitPhase::LifecycleResolution,
+                ..
             } = operation.kind()
             {
                 reachable_exits.insert(StorageExitPoint::new(block, exit));
@@ -453,6 +454,7 @@ where
             block,
             exit,
             phase: AnalysisScopeExitPhase::LifecycleResolution,
+            ..
         } = operation.kind()
         {
             self.report_escaping_storage_dependencies(state, block, exit);
@@ -475,6 +477,7 @@ where
             block,
             exit,
             phase: AnalysisScopeExitPhase::LifecycleResolution,
+            ..
         } = operation.kind()
         {
             self.record_exit(state, block, exit);
@@ -502,9 +505,15 @@ where
                 | StorageOperationStatus::NotCopyable
         ) {
             panic!(
-                "Storage-flow analysis produced a state forbidden for one exact planned source operation. in apply_plan, expression: {:?}, access: {:?}, status: {:?}",
+                "Storage-flow analysis produced a state forbidden for one exact planned source operation. in apply_plan, unit: {:?}, origin: {:?}, expression: {:?}, access: {:?}, purpose: {:?}, status: {:?}",
+                self.request.unit().key(),
+                self.request
+                    .view()
+                    .expression(plan.expression())
+                    .map(|expression| expression.origin()),
                 plan.expression(),
                 plan.access(),
+                purpose,
                 status
             );
         }
@@ -562,7 +571,7 @@ where
         }
 
         if !self.pattern_establishes_projection(plan.access())
-            && !self.refinements_allow_access(plan.access(), refinements)
+            && !self.refinements_allow_access(state, plan.access(), refinements)
         {
             return StorageOperationOutcome::status(StorageOperationStatus::InactiveProjection);
         }

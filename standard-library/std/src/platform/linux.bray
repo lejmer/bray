@@ -59,7 +59,7 @@ trusted internal func unix_error_code() -> i32
 }
 
 trusted internal func clear_unix_error() -> unit
-    uses(foreign_call)
+    uses(foreign_call, raw_memory, unchecked_init)
 {
     trusted std.memory.write<i32>(trusted internal std.os.linux.errno_location(), value = 0);
 }
@@ -245,6 +245,7 @@ trusted internal func linux_error_status() -> PlatformStatus
 }
 
 trusted internal func unix_error_status_from(pos code: i32) -> PlatformStatus
+    executes(total)
 {
     let category: u32 = match code
     {

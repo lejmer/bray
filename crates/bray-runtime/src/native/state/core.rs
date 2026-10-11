@@ -6,7 +6,8 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use bray_platform::{RuntimeThreadEntry, RuntimeThreadId, RuntimeThreadScope};
+use crate::bootstrap::{RuntimeThreadEntry, RuntimeThreadScope};
+use bray_platform::RuntimeThreadId;
 use bray_runtime_abi::{
     NativeRunState, NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskHandle,
 };
@@ -126,7 +127,7 @@ thread_local! {
 }
 
 #[cfg(test)]
-pub(in crate::native) struct TestRuntimeIsolation {
+pub(crate) struct TestRuntimeIsolation {
     _guard: std::sync::MutexGuard<'static, ()>,
 }
 
@@ -138,7 +139,7 @@ impl Drop for TestRuntimeIsolation {
 }
 
 #[cfg(test)]
-pub(in crate::native) fn test_runtime_isolation() -> Option<TestRuntimeIsolation> {
+pub(crate) fn test_runtime_isolation() -> Option<TestRuntimeIsolation> {
     if HOLDS_TEST_RUNTIME_ISOLATION.get() || current_runtime().is_some() {
         None
     } else {
@@ -491,7 +492,7 @@ fn initialize_with_capabilities(
         return NativeRuntimeStatus::RUNTIME_FAILURE;
     };
 
-    if main_thread_lane && !bray_platform::mark_current_runtime_thread_as_main() {
+    if main_thread_lane && !crate::bootstrap::mark_current_runtime_thread_as_main() {
         return NativeRuntimeStatus::RUNTIME_FAILURE;
     }
 
@@ -605,12 +606,12 @@ pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
 
 pub(in crate::native) fn run_worker(
     core: Arc<NativeRuntimeCore>,
-    thread: bray_platform::RuntimeThread,
+    thread: RuntimeThreadEntry,
     workload: ExecutionWorkload,
     control: Arc<super::super::workers::WorkerControl>,
 ) {
     let runtime = Rc::new(NativeRuntime {
-        thread: RuntimeThreadEntry::Current(thread),
+        thread,
         main_thread_lane: false,
         cleanup_workloads: Cell::new(false),
         worker: Some(Arc::clone(&control)),

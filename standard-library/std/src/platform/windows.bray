@@ -44,7 +44,7 @@ trusted internal func native_text_width() -> usize
 }
 
 trusted internal func working_directory_storage() -> std.memory.RawBuffer<u8>
-    uses(foreign_call)
+    uses(foreign_call, unchecked_init)
 {
     let required: u32 = trusted std.os.windows.get_current_directory_w(0, destination = std.memory.null<u16>());
 
@@ -68,6 +68,7 @@ trusted internal func working_directory_storage() -> std.memory.RawBuffer<u8>
 }
 
 trusted internal func argument_storage() -> std.memory.RawBuffer<u8>
+    uses(manual_alloc)
 {
     let owner: LocalAllocation = trusted internal native_arguments();
     let mut total: usize = 0;
@@ -119,6 +120,7 @@ trusted internal func argument_storage() -> std.memory.RawBuffer<u8>
 }
 
 trusted internal func environment_storage() -> Result<std.memory.RawBuffer<u8>, PlatformStatus>
+    uses(manual_alloc, raw_memory)
 {
     let mut owner: EnvironmentBlock = trusted internal native_environment();
 
@@ -226,6 +228,7 @@ trusted internal func copy_native_argument(
     requires(trusted native_arguments_live(owner = owner), index < owner.count)
     ensures(trusted native_arguments_live(owner = owner))
     executes(total)
+    uses(unchecked_init)
 {
     let observed: (bool, NativeTextSpan) = trusted internal native_argument(owner, index = index);
 
@@ -259,6 +262,7 @@ trusted internal func copy_native_environment_entry(
     requires(trusted native_environment_live(owner = owner))
     ensures(trusted native_environment_live(owner = owner))
     executes(total)
+    uses(raw_memory, unchecked_init)
 {
     let observed: (bool, NativeTextSpan) = trusted internal native_environment_entry(owner);
 
@@ -292,7 +296,7 @@ trusted internal func copy_native_environment_entry(
 }
 
 trusted internal func environment_keys_equal(pos left: &[u8], pos right: &[u8]) -> bool
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret)
 {
     let left_bytes: usize = left.length();
     let right_bytes: usize = right.length();
@@ -336,7 +340,7 @@ trusted internal predicate native_environment_live(owner: &EnvironmentBlock);
 
 trusted internal func native_arguments() -> LocalAllocation
     ensures(trusted native_arguments_live(owner = &result))
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret)
 {
     let command_line: RawPointer<u16> = trusted std.os.windows.get_command_line_w();
     let mut count: i32 = 0;
@@ -367,6 +371,7 @@ trusted internal func native_argument_slot(pos owner: &LocalAllocation, index: u
         trusted core.memory.initialized_as<RawPointer<u16>>(pointer = result),
     )
     executes(pure, total)
+    uses(layout_reinterpret)
 {
     return std.memory.offset<RawPointer<u16>>(
         trusted std.memory.reinterpret<RawPointer<u16>, u8>(owner.pointer),
@@ -399,6 +404,7 @@ trusted internal func native_argument(pos owner: &LocalAllocation, index: usize)
         ),
     )
     executes(pure, total)
+    uses(layout_reinterpret)
 {
     let pointer: RawPointer<u16> = trusted internal native_argument_pointer(owner, index = index);
     let length: i32 = trusted internal terminated_u16_length(pointer);
@@ -463,6 +469,7 @@ trusted internal func native_environment_entry(pos owner: &EnvironmentBlock) -> 
         ),
     )
     executes(pure, total)
+    uses(layout_reinterpret)
 {
     let pointer: RawPointer<u16> = trusted internal native_environment_pointer(owner);
 
@@ -542,6 +549,7 @@ trusted internal func reset_native_environment(pos owner: &mut EnvironmentBlock)
 }
 
 trusted internal func windows_error_status() -> PlatformStatus
+    executes(total)
     uses(foreign_call)
 {
     let code: u32 = trusted std.os.windows.get_last_error();
@@ -550,6 +558,7 @@ trusted internal func windows_error_status() -> PlatformStatus
 }
 
 internal func windows_error_status_from(pos code: u32) -> PlatformStatus
+    executes(total)
 {
     return native_status(category = windows_error_category(code), code = code as i64);
 }
@@ -566,6 +575,7 @@ internal func windows_errno_status_from(pos code: i32) -> PlatformStatus
 }
 
 internal func windows_error_category(pos code: u32) -> u32
+    executes(total)
 {
     return match code
     {
@@ -779,6 +789,7 @@ trusted internal func handle_read(
         trusted core.memory.aligned_for<u64>(pointer = transferred),
     )
     ensures(trusted core.memory.initialized_as<u64>(pointer = transferred))
+    uses(raw_memory, unchecked_init)
 {
     let observed: (PlatformStatus, u64) = trusted internal prepare_handle_read(
         handle,
@@ -852,6 +863,7 @@ trusted internal func handle_write(
         trusted core.memory.aligned_for<u64>(pointer = transferred),
     )
     ensures(trusted core.memory.initialized_as<u64>(pointer = transferred))
+    uses(raw_memory, unchecked_init)
 {
     let observed: (PlatformStatus, u64) = trusted internal prepare_handle_write(
         handle,
@@ -938,7 +950,7 @@ trusted internal func handle_transfer_status(pos succeeded: i32) -> PlatformStat
 
 trusted internal func fill_working_directory(pos buffer: &mut std.memory.RawBuffer<u8>, required: u32) -> (bool, usize)
     ensures(trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result.1))
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret, unchecked_init)
 {
     let initialized: usize = trusted internal std.memory.fill_spare_bytes(
         buffer,

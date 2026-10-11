@@ -181,6 +181,7 @@ fn raw_buffer_nullable_views_retain_the_borrowed_owner() {
             struct Holder<T> {{ mut storage: std.memory.RawBuffer<(T?)>; }}
 
             trusted func element<T>(pos holder: &{borrow}Holder<T>) -> &{borrow}T
+                uses(raw_memory)
             {{
                 let slots: &{borrow}[(T?)] = trusted std.memory.{helper}<(T?)>(&{borrow}holder.storage);
 
@@ -754,17 +755,7 @@ fn native_nul_guarantees_follow_the_selected_pointer_null_guard() {
 
 #[test]
 fn native_environment_cursor_requires_live_provider_storage() {
-    let section = |source: &'static str, start: &str, end: &str| {
-        let start = source
-            .find(start)
-            .expect("native source section must exist");
-
-        let source = &source[start..];
-
-        &source[..source
-            .find(end)
-            .expect("native source section must terminate")]
-    };
+    let section = standard_library_source_section;
 
     let unix = include_str!("../../../../../../../standard-library/std/src/platform/unix.bray");
     let linux = include_str!("../../../../../../../standard-library/std/src/platform/linux.bray");
@@ -983,7 +974,8 @@ fn native_environment_cursor_requires_live_provider_storage() {
 }
 #[test]
 fn native_thread_payloads_keep_their_allocation_owner() {
-    let types = include_str!("../../../../../../../standard-library/std/src/thread/types.bray");
+    let types = include_str!("../../../../../../../standard-library/std/src/thread/types.bray")
+        .replace("\r\n", "\n");
 
     let boundary =
         include_str!("../../../../../../../standard-library/std/src/thread/boundary.bray");
@@ -1008,16 +1000,17 @@ fn native_thread_payloads_keep_their_allocation_owner() {
         "trusted internal module std.thread;\n@layout(stable)\ninternal struct TransferredThreadValue{owner}\ntrusted internal func allocate_thread_value{operations}"
     );
 
-    for (ty, value) in [
-        ("u32", "42"),
-        ("unit", "unit"),
+    for (ty, value, capabilities) in [
+        ("u32", "42", ""),
+        ("unit", "unit", ""),
         (
             "std.memory.RawAllocation",
             "trusted std.memory.allocate({ bytes = 1, align = 1 })",
+            "uses(manual_alloc)",
         ),
     ] {
         let source = format!(
-            "trusted module app; trusted func round_trip() -> {ty} {{ return trusted internal std.thread.take_transferred_value<{ty}>(trusted internal std.thread.allocate_thread_value<{ty}>({value})); }}"
+            "trusted module app; trusted func round_trip() -> {ty} {capabilities} {{ return trusted internal std.thread.take_transferred_value<{ty}>(trusted internal std.thread.allocate_thread_value<{ty}>({value})); }}"
         );
 
         let compilation = standard_library_compilation([
@@ -1055,7 +1048,7 @@ fn returned_tuple_and_array_components_retain_initialized_storage_contracts() {
                 return {result_value};
             }}
 
-            trusted internal func consume_prefix(pos buffer: &mut std.memory.RawBuffer<u8>, count: usize) {{
+            trusted internal func consume_prefix(pos buffer: &mut std.memory.RawBuffer<u8>, count: usize) uses(unchecked_init) {{
                 let prefix: {result_type} = trusted internal fill_prefix(buffer, count = count);
 
                 trusted std.memory.set_initialized_count<u8>(buffer, count = prefix{projection});
@@ -1179,6 +1172,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
                     trusted core.memory.valid_read<u8>(pointer = pointer, count = count),
                     trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = count),
                 )
+                uses(raw_memory)
             {{
                 if !({guard}) {{ return 0; }}
                 return trusted internal byte_buffer_read(pointer, index = 3);
@@ -1209,7 +1203,8 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         module std.memory;
 
         trusted internal func fill_widened_count(pos destination: RawPointer<u8>, length: u64)
-            requires(trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize)) {
+            requires(trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize))
+            uses(raw_memory, unchecked_init) {
             trusted internal byte_buffer_fill(destination, value = 7, count = length as usize);
         }
 
@@ -1238,7 +1233,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
             };
         }
 
-        internal func read_two_checked_spans(pos left: &[u8], pos right: &[u8]) -> u8 {
+        trusted internal func read_two_checked_spans(pos left: &[u8], pos right: &[u8]) -> u8 uses(raw_memory) {
             let left_span: ByteSpan = checked_span(left);
             let right_span: ByteSpan = checked_span(right);
 
@@ -1249,7 +1244,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
             return left_byte ^ right_byte;
         }
 
-        internal func read_wire_span(pos source: &[u8]) -> u8 {
+        trusted internal func read_wire_span(pos source: &[u8]) -> u8 uses(raw_memory) {
             let span: ByteSpan = checked_span(source);
             let length: u64 = span.count as u64;
             let count: usize = length as usize;
@@ -1259,7 +1254,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
             return trusted internal byte_buffer_read(span.address, index = 0);
         }
 
-        internal func read_after_pointer_and_scalar_calculations(pos bytes: &[u8]) -> u8 {
+        trusted internal func read_after_pointer_and_scalar_calculations(pos bytes: &[u8]) -> u8 uses(raw_memory) {
             if !(1 <= bytes.length()) { panic("source empty"); }
             let byte_pointer: RawPointer<u8> = internal slice_pointer(bytes, count = 1);
             let _: RawPointer<u8> = offset(byte_pointer, elements = 1);
@@ -1271,7 +1266,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
             return trusted internal byte_buffer_read(byte_pointer, index = 0);
         }
 
-        internal func read_loop(pos bytes: &[u8]) {
+        trusted internal func read_loop(pos bytes: &[u8]) uses(raw_memory) {
             let count: usize = bytes.length();
             let byte_pointer: RawPointer<u8> = internal slice_pointer(bytes, count = count);
             let mut index: usize = 0;
@@ -1282,7 +1277,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
             }
         }
 
-        internal func read_twice(pos bytes: &[u8]) -> u8 requires(2 <= bytes.length()) executes(pure) {
+        trusted internal func read_twice(pos bytes: &[u8]) -> u8 requires(2 <= bytes.length()) executes(pure) uses(raw_memory) {
             if !(2 <= bytes.length()) { panic("source too small"); }
             let byte_pointer: RawPointer<u8> = internal slice_pointer(bytes, count = 2);
             let first: u8 = trusted internal byte_buffer_read(byte_pointer, index = 0);
@@ -1295,7 +1290,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
             trusted internal fill_bytes(&mut destination[..], value = 7);
         }
 
-        trusted internal func copy_to_fresh_storage(pos source: &[u8]) -> RawPointer<u8> uses(manual_alloc) {
+        trusted internal func copy_to_fresh_storage(pos source: &[u8]) -> RawPointer<u8> uses(manual_alloc, raw_memory, unchecked_init) {
             let count: usize = source.length();
             let source_pointer: RawPointer<u8> = internal slice_pointer(source, count = count);
             let destination: RawPointer<u8> = trusted core.memory.allocate(bytes = count, align = 1);
@@ -1303,7 +1298,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
             return destination;
         }
 
-        trusted internal func copy_slice_to_fresh_buffer(pos source: &[u8]) -> Result<RawBuffer<u8>, MemoryLayoutError> uses(manual_alloc) {
+        trusted internal func copy_slice_to_fresh_buffer(pos source: &[u8]) -> Result<RawBuffer<u8>, MemoryLayoutError> uses(manual_alloc, unchecked_init) {
             let count: usize = source.length();
             let created: Result<RawBuffer<u8>, MemoryLayoutError> = trusted RawBuffer<u8>(capacity = count);
 
@@ -1324,14 +1319,14 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
             requires(
                 trusted core.memory.valid_read<u8>(pointer = source, count = count),
                 trusted core.memory.initialized_range_as<u8>(pointer = source, count = count),
-            ) {
+            ) uses(manual_alloc, unchecked_init) {
             let mut buffer: RawBuffer<u8> = trusted internal allocate_buffer<u8>(capacity = count, bytes = count, align = 1);
             let initialized: usize = trusted internal copy_spare_raw_bytes(&mut buffer, source = source, count = count);
             trusted set_initialized_count(&mut buffer, count = initialized);
             return buffer;
         }
 
-        internal func copy_slice_bytes(pos source: &[u8], pos destination: &mut [u8]) {
+        trusted internal func copy_slice_bytes(pos source: &[u8], pos destination: &mut [u8]) uses(raw_memory, unchecked_init) {
             if !(2 <= source.length()) || !(2 <= destination.length()) { panic("storage too small"); }
             let source_pointer: RawPointer<u8> = internal slice_pointer(source, count = 2);
             let destination_pointer: RawPointer<u8> = internal slice_pointer_mut(destination, count = 2);
@@ -1457,7 +1452,7 @@ fn copying_raw_reads_preserve_initialization() {
         r#"
             trusted module app;
 
-            func read_twice() -> i32 {
+            trusted func read_twice() -> i32 uses(raw_memory) {
                 let state: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
                 let value: i32 = 7;
                 let pointer: RawPointer<i32> = std.memory.address_of<i32>(&value);
@@ -1618,13 +1613,14 @@ fn raw_allocation_address_copies_preserve_whole_owner_transfer() {
         r#"
             trusted module app;
 
-            func dispose(pos owner: std.memory.RawAllocation)
+            trusted func dispose(pos owner: std.memory.RawAllocation)
                 requires(trusted core.memory.owned_allocation(pointer = owner.pointer, bytes = owner.bytes, align = owner.align))
+                uses(manual_alloc)
             {
                 trusted std.memory.deallocate(owner);
             }
 
-            func transfer() {
+            trusted func transfer() uses(manual_alloc) {
                 let first = trusted std.memory.allocate(std.memory.MemoryLayout { bytes = 8, align = 8 });
                 let pointer = first.pointer;
                 let copied = pointer;
@@ -2604,7 +2600,7 @@ fn empty_raw_copies_preserve_deallocation_authority() {
                     trusted core.memory.owned_allocation(pointer = destination, bytes = 1, align = 1),
                     trusted core.memory.non_overlapping<u8>(left = source, left_count = {extent}, right = destination, right_count = {extent}),
                 )
-                uses(manual_alloc) {{
+                uses(manual_alloc, raw_memory, unchecked_init) {{
                 trusted std.memory.{operation}<u8>(source, destination, count = {extent});
                 trusted core.memory.deallocate(destination, bytes = 1, align = 1);
             }}
@@ -2653,6 +2649,7 @@ fn thread_storage_load_only_initializes_successful_outputs() {
         trusted internal func prepare_thread_storage_load(
             pos key: u64, pos value: RawPointer<RawPointer<u8>>
         ) -> Result<RawPointer<u8>, std.platform.PlatformStatus>
+            executes(total)
             requires(
                 trusted core.memory.valid_write<RawPointer<u8>>(pointer = value, count = 1),
                 trusted core.memory.aligned_for<RawPointer<u8>>(pointer = value),
@@ -2713,6 +2710,19 @@ fn thread_storage_load_only_initializes_successful_outputs() {
     }
 }
 
+fn standard_library_source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+    let locate = |source: &str, marker: &str| {
+        source
+            .find(marker)
+            .or_else(|| source.find(&marker.replace('\n', "\r\n")))
+            .unwrap_or_else(|| panic!("native source marker {marker:?} must exist"))
+    };
+
+    let source = &source[locate(source, start)..];
+
+    &source[..locate(source, end)]
+}
+
 fn standard_library_compilation_with_options<const N: usize>(
     sources: [&str; N],
     options: CompilationOptions,
@@ -2760,12 +2770,7 @@ fn unix_native_outputs_remain_in_typed_storage() {
         source[start..end].to_owned()
     };
 
-    let section = |source: &str, start: &str, end: &str| {
-        let start = source.find(start).expect("source section exists");
-        let end = start + source[start..].find(end).expect("source section ends");
-
-        source[start..end].to_owned()
-    };
+    let section = standard_library_source_section;
 
     for (target, sdk, wrappers, darwin) in [
         (

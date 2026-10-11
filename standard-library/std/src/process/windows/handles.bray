@@ -7,7 +7,7 @@ trusted internal func windows_child_handles(
     reads: bool,
     security: RawPointer<u8>,
 ) -> Result<WindowsChildHandles, std.platform.PlatformStatus>
-    uses(foreign_call)
+    uses(foreign_call, layout_reinterpret)
 {
     match policy
     {

@@ -63,6 +63,7 @@ trusted internal func environment_context_table() -> &ProcessContextTable
 }
 
 trusted internal func directory_context() -> &[u8]
+    uses(raw_memory)
 {
     return trusted std.memory.initialized_slice<u8>(&PROCESS_CONTEXT.get_or_init(create_process_context).directory);
 }

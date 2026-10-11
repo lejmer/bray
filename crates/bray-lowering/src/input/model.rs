@@ -364,7 +364,12 @@ impl<'unit> LoweringInput<'unit> {
                     .cloned()
                     .unwrap_or_else(|| {
                         panic!(
-                            "lowering cleanup contract violated: missing scope-exit plan for scope {scope:?} and exit {exit:?}"
+                            "lowering cleanup contract violated: missing scope-exit plan for scope {scope:?} and exit {exit:?} in {:?}; selected operation: {:?}",
+                            self.unit.key(),
+                            match exit {
+                                AnyBoundNodeId::Expression(expression) => self.selections.expression(expression),
+                                _ => None,
+                            },
                         )
                     })
             })

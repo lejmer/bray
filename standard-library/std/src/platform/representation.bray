@@ -32,6 +32,7 @@ trusted internal func copy_context_text(pos address: RawPointer<u8>, length: u64
         trusted core.memory.valid_read<u8>(pointer = address, count = length as usize),
         trusted core.memory.initialized_range_as<u8>(pointer = address, count = length as usize),
     )
+    uses(manual_alloc, unchecked_init)
 {
     let count: usize = length as usize;
 
@@ -82,6 +83,7 @@ trusted internal func terminated_native_text(
         trusted core.memory.valid_read<u8>(pointer = address, count = length as usize),
         trusted core.memory.initialized_range_as<u8>(pointer = address, count = length as usize),
     )
+    uses(manual_alloc, unchecked_init)
 {
     let count: usize = length as usize;
 
@@ -136,6 +138,7 @@ trusted internal func read_native_i32(pos pointer: RawPointer<i32>) -> i32
         trusted core.memory.aligned_for<i32>(pointer = pointer),
         trusted core.memory.initialized_as<i32>(pointer = pointer),
     )
+    uses(raw_memory)
 {
     return trusted std.memory.read<i32>(pointer);
 }
@@ -151,6 +154,7 @@ trusted internal func read_native_u16(pos pointer: RawPointer<u16>) -> u16
         trusted core.memory.aligned_for<u16>(pointer = pointer),
         trusted core.memory.initialized_as<u16>(pointer = pointer),
     )
+    uses(raw_memory)
 {
     return trusted std.memory.read<u16>(pointer);
 }
@@ -164,6 +168,7 @@ trusted internal func read_native_u32(pos pointer: RawPointer<u8>) -> u32
         trusted core.memory.valid_read<u8>(pointer = pointer, count = 4),
         trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = 4),
     )
+    uses(raw_memory)
 {
     return trusted internal std.memory.byte_buffer_read(pointer, index = 0) as u32 |
         trusted internal std.memory.byte_buffer_read(pointer, index = 1) as u32 << 8 |
@@ -180,6 +185,7 @@ trusted internal func read_native_u64(pos pointer: RawPointer<u8>) -> u64
         trusted core.memory.valid_read<u8>(pointer = pointer, count = 8),
         trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = 8),
     )
+    uses(raw_memory)
 {
     let mut value: u64 = 0;
     let mut index: usize = 0;
@@ -205,6 +211,7 @@ trusted internal func read_native_pointer<T>(pos pointer: RawPointer<RawPointer<
         trusted core.memory.initialized_as<RawPointer<T>>(pointer = pointer),
     )
     executes(pure, total)
+    uses(raw_memory)
 {
     return trusted std.memory.read<RawPointer<T>>(pointer);
 }

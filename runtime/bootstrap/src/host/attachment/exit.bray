@@ -1,0 +1,520 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host;
+
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal std.platform;
+using internal std.thread;
+using internal bray.runtime.bootstrap.thread.destruction;
+
+trusted internal predicate attachment_exit_selected(owner: &AttachmentExit);
+
+// An inactive owner has not begun attachment exit. Changing
+// any field invalidates this witness, including changing a field back to None.
+trusted internal predicate attachment_exit_inactive(owner: &AttachmentExit);
+
+trusted internal predicate attachment_cleanup_completed(owner: &HostLease);
+
+internal struct AttachmentExit
+{
+    identity: u64;
+    native_thread: u64;
+    mut cleanup: AttachmentCleanup?;
+    mut ready: bool;
+    mut incidents: (&mut u32)?;
+
+    trusted destruct()
+        requires(
+            (!self.ready && trusted attachment_exit_inactive(owner = &self)) || (self.ready &&
+                trusted attachment_exit_selected(owner = &self))
+        )
+        when(!self.ready)
+        {
+            executes(total)
+        }
+    {
+        if self.ready
+        {
+            trusted run_attachment_cleanup(&mut self);
+
+            let completed: HostLease = trusted retire_attachment(&self);
+        }
+    }
+}
+
+internal struct AttachmentRetirement
+{
+    mut pending: bool;
+    identity: u64;
+    native_thread: u64;
+    record: RawPointer<Attachment>;
+    active: RawPointer<usize>;
+    remaining_active: usize;
+}
+
+@abi(c)
+trusted internal func thread_attachment_leave() -> u32
+{
+    let scope = trusted bray.runtime.bootstrap.thread.destruction.explicit_exit_scope();
+
+    return trusted finish_attachment(&scope);
+}
+
+internal struct AttachmentSlot
+{
+    value: RawPointer<AttachmentExit>;
+    storage: RawPointer<(AttachmentExit?)>;
+}
+
+trusted internal predicate retained_attachment_exit(slot: &AttachmentSlot, lease: &HostLease);
+
+trusted internal func take_attachment_exit(
+    pos lease: &HostLease,
+    pos slot: &AttachmentSlot,
+    pos incidents: &mut u32
+) -> AttachmentExit
+    requires(
+        trusted host_access_live(owner = lease),
+        trusted host_access_idle(owner = lease),
+        trusted retained_attachment_exit(slot = slot, lease = lease),
+        trusted core.memory.valid_read<AttachmentExit>(pointer = slot.value, count = 1),
+        trusted core.memory.aligned_for<AttachmentExit>(pointer = slot.value),
+        trusted core.memory.initialized_as<AttachmentExit>(pointer = slot.value),
+        trusted core.memory.valid_write<(AttachmentExit?)>(pointer = slot.storage, count = 1),
+        trusted core.memory.aligned_for<(AttachmentExit?)>(pointer = slot.storage)
+    )
+    ensures(
+        trusted host_access_live(owner = lease),
+        trusted host_access_idle(owner = lease),
+        trusted attachment_cleanup_completed(owner = lease),
+        result.ready,
+        trusted attachment_exit_selected(owner = &result)
+    )
+    executes(total)
+    uses(raw_memory, unchecked_init)
+{
+    let value = slot.value;
+    let storage = slot.storage;
+    let mut selected: AttachmentExit = trusted std.memory.read<AttachmentExit>(value);
+
+    trusted std.memory.write<(AttachmentExit?)>(storage, none);
+    selected.incidents = incidents;
+    selected.ready = true;
+    return selected;
+}
+
+trusted internal func release_attachment_exit(pos lease: HostLease, pos selected: AttachmentExit) -> AttachmentExit
+    requires(
+        trusted host_access_live(owner = &lease),
+        trusted host_access_idle(owner = &lease),
+        trusted attachment_cleanup_completed(owner = &lease),
+        selected.ready,
+        trusted attachment_exit_selected(owner = &selected)
+    )
+    ensures(result.ready, trusted attachment_exit_selected(owner = &result))
+    executes(total)
+{
+    return selected;
+}
+
+internal struct AttachmentSelection
+{
+    slot: AttachmentSlot;
+    pending: bool;
+    status: u32;
+}
+
+internal struct AttachmentExitRequest
+{
+    identity: u64;
+    native: bool;
+}
+
+trusted internal predicate attachment_exit_request_live(scope: &AttachmentExitRequest, lease: &HostLease);
+
+trusted internal func request_attachment_exit(
+    pos scope: &bray.runtime.bootstrap.thread.destruction.ExitScope
+) -> (HostLease, AttachmentExitRequest)
+    requires(trusted bray.runtime.bootstrap.thread.destruction.exit_scope_live(owner = scope))
+    ensures(
+        trusted host_access_live(owner = &result.0),
+        trusted host_access_idle(owner = &result.0),
+        trusted attachment_cleanup_completed(owner = &result.0),
+        trusted attachment_exit_request_live(scope = &result.1, lease = &result.0)
+    )
+{
+    let lease = trusted host_access();
+
+    return (
+        lease,
+        AttachmentExitRequest
+        {
+            identity = scope.identity,
+            native = scope.native
+        }
+    );
+}
+
+trusted internal func select_attachment_slot(
+    pos lease: &HostLease,
+    pos anchor: &mut HostAnchor,
+    pos scope: &AttachmentExitRequest
+) -> AttachmentSelection
+    requires(
+        trusted attachment_exit_request_live(scope = scope, lease = lease),
+        trusted host_access_live(owner = lease),
+        trusted host_access_idle(owner = lease),
+        trusted host_anchor_matches(anchor = &anchor, lease = lease)
+    )
+    ensures(
+        trusted host_access_live(owner = lease),
+        trusted host_access_idle(owner = lease),
+        trusted attachment_cleanup_completed(owner = lease),
+        !result.pending || trusted retained_attachment_exit(slot = &result.slot, lease = lease),
+        !result.pending || trusted core.memory.valid_read<AttachmentExit>(pointer = result.slot.value, count = 1),
+        !result.pending || trusted core.memory.aligned_for<AttachmentExit>(pointer = result.slot.value),
+        !result.pending || trusted core.memory.initialized_as<AttachmentExit>(pointer = result.slot.value),
+        !result.pending || trusted core.memory.valid_write<(AttachmentExit?)>(pointer = result.slot.storage, count = 1),
+        !result.pending || trusted core.memory.aligned_for<(AttachmentExit?)>(pointer = result.slot.storage)
+    )
+    executes(total)
+    uses(foreign_call, raw_memory, unchecked_alias)
+{
+    let rejected: AttachmentSelection =
+    {
+        slot =
+        {
+            value = std.memory.null<AttachmentExit>(),
+            storage = std.memory.null<(AttachmentExit?)>()
+        },
+        pending = false,
+        status = 4
+    };
+
+    if !lease.active
+    {
+        return rejected;
+    }
+
+    let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
+        lease.synchronization,
+        trusted lease_synchronization_pointer(lease)
+    );
+
+    let native_thread = core.atomic.load<u64, 1>(&synchronization.lock);
+    let host = trusted host_value(lease, anchor);
+
+    let storage: &mut HostStorage = if let ?storage = host.storage
+    {
+        yield &mut storage;
+    }
+    else
+    {
+        return rejected;
+    };
+
+    let key = storage.key;
+    let attached = trusted load_attachment_identity(key);
+
+    if scope.identity == 0 || storage.active == 0 || (attached != 0 && attached != scope.identity) || (!scope.native &&
+        attached != scope.identity)
+    {
+        return rejected;
+    }
+
+    {
+        let found = trusted find_attachment(storage, scope.identity, 0);
+
+        match consume found
+        {
+            case ?entry
+            {
+                if entry.closing || entry.native_thread != native_thread
+                {
+                    return rejected;
+                }
+
+                if !scope.native && entry.depth > 1
+                {
+                    entry.depth -= 1;
+
+                    return
+                    {
+                        slot =
+                        {
+                            value = std.memory.null<AttachmentExit>(),
+                            storage = std.memory.null<(AttachmentExit?)>()
+                        },
+                        pending = false,
+                        status = 0
+                    };
+                }
+
+                let cleared = trusted internal std.thread.platform_thread_storage_store(key, std.memory.null<u8>());
+
+                if cleared.category != 0
+                {
+                    return rejected;
+                }
+
+                entry.closing = true;
+
+                let slot_storage = std.memory.address_of_mut<(AttachmentExit?)>(&mut entry.cleanup);
+
+                if let ?owner = entry.cleanup
+                {
+                    let value = std.memory.address_of_mut<AttachmentExit>(&mut owner);
+
+                    return
+                    {
+                        slot =
+                        {
+                            value = value,
+                            storage = slot_storage
+                        },
+                        pending = true,
+                        status = 0
+                    };
+                }
+
+                entry.identity = 0;
+                entry.depth = 0;
+            }
+            case none { return rejected; }
+        }
+    }
+
+    storage.active -= 1;
+
+    let _: (u64, bool) = core.atomic.compare_exchange<u64, 3, 1>(
+        &synchronization.main,
+        expected = scope.identity,
+        desired = 0
+    );
+
+    return
+    {
+        slot =
+        {
+            value = std.memory.null<AttachmentExit>(),
+            storage = std.memory.null<(AttachmentExit?)>()
+        },
+        pending = false,
+        status = 0
+    };
+}
+
+trusted internal func finish_attachment(pos scope: &bray.runtime.bootstrap.thread.destruction.ExitScope) -> u32
+    requires(trusted bray.runtime.bootstrap.thread.destruction.exit_scope_live(owner = scope))
+{
+    let mut incidents: u32 = 0;
+
+    {
+        let destination: &mut u32 = &mut incidents;
+
+        let selected: AttachmentExit =
+        {
+            let (lease, request) = trusted request_attachment_exit(scope);
+            let mut anchor = trusted host_anchor(&lease);
+            let selected = trusted select_attachment_slot(&lease, &mut anchor, &request);
+
+            if !selected.pending
+            {
+                return selected.status;
+            }
+
+            let owner = trusted take_attachment_exit(&lease, &selected.slot, destination);
+
+            yield trusted release_attachment_exit(lease, owner);
+        };
+    }
+
+    if incidents != 0
+    {
+        return 1;
+    }
+
+    return bray.runtime.bootstrap.STATUS_SUCCESS;
+}
+
+// Completion owns the reacquired lease. Validate the closing record after arbitrary
+// cleanup and before publishing the epoch's checked storage projections.
+trusted internal func run_attachment_cleanup(pos selected: &mut AttachmentExit)
+    requires(selected.ready, trusted attachment_exit_selected(owner = &selected))
+    ensures(selected.ready, trusted attachment_exit_selected(owner = &selected))
+{
+    let incidents: u32 = if let ?cleanup = selected.cleanup
+    {
+        yield cleanup(selected.identity);
+    }
+    else
+    {
+        yield 0;
+    };
+
+    if let ?destination = selected.incidents
+    {
+        let _: u32 = trusted std.memory.replace_value<u32>(destination, incidents);
+    }
+}
+
+trusted internal func retire_attachment(pos selected: &AttachmentExit) -> HostLease
+    requires(selected.ready, trusted attachment_exit_selected(owner = &selected))
+    ensures(
+        result.active,
+        result.retirement.pending,
+        trusted host_access_live(owner = &result),
+        trusted attachment_cleanup_completed(owner = &result),
+    )
+    uses(intrinsic)
+{
+    let mut lease: HostLease = trusted host_access();
+
+    if !lease.active
+    {
+        trusted core.target.abort();
+    }
+
+    let pointers: (RawPointer<Attachment>, RawPointer<usize>, usize) =
+    {
+        let mut anchor: HostAnchor = trusted host_anchor(&lease);
+        let host: &mut HostOwner = trusted host_value(&lease, &mut anchor);
+
+        yield if let ?storage = host.storage
+        {
+            let payload: &mut HostStorage = &mut storage;
+
+            let record: RawPointer<Attachment> =
+            {
+                let row = trusted find_attachment(payload, selected.identity, 0);
+
+                yield match consume row
+                {
+                    case ?entry
+                    {
+                        if !entry.closing || entry.native_thread != selected.native_thread
+                        {
+                            trusted core.target.abort();
+                        }
+
+                        yield std.memory.address_of_mut<Attachment>(entry);
+                    }
+                    case none { yield trusted core.target.abort(); }
+                };
+            };
+
+            if payload.active == 0
+            {
+                trusted core.target.abort();
+            }
+
+            yield(record, std.memory.address_of_mut<usize>(&mut payload.active), payload.active - 1);
+        }
+        else
+        {
+            yield trusted core.target.abort();
+        };
+    };
+
+    let (record, active, remaining_active): (RawPointer<Attachment>, RawPointer<usize>, usize) = pointers;
+
+    lease.retirement = AttachmentRetirement
+    {
+        pending = true,
+        identity = selected.identity,
+        native_thread = selected.native_thread,
+        record = record,
+        active = active,
+        remaining_active = remaining_active
+    };
+
+    return lease;
+}
+
+trusted internal func complete_attachment_exit_locked(pos completed: &HostLease, pos anchor: &mut HostAnchor)
+    requires(
+        completed.active,
+        completed.retirement.pending,
+        trusted host_access_live(owner = completed),
+        trusted host_anchor_matches(anchor = &anchor, lease = completed),
+        trusted attachment_cleanup_completed(owner = completed),
+    )
+    ensures(trusted host_access_live(owner = completed))
+    executes(total)
+    uses(raw_memory, unchecked_init, unchecked_alias)
+{
+    let retirement: &AttachmentRetirement = &completed.retirement;
+
+    let identity: u64 = retirement.identity;
+    let native_thread: u64 = retirement.native_thread;
+    let remaining_active: usize = retirement.remaining_active;
+    let active_pointer: RawPointer<usize> = trusted completed_active_pointer(completed);
+    let pointer: RawPointer<Attachment> = trusted completed_attachment_pointer(completed);
+
+    let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
+        completed.synchronization,
+        trusted lease_synchronization_pointer(completed)
+    );
+
+    // Selection moved the callback out before cleanup. The closing row now contains
+    // only scalars and None, so replacing it cannot discard a pending callback.
+    trusted std.memory.write<Attachment>(
+        pointer,
+        Attachment
+        {
+            identity = 0,
+            native_thread = native_thread,
+            depth = 0,
+            closing = true,
+            cleanup = none
+        }
+    );
+
+    trusted std.memory.write<usize>(active_pointer, remaining_active);
+
+    let _: (u64, bool) = core.atomic.compare_exchange<u64, 3, 1>(
+        &synchronization.main,
+        expected = identity,
+        desired = 0
+    );
+}
+
+trusted internal func completed_attachment_pointer(pos completed: &HostLease) -> RawPointer<Attachment>
+    requires(completed.retirement.pending, trusted attachment_cleanup_completed(owner = completed))
+    ensures(
+        trusted attachment_cleanup_completed(owner = completed),
+        trusted host_access_live(owner = completed),
+        trusted core.memory.valid_read<Attachment>(pointer = result, count = 1),
+        trusted core.memory.valid_write<Attachment>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<Attachment>(pointer = result),
+        trusted core.memory.initialized_as<Attachment>(pointer = result),
+        trusted core.memory.exclusive_alias_valid<Attachment>(pointer = result),
+        trusted core.memory.epoch_current<Attachment>(pointer = result),
+        trusted core.memory.synchronized_access<Attachment>(pointer = result),
+        trusted core.memory.movement_stable<Attachment>(pointer = result),
+        trusted core.memory.finalization_pending<Attachment>(pointer = result),
+    )
+    executes(pure, total)
+{
+    return completed.retirement.record;
+}
+
+trusted internal func completed_active_pointer(pos completed: &HostLease) -> RawPointer<usize>
+    requires(completed.retirement.pending, trusted attachment_cleanup_completed(owner = completed))
+    ensures(
+        trusted attachment_cleanup_completed(owner = completed),
+        trusted host_access_live(owner = completed),
+        trusted core.memory.valid_read<usize>(pointer = result, count = 1),
+        trusted core.memory.valid_write<usize>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<usize>(pointer = result),
+        trusted core.memory.initialized_as<usize>(pointer = result),
+        trusted core.memory.exclusive_alias_valid<usize>(pointer = result),
+        trusted core.memory.epoch_current<usize>(pointer = result),
+        trusted core.memory.synchronized_access<usize>(pointer = result),
+        trusted core.memory.movement_stable<usize>(pointer = result),
+        trusted core.memory.finalization_pending<usize>(pointer = result),
+    )
+    executes(pure, total)
+{
+    return completed.retirement.active;
+}

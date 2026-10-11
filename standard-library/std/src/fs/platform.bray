@@ -82,6 +82,7 @@ trusted internal func directory_entry_path(
         trusted core.memory.valid_read<u8>(pointer = source, count = bytes),
         trusted core.memory.initialized_range_as<u8>(pointer = source, count = bytes),
     )
+    uses(manual_alloc, unchecked_init)
 {
     let mut storage: std.memory.RawBuffer<u8> = trusted internal std.memory.allocate_buffer<u8>(
         capacity = bytes,
@@ -123,6 +124,7 @@ trusted internal func platform_file_seek(
         trusted core.memory.valid_write<u64>(pointer = position, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = position),
     )
+    uses(raw_memory, unchecked_init)
 {
     let observed: Result<u64, std.platform.PlatformStatus> = trusted internal prepare_file_seek(
         handle,
@@ -155,6 +157,7 @@ trusted internal func platform_file_open(
         trusted core.memory.valid_write<u64>(pointer = opened, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = opened),
     )
+    uses(raw_memory, unchecked_init)
 {
     let prepared: Result<u64, std.platform.PlatformStatus> = trusted internal prepare_file_open(path, options, opened);
 

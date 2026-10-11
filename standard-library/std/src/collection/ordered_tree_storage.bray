@@ -28,6 +28,7 @@ trusted internal func ordered_tree_reallocate<Item>(
     pos tree: &mut OrderedTree<Item>,
     capacity: usize
 ) -> Result<unit, std.memory.MemoryLayoutError>
+    uses(manual_alloc, raw_memory)
 {
     let mut replacement_nodes: std.memory.RawBuffer<OrderedTreeNode> = try trusted ordered_tree_nodes(capacity);
 
@@ -79,6 +80,7 @@ trusted internal func ordered_tree_reallocate<Item>(
 }
 
 trusted internal func ordered_tree_rebuild_free<Item>(pos tree: &mut OrderedTree<Item>)
+    uses(raw_memory)
 {
     let slot_capacity: usize = std.memory.capacity<OrderedTreeNode>(&tree.nodes);
     let nodes: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(&mut tree.nodes);
@@ -104,6 +106,7 @@ trusted internal func ordered_tree_insert_at<Item>(
     pos item: Item,
     search: OrderedTreeSearch
 ) -> usize
+    uses(raw_memory)
 {
     let free: usize? = tree.free;
     let search_parent: usize? = search.parent;
@@ -182,6 +185,7 @@ trusted internal func ordered_tree_insert_at<Item>(
 }
 
 trusted internal func ordered_tree_remove_at<Item>(pos tree: &mut OrderedTree<Item>, index: usize) -> Item
+    uses(raw_memory)
 {
     let node: OrderedTreeNode = ordered_tree_node<Item>(&tree, index = index);
     let mut removed_index: usize = index;
@@ -286,6 +290,7 @@ trusted internal func ordered_tree_take_for_iteration<Item>(pos tree: &mut Order
 }
 
 trusted internal func ordered_tree_clear<Item>(pos tree: &mut OrderedTree<Item>)
+    uses(raw_memory)
 {
     let slot_capacity: usize = std.memory.capacity<OrderedTreeNode>(&tree.nodes);
     let mut free: usize? = none;

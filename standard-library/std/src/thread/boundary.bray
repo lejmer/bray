@@ -26,6 +26,7 @@ trusted internal func await_thread_identity<T>(pos pointer: RawPointer<Transferr
 trusted internal func thread_control<T>(
     pos pointer: RawPointer<TransferredThreadValue<ThreadStorage<T>>>,
 ) -> &ThreadControl
+    uses(raw_memory)
 {
     let storage: &TransferredThreadValue<ThreadStorage<T>> = trusted internal transferred_shared_value<
         TransferredThreadValue<ThreadStorage<T>>
@@ -35,7 +36,7 @@ trusted internal func thread_control<T>(
 }
 
 trusted internal func control_from_address(address: usize) -> &ThreadControl
-    uses(intrinsic)
+    uses(intrinsic, raw_memory)
 {
     let pointer: RawPointer<ThreadControl> = trusted core.target.from_exposed_address<ThreadControl>(address = address);
 
@@ -77,7 +78,7 @@ internal func thread_name_contains_nul(pos name: &string) -> bool
 }
 
 trusted internal func allocate_thread_value<T>(pos value: T) -> RawPointer<TransferredThreadValue<T>>
-    uses(manual_alloc)
+    uses(manual_alloc, raw_memory, unchecked_init)
 {
     let bytes: usize = internal std.memory.value_allocation_bytes<TransferredThreadValue<T>>();
     let align: usize = std.memory.align_of<TransferredThreadValue<T>>();
@@ -104,6 +105,7 @@ trusted internal func allocate_thread_value<T>(pos value: T) -> RawPointer<Trans
 }
 
 trusted internal func take_transferred_value<T>(pos pointer: RawPointer<TransferredThreadValue<T>>) -> T
+    uses(raw_memory)
 {
     let storage: &mut TransferredThreadValue<T> = trusted internal transferred_value<TransferredThreadValue<T>>(
         pointer
@@ -145,6 +147,7 @@ trusted internal func thread_report_destination<T>(
         trusted core.memory.valid_write<PanicReport>(pointer = result, count = 1),
         trusted core.memory.aligned_for<PanicReport>(pointer = result),
     )
+    uses(raw_memory)
 {
     let storage: &TransferredThreadValue<ThreadStorage<T>> = trusted internal transferred_shared_value<
         TransferredThreadValue<ThreadStorage<T>>
@@ -167,11 +170,13 @@ trusted internal func platform_thread_storage_load(
     pos key: u64,
     pos value: RawPointer<RawPointer<u8>>,
 ) -> std.platform.PlatformStatus
+    executes(total)
     requires(
         trusted core.memory.valid_write<RawPointer<u8>>(pointer = value, count = 1),
         trusted core.memory.aligned_for<RawPointer<u8>>(pointer = value),
     )
     ensures(result.category != 0 || trusted core.memory.initialized_as<RawPointer<u8>>(pointer = value))
+    uses(raw_memory, unchecked_init)
 {
     let stored: Result<RawPointer<u8>, std.platform.PlatformStatus> = trusted internal prepare_thread_storage_load(
         key,

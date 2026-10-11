@@ -103,11 +103,18 @@ fn smoke_test_command(mut arguments: impl Iterator<Item = String>) -> Result<(),
 
     super::smoke::add_package_dependencies(&mut package, target, directory.path())?;
 
-    crate::progress::run("Running runtime artifact smoke tests", || {
+    let result = crate::progress::run("Running runtime artifact smoke tests", || {
         smoke_test(&package, target, directory.path())
-    })?;
+    });
 
-    Ok(())
+    if result.is_err() {
+        eprintln!(
+            "failed smoke artifacts retained at {}",
+            directory.keep().display()
+        );
+    }
+
+    result
 }
 
 pub(crate) fn smoke_test_host() -> Result<(), String> {

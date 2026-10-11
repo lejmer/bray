@@ -103,6 +103,7 @@ trusted internal func platform_dynamic_library_open_path(
         trusted core.memory.finalization_pending<u64>(pointer = opened),
         blocking_execution(),
     )
+    uses(raw_memory, unchecked_init)
 {
     let prepared: Result<u64, std.platform.PlatformStatus> = trusted internal prepare_dynamic_library_open_path(
         path,
@@ -141,6 +142,7 @@ trusted internal func platform_dynamic_library_symbol(
         trusted core.memory.finalization_pending<RawPointer<u8>>(pointer = address),
         blocking_execution(),
     )
+    uses(raw_memory, unchecked_init)
 {
     let prepared: Result<RawPointer<u8>, std.platform.PlatformStatus> = trusted internal prepare_dynamic_library_symbol(
         handle,
@@ -177,6 +179,7 @@ trusted internal func platform_dynamic_library_open_system(
         trusted core.memory.finalization_pending<u64>(pointer = opened),
         blocking_execution(),
     )
+    uses(raw_memory, unchecked_init)
 {
     let prepared: Result<u64, std.platform.PlatformStatus> = trusted internal prepare_dynamic_library_open_system(
         identity,

@@ -240,6 +240,7 @@ trusted internal func copy_native_text(
     pos destination: &mut std.memory.RawBuffer<u8>,
     pos text: (&[u8]),
 ) -> RawPointer<u8>
+    uses(raw_memory, unchecked_init)
 {
     let start: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(destination);
     let length: usize = text.length();
@@ -256,6 +257,7 @@ trusted internal func copy_environment_entry(
     pos destination: &mut std.memory.RawBuffer<u8>,
     pos entry: PlatformEnvironmentEntry,
 ) -> RawPointer<u8>
+    uses(raw_memory, unchecked_init)
 {
     let start: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(destination);
     let key_length: usize = entry.key.length();
