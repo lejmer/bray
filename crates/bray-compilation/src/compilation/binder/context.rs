@@ -414,7 +414,7 @@ impl BindingQueryContext for CompilationBindingContext<'_> {
         syntax: bray_syntax::SyntaxNodeView<'_>,
         callable: &TypeExpressionTemplate,
     ) -> BindingQueryResult<DiagnosticResult<bray_symbols::CallablePhaseBehaviors>> {
-        super::symbol::checked_callable_type_contracts(self, owner, syntax, callable)
+        super::symbol::checked_callable_type_contracts(self, owner, syntax, callable, None)
     }
 
     fn callable_contract_type(

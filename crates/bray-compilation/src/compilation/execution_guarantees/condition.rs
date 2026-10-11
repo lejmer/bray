@@ -133,6 +133,10 @@ impl Compilation {
         anchors: &[SyntaxAnchor],
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Vec<(ExecutionCondition, bool, SourceSpan)>>, FactQueryError> {
+        if owner.kind() == bray_bound_tree::BoundUnitKind::AnonymousCallable {
+            return self.anonymous_predicate_condition_inputs(owner, anchors, cancellation);
+        }
+
         let mut conditions = Vec::new();
         let mut diagnostics = DiagnosticBag::new();
 
@@ -200,6 +204,126 @@ impl Compilation {
 mod tests {
     use crate::test_support::compilation;
     use bray_diagnostics::DiagnosticKind;
+
+    #[test]
+    fn anonymous_total_proof_uses_its_own_field_requirements() {
+        for (requirement, valid) in [("value.ready", true), ("!value.ready", false)] {
+            let source = format!(
+                r#"
+                module app;
+                struct Flags {{ ready: bool; }}
+                func observe(pos value: &Flags) requires(value.ready) executes(total) {{}}
+                func root(pos outer: Flags) {{
+                    let action = lambda(pos value: &Flags)
+                        requires({requirement}) executes(total)
+                    {{ observe(value); }};
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn anonymous_postconditions_check_mutated_owned_parameters() {
+        for (modifier, value, valid, failure) in [
+            (
+                "mut",
+                "true",
+                true,
+                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            ),
+            (
+                "mut",
+                "false",
+                false,
+                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            ),
+            (
+                "",
+                "true",
+                false,
+                DiagnosticKind::CheckingMissingMutationAuthority,
+            ),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+                struct Flags {{ mut ready: bool; }}
+                func root() {{
+                    let action = lambda(pos {modifier} value: Flags) -> Flags
+                        ensures(result.ready) executes(total)
+                    {{
+                        value.ready = {value};
+                        return value;
+                    }};
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics, failure);
+            }
+        }
+    }
+
+    #[test]
+    fn anonymous_owned_parameter_borrow_requires_mutable_mode() {
+        for (modifier, valid) in [("mut", true), ("", false)] {
+            let source = format!(
+                r#"
+                module app;
+                struct Flags {{ mut ready: bool; }}
+                func root() {{
+                    let action = lambda(pos {modifier} value: Flags) {{
+                        let borrowed: &mut Flags = &mut value;
+                        borrowed.ready = true;
+                    }};
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingMissingMutationAuthority,
+                );
+            }
+        }
+    }
 
     #[test]
     fn returned_owned_fields_use_the_latest_mutation() {

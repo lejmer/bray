@@ -1242,6 +1242,8 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                 Some(BoundReferenceTarget::Surface(
                     bray_symbols::AnySymbolId::CallableParameter(_)
                         | bray_symbols::AnySymbolId::ReceiverParameter(_)
+                )) | Some(BoundReferenceTarget::Local(
+                    bray_symbols::AnyLocalSymbolId::AnonymousCallableParameter(_)
                 ))
             ) {
                 // Entry places and their immutable snapshots retain the shared field path.

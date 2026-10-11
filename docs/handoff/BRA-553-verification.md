@@ -12,7 +12,11 @@ Cleanup ownership is admitted at registration and transferred at terminal exit. 
 
 Host preparation catches failure and resets the formation transition before disposing a caught report. Shutdown restores retained storage when key destruction fails. The current synchronous preparation and key operations contain no cancellation checkpoint. This is not a guarantee about future callbacks added to those paths.
 
-Publication and restoration require the whole storage owner's witness. The owner records successful key release, so shutdown derives restoration from owned state and cannot republish a released key. Acquiring the host lock preserves only the explicitly retained storage owner's contract. It does not preserve arbitrary caller witnesses. All preparation, ownership-transfer and rollback helpers have zero outgoing cleanup capacity.
+Initialization and shutdown expose complete operations. Their partial steps are local callables, so even a caller acknowledging internal access cannot obtain and discard a pending host owner or abandon a transition. Publication and restoration retain the whole storage owner's witness. Shutdown records successful key release before reacquisition and derives restoration from that owned state. Initial acquisition can reject recursive entry. After a transition has accepted storage, completion waits for acquisition instead of returning and dropping its key. The preceding lease has already ended, and these synchronous paths do not change native threads.
+
+Acquiring the host lock preserves only the explicitly retained storage owner's contract. It does not preserve arbitrary caller witnesses. The complete operations have zero outgoing cleanup capacity. Native failure tests count live keys through rejected creation, failed destruction, retry and final shutdown.
+
+Local callable contracts resolve against their own parameters and result. Callable and catalog clauses share operation selection for field expressions. Named and anonymous bodies use the same trusted-condition input path, and mutable anonymous parameters use their declared mutation mode. Positive and negative regressions cover field requirements, checked result fields and mutable borrows. The production check includes nested lifecycle bodies, and reacquisition's active-result postcondition is checked separately from termination. Native packaging retains local callable symbols without binding them to the enclosing function's interface declaration.
 
 The replaced Rust identity allocator, main-thread owner and thread-exit registry are removed. Rust retains mechanical native thread operations and scoped observations of Bray-owned identities. The change adds roughly 3,300 production source lines and 3,300 test lines, counted separately from generated declarations. The production growth covers the Bray lifecycle and the shared compiler mechanisms needed to enforce its contracts.
 
@@ -21,7 +25,7 @@ The replaced Rust identity allocator, main-thread owner and thread-exit registry
 - Full standard-library source verification passes on all six targets, followed by bundle conformance.
 - Native Windows execution covers allocation denial, first-exit allocation denial, key creation and destruction failure, recursive entry, nested identity reuse, eight concurrent attachments, shutdown rejection while attached, native thread exit, and exact callback identity after TLS clearing.
 - Generated native status adapters execute cancellation without reporting a panic and emit success, panic and cancellation paths on all six targets.
-- Checker, codegen, IR, lowering, package-interface, platform and runtime-ABI suites pass. The broader compilation suite exposed standard-library fixture contracts, which were corrected and rerun. Its independent compiler-owned cleanup-role failure is documented in the handoff.
+- Checker, codegen, IR, lowering, package-interface, platform and runtime-ABI suites pass. The broader compilation suite passes 1,473 tests after correcting the standard-library fixtures. Its one remaining compiler-owned cleanup-role failure is documented in the handoff. The subsequent native-packaging regression also passes.
 - The native link map places every migrated identity, attachment and thread-exit symbol in the Bray bootstrap archive. The replaced Rust exports are removed.
 
 Detailed logs, native probes and the behavior audit are retained under the primary checkout's `target/bra-553/`. Shared Cargo and LLVM storage must not be cleaned as task-owned output.
@@ -34,10 +38,10 @@ A minimal initialization/shutdown C host was linked against freshly built BRA-62
 
 | Section | BRA-621 bytes | BRA-553 bytes |
 | --- | ---: | ---: |
-| Code | 200,838 | 402,918 |
-| Read-only data | 5,396 | 7,412 |
+| Code | 200,838 | 405,910 |
+| Read-only data | 5,396 | 7,332 |
 | Writable data | 440 | 512 |
-| Unwind tables | 1,344 | 2,244 |
+| Unwind tables | 1,344 | 2,256 |
 | Relocations | 44 | 44 |
 
 The 72-byte writable-data increase holds the resident owner and its synchronization. The code increase includes generated lifecycle and native adapters for the new owner and attachment operations. These measurements cover the selected bundled bootstrap archive and its exported entries, without the Rust scheduler. They do not claim whole-program elimination of unused exported entries.

@@ -429,8 +429,6 @@ mod tests {
 
             for name in [
                 "initialize_host",
-                "prepare_host_storage",
-                "complete_host_formation",
                 "shutdown_host",
                 "thread_attachment_enter",
                 "thread_attachment_leave",

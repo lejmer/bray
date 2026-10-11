@@ -175,18 +175,26 @@ trusted internal func host_access() -> HostLease
 }
 
 // Acquiring the lock neither exposes nor changes this separately owned storage.
-// Carry that specific owner's contract across acquisition instead of preserving
-// arbitrary caller witnesses across an effectful call.
+// Preserve this owner's contract without carrying arbitrary caller witnesses.
 trusted internal func access_prepared_host(pos storage: &(HostStorage?)) -> HostLease
     requires(trusted prepared_host_storage(owner = storage))
     ensures(
+        result.active,
         trusted prepared_host_storage(owner = storage),
         trusted host_access_live(owner = &result),
         trusted host_access_idle(owner = &result),
         trusted attachment_cleanup_completed(owner = &result)
     )
 {
-    return trusted host_access();
+    while true
+    {
+        let lease: HostLease = trusted host_access();
+
+        if lease.active
+        {
+            return lease;
+        }
+    }
 }
 
 trusted internal func host_access_pointer(pos guard: &HostLease) -> RawPointer<HostOwner>

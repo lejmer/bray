@@ -27,6 +27,7 @@ static atomic_bool reject_key_creation;
 static atomic_bool reject_key_destruction;
 static atomic_uint key_creation_attempts;
 static atomic_uint key_destruction_attempts;
+static atomic_uint live_keys;
 
 DWORD WINAPI FlsAlloc(PFLS_CALLBACK_FUNCTION callback)
 {
@@ -41,7 +42,12 @@ DWORD WINAPI FlsAlloc(PFLS_CALLBACK_FUNCTION callback)
     DWORD (WINAPI *allocate)(PFLS_CALLBACK_FUNCTION) =
         (DWORD (WINAPI *)(PFLS_CALLBACK_FUNCTION))GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "FlsAlloc");
 
-    return allocate(callback);
+    DWORD key = allocate(callback);
+
+    if (key != FLS_OUT_OF_INDEXES)
+        atomic_fetch_add(&live_keys, 1);
+
+    return key;
 }
 
 BOOL WINAPI FlsFree(DWORD key)
@@ -57,7 +63,12 @@ BOOL WINAPI FlsFree(DWORD key)
     BOOL (WINAPI *release)(DWORD) =
         (BOOL (WINAPI *)(DWORD))GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "FlsFree");
 
-    return release(key);
+    BOOL released = release(key);
+
+    if (released)
+        atomic_fetch_sub(&live_keys, 1);
+
+    return released;
 }
 
 DWORD (WINAPI *__imp_FlsAlloc)(PFLS_CALLBACK_FUNCTION) = FlsAlloc;
@@ -483,6 +494,7 @@ static int check_primitive_attachment(void)
     if (bray_runtime_thread_attachment_enter() != 4 ||
         bray_runtime_current_native_thread_identity() != 0 ||
         atomic_load(&key_creation_attempts) != 1 ||
+        atomic_load(&live_keys) != 0 ||
         atomic_load(&live_allocations) != initial_live_allocations)
         return 33;
 
@@ -733,6 +745,7 @@ int main(void)
 
     if (bray_runtime_structured_shutdown() != 4 ||
         atomic_load(&key_destruction_attempts) != 1 ||
+        atomic_load(&live_keys) != 1 ||
         bray_runtime_thread_attachment_enter() != 0 ||
         bray_runtime_current_native_thread_identity() == 0 ||
         bray_runtime_thread_attachment_leave() != 0)
@@ -741,7 +754,8 @@ int main(void)
     atomic_store(&reject_key_destruction, 0);
 
     if (bray_runtime_structured_shutdown() != 1 ||
-        atomic_load(&key_destruction_attempts) != 2)
+        atomic_load(&key_destruction_attempts) != 2 ||
+        atomic_load(&live_keys) != 0)
         return 35;
 #endif
 
@@ -774,6 +788,12 @@ int main(void)
 
     if (atomic_load_explicit(&cleanup_shield_balance, memory_order_relaxed) != 0)
         return 7;
+
+#ifdef _WIN32
+    if (atomic_load(&live_keys) != 0 ||
+        atomic_load(&key_creation_attempts) != atomic_load(&key_destruction_attempts))
+        return 36;
+#endif
 
     return 0;
 }

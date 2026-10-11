@@ -310,13 +310,14 @@ where
                 | StorageIdentity::Allocation(_)
                 | StorageIdentity::CompilerCreated(_),
             ) => true,
-            Some(StorageIdentity::Parameter(_) | StorageIdentity::Receiver(_)) => {
-                self.input.storage_is_mutable(storage)
-            }
+            Some(
+                StorageIdentity::Parameter(_)
+                | StorageIdentity::Receiver(_)
+                | StorageIdentity::AnonymousParameter(_),
+            ) => self.input.storage_is_mutable(storage),
             Some(
                 StorageIdentity::Static(_)
                 | StorageIdentity::LocalOwned(_)
-                | StorageIdentity::AnonymousParameter(_)
                 | StorageIdentity::PredicateParameter(_)
                 | StorageIdentity::PostconditionResult(_)
                 | StorageIdentity::Error(_),

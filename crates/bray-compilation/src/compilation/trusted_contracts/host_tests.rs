@@ -5,6 +5,34 @@ use crate::test_support::{source_function_body_key, source_input};
 use crate::{Compilation, CompilationRequest};
 
 #[test]
+fn production_host_nested_bodies_and_contracts_are_checked() {
+    let compilation = production_host_compilation("module app;");
+
+    let owners = ["initialize_host", "shutdown_host"].map(|name| {
+        source_function_body_key(&compilation, name)
+            .source()
+            .syntax()
+    });
+
+    let diagnostics = compilation.check_diagnostics();
+
+    let failures = diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.primary_span().is_some_and(|span| {
+                owners.iter().any(|owner| {
+                    span.source_id() == owner.source_id()
+                        && span.start() >= owner.full_range().start()
+                        && span.end() <= owner.full_range().end()
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+#[test]
 fn production_host_lease_cannot_claim_preservation_across_fallible_preparation() {
     let compilation = production_host_compilation(
         r#"
@@ -19,9 +47,10 @@ fn production_host_lease_cannot_claim_preservation_across_fallible_preparation()
                 return 4;
             }
 
-            let mut prepared = trusted prepare_host_storage();
+            let status = trusted initialize_host();
+            let pointer = trusted host_access_pointer(&lease);
 
-            return trusted finish_host_formation_locked(&lease, &mut anchor, &mut prepared);
+            return status;
         }
         "#,
     );
@@ -41,8 +70,8 @@ fn production_retained_exit_execution_contracts_are_verified() {
     let compilation = production_host_compilation("module app;");
 
     for name in [
-        "empty_host_storage",
         "host_anchor",
+        "access_prepared_host",
         "load_attachment_identity",
         "current_attachment_locked",
         "insert_attachment",
@@ -211,16 +240,10 @@ fn production_owner_transfers_do_not_run_disposal_inside_the_transfer() {
 }
 
 #[test]
-fn production_host_formation_only_transfers_ownership_under_the_lease() {
+fn production_host_borrow_remains_total() {
     let compilation = production_host_compilation("module app;");
 
-    for name in [
-        "host_value",
-        "begin_host_formation_locked",
-        "finish_host_formation_locked",
-        "begin_host_shutdown_locked",
-        "finish_host_shutdown_locked",
-    ] {
+    for name in ["host_value"] {
         let checked = compilation
             .execution_properties(source_function_body_key(&compilation, name))
             .expect("production formation step must publish its execution proof");
@@ -377,6 +400,18 @@ fn production_host_authority_cannot_be_constructed_from_fields() {
             "let host = trusted host_value(&lease, &mut anchor); host.next_identity = 0;",
             false,
         ),
+        (
+            "let host = trusted host_value(&lease, &mut anchor); host.transitioning = true;",
+            false,
+        ),
+        (
+            "let host = trusted host_value(&lease, &mut anchor); host.storage = none;",
+            false,
+        ),
+        (
+            "let host = trusted host_value(&lease, &mut anchor); if let ?storage = host.storage { storage.released = true; }",
+            false,
+        ),
     ] {
         let caller = format!(
             r#"trusted internal module bray.runtime.bootstrap.host;
@@ -410,120 +445,32 @@ fn production_host_authority_cannot_be_constructed_from_fields() {
 }
 
 #[test]
-fn production_host_publication_rejects_a_fabricated_storage_key() {
-    for (prepared, valid) in [
-        ("let mut prepared = trusted prepare_host_storage();", true),
-        (
-            "let owner = trusted prepare_host_storage(); let mut prepared = owner;",
-            true,
-        ),
-        ("let mut prepared = trusted empty_host_storage();", true),
-        (
-            "let mut prepared: HostStorage? = HostStorage { key = 0, released = false, attachments = backing, active = 0 };",
-            false,
-        ),
-        (
-            "let mut prepared = trusted prepare_host_storage(); prepared = HostStorage { key = 0, released = false, attachments = backing, active = 0 };",
-            false,
-        ),
-        (
-            "let owner = trusted prepare_host_storage(); let mut prepared: HostStorage? = none; if let ?storage = owner { prepared = HostStorage { key = storage.key, released = false, attachments = backing, active = 0 }; }",
-            false,
-        ),
-        (
-            "let mut prepared = trusted prepare_host_storage(); if let ?storage = prepared { storage.released = false; }",
-            false,
-        ),
+fn production_host_partial_lifecycle_cannot_escape_the_complete_operation() {
+    for operation in [
+        "let prepared = trusted prepare_host_storage();",
+        "let retired = trusted take_host_storage();",
+        "let retired = trusted retire_storage();",
+        "let empty = trusted empty_host_storage();",
+        "let complete = complete_host_formation;",
+        "let begin = begin_host_formation_locked;",
+        "let finish = finish_host_formation_locked;",
+        "let begin = begin_host_shutdown_locked;",
+        "let finish = finish_host_shutdown_locked;",
     ] {
-        let source = r#"
-        trusted internal module bray.runtime.bootstrap.host;
-        func production_probe(pos backing: std.memory.RawBuffer<Attachment>) {
-            {
-                let lease = trusted host_access();
-                let mut anchor = trusted host_anchor(&lease);
-                if !lease.active { return; }
-                let started = trusted begin_host_formation_locked(&lease, &mut anchor);
-            }
-            PREPARED
-            let status = trusted complete_host_formation(prepared);
-        }
-        "#
-        .replace("PREPARED", prepared);
+        let caller = format!(
+            "trusted internal module bray.runtime.bootstrap.host; func production_probe() {{ {operation} }}"
+        );
 
-        let compilation = production_host_compilation(&source);
+        let compilation = production_host_compilation(&caller);
 
         let checked = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
             .unwrap();
 
-        assert_eq!(
-            !checked.diagnostics().has_errors(),
-            valid,
-            "{source}: {checked:#?}"
+        bray_testing::assert_goal_state_diagnostic_kind(
+            checked.diagnostics(),
+            DiagnosticKind::BindingUnresolvedName,
         );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                checked.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
-    }
-}
-
-#[test]
-fn production_host_shutdown_requires_an_owned_storage_key() {
-    for operation in [
-        "begin_host_shutdown_locked(&lease, &mut anchor, &mut retired)",
-        "finish_host_shutdown_locked(&lease, &mut anchor, &mut retired)",
-    ] {
-        for (retired, valid) in [
-            ("trusted empty_host_storage()", true),
-            (
-                "HostStorage { key = 0, released = false, attachments = backing, active = 0 }",
-                false,
-            ),
-        ] {
-            let acquisition = if valid {
-                "access_prepared_host(&retired)"
-            } else {
-                "host_access()"
-            };
-
-            let source = format!(
-                r#"
-                trusted internal module bray.runtime.bootstrap.host;
-                func production_probe(pos backing: std.memory.RawBuffer<Attachment>) {{
-                    let mut retired: HostStorage? = {retired};
-                    {{
-                        let lease = trusted {acquisition};
-                        let mut anchor = trusted host_anchor(&lease);
-                        if !lease.active {{ return; }}
-                        let status = trusted {operation};
-                    }}
-                }}
-            "#
-            );
-
-            let compilation = production_host_compilation(&source);
-
-            let checked = compilation
-                .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-                .unwrap();
-
-            assert_eq!(
-                !checked.diagnostics().has_errors(),
-                valid,
-                "{source}: {checked:#?}"
-            );
-
-            if !valid {
-                bray_testing::assert_goal_state_diagnostic_kind(
-                    checked.diagnostics(),
-                    DiagnosticKind::CheckingTrustedObligationNotProven,
-                );
-            }
-        }
     }
 }
 

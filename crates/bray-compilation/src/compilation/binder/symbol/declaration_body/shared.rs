@@ -14,6 +14,83 @@ use super::dependency::portable_dependency_contract;
 use crate::compilation::binder::CompilationBindingContext;
 use crate::fact::PublishedUnitResult;
 
+pub(super) fn checked_bound_contract(
+    context: &CompilationBindingContext<'_>,
+    bound: &BoundUnit,
+    declared: &bray_bound_tree::DeclaredValueTypeTemplates,
+    syntax: Option<bray_syntax::SyntaxNodeView<'_>>,
+) -> BindingQueryResult<bray_diagnostics::DiagnosticResult<CheckedExpressionSemantics>> {
+    use bray_checker::ExpressionSemanticChecker;
+
+    let compilation = context.compilation();
+
+    let candidates =
+        crate::compilation::unit::expression_candidates_in_syntax(context, bound, syntax)
+            .map_err(super::super::binding::binder_error)?;
+
+    let checker = compilation
+        .checker_context(context.cancellation)
+        .map_err(super::super::binding::binder_error)?;
+
+    let semantic = bray_binder::semantic_unit_context(context.symbols(), bound);
+    let mut request = bray_checker::CheckerUnitView::new(bound, &semantic, &checker);
+
+    if let Some(syntax) = syntax {
+        request = request.with_source_snapshot(syntax.source());
+    }
+
+    let operations =
+        crate::compilation::operation::operation_expressions(context, bound, context.cancellation)
+            .map_err(super::super::binding::binder_error)?;
+
+    let mut resolutions = Vec::new();
+
+    loop {
+        let operation_input = crate::compilation::operation::selection_type_input(&resolutions);
+
+        let checked = crate::compilation::checker::checker_result(
+            bray_checker::DefaultExpressionSemanticChecker.check_expression_semantics(
+                request,
+                declared,
+                &[],
+                candidates.value(),
+                &bray_checker::PatternCheckInput::new(),
+                &operation_input,
+            ),
+        )
+        .map_err(super::super::binding::binder_error)?;
+
+        let ((types, selections, literals), diagnostics) = checked.into_parts();
+
+        let semantics = CheckedExpressionSemantics::try_new(types, selections, literals)
+            .expect("contract expression semantics describe the supplied bound unit");
+
+        let (next, operation_diagnostics) = compilation
+            .semantic_selection_inputs(
+                bound.key(),
+                bound,
+                &semantics,
+                &operations,
+                &resolutions,
+                context.cancellation,
+            )
+            .map_err(super::super::binding::binder_error)?;
+
+        if next == resolutions {
+            return Ok(bray_diagnostics::DiagnosticResult::new(
+                semantics,
+                DiagnosticBag::merged_all([
+                    &diagnostics,
+                    candidates.diagnostics(),
+                    &operation_diagnostics,
+                ]),
+            ));
+        }
+
+        resolutions = next;
+    }
+}
+
 pub(in crate::compilation::binder::symbol) struct CheckedSourceExpression {
     pub(in crate::compilation::binder::symbol) result: TypeId,
     pub(in crate::compilation::binder::symbol) dependency_contract: DependencyContractTemplateId,

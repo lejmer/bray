@@ -447,6 +447,12 @@ fn native_bindings(
                 continue;
             };
 
+            // Nested callables have native symbols but no independent interface declaration.
+            // Binding them to their lexical owner would replace that declaration's implementation.
+            if bound.kind() != bray_bound_tree::BoundUnitKind::CallableBody {
+                continue;
+            }
+
             let external = match bound.declared_owner().data() {
                 SymbolKeyData::External(external) => {
                     // The binding key owns the external identity after this graph borrow ends.
@@ -563,6 +569,142 @@ mod tests {
     };
 
     use super::exact_native_binding_symbol;
+
+    #[test]
+    fn anonymous_native_symbols_do_not_bind_the_enclosing_declaration() {
+        use bray_codegen::CodeGenerator;
+        use bray_package_interface::{
+            InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
+            PackageInterfaceIdentity,
+        };
+        use std::sync::Arc;
+
+        let backend = Arc::new(bray_codegen_llvm::LlvmCodeGenerator::try_new().unwrap());
+
+        let registry = bray_codegen::CodeGeneratorRegistry::try_new([
+            Arc::clone(&backend) as Arc<dyn CodeGenerator>
+        ])
+        .unwrap();
+
+        let codegen =
+            bray_codegen::CodegenConfiguration::try_new(registry, backend.identity().clone())
+                .unwrap();
+        let package = crate::test_support::package_identity();
+
+        let identity = PackageInterfaceIdentity::try_new(
+            package.clone(),
+            crate::test_support::package_version(),
+            InterfaceProductIdentity::try_new("library").unwrap(),
+            InterfaceProductKind::Library,
+            "public",
+        )
+        .unwrap();
+
+        let source = r#"
+            module app;
+            public func exported() -> i32 {
+                let first = lambda() -> i32 { return 1; };
+                let second = lambda(pos value: i32) -> i32 { return value; };
+                return second(first());
+            }
+        "#;
+
+        let compilation = crate::Compilation::load_with_codegen(
+            crate::CompilationRequest::with_options(
+                package.clone(),
+                vec![crate::test_support::source_input(source, 0)],
+                crate::CompilationOptions::new(
+                    crate::WorkerBudget::serial(),
+                    bray_symbols::ProductKind::Library,
+                    crate::SelectedTarget::baseline(),
+                ),
+            )
+            .with_package_interface_export(crate::PackageInterfaceExportRequest::new(
+                identity,
+                InterfaceLanguageRevision::new(0),
+            )),
+            codegen,
+        )
+        .unwrap();
+
+        let native = compilation
+            .native_product_plan(
+                bray_symbols::ProductIdentity::try_new(package, "library").unwrap(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                None,
+            )
+            .unwrap();
+
+        let bundle = compilation
+            .package_interface_export_bundle()
+            .unwrap()
+            .as_ref()
+            .unwrap();
+        let target = bray_target::NativeTarget::for_identity(native.target().identity()).unwrap();
+        let mut digests = std::collections::BTreeMap::new();
+        let mut units = Vec::new();
+        let mut symbols = 0;
+
+        for (ordinal, mappings) in native.mappings().iter().enumerate() {
+            let mut bytes = [0; 32];
+
+            bytes[..8].copy_from_slice(&u64::try_from(ordinal).unwrap().to_le_bytes());
+
+            let digest = NativeContentDigest::new(bytes);
+
+            digests.insert(mappings.unit().clone(), digest);
+
+            let definitions = mappings
+                .symbols()
+                .iter()
+                .filter(|mapping| mapping.defines_in(mappings.unit()))
+                .map(|mapping| {
+                    symbols += 1;
+
+                    definition(
+                        target.object_symbol_name(mapping.name().as_str()).as_ref(),
+                        None,
+                        NativeDefinitionSelection::Ordinary,
+                    )
+                })
+                .collect();
+
+            units.push(NativeUnit::new(
+                digest,
+                NativeUnitKind::Object,
+                NativeUnitSummary::Exact {
+                    definitions,
+                    references: [].into(),
+                    roots: [].into(),
+                },
+                [],
+            ));
+        }
+
+        assert!(
+            symbols >= 3,
+            "the native plan must retain both local callable definitions"
+        );
+
+        let index = bray_native_artifact::NativeArtifactIndex::try_new(
+            target,
+            NativeContentDigest::new([255; 32]),
+            units,
+            [],
+        )
+        .unwrap();
+        let bindings =
+            super::native_bindings(&compilation, &native, bundle, target, &index, &digests)
+                .unwrap();
+
+        assert_eq!(
+            bindings.len(),
+            1,
+            "only the declared exported function has a package binding"
+        );
+    }
 
     #[test]
     fn exact_binding_names_ignore_versions_and_selection_and_skip_ordinals() {

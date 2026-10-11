@@ -497,16 +497,7 @@ mod tests {
         let compilation =
             crate::compilation::trusted_contracts::production_host_compilation("module app;");
 
-        for name in [
-            "initialize_host",
-            "prepare_host_storage",
-            "empty_host_storage",
-            "complete_host_formation",
-            "shutdown_host",
-            "take_host_storage",
-            "release_host_storage",
-            "access_prepared_host",
-        ] {
+        for name in ["initialize_host", "shutdown_host", "access_prepared_host"] {
             let lowered = compilation
                 .lowered_unit(crate::test_support::source_function_body_key(
                     &compilation,

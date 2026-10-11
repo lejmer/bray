@@ -2720,12 +2720,12 @@ fn anonymous_bodies_receive_their_declared_trusted_requirements() {
 
         trusted func observe(pos value: u64) requires(trusted live(value)) {}
 
-        func caller(pos value: u64) requires(trusted live(value)) {
+        func caller(pos entry: u64) requires(trusted live(entry)) {
             let action = lambda (pos value: u64) requires(trusted live(value)) {
                 observe(value);
             };
 
-            action(value);
+            action(entry);
         }
     "#,
     );

@@ -28,16 +28,7 @@ impl Compilation {
 
         let trusted = self.trusted_predicate_producer(key)?;
 
-        if key.kind() == bray_bound_tree::BoundUnitKind::AnonymousCallable {
-            self.trusted_anonymous_inputs(
-                key,
-                bound,
-                trusted,
-                &mut inputs,
-                &mut diagnostics,
-                cancellation,
-            )?;
-        } else {
+        {
             let declared = self.execution_declaration(key.source().syntax())?;
 
             let requirements = self.predicate_condition_inputs(
@@ -356,96 +347,5 @@ impl Compilation {
         });
 
         Ok(trusted)
-    }
-
-    fn trusted_anonymous_inputs(
-        &self,
-        key: &BoundUnitKey,
-        bound: &BoundUnit,
-        trusted: bool,
-        inputs: &mut TrustedContractInputs,
-        diagnostics: &mut DiagnosticBag,
-        cancellation: &CancellationToken,
-    ) -> Result<(), FactQueryError> {
-        let declared =
-            self.declared_value_type_templates_with_cancellation(key.clone(), cancellation)?;
-
-        let template = declared
-            .result()
-            .value()
-            .callable_type()
-            .expect("anonymous unit has its callable type");
-
-        let constants =
-            self.checked_constant_terms_for_templates_with_cancellation([template], cancellation)?;
-
-        let values = self.semantic_value_store()?;
-
-        diagnostics.add_range(declared.result().diagnostics().iter().cloned());
-        diagnostics.add_range(constants.diagnostics().iter().cloned());
-
-        let Some(ty) =
-            bray_checker::resolve_type_expression_template(values, template, constants.value())
-        else {
-            return Ok(());
-        };
-
-        let data = values.type_data(ty);
-
-        let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
-            panic!("anonymous unit type must retain its callable shape");
-        };
-
-        let bray_bound_tree::BoundUnitRoot::AnonymousCallable {
-            callable: identity, ..
-        } = bound.root()
-        else {
-            panic!("anonymous callable unit must retain its local declaration");
-        };
-
-        let references = bound
-            .local_symbols()
-            .anonymous_callable(identity)
-            .expect("anonymous unit owns its local callable")
-            .parameters()
-            .iter()
-            .map(|parameter| bray_bound_tree::BoundReferenceTarget::Local((*parameter).into()))
-            .collect::<Vec<_>>();
-
-        let invocation = callable.phase_behaviors().invocation();
-
-        let completion = callable
-            .phase_behaviors()
-            .deferred_execution()
-            .unwrap_or(invocation);
-
-        let span = bray_source::SourceSpan::new(
-            key.source().syntax().source_id(),
-            key.source().syntax().full_range(),
-        );
-
-        for (predicates, postcondition) in [
-            (invocation.predicate_requirements(), false),
-            (completion.predicate_guarantees(), true),
-        ] {
-            for predicate in predicates {
-                let condition = predicate
-                    .condition()
-                    .map(|term| {
-                        bray_checker::execution_condition_from_term(values, term, &references)
-                    })
-                    .transpose()?
-                    .unwrap_or(ExecutionCondition::Unknown);
-
-                match (postcondition, predicate.is_trusted()) {
-                    (false, true) => inputs.requirements.push(condition),
-                    (false, false) => inputs.preconditions.push(condition),
-                    (true, true) if !trusted => inputs.guarantees.push((condition, span)),
-                    _ => {}
-                }
-            }
-        }
-
-        Ok(())
     }
 }

@@ -1,21 +1,12 @@
 use bray_binder::{
     BindingQueryContext, BindingQueryError, SymbolQueryProvider, bind_contract_clause_expressions,
-    semantic_unit_context,
 };
-use bray_bound_tree::{
-    BoundSourceAnchor, BoundUnitId, BoundUnitKey, CheckedExpressionSemantics,
-    DeclaredValueTypeTemplates,
-};
-use bray_checker::{
-    DefaultExpressionSemanticChecker, ExpressionSemanticChecker, ExpressionTypeInput,
-    PatternCheckInput,
-};
+use bray_bound_tree::{BoundSourceAnchor, BoundUnitId, BoundUnitKey, DeclaredValueTypeTemplates};
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{AnySymbolId, PredicateSemanticSummary};
 use bray_syntax::{ExpressionSyntax, SyntaxNodeView};
 
 use crate::compilation::binder::{BindingQueryResult, CompilationBindingContext};
-use crate::compilation::checker::checker_result;
 
 /// Check catalog caller predicates with the same binder and normalization as source clauses.
 pub(in crate::compilation::binder::symbol) fn checked_catalog_predicates(
@@ -45,19 +36,6 @@ pub(in crate::compilation::binder::symbol) fn checked_catalog_predicates(
             .map_err(super::super::binding::binder_error)?;
 
     let bound = computation.result().value();
-
-    let candidates =
-        crate::compilation::unit::expression_candidates_in_syntax(context, bound, Some(clause))
-            .map_err(super::super::binding::binder_error)?;
-
-    let checker = compilation
-        .checker_context(context.cancellation)
-        .map_err(super::super::binding::binder_error)?;
-
-    let semantic = semantic_unit_context(context.symbols(), bound);
-
-    let request = bray_checker::CheckerUnitView::new(bound, &semantic, &checker)
-        .with_source_snapshot(clause.source());
 
     let callable = bray_symbols::CallableSymbolId::try_from_any(owner)
         .expect("catalog predicate owner is callable");
@@ -118,20 +96,9 @@ pub(in crate::compilation::binder::symbol) fn checked_catalog_predicates(
         Some(signature.value().result().clone()),
     );
 
-    let checked = checker_result(DefaultExpressionSemanticChecker.check_expression_semantics(
-        request,
-        &declared,
-        &[],
-        candidates.value(),
-        &PatternCheckInput::new(),
-        &ExpressionTypeInput::new(),
-    ))
-    .map_err(super::super::binding::binder_error)?;
-
-    let ((types, selections, literals), mut diagnostics) = checked.into_parts();
-
-    let semantics = CheckedExpressionSemantics::try_new(types, selections, literals)
-        .expect("catalog expression semantics must describe the supplied unit");
+    let (semantics, mut diagnostics) =
+        super::shared::checked_bound_contract(context, bound, &declared, Some(clause))?
+            .into_parts();
 
     let constants = compilation
         .execution_constant_inputs(bound, &semantics, context.cancellation, &mut diagnostics)
@@ -174,8 +141,6 @@ pub(in crate::compilation::binder::symbol) fn checked_catalog_predicates(
 
     Ok(DiagnosticResult::new(
         predicates,
-        diagnostics
-            .merged(computation.result().diagnostics())
-            .merged(candidates.diagnostics()),
+        diagnostics.merged(computation.result().diagnostics()),
     ))
 }

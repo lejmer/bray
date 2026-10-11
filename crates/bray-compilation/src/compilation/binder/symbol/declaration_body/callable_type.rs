@@ -1,15 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_binder::{
-    BindingQueryContext, BindingQueryError, bind_callable_type_clause, semantic_unit_context,
-};
+use bray_binder::{BindingQueryContext, BindingQueryError, bind_callable_type_clause};
 use bray_bound_tree::{
-    BoundSourceAnchor, BoundUnitId, BoundUnitKey, CheckedExpressionSemantics,
-    DeclaredValueTypeEvidence, DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
-};
-use bray_checker::{
-    DefaultExpressionSemanticChecker, ExpressionSemanticChecker, ExpressionTypeInput,
-    PatternCheckInput,
+    BoundSourceAnchor, BoundUnitId, BoundUnitKey, DeclaredValueTypeEvidence,
+    DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
@@ -18,13 +12,13 @@ use bray_symbols::{
 use bray_syntax::SyntaxNodeView;
 
 use crate::compilation::binder::{BindingQueryResult, CompilationBindingContext};
-use crate::compilation::checker::checker_result;
 
 pub(in crate::compilation) fn checked_callable_type_contracts(
     context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
     syntax: SyntaxNodeView<'_>,
     template: &TypeExpressionTemplate,
+    selected_clauses: Option<&[bray_declarations::SyntaxAnchor]>,
 ) -> BindingQueryResult<DiagnosticResult<CallablePhaseBehaviors>> {
     let compilation = context.compilation();
 
@@ -48,7 +42,21 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
         panic!("callable clause checking must receive a callable type");
     };
 
-    let (parameter_list, clauses) = callable_type_clauses(syntax);
+    let (parameter_list, mut clauses) = callable_type_clauses(syntax);
+
+    if let Some(selected) = selected_clauses {
+        clauses.retain(|(anchor, ..)| selected.contains(anchor));
+
+        for anchor in selected {
+            if anchor.syntax_kind() == bray_syntax::SyntaxKind::WhenClause {
+                let guard = anchor
+                    .find_descendant::<bray_syntax::WhenClauseSyntax>(context.syntax())
+                    .expect("selected guard has its source syntax");
+
+                clauses.push((*anchor, vec![guard.condition()], false, Vec::new()));
+            }
+        }
+    }
 
     let parameters = callable
         .parameters()
@@ -96,16 +104,6 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
 
         let guard_expressions = callable_type_guard_expressions(bound, guard_count);
 
-        let candidates = crate::compilation::unit::expression_candidates(context, bound)
-            .map_err(super::super::binding::binder_error)?;
-
-        let checker = compilation
-            .checker_context(context.cancellation)
-            .map_err(super::super::binding::binder_error)?;
-
-        let semantic = semantic_unit_context(context.symbols(), bound);
-        let request = bray_checker::CheckerUnitView::new(bound, &semantic, &checker);
-
         let evidence = bound
             .tree()
             .expressions()
@@ -113,6 +111,18 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
                 let bray_bound_tree::BoundExpression::Name(name) = bound else {
                     return None;
                 };
+
+                if matches!(
+                    name.target(),
+                    bray_bound_tree::BoundReferenceTarget::Local(
+                        bray_symbols::AnyLocalSymbolId::PostconditionResult(_)
+                    )
+                ) {
+                    return Some(DeclaredValueTypeEvidence::new(
+                        DeclaredValueTypeTerm::Expression(expression),
+                        TypeExpressionTemplate::Resolved(callable.result()),
+                    ));
+                }
 
                 references
                     .iter()
@@ -134,20 +144,8 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
             postcondition.then_some(TypeExpressionTemplate::Resolved(callable.result())),
         );
 
-        let checked = checker_result(DefaultExpressionSemanticChecker.check_expression_semantics(
-            request,
-            &declared,
-            &[],
-            candidates.value(),
-            &PatternCheckInput::new(),
-            &ExpressionTypeInput::new(),
-        ))
-        .map_err(super::super::binding::binder_error)?;
-
-        let ((types, selections, literals), checked_diagnostics) = checked.into_parts();
-
-        let semantics = CheckedExpressionSemantics::try_new(types, selections, literals)
-            .expect("contract type clause semantics have matching unit identity");
+        let (semantics, checked_diagnostics) =
+            super::shared::checked_bound_contract(context, bound, &declared, None)?.into_parts();
 
         let inputs = references
             .iter()
@@ -212,12 +210,8 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
         }
 
         diagnostics.add_range(
-            DiagnosticBag::merged_all([
-                computation.result().diagnostics(),
-                candidates.diagnostics(),
-                &checked_diagnostics,
-            ])
-            .into_iter(),
+            DiagnosticBag::merged_all([computation.result().diagnostics(), &checked_diagnostics])
+                .into_iter(),
         );
     }
 
