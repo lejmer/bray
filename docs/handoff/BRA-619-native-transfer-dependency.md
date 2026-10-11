@@ -2,16 +2,18 @@
 
 Recorded on 2026-10-10 after investigating `BRA-619-remaining-work.md`.
 
-## Status and scope boundary
+Updated on 2026-10-11: use the [current stack completion plan](stack-completion.md) for work order and status.
+The original source, test results and dependency evidence below are preserved. The earlier boundary before BRA-553 is retired.
+
+## Historical checkpoint
 
 [BRA-619](https://linear.app/bray-lang/issue/BRA-619) is incomplete. [PR #602](https://github.com/lejmer/bray/pull/602)
 must remain draft and Linear must remain In Progress. No compiler or runtime fix is included in this checkpoint.
 
-The input handoff requires an owned, allocation-independent transfer of an arbitrary typed exit error into suppressed
-incident storage. It also requires stopping if that work depends on BRA-553. Existing transport does not supply the
-necessary typed backing or consumer contract. Completing those shared contracts belongs to the active admission and
-incident-consumption owners below. Their prerequisite host work crosses the explicit BRA-553 boundary, so this task stops
-without starting it.
+The input handoff required an owned, allocation-independent transfer of an arbitrary typed exit error into suppressed
+incident storage. The inspected transport did not supply the necessary typed backing or consumer contract. The task
+stopped because its authorization then excluded BRA-553. That task boundary is historical. BRA-553 has since completed
+implementation and review. The admission and incident-consumption contracts below remain prerequisites for BRA-619.
 
 ## Verified source and stack
 

@@ -1,16 +1,20 @@
 # Work outside BRA-553
 
+Use the [current stack completion plan](stack-completion.md) for work order, ownership gaps and status. This document retains the investigation evidence. The earlier BRA-553-only task scope explains why findings were recorded here and does not restrict later authorized stack work.
+
 Recorded on 2026-10-10 while implementing [BRA-553](https://linear.app/bray-lang/issue/BRA-553/establish-bray-host-ownership-and-bootstrap-attachment) on the BRA-621 branch at `fb69346e31b225c39105d095e9f900c9cebad97c`.
 
-The user limited this task to BRA-553. The synchronization defect below belongs to [BRA-620](https://linear.app/bray-lang/issue/BRA-620/complete-standard-library-trusted-storage-and-foreign-contracts) and [PR #604](https://github.com/lejmer/bray/pull/604). It was not repaired in this task.
+The original task was limited to BRA-553. The synchronization defect below belongs to [BRA-620](https://linear.app/bray-lang/issue/BRA-620/complete-standard-library-trusted-storage-and-foreign-contracts) and [PR #604](https://github.com/lejmer/bray/pull/604). It was not repaired in this task.
 
 `standard-library/std/src/sync/spin_lock.bray` still permits an internal caller to construct `SpinLockGuard` from an ordinary lock reference and `active = true`. Its trusted pointer producer checks that flag and publishes exclusive, initialized, synchronized storage authority without requiring evidence of acquisition. The existing investigation in the primary checkout's `docs/handoff/BRA-620-remaining-work.md` records acceptance through source and imported interfaces.
 
 Resume the synchronization-authority repair on its owning stack branch. Audit the equivalent mutex, read/write-lock, and once-cell paths. Preserve acquisition evidence through valid movement and access, require it for release and destruction, and reject authority fabricated from copied or mutated ordinary fields. Do not grant compiler exemptions based on standard-library names or internal visibility.
 
-BRA-553 must establish its own host acquisition contract while this defect remains. Product membership and ordered thread-static cleanup belong to BRA-557. Source and foreign-entry wrappers belong to BRA-554. General cleanup admission belongs to BRA-502.
+BRA-553 established its own host acquisition contract while this defect remained. Product membership and ordered thread-static cleanup belong to BRA-557. Source and foreign-entry wrappers belong to BRA-554. General cleanup admission belongs to BRA-502.
 
 ## Compiler-owned cleanup incident role
+
+This is the same unresolved native transfer tracked by BRA-619, with BRA-502 and BRA-558 prerequisites. See the [dependency investigation](BRA-619-native-transfer-dependency.md). It is not a separate repair.
 
 The broader lifecycle test run on 2026-10-11 passed 63 tests and failed `scoped_selected_calls_emit_native_artifacts` with `InvalidExecutableHost(IncompatibleRuntime(MissingRole(CleanupIncidentTransfer)))`. The role catalog marks `CleanupIncidentTransfer` as compiler-owned with no native symbol. The fixture supplies every native role, while `RuntimeContract::validate` requires a runtime binding for every requested role. Trace compiler-owned role demand through executable-host planning before changing the fixture or inventing a native symbol. This concerns scoped cleanup incident transfer, outside primitive host attachment. The full failure is retained in `target/bra-553/lifecycle-3.log` in the primary checkout.
 
