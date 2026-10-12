@@ -93,6 +93,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if matches!(
             operation,
             super::super::super::model::AnalysisOperationKind::ScopeExit { .. }
+                | super::super::super::model::AnalysisOperationKind::Suspension {
+                    kind: super::super::super::model::AnalysisSuspensionKind::ScopedCall,
+                    ..
+                }
         ) {
             return;
         }

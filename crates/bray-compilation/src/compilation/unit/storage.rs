@@ -42,9 +42,8 @@ impl Compilation {
                     &semantic_context,
                     &context,
                     declared.result().value(),
-                    expressions.result().value().types(),
+                    expressions.result().value(),
                     patterns.result().value(),
-                    expressions.result().value().selections(),
                 )?;
 
                 let (plan, plan_diagnostics) = result.into_parts();

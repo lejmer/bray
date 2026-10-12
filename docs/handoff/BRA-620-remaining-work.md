@@ -11,6 +11,58 @@ The [rule coverage and replacement plan](runtime-stack-rule-coverage.md) and [cl
 replace the earlier proposal. The [architectural assessment](stack-architecture-assessment.md) and the instructions below
 retain dated evidence and acceptance requirements. Issue preparation did not begin implementation.
 
+## Shared target and observation checkpoint, 2026-10-13
+
+This continuation follows `6d8a4a6a` on `feature/bra-620-repair-synchronization-authority`. BRA-620 remains incomplete.
+
+Ordinary reference slots and references stored in addressed memory now use one sparse target-keyed map. The original
+reference supplied at entry is distinct from the parameter slot and from addresses projected through that reference.
+Different input references may alias. Only slots owned by this invocation are proven separate from original inputs.
+Typed projection preparation is shared by body accesses and selected-call summaries. Returned field addresses retain
+their target projections through export, selective import, substitution and specialization identity. Reading a reference
+field and taking that field's address produce different relationships.
+
+The shared analysis resolves mutation observations once. Refinement and guarantee consumers use the published result.
+It preserves a sibling field only when the reached storage proves separation. Unrepresented protected payloads and
+allocation bytes retain conservative invalidation. They cannot publish an empty effect merely because they lack ordinary
+observation paths. Dynamic array indices invalidate their enclosing observation. Literal indices are normalized by
+storage planning using already checked literal values, replacing the downstream invalidation conversion.
+
+Scoped-call suspension now records live storage without evaluating the invocation or transferring its inputs again.
+Aggregate mutation invalidates stored reference fields even when they have no separate addressed-memory metadata.
+Subtree transfers and old-epoch targets share one ordering, so old entries cannot interrupt traversal of current fields.
+The removed test-only referent algorithm is replaced by calls to the production target resolver.
+
+Evidence is in the primary checkout's shared `target/bra-620-authority/` directory:
+
+- `target-final-libraries.log` and `target-final-checker.log`: 119 bound-tree, 289 checker, 189 package-interface and
+  202 symbol tests pass, including the aggregate-reference regression and the final test-helper simplification.
+- `target-aggregate-returned_values.log` and `target-aggregate-memory_operations.log`: 21 returned-value and 15 memory
+  tests pass after the aggregate invalidation fix.
+- `target-final-` import/publication logs: 13 returned-dependency, 34 publication, eight reborrow, eight default-borrow
+  and seven storage-plan tests pass.
+- `target-final-authority.log`: 134 pass and 16 fail after the final audit and formatting, compared with 131 pass and
+  18 fail at the preceding checkpoint. The protected double-move, overlapping/dynamic selector and
+  synchronous/asynchronous scoped-authority regressions all pass.
+- Broader coverage found acceptance work that narrower filters had not exercised. `target-verified-runtime_default.log`
+  has 17 passes and one recursive-default query cycle. Default providers still reenter body analysis outside the callable
+  component. `transition-scoped_.log` has nine passes and two failures: borrowed scoped storage lacks its physical
+  capability plan, and native scoped execution reports missing `CleanupIncidentTransfer` in the runtime host contract.
+  These are unfinished stack work, not waived checks.
+
+`cargo fmt --all`, mutating `cargo xtask style`, `cargo xtask format` and `git diff --check` pass. The audit reused
+projection typing, target overlap, subtree transfer, input ownership classification and metadata transport. It removed
+the mirrored stored-reference state and obsolete test-only target resolution. This checkpoint adds roughly 850 production
+lines and 380 test lines, including tests colocated with production. The production growth supplies distinct entry and
+reached identities, shared observation publication and portable projected-address contracts. It introduces no runtime
+witness state or generated-code operations. Compiler cost still needs the plan's performance acceptance.
+
+Next, complete the internal protected-payload and nested-reference representation, finite effects and retirement, and
+shared component ownership for default providers. Keep the distinct slot, reference value, reached bytes, epoch and
+acquisition authority throughout. The accepted recursive-path, must-summary, deferred-effect and production protocol
+requirements below remain active. No new Bray syntax, runtime representation or LLVM alias assertion was introduced.
+Native performance, binary size and the final production guard layout have not yet met acceptance.
+
 ## Shared reference producer checkpoint, 2026-10-12
 
 This continuation follows `88bd8ca4` on `feature/bra-620-repair-synchronization-authority`. It is an incomplete BRA-620

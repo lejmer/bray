@@ -477,6 +477,17 @@ where
         state: &mut StorageFlowState,
         operation: &AnalysisOperation,
     ) {
+        if let AnalysisOperationKind::Suspension {
+            occurrence,
+            kind: crate::analysis::model::AnalysisSuspensionKind::ScopedCall,
+        } = operation.kind()
+        {
+            // Entry already transferred the invocation's inputs. Suspension records
+            // their live storage without evaluating or transferring them again.
+            self.record_suspension(state, occurrence);
+            return;
+        }
+
         let mut refinements = std::mem::take(&mut state.refinements);
         let universe = self.refinements;
 
@@ -543,27 +554,34 @@ where
 
         let call_effects = self.begin_transition(state, kind, assignment.as_ref());
 
+        let assignment_path = assignment
+            .as_ref()
+            .and_then(|target| target.storage_path())
+            .cloned();
+
         let invalidation = if completing {
             None
         } else {
             let call_effects = call_effects.as_ref().map(|effects| {
-                bray_bound_tree::StorageInvalidation::Paths(
-                    effects.iter().map(|(path, _)| path.clone()).collect(),
-                )
+                self.target_observations(state, effects.iter().map(|(target, _)| target))
             });
 
             call_effects
-                .or_else(|| self.memory_invalidation(state, kind.node()))
                 .or_else(|| {
                     // Assignment publication and mutation share one resolved path.
                     assignment
                         .as_ref()
-                        .map(|path| bray_bound_tree::StorageInvalidation::Paths(vec![path.clone()]))
+                        .map(|target| self.target_observations(state, std::iter::once(target)))
+                })
+                .or_else(|| {
+                    self.refinements
+                        .invalidation_at(kind.occurrence())
+                        .map(|planned| self.planned_observations(state, planned))
                 })
         };
 
         if !completing {
-            self.record_operation_effects(kind, invalidation.as_ref(), call_effects.as_deref());
+            self.record_operation_effects(kind, call_effects.as_deref(), assignment.as_ref());
 
             if self.publish {
                 if let AnyBoundNodeId::Expression(expression) = kind.node()
@@ -575,12 +593,12 @@ where
                     self.assignments
                         .entry(expression)
                         .and_modify(|previous| {
-                            if *previous != assignment {
+                            if *previous != assignment_path {
                                 *previous = None;
                             }
                         })
                         // Target paths share immutable projections with the transition.
-                        .or_insert_with(|| assignment.clone());
+                        .or_insert_with(|| assignment_path.clone());
                 }
 
                 if let Some(effects) = invalidation
@@ -595,7 +613,7 @@ where
                 }
             }
 
-            let assignment = assignment
+            let assignment = assignment_path
                 .as_ref()
                 .and_then(|path| crate::ExecutionPlace::storage_path(self.storage, path));
 
@@ -972,9 +990,16 @@ where
             StorageAccessPurpose::Move
             | StorageAccessPurpose::Initialize
             | StorageAccessPurpose::Assignment => {
-                let physical = self.physical_place(state, plan.access());
+                let target =
+                    self.input
+                        .reference_target(&state.memory, self.storage, plan.access());
 
-                let logical = physical
+                let observed = target
+                    .as_ref()
+                    .and_then(|target| target.storage_path())
+                    .cloned();
+
+                let logical = observed
                     .as_ref()
                     .or_else(|| self.storage.logical_path(plan.access()));
 
@@ -993,11 +1018,11 @@ where
                     }
                 }
 
-                if let Some(place) = physical {
+                if let Some(target) = target {
                     if purpose == StorageAccessPurpose::Move {
-                        state.memory.consume_place(place, ty);
+                        state.memory.consume_target(target, ty);
                     } else {
-                        state.memory.write_place(place, ty, plan.expression());
+                        state.memory.write_target(target, ty, plan.expression());
                     }
                 } else {
                     // A lifetime anchor cannot stand in for an unresolved physical target.
@@ -1025,7 +1050,10 @@ where
                     if capability.expression() == Some(plan.expression()) {
                         let access = capability.access();
 
-                        if let Some(source) = self.physical_place(state, access) {
+                        if let Some(source) =
+                            self.input
+                                .reference_target(&state.memory, self.storage, access)
+                        {
                             let ty = self
                                 .storage
                                 .access(access)
@@ -1046,9 +1074,11 @@ where
                                 (bray_symbols::TypeData::Borrow { target: source, .. }, bray_symbols::TypeData::Borrow { target: result, .. }) if source == result);
 
                             if reborrow {
-                                state.memory.reborrow(borrow, &source, capability.parent());
+                                state
+                                    .memory
+                                    .reborrow_value(borrow, &source, capability.parent());
                             } else {
-                                state.memory.begin_borrow(borrow, source, ty);
+                                state.memory.borrow_target_storage(borrow, source, ty);
                             }
                         }
                     }

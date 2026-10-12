@@ -1624,6 +1624,10 @@ fn scalar_component_mutation_revokes_only_overlapping_authority() {
             false,
         ),
         (
+            "let mut values: [u8; 2] = [0, 0]; establish(&values[0]); values[index] = 1; observe(&values[0]);",
+            false,
+        ),
+        (
             "let mut value = (false, false); establish_bool(&value.0); value.1 = true; observe_bool(&value.0);",
             true,
         ),
@@ -1649,7 +1653,7 @@ fn scalar_component_mutation_revokes_only_overlapping_authority() {
             trusted func establish_bool(pos value: &bool) executes(pure, total) ensures(trusted live_bool(value)) {{}}
             func observe(pos value: &u8) requires(trusted live(value)) {{}}
             func observe_bool(pos value: &bool) requires(trusted live_bool(value)) {{}}
-            func caller() {{ {body} }}
+            func caller(pos index: usize) {{ {body} }}
         "#
         );
 

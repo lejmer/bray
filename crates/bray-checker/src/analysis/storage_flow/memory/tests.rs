@@ -947,14 +947,14 @@ fn original_entry_references_survive_slot_reassignment_without_proving_disjointn
 
     assert_eq!(
         exact,
-        vec![(&captured, &super::model::Origin::Entry(first.clone()))]
+        vec![(&captured, &super::model::Origin::entry(first.clone()))]
     );
 
     state.write(&first, error_type(), origins[0], None);
 
     assert!(
-        !state.has_reference(&second),
-        "an unknown input target may overwrite another input slot"
+        state.has_reference(&second),
+        "writing through an input does not rebind another by-value parameter slot"
     );
 
     assert!(
@@ -1027,7 +1027,7 @@ fn exposed_entry_reference_keeps_its_origin_without_claiming_a_physical_place() 
 
     assert_eq!(
         state.exact_references(&pointer).collect::<Vec<_>>(),
-        vec![(&pointer, &super::model::Origin::Entry(source))]
+        vec![(&pointer, &super::model::Origin::entry(source))]
     );
 
     assert!(state.located_storage(&pointer).is_none());
@@ -1036,4 +1036,190 @@ fn exposed_entry_reference_keeps_its_origin_without_claiming_a_physical_place() 
         state.read(&pointer, error_type(), MemoryReadKind::Copy, None, None),
         MemoryOperationStatus::Valid
     );
+}
+#[test]
+fn entry_borrow_targets_are_not_parameter_slots() {
+    let ([parameter, copy, _, _], _, capability) = borrowed_places();
+
+    let mut state = State::default();
+
+    state.begin_entry_borrow(capability, parameter.clone(), error_type());
+    state.retain_borrow(capability, copy.clone());
+    assert_eq!(state.referent(&copy, error_type()), None);
+    assert!(state.borrowed_storage(capability).is_none());
+    assert!(!state.initialized(&copy, error_type()));
+    state.begin(parameter.root);
+
+    assert!(
+        state.borrow_target(capability, error_type()).is_some(),
+        "a parameter slot's epoch is distinct from the original referent"
+    );
+}
+
+#[test]
+fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
+    let ([parameter, field_reference, address, copied], _, capability) = borrowed_places();
+
+    let mut state = State::default();
+    let ty = error_type();
+
+    state.begin_entry_borrow(capability, parameter.clone(), ty);
+
+    let projection =
+        bray_bound_tree::StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
+
+    let target = state
+        .borrow_target(capability, ty)
+        .unwrap()
+        .project(&[projection]);
+
+    let slot = Place {
+        root: parameter.root,
+        projections: [projection].into(),
+    };
+
+    state.entry_reference_at(slot.clone(), target.clone(), Some(ty));
+    state.transfer_value(&target, field_reference.clone());
+    state.borrow_target_storage(capability, target, ty);
+    state.retain_borrow(capability, address.clone());
+    state.transfer(&address, copied.clone());
+
+    assert_eq!(
+        state.exact_references(&field_reference).next().unwrap().1,
+        &super::model::Origin::entry(slot)
+    );
+
+    assert_ne!(
+        state.exact_references(&address).next().unwrap().1,
+        state.exact_references(&field_reference).next().unwrap().1
+    );
+
+    state.clear(&parameter);
+    assert_eq!(state.exact_references(&copied).count(), 1);
+    assert!(state.located_storage(&copied).is_none());
+}
+
+#[test]
+fn entry_targets_alias_other_inputs_but_distinguish_fields_of_the_same_referent() {
+    let ([first, second, _, _], _) = places();
+
+    let target = |reference| super::model::Target {
+        origin: super::model::Origin::entry(reference),
+        previous: false,
+    };
+
+    let field = |index| {
+        bray_bound_tree::StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(index))
+    };
+
+    let first = target(first);
+    let second = target(second);
+
+    assert_eq!(
+        first.relationship(&second),
+        bray_bound_tree::StorageRelationship::PotentiallyOverlapping
+    );
+
+    assert_eq!(
+        first
+            .project(&[field(0)])
+            .relationship(&first.project(&[field(1)])),
+        bray_bound_tree::StorageRelationship::Disjoint
+    );
+
+    assert_eq!(
+        first.relationship(&first.project(&[field(0)])),
+        bray_bound_tree::StorageRelationship::PotentiallyOverlapping
+    );
+
+    assert_eq!(
+        first
+            .project(&[field(0)])
+            .relationship(&second.project(&[field(1)])),
+        bray_bound_tree::StorageRelationship::PotentiallyOverlapping
+    );
+}
+
+#[test]
+fn previous_epoch_cells_do_not_interrupt_current_subtree_transfers() {
+    let ([source, destination, pointer, _], _) = places();
+
+    let mut state = State::default();
+    let projection = StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
+
+    let field = Place {
+        root: source.root,
+        projections: [projection].into(),
+    };
+
+    state.entry_reference(field.clone());
+    state.entry_reference(source.clone());
+
+    state.values.insert(
+        super::model::Target {
+            previous: true,
+            origin: super::model::Origin::Storage(source.clone()),
+        },
+        super::model::References::default(),
+    );
+
+    state.transfer(&source, destination.clone());
+    assert_eq!(state.exact_references(&destination).count(), 2);
+    state.transfer(&destination, pointer.clone());
+    assert_eq!(state.exact_references(&pointer).count(), 2);
+    state.clear(&source);
+    assert!(!state.has_reference(&field));
+}
+
+#[test]
+fn projected_entry_selectors_do_not_establish_exact_initialization() {
+    let ([parameter, pointer, _, _], origins, capability) = borrowed_places();
+
+    let mut state = State::default();
+
+    state.begin_entry_borrow(capability, parameter, error_type());
+
+    let selected = state
+        .borrow_target(capability, error_type())
+        .unwrap()
+        .project(&[StorageProjection::Element(origins[0])]);
+
+    state.borrow_target_storage(capability, selected, error_type());
+    state.retain_borrow(capability, pointer.clone());
+    state.expose_address(&pointer, error_type(), origins[1]);
+    assert_eq!(state.exact_references(&pointer).count(), 0);
+    assert!(!state.initialized(&pointer, error_type()));
+}
+
+#[test]
+fn aggregate_mutation_revokes_reference_fields_without_address_metadata() {
+    let ([aggregate, source, _, _], _) = places();
+
+    let field = Place {
+        root: aggregate.root,
+        projections: [StorageProjection::TupleElement(
+            bray_symbols::SymbolOrdinal::new(0),
+        )]
+        .into(),
+    };
+
+    let mut state = State::default();
+
+    state.entry_reference(source.clone());
+    state.transfer(&source, field.clone());
+    assert!(state.has_reference(&field));
+
+    assert!(
+        !state
+            .contents
+            .contains_key(&super::model::Target::storage(field.clone()))
+    );
+
+    state.invalidate_target(
+        &super::model::Target::storage(aggregate),
+        bray_symbols::DependencyMutationKind::Write,
+    );
+
+    assert!(!state.has_reference(&field));
+    assert!(state.has_reference(&source));
 }

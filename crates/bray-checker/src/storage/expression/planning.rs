@@ -720,7 +720,18 @@ where
                 };
 
                 (
-                    StorageProjection::Element(selector),
+                    if matches!(
+                        target,
+                        Some(IndexTarget::ArrayElement | IndexTarget::SliceElement)
+                    ) {
+                        super::super::projection::element_projection(
+                            self.request,
+                            self.literals,
+                            selector,
+                        )
+                    } else {
+                        StorageProjection::Element(selector)
+                    },
                     StorageAccessPurpose::Index,
                 )
             }

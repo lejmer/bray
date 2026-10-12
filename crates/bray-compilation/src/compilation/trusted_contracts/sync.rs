@@ -1444,3 +1444,40 @@ fn raw_writes_invalidate_only_the_reached_witness_observations() {
         }
     }
 }
+
+#[test]
+fn input_referent_mutations_preserve_only_proven_disjoint_component_witnesses() {
+    for (mutated, valid) in [("left", true), ("right", false)] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Cell {{ mut value: bool; }}
+            struct Pair {{ mut first: Cell; mut second: Cell; }}
+            trusted predicate held(value: &Cell);
+            func observe(pos value: &Cell)
+                requires(trusted held(value)) executes(pure, total) {{}}
+            func caller(pos left: &mut Pair, pos right: &mut Pair)
+                requires(trusted held(&left.second)) {{
+                {mutated}.first.value = false;
+                observe(&left.second);
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}

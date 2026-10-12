@@ -2,11 +2,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     BorrowCapabilityOrigin, BoundBlockId, BoundBlockItem, BoundCallableBodyKind, BoundExpressionId,
-    BoundPatternId, BoundReferenceTarget, CheckedExpressionTypes, CheckedPatterns,
-    CheckedSemanticSelections, DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
-    ExpressionTypeResult, PlannedBorrowCapability, SelectedIterationSource, SemanticSelection,
-    StorageAccess, StorageAccessId, StorageAccessPurpose, StorageAccessRoot, StorageBinding,
-    StorageBindingTarget, StorageIdentity, StoragePlan, StoragePlanBuilder,
+    BoundPatternId, BoundReferenceTarget, CheckedExpressionSemantics, CheckedExpressionTypes,
+    CheckedLiteralValues, CheckedPatterns, CheckedSemanticSelections, DeclaredValueTypeTemplates,
+    DeclaredValueTypeTerm, ExpressionTypeResult, PlannedBorrowCapability, SelectedIterationSource,
+    SemanticSelection, StorageAccess, StorageAccessId, StorageAccessPurpose, StorageAccessRoot,
+    StorageBinding, StorageBindingTarget, StorageIdentity, StoragePlan, StoragePlanBuilder,
 };
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableSignatureQuery, CallableSymbolId, PredicateDefinitionSymbolId,
@@ -35,9 +35,8 @@ struct DeclaredCallableEntry {
 pub(crate) fn plan_storage<C>(
     request: CheckerUnitView<'_, C>,
     declared_types: &DeclaredValueTypeTemplates,
-    types: &CheckedExpressionTypes,
+    expressions: &CheckedExpressionSemantics,
     patterns: &CheckedPatterns,
-    selections: &CheckedSemanticSelections,
 ) -> CheckerOutcome<StoragePlan, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
@@ -48,6 +47,8 @@ where
 
     let unit = request.unit().unit();
     let kind = request.unit().key().kind();
+    let types = expressions.types();
+    let selections = expressions.selections();
 
     if declared_types.unit() != unit
         || declared_types.kind() != kind
@@ -74,9 +75,8 @@ where
     let mut planner = Planner::new(
         request,
         declared_types,
-        types,
+        expressions,
         patterns,
-        selections,
         callable_entry,
     );
 
@@ -94,6 +94,7 @@ where
     pub(super) request: CheckerUnitView<'view, C>,
     pub(super) declared_types: &'view DeclaredValueTypeTemplates,
     pub(super) types: &'view CheckedExpressionTypes,
+    pub(super) literals: &'view CheckedLiteralValues,
     pub(super) patterns: &'view CheckedPatterns,
     pub(super) selections: &'view CheckedSemanticSelections,
     pub(super) iterations: BTreeMap<BoundExpressionId, &'view SelectedIterationSource>,
@@ -144,9 +145,8 @@ where
     fn new<'view>(
         request: CheckerUnitView<'view, C>,
         declared_types: &'view DeclaredValueTypeTemplates,
-        types: &'view CheckedExpressionTypes,
+        expressions: &'view CheckedExpressionSemantics,
         patterns: &'view CheckedPatterns,
-        selections: &'view CheckedSemanticSelections,
         callable_entry: DeclaredCallableEntry,
     ) -> Planner<'view, C> {
         let unit = request.unit().unit();
@@ -175,10 +175,12 @@ where
         Planner {
             request,
             declared_types,
-            types,
+            types: expressions.types(),
+            literals: expressions.literals(),
             patterns,
-            selections,
-            iterations: selections
+            selections: expressions.selections(),
+            iterations: expressions
+                .selections()
                 .entries()
                 .iter()
                 .filter_map(|entry| match entry.selection() {

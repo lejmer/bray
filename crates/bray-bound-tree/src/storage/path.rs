@@ -51,11 +51,8 @@ impl StoragePath {
 
     /// Whether each selector identifies one component independently of evaluation.
     pub fn is_exact(&self) -> bool {
-        self.projections.iter().all(|projection| {
-            !matches!(
-                projection,
-                StorageProjection::Element(_) | StorageProjection::SliceRange { .. }
-            )
-        })
+        self.projections
+            .iter()
+            .all(|projection| projection.is_exact())
     }
 }

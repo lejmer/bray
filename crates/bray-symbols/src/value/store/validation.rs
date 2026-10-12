@@ -287,6 +287,7 @@ pub(super) fn validate_dependency_template_data(
     for relation in data.borrows() {
         validate_dependency_subject(tables, store, relation.entry());
         validate_dependency_subject(tables, store, relation.exit());
+        validate_dependency_projections(tables, store, relation.target_projections());
     }
 
     for effect in data.effects() {

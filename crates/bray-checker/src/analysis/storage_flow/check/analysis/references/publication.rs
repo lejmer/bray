@@ -113,7 +113,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         Ok(crate::representation::reference_kind(self.request, ty))
     }
 
-    fn formal_root(
+    pub(in crate::analysis::storage_flow::check::analysis) fn formal_root(
         &self,
         identity: bray_bound_tree::StorageIdentityId,
     ) -> Option<DependencySubjectRoot> {
@@ -141,7 +141,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> crate::CheckerQueryResult<Option<bray_symbols::DependencyBorrowRelation>, C::UpstreamError>
     {
         let (target, stored_reference) = match origin {
-            Origin::Entry(path) => (path, true),
+            Origin::Entry {
+                reference: path, ..
+            } => (path, true),
             Origin::Storage(path) => (path, false),
             Origin::Allocation(_) | Origin::Uninit(_) => return Ok(None),
         };
@@ -201,15 +203,27 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return Ok(None);
         };
 
-        Ok(Some(bray_symbols::DependencyBorrowRelation::new(
-            bray_symbols::DependencySubject::new(root, entry),
-            bray_symbols::DependencySubject::new(
-                self.formal_root(slot.root)
-                    .expect("reference exit has a formal root"),
-                exit,
-            ),
-            kind,
-        )))
+        let target_projections = match origin {
+            Origin::Entry { projections, .. } => dependency_projections(projections),
+            _ => Some(Vec::new()),
+        };
+
+        let Some(target_projections) = target_projections else {
+            return Ok(None);
+        };
+
+        Ok(Some(
+            bray_symbols::DependencyBorrowRelation::new(
+                bray_symbols::DependencySubject::new(root, entry),
+                bray_symbols::DependencySubject::new(
+                    self.formal_root(slot.root)
+                        .expect("reference exit has a formal root"),
+                    exit,
+                ),
+                kind,
+            )
+            .with_target_projections(target_projections),
+        ))
     }
 }
 

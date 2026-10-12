@@ -910,13 +910,23 @@ mod tests {
             [DependencyProjection::Element(target_term)],
         );
 
+        let projected_reference = |index| {
+            crate::DependencyBorrowRelation::new(
+                DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(0))),
+                DependencySubject::root(DependencySubjectRoot::Result),
+                crate::DependencyReferenceKind::Borrow,
+            )
+            .with_target_projections([DependencyProjection::Element(index)])
+        };
+
         let invocation = store
-            .intern_dependency_contract_template(DependencyContractTemplateData::new([
-                DependencyRequirement::direct(
+            .intern_dependency_contract_template(
+                DependencyContractTemplateData::new([DependencyRequirement::direct(
                     source_subject.clone(),
                     DependencyRequirementKind::StorageAlive,
-                ),
-            ]))
+                )])
+                .with_borrows([projected_reference(source_term)]),
+            )
             .unwrap_or_else(|error| panic!("invocation contract interning failed: {error:?}"));
 
         let deferred = store
@@ -988,6 +998,7 @@ mod tests {
                 target_subject.clone(),
                 DependencyRequirementKind::StorageAlive,
             )])
+            .with_borrows([projected_reference(target_term)])
         );
 
         assert_eq!(

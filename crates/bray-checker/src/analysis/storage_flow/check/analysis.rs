@@ -3,6 +3,7 @@ mod core;
 mod effects;
 mod escape;
 mod memory;
+mod observations;
 mod references;
 mod snapshot;
 

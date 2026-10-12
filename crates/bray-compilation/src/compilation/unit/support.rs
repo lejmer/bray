@@ -6,8 +6,8 @@ use bray_binder::{
 };
 use bray_bound_tree::{
     AnyBoundNodeId, BoundUnit, BoundUnitKey, BoundUnitKind, BoundWalkControl, BoundWalkEvent,
-    BoundWalkOutcome, CheckedControlFlow, CheckedExpressionTypes, CheckedPatterns,
-    CheckedSemanticSelections, DeclaredValueTypeTemplates, StoragePlan, walk_bound_unit_view,
+    BoundWalkOutcome, CheckedControlFlow, CheckedExpressionSemantics, CheckedExpressionTypes,
+    CheckedPatterns, DeclaredValueTypeTemplates, StoragePlan, walk_bound_unit_view,
 };
 use bray_checker::{
     ControlFlowChecker, DefaultControlFlowChecker, DefaultPatternChecker, DefaultStoragePlanner,
@@ -171,19 +171,12 @@ pub(super) fn plan_storage(
     semantic_context: &SemanticUnitContext,
     context: &CompilationCheckerContext<'_>,
     declared_types: &DeclaredValueTypeTemplates,
-    types: &CheckedExpressionTypes,
+    expressions: &CheckedExpressionSemantics,
     patterns: &CheckedPatterns,
-    selections: &CheckedSemanticSelections,
 ) -> Result<DiagnosticResult<StoragePlan>, FactQueryError> {
     let unit = bray_checker::CheckerUnitView::new(bound, semantic_context, context);
 
-    checker_result(DefaultStoragePlanner.plan_storage(
-        unit,
-        declared_types,
-        types,
-        patterns,
-        selections,
-    ))
+    checker_result(DefaultStoragePlanner.plan_storage(unit, declared_types, expressions, patterns))
 }
 
 pub(in crate::compilation) fn map_binding_error(

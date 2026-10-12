@@ -1,8 +1,8 @@
 use super::super::core::StorageFlowCollector;
-use super::super::effects::project;
 use crate::CheckerRequestContext;
-use crate::analysis::storage_flow::memory::Place;
+use crate::analysis::storage_flow::memory::{Place, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
+use crate::storage::storage_projections;
 use bray_bound_tree::{BoundExecutionSite, SemanticSelection};
 use bray_symbols::{DependencySubjectRoot, TypeData};
 
@@ -85,12 +85,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
     }
 
-    fn reference_destination(
+    fn reference_wrapping(
         &self,
         expression: bray_bound_tree::BoundExpressionId,
-        destination: Place,
         mut target: bray_symbols::TypeId,
-    ) -> Option<Place> {
+    ) -> Option<Vec<bray_bound_tree::StorageProjection>> {
         let source_type = self
             .execution
             .semantics
@@ -99,7 +98,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .expect("transferred value has a checked type")
             .ty();
 
-        let mut projections = destination.projections.to_vec();
+        let mut projections = Vec::new();
 
         while target != source_type {
             let data = self.request.semantic_values().type_data(target);
@@ -112,10 +111,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             target = *inner;
         }
 
-        Some(Place {
-            root: destination.root,
-            projections: projections.into(),
-        })
+        Some(projections)
     }
 
     fn transfer_reference_value(
@@ -151,10 +147,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         // The transfer owns its converted destination path.
-        if let Some(path) = self.reference_destination(expression, destination.clone(), target)
+        if let Some(projections) = self.reference_wrapping(expression, target)
             && let Some(source) = self.expression_reference(state, expression)
         {
-            source.transfer(&mut state.memory, path);
+            source.transfer(
+                &mut state.memory,
+                Place {
+                    root: destination.root,
+                    projections: destination
+                        .projections
+                        .iter()
+                        .copied()
+                        .chain(projections)
+                        .collect(),
+                },
+            );
         } else {
             state.memory.clear(&destination);
         }
@@ -164,7 +171,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         state: &mut StorageFlowState,
         operation: crate::analysis::model::AnalysisOperationKind,
-        destination: Option<&Place>,
+        destination: Option<&Target>,
     ) {
         let crate::analysis::model::AnalysisOperationKind::Bound(
             bray_bound_tree::AnyBoundNodeId::Expression(expression),
@@ -205,10 +212,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .ty();
 
             // Pending output owns this path until the assignment completes.
-            if let Some(path) = self.reference_destination(*source, destination.clone(), ty)
+            if let Some(projections) = self.reference_wrapping(*source, ty)
                 && let Some(source) = self.expression_reference(state, *source)
             {
-                source.stage(&mut state.memory, operation.occurrence(), path);
+                source.stage(
+                    &mut state.memory,
+                    operation.occurrence(),
+                    destination.project(&projections),
+                );
+
                 return;
             }
         }
@@ -248,16 +260,27 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let output = if relation.exit().subject_root() == DependencySubjectRoot::Result {
                 self.expression_result_storage(expression)
-            } else {
-                reference
-                    .output_argument()
-                    .and_then(|argument| self.call_reference_storage(state, argument))
-                    .and_then(|mut places| {
-                        (places.len() == 1).then(|| places.pop().expect("one output place"))
+                    .map(Target::storage)
+                    .and_then(|target| {
+                        Some(target.project(&storage_projections(
+                            self.request,
+                            relation.exit().projections(),
+                        )?))
                     })
+            } else {
+                reference.output_argument().and_then(|argument| {
+                    let mut targets = self.call_reference_locations(
+                        state,
+                        argument,
+                        relation.exit().projections(),
+                        contracts.borrow_path(relation.exit())?,
+                    )?;
+
+                    (targets.len() == 1).then(|| targets.pop().expect("one output target"))
+                })
             };
 
-            let Some(output) = output else {
+            let Some(destination) = output else {
                 continue;
             };
 
@@ -267,66 +290,122 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let Some(destination) = project(self.request, output, relation.exit().projections())
-            else {
-                continue;
-            };
-
-            if reference.addressed_type().is_none() && relation.entry().projections().is_empty() {
-                if let Some(source) = self.expression_reference(state, argument) {
-                    source.stage(&mut state.memory, occurrence, destination);
-                }
-
-                continue;
-            }
-
-            let sources = self.call_reference_storage(state, argument);
-
-            let Some(sources) = sources else {
-                continue;
-            };
-
-            for source in sources {
-                let Some(source) = project(self.request, source, relation.entry().projections())
-                else {
+            let sources = if relation.entry().projections().is_empty()
+                && (reference.addressed_type().is_none()
+                    || !relation.target_projections().is_empty())
+            {
+                self.expression_reference(state, argument)
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            } else {
+                let Some(targets) = self.call_reference_locations(
+                    state,
+                    argument,
+                    relation.entry().projections(),
+                    contracts
+                        .borrow_path(relation.entry())
+                        .expect("prepared reference input has a checked path"),
+                ) else {
                     continue;
                 };
 
-                match reference.addressed_type() {
-                    Some(ty) => {
-                        state
-                            .memory
-                            .stage_address(occurrence, source, destination.clone(), ty)
+                targets
+                    .into_iter()
+                    .map(super::super::memory::ReferenceSource::Value)
+                    .collect()
+            };
+
+            for source in sources {
+                if !relation.target_projections().is_empty() {
+                    let Some(targets) = source.targets(&state.memory) else {
+                        continue;
+                    };
+
+                    let Some(projections) =
+                        storage_projections(self.request, relation.target_projections())
+                    else {
+                        continue;
+                    };
+
+                    let ty = reference
+                        .addressed_type()
+                        .expect("projected reference has its checked target type");
+
+                    for target in targets {
+                        state.memory.stage_address(
+                            occurrence,
+                            target.project(&projections),
+                            destination.clone(),
+                            ty,
+                        );
                     }
-                    None => state
+                } else if let Some(ty) = reference.addressed_type() {
+                    let super::super::memory::ReferenceSource::Value(target) = source else {
+                        panic!("addressed storage has a location");
+                    };
+
+                    state
                         .memory
-                        .stage_slot(occurrence, &source, destination.clone()),
+                        .stage_address(occurrence, target, destination.clone(), ty);
+                } else {
+                    source.stage(&mut state.memory, occurrence, destination.clone());
                 }
             }
         }
     }
-    fn call_reference_storage(
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn call_reference_locations(
         &self,
         state: &StorageFlowState,
         argument: bray_bound_tree::BoundExpressionId,
-    ) -> Option<Vec<Place>> {
-        let borrowed = self
-            .execution
-            .semantics
-            .types()
-            .expression(argument)
-            .is_some_and(|ty| {
-                matches!(
-                    self.request.semantic_values().type_data(ty.ty()).as_ref(),
-                    TypeData::Borrow { .. }
-                )
-            });
+        projections: &[bray_symbols::DependencyProjection],
+        borrows: &[(usize, bray_symbols::TypeId)],
+    ) -> Option<Vec<Target>> {
+        let projections = storage_projections(self.request, projections)?;
+        let mut targets = vec![Target::storage(self.argument_storage(argument)?)];
+        let mut copied = 0;
 
-        if borrowed {
-            self.expression_reference(state, argument)?
-                .located_storage(&state.memory)
-        } else {
-            self.argument_storage(argument).map(|source| vec![source])
+        for (step, (index, ty)) in borrows.iter().enumerate() {
+            targets = targets
+                .into_iter()
+                .map(|target| target.project(&projections[copied..*index]))
+                .collect();
+
+            if step == 0 && *index == 0 {
+                let borrowed = self
+                    .execution
+                    .semantics
+                    .types()
+                    .expression(argument)
+                    .is_some_and(|ty| {
+                        matches!(
+                            self.request.semantic_values().type_data(ty.ty()).as_ref(),
+                            TypeData::Borrow { .. }
+                        )
+                    });
+
+                if borrowed {
+                    targets = self
+                        .expression_reference(state, argument)?
+                        .targets(&state.memory)?;
+                }
+
+                // An implicit shared or mutable argument conversion borrows the actual value slot.
+            } else {
+                targets = targets
+                    .iter()
+                    .map(|target| state.memory.value_target(target, *ty))
+                    .collect::<Option<Vec<_>>>()?;
+            }
+
+            copied = *index;
         }
+
+        Some(
+            targets
+                .into_iter()
+                .map(|target| target.project(&projections[copied..]))
+                .collect(),
+        )
     }
 }

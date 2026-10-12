@@ -45,6 +45,13 @@ impl<'a> SemanticExporter<'a> {
                     self.dependency_subject(relation.entry())?,
                     self.dependency_subject(relation.exit())?,
                     relation.kind(),
+                )
+                .with_target_projections(
+                    relation
+                        .target_projections()
+                        .iter()
+                        .map(|projection| self.dependency_projection(projection))
+                        .collect::<Result<Vec<_>, _>>()?,
                 ))
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;

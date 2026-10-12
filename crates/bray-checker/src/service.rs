@@ -156,11 +156,10 @@ where
         &self,
         request: CheckerUnitView<'_, C>,
         declared_types: &DeclaredValueTypeTemplates,
-        types: &CheckedExpressionTypes,
+        expressions: &CheckedExpressionSemantics,
         patterns: &CheckedPatterns,
-        selections: &CheckedSemanticSelections,
     ) -> CheckerOutcome<StoragePlan, C::UpstreamError> {
-        plan_storage(request, declared_types, types, patterns, selections)
+        plan_storage(request, declared_types, expressions, patterns)
     }
 }
 

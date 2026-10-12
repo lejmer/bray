@@ -1446,16 +1446,16 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
             "storage planning leaves call results symbolic"
         );
 
-        let physical = refinements
+        let observed = refinements
             .value()
             .invalidations()
             .values()
             .filter_map(|invalidation| {
-                let bray_bound_tree::StorageInvalidation::Paths(paths) = invalidation else {
+                let bray_bound_tree::StorageInvalidation::Observed(accesses) = invalidation else {
                     return None;
                 };
 
-                paths.iter().find(|path| {
+                accesses.values().flatten().find(|path| {
                     matches!(
                         storage.identity(path.root),
                         Some(bray_bound_tree::StorageIdentity::Parameter(_))
@@ -1465,7 +1465,7 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
             .collect::<Vec<_>>();
 
         assert_eq!(
-            !physical.is_empty(),
+            !observed.is_empty(),
             exact,
             "{source}\n{:?}",
             refinements.value().invalidations()
@@ -1473,12 +1473,12 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
 
         if exact {
             let bray_symbols::DependencyProjection::ProductField(expected) =
-                template.borrows()[0].entry().projections()[0]
+                template.borrows()[0].target_projections()[0]
             else {
                 panic!("the exact result refers to the selected field");
             };
 
-            assert!(physical.iter().all(|path| path.projections[0]
+            assert!(observed.iter().all(|path| path.projections[0]
                 == bray_bound_tree::StorageProjection::ProductField(expected)));
         }
     }
@@ -1724,4 +1724,132 @@ fn absent_return_payload_does_not_invent_a_conflicting_reference() {
             bray_symbols::DependencyReferenceKind::Borrow,
         )]
     );
+}
+#[test]
+fn returned_field_addresses_differ_from_stored_reference_values() {
+    for (name, projected, body) in [
+        ("stored", false, "return holder.reference;"),
+        ("address", true, "return &holder.reference;"),
+        ("forwarded", true, "return address(holder);"),
+    ] {
+        let result = if projected { "&&bool" } else { "&bool" };
+
+        let helper = if name == "forwarded" {
+            "func address(pos holder: &Holder) -> &&bool { return &holder.reference; }"
+        } else {
+            ""
+        };
+
+        let application = compilation(&format!(
+            r#"
+            module app;
+            struct Holder {{ reference: &bool; }}
+            {helper}
+            func {name}(pos holder: &Holder) -> {result} {{ {body} }}
+        "#
+        ));
+
+        let dependencies = crate::compilation::result_dependencies::source_function_dependencies(
+            &application,
+            name,
+        );
+
+        let references = dependencies
+            .borrows()
+            .iter()
+            .filter(|relation| {
+                relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(references.len(), 1, "{name}: {dependencies:?}");
+
+        assert_eq!(
+            references[0].entry().projections().len(),
+            usize::from(!projected),
+            "{name}: {references:?}"
+        );
+
+        assert_eq!(
+            references[0].target_projections().len(),
+            usize::from(projected),
+            "{name}: {references:?}"
+        );
+    }
+}
+
+#[test]
+fn mutation_observations_preserve_sibling_fields_but_invalidate_other_input_aliases() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Cell { mut value: bool; }
+        struct Pair { mut first: Cell; mut second: Cell; }
+        func caller(pos left: &mut Pair, pos right: &mut Pair) -> bool {
+            left.first.value = false;
+            return left.second.value && right.second.value;
+        }
+    "#,
+    );
+
+    let key = source_function_body_key(&application, "caller");
+    let storage = application.storage_plan(key.clone()).unwrap();
+    let refinements = application.refinements(key).unwrap();
+    let storage = storage.value();
+
+    let mutation = refinements.value().invalidations().values().find(|invalidation| {
+        matches!(invalidation, bray_bound_tree::StorageInvalidation::Observed(accesses) if !accesses.is_empty())
+    }).expect("assignment publishes resolved observations");
+
+    let bray_bound_tree::StorageInvalidation::Observed(accesses) = mutation else {
+        unreachable!()
+    };
+
+    let mut checked_left = false;
+    let mut checked_right = false;
+
+    for (access, _) in storage.access_entries() {
+        let Some(path) = storage.logical_path(access) else {
+            continue;
+        };
+
+        if path.projections.len() != 2 {
+            continue;
+        }
+
+        let Some(bray_bound_tree::StorageIdentity::Parameter(parameter)) =
+            storage.identity(path.root)
+        else {
+            continue;
+        };
+
+        let graph = application.symbol_graph().unwrap();
+        let parameter = graph.callable_parameter(parameter).unwrap();
+
+        let bray_bound_tree::StorageProjection::ProductField(field) = path.projections[0] else {
+            continue;
+        };
+
+        if graph.member_name(field.into()).unwrap().as_str() != "second" {
+            continue;
+        }
+
+        if parameter.ordinal() == 0 {
+            assert!(
+                !accesses.contains_key(&access),
+                "same referent sibling is disjoint: {path:?}"
+            );
+
+            checked_left = true;
+        } else {
+            assert!(
+                accesses.contains_key(&access),
+                "different input may alias: {path:?}"
+            );
+
+            checked_right = true;
+        }
+    }
+
+    assert!(checked_left && checked_right);
 }

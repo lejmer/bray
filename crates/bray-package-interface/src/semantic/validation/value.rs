@@ -81,6 +81,12 @@ impl InterfaceSemantics {
             for relation in &*contract.borrows {
                 self.validate_dependency_subject(relation.entry(), symbol_count, dependency_count)?;
                 self.validate_dependency_subject(relation.exit(), symbol_count, dependency_count)?;
+
+                self.validate_dependency_projections(
+                    relation.target_projections(),
+                    symbol_count,
+                    dependency_count,
+                )?;
             }
 
             for effect in &*contract.effects {

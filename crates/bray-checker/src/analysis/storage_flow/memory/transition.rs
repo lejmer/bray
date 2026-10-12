@@ -5,18 +5,36 @@ use bray_bound_tree::{
 use bray_symbols::TypeId;
 
 impl State {
-    pub(in crate::analysis::storage_flow) fn consume_place(&mut self, place: Place, ty: TypeId) {
-        if !self.has_addressed_storage(place.root) {
+    pub(in crate::analysis::storage_flow) fn consume_target(&mut self, target: Target, ty: TypeId) {
+        if target
+            .storage_path()
+            .is_some_and(|place| !self.has_addressed_storage(place.root))
+        {
             return;
         }
 
-        self.consume_targets(
-            &References::one(Target {
-                origin: Origin::Storage(place),
-                previous: false,
-            }),
-            ty,
-        );
+        self.consume_targets(&References::one(target), ty);
+    }
+
+    pub(in crate::analysis::storage_flow) fn write_target(
+        &mut self,
+        target: Target,
+        ty: TypeId,
+        origin: BoundExpressionId,
+    ) {
+        if target
+            .storage_path()
+            .is_some_and(|place| !self.has_addressed_storage(place.root))
+        {
+            return;
+        }
+
+        self.write_targets(&References::one(target), ty, origin, References::default());
+    }
+
+    #[cfg(test)]
+    pub(in crate::analysis::storage_flow) fn consume_place(&mut self, place: Place, ty: TypeId) {
+        self.consume_target(Target::storage(place), ty);
     }
 
     fn has_addressed_storage(&self, root: StorageIdentityId) -> bool {
@@ -34,23 +52,14 @@ impl State {
         )
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn write_place(
         &mut self,
         place: Place,
         ty: TypeId,
         origin: BoundExpressionId,
     ) {
-        // Ordinary accesses only need raw contents when an address of this storage exists.
-        if !self.has_addressed_storage(place.root) {
-            return;
-        }
-
-        let references = References::one(Target {
-            origin: Origin::Storage(place),
-            previous: false,
-        });
-
-        self.write_targets(&references, ty, origin, References::default());
+        self.write_target(Target::storage(place), ty, origin);
     }
 
     pub(in crate::analysis::storage_flow) fn write(
@@ -82,8 +91,6 @@ impl State {
         origin: BoundExpressionId,
         value: References,
     ) {
-        self.invalidate_entry_slots(references);
-
         let exact = references.is_exact();
 
         for target in self.affected_targets(references) {
@@ -94,21 +101,21 @@ impl State {
             if exact && references.targets.contains(&target) {
                 contents.initialized.insert(ty);
 
-                // The stored reference value is immutable input to this write.
-                contents.references = value.clone();
-
-                if let Origin::Storage(place) = &target.origin {
-                    self.slots.insert(place.clone(), value.clone());
+                // Ordinary slots and raw storage share the same stored reference value.
+                if value.targets.is_empty() {
+                    self.values.remove(&target);
+                } else {
+                    self.values.insert(target.clone(), value.clone());
                 }
             } else {
-                contents.references.merge(&value);
-                contents.references.unknown = true;
-
-                if let Origin::Storage(place) = &target.origin
-                    && let Some(stored) = self.slots.get_mut(place)
-                {
+                if let Some(stored) = self.values.get_mut(&target) {
                     stored.merge(&value);
                     stored.unknown = true;
+                } else if !value.targets.is_empty() {
+                    let mut stored = value.clone();
+
+                    stored.unknown = true;
+                    self.values.insert(target.clone(), stored);
                 }
             }
 
@@ -140,15 +147,10 @@ impl State {
         };
 
         for target in &references.targets {
-            match &target.origin {
-                Origin::Storage(place) if !target.previous => {
-                    value.merge(&self.references(place));
-                }
-                _ => {
-                    if let Some(contents) = self.contents.get(target) {
-                        value.merge(&contents.references);
-                    }
-                }
+            if let Some(stored) = self.values.get(target) {
+                value.merge(stored);
+            } else {
+                value.unknown = true;
             }
         }
 
@@ -169,7 +171,7 @@ impl State {
         }
 
         if let Some(result) = result {
-            self.slots.insert(result, value);
+            self.values.insert(Target::storage(result), value);
         }
 
         MemoryOperationStatus::Valid
@@ -190,14 +192,14 @@ impl State {
     }
 
     fn consume_targets(&mut self, references: &References, ty: TypeId) {
-        self.invalidate_entry_slots(references);
-
         let exact = references.is_exact();
 
         for target in &self.affected_targets(references) {
             if let Some(contents) = self.contents.get_mut(target) {
                 contents.initialized.clear();
-                contents.references = References::default();
+
+                // Consumption ends initialized ownership, not the evaluated value's identity.
+                // Normal value transfer still needs its reference fields before slot retirement.
 
                 if exact && references.targets.contains(target) {
                     contents.pending.remove(&ty);

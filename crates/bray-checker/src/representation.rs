@@ -9,6 +9,22 @@ use bray_symbols::{
 
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
+pub(crate) fn reference_target_type<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+) -> Option<TypeId> {
+    match request.semantic_values().type_data(ty).as_ref() {
+        TypeData::Borrow { target, .. } => Some(*target),
+        _ => request
+            .available_compiler_known_symbols()
+            .unary_representation_argument(
+                request.semantic_values(),
+                RepresentationRole::RawPointer,
+                ty,
+            ),
+    }
+}
+
 pub(crate) fn reference_kind<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,

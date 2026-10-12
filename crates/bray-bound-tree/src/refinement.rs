@@ -15,6 +15,9 @@ pub enum StorageInvalidation {
     All,
     /// Only the listed paths and overlapping storage may change.
     Paths(Vec<crate::StoragePath>),
+    /// Flow-resolved accesses and logical component observations changed through them.
+    /// Alias resolution is complete. Consumers must not reinterpret these as physical roots.
+    Observed(BTreeMap<StorageAccessId, Vec<crate::StoragePath>>),
 }
 
 impl StorageInvalidation {
@@ -23,6 +26,18 @@ impl StorageInvalidation {
         match (&mut *self, incoming) {
             (_, Self::All) => *self = Self::All,
             (Self::All, _) => {}
+            (Self::Observed(current), Self::Observed(incoming)) => {
+                for (access, paths) in incoming {
+                    let changed = current.entry(*access).or_default();
+
+                    changed.extend_from_slice(paths);
+                    changed.sort_unstable();
+                    changed.dedup();
+                }
+            }
+            (Self::Paths(_), Self::Observed(_)) | (Self::Observed(_), Self::Paths(_)) => {
+                panic!("one mutation publication must retain its owning analysis representation");
+            }
             (Self::Paths(current), Self::Paths(incoming)) => {
                 current.extend_from_slice(incoming);
                 current.sort_unstable();
@@ -35,6 +50,10 @@ impl StorageInvalidation {
     pub fn invalidates_path(&self, path: &crate::StoragePath, storage: &StoragePlan) -> bool {
         match self {
             Self::All => true,
+            Self::Observed(accesses) => accesses
+                .values()
+                .flatten()
+                .any(|changed| changed.relationship(path) != StorageRelationship::Disjoint),
             Self::Paths(accesses) => accesses.iter().any(|access| {
                 storage.path_relationship(access, path) != StorageRelationship::Disjoint
             }),
@@ -45,6 +64,7 @@ impl StorageInvalidation {
     pub fn invalidates(&self, access: StorageAccessId, storage: &StoragePlan) -> bool {
         match self {
             Self::All => true,
+            Self::Observed(accesses) => accesses.contains_key(&access),
             Self::Paths(mutations) => mutations.iter().any(|mutation| {
                 storage.relationship_to_path(access, mutation) != StorageRelationship::Disjoint
             }),
@@ -217,8 +237,19 @@ impl CheckedRefinements {
         }
 
         if invalidations.iter().any(|(site, invalidation)| {
-            site.node().unit() != unit || matches!(invalidation,
-                StorageInvalidation::Paths(accesses) if accesses.iter().any(|path| !path.is_valid_for(unit)))
+            site.node().unit() != unit
+                || match invalidation {
+                    StorageInvalidation::All => false,
+                    StorageInvalidation::Paths(paths) => {
+                        paths.iter().any(|path| !path.is_valid_for(unit))
+                    }
+                    StorageInvalidation::Observed(accesses) => {
+                        accesses.iter().any(|(access, paths)| {
+                            access.unit() != unit
+                                || paths.iter().any(|path| !path.is_valid_for(unit))
+                        })
+                    }
+                }
         }) {
             return Err(RefinementSetBuildError::ForeignUnit);
         }

@@ -814,3 +814,47 @@ fn imported_reference_replacements_preserve_both_identity_and_lifetime() {
         bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
     );
 }
+#[test]
+fn imported_field_addresses_keep_the_projection_from_the_original_reference() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Holder<T> { reference: &T; }
+        func address<T>(pos holder: &Holder<T>) -> &&T { return &holder.reference; }
+    "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api.Holder;
+        using example.package.api.address;
+        func caller(pos holder: &example.package.api.Holder<bool>) -> &&bool { return example.package.api.address(holder); }
+    "#,
+    );
+
+    let flow = consumer
+        .storage_flow(source_function_body_key(&consumer, "caller"))
+        .unwrap();
+
+    assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
+
+    let references = flow
+        .value()
+        .dependencies()
+        .borrows()
+        .iter()
+        .filter(|relation| {
+            relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(references.len(), 1, "{references:?}");
+    assert!(references[0].entry().projections().is_empty());
+
+    assert!(matches!(
+        references[0].target_projections(),
+        [bray_symbols::DependencyProjection::ProductField(_)]
+    ));
+}

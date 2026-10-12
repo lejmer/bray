@@ -8,19 +8,15 @@ impl State {
         place: &'a Place,
     ) -> impl Iterator<Item = (&'a Place, &'a References)> {
         // Place clones share the immutable projection path used as the ordered range boundary.
-        self.slots
-            .range(place.clone()..)
+        self.values
+            .range(Target::storage(place.clone())..)
+            .map_while(|(target, value)| target.storage_path().map(|path| (path, value)))
             .take_while(move |(slot, _)| place.contains(slot))
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn entry_reference(&mut self, slot: Place) {
-        let target = Target {
-            origin: Origin::Entry(slot.clone()),
-            previous: false,
-        };
-
-        self.contents.entry(target.clone()).or_default();
-        self.slots.insert(slot, References::one(target));
+        self.entry_reference_at(slot.clone(), Target::storage(slot), None);
     }
 
     pub(in crate::analysis::storage_flow) fn exit_references(
@@ -34,8 +30,13 @@ impl State {
         ReferenceExit {
             // Boundary summaries retain only observable reference values, not the body state.
             slots: self
-                .slots
+                .values
                 .iter()
+                .filter_map(|(target, references)| {
+                    let slot = target.observation_path()?;
+
+                    Some((slot, references))
+                })
                 .filter(|(slot, _)| {
                     slot.root == result
                         || !slot.projections.is_empty() && is_entry_slot(&self.contents, slot)
@@ -56,8 +57,9 @@ impl State {
         &self,
         root: StorageIdentityId,
     ) -> impl Iterator<Item = (&Place, &Origin)> {
-        self.slots
-            .range(Place::root(root)..)
+        self.values
+            .range(Target::storage(Place::root(root))..)
+            .map_while(|(target, value)| target.storage_path().map(|path| (path, value)))
             .take_while(move |(slot, _)| slot.root == root)
             .flat_map(|(slot, references)| {
                 references
@@ -92,23 +94,18 @@ impl State {
 
     pub(super) fn transferred_slots<'a>(
         &'a self,
-        source: &'a Place,
-        destination: &'a Place,
-    ) -> impl Iterator<Item = (Place, References)> + 'a {
-        self.slots_in(source).map(move |(slot, references)| {
-            let slot = Place {
-                root: destination.root,
-                projections: destination
-                    .projections
-                    .iter()
-                    .copied()
-                    .chain(slot.projections[source.projections.len()..].iter().copied())
-                    .collect(),
-            };
+        source: &'a Target,
+        destination: &'a Target,
+    ) -> impl Iterator<Item = (Target, References)> + 'a {
+        self.values
+            .range(source.clone()..)
+            .take_while(move |(target, _)| source.contains(target))
+            .map(move |(slot, references)| {
+                let slot = destination.project(&slot.projections()[source.projections().len()..]);
 
-            // The receiver owns each copied value while target paths remain shared.
-            (slot, references.clone())
-        })
+                // The receiver owns each copied value while target paths remain shared.
+                (slot, references.clone())
+            })
     }
 
     pub(in crate::analysis::storage_flow) fn transfer(
@@ -116,39 +113,52 @@ impl State {
         source: &Place,
         destination: Place,
     ) {
-        if !destination.is_exact() {
-            self.clear(&Place::root(destination.root));
-            return;
-        }
-
         if !source.is_exact() {
             self.clear(&destination);
             return;
         }
 
-        if *source == destination {
+        self.transfer_value(&Target::storage(source.clone()), destination);
+    }
+
+    pub(in crate::analysis::storage_flow) fn transfer_value(
+        &mut self,
+        source: &Target,
+        destination: Place,
+    ) {
+        if !destination.is_exact() {
+            self.clear(&Place::root(destination.root));
             return;
         }
 
-        // Snapshot only the transferred subtree before replacing the destination subtree.
+        if source.storage_path() == Some(&destination) {
+            return;
+        }
+
+        // Snapshot the source subtree before replacing overlapping destination storage.
         let values = self
-            .transferred_slots(source, &destination)
+            .transferred_slots(source, &Target::storage(destination.clone()))
             .collect::<Vec<_>>();
 
         self.clear(&destination);
-        self.slots.extend(values);
+        self.values.extend(values);
     }
 
     pub(in crate::analysis::storage_flow) fn clear(&mut self, place: &Place) {
-        // Only the replaced subtree is visited, even when the function has many live slots.
+        self.clear_value(&Target::storage(place.clone()));
+    }
+
+    pub(in crate::analysis::storage_flow) fn clear_value(&mut self, target: &Target) {
+        // Only the replaced subtree is visited, even when the function has many live values.
         let removed = self
-            .slots_in(place)
-            .map(|(slot, _)| slot)
-            .cloned()
+            .values
+            .range(target.clone()..)
+            .take_while(|(candidate, _)| target.contains(candidate))
+            .map(|(target, _)| target.clone())
             .collect::<Vec<_>>();
 
-        for slot in removed {
-            self.slots.remove(&slot);
+        for target in removed {
+            self.values.remove(&target);
         }
     }
 
@@ -156,7 +166,7 @@ impl State {
         let mut references = self.references(source);
 
         references.displaced = true;
-        self.slots.insert(destination, references);
+        self.values.insert(Target::storage(destination), references);
     }
 
     pub(in crate::analysis::storage_flow) fn forget(&mut self, identity: StorageIdentityId) {
@@ -169,7 +179,7 @@ impl State {
             .collect::<Vec<_>>();
 
         for slot in removed {
-            self.slots.remove(&slot);
+            self.values.remove(&Target::storage(slot));
         }
     }
 
@@ -177,8 +187,11 @@ impl State {
         &mut self,
         live: &BTreeSet<StorageIdentityId>,
     ) {
-        self.slots
-            .retain(|place, _| live.contains(&place.root) || is_entry_slot(&self.contents, place));
+        self.values.retain(|target, _| {
+            target.storage_path().is_none_or(|place| {
+                live.contains(&place.root) || is_entry_slot(&self.contents, place)
+            })
+        });
     }
 }
 
@@ -186,7 +199,7 @@ fn is_entry_slot(contents: &std::collections::BTreeMap<Target, Contents>, slot: 
     // An entry value snapshot remains useful after its local slot's lifetime ends.
     // Keeping its value does not retain initialization or access authority.
     contents.contains_key(&Target {
-        origin: Origin::Entry(slot.clone()),
+        origin: Origin::entry(slot.clone()),
         previous: false,
     })
 }

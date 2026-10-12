@@ -28,6 +28,7 @@ impl StructuralValueEncoder<'_, '_> {
 
             encoder.dependency_subject(relation.entry())?;
             encoder.dependency_subject(relation.exit())?;
+            encoder.dependency_projections(relation.target_projections())?;
 
             encoder.tag(match relation.kind() {
                 bray_symbols::DependencyReferenceKind::Borrow => 1,

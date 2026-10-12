@@ -2,7 +2,6 @@ use super::contracts::{
     PlannedBorrowCapability, StorageAccessPlan, StorageAlternative, StorageBinding,
     StorageBindingTarget,
 };
-use super::relationships::identity_is_distinct_storage;
 use super::resolve::resolve_accesses;
 use crate::storage::builder::StoragePlanBuilder;
 use crate::{
@@ -610,7 +609,7 @@ impl StoragePlan {
             return false;
         };
 
-        identity_is_distinct_storage(left) || identity_is_distinct_storage(right)
+        left.owns_slot() || right.owns_slot()
     }
 
     /// Compares an evaluated access with a separately resolved physical path.

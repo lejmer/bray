@@ -973,6 +973,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
         for relation in &*contract.borrows {
             self.include_dependency_subject(relation.entry());
             self.include_dependency_subject(relation.exit());
+            self.include_dependency_projections(relation.target_projections());
         }
 
         for effect in &*contract.effects {

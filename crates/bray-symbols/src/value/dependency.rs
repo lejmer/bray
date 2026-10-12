@@ -292,16 +292,38 @@ pub enum DependencyReferenceKind {
 /// The exit subject, when initialized, refers to the entry subject's original storage.
 /// This relation grants no storage, initialization, or acquisition authority.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct DependencyBorrowRelation<Subject = DependencySubject> {
+pub struct DependencyBorrowRelation<Subject = DependencySubject, Projection = DependencyProjection>
+{
     entry: Subject,
     exit: Subject,
     kind: DependencyReferenceKind,
+    target_projections: Arc<[Projection]>,
 }
 
-impl<Subject> DependencyBorrowRelation<Subject> {
+impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     /// Connects a normal-exit borrow to its proven entry storage.
-    pub const fn new(entry: Subject, exit: Subject, kind: DependencyReferenceKind) -> Self {
-        Self { entry, exit, kind }
+    pub fn new(entry: Subject, exit: Subject, kind: DependencyReferenceKind) -> Self {
+        Self {
+            entry,
+            exit,
+            kind,
+            target_projections: Arc::from([]),
+        }
+    }
+
+    /// Projects the reached storage without reading a reference value stored in the selected field.
+    pub fn with_target_projections(
+        mut self,
+        projections: impl IntoIterator<Item = Projection>,
+    ) -> Self {
+        self.target_projections = shared_slice(projections);
+
+        self
+    }
+
+    /// Returns the address path relative to the entry reference's target.
+    pub fn target_projections(&self) -> &[Projection] {
+        &self.target_projections
     }
 
     /// Returns the reference representation established by dependency inference.

@@ -1,23 +1,4 @@
-use crate::{StorageIdentity, StorageProjection, StorageRelationship};
-
-pub(super) const fn identity_is_distinct_storage(identity: StorageIdentity) -> bool {
-    matches!(
-        identity,
-        StorageIdentity::LocalOwned(_)
-            | StorageIdentity::Parameter(_)
-            | StorageIdentity::Receiver(_)
-            | StorageIdentity::AnonymousParameter(_)
-            | StorageIdentity::PredicateParameter(_)
-            | StorageIdentity::PostconditionResult(_)
-            | StorageIdentity::Result(_)
-            | StorageIdentity::Temporary(_)
-            | StorageIdentity::IterationCursor(_)
-            | StorageIdentity::IterationElement(_)
-            | StorageIdentity::ScopedCapability { .. }
-            | StorageIdentity::Allocation(_)
-            | StorageIdentity::CompilerCreated(_)
-    )
-}
+use crate::{StorageProjection, StorageRelationship};
 
 impl StorageProjection {
     /// Compares two projection paths within the same physical storage root.

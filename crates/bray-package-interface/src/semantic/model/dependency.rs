@@ -245,7 +245,12 @@ pub struct InterfaceDependencyContract {
             InterfaceDependencyProjection,
         >],
     >,
-    pub(crate) borrows: Arc<[bray_symbols::DependencyBorrowRelation<InterfaceDependencySubject>]>,
+    pub(crate) borrows: Arc<
+        [bray_symbols::DependencyBorrowRelation<
+            InterfaceDependencySubject,
+            InterfaceDependencyProjection,
+        >],
+    >,
 }
 
 impl InterfaceDependencyContract {
@@ -277,7 +282,10 @@ impl InterfaceDependencyContract {
     pub fn with_borrows(
         mut self,
         borrows: impl IntoIterator<
-            Item = bray_symbols::DependencyBorrowRelation<InterfaceDependencySubject>,
+            Item = bray_symbols::DependencyBorrowRelation<
+                InterfaceDependencySubject,
+                InterfaceDependencyProjection,
+            >,
         >,
     ) -> Self {
         self.borrows = sorted_unique_shared_slice(borrows);

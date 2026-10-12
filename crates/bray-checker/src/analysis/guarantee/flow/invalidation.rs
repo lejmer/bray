@@ -184,10 +184,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        let StorageInvalidation::Paths(paths) = invalidation else {
-            unreachable!("global invalidation is handled before per-access invalidation");
-        };
-
         let transfers = !changes_contents
             && !self.storage.occurrence_plans(occurrence).any(|plan| {
                 matches!(
@@ -199,61 +195,58 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut changed_places = BTreeSet::new();
 
-        for (target, binding) in self.storage.bindings() {
-            let access = match binding {
-                bray_bound_tree::StorageBinding::Access(access) => *access,
-                bray_bound_tree::StorageBinding::Identity(identity) => {
-                    let Some(access) = self.storage.root_access(*identity) else {
+        match invalidation {
+            StorageInvalidation::Observed(accesses) => {
+                for path in accesses.values().flatten() {
+                    if let Some(place) = crate::ExecutionPlace::storage_path(self.storage, path)
+                        .or_else(|| {
+                            crate::ExecutionPlace::storage_identity(self.storage, path.root)
+                        })
+                    {
+                        // An unresolved selector invalidates its observable enclosing value.
+                        changed_places.insert(place);
+                    }
+                }
+            }
+            StorageInvalidation::Paths(paths) => {
+                for (target, binding) in self.storage.bindings() {
+                    let access = match binding {
+                        bray_bound_tree::StorageBinding::Access(access) => *access,
+                        bray_bound_tree::StorageBinding::Identity(identity) => {
+                            let Some(access) = self.storage.root_access(*identity) else {
+                                continue;
+                            };
+
+                            access
+                        }
+                    };
+
+                    if !invalidation.invalidates(access, self.storage) {
+                        continue;
+                    }
+
+                    let Some(reference) =
+                        crate::execution_guarantees::storage_binding_reference(*target)
+                    else {
                         continue;
                     };
 
-                    access
-                }
-            };
-
-            if !invalidation.invalidates(access, self.storage) {
-                continue;
-            }
-
-            let Some(reference) = crate::execution_guarantees::storage_binding_reference(*target)
-            else {
-                continue;
-            };
-
-            for invalidated in paths {
-                if self.storage.relationship_to_path(access, invalidated)
-                    == bray_bound_tree::StorageRelationship::Disjoint
-                {
-                    continue;
-                }
-
-                // Checked constant selectors identify components independently of their occurrences.
-                let path = invalidated
-                    .projections
-                    .iter()
-                    .map(|projection| {
-                        if let bray_bound_tree::StorageProjection::Element(selector) = projection
-                            && let Some(ExecutionCondition::Literal(value)) =
-                                self.literals.get(selector)
-                            && let bray_symbols::ConstantValueKind::Integer(index) = value.kind()
-                            && let Some(index) =
-                                index.to_u64().and_then(|index| u32::try_from(index).ok())
+                    for invalidated in paths {
+                        if self.storage.relationship_to_path(access, invalidated)
+                            == bray_bound_tree::StorageRelationship::Disjoint
                         {
-                            return bray_bound_tree::StorageProjection::ElementFromStart(
-                                bray_symbols::SymbolOrdinal::new(index),
-                            );
+                            continue;
                         }
 
-                        *projection
-                    })
-                    .collect::<Vec<_>>();
+                        let changed = crate::ExecutionPlace::from(reference)
+                            .project(&invalidated.projections)
+                            .unwrap_or_else(|| reference.into());
 
-                let changed = crate::ExecutionPlace::from(reference)
-                    .project(&path)
-                    .unwrap_or_else(|| reference.into());
-
-                changed_places.insert(changed);
+                        changed_places.insert(changed);
+                    }
+                }
             }
+            StorageInvalidation::All => unreachable!("global invalidation handled above"),
         }
 
         let invalidated_values = if transfers {

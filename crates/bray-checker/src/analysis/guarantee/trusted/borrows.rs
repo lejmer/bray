@@ -53,7 +53,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         arguments: &mut BTreeMap<ExecutionPlace, ExecutionCondition>,
     ) {
         for relation in self.disposal.dependencies[&lifecycle.callable].borrows() {
-            if relation.entry() != relation.exit()
+            if !relation.target_projections().is_empty()
+                || relation.entry() != relation.exit()
                 || relation.exit().subject_root() != DependencySubjectRoot::Receiver
             {
                 continue;

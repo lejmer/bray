@@ -253,11 +253,14 @@ fn remap_dependency_contract(
             remap_dependency_subject(&mut entry, maps)?;
             remap_dependency_subject(&mut exit, maps)?;
 
-            Ok(bray_symbols::DependencyBorrowRelation::new(
-                entry,
-                exit,
-                relation.kind(),
-            ))
+            let mut projections = relation.target_projections().to_vec();
+
+            remap_dependency_projections(&mut projections, maps)?;
+
+            Ok(
+                bray_symbols::DependencyBorrowRelation::new(entry, exit, relation.kind())
+                    .with_target_projections(projections),
+            )
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 

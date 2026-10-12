@@ -8,7 +8,10 @@ pub(in crate::analysis::storage_flow) use bray_bound_tree::StoragePath as Place;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(in crate::analysis::storage_flow) enum Origin {
-    Entry(Place),
+    Entry {
+        reference: Place,
+        projections: std::sync::Arc<[bray_bound_tree::StorageProjection]>,
+    },
     Storage(Place),
     Allocation(Place),
     Uninit(Place),
@@ -16,9 +19,35 @@ pub(in crate::analysis::storage_flow) enum Origin {
 
 /// `previous` summarizes older executions of one creation site. It is never a must-alias.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(super) struct Target {
-    pub(super) origin: Origin,
+pub(in crate::analysis::storage_flow) struct Target {
+    // Epoch precedes the path in ordering so subtree ranges cannot cross an older cell.
     pub(super) previous: bool,
+    pub(in crate::analysis::storage_flow) origin: Origin,
+}
+
+impl Origin {
+    pub(in crate::analysis::storage_flow) fn entry(reference: Place) -> Self {
+        Self::Entry {
+            reference,
+            projections: std::sync::Arc::from([]),
+        }
+    }
+}
+
+impl Target {
+    pub(in crate::analysis::storage_flow) fn storage(place: Place) -> Self {
+        Self {
+            origin: Origin::Storage(place),
+            previous: false,
+        }
+    }
+
+    pub(in crate::analysis::storage_flow) fn storage_path(&self) -> Option<&Place> {
+        match &self.origin {
+            Origin::Storage(place) if !self.previous => Some(place),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -31,8 +60,8 @@ pub(super) struct References {
 impl References {
     pub(super) fn one(target: Target) -> Self {
         Self {
+            unknown: !target.is_exact(),
             targets: BTreeSet::from([target]),
-            unknown: false,
             displaced: false,
         }
     }
@@ -48,14 +77,6 @@ impl References {
         self.displaced |= incoming.displaced;
 
         self.targets.len() != count || self.unknown != unknown || self.displaced != displaced
-    }
-
-    pub(super) fn may_alias_anywhere(&self) -> bool {
-        self.unknown
-            || self
-                .targets
-                .iter()
-                .any(|target| matches!(target.origin, Origin::Entry(_)))
     }
 
     pub(super) fn is_exact(&self) -> bool {
@@ -75,7 +96,6 @@ pub(super) struct Contents {
     pub(super) pending: BTreeMap<TypeId, Origins>,
     pub(super) allocations: Origins,
     pub(super) invalidations: Origins,
-    pub(super) references: References,
 }
 
 impl Contents {
@@ -104,7 +124,6 @@ impl Contents {
 
         changed |= merge_origins(&mut self.allocations, &incoming.allocations);
         changed |= merge_origins(&mut self.invalidations, &incoming.invalidations);
-        changed |= self.references.merge(&incoming.references);
 
         changed
     }
@@ -121,9 +140,10 @@ fn merge_origins(target: &mut Origins, incoming: &Origins) -> bool {
 /// Reference values are copied between slots. Contents and obligations belong to targets once.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::analysis::storage_flow) struct State {
-    pub(super) slots: BTreeMap<Place, References>,
+    pub(super) owned_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
+    pub(super) values: BTreeMap<Target, References>,
     pub(super) borrows: BTreeMap<BorrowCapabilityId, References>,
-    pub(super) pending: BTreeMap<BoundExecutionSite, BTreeMap<Place, References>>,
+    pub(super) pending: BTreeMap<BoundExecutionSite, BTreeMap<Target, References>>,
     pub(super) contents: BTreeMap<Target, Contents>,
 }
 
@@ -135,16 +155,20 @@ impl State {
         incoming_absent: &BTreeMap<Place, StorageAbsence>,
     ) -> bool {
         let mut changed = merge_references(
-            &mut self.slots,
-            &incoming.slots,
+            &mut self.values,
+            &incoming.values,
             |slot| {
-                absent.iter().any(|(path, reason)| {
-                    *reason == StorageAbsence::NoPayload && path.contains(slot)
+                slot.storage_path().is_some_and(|slot| {
+                    absent.iter().any(|(path, reason)| {
+                        *reason == StorageAbsence::NoPayload && path.contains(slot)
+                    })
                 })
             },
             |slot| {
-                incoming_absent.iter().any(|(path, reason)| {
-                    *reason == StorageAbsence::NoPayload && path.contains(slot)
+                slot.storage_path().is_some_and(|slot| {
+                    incoming_absent.iter().any(|(path, reason)| {
+                        *reason == StorageAbsence::NoPayload && path.contains(slot)
+                    })
                 })
             },
         );

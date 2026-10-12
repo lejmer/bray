@@ -40,11 +40,16 @@ impl InternState {
                     break;
                 };
 
-                borrows.push(bray_symbols::DependencyBorrowRelation::new(
-                    entry,
-                    exit,
-                    relation.kind(),
-                ));
+                let Some(projections) =
+                    self.convert_dependency_projections(relation.target_projections(), symbols)?
+                else {
+                    break;
+                };
+
+                borrows.push(
+                    bray_symbols::DependencyBorrowRelation::new(entry, exit, relation.kind())
+                        .with_target_projections(projections),
+                );
             }
 
             if borrows.len() != input.borrows.len() {

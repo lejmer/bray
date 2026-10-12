@@ -82,6 +82,15 @@ impl SemanticValueStore {
                     self.substitute_dependency_subject(relation.entry(), substitution)?,
                     self.substitute_dependency_subject(relation.exit(), substitution)?,
                     relation.kind(),
+                )
+                .with_target_projections(
+                    relation
+                        .target_projections()
+                        .iter()
+                        .map(|projection| {
+                            self.substitute_dependency_projection(projection, substitution)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
                 ))
             })
             .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;

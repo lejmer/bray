@@ -105,6 +105,7 @@ pub struct BoundCallDependencyContracts {
     references: Vec<BoundCallReference>,
     effects: Arc<[bray_symbols::DependencyStorageEffect]>,
     retained_inputs: Option<BTreeSet<BoundExpressionId>>,
+    borrow_paths: BTreeMap<bray_symbols::DependencySubject, Vec<(usize, bray_symbols::TypeId)>>,
 }
 
 impl BoundCallDependencyContracts {
@@ -121,7 +122,26 @@ impl BoundCallDependencyContracts {
             references: Vec::new(),
             effects: Arc::new([bray_symbols::DependencyStorageEffect::Unknown]),
             retained_inputs: None,
+            borrow_paths: BTreeMap::new(),
         }
+    }
+
+    /// Shares checked dereference steps between reference transfers and mutation effects.
+    pub fn with_borrow_paths(
+        mut self,
+        paths: BTreeMap<bray_symbols::DependencySubject, Vec<(usize, bray_symbols::TypeId)>>,
+    ) -> Self {
+        self.borrow_paths = paths;
+
+        self
+    }
+
+    /// Returns the prepared dereferences before each field projection of a selected input path.
+    pub fn borrow_path(
+        &self,
+        subject: &bray_symbols::DependencySubject,
+    ) -> Option<&[(usize, bray_symbols::TypeId)]> {
+        self.borrow_paths.get(subject).map(Vec::as_slice)
     }
 
     /// Records the dependencies carried by the returned value.

@@ -11,27 +11,72 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
     contracts: BoundCallDependencyContracts,
     template: &DependencyContractTemplateData,
 ) -> Result<BoundCallDependencyContracts, CheckerQueryError<C::UpstreamError>> {
-    let references = template
+    let subjects = template
         .borrows()
         .iter()
-        .map(|relation| {
-            reference_input_type(request, call, relation).map(|ty| {
-                ty.map(|ty| {
-                    let kind = crate::representation::reference_kind(request, ty);
+        .flat_map(|relation| [relation.entry(), relation.exit()])
+        .chain(template.effects().iter().filter_map(|effect| match effect {
+            bray_symbols::DependencyStorageEffect::Unknown => None,
+            bray_symbols::DependencyStorageEffect::Direct { subject, .. } => Some(subject),
+            bray_symbols::DependencyStorageEffect::Indirect { reference, .. } => Some(reference),
+        }))
+        .collect::<std::collections::BTreeSet<_>>();
 
-                    BoundCallReference::new(
-                        relation.clone(),
-                        kind == Some(relation.kind()),
-                        kind.is_none().then_some(ty),
-                        output_argument(request, call, relation.exit()),
-                    )
-                })
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
+    let mut inputs = std::collections::BTreeMap::new();
+
+    for subject in subjects {
+        if let Some(prepared) = reference_input_type(request, call, subject)? {
+            // Each selected input owns one path. Relations share its immutable formal subject.
+            inputs.insert(subject.clone(), prepared);
+        }
+    }
+
+    let mut references = Vec::with_capacity(template.borrows().len());
+
+    for relation in template.borrows() {
+        let Some((ty, _)) = inputs.get(relation.entry()) else {
+            continue;
+        };
+
+        let ty = *ty;
+        let kind = crate::representation::reference_kind(request, ty);
+
+        let addressed_type = if relation.target_projections().is_empty() {
+            kind.is_none().then_some(ty)
+        } else {
+            let Some(mut target) = crate::representation::reference_target_type(request, ty) else {
+                continue;
+            };
+
+            let mut valid = true;
+
+            for projection in relation.target_projections() {
+                let projected = crate::storage::projected_value_type(request, target, *projection)?;
+
+                let Some(projected) = *projected.value() else {
+                    valid = false;
+                    break;
+                };
+
+                target = projected;
+            }
+
+            if !valid {
+                continue;
+            }
+
+            Some(target)
+        };
+
+        let output = output_argument(request, call, relation.exit());
+
+        references.push(BoundCallReference::new(
+            relation.clone(),
+            kind == Some(relation.kind()) && relation.target_projections().is_empty(),
+            addressed_type,
+            output,
+        ));
+    }
 
     let witness = request
         .trusted_contracts()
@@ -45,6 +90,12 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
     .then(|| crate::dependency::result_inputs(call, template));
 
     Ok(contracts
+        .with_borrow_paths(
+            inputs
+                .into_iter()
+                .map(|(subject, (_, borrows))| (subject, borrows))
+                .collect(),
+        )
         .with_references(references, retained_inputs)
         .with_effects(template.effects().iter().cloned()))
 }
@@ -52,9 +103,12 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
 fn reference_input_type<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     call: &bray_bound_tree::SelectedCall,
-    relation: &bray_symbols::DependencyBorrowRelation,
-) -> Result<Option<bray_symbols::TypeId>, CheckerQueryError<C::UpstreamError>> {
-    let mut ty = match relation.entry().subject_root() {
+    subject: &bray_symbols::DependencySubject,
+) -> Result<
+    Option<(bray_symbols::TypeId, Vec<(usize, bray_symbols::TypeId)>)>,
+    CheckerQueryError<C::UpstreamError>,
+> {
+    let ty = match subject.subject_root() {
         bray_symbols::DependencySubjectRoot::Receiver => {
             call.receiver().map(|receiver| receiver.target_type())
         }
@@ -71,17 +125,16 @@ fn reference_input_type<C: CheckerRequestContext + ?Sized>(
         _ => None,
     };
 
-    for projection in relation.entry().projections() {
-        let Some(owner) = ty else {
-            return Ok(None);
-        };
+    let Some(ty) = ty else {
+        return Ok(None);
+    };
 
-        let projected = crate::storage::projected_value_type(request, owner, *projection)?;
+    let Some(projections) = crate::storage::storage_projections(request, subject.projections())
+    else {
+        return Ok(None);
+    };
 
-        ty = *projected.value();
-    }
-
-    Ok(ty)
+    crate::storage::reference_path(request, ty, &projections, None)
 }
 
 fn output_argument<C: CheckerRequestContext + ?Sized>(

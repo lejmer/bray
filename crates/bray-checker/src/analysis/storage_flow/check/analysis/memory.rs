@@ -9,7 +9,7 @@ use bray_diagnostics::{
 
 use super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
-use crate::analysis::storage_flow::memory::Place;
+use crate::analysis::storage_flow::memory::{Place, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 
 const fn operation_requires_trust(kind: CheckedMemoryOperationKind) -> bool {
@@ -443,82 +443,40 @@ where
             .map(|argument| (argument, element, purpose))
     }
 
-    pub(super) fn physical_place(
-        &self,
-        state: &StorageFlowState,
-        access: bray_bound_tree::StorageAccessId,
-    ) -> Option<Place> {
-        let logical = self.storage.logical_path(access)?;
-        let borrows = self.input.borrowed_projections.get(&access)?;
-        let mut place = Place::root(logical.root);
-        let mut copied = 0;
-
-        for (index, target) in borrows {
-            place.projections = place
-                .projections
-                .iter()
-                .copied()
-                .chain(logical.projections[copied..*index].iter().copied())
-                .collect();
-
-            let entry = (*index == 0)
-                .then(|| self.storage.access(access)?.root().borrow_capability())
-                .flatten()
-                .filter(|borrow| {
-                    self.storage
-                        .borrow_capability(*borrow)
-                        .is_some_and(|borrow| borrow.entry_binding().is_some())
-                });
-
-            place = match entry {
-                Some(capability) => state.memory.borrow_referent(capability, &place, *target)?,
-                None => state.memory.slot_referent(&place, *target)?,
-            };
-
-            copied = *index;
-        }
-
-        place.projections = place
-            .projections
-            .iter()
-            .copied()
-            .chain(logical.projections[copied..].iter().copied())
-            .collect();
-
-        Some(place)
-    }
-
     pub(super) fn assignment_target(
         &self,
         state: &StorageFlowState,
         node: AnyBoundNodeId,
-    ) -> Option<Place> {
+    ) -> Option<Target> {
         let access = self
             .storage
             .node_plans(node)
             .find(|plan| plan.purpose() == StorageAccessPurpose::Assignment)?
             .access();
 
-        self.physical_place(state, access)
+        self.input
+            .reference_target(&state.memory, self.storage, access)
     }
 
-    pub(super) fn memory_invalidation(
+    pub(super) fn memory_effects(
         &self,
         state: &StorageFlowState,
-        node: AnyBoundNodeId,
-    ) -> Option<bray_bound_tree::StorageInvalidation> {
-        let AnyBoundNodeId::Expression(expression) = node else {
-            return None;
-        };
-
+        expression: BoundExpressionId,
+    ) -> Option<Vec<(Target, bray_symbols::DependencyMutationKind)>> {
         let operation = self.memory.operation(expression)?;
 
-        let (argument, _, _) = self.memory_mutation(operation)?;
+        let (argument, _, purpose) = self.memory_mutation(operation)?;
 
         let slot = self.argument_storage(argument)?;
-        let places = state.memory.located_storage(&slot)?;
+        let targets = state.memory.value_targets(&Target::storage(slot))?;
 
-        Some(bray_bound_tree::StorageInvalidation::Paths(places))
+        let kind = if purpose == StorageAccessPurpose::Move {
+            bray_symbols::DependencyMutationKind::Consume
+        } else {
+            bray_symbols::DependencyMutationKind::Write
+        };
+
+        Some(targets.into_iter().map(|target| (target, kind)).collect())
     }
 
     pub(super) fn argument_storage(&self, expression: BoundExpressionId) -> Option<Place> {
@@ -544,7 +502,7 @@ where
             .expression_result_storage(expression)
             .filter(|storage| state.memory.has_reference(storage))
         {
-            return Some(ReferenceSource::Slot(slot));
+            return Some(ReferenceSource::Value(Target::storage(slot)));
         }
 
         let borrowed = self
@@ -570,11 +528,21 @@ where
             return Some(ReferenceSource::Borrow(capability));
         }
 
+        if let Some(target) = self.storage.node_plans(expression.into()).find_map(|plan| {
+            let target = self
+                .input
+                .reference_target(&state.memory, self.storage, plan.access())?;
+
+            state.memory.has_value(&target).then_some(target)
+        }) {
+            return Some(ReferenceSource::Value(target));
+        }
+
         if let Some(slot) = self
             .argument_storage(expression)
             .filter(|storage| state.memory.has_reference(storage))
         {
-            return Some(ReferenceSource::Slot(slot));
+            return Some(ReferenceSource::Value(Target::storage(slot)));
         }
 
         if !borrowed {
@@ -706,7 +674,7 @@ where
 }
 
 pub(super) enum ReferenceSource {
-    Slot(Place),
+    Value(crate::analysis::storage_flow::memory::Target),
     Borrow(bray_bound_tree::BorrowCapabilityId),
 }
 
@@ -715,21 +683,21 @@ impl ReferenceSource {
         self,
         state: &mut crate::analysis::storage_flow::memory::State,
         call: bray_bound_tree::BoundExecutionSite,
-        destination: Place,
+        destination: Target,
     ) {
         match self {
-            Self::Slot(source) => state.stage_slot(call, &source, destination),
+            Self::Value(source) => state.stage_value(call, &source, destination),
             Self::Borrow(capability) => state.stage_borrow(call, capability, destination),
         }
     }
 
-    pub(super) fn located_storage(
-        self,
+    pub(super) fn targets(
+        &self,
         state: &crate::analysis::storage_flow::memory::State,
-    ) -> Option<Vec<Place>> {
+    ) -> Option<Vec<Target>> {
         match self {
-            Self::Slot(source) => state.located_storage(&source),
-            Self::Borrow(capability) => state.borrowed_storage(capability),
+            Self::Value(source) => state.value_targets(source),
+            Self::Borrow(capability) => state.borrow_targets(*capability),
         }
     }
 
@@ -739,7 +707,7 @@ impl ReferenceSource {
         destination: Place,
     ) {
         match self {
-            Self::Slot(source) => state.transfer(&source, destination),
+            Self::Value(source) => state.transfer_value(&source, destination),
             Self::Borrow(capability) => state.retain_borrow(capability, destination),
         }
     }

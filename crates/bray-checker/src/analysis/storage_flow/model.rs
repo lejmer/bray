@@ -27,7 +27,8 @@ pub(super) struct StorageFlowInput {
     unused_entry_storage: BTreeSet<StorageIdentityId>,
     cleanup_free_storage: BTreeSet<StorageIdentityId>,
     pub(super) borrowed_projections: BTreeMap<StorageAccessId, Vec<(usize, bray_symbols::TypeId)>>,
-    pub(super) entry_references: BTreeSet<super::memory::Place>,
+    pub(super) entry_references:
+        BTreeMap<super::memory::Place, (StorageAccessId, Option<bray_symbols::TypeId>)>,
     pub(super) reference_constructions: BTreeMap<
         BoundExpressionId,
         Vec<(
@@ -398,12 +399,7 @@ impl StorageFlowState {
             .filter_map(|(id, capability)| capability.entry_binding().is_some().then_some(id))
             .collect::<BTreeSet<_>>();
 
-        let mut memory = super::memory::State::default();
-
-        for slot in &input.entry_references {
-            // The body owns its entry values while immutable projection paths are shared.
-            memory.entry_reference(slot.clone());
-        }
+        let mut memory = super::memory::State::for_storage(storage);
 
         for capability in &active_borrows {
             let borrow = storage
@@ -416,7 +412,13 @@ impl StorageFlowState {
                     .expect("entry borrow has a planned target")
                     .reached_type();
 
-                memory.begin_borrow(*capability, path.clone(), ty);
+                memory.begin_entry_borrow(*capability, path.clone(), ty);
+            }
+        }
+
+        for (slot, (access, ty)) in &input.entry_references {
+            if let Some(target) = input.reference_target(&memory, storage, *access) {
+                memory.entry_reference_at(slot.clone(), target, *ty);
             }
         }
 

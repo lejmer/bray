@@ -10,11 +10,25 @@ impl State {
         self.pending.insert(call, Default::default());
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn stage_slot(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
         source: &Place,
         destination: Place,
+    ) {
+        self.stage_value(
+            call,
+            &Target::storage(source.clone()),
+            Target::storage(destination),
+        );
+    }
+
+    pub(in crate::analysis::storage_flow) fn stage_value(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        source: &Target,
+        destination: Target,
     ) {
         let mut staged = self
             .transferred_slots(source, &destination)
@@ -40,7 +54,7 @@ impl State {
     pub(in crate::analysis::storage_flow) fn stage_unknown(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
-        destination: Place,
+        destination: Target,
     ) {
         self.pending
             .entry(call)
@@ -54,7 +68,7 @@ impl State {
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
         source: BorrowCapabilityId,
-        destination: Place,
+        destination: Target,
     ) {
         let Some(references) = self.borrows.get(&source) else {
             return;
@@ -71,11 +85,11 @@ impl State {
     pub(in crate::analysis::storage_flow) fn stage_address(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
-        source: Place,
-        destination: Place,
+        source: Target,
+        destination: Target,
         ty: TypeId,
     ) {
-        let references = self.borrowed_reference(source, ty);
+        let references = self.addressed_target(source, ty);
 
         self.pending
             .entry(call)
@@ -91,8 +105,27 @@ impl State {
     ) {
         if let Some(values) = self.pending.remove(&call) {
             for (slot, references) in values {
-                self.clear(&slot);
-                self.slots.insert(slot, references);
+                self.clear_value(&slot);
+                self.values.insert(slot, references);
+            }
+        }
+    }
+
+    pub(in crate::analysis::storage_flow) fn invalidate_target(
+        &mut self,
+        target: &Target,
+        kind: bray_symbols::DependencyMutationKind,
+    ) {
+        let references = References::one(target.clone());
+
+        for affected in self.affected_targets(&references) {
+            self.values.remove(&affected);
+
+            if let Some(contents) = self.contents.get_mut(&affected) {
+                contents.initialized.retain(|ty| {
+                    kind == bray_symbols::DependencyMutationKind::Write
+                        && contents.storage_type == Some(*ty)
+                });
             }
         }
     }
@@ -103,13 +136,15 @@ impl State {
         storage: &bray_bound_tree::StoragePlan,
         kind: bray_symbols::DependencyMutationKind,
     ) {
-        self.slots
-            .retain(|slot, _| !invalidation.invalidates_path(slot, storage));
+        self.values.retain(|target, _| match target.storage_path() {
+            Some(slot) => !invalidation.invalidates_path(slot, storage),
+            None => !matches!(invalidation, bray_bound_tree::StorageInvalidation::All),
+        });
 
         for (target, contents) in &mut self.contents {
             let affected = match &target.origin {
                 Origin::Storage(path) => invalidation.invalidates_path(path, storage),
-                Origin::Entry(_) | Origin::Allocation(_) | Origin::Uninit(_) => {
+                Origin::Entry { .. } | Origin::Allocation(_) | Origin::Uninit(_) => {
                     matches!(invalidation, bray_bound_tree::StorageInvalidation::All)
                 }
             };
@@ -121,8 +156,6 @@ impl State {
                     kind == bray_symbols::DependencyMutationKind::Write
                         && contents.storage_type == Some(*ty)
                 });
-
-                contents.references.unknown = true;
             }
         }
     }
@@ -152,7 +185,9 @@ impl State {
         };
 
         self.contents.insert(current.clone(), contents);
-        self.slots.insert(slot, References::one(current));
+
+        self.values
+            .insert(Target::storage(slot), References::one(current));
     }
 
     fn retire(&mut self, current: &Target) {
@@ -163,7 +198,7 @@ impl State {
 
         if self.contents.contains_key(current) {
             for references in self
-                .slots
+                .values
                 .values_mut()
                 .chain(self.borrows.values_mut())
                 .chain(
@@ -171,17 +206,21 @@ impl State {
                         .values_mut()
                         .flat_map(|values| values.values_mut()),
                 )
-                .chain(
-                    self.contents
-                        .values_mut()
-                        .map(|contents| &mut contents.references),
-                )
             {
                 if references.targets.remove(current) {
                     // Targets share immutable projection paths.
                     references.targets.insert(previous.clone());
                 }
             }
+        }
+
+        if let Some(mut value) = self.values.remove(current) {
+            value.unknown = true;
+
+            self.values
+                .entry(previous.clone())
+                .or_default()
+                .merge(&value);
         }
 
         if let Some(mut contents) = self.contents.remove(current) {

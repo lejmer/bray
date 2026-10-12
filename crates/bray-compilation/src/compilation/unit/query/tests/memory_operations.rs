@@ -759,10 +759,10 @@ fn raw_moves_through_stored_borrows_reach_the_original_fields() {
 
             assert!(
                 refinements.value().invalidations().values().any(|effect| {
-                    matches!(effect, bray_bound_tree::StorageInvalidation::Paths(paths)
-                    if paths.iter().any(|path| path.access_id(storage.value()).is_none()))
+                    matches!(effect, bray_bound_tree::StorageInvalidation::Observed(accesses)
+                    if accesses.values().flatten().any(|path| path.access_id(storage.value()).is_none()))
                 }),
-                "a raw alias must publish its physical effect without a source access"
+                "a raw alias must project its target into observations without requiring a source access"
             );
         }
 

@@ -98,6 +98,31 @@ pub enum StorageIdentity {
 }
 
 impl StorageIdentity {
+    pub(crate) const fn owns_slot(self) -> bool {
+        matches!(
+            self,
+            StorageIdentity::LocalOwned(_)
+                | StorageIdentity::Parameter(_)
+                | StorageIdentity::Receiver(_)
+                | StorageIdentity::AnonymousParameter(_)
+                | StorageIdentity::PredicateParameter(_)
+                | StorageIdentity::PostconditionResult(_)
+                | StorageIdentity::Result(_)
+                | StorageIdentity::Temporary(_)
+                | StorageIdentity::IterationCursor(_)
+                | StorageIdentity::IterationElement(_)
+                | StorageIdentity::ScopedCapability { .. }
+                | StorageIdentity::Allocation(_)
+                | StorageIdentity::CompilerCreated(_)
+        )
+    }
+
+    /// Whether this identity denotes a distinct value slot owned by the current invocation.
+    /// Borrowed runtime-default inputs retain their caller's storage instead.
+    pub fn is_invocation_owned(self, unit: crate::BoundUnitKind) -> bool {
+        self.owns_slot() && !self.is_borrowed_provider_input(unit)
+    }
+
     /// Returns whether a runtime-default provider borrows this input from its caller.
     pub fn is_borrowed_provider_input(self, unit: crate::BoundUnitKind) -> bool {
         unit == crate::BoundUnitKind::RuntimeDefault
@@ -284,6 +309,11 @@ pub enum StorageProjection {
 }
 
 impl StorageProjection {
+    /// Whether this selector identifies one component independently of evaluation.
+    pub const fn is_exact(self) -> bool {
+        !matches!(self, Self::Element(_) | Self::SliceRange { .. })
+    }
+
     pub(super) fn is_valid_for(self, unit: BoundUnitId) -> bool {
         match self {
             Self::Element(selector) => selector.unit() == unit,

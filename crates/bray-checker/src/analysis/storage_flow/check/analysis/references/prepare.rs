@@ -1,10 +1,45 @@
 use super::super::effects::project;
-use super::dependency_projections;
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::Place;
-use bray_symbols::TypeData;
 
 impl crate::analysis::storage_flow::model::StorageFlowInput {
+    pub(in crate::analysis::storage_flow) fn reference_target(
+        &self,
+        memory: &crate::analysis::storage_flow::memory::State,
+        storage: &bray_bound_tree::StoragePlan,
+        access: bray_bound_tree::StorageAccessId,
+    ) -> Option<crate::analysis::storage_flow::memory::Target> {
+        let logical = storage.logical_path(access)?;
+        let borrows = self.borrowed_projections.get(&access)?;
+
+        let mut target =
+            crate::analysis::storage_flow::memory::Target::storage(Place::root(logical.root));
+
+        let mut copied = 0;
+
+        for (step, (index, ty)) in borrows.iter().enumerate() {
+            target = target.project(&logical.projections[copied..*index]);
+
+            let entry = (step == 0 && *index == 0)
+                .then(|| storage.access(access)?.root().borrow_capability())
+                .flatten()
+                .filter(|borrow| {
+                    storage
+                        .borrow_capability(*borrow)
+                        .is_some_and(|borrow| borrow.entry_binding().is_some())
+                });
+
+            target = match entry {
+                Some(capability) => memory.borrow_target(capability, *ty)?,
+                None => memory.value_target(&target, *ty)?,
+            };
+
+            copied = *index;
+        }
+
+        Some(target.project(&logical.projections[copied..]))
+    }
+
     pub(in crate::analysis::storage_flow) fn prepare_borrowed_projections<
         C: CheckerRequestContext + ?Sized,
     >(
@@ -17,7 +52,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 continue;
             };
 
-            let Some(mut ty) = storage.identity_type(path.root) else {
+            let Some(ty) = storage.identity_type(path.root) else {
                 // A direct result slot has identity before its value type is installed.
                 if path.projections.is_empty()
                     && matches!(
@@ -31,41 +66,12 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 continue;
             };
 
-            let mut borrows = Vec::new();
-            let mut complete = true;
-
-            for index in 0..=path.projections.len() {
-                while let TypeData::Borrow { target, .. } =
-                    request.semantic_values().type_data(ty).as_ref()
-                {
-                    if index == path.projections.len() && ty == reached.reached_type() {
-                        break;
-                    }
-
-                    ty = *target;
-                    borrows.push((index, ty));
-                }
-
-                let Some(projection) = path.projections.get(index) else {
-                    break;
-                };
-
-                let Some(projections) = dependency_projections(&[*projection]) else {
-                    complete = false;
-                    break;
-                };
-
-                let projected = crate::storage::projected_value_type(request, ty, projections[0])?;
-
-                let Some(projected) = *projected.value() else {
-                    complete = false;
-                    break;
-                };
-
-                ty = projected;
-            }
-
-            if complete {
+            if let Some((_, borrows)) = crate::storage::reference_path(
+                request,
+                ty,
+                &path.projections,
+                Some(reached.reached_type()),
+            )? {
                 self.borrowed_projections.insert(access, borrows);
             }
         }
@@ -104,7 +110,9 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 || kind == Some(bray_symbols::DependencyReferenceKind::Borrow)
                     && !path.projections.is_empty()
             {
-                self.entry_references.insert(path.clone());
+                let target = crate::representation::reference_target_type(request, ty);
+
+                self.entry_references.insert(path.clone(), (access, target));
             }
         }
     }
