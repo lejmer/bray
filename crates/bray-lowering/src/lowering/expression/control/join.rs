@@ -1,5 +1,7 @@
 use bray_bound_tree::{BoundExpressionId, BoundNodeOrigin};
-use bray_ir::{MirBlockId, MirBlockKind, MirEdge, MirTerminatorKind, MirValueId};
+use bray_ir::{
+    MirBlockId, MirBlockKind, MirEdge, MirOperand, MirSourceAnchor, MirTerminatorKind, MirValueId,
+};
 use bray_symbols::TypeId;
 
 use super::super::super::LoweringError;
@@ -24,6 +26,30 @@ impl Lowerer<'_> {
             .push_block_parameter(join, source, result_type)?;
 
         Ok((join, result, result_type))
+    }
+
+    pub(in crate::lowering) fn finish_result_join(
+        &mut self,
+        entry: MirBlockId,
+        join: MirBlockId,
+        result: MirValueId,
+        source: MirSourceAnchor,
+    ) -> Result<LoweredExpression, LoweringError> {
+        if self.is_reachable(entry, join) {
+            Ok(LoweredExpression::continuing(
+                join,
+                Some(MirOperand::Value(result)),
+                source,
+            ))
+        } else {
+            self.set_terminator(
+                join,
+                Self::retained_source(&source),
+                MirTerminatorKind::Unreachable,
+            )?;
+
+            Ok(LoweredExpression::terminated(source))
+        }
     }
 
     pub(in crate::lowering) fn finish_result_edge(

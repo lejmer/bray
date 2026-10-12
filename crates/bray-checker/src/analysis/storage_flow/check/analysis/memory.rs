@@ -1,9 +1,6 @@
-use std::collections::BTreeMap;
-
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpressionId, CheckedMemoryOperationKind, MemoryOperationDecision,
     MemoryOperationStatus, Refinement, RefinementKind, StorageAccessPurpose, StorageIdentity,
-    StorageIdentityId,
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
@@ -12,6 +9,7 @@ use bray_diagnostics::{
 
 use super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
+use crate::analysis::storage_flow::memory::Place;
 use crate::analysis::storage_flow::model::StorageFlowState;
 
 const fn operation_requires_trust(kind: CheckedMemoryOperationKind) -> bool {
@@ -42,39 +40,6 @@ const fn operation_requires_trust(kind: CheckedMemoryOperationKind) -> bool {
             | CheckedMemoryOperationKind::VolatileRead { .. }
             | CheckedMemoryOperationKind::VolatileWrite { .. }
     )
-}
-
-fn replace_raw_state(
-    state: &mut StorageFlowState,
-    source: StorageIdentityId,
-    destination: StorageIdentityId,
-) {
-    replace_map_entry(&mut state.raw_initialized, source, destination);
-    replace_map_entry(&mut state.active_allocations, source, destination);
-    replace_map_entry(&mut state.allocation_origins, source, destination);
-    replace_map_entry(&mut state.invalidated_allocations, source, destination);
-}
-
-fn replace_map_entry<Value: Clone>(
-    entries: &mut BTreeMap<StorageIdentityId, Value>,
-    source: StorageIdentityId,
-    destination: StorageIdentityId,
-) {
-    match entries.get(&source).cloned() {
-        Some(value) => {
-            entries.insert(destination, value);
-        }
-        None => {
-            entries.remove(&destination);
-        }
-    }
-}
-
-fn has_raw_state(state: &StorageFlowState, storage: StorageIdentityId) -> bool {
-    state.raw_initialized.contains_key(&storage)
-        || state.active_allocations.contains_key(&storage)
-        || state.allocation_origins.contains_key(&storage)
-        || state.invalidated_allocations.contains_key(&storage)
 }
 
 const fn conservative_memory_status(
@@ -133,42 +98,58 @@ where
             return;
         };
 
-        let Some(bound) = self.request.unit().tree().expression(expression) else {
-            return;
-        };
+        if let Some(bray_bound_tree::BoundExpression::Structured(borrow)) =
+            self.request.view().expression(expression)
+            && borrow.kind() == bray_bound_tree::BoundStructuredExpressionKind::Borrow
+        {
+            let destination = self
+                .input
+                .initialization_destination(expression)
+                .map(Place::root);
 
-        if let Some(result) = self.expression_result_storage(expression) {
-            let mut child_source = None;
+            let result = self
+                .expression_result_storage(expression)
+                .or_else(|| destination.clone());
 
-            for child in bound.child_expressions() {
-                let Some(storage) = self.expression_value_storage(state, child) else {
-                    continue;
-                };
+            let source = self
+                .storage
+                .node_plans(expression.into())
+                .find(|plan| matches!(plan.purpose(), StorageAccessPurpose::Borrow(_)))
+                .and_then(|plan| self.physical_place(state, plan.access()));
 
-                match child_source {
-                    Some(previous) if previous != storage => {
-                        child_source = None;
-                        break;
-                    }
-                    Some(_) => {}
-                    None => child_source = Some(storage),
+            if let (Some(source), Some(result)) = (source, result)
+                && let Some(ty) = self.storage.identity_type(result.root)
+                && let bray_symbols::TypeData::Borrow { target, .. } =
+                    self.request.semantic_values().type_data(ty).as_ref()
+            {
+                state.memory.borrow(source, result.clone(), *target);
+
+                if let Some(destination) = destination {
+                    state.memory.transfer(&result, destination);
                 }
             }
 
-            if let Some(source) = child_source {
-                replace_raw_state(state, source, result);
-            }
+            return;
+        }
+
+        if self.memory.operation(expression).is_none()
+            && let Some(result) = self.expression_result_storage(expression)
+            && let Some(source) = self.execution.reference_value_source(expression)
+            && let Some(source) = self.expression_value_storage(state, source)
+        {
+            state.memory.transfer(&source, result);
         }
 
         let Some(destination) = self.input.initialization_destination(expression) else {
             return;
         };
 
-        let Some(source) = self.expression_value_storage(state, expression) else {
-            return;
-        };
+        let destination = Place::root(destination);
 
-        replace_raw_state(state, source, destination);
+        match self.expression_value_storage(state, expression) {
+            Some(source) => state.memory.transfer(&source, destination),
+            None => state.memory.clear(&destination),
+        }
     }
 
     pub(super) fn transfer_raw_pointer_state(
@@ -180,14 +161,14 @@ where
         let mut destinations = Vec::new();
 
         for plan in self.storage.node_plans(node) {
-            let Some(root) = self.storage.root_identity(plan.access()) else {
+            let Some(root) = self.storage.logical_path(plan.access()).cloned() else {
                 continue;
             };
 
-            match self.effective_purpose(plan) {
+            match self.storage.effective_purpose(plan) {
                 StorageAccessPurpose::Move
                 | StorageAccessPurpose::Copy
-                | StorageAccessPurpose::ValueTransfer => sources.push((root, plan.purpose())),
+                | StorageAccessPurpose::ValueTransfer => sources.push(root),
                 StorageAccessPurpose::Initialize | StorageAccessPurpose::Assignment => {
                     destinations.push(root);
                 }
@@ -201,60 +182,29 @@ where
             }
         }
 
-        let ([(source, purpose)], [destination]) = (sources.as_slice(), destinations.as_slice())
-        else {
+        let ([source], [destination]) = (sources.as_slice(), destinations.as_slice()) else {
             return;
         };
 
-        replace_raw_state(state, *source, *destination);
-
-        if *purpose == StorageAccessPurpose::Move {
-            state.raw_initialized.remove(source);
-            state.active_allocations.remove(source);
-            state.invalidated_allocations.remove(source);
-        }
+        // Place clones share their immutable projection path.
+        state.memory.transfer(source, destination.clone());
     }
 
-    pub(super) fn apply_memory_operation(
+    pub(super) fn apply_memory_operation<'refinements>(
         &mut self,
         state: &mut StorageFlowState,
         node: AnyBoundNodeId,
-        refinements: &[Refinement],
-    ) {
+        refinements: impl Iterator<Item = &'refinements Refinement> + Clone,
+    ) -> Option<MemoryOperationStatus> {
         let AnyBoundNodeId::Expression(expression) = node else {
-            return;
+            return None;
         };
 
         let Some(operation) = self.memory.operation(expression) else {
-            return;
+            return None;
         };
 
-        let proven = self
-            .request
-            .trusted_memory_evidence()
-            .and_then(|evidence| evidence.get(&expression).copied());
-
-        if proven.is_some() {
-            if let CheckedMemoryOperationKind::Read { pointee, .. }
-            | CheckedMemoryOperationKind::VolatileRead { pointee, .. }
-            | CheckedMemoryOperationKind::UninitAssumeInitialized { element: pointee }
-            | CheckedMemoryOperationKind::UninitMove { element: pointee } = operation.kind()
-            {
-                if let Some(pointer) = operation
-                    .arguments()
-                    .first()
-                    .and_then(|argument| self.argument_storage(*argument))
-                {
-                    state
-                        .raw_initialized
-                        .entry(pointer)
-                        .or_default()
-                        .entry(pointee)
-                        .or_default()
-                        .insert(expression);
-                }
-            }
-        }
+        let proven = self.memory_evidence;
 
         let status = if !state.reachable {
             MemoryOperationStatus::Unreachable
@@ -263,12 +213,40 @@ where
         } else if operation_requires_trust(operation.kind())
             && proven.is_none()
             && !refinements
-                .iter()
+                .clone()
                 .any(|refinement| matches!(refinement.kind(), RefinementKind::TrustBoundary(_)))
         {
             MemoryOperationStatus::MissingTrustedEvidence
         } else {
-            self.apply_valid_memory_operation(state, operation, proven)
+            let targets =
+                self.memory_mutation(operation)
+                    .and_then(|(argument, element, purpose)| {
+                        self.argument_storage(argument)
+                            .map(|place| (state.memory.reached_storage(&place), element, purpose))
+                    });
+
+            let status = self.apply_valid_memory_operation(state, operation, proven);
+
+            if status == MemoryOperationStatus::Valid && proven != Some(true) {
+                if let Some((targets, element, purpose)) = targets {
+                    for (place, storage_type, definite) in targets {
+                        let same_type = storage_type == Some(element);
+
+                        if purpose == StorageAccessPurpose::Move || !same_type {
+                            state.record_move(
+                                place,
+                                operation.expression(),
+                                storage_type.unwrap_or(element),
+                                definite && same_type,
+                            );
+                        } else if definite {
+                            state.initialize_path(&place);
+                        }
+                    }
+                }
+            }
+
+            status
         };
 
         self.is_recovered |= status == MemoryOperationStatus::Recovered;
@@ -285,6 +263,8 @@ where
                 self.add_memory_diagnostic(kind, operation, origins);
             }
         }
+
+        Some(status)
     }
 
     fn apply_valid_memory_operation(
@@ -295,57 +275,78 @@ where
     ) -> MemoryOperationStatus {
         let arguments = operation.arguments();
 
+        let argument = |index| {
+            arguments
+                .get(index)
+                .and_then(|argument| self.argument_storage(*argument))
+        };
+
+        let result = || self.expression_result_storage(operation.expression());
+
         match operation.kind() {
-            CheckedMemoryOperationKind::UninitNew { .. } => {}
+            CheckedMemoryOperationKind::UninitNew { .. } => {
+                if let Some(result) = result() {
+                    state.memory.fresh(result, None);
+                }
+            }
             CheckedMemoryOperationKind::UninitFrom { element } => {
-                let Some(result) = self.operation_result_storage(operation.expression()) else {
+                let Some(result) = result() else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                return apply_raw_write(state, result, element, operation.expression());
+                state.memory.fresh(result.clone(), None);
+
+                return state.memory.write(
+                    &result,
+                    element,
+                    operation.expression(),
+                    argument(0).as_ref(),
+                );
             }
             CheckedMemoryOperationKind::UninitPointer { .. } => {
-                let Some(source) = arguments
-                    .first()
-                    .and_then(|argument| self.argument_storage(*argument))
-                else {
+                let Some(source) = argument(0) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                let Some(result) = self.operation_result_storage(operation.expression()) else {
+                let Some(result) = result() else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                replace_raw_state(state, source, result);
+                state.memory.transfer(&source, result);
             }
             CheckedMemoryOperationKind::UninitWrite { element } => {
-                let Some(storage) = arguments
-                    .first()
-                    .and_then(|argument| self.argument_storage(*argument))
-                else {
+                let Some(storage) = argument(0) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                let status = apply_raw_write(state, storage, element, operation.expression());
+                let status = state.memory.write(
+                    &storage,
+                    element,
+                    operation.expression(),
+                    argument(1).as_ref(),
+                );
 
                 if status != MemoryOperationStatus::Valid {
                     return status;
                 }
 
-                if let Some(result) = self.operation_result_storage(operation.expression()) {
-                    replace_raw_state(state, storage, result);
+                if let Some(result) = result() {
+                    state.memory.transfer(&storage, result);
                 }
             }
             CheckedMemoryOperationKind::UninitAssumeInitialized { element }
             | CheckedMemoryOperationKind::UninitMove { element } => {
-                let Some(storage) = arguments
-                    .first()
-                    .and_then(|argument| self.argument_storage(*argument))
-                else {
+                let Some(storage) = argument(0) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                return consume_trusted_uninit(state, storage, element);
+                return state.memory.read(
+                    &storage,
+                    element,
+                    bray_bound_tree::MemoryReadKind::Move,
+                    Some(operation.expression()),
+                    result(),
+                );
             }
             CheckedMemoryOperationKind::BorrowFrom { .. } => {
                 let [_, pointer, ..] = arguments else {
@@ -356,64 +357,81 @@ where
                     return MemoryOperationStatus::Recovered;
                 };
 
-                if let Some(result) = self.operation_result_storage(operation.expression()) {
-                    replace_raw_state(state, source, result);
+                if let Some(result) = result() {
+                    state.memory.transfer(&source, result);
                 }
             }
             CheckedMemoryOperationKind::Address { pointee, .. } => {
-                let Some(result) = self.operation_result_storage(operation.expression()) else {
+                let Some(result) = result() else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                state
-                    .raw_initialized
-                    .entry(result)
-                    .or_default()
-                    .entry(pointee)
-                    .or_default()
-                    .insert(operation.expression());
+                let source = self
+                    .input
+                    .expression_places(arguments[0])
+                    .first()
+                    .and_then(|place| place.access_id(self.storage))
+                    .and_then(|access| self.physical_place(state, access))
+                    .or_else(|| {
+                        self.expression_result_storage(arguments[0])
+                            .and_then(|place| state.memory.referent(&place, pointee))
+                    });
+
+                if let Some(source) = source {
+                    state
+                        .memory
+                        .address(source, result, pointee, operation.expression());
+                } else {
+                    state.memory.clear(&result);
+                }
             }
             CheckedMemoryOperationKind::Null { .. } => {}
             CheckedMemoryOperationKind::IsNull { .. }
             | CheckedMemoryOperationKind::LayoutQuery { .. } => {}
-            CheckedMemoryOperationKind::Offset { .. }
-            | CheckedMemoryOperationKind::Reinterpret { .. }
+            CheckedMemoryOperationKind::Offset { .. } => {
+                if let (Some(source), Some(result)) = (argument(0), result()) {
+                    state.memory.offset(&source, result);
+                }
+            }
+            CheckedMemoryOperationKind::Reinterpret { .. }
             | CheckedMemoryOperationKind::CallableFromPointer { .. }
             | CheckedMemoryOperationKind::PointerFromCallable { .. } => {
-                let Some(source) = arguments
-                    .first()
-                    .and_then(|argument| self.argument_storage(*argument))
-                else {
+                let Some(source) = argument(0) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                let Some(result) = self.operation_result_storage(operation.expression()) else {
+                let Some(result) = result() else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                replace_raw_state(state, source, result);
+                state.memory.transfer(&source, result);
             }
             CheckedMemoryOperationKind::Read { pointee, kind }
             | CheckedMemoryOperationKind::VolatileRead { pointee, kind, .. } => {
-                let Some(pointer) = arguments
-                    .first()
-                    .and_then(|argument| self.argument_storage(*argument))
-                else {
+                let Some(pointer) = argument(0) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                return apply_raw_read(state, pointer, pointee, kind);
+                return state.memory.read(
+                    &pointer,
+                    pointee,
+                    kind,
+                    proven.map(|_| operation.expression()),
+                    result(),
+                );
             }
             CheckedMemoryOperationKind::Write { pointee }
             | CheckedMemoryOperationKind::VolatileWrite { pointee, .. } => {
-                let Some(pointer) = arguments
-                    .first()
-                    .and_then(|argument| self.argument_storage(*argument))
-                else {
+                let Some(pointer) = argument(0) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                return apply_raw_write(state, pointer, pointee, operation.expression());
+                return state.memory.write(
+                    &pointer,
+                    pointee,
+                    operation.expression(),
+                    argument(1).as_ref(),
+                );
             }
             CheckedMemoryOperationKind::Copy { pointee, .. } => {
                 let [source, destination, ..] = arguments else {
@@ -428,10 +446,9 @@ where
                     return MemoryOperationStatus::Recovered;
                 };
 
-                return apply_raw_copy(
-                    state,
-                    source,
-                    destination,
+                return state.memory.copy(
+                    &source,
+                    &destination,
                     pointee,
                     operation.expression(),
                     proven,
@@ -440,33 +457,18 @@ where
             CheckedMemoryOperationKind::RawAllocate
             | CheckedMemoryOperationKind::RawBufferAllocate
             | CheckedMemoryOperationKind::Allocate => {
-                let Some(result) = self.operation_result_storage(operation.expression()) else {
+                let Some(result) = result() else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                state
-                    .active_allocations
-                    .entry(result)
-                    .or_default()
-                    .insert(operation.expression());
-
-                state
-                    .allocation_origins
-                    .entry(result)
-                    .or_default()
-                    .insert(operation.expression());
-
-                state.invalidated_allocations.remove(&result);
+                state.memory.fresh(result, Some(operation.expression()));
             }
             CheckedMemoryOperationKind::RawDeallocate | CheckedMemoryOperationKind::Deallocate => {
-                let Some(pointer) = arguments
-                    .first()
-                    .and_then(|argument| self.argument_storage(*argument))
-                else {
+                let Some(pointer) = argument(0) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                return apply_deallocation(state, pointer, operation.expression());
+                return state.memory.deallocate(&pointer, operation.expression());
             }
             CheckedMemoryOperationKind::ByteBufferFill
             | CheckedMemoryOperationKind::ByteBufferRead
@@ -507,36 +509,133 @@ where
         MemoryOperationStatus::Valid
     }
 
-    fn argument_storage(&self, expression: BoundExpressionId) -> Option<StorageIdentityId> {
-        self.input.expression_roots(expression).first().copied()
-    }
-
-    fn operation_result_storage(&self, expression: BoundExpressionId) -> Option<StorageIdentityId> {
-        self.expression_result_storage(expression)
-    }
-
-    fn expression_result_storage(
+    fn memory_mutation(
         &self,
-        expression: BoundExpressionId,
-    ) -> Option<StorageIdentityId> {
+        operation: &bray_bound_tree::CheckedMemoryOperation,
+    ) -> Option<(
+        BoundExpressionId,
+        bray_symbols::TypeId,
+        StorageAccessPurpose,
+    )> {
+        use bray_bound_tree::MemoryReadKind;
+
+        let (index, element, purpose) = match operation.kind() {
+            CheckedMemoryOperationKind::Read {
+                pointee: element,
+                kind: MemoryReadKind::Move,
+            }
+            | CheckedMemoryOperationKind::VolatileRead {
+                pointee: element,
+                kind: MemoryReadKind::Move,
+                ..
+            }
+            | CheckedMemoryOperationKind::UninitMove { element }
+            | CheckedMemoryOperationKind::UninitAssumeInitialized { element } => {
+                (0, element, StorageAccessPurpose::Move)
+            }
+            CheckedMemoryOperationKind::Write { pointee: element }
+            | CheckedMemoryOperationKind::VolatileWrite {
+                pointee: element, ..
+            }
+            | CheckedMemoryOperationKind::UninitWrite { element } => {
+                (0, element, StorageAccessPurpose::Initialize)
+            }
+            CheckedMemoryOperationKind::Copy { pointee, .. } => {
+                (1, pointee, StorageAccessPurpose::Initialize)
+            }
+            _ => return None,
+        };
+
+        operation
+            .arguments()
+            .get(index)
+            .copied()
+            .map(|argument| (argument, element, purpose))
+    }
+
+    pub(super) fn physical_place(
+        &self,
+        state: &StorageFlowState,
+        access: bray_bound_tree::StorageAccessId,
+    ) -> Option<Place> {
+        let place = self.storage.logical_path(access).cloned()?;
+        let root = self.storage.root_identity(access)?;
+        let ty = self.storage.identity_type(root)?;
+        let reached = self.storage.access(access)?.reached_type();
+
+        if ty != reached
+            && let bray_symbols::TypeData::Borrow { target, .. } =
+                self.request.semantic_values().type_data(ty).as_ref()
+        {
+            return state.memory.referent(&place, *target);
+        }
+
+        Some(place)
+    }
+
+    pub(super) fn assignment_target(
+        &self,
+        state: &StorageFlowState,
+        node: AnyBoundNodeId,
+    ) -> Option<Place> {
+        let access = self
+            .storage
+            .node_plans(node)
+            .find(|plan| plan.purpose() == StorageAccessPurpose::Assignment)?
+            .access();
+
+        let physical = self.physical_place(state, access)?;
+
+        if Some(&physical) == self.storage.logical_path(access) {
+            return None;
+        }
+
+        Some(physical)
+    }
+
+    pub(super) fn memory_invalidation(
+        &self,
+        state: &StorageFlowState,
+        node: AnyBoundNodeId,
+    ) -> Option<bray_bound_tree::StorageInvalidation> {
+        let AnyBoundNodeId::Expression(expression) = node else {
+            return None;
+        };
+
+        let operation = self.memory.operation(expression)?;
+
+        let (argument, _, _) = self.memory_mutation(operation)?;
+
+        let slot = self.argument_storage(argument)?;
+        let places = state.memory.located_storage(&slot)?;
+
+        Some(bray_bound_tree::StorageInvalidation::Paths(places))
+    }
+
+    fn argument_storage(&self, expression: BoundExpressionId) -> Option<Place> {
+        self.input
+            .expression_places(expression)
+            .first()
+            .cloned()
+            .or_else(|| self.expression_result_storage(expression))
+    }
+
+    fn expression_result_storage(&self, expression: BoundExpressionId) -> Option<Place> {
         self.input.definitions(expression.into()).iter().copied().find(|identity| {
             matches!(self.storage.identity(*identity), Some(StorageIdentity::Temporary(candidate) | StorageIdentity::Allocation(candidate)) if candidate == expression)
-        })
+        }).map(Place::root)
     }
 
     fn expression_value_storage(
         &self,
         state: &StorageFlowState,
         expression: BoundExpressionId,
-    ) -> Option<StorageIdentityId> {
+    ) -> Option<Place> {
         self.expression_result_storage(expression)
-            .filter(|storage| has_raw_state(state, *storage))
+            .filter(|storage| state.memory.has_reference(storage))
             .or_else(|| {
-                self.input
-                    .expression_roots(expression)
-                    .iter()
-                    .copied()
-                    .find(|storage| has_raw_state(state, *storage))
+                self.argument_storage(expression)
+                    .filter(|storage| state.memory.has_reference(storage))
             })
     }
 
@@ -558,28 +657,14 @@ where
                     DiagnosticRelatedLocationKind::AllocationOrigin,
                     storages
                         .iter()
-                        .flat_map(|storage| {
-                            state
-                                .allocation_origins
-                                .get(storage)
-                                .into_iter()
-                                .flatten()
-                                .copied()
-                        })
+                        .flat_map(|storage| state.memory.allocation_origins(storage))
                         .collect(),
                 ),
                 (
                     DiagnosticRelatedLocationKind::DeallocationOrigin,
                     storages
                         .iter()
-                        .flat_map(|storage| {
-                            state
-                                .invalidated_allocations
-                                .get(storage)
-                                .into_iter()
-                                .flatten()
-                                .copied()
-                        })
+                        .flat_map(|storage| state.memory.invalidation_origins(storage))
                         .collect(),
                 ),
             ],
@@ -587,29 +672,14 @@ where
                 DiagnosticRelatedLocationKind::AllocationOrigin,
                 storages
                     .iter()
-                    .flat_map(|storage| {
-                        state
-                            .allocation_origins
-                            .get(storage)
-                            .into_iter()
-                            .flatten()
-                            .copied()
-                    })
+                    .flat_map(|storage| state.memory.allocation_origins(storage))
                     .collect(),
             )],
             MemoryOperationStatus::OutstandingObligations => vec![(
                 DiagnosticRelatedLocationKind::InitializationOrigin,
                 storages
                     .iter()
-                    .flat_map(|storage| {
-                        state
-                            .raw_initialized
-                            .get(storage)
-                            .into_iter()
-                            .flat_map(BTreeMap::values)
-                            .flatten()
-                            .copied()
-                    })
+                    .flat_map(|storage| state.memory.initialization_origins(storage))
                     .collect(),
             )],
             MemoryOperationStatus::Unreachable
@@ -678,482 +748,5 @@ where
         self.memory_decisions
             .iter()
             .map(|(expression, status)| MemoryOperationDecision::new(*expression, *status))
-    }
-}
-
-fn apply_raw_read(
-    state: &mut StorageFlowState,
-    pointer: StorageIdentityId,
-    pointee: bray_symbols::TypeId,
-    kind: bray_bound_tree::MemoryReadKind,
-) -> MemoryOperationStatus {
-    if state.invalidated_allocations.contains_key(&pointer) {
-        return MemoryOperationStatus::InvalidatedAllocation;
-    }
-
-    let Some(initialized) = state.raw_initialized.get_mut(&pointer) else {
-        return MemoryOperationStatus::UninitializedRawStorage;
-    };
-
-    if !initialized.contains_key(&pointee) {
-        return MemoryOperationStatus::UninitializedRawStorage;
-    }
-
-    if kind == bray_bound_tree::MemoryReadKind::Move {
-        initialized.remove(&pointee);
-    }
-
-    MemoryOperationStatus::Valid
-}
-
-fn consume_trusted_uninit(
-    state: &mut StorageFlowState,
-    storage: StorageIdentityId,
-    element: bray_symbols::TypeId,
-) -> MemoryOperationStatus {
-    if state.invalidated_allocations.contains_key(&storage) {
-        return MemoryOperationStatus::InvalidatedAllocation;
-    }
-
-    if let Some(initialized) = state.raw_initialized.get_mut(&storage) {
-        initialized.remove(&element);
-    }
-
-    MemoryOperationStatus::Valid
-}
-
-fn apply_raw_write(
-    state: &mut StorageFlowState,
-    pointer: StorageIdentityId,
-    pointee: bray_symbols::TypeId,
-    origin: BoundExpressionId,
-) -> MemoryOperationStatus {
-    if state.invalidated_allocations.contains_key(&pointer) {
-        return MemoryOperationStatus::InvalidatedAllocation;
-    }
-
-    state
-        .raw_initialized
-        .entry(pointer)
-        .or_default()
-        .entry(pointee)
-        .or_default()
-        .insert(origin);
-
-    MemoryOperationStatus::Valid
-}
-
-fn apply_raw_copy(
-    state: &mut StorageFlowState,
-    source: StorageIdentityId,
-    destination: StorageIdentityId,
-    pointee: bray_symbols::TypeId,
-    origin: BoundExpressionId,
-    proven: Option<bool>,
-) -> MemoryOperationStatus {
-    if state.invalidated_allocations.contains_key(&source)
-        || state.invalidated_allocations.contains_key(&destination)
-    {
-        return MemoryOperationStatus::InvalidatedAllocation;
-    }
-
-    // Empty ranges establish no scalar state and preserve existing destination values.
-    if proven == Some(true) {
-        return MemoryOperationStatus::Valid;
-    }
-
-    if proven.is_none()
-        && !state
-            .raw_initialized
-            .get(&source)
-            .is_some_and(|initialized| initialized.contains_key(&pointee))
-    {
-        return MemoryOperationStatus::UninitializedRawStorage;
-    }
-
-    state
-        .raw_initialized
-        .entry(destination)
-        .or_default()
-        .entry(pointee)
-        .or_default()
-        .insert(origin);
-
-    MemoryOperationStatus::Valid
-}
-
-fn apply_deallocation(
-    state: &mut StorageFlowState,
-    pointer: StorageIdentityId,
-    origin: BoundExpressionId,
-) -> MemoryOperationStatus {
-    if state.invalidated_allocations.contains_key(&pointer) {
-        return MemoryOperationStatus::InvalidatedAllocation;
-    }
-
-    if state
-        .raw_initialized
-        .get(&pointer)
-        .is_some_and(|initialized| !initialized.is_empty())
-    {
-        return MemoryOperationStatus::OutstandingObligations;
-    }
-
-    state.active_allocations.remove(&pointer);
-    state.raw_initialized.remove(&pointer);
-
-    state
-        .invalidated_allocations
-        .entry(pointer)
-        .or_default()
-        .insert(origin);
-
-    MemoryOperationStatus::Valid
-}
-
-#[cfg(test)]
-mod tests {
-    use bray_bound_tree::{
-        BoundErrorExpression, BoundExpression, BoundExpressionId, BoundUnitId, BoundUnitKind,
-        MemoryOperationStatus, MemoryReadKind, StorageIdentity, StorageIdentityId,
-        StoragePlanBuilder,
-    };
-
-    use super::{
-        StorageFlowState, apply_deallocation, apply_raw_copy, apply_raw_read, apply_raw_write,
-        consume_trusted_uninit, replace_raw_state,
-    };
-    use crate::test_support::{error_type, expression_unit, push_expression};
-
-    fn raw_storage_pair(
-        unit: BoundUnitId,
-    ) -> ([BoundExpressionId; 2], StorageIdentityId, StorageIdentityId) {
-        let (_, expressions) = expression_unit(unit, |tree, origin| {
-            (0..2)
-                .map(|_| {
-                    push_expression(
-                        tree,
-                        BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
-                    )
-                })
-                .collect::<Vec<_>>()
-        });
-
-        let [source_expression, destination_expression] = expressions.as_slice() else {
-            panic!("raw storage fixture must contain exactly two expressions");
-        };
-
-        let mut storage = StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
-
-        let source = storage
-            .push_identity(StorageIdentity::Temporary(*source_expression))
-            .unwrap_or_else(|error| panic!("source storage must validate: {error:?}"));
-
-        let destination = storage
-            .push_identity(StorageIdentity::Temporary(*destination_expression))
-            .unwrap_or_else(|error| panic!("destination storage must validate: {error:?}"));
-
-        (
-            [*source_expression, *destination_expression],
-            source,
-            destination,
-        )
-    }
-
-    #[test]
-    fn trusted_uninit_consumption_uses_the_checked_predicate_as_authority() {
-        let (expressions, storage, _) = raw_storage_pair(BoundUnitId::new(82));
-
-        let element = error_type();
-
-        let mut state = StorageFlowState {
-            reachable: true,
-            ..StorageFlowState::default()
-        };
-
-        assert_eq!(
-            consume_trusted_uninit(&mut state, storage, element),
-            MemoryOperationStatus::Valid
-        );
-
-        state
-            .raw_initialized
-            .entry(storage)
-            .or_default()
-            .entry(element)
-            .or_default()
-            .insert(expressions[0]);
-
-        assert_eq!(
-            consume_trusted_uninit(&mut state, storage, element),
-            MemoryOperationStatus::Valid
-        );
-
-        assert!(!state.raw_initialized[&storage].contains_key(&element));
-    }
-
-    #[test]
-    fn trusted_range_copy_does_not_invent_scalar_initialization() {
-        let (expressions, source, destination) = raw_storage_pair(BoundUnitId::new(83));
-
-        let mut state = StorageFlowState::default();
-        let ty = error_type();
-
-        assert_eq!(
-            apply_raw_copy(
-                &mut state,
-                source,
-                destination,
-                ty,
-                expressions[0],
-                Some(true)
-            ),
-            MemoryOperationStatus::Valid,
-        );
-
-        assert_eq!(
-            apply_raw_read(&mut state, source, ty, MemoryReadKind::Copy),
-            MemoryOperationStatus::UninitializedRawStorage,
-        );
-
-        assert_eq!(
-            apply_raw_read(&mut state, destination, ty, MemoryReadKind::Copy),
-            MemoryOperationStatus::UninitializedRawStorage,
-        );
-
-        assert_eq!(
-            apply_deallocation(&mut state, destination, expressions[1]),
-            MemoryOperationStatus::Valid,
-        );
-
-        // Copying an empty range over an existing scalar preserves that value.
-        let mut initialized = StorageFlowState::default();
-
-        assert_eq!(
-            apply_raw_write(&mut initialized, destination, ty, expressions[1]),
-            MemoryOperationStatus::Valid,
-        );
-
-        assert_eq!(
-            apply_raw_copy(
-                &mut initialized,
-                source,
-                destination,
-                ty,
-                expressions[0],
-                Some(true)
-            ),
-            MemoryOperationStatus::Valid,
-        );
-
-        assert_eq!(
-            apply_raw_read(&mut initialized, destination, ty, MemoryReadKind::Copy),
-            MemoryOperationStatus::Valid,
-        );
-
-        let mut nonempty = StorageFlowState::default();
-
-        assert_eq!(
-            apply_raw_copy(
-                &mut nonempty,
-                source,
-                destination,
-                ty,
-                expressions[0],
-                Some(false)
-            ),
-            MemoryOperationStatus::Valid,
-        );
-
-        assert_eq!(
-            apply_deallocation(&mut nonempty, destination, expressions[1]),
-            MemoryOperationStatus::OutstandingObligations,
-        );
-
-        state
-            .invalidated_allocations
-            .entry(source)
-            .or_default()
-            .insert(expressions[1]);
-
-        assert_eq!(
-            apply_raw_copy(
-                &mut state,
-                source,
-                destination,
-                ty,
-                expressions[0],
-                Some(true)
-            ),
-            MemoryOperationStatus::InvalidatedAllocation,
-        );
-    }
-
-    #[test]
-    fn raw_memory_transitions_preserve_initialization_and_invalidation() {
-        let unit = BoundUnitId::new(41);
-
-        let (expressions, source, destination) = raw_storage_pair(unit);
-
-        let ty = error_type();
-        let mut state = StorageFlowState::default();
-
-        assert_eq!(
-            apply_raw_write(&mut state, source, ty, expressions[0]),
-            MemoryOperationStatus::Valid
-        );
-
-        assert_eq!(
-            apply_raw_copy(&mut state, source, destination, ty, expressions[1], None),
-            MemoryOperationStatus::Valid
-        );
-
-        assert_eq!(
-            apply_raw_read(&mut state, source, ty, MemoryReadKind::Copy),
-            MemoryOperationStatus::Valid
-        );
-
-        assert_eq!(
-            apply_raw_read(&mut state, source, ty, MemoryReadKind::Move),
-            MemoryOperationStatus::Valid
-        );
-
-        assert_eq!(
-            apply_raw_read(&mut state, source, ty, MemoryReadKind::Move),
-            MemoryOperationStatus::UninitializedRawStorage
-        );
-
-        assert_eq!(
-            apply_deallocation(&mut state, destination, expressions[1]),
-            MemoryOperationStatus::OutstandingObligations
-        );
-
-        state.raw_initialized.remove(&destination);
-
-        assert_eq!(
-            apply_deallocation(&mut state, destination, expressions[1]),
-            MemoryOperationStatus::Valid
-        );
-
-        assert_eq!(
-            apply_raw_write(&mut state, destination, ty, expressions[1]),
-            MemoryOperationStatus::InvalidatedAllocation
-        );
-    }
-
-    #[test]
-    fn retired_temporary_facts_do_not_invalidate_surviving_raw_aliases() {
-        let (unit, expressions) = expression_unit(BoundUnitId::new(43), |tree, origin| {
-            (0..2)
-                .map(|_| {
-                    push_expression(
-                        tree,
-                        BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
-                    )
-                })
-                .collect()
-        });
-
-        let mut builder = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
-
-        let source = builder
-            .push_identity(StorageIdentity::Temporary(expressions[0]))
-            .expect("source temporary must build");
-
-        let destination = builder
-            .push_identity(StorageIdentity::Temporary(expressions[1]))
-            .expect("destination temporary must build");
-
-        let storage = builder.finish();
-        let mut state = StorageFlowState::default();
-
-        state.live.extend([source, destination]);
-        state.initialized.extend([source, destination]);
-
-        state
-            .raw_initialized
-            .entry(source)
-            .or_default()
-            .entry(error_type())
-            .or_default()
-            .insert(expressions[0]);
-
-        state
-            .active_allocations
-            .entry(source)
-            .or_default()
-            .insert(expressions[0]);
-
-        state
-            .allocation_origins
-            .entry(source)
-            .or_default()
-            .insert(expressions[0]);
-
-        state
-            .invalidated_allocations
-            .entry(source)
-            .or_default()
-            .insert(expressions[1]);
-
-        replace_raw_state(&mut state, source, destination);
-        state.forget_storage(source, &storage);
-
-        assert!(!state.live.contains(&source));
-        assert!(state.initialized.contains(&destination));
-        assert!(!super::has_raw_state(&state, source));
-        assert!(state.raw_initialized[&destination][&error_type()].contains(&expressions[0]));
-        assert!(state.active_allocations[&destination].contains(&expressions[0]));
-        assert!(state.allocation_origins[&destination].contains(&expressions[0]));
-        assert!(state.invalidated_allocations[&destination].contains(&expressions[1]));
-
-        state.live.clear();
-        state.retain_live_storage(&storage);
-
-        assert!(!super::has_raw_state(&state, destination));
-    }
-
-    #[test]
-    fn raw_pointer_reassignment_clears_state_absent_from_the_new_pointer() {
-        let unit = BoundUnitId::new(42);
-
-        let (expressions, source, destination) = raw_storage_pair(unit);
-
-        let ty = error_type();
-        let origin = expressions[1];
-        let mut state = StorageFlowState::default();
-
-        state
-            .raw_initialized
-            .entry(destination)
-            .or_default()
-            .entry(ty)
-            .or_default()
-            .insert(origin);
-
-        state
-            .active_allocations
-            .entry(destination)
-            .or_default()
-            .insert(origin);
-
-        state
-            .allocation_origins
-            .entry(destination)
-            .or_default()
-            .insert(origin);
-
-        state
-            .invalidated_allocations
-            .entry(destination)
-            .or_default()
-            .insert(origin);
-
-        replace_raw_state(&mut state, source, destination);
-
-        assert!(!state.raw_initialized.contains_key(&destination));
-        assert!(!state.active_allocations.contains_key(&destination));
-        assert!(!state.allocation_origins.contains_key(&destination));
-        assert!(!state.invalidated_allocations.contains_key(&destination));
     }
 }

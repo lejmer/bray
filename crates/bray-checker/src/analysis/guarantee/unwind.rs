@@ -6,7 +6,6 @@ use bray_bound_tree::{
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::ExecutionProperty;
 
-use super::super::build::{ControlFlowGraphBuildOutcome, build_execution_control_flow_graph};
 use super::super::model::AnalysisExitKind;
 use crate::{CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
@@ -47,31 +46,39 @@ impl UnwindCandidate {
 /// Termination is deliberately independent: a loop may run forever without unwinding.
 pub fn check_unwind_candidate<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
+    prepared: &crate::PreparedBodyAnalysis,
     expressions: &CheckedExpressionSemantics,
-    patterns: &bray_bound_tree::CheckedPatterns,
     storage: &StoragePlan,
     memory: &CheckedMemoryOperations,
     entry_conditions: BTreeSet<crate::ExecutionCondition>,
 ) -> CheckerOutcome<UnwindCandidate, C::UpstreamError> {
-    let graph = match build_execution_control_flow_graph(
-        request,
-        storage,
-        expressions.selections(),
-        patterns,
-    ) {
-        ControlFlowGraphBuildOutcome::Complete(graph) => graph,
-        ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
+    let graph = &prepared.graph;
+
+    let excluded = graph
+        .edges()
+        .iter()
+        .filter(|edge| edge.is_dependency_failure())
+        .map(|edge| edge.id())
+        .collect();
+
+    let Some(reachable) =
+        super::super::reachability::analyze_reachability_excluding(graph, request, &excluded)
+    else {
+        return CheckerOutcome::Cancelled;
     };
 
-    let mut may_unwind = graph.exits().iter().any(|exit| {
-        matches!(
-            exit.kind(),
-            AnalysisExitKind::Panic | AnalysisExitKind::Cancellation | AnalysisExitKind::Recovery
-        )
-    });
+    let mut may_unwind = graph
+        .exits()
+        .iter()
+        .filter(|exit| reachable.is_block_reachable(exit.block()))
+        .any(|exit| {
+            matches!(
+                exit.kind(),
+                AnalysisExitKind::Panic
+                    | AnalysisExitKind::Cancellation
+                    | AnalysisExitKind::Recovery
+            )
+        });
 
     let mut dependencies = Vec::new();
     let mut diagnostics = DiagnosticBag::new();

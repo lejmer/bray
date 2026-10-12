@@ -80,8 +80,8 @@ impl Lowerer<'_> {
 
         if decision.status() != StorageOperationStatus::Valid {
             panic!(
-                "lowering contract violation: RecoveredBoundNode {value:?}",
-                value = expression
+                "lowering contract violation: storage decision {decision:?} for {expression:?}, node: {:?}",
+                self.input.unit().view().expression(expression)
             );
         }
 

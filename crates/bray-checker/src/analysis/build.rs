@@ -15,12 +15,6 @@ use super::model::{
     AnalysisSuspensionKind, ControlFlowGraph,
 };
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub(super) enum DependencyFailureMode {
-    PotentialExits,
-    ProofDependencies,
-}
-
 pub(crate) enum ControlFlowGraphBuildOutcome<E = std::convert::Infallible> {
     Complete(ControlFlowGraph),
     Cancelled,
@@ -39,24 +33,21 @@ where
         None,
         Default::default(),
         Default::default(),
-        DependencyFailureMode::PotentialExits,
         None,
         None,
     )
 }
 
 pub(crate) fn build_storage_control_flow_graph<C: CheckerRequestContext + ?Sized>(
+    cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     selections: &bray_bound_tree::CheckedSemanticSelections,
     patterns: Option<&bray_bound_tree::CheckedPatterns>,
-    completion_semantics: Option<(
-        &bray_bound_tree::CheckedExpressionSemantics,
-        &super::cleanup::CleanupFreeExits,
-    )>,
+    completion_semantics: Option<&bray_bound_tree::CheckedExpressionSemantics>,
 ) -> ControlFlowGraphBuildOutcome<C::UpstreamError> {
     let (scopes, cleanup_free_operations) =
-        match crate::asynchronous::cleanup_scopes(request, storage) {
+        match crate::asynchronous::cleanup_scopes(cleanup_shapes, request, storage) {
             Ok(scopes) => scopes,
             Err(crate::CheckerQueryError::Cancelled) => {
                 return ControlFlowGraphBuildOutcome::Cancelled;
@@ -72,31 +63,8 @@ pub(crate) fn build_storage_control_flow_graph<C: CheckerRequestContext + ?Sized
         Some(selections),
         scopes,
         cleanup_free_operations,
-        DependencyFailureMode::PotentialExits,
         patterns,
         completion_semantics,
-    )
-}
-
-pub(crate) fn build_execution_control_flow_graph<C>(
-    request: CheckerUnitView<'_, C>,
-    storage: &StoragePlan,
-    selections: &bray_bound_tree::CheckedSemanticSelections,
-    patterns: &bray_bound_tree::CheckedPatterns,
-) -> ControlFlowGraphBuildOutcome<C::UpstreamError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    // Call and cleanup failures are obligations of selected dependency proofs.
-    build_control_flow_graph_with_storage(
-        request,
-        Some(storage),
-        Some(selections),
-        Default::default(),
-        Default::default(),
-        DependencyFailureMode::ProofDependencies,
-        Some(patterns),
-        None,
     )
 }
 
@@ -106,12 +74,8 @@ fn build_control_flow_graph_with_storage<C, E>(
     selections: Option<&bray_bound_tree::CheckedSemanticSelections>,
     cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
     cleanup_free_operations: std::collections::BTreeSet<BoundExpressionId>,
-    dependency_failures: DependencyFailureMode,
     patterns: Option<&bray_bound_tree::CheckedPatterns>,
-    completion_semantics: Option<(
-        &bray_bound_tree::CheckedExpressionSemantics,
-        &super::cleanup::CleanupFreeExits,
-    )>,
+    completion_semantics: Option<&bray_bound_tree::CheckedExpressionSemantics>,
 ) -> ControlFlowGraphBuildOutcome<E>
 where
     C: CheckerRequestContext + ?Sized,
@@ -124,7 +88,6 @@ where
         cleanup_free_operations,
     );
 
-    builder.dependency_failures = dependency_failures;
     builder.patterns = patterns;
     builder.completion_semantics = completion_semantics;
 
@@ -170,12 +133,8 @@ where
     pub(super) cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
     cleanup_free_operations: std::collections::BTreeSet<BoundExpressionId>,
     pub(super) scoped_uses: std::collections::BTreeMap<BoundBlockId, BoundExpressionId>,
-    pub(super) dependency_failures: DependencyFailureMode,
     pub(super) patterns: Option<&'view bray_bound_tree::CheckedPatterns>,
-    pub(super) completion_semantics: Option<(
-        &'view bray_bound_tree::CheckedExpressionSemantics,
-        &'view super::cleanup::CleanupFreeExits,
-    )>,
+    pub(super) completion_semantics: Option<&'view bray_bound_tree::CheckedExpressionSemantics>,
 }
 
 #[derive(Clone, Copy)]
@@ -247,7 +206,6 @@ where
             cleanup_scopes,
             cleanup_free_operations,
             scoped_uses,
-            dependency_failures: DependencyFailureMode::PotentialExits,
             patterns: None,
             completion_semantics: None,
         }
@@ -455,16 +413,14 @@ where
 
         let mut current = self.push_source_operation(id, current);
 
-        if self.dependency_failures == DependencyFailureMode::PotentialExits
-            && matches!(expression, BoundExpression::Assignment(_))
+        if matches!(expression, BoundExpression::Assignment(_))
             && !self.cleanup_free_operations.contains(&id)
         {
             // Old cleanup failure is observable only after the replacement is installed.
             let continuation = self.push_block();
 
             self.push_edge(current, continuation, AnalysisEdgeKind::Sequential, None);
-            self.push_exit(current, AnalysisExitKind::Panic, id.into());
-            self.push_exit(current, AnalysisExitKind::Cancellation, id.into());
+            self.push_dependency_failures(current, id.into());
             current = continuation;
         }
 
@@ -476,9 +432,7 @@ where
         expression: BoundExpressionId,
         current: AnalysisBlockId,
     ) -> AnalysisBlockId {
-        if self.dependency_failures == DependencyFailureMode::ProofDependencies
-            || !self.source_operation_may_propagate_panic(expression)
-        {
+        if !self.source_operation_may_propagate_panic(expression) {
             self.push_bound(current, expression.into());
 
             return current;
@@ -496,8 +450,7 @@ where
 
         self.push_call(current, expression.into(), AnalysisCallPhase::Attempt);
         self.push_edge(current, continuation, AnalysisEdgeKind::Sequential, None);
-        self.push_exit(current, AnalysisExitKind::Panic, expression.into());
-        self.push_exit(current, AnalysisExitKind::Cancellation, expression.into());
+        self.push_dependency_failures(current, expression.into());
 
         self.push_call(
             continuation,
@@ -1522,9 +1475,14 @@ mod tests {
 
         let request = CheckerUnitView::new(&unit, &entry, &context);
 
-        let ControlFlowGraphBuildOutcome::Complete(graph) =
-            build_storage_control_flow_graph(request, &storage, &selections, None, None)
-        else {
+        let ControlFlowGraphBuildOutcome::Complete(graph) = build_storage_control_flow_graph(
+            &mut crate::asynchronous::CleanupShapeResolver::new(request),
+            request,
+            &storage,
+            &selections,
+            None,
+            None,
+        ) else {
             panic!("checked storage graph construction must complete");
         };
 

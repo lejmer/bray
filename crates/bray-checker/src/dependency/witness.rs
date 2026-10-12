@@ -134,9 +134,8 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
 
         let request = self.request;
 
-        let template = request
-            .context()
-            .callable_result_dependencies(selected.definition().callable_symbol())?;
+        let template =
+            request.callable_result_dependencies(selected.definition().callable_symbol())?;
 
         let template = instantiate_template(request, template, (selected, contextual_self))?;
 

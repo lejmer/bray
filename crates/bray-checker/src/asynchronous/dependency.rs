@@ -141,10 +141,7 @@ fn dependency_subject_is_initialized(
 ) -> Result<bool, bray_symbols::SemanticValueStoreError> {
     match subject {
         BoundDependencySubject::Storage(identity) => Ok(state.initialized().contains(&identity)
-            && !state
-                .moved()
-                .iter()
-                .any(|moved| storage.root_identity(*moved) == Some(identity))),
+            && !state.moved().iter().any(|moved| moved.root == identity)),
         BoundDependencySubject::StorageAccess(access) => {
             let Some(root) = storage.root_identity(access) else {
                 return Ok(false);
@@ -155,8 +152,10 @@ fn dependency_subject_is_initialized(
             }
 
             for moved in state.moved() {
-                if !access_is_borrow_value(values, storage, *moved)
-                    && storage.relationship(*moved, access) != StorageRelationship::Disjoint
+                if !moved
+                    .access_id(storage)
+                    .is_some_and(|source| access_is_borrow_value(values, storage, source))
+                    && storage.relationship_to_path(access, moved) != StorageRelationship::Disjoint
                 {
                     return Ok(false);
                 }
@@ -436,14 +435,19 @@ mod tests {
         let shared_state =
             StorageSuspensionState::new(expression, [identity], [identity], [], [shared]);
 
-        let moved_borrow_state =
-            StorageSuspensionState::new(expression, [identity], [identity], [access], [mutable]);
+        let moved_borrow_state = StorageSuspensionState::new(
+            expression,
+            [identity],
+            [identity],
+            [storage.logical_path(access).cloned().unwrap()],
+            [mutable],
+        );
 
         let reborrow_state = StorageSuspensionState::new(
             expression,
             [identity],
             [identity],
-            [access],
+            [storage.logical_path(access).cloned().unwrap()],
             [mutable, reborrow],
         );
 

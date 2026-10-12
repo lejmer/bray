@@ -11,6 +11,7 @@ mod unsupported;
 
 pub use bray_symbols::ExecutionProperty;
 pub use condition::ExecutionCondition;
+pub(crate) use condition::ObservationSet;
 pub use declaration::declared_execution_properties;
 pub use implication::{
     execution_condition_is_implied, map_execution_condition_substitutions,

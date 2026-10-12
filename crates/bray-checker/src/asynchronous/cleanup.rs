@@ -15,6 +15,7 @@ use crate::storage::storage_scope_owners;
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 pub(crate) fn cleanup_scopes<C>(
+    cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
 ) -> Result<
@@ -28,7 +29,7 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let owners = storage_scope_owners(request).map_err(CheckerQueryError::with_upstream)?;
-    let mut resolver = CleanupShapeResolver::new(request);
+    let resolver = cleanup_shapes;
     let mut scopes = BTreeSet::new();
     let mut cleanup_free_operations = BTreeSet::new();
 
@@ -85,6 +86,7 @@ where
 }
 
 pub(crate) fn cleanup_free_storage<C>(
+    cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
 ) -> Result<
@@ -94,7 +96,7 @@ pub(crate) fn cleanup_free_storage<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut resolver = CleanupShapeResolver::new(request);
+    let resolver = cleanup_shapes;
     let mut identities = BTreeSet::new();
 
     for (identity, provenance) in storage.identity_entries() {
@@ -125,11 +127,11 @@ where
         }
     }
 
-    Ok((identities, resolver.diagnostics))
+    Ok((identities, std::mem::take(&mut resolver.diagnostics)))
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(super) struct CleanupShape {
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub(crate) struct CleanupShape {
     pub(super) cancellation: bool,
     pub(super) lifecycle: bool,
     recovered: bool,
@@ -154,32 +156,66 @@ impl CleanupShape {
     }
 }
 
-pub(super) struct CleanupShapeResolver<'request, C>
+pub(crate) struct CleanupShapeResolver<'request, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
     pub(super) request: CheckerUnitView<'request, C>,
-    completed: BTreeMap<TypeId, CleanupShape>,
+    pub(crate) completed: std::sync::Arc<BTreeMap<TypeId, CleanupShape>>,
     pub(super) cleanup_types: BTreeMap<TypeId, StorageCleanupType>,
     pub(super) recursive_cleanup: bool,
+    pub(super) expanded_types: BTreeSet<TypeId>,
+    pub(super) full_parts:
+        BTreeMap<TypeId, std::sync::Arc<[(TypeId, Option<bray_bound_tree::StorageCleanupPart>)]>>,
+    requirements: Option<std::sync::Arc<[AsyncStorageRequirement]>>,
     active: BTreeSet<TypeId>,
     // Query diagnostics are cloned because the cleanup result owns them independently.
-    pub(super) diagnostics: DiagnosticBag,
+    pub(crate) diagnostics: DiagnosticBag,
 }
 
 impl<'request, C> CleanupShapeResolver<'request, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    pub(super) fn new(request: CheckerUnitView<'request, C>) -> Self {
+    pub(crate) fn new(request: CheckerUnitView<'request, C>) -> Self {
         Self {
             request,
-            completed: BTreeMap::new(),
+            completed: std::sync::Arc::new(BTreeMap::new()),
             cleanup_types: BTreeMap::new(),
             recursive_cleanup: false,
+            expanded_types: BTreeSet::new(),
+            full_parts: BTreeMap::new(),
+            requirements: None,
             active: BTreeSet::new(),
             diagnostics: DiagnosticBag::new(),
         }
+    }
+
+    pub(crate) fn requirement(
+        &mut self,
+        ty: TypeId,
+    ) -> Result<AsyncStorageCleanupRequirement, CheckerQueryError<C::UpstreamError>> {
+        self.resolve(ty).map(cleanup_requirement)
+    }
+
+    pub(crate) fn storage_requirements(
+        &mut self,
+        storage: &StoragePlan,
+    ) -> Result<std::sync::Arc<[AsyncStorageRequirement]>, CheckerQueryError<C::UpstreamError>>
+    {
+        if let Some(requirements) = &self.requirements {
+            return Ok(std::sync::Arc::clone(requirements));
+        }
+
+        let owners =
+            storage_scope_owners(self.request).map_err(CheckerQueryError::with_upstream)?;
+
+        let requirements: std::sync::Arc<[_]> =
+            storage_requirements(self.request, storage, &owners, self)?.into();
+
+        self.requirements = Some(std::sync::Arc::clone(&requirements));
+
+        Ok(requirements)
     }
 
     fn include_input(&mut self, ty: TypeId) -> Result<(), CheckerQueryError<C::UpstreamError>> {
@@ -238,7 +274,10 @@ where
         };
 
         self.active.remove(&ty);
-        self.completed.insert(ty, shape);
+
+        // Prepared consumers share all known shapes. A newly demanded type extends
+        // only this resolver's cache, without mutating the published preparation.
+        std::sync::Arc::make_mut(&mut self.completed).insert(ty, shape);
 
         Ok(shape)
     }
@@ -392,6 +431,7 @@ where
 }
 
 pub(super) fn scope_exit_plans<C>(
+    cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     flow: &StorageFlow,
@@ -411,11 +451,8 @@ pub(super) fn scope_exit_plans<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut cleanup_shapes = CleanupShapeResolver::new(request);
-    let owners = storage_scope_owners(request).map_err(CheckerQueryError::with_upstream)?;
-
-    let requirements = storage_requirements(request, storage, flow, &owners, &mut cleanup_shapes)?;
-    let replacements = super::replacement::replacement_plans(storage, flow, &mut cleanup_shapes)?;
+    let requirements = cleanup_shapes.storage_requirements(storage)?;
+    let replacements = super::replacement::replacement_plans(storage, flow, cleanup_shapes)?;
 
     for entry in selections.entries() {
         match entry.selection() {
@@ -524,7 +561,14 @@ where
                 continue;
             };
 
-            let disposition = requirement.exit_disposition(storage, exit);
+            let disposition = requirement.exit_disposition(
+                storage,
+                exit.scope(),
+                exit.initialized().contains(&identity),
+                exit.fully_moved().contains(&identity),
+                exit.moved().iter().cloned(),
+                exit.definitely_absent().iter().cloned(),
+            );
 
             is_recovered |= matches!(disposition, AsyncStorageExitDisposition::Recovered(_));
             dispositions.push(AsyncStorageExitDecision::new(identity, disposition));
@@ -540,7 +584,7 @@ where
             }
         }
 
-        match dependencies.lifecycle_order(request.unit(), storage, &lifecycle) {
+        match dependencies.lifecycle_order(storage, &lifecycle) {
             Ok(ordered) => lifecycle = ordered,
             Err(access) => {
                 is_recovered = true;
@@ -564,7 +608,7 @@ where
             dispositions,
             cancellation,
             lifecycle,
-            exit.moved().iter().copied(),
+            exit.moved().iter().cloned(),
             is_recovered,
         );
 
@@ -576,33 +620,41 @@ where
     }
 
     Ok((
-        requirements,
-        cleanup_shapes.cleanup_types.into_values().collect(),
+        requirements.to_vec(),
+        // Publication owns a snapshot while preparation remains available to later consumers.
+        cleanup_shapes.cleanup_types.values().cloned().collect(),
         plans,
         replacements,
-        cleanup_shapes.diagnostics,
+        std::mem::take(&mut cleanup_shapes.diagnostics),
     ))
 }
 
 fn storage_requirements<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
-    flow: &StorageFlow,
     owners: &bray_bound_tree::StorageScopeOwners,
     cleanup_shapes: &mut CleanupShapeResolver<'_, C>,
 ) -> Result<Vec<AsyncStorageRequirement>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let live = flow
-        .exits()
-        .iter()
-        .flat_map(|exit| exit.live().iter().copied())
-        .collect::<BTreeSet<_>>();
+    let mut moved_by_identity = BTreeMap::<_, BTreeSet<_>>::new();
 
-    let mut requirements = Vec::with_capacity(live.len());
+    for plan in storage.access_plans() {
+        if storage.effective_purpose(*plan) == bray_bound_tree::StorageAccessPurpose::Move
+            && !storage.is_root_access(plan.access())
+            && let Some(identity) = storage.root_identity(plan.access())
+        {
+            moved_by_identity
+                .entry(identity)
+                .or_default()
+                .insert(plan.access());
+        }
+    }
 
-    for identity in live {
+    let mut requirements = Vec::with_capacity(storage.identities().len());
+
+    for (identity, _) in storage.identity_entries() {
         let mut cleanup = match (
             storage.root_access(identity),
             storage.storage_type(identity),
@@ -619,8 +671,11 @@ where
         let owner = owners.scope(storage.identity(identity));
         let transfers = storage_identity_transfers_at_unit_exit(storage, identity);
 
-        let moved = flow
-            .cleanup_moved_projections(storage, identity, owner)
+        let moved = moved_by_identity
+            .get(&identity)
+            .into_iter()
+            .flatten()
+            .filter_map(|access| storage.resolved_projections(*access))
             .collect::<Vec<_>>();
 
         let destructor = bray_bound_tree::storage_identity_is_destructor_receiver(

@@ -9,9 +9,49 @@ The user accepted the architectural groundwork on 2026-10-12 and requested self-
 Use the [Linear execution guide](runtime-stack-linear-execution.md) for the exact recovery checkpoint and ordered work.
 The [rule coverage and replacement plan](runtime-stack-rule-coverage.md) and [closed inventory](runtime-stack-coverage-inventory.md)
 replace the earlier proposal. The [architectural assessment](stack-architecture-assessment.md) and the instructions below
-retain dated evidence and acceptance requirements. Issue preparation does not begin implementation.
+retain dated evidence and acceptance requirements. Issue preparation did not begin implementation.
 
-## Issue and stack
+## Shared storage transition checkpoint, 2026-10-12
+
+Implementation is in progress in `feature/bra-620-repair-synchronization-authority`, after the published recovery and plan
+commits named in the execution guide. This checkpoint records the changes below in the existing repair worktree. They do
+not establish completion of BRA-620 or replace the production acceptance requirements.
+
+Moves, initialization, absence, replacement, cleanup and mutation effects now use shared storage paths. Ordinary borrows
+and raw addresses resolve against the same target state. A derived path does not need a matching source expression to
+publish a move or mutation. The former access-ID mutation representation and conversion back to source IDs are removed.
+Unknown reference targets remain conservative. Borrow-value moves retain their checked type so they transfer the borrow
+slot without marking its referent moved. Paths share immutable projection arrays instead of copying them on each lookup.
+
+Content mutation retains only compiler-defined spatial facts whose validity does not depend on the changed contents.
+Overwriting a pointer or witness carrier and ending its owner lifetime still revoke the dependent evidence. Arbitrary
+opaque predicates receive no preservation exemption. The old global invalidation and witness reconstruction path remains
+outstanding and must be replaced with the formal effect model.
+
+Current checks, with logs under the shared primary checkout's `target/bra-620-authority/`:
+
+- Bound-tree and checker unit tests: 118 and 273 pass respectively.
+- Raw-memory transitions: 12 pass, including an effect whose physical target has no source access ID.
+- Reborrowing: 8 pass. Returned values: 14 pass. Condition refinements: 5 pass.
+- Storage flow: 14 pass. Cleanup: 9 pass. Pattern lowering: 4 pass.
+- Scoped mutable alias postconditions and imported trusted-contract propagation pass.
+- `cargo test -p bray-compilation --lib trusted_contracts`: 129 pass and 20 fail, matching the preceding failure set.
+  These remain active BRA-620 failures, including production synchronization and host checks. See
+  `path-effects-trusted_contracts.log`. Earlier production successes below are historical evidence.
+- `cargo xtask style` passes. The storage-retention stress test passes in 82.23 seconds versus an earlier 75.50-second run.
+  These single runs do not establish a performance improvement. No current native or production guard-layout claim is made.
+
+Next, derive guarded formal reference, mutation and carrier summaries from the shared flow and solve demanded recursive
+components before publication. Remove the separate `dependency/result/borrows` syntax walk and whole-body exclusions.
+Storage planning and structural cleanup preparation currently request inferred reference summaries. Resolve that phase
+dependency as part of the owning component analysis, without a later validation pass or a second reference analysis.
+A current observation named `Input(place)` is not by itself proof that the entry reference survived mutation. Reference
+identity, changed contents and lifetime dependencies must remain distinct through calls, cleanup and joins.
+
+Continue with the production protocols and full rule-derived acceptance in the Linear issue after that consolidation.
+No new language syntax, field-privacy assumption or weaker authority contract is part of this checkpoint.
+
+## Original issue and stack
 
 - [BRA-620](https://linear.app/bray-lang/issue/BRA-620/complete-standard-library-trusted-storage-and-foreign-contracts): complete standard-library trusted storage and foreign contracts.
 - [PR #604](https://github.com/lejmer/bray/pull/604), currently draft. Linear remains In Progress.
@@ -59,7 +99,7 @@ Use the existing trusted predicate and dependency mechanisms. Audit producers an
 
 Mutex, read/write lock, and once-cell findings have not all been independently reproduced in this handoff. Treat them as mandatory sibling audit targets, not as four already proven identical defects. Cover the acquisition, access, release, and failure paths that each API actually implements.
 
-## Current compiler repair checkpoint
+## Earlier compiler repair checkpoint
 
 The active, uncommitted repair is on `feature/bra-620-repair-synchronization-authority`, based on the combined BRA-553 tip
 `cca4bd4429d0648cae0493db72045b7d4a7a3e73`. It retains the earlier BRA-620 and BRA-621 work. The primary checkout has separate

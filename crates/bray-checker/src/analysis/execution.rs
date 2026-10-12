@@ -111,9 +111,7 @@ where
             return Some(Some(resume));
         }
 
-        if self.dependency_failures == super::build::DependencyFailureMode::PotentialExits
-            && self.call_may_propagate_panic(id, hook)
-        {
+        if self.call_may_propagate_panic(id, hook) {
             return Some(Some(self.push_propagating_call(id, current)));
         }
 
@@ -130,10 +128,6 @@ where
         expression: BoundExpressionId,
         hook: Option<ImplementationHook>,
     ) -> bool {
-        if self.request().call_cannot_unwind(expression) {
-            return false;
-        }
-
         let hook_may_panic = implementation_hook_may_propagate_synchronous_panic(hook);
 
         let Some(selections) = self.selections() else {
@@ -203,6 +197,25 @@ pub const fn implementation_hook_may_propagate_synchronous_panic(
                 | ImplementationHook::RawBufferReplace
         )
     )
+}
+
+pub(crate) fn exclude_non_unwinding_edges<C: CheckerRequestContext + ?Sized>(
+    graph: &super::model::ControlFlowGraph,
+    request: crate::CheckerUnitView<'_, C>,
+    excluded: &mut std::collections::BTreeSet<super::id::AnalysisEdgeId>,
+) {
+    excluded.extend(graph.edges().iter().filter_map(|edge| {
+        let Some(super::model::AnalysisRefinement::InvocationFailure(
+            bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(
+                expression,
+            )),
+        )) = edge.refinement()
+        else {
+            return None;
+        };
+
+        request.call_cannot_unwind(expression).then_some(edge.id())
+    }));
 }
 
 #[cfg(test)]

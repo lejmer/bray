@@ -38,16 +38,12 @@ pub(super) fn replacement_plans<C: CheckerRequestContext + ?Sized>(
             } else {
                 let prefix = storage.resolved_projections(decision.access());
 
-                let moved = decision
-                    .moved()
-                    .iter()
-                    .map(|access| storage.resolved_projections(*access))
-                    .collect::<Option<Vec<_>>>();
-
-                match (prefix, moved) {
-                    (Some(prefix), Some(moved)) => {
-                        let moved = moved
-                            .into_iter()
+                match prefix {
+                    Some(prefix) => {
+                        let moved = decision
+                            .moved()
+                            .iter()
+                            .map(|path| path.projections.as_ref())
                             .filter_map(|path| path.strip_prefix(prefix))
                             .filter(|path| !path.is_empty())
                             .collect::<Vec<_>>();

@@ -69,8 +69,8 @@ pub struct StorageReplacementDecision {
     expression: BoundExpressionId,
     access: StorageAccessId,
     state: StorageReplacementState,
-    moved: Arc<[StorageAccessId]>,
-    definitely_absent: Arc<[StorageAccessId]>,
+    moved: Arc<[crate::StoragePath]>,
+    definitely_absent: Arc<[crate::StoragePath]>,
     root_initialized: bool,
     is_recovered: bool,
 }
@@ -81,8 +81,8 @@ impl StorageReplacementDecision {
         expression: BoundExpressionId,
         access: StorageAccessId,
         state: StorageReplacementState,
-        moved: impl IntoIterator<Item = StorageAccessId>,
-        definitely_absent: impl IntoIterator<Item = StorageAccessId>,
+        moved: impl IntoIterator<Item = crate::StoragePath>,
+        definitely_absent: impl IntoIterator<Item = crate::StoragePath>,
         root_initialized: bool,
         is_recovered: bool,
     ) -> Self {
@@ -113,12 +113,12 @@ impl StorageReplacementDecision {
     }
 
     /// Returns moved accesses within the destination's storage root.
-    pub fn moved(&self) -> &[StorageAccessId] {
+    pub fn moved(&self) -> &[crate::StoragePath] {
         &self.moved
     }
 
     /// Returns paths moved on every incoming path before replacement.
-    pub fn definitely_absent(&self) -> &[StorageAccessId] {
+    pub fn definitely_absent(&self) -> &[crate::StoragePath] {
         &self.definitely_absent
     }
 
@@ -147,14 +147,14 @@ mod tests {
         let unit = BoundUnitId::new(7);
         let expression = BoundExpressionId::from_slot(unit, 3);
         let destination = StorageAccessId::from_slot(unit, 1);
-        let moved = StorageAccessId::from_slot(unit, 2);
+        let moved = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 2));
 
         let decision = StorageReplacementDecision::new(
             expression,
             destination,
             StorageReplacementState::Conditional,
-            [moved, moved],
-            [moved, moved],
+            [moved.clone(), moved.clone()],
+            [moved.clone(), moved.clone()],
             true,
             false,
         );
@@ -165,17 +165,18 @@ mod tests {
                 expression,
                 destination,
                 StorageReplacementState::Conditional,
-                [moved],
-                [moved],
+                [moved.clone()],
+                [moved.clone()],
                 true,
                 false,
             )
         );
 
-        let flow = StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], false)
-            .unwrap()
-            .with_replacements([decision.clone()])
-            .unwrap();
+        let flow =
+            StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], [], false)
+                .unwrap()
+                .with_replacements([decision.clone()])
+                .unwrap();
 
         assert!(decision.root_initialized());
         assert_eq!(decision.definitely_absent(), &[moved]);
@@ -199,7 +200,8 @@ mod tests {
         );
 
         let flow = || {
-            StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], false).unwrap()
+            StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], [], false)
+                .unwrap()
         };
 
         assert_eq!(
@@ -221,7 +223,9 @@ mod tests {
             (
                 expression,
                 access,
-                vec![StorageAccessId::from_slot(BoundUnitId::new(8), 2)],
+                vec![crate::StoragePath::root(
+                    crate::StorageIdentityId::from_slot(BoundUnitId::new(8), 2),
+                )],
             ),
         ] {
             let decision = StorageReplacementDecision::new(

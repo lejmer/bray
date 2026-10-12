@@ -120,21 +120,7 @@ impl Lowerer<'_> {
 
         self.set_terminator(candidate, Self::retained_source(&source), terminator)?;
 
-        if !self.builder.has_incoming_edge(join) {
-            self.set_terminator(
-                join,
-                Self::retained_source(&source),
-                MirTerminatorKind::Unreachable,
-            )?;
-
-            return Ok(LoweredExpression::terminated(source));
-        }
-
-        Ok(LoweredExpression::continuing(
-            join,
-            Some(MirOperand::Value(result)),
-            source,
-        ))
+        self.finish_result_join(current, join, result, source)
     }
 
     fn lower_match_guard(

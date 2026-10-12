@@ -59,6 +59,8 @@ pub struct CheckedDependencyContracts {
     deferred_expressions: Arc<[ContractEntry<crate::BoundExecutionSite>]>,
     accesses: Arc<[ContractEntry<StorageAccessId>]>,
     borrows: Arc<[ContractEntry<BorrowCapabilityId>]>,
+    pub(crate) lifecycle_consumers:
+        Arc<BTreeMap<crate::StorageIdentityId, BTreeSet<crate::StorageIdentityId>>>,
     is_recovered: bool,
 }
 
@@ -128,7 +130,7 @@ impl CheckedDependencyContracts {
             DependencyContractsBuildError::InvalidBorrow,
         )?;
 
-        Ok(Self {
+        let mut result = Self {
             unit: unit.unit(),
             kind: unit.key().kind(),
             contracts: contracts.into(),
@@ -136,8 +138,13 @@ impl CheckedDependencyContracts {
             deferred_expressions: deferred_expressions.into(),
             accesses: accesses.into(),
             borrows: borrows.into(),
+            lifecycle_consumers: Arc::default(),
             is_recovered,
-        })
+        };
+
+        result.lifecycle_consumers = Arc::new(result.prepare_lifecycle_dependencies(unit, storage));
+
+        Ok(result)
     }
 
     /// Returns the checked semantic unit described by this table.

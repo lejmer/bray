@@ -497,6 +497,12 @@ pub(crate) enum CompilationFactKey {
     StoragePlan(BoundUnitKey),
     /// Checked compiler-provided memory operations for one bound unit.
     MemoryOperations(BoundUnitKey),
+    /// Selected calls and local effects before correlated body flow.
+    SelectedBodyBehavior(BoundUnitKey),
+    /// Immutable selected graph and cleanup shapes before contextual analysis.
+    PreparedBodyAnalysis(BoundUnitKey),
+    /// Jointly settled result dependency summaries for one demanded call component.
+    ResultDependencyComponent(BoundUnitKey),
     /// Correlated immutable flow, storage, dependency, async, and behavior semantics.
     BodySemantics(BoundUnitKey),
     /// Body-local execution obligations whose dependencies have not been certified.
@@ -659,6 +665,9 @@ impl CompilationFactKey {
             | Self::UnwindBehavior(key)
             | Self::ExecutionCandidates(key)
             | Self::CertifiedExecution(key)
+            | Self::SelectedBodyBehavior(key)
+            | Self::PreparedBodyAnalysis(key)
+            | Self::ResultDependencyComponent(key)
             | Self::BodySemantics(key)
             | Self::CheckedBodyBehavior(key)
             | Self::LoweredUnit(key)

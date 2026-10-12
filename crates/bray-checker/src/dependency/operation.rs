@@ -6,7 +6,7 @@ use bray_symbols::BorrowKind;
 
 pub(super) fn operation_requirements(
     storage: &StoragePlan,
-    operation: &bray_bound_tree::StorageOperationDecision,
+    operation: bray_bound_tree::StorageAccessPlan,
 ) -> Vec<BoundDependencyRequirement> {
     let mut requirements = requirement_kinds(operation.purpose())
         .map(|kind| {
@@ -17,8 +17,8 @@ pub(super) fn operation_requirements(
         })
         .collect::<Vec<_>>();
 
-    let capabilities = operation
-        .borrow()
+    let capabilities = storage
+        .borrow_for_plan(operation)
         .into_iter()
         .chain(access_borrow(storage, operation.access()));
 
@@ -155,9 +155,8 @@ mod tests {
     use bray_bound_tree::{
         BoundDependencyGuard, BoundDependencyRequirement, BoundErrorExpression, BoundExpression,
         BoundExpressionId, BoundNodeOrigin, BoundTreeBuilder, BoundUnitId, BoundUnitKind,
-        StorageAccess, StorageAccessPurpose, StorageAccessRoot, StorageIdentity,
-        StorageOperationDecision, StorageOperationStatus, StoragePlan, StoragePlanBuilder,
-        StorageProjection,
+        StorageAccess, StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StoragePlan,
+        StoragePlanBuilder, StorageProjection,
     };
     use bray_symbols::{SymbolId, UnionPayloadFieldSymbolId, UnionVariantSymbolId};
 
@@ -166,10 +165,9 @@ mod tests {
 
     #[test]
     fn nullable_projection_requirements_retain_presence_guards() {
-        let (storage, expression, parent, projected) =
-            projected_storage([StorageProjection::NullableValue]);
+        let (storage, _, parent, _) = projected_storage([StorageProjection::NullableValue]);
 
-        let requirements = operation_requirements(&storage, &operation(expression, projected));
+        let requirements = operation_requirements(&storage, storage.access_plans()[0]);
 
         let [BoundDependencyRequirement::Guarded(guarded)] = requirements.as_slice() else {
             panic!("nullable projection requirements must be guarded");
@@ -188,9 +186,9 @@ mod tests {
 
         let projection = StorageProjection::ActiveUnionPayloadField { variant, field };
 
-        let (storage, expression, parent, projected) = projected_storage([projection]);
+        let (storage, _, parent, _) = projected_storage([projection]);
 
-        let requirements = operation_requirements(&storage, &operation(expression, projected));
+        let requirements = operation_requirements(&storage, storage.access_plans()[0]);
 
         let [BoundDependencyRequirement::Guarded(guarded)] = requirements.as_slice() else {
             panic!("union payload requirements must be guarded");
@@ -250,20 +248,15 @@ mod tests {
             ))
             .unwrap_or_else(|error| panic!("test projected access must build: {error:?}"));
 
-        (builder.finish(), expression, parent, projected)
-    }
+        builder
+            .plan_access(
+                expression.into(),
+                expression,
+                StorageAccessPurpose::Read,
+                projected,
+            )
+            .expect("test access plan must build");
 
-    const fn operation(
-        expression: BoundExpressionId,
-        access: bray_bound_tree::StorageAccessId,
-    ) -> StorageOperationDecision {
-        StorageOperationDecision::new(
-            bray_bound_tree::AnyBoundNodeId::Expression(expression),
-            expression,
-            StorageAccessPurpose::Read,
-            access,
-            None,
-            StorageOperationStatus::Valid,
-        )
+        (builder.finish(), expression, parent, projected)
     }
 }

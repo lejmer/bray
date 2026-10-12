@@ -1,17 +1,15 @@
 use bray_bound_tree::{
-    CheckedBodySemantics, CheckedControlFlow, CheckedExpressionSemantics, CheckedMemoryOperations,
-    CheckedPatterns, StoragePlan,
+    CheckedBodySemantics, CheckedExpressionSemantics, CheckedMemoryOperations, CheckedPatterns,
+    StoragePlan,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::CallableSignatureQuery;
 
 use crate::analysis::{
-    ControlFlowGraphBuildOutcome, analyze_storage_liveness_with_graph,
-    build_storage_control_flow_graph, check_callable_result, check_refinements_with_graph,
-    check_storage_flow_with_graph,
+    analyze_storage_liveness_with_graph, check_callable_result, check_storage_flow_with_graph,
+    prepare_refinements,
 };
 use crate::asynchronous::check_async_analysis_with_graph;
-use crate::behavior::collect_body_behavior;
 use crate::dependency::check_dependency_contracts;
 use crate::unit::assert_unit_inputs;
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView};
@@ -37,7 +35,8 @@ macro_rules! complete {
 
 pub(crate) fn check_body_semantics<C>(
     request: CheckerUnitView<'_, C>,
-    control_flow: &CheckedControlFlow,
+    prepared: &crate::PreparedBodyAnalysis,
+    behavior: &bray_bound_tree::BodyBehaviorContributions,
     expressions: &CheckedExpressionSemantics,
     patterns: &CheckedPatterns,
     storage: &StoragePlan,
@@ -49,7 +48,11 @@ where
     assert_unit_inputs(
         request,
         [
-            ("control flow", (control_flow.unit(), control_flow.kind())),
+            (
+                "prepared analysis",
+                (prepared.graph.unit(), prepared.kind()),
+            ),
+            ("selected behavior", (behavior.unit(), behavior.kind())),
             (
                 "expression semantics",
                 (expressions.unit(), expressions.kind()),
@@ -60,164 +63,133 @@ where
         ],
     );
 
-    let graph = match build_storage_control_flow_graph(
+    let mut cleanup_shapes = prepared.cleanup_shapes(request);
+    let graph = &prepared.graph;
+
+    let mut diagnostics = DiagnosticBag::new();
+
+    let refinement_universe = complete!(
+        diagnostics,
+        prepare_refinements(request, patterns, expressions, storage, graph, memory)
+    );
+
+    let disposal = crate::analysis::guarantee::Cleanup::new(&prepared.cleanup);
+
+    let dependencies = complete!(
+        diagnostics,
+        check_dependency_contracts(request, expressions.selections(), patterns, storage,)
+    );
+
+    let completion_contracts = std::collections::BTreeMap::new();
+
+    let execution = complete!(
+        diagnostics,
+        crate::analysis::guarantee::prepare_execution_flow(
+            prepared,
+            request,
+            expressions,
+            &[],
+            storage,
+            memory,
+            &refinement_universe.invalidating_accesses,
+            &completion_contracts,
+            &disposal,
+        )
+    );
+
+    let effects = match crate::analysis::liveness::OperationEffects::from_checked_inputs(
         request,
-        storage,
         expressions.selections(),
-        Some(patterns),
-        None,
+        expressions.types(),
+        patterns,
+        storage,
+        memory,
     ) {
-        ControlFlowGraphBuildOutcome::Complete(graph) => graph,
-        ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
+        Ok(effects) => effects,
+        Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(crate::CheckerQueryError::Upstream(error)) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
     };
 
-    let mut diagnostics = DiagnosticBag::new();
+    let mut excluded = std::collections::BTreeSet::new();
 
-    let semantics = complete!(
-        diagnostics,
-        check_body_semantics_with_graph(
-            request,
-            control_flow,
-            expressions,
-            patterns,
-            storage,
-            memory,
-            &graph,
-        )
-    );
+    crate::analysis::exclude_non_unwinding_edges(graph, request, &mut excluded);
 
-    complete!(
-        diagnostics,
-        check_callable_result(
-            request,
-            control_flow,
-            expressions,
-            patterns,
-            storage,
-            memory,
-            &semantics,
-        )
-    );
+    let (liveness, flow, refinements, asynchronous, completion) = loop {
+        let Some(reachability) =
+            crate::analysis::analyze_reachability_excluding(graph, request, &excluded)
+        else {
+            return CheckerOutcome::Cancelled;
+        };
 
-    CheckerOutcome::complete(semantics, diagnostics)
-}
+        let mut round_diagnostics = DiagnosticBag::new();
 
-pub(crate) fn check_body_semantics_with_graph<C>(
-    request: CheckerUnitView<'_, C>,
-    control_flow: &CheckedControlFlow,
-    expressions: &CheckedExpressionSemantics,
-    patterns: &CheckedPatterns,
-    storage: &StoragePlan,
-    memory: &CheckedMemoryOperations,
-    graph: &crate::analysis::ControlFlowGraph,
-) -> CheckerOutcome<CheckedBodySemantics, C::UpstreamError>
-where
-    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
-{
-    let Some(reachability) = crate::analysis::analyze_reachability(graph, request) else {
-        return CheckerOutcome::Cancelled;
+        let (liveness, edge_lifetime_ends) = complete!(
+            round_diagnostics,
+            analyze_storage_liveness_with_graph(request, &effects, storage, graph, &reachability,)
+        );
+
+        let (flow, refinements) = complete!(
+            round_diagnostics,
+            check_storage_flow_with_graph(
+                &mut cleanup_shapes,
+                request,
+                &execution,
+                &dependencies,
+                storage,
+                &liveness,
+                &refinement_universe,
+                memory,
+                graph,
+                &reachability,
+                &edge_lifetime_ends,
+            )
+        );
+
+        let asynchronous = complete!(
+            round_diagnostics,
+            check_async_analysis_with_graph(
+                &mut cleanup_shapes,
+                request,
+                expressions.types(),
+                expressions.selections(),
+                &liveness,
+                &dependencies,
+                storage,
+                &refinements,
+                &flow,
+                graph,
+            )
+        );
+
+        if !crate::analysis::exclude_cleanup_free_edges(graph, &asynchronous, &mut excluded) {
+            diagnostics.add_range(round_diagnostics);
+
+            break (
+                liveness,
+                flow,
+                refinements,
+                asynchronous,
+                reachability.completion(),
+            );
+        }
+
+        // Each change removes at least one impossible cleanup edge. Liveness depends
+        // on that feasibility, so recompute it before solving the correlated flow again.
+        // Structural selection, dependencies, effects and the graph remain prepared once.
     };
 
-    let mut diagnostics = DiagnosticBag::new();
-
-    let (liveness, edge_lifetime_ends) = complete!(
-        diagnostics,
-        analyze_storage_liveness_with_graph(
-            request,
-            expressions.selections(),
-            expressions.types(),
-            patterns,
-            storage,
-            memory,
-            graph,
-            &reachability,
-        )
-    );
-
-    let refinements = complete!(
-        diagnostics,
-        check_refinements_with_graph(
-            request,
-            patterns,
-            expressions,
-            storage,
-            graph,
-            &reachability
-        )
-    );
-
-    let trusted = complete!(
-        diagnostics,
-        crate::analysis::guarantee::collect_trusted_memory_evidence(
-            request,
-            expressions,
-            storage,
-            &refinements,
-            graph,
-        )
-    );
-
-    let request = request.with_trusted_memory_evidence(&trusted);
-
-    let flow = complete!(
-        diagnostics,
-        check_storage_flow_with_graph(
-            request,
-            storage,
-            &liveness,
-            &refinements,
-            memory,
-            graph,
-            &reachability,
-            &edge_lifetime_ends,
-        )
-    );
-
-    let dependencies = complete!(
-        diagnostics,
-        check_dependency_contracts(request, expressions.selections(), patterns, storage, &flow,)
-    );
-
-    let asynchronous = complete!(
-        diagnostics,
-        check_async_analysis_with_graph(
-            request,
-            expressions.types(),
-            expressions.selections(),
-            &liveness,
-            &dependencies,
-            storage,
-            &refinements,
-            &flow,
-            graph,
-        )
-    );
-
     complete!(
         diagnostics,
-        crate::analysis::guarantee::check_trusted_completion(
-            request,
-            expressions,
-            storage,
-            &refinements,
-            &asynchronous,
-            &flow,
-            graph
-        )
+        check_callable_result(request, expressions, completion.can_complete_normally())
     );
 
-    let behavior = complete!(
-        diagnostics,
-        collect_body_behavior(
-            request,
-            control_flow,
-            expressions.selections(),
-            &asynchronous,
-        )
-        .with_upstream()
+    let behavior = behavior.clone().with_deferred_calls(
+        asynchronous
+            .suspensions()
+            .iter()
+            .flat_map(|suspension| suspension.deferred_calls().iter().cloned()),
     );
 
     let semantics = match CheckedBodySemantics::try_new(
@@ -231,7 +203,7 @@ where
         Ok(semantics) => semantics,
         Err(error) => {
             panic!(
-                "Correlated semantic results describe different bound units or unit categories. in check_body_semantics_with_graph, value0: {:?}",
+                "Correlated semantic results describe different bound units or unit categories. in check_body_semantics, value0: {:?}",
                 error
             );
         }

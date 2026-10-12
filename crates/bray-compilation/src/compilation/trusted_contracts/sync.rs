@@ -55,6 +55,10 @@ fn sibling_mutation_preserves_a_returned_component_witness() {
 fn owned_postconditions_follow_a_scoped_mutable_alias() {
     for (body, valid) in [
         (
+            "let mut other: Flags = { ready = false }; { let mut borrowed: &mut Flags = &mut value; if condition { borrowed = &mut other; } borrowed.ready = true; }",
+            false,
+        ),
+        (
             "{ let borrowed: &mut Flags = &mut value; borrowed.ready = true; }",
             true,
         ),
@@ -84,7 +88,7 @@ fn owned_postconditions_follow_a_scoped_mutable_alias() {
             module app;
             struct Flags {{ mut ready: bool; }}
             func root() {{
-                let action = lambda(pos mut value: Flags) -> Flags
+                let action = lambda(pos mut value: Flags, pos condition: bool) -> Flags
                     ensures(result.ready) executes(total) {{
                     {body}
                     return value;
@@ -409,6 +413,76 @@ fn nullable_aggregate_elements_keep_their_outer_discriminant() {
                 "{source}: {diagnostics:?}"
             );
         }
+    }
+}
+
+#[test]
+fn memory_evidence_uses_the_same_cleanup_state_as_authority() {
+    for (cleanup, valid) in [
+        ("{ let writer: Writer = { slot = &mut slot }; }", true),
+        (
+            "if flag { let writer: Writer = { slot = &mut slot }; } else { let writer: Writer = { slot = &mut slot }; }",
+            true,
+        ),
+        (
+            "if flag { let writer: Writer = { slot = &mut slot }; }",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Writer {{
+                slot: &mut Uninit<u32>;
+                trusted destruct()
+                    ensures(trusted core.memory.uninit_initialized<u32>(storage = &self.slot))
+                {{
+                    core.memory.uninit_write<u32>(self.slot, 42);
+                }}
+            }}
+            trusted func caller(pos flag: bool) -> u32 uses(unchecked_init) {{
+                let mut slot = core.memory.uninit<u32>();
+                {cleanup}
+                return core.memory.move_initialized<u32>(&mut slot);
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        let flow = application
+            .storage_flow(source_function_body_key(&application, "caller"))
+            .unwrap();
+
+        let decision = flow
+            .value()
+            .memory_operations()
+            .iter()
+            .find(|decision| {
+                matches!(
+                    flow.value()
+                        .checked_memory_operation(decision.expression())
+                        .map(|operation| operation.kind()),
+                    Some(bray_bound_tree::CheckedMemoryOperationKind::UninitMove { .. })
+                )
+            })
+            .expect("caller retains its protected move operation");
+
+        assert_eq!(
+            decision.status(),
+            if valid {
+                bray_bound_tree::MemoryOperationStatus::Valid
+            } else {
+                bray_bound_tree::MemoryOperationStatus::MissingTrustedEvidence
+            }
+        );
     }
 }
 
@@ -1050,6 +1124,323 @@ fn immutable_guard_fields_keep_acquisition_permits_paired() {
 
         if let Some(expected) = expected {
             bray_testing::assert_goal_state_diagnostic_kind(diagnostics, expected);
+        }
+    }
+}
+
+#[test]
+fn acquisition_authority_belongs_to_the_complete_produced_carrier() {
+    for (name, body, valid) in [
+        (
+            "whole fresh",
+            "let guard = acquire(&first); observe(&guard);",
+            true,
+        ),
+        (
+            "whole moved",
+            "let original = acquire(&first); let guard = original; observe(&guard);",
+            true,
+        ),
+        (
+            "fresh extracted",
+            "let marker = acquire(&first).marker;",
+            false,
+        ),
+        (
+            "named extracted",
+            "let guard = acquire(&first); let marker = guard.marker;",
+            false,
+        ),
+        (
+            "fresh reassembled",
+            "let guard: Guard = { owner = &second, marker = acquire(&first).marker }; observe(&guard);",
+            false,
+        ),
+        (
+            "named reassembled",
+            "let original = acquire(&first); let guard: Guard = { owner = &second, marker = original.marker }; observe(&guard);",
+            false,
+        ),
+        (
+            "fresh destructured",
+            "let { owner, marker } = acquire(&first);",
+            false,
+        ),
+        (
+            "extract before divergence",
+            "let marker = acquire(&first).marker; loop {}",
+            false,
+        ),
+        (
+            "fabricated",
+            "let guard: Guard = { owner = &first, marker = Marker {} }; observe(&guard);",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Lock {{ tag: u32; }}
+            struct Marker {{}}
+            struct Guard {{ owner: &Lock; marker: Marker; }}
+            trusted predicate held(marker: &Marker);
+            trusted func acquire(pos owner: &Lock) -> Guard
+                ensures(trusted held(&result.marker)) executes(pure, total)
+                {{ return {{ owner = owner, marker = Marker {{}} }}; }}
+            func observe(pos guard: &Guard)
+                requires(trusted held(&guard.marker)) executes(pure, total) {{}}
+            func caller() {{
+                let first: Lock = {{ tag = 1 }};
+                let second: Lock = {{ tag = 2 }};
+                {body}
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{name}: {source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                if name == "fabricated" {
+                    DiagnosticKind::CheckingTrustedObligationNotProven
+                } else {
+                    DiagnosticKind::CheckingTrustedWitnessTransferNotProven
+                },
+            );
+        }
+    }
+}
+
+#[test]
+fn independent_tuple_carriers_remain_whole_after_destructuring() {
+    for (body, valid) in [
+        (
+            "let (first, second) = pair(); observe(&first); observe(&second);",
+            true,
+        ),
+        ("let first = pair().0; observe(&first);", true),
+        (
+            "let first = { let owners = pair(); yield owners.0; }; observe(&first);",
+            true,
+        ),
+        ("let marker = pair().0.marker;", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Marker {{}}
+            struct Guard {{ marker: Marker; }}
+            trusted predicate held(marker: &Marker);
+            trusted func pair() -> (Guard, Guard)
+                ensures(trusted held(&result.0.marker), trusted held(&result.1.marker))
+                executes(pure, total)
+            {{ return ({{ marker = Marker {{}} }}, {{ marker = Marker {{}} }}); }}
+            func observe(pos guard: &Guard)
+                requires(trusted held(&guard.marker)) executes(pure, total) {{}}
+            func caller() {{ {body} }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn input_authority_uses_the_same_complete_carrier_as_the_producer() {
+    for (result, body, valid) in [
+        ("Guard", "return guard;", true),
+        ("Marker", "return guard.marker;", false),
+        (
+            "Guard",
+            "return { owner = other, marker = guard.marker };",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Lock {{ tag: u32; }}
+            struct Marker {{}}
+            struct Guard {{ owner: &Lock; marker: Marker; }}
+            trusted predicate held(marker: &Marker);
+            func transfer(pos guard: Guard, pos other: &Lock) -> {result}
+                requires(trusted held(&guard.marker)) {{ {body} }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn field_mutation_preserves_only_independent_carrier_observations() {
+    for (ty, result, input, valid) in [
+        ("Marker", "&result.marker", "&guard.marker", true),
+        ("Guard", "&result", "guard", false),
+    ] {
+        for mutation in [
+            "guard.payload = true;",
+            "if flag { guard.payload = true; }",
+            "if flag { guard.payload = true; } else { guard.payload = false; }",
+        ] {
+            let source = format!(
+                r#"
+            trusted module app;
+            struct Marker {{}}
+            struct Guard {{ marker: Marker; mut payload: bool; }}
+            trusted predicate held(value: &{ty});
+            trusted func acquire() -> Guard
+                ensures(trusted held({result})) executes(pure, total)
+            {{ return {{ marker = Marker {{}}, payload = false }}; }}
+            func observe(pos guard: &Guard)
+                requires(trusted held({input})) executes(pure, total) {{}}
+            func caller(pos flag: bool) {{
+                let mut guard = acquire();
+                {mutation}
+                observe(&guard);
+            }}
+        "#
+            );
+
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn joined_mutated_values_do_not_inherit_their_entry_contents() {
+    for (mutation, valid) in [
+        ("if flag { value.ready = false; }", false),
+        (
+            "if flag { value.ready = false; } else { value.ready = false; }",
+            false,
+        ),
+        ("if flag { value.ready = true; }", true),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            @copy struct State {{ mut ready: bool; }}
+            func make() -> State ensures(result.ready) {{ return {{ ready = true }}; }}
+            func update(pos flag: bool) -> State ensures(result.ready) {{
+                let mut value = make();
+                {mutation}
+                return value;
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+
+        let checked = application
+            .execution_properties(crate::test_support::source_function_body_key(
+                &application,
+                "update",
+            ))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {checked:?}"
+        );
+    }
+}
+
+#[test]
+fn raw_writes_invalidate_only_the_reached_witness_observations() {
+    for (field, ty, value, valid) in [
+        ("payload", "u64", "1", true),
+        ("lease.active", "bool", "false", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            trusted predicate live(value: &Lease);
+            struct Lease {{ mut active: bool; }}
+            struct Access {{ mut payload: u64; mut lease: Lease; }}
+            trusted func acquire() -> Access
+                ensures(trusted live(&result.lease)) {{
+                return {{ payload = 0, lease = {{ active = true }} }};
+            }}
+            func observe(pos lease: &Lease)
+                requires(trusted live(lease))
+                ensures(trusted live(lease)) executes(pure, total) {{}}
+            trusted func caller() uses(raw_memory, unchecked_init) {{
+                let mut access = acquire();
+                observe(&access.lease);
+                let pointer = core.memory.address_of_mut<{ty}>(&mut access.{field});
+                let alias = pointer;
+                trusted core.memory.write<{ty}>(alias, {value});
+                observe(&access.lease);
+            }}
+        "#
+        );
+
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
         }
     }
 }

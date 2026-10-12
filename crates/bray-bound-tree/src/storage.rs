@@ -4,6 +4,8 @@ mod flow;
 mod liveness;
 mod model;
 mod parts;
+mod path;
+pub use path::StoragePath;
 mod plan;
 mod query;
 mod replacement;

@@ -2780,3 +2780,93 @@ fn trusted_predicate_guarantees_preserve_execution_property_proofs() {
         );
     }
 }
+
+#[test]
+fn returned_addresses_preserve_only_the_checked_input_authority() {
+    for (returned, valid) in [
+        ("pointer", true),
+        ("other", false),
+        ("core.memory.null<u8>()", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            func forward(pos pointer: RawPointer<u8>, pos other: RawPointer<u8>) -> RawPointer<u8>
+                executes(pure, total)
+            {{ return {returned}; }}
+            trusted func caller() -> u8 uses(raw_memory) {{
+                let value: u8 = 1;
+                let pointer = core.memory.address_of<u8>(&value);
+                let forwarded = forward(pointer, core.memory.null<u8>());
+                return core.memory.read<u8>(forwarded);
+            }}
+            "#,
+        );
+
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn returned_address_authority_expires_with_its_original_owner() {
+    let compilation = compilation(
+        r#"
+        trusted module app;
+        func forward(pos pointer: RawPointer<u8>) -> RawPointer<u8>
+            executes(pure, total)
+        { return pointer; }
+        trusted func caller() -> u8 uses(raw_memory) {
+            let mut forwarded = core.memory.null<u8>();
+            {
+                let value: u8 = 1;
+                forwarded = forward(core.memory.address_of<u8>(&value));
+            };
+            return core.memory.read<u8>(forwarded);
+        }
+    "#,
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        compilation.check_diagnostics(),
+        DiagnosticKind::CheckingTrustedObligationNotProven,
+    );
+}
+
+#[test]
+fn address_formation_keeps_the_value_owner_distinct_from_the_address_witness() {
+    let compilation = compilation(
+        r#"
+        trusted module app;
+        struct Bytes { first: u8; }
+        func observe(pos pointer: RawPointer<Bytes>)
+            requires(trusted core.memory.valid_read<Bytes>(pointer = pointer, count = 1)) {}
+        func caller() -> u8 {
+            let owner = Bytes { first = 1 };
+            let pointer = core.memory.address_of<Bytes>(&owner);
+            let copied = owner.first;
+            observe(pointer);
+            return copied;
+        }
+    "#,
+    );
+
+    assert!(
+        !compilation.check_diagnostics().has_errors(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+}

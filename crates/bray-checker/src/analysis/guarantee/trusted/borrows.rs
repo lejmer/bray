@@ -1,12 +1,74 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{BoundExecutionSite, BoundExpressionId, StorageProjection};
-use bray_symbols::{DependencyProjection, DependencySubject, DependencySubjectRoot};
+use bray_symbols::{
+    DependencyProjection, DependencyReferenceKind, DependencySubject, DependencySubjectRoot,
+};
 
 use super::super::{flow::ExecutionFlowDomain, state::ExecutionState};
 use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(in crate::analysis) fn reference_value_source(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Option<BoundExpressionId> {
+        use bray_bound_tree::{
+            BoundExpression, BoundStructuredExpressionKind, ConversionTarget, SelectedOperation,
+            SemanticSelection,
+        };
+
+        if let Some(source) = self.returned_reference_input(expression) {
+            return Some(source);
+        }
+
+        match self.request.view().expression(expression)? {
+            BoundExpression::Structured(operation)
+                if matches!(
+                    operation.kind(),
+                    BoundStructuredExpressionKind::Condition
+                        | BoundStructuredExpressionKind::TrustBoundary
+                ) =>
+            {
+                operation.operands().first().copied()
+            }
+            BoundExpression::Conversion(conversion) => {
+                let SemanticSelection::Operation(SelectedOperation::Conversion(selected)) =
+                    self.semantics.selections().expression(expression)?
+                else {
+                    return None;
+                };
+
+                matches!(selected.target(), ConversionTarget::Identity)
+                    .then_some(conversion.operand())
+            }
+            // Children establish evaluation and lifetime dependencies. They do not
+            // establish that a constructed value or call result reaches their storage.
+            _ => None,
+        }
+    }
+
+    fn returned_reference_input(
+        &self,
+        expression: bray_bound_tree::BoundExpressionId,
+    ) -> Option<bray_bound_tree::BoundExpressionId> {
+        let dependencies = self.result_dependencies.get(&expression)?;
+
+        let bray_bound_tree::SemanticSelection::Call(call) =
+            self.semantics.selections().expression(expression)?
+        else {
+            return None;
+        };
+
+        let relation = dependencies.references.iter().find(|relation| {
+            relation.exit().subject_root() == DependencySubjectRoot::Result
+                && relation.exit().projections().is_empty()
+                && relation.entry().projections().is_empty()
+        })?;
+
+        crate::dependency::result_argument(call, relation.entry().subject_root())
+    }
+
     pub(super) fn preserve_cleanup_borrows(
         &self,
         state: &mut ExecutionState,
@@ -43,7 +105,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
-    pub(in crate::analysis::guarantee) fn complete_returned_borrows(
+    pub(in crate::analysis::guarantee) fn complete_returned_references(
         &self,
         invocation: BoundExecutionSite,
         result: ExecutionCondition,
@@ -69,7 +131,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut fields = BTreeMap::new();
 
-        for relation in dependencies.template.borrows() {
+        for relation in &dependencies.references {
             if relation.exit().subject_root() != DependencySubjectRoot::Result {
                 continue;
             }
@@ -108,17 +170,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let value = match value {
-                ExecutionCondition::Borrowed(_) => value,
-                value => value.borrowed(),
+            let value = match relation.kind() {
+                DependencyReferenceKind::Borrow => match value {
+                    ExecutionCondition::Borrowed(_) => value,
+                    value => value.borrowed(),
+                },
+                DependencyReferenceKind::Address => value,
             };
 
             fields.insert(path, value);
         }
 
-        let result = construct(expression, result, fields);
-
-        result
+        construct(result, fields)
     }
 }
 
@@ -148,7 +211,6 @@ fn projection(projection: DependencyProjection) -> Option<StorageProjection> {
 }
 
 fn construct(
-    expression: BoundExpressionId,
     root: ExecutionCondition,
     fields: BTreeMap<Vec<StorageProjection>, ExecutionCondition>,
 ) -> ExecutionCondition {
@@ -171,13 +233,13 @@ fn construct(
     }
 
     ExecutionCondition::Constructed(
-        expression,
+        std::sync::Arc::new(root.clone()),
         children
             .into_iter()
             .map(|(projection, fields)| {
                 (
                     projection,
-                    construct(expression, root.clone().project(projection), fields),
+                    construct(root.clone().project(projection), fields),
                 )
             })
             .collect(),

@@ -77,7 +77,10 @@ pub(super) fn constructed_condition(
             })
             .collect::<Vec<_>>();
 
-        return Some(ExecutionCondition::Constructed(expression, fields.into()));
+        return Some(ExecutionCondition::Constructed(
+            std::sync::Arc::new(ExecutionCondition::Expression(expression)),
+            fields.into(),
+        ));
     }
 
     match bound {
@@ -110,7 +113,10 @@ pub(super) fn constructed_condition(
                 })
                 .collect::<Vec<_>>();
 
-            Some(ExecutionCondition::Constructed(expression, fields.into()))
+            Some(ExecutionCondition::Constructed(
+                std::sync::Arc::new(ExecutionCondition::Expression(expression)),
+                fields.into(),
+            ))
         }
         BoundExpression::Structured(operation)
             if operation.kind()
@@ -147,7 +153,10 @@ pub(super) fn constructed_condition(
                 })
                 .collect::<Vec<_>>();
 
-            Some(ExecutionCondition::Constructed(expression, fields.into()))
+            Some(ExecutionCondition::Constructed(
+                std::sync::Arc::new(ExecutionCondition::Expression(expression)),
+                fields.into(),
+            ))
         }
         _ => None,
     }

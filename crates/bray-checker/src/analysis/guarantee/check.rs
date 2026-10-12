@@ -5,10 +5,6 @@ use bray_bound_tree::{
     StoragePlan,
 };
 
-use super::super::build::{
-    ControlFlowGraphBuildOutcome, build_execution_control_flow_graph,
-    build_storage_control_flow_graph,
-};
 use super::super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind};
 use super::flow::analyze_execution_flow;
 use crate::execution_guarantees::{ExecutionCandidate, ExecutionProperty};
@@ -17,6 +13,7 @@ use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 /// Checks body-local operations and records selected dependencies without certifying them.
 pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
+    prepared: &crate::PreparedBodyAnalysis,
     property: Option<ExecutionProperty>,
     assumptions: &[crate::ExecutionCondition],
     postconditions: &[(crate::ExecutionCondition, bray_source::SourceSpan)],
@@ -25,61 +22,39 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         Vec<crate::ExecutionCompletionContract>,
     >,
     expressions: &CheckedExpressionSemantics,
-    patterns: &bray_bound_tree::CheckedPatterns,
     storage: &StoragePlan,
     body: &CheckedBodySemantics,
     memory: &CheckedMemoryOperations,
 ) -> CheckerOutcome<ExecutionCandidate, C::UpstreamError> {
     assert_execution_inputs(request, expressions, storage, body, memory);
 
-    // Purity alone does not discharge cleanup on a dependency's abnormal completion.
-    let graph = match property {
-        Some(ExecutionProperty::Pure) => build_storage_control_flow_graph(
-            request,
-            storage,
-            expressions.selections(),
-            Some(patterns),
-            None,
-        ),
-        Some(ExecutionProperty::Total) | None => {
-            build_execution_control_flow_graph(request, storage, expressions.selections(), patterns)
-        }
-    };
+    let graph = &prepared.graph;
+    let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
 
-    let graph = match graph {
-        ControlFlowGraphBuildOutcome::Complete(graph) => graph,
-        ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
-    };
+    let disposal = super::cleanup::Cleanup::new(&prepared.cleanup)
+        .with_selection(body.asynchronous(), body.storage_flow());
 
-    let (disposal, mut diagnostics) = match super::cleanup::Cleanup::prepare(
-        request,
-        storage,
-        body.asynchronous(),
-        body.storage_flow(),
-    ) {
-        Ok(prepared) => prepared.into_parts(),
-        Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(crate::CheckerQueryError::Upstream(error)) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
-    };
+    let mut excluded = graph
+        .edges()
+        .iter()
+        .filter(|edge| property != Some(ExecutionProperty::Pure) && edge.is_dependency_failure())
+        .map(|edge| edge.id())
+        .collect();
 
-    let literals =
-        crate::execution_guarantees::condition_literals(expressions, request.semantic_values());
+    crate::analysis::exclude_non_unwinding_edges(graph, request, &mut excluded);
 
     let reachable = match analyze_execution_flow(
-        &graph,
+        prepared,
+        excluded,
         request,
         expressions,
         assumptions,
-        &literals,
         storage,
-        body.refinements(),
+        memory,
+        body.storage_flow(),
+        body.refinements().invalidations(),
         contracts,
-        disposal,
+        &disposal,
     ) {
         CheckerOutcome::Complete(flow) => {
             let (flow, additional) = flow.into_parts();
@@ -127,14 +102,20 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
             .iter()
             .any(|edge| edge.kind() == AnalysisEdgeKind::LoopBack)
     {
-        super::termination::bounded_loop_headers(request, &graph, expressions, storage, &literals)
+        super::termination::bounded_loop_headers(
+            request,
+            graph,
+            expressions,
+            storage,
+            &prepared.literals,
+        )
     } else {
         BTreeSet::new()
     };
 
     check_completion(
         request,
-        &graph,
+        graph,
         &reachable,
         property,
         &bounded_loops,

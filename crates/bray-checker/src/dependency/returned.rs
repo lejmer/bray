@@ -135,13 +135,21 @@ pub(crate) fn result_argument(
     }
 }
 
-/// Retains the call inputs named by its resolved result contract.
+/// Retains the inputs that bound result authority through lifetime or reference relations.
 pub(crate) fn result_inputs(
     call: &SelectedCall,
-    requirements: &[DependencyRequirement],
+    template: &bray_symbols::DependencyContractTemplateData,
 ) -> std::collections::BTreeSet<bray_bound_tree::BoundExpressionId> {
-    let mut inputs = std::collections::BTreeSet::new();
-    let mut pending = requirements.iter().collect::<Vec<_>>();
+    // An address does not keep an ordinary borrow active. Its access guarantees
+    // still expire with the physical owner named by the checked reference relation.
+    let mut inputs = template
+        .borrows()
+        .iter()
+        .filter(|relation| relation.exit().subject_root() == DependencySubjectRoot::Result)
+        .filter_map(|relation| result_argument(call, relation.entry().subject_root()))
+        .collect::<std::collections::BTreeSet<_>>();
+
+    let mut pending = template.requirements().iter().collect::<Vec<_>>();
 
     while let Some(requirement) = pending.pop() {
         match requirement {

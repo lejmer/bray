@@ -18,6 +18,15 @@ impl OperationEffects {
     {
         let (accesses_by_root, _) = index_storage_roots(storage);
 
+        let borrowed_reads = storage
+            .access_plans()
+            .iter()
+            .filter_map(|plan| {
+                reaches_borrowed_storage(request.semantic_values(), storage, plan.access())
+                    .then_some(plan.expression())
+            })
+            .collect::<BTreeSet<_>>();
+
         let mut initializations = value_transfer_bindings(request, storage)
             .into_iter()
             .map(|(expression, bindings)| (expression.into(), bindings))
@@ -82,6 +91,12 @@ impl OperationEffects {
                     };
 
                     for expression in accesses_by_root.get(&root).into_iter().flatten() {
+                        // Dereferencing needs the pointer's loans during evaluation even when
+                        // its copied result carries none. An unrelated owned field does not.
+                        if borrowed_reads.contains(expression) {
+                            self.extend_uses(*expression, retained.iter().copied());
+                        }
+
                         if self.value_inputs.is_independent(*expression)
                             || self
                                 .value_inputs
@@ -125,6 +140,38 @@ impl OperationEffects {
 
         self.owner_dependencies = retained_by_expression;
     }
+}
+
+fn reaches_borrowed_storage(
+    values: &bray_symbols::SemanticValueStore,
+    storage: &StoragePlan,
+    access: bray_bound_tree::StorageAccessId,
+) -> bool {
+    let Some(root) = storage.root_identity(access) else {
+        return true;
+    };
+
+    let Some(path) = storage.resolved_projections(access) else {
+        return true;
+    };
+
+    (0..path.len()).any(|length| {
+        let ty = if length == 0 {
+            storage.identity_type(root)
+        } else {
+            storage
+                .access_at(root, &path[..length])
+                .and_then(|access| storage.access(access))
+                .map(|access| access.reached_type())
+        };
+
+        ty.is_none_or(|ty| {
+            matches!(
+                values.type_data(ty).as_ref(),
+                bray_symbols::TypeData::Borrow { .. }
+            )
+        })
+    })
 }
 
 fn index_value_sources_by_root(

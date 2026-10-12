@@ -401,7 +401,7 @@ pub(crate) fn callable_instance(definition: AnySymbolId) -> CallableInstanceData
     CallableInstanceData::new(definition, substitution)
 }
 
-fn empty_substitution(owner: AnySymbolId) -> bray_symbols::GenericSubstitutionId {
+pub(crate) fn empty_substitution(owner: AnySymbolId) -> bray_symbols::GenericSubstitutionId {
     let owner = generic_owner(owner);
 
     let substitution = match GenericSubstitutionData::try_new(owner, [], []) {

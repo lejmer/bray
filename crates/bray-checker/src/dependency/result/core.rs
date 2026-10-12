@@ -39,12 +39,13 @@ where
         ],
     );
 
+    let request = request.with_result_dependencies(callees);
+
     let mut inference = ResultInference {
         request,
         types,
         selections,
         patterns,
-        callees,
         recursive_callees,
         static_roots,
         include_evaluation_storage: false,
@@ -67,9 +68,7 @@ where
                         .empty_dependency_contract_template().unwrap_or_else(|error| panic!("infer_result_dependencies must satisfy its checked construction contract: {error:?}")));
                 }
 
-                Ok(callees
-                    .get(&callable)
-                    .copied().unwrap_or_else(|| panic!("result dependency inference requires the selected callable template for {callable:?}")))
+                request.callable_result_dependencies(callable)
             },
         )?,
     };
@@ -233,7 +232,6 @@ pub(super) struct ResultInference<'a, C: CheckerRequestContext + ?Sized> {
     pub(super) types: &'a CheckedExpressionTypes,
     pub(super) selections: &'a CheckedSemanticSelections,
     pub(super) patterns: &'a CheckedPatterns,
-    pub(super) callees: &'a BTreeMap<CallableSymbolId, DependencyContractTemplateId>,
     pub(super) recursive_callees: &'a BTreeSet<CallableSymbolId>,
     pub(super) static_roots: &'a BTreeMap<StaticSymbolId, DependencySubjectRoot>,
     pub(super) include_evaluation_storage: bool,

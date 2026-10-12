@@ -39,6 +39,7 @@ pub use trusted_contracts::{TrustedCallContract, TrustedContractInputs};
 mod test_support;
 
 pub use analysis::implementation_hook_may_propagate_synchronous_panic;
+pub use analysis::{PreparedBodyAnalysis, prepare_body_analysis};
 pub use analysis::{UnwindCandidate, check_execution_candidate, check_unwind_candidate};
 pub use analysis::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};
 pub use atomic::atomic_target_representation;
@@ -96,16 +97,15 @@ pub use semantic_context::{
     AnonymousCallableContext, ContractClauseContext, DeclaredUnitContext, SemanticUnitContext,
 };
 pub use service::{
-    AsyncChecker, BodyBehaviorCollector, BodySemanticChecker, ConstantChecker, ConstantEvaluator,
-    ControlFlowChecker, DefaultAsyncChecker, DefaultBodyBehaviorCollector,
-    DefaultBodySemanticChecker, DefaultConstantChecker, DefaultConstantEvaluator,
-    DefaultControlFlowChecker, DefaultDependencyContractChecker, DefaultExpressionSemanticChecker,
-    DefaultExpressionTypeChecker, DefaultLivenessAnalyzer, DefaultMemoryOperationChecker,
-    DefaultPatternChecker, DefaultRefinementAnalyzer, DefaultSemanticSelector,
-    DefaultStorageFlowChecker, DefaultStoragePlanner, DefaultTargetValidityChecker,
-    DependencyContractChecker, ExpressionSemanticChecker, ExpressionTypeChecker, LivenessAnalyzer,
-    MemoryOperationChecker, PatternChecker, RefinementAnalyzer, SemanticSelector,
-    StorageFlowChecker, StoragePlanner, TargetValidityChecker,
+    BodyBehaviorCollector, BodySemanticChecker, ConstantChecker, ConstantEvaluator,
+    ControlFlowChecker, DefaultBodyBehaviorCollector, DefaultBodySemanticChecker,
+    DefaultConstantChecker, DefaultConstantEvaluator, DefaultControlFlowChecker,
+    DefaultDependencyContractChecker, DefaultExpressionSemanticChecker,
+    DefaultExpressionTypeChecker, DefaultMemoryOperationChecker, DefaultPatternChecker,
+    DefaultSemanticSelector, DefaultStoragePlanner, DefaultTargetValidityChecker,
+    DependencyContractChecker, ExpressionSemanticChecker, ExpressionTypeChecker,
+    MemoryOperationChecker, PatternChecker, SemanticSelector, StoragePlanner,
+    TargetValidityChecker,
 };
 pub use target::{
     TargetAbiValue, TargetAggregateAbi, TargetCallableAbiRequirement, TargetLayoutRequirement,

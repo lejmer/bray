@@ -281,3 +281,76 @@ func tupled(pos flag: bool, pos pair: (Guard, Guard)) -> i32
             )));
     }
 }
+
+#[test]
+fn failing_calls_transfer_owned_inputs_without_initializing_results() {
+    let compilation = compilation(
+        r#"
+        module app;
+        struct Guard { destruct() {} }
+        func take(pos value: Guard, pos fail: bool) -> Guard {
+            if fail { panic("failed"); }
+            return value;
+        }
+        func caller(pos value: Guard, pos fail: bool) {
+            let returned = take(value, fail);
+        }
+    "#,
+    );
+
+    let key = source_function_body_key(&compilation, "caller");
+    let bound = compilation.bound_unit(key.clone()).unwrap();
+    let storage = compilation.storage_plan(key.clone()).unwrap();
+    let flow = compilation.storage_flow(key).unwrap();
+
+    let call = bound
+        .value()
+        .tree()
+        .expressions()
+        .find_map(|(id, expression)| {
+            matches!(expression, bray_bound_tree::BoundExpression::Call(_)).then_some(id)
+        })
+        .unwrap();
+
+    let argument = storage
+        .value()
+        .access_plans()
+        .iter()
+        .find(|plan| {
+            storage.value().effective_purpose(**plan) == bray_bound_tree::StorageAccessPurpose::Move
+        })
+        .map(|plan| storage.value().root_identity(plan.access()).unwrap());
+
+    assert!(argument.is_some(), "{storage:?}");
+
+    let argument = argument.unwrap();
+
+    let failures = flow
+        .value()
+        .exits()
+        .iter()
+        .filter(|exit| exit.exit() == call.into())
+        .collect::<Vec<_>>();
+
+    assert!(!failures.is_empty(), "{flow:?}");
+
+    let result = storage
+        .value()
+        .identity_entries()
+        .find_map(|(id, identity)| {
+            (identity == bray_bound_tree::StorageIdentity::Temporary(call)).then_some(id)
+        })
+        .unwrap();
+
+    for failure in failures {
+        assert!(failure.fully_moved().contains(&argument), "{failure:?}");
+        assert!(!failure.initialized().contains(&argument), "{failure:?}");
+        assert!(!failure.live().contains(&result), "{failure:?}");
+    }
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+}

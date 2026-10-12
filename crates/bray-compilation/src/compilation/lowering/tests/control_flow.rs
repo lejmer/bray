@@ -222,9 +222,9 @@ const GENERATOR_LOWERING_SOURCE: &str = concat!(
 const FAILURE_LOWERING_SOURCE: &str = concat!(
     "module app;\n",
     "\n",
-    "func main()\n",
+    "func main(pos condition: bool)\n",
     "{\n",
-    "    assert(true);\n",
+    "    assert(condition);\n",
     "}\n",
 );
 
@@ -617,6 +617,27 @@ fn checked_assertion_lowers_to_explicit_failure_control() {
         block.terminator().kind(),
         MirTerminatorKind::BeginCleanup(_) | MirTerminatorKind::Panic { .. }
     )));
+}
+
+#[test]
+fn established_assertions_do_not_lower_failure_messages_or_reports() {
+    for body in [
+        "assert(true);",
+        "let value: i32 = 1; assert(value == 1, panic(\"unreachable\"));",
+    ] {
+        let source = format!("module app; func main() {{ {body} }}");
+        let compilation = compilation(&source);
+        let key = source_callable_body_key(&compilation);
+        let result = compilation.lowered_unit(key).unwrap();
+        let mir = lowered_mir(&result);
+
+        assert!(
+            !mir.operations()
+                .iter()
+                .any(|operation| matches!(operation.kind(), MirOperationKind::PanicReport(_))),
+            "{body}: {mir:#?}"
+        );
+    }
 }
 
 #[test]

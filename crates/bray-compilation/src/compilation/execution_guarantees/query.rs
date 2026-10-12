@@ -95,7 +95,9 @@ impl Compilation {
                 let expressions =
                     self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
 
-                let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
+                let prepared =
+                    self.prepared_body_analysis_with_cancellation(key.clone(), cancellation)?;
+
                 let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
                 let body = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
                 let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
@@ -123,6 +125,7 @@ impl Compilation {
                 let mut diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),
                     expressions.result().diagnostics(),
+                    prepared.result().diagnostics(),
                     storage.result().diagnostics(),
                     body.result().diagnostics(),
                     memory.result().diagnostics(),
@@ -163,12 +166,12 @@ impl Compilation {
                 )]| {
                     checker_result(check_execution_candidate(
                         unit,
+                        prepared.result().value(),
                         property,
                         assumptions,
                         postconditions,
                         contracts.value(),
                         expressions.result().value(),
-                        patterns.result().value(),
                         storage.result().value(),
                         body.result().value(),
                         memory.result().value(),

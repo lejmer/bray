@@ -26,7 +26,7 @@ pub(in crate::analysis::liveness) struct OperationEffect {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(in crate::analysis::liveness) struct OperationEffects {
+pub(crate) struct OperationEffects {
     pub(super) by_occurrence: BTreeMap<bray_bound_tree::BoundExecutionSite, OperationEffect>,
     operation_result_definitions: BTreeMap<BoundExpressionId, BTreeSet<BoundDependencySubject>>,
     pub(in crate::analysis::liveness) universe: BTreeSet<BoundDependencySubject>,
@@ -38,7 +38,7 @@ pub(in crate::analysis::liveness) struct OperationEffects {
 }
 
 impl OperationEffects {
-    pub(in crate::analysis::liveness) fn from_checked_inputs<C>(
+    pub(crate) fn from_checked_inputs<C>(
         request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
         types: &bray_bound_tree::CheckedExpressionTypes,
@@ -53,7 +53,7 @@ impl OperationEffects {
 
         effects.value_inputs =
             ValueInputs::prepare(request, types, selections, patterns, |callable| {
-                request.context().callable_result_dependencies(callable)
+                request.callable_result_dependencies(callable)
             })?;
 
         effects.retain_call_input_dependencies(request.unit());

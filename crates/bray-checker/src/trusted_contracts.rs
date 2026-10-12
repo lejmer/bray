@@ -24,7 +24,7 @@ pub struct TrustedContractInputs {
 }
 
 /// Trusted requirements and guarantees on one selected call.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct TrustedCallContract {
     /// Exact declaration inputs for an implicit selected operation.
     pub arguments: BTreeMap<bray_bound_tree::BoundReferenceTarget, BoundExecutionSite>,
@@ -34,9 +34,7 @@ pub struct TrustedCallContract {
     pub completes: bool,
     /// Whether declared purity preserves inputs after the caller establishes its requirements.
     pub preserves_inputs: bool,
-    /// Whether result guarantees are carried by the value rather than checked storage.
-    pub result_is_witness: bool,
-    /// Trusted predicate subjects paired with their conditional completion guarantee.
+    /// Checked witness carriers paired with their conditional completion guarantee.
     pub witness_subjects: Vec<(ExecutionCondition, ExecutionCondition)>,
     /// Conditions required before invocation.
     pub requirements: Vec<ExecutionCondition>,
@@ -56,8 +54,7 @@ impl TrustedCallContract {
             .filter(|(_, subject)| subject.observes_completion_result())
             .peekable();
 
-        self.result_is_witness
-            && subjects.peek().is_some()
+        subjects.peek().is_some()
             && subjects.all(|(_, subject)| {
                 let mut subject = subject;
 

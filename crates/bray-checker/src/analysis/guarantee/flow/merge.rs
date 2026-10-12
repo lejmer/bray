@@ -5,7 +5,7 @@ use crate::execution_guarantees::ExecutionCondition;
 use super::super::super::id::AnalysisBlockId;
 use super::super::state::ExecutionState;
 
-pub(super) fn merge(
+pub(in crate::analysis) fn merge(
     target: &mut Option<ExecutionState>,
     incoming: &Option<ExecutionState>,
     block: Option<AnalysisBlockId>,
@@ -27,63 +27,104 @@ pub(super) fn merge(
     if let Some(block) = block {
         let mut left = BTreeMap::new();
         let mut right = BTreeMap::new();
+        let mut left_identities = BTreeMap::new();
+        let mut right_identities = BTreeMap::new();
         let mut places = Vec::new();
+        let mut joins = false;
+        let mut joined_facts = Vec::new();
 
-        for (place, value) in &target.current {
-            let Some(other) = incoming.current.get(place) else {
-                continue;
+        let observed = target
+            .current
+            .keys()
+            .chain(incoming.current.keys())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        for place in observed {
+            let value = place
+                .value_in(&target.current)
+                .unwrap_or(ExecutionCondition::Unknown);
+
+            let other = place
+                .value_in(&incoming.current)
+                .unwrap_or(ExecutionCondition::Unknown);
+
+            let joined = if value == other {
+                value.clone()
+            } else if value == ExecutionCondition::Unknown || other == ExecutionCondition::Unknown {
+                ExecutionCondition::Unknown
+            } else {
+                ExecutionCondition::Joined(
+                    block.unit(),
+                    u32::try_from(block.to_index().expect("flow block has an index"))
+                        .expect("flow block index fits"),
+                    place.clone(),
+                )
             };
 
-            if value == other
-                || *value == ExecutionCondition::Unknown
-                || *other == ExecutionCondition::Unknown
-            {
-                continue;
+            if value != other && joined != ExecutionCondition::Unknown {
+                let left_truth =
+                    value.prove(&target.assumptions, &mut { ExecutionCondition::WORK_LIMIT });
+
+                let right_truth = other.prove(&incoming.assumptions, &mut {
+                    ExecutionCondition::WORK_LIMIT
+                });
+
+                if let (Some(left), Some(right)) = (left_truth, right_truth)
+                    && left == right
+                {
+                    joined_facts.push((joined.clone(), left));
+                }
             }
 
-            let joined = ExecutionCondition::Joined(
-                block.unit(),
-                u32::try_from(block.to_index().expect("flow block has an index"))
-                    .expect("flow block index fits"),
-                place.clone(),
-            );
+            joins |= target.current.get(place) != Some(&joined)
+                || incoming.current.get(place) != Some(&joined);
 
             places.push((place.clone(), joined.clone()));
 
-            for (map, value) in [(&mut left, value), (&mut right, other)] {
+            for (map, identities, value) in [
+                (&mut left, &mut left_identities, &value),
+                (&mut right, &mut right_identities, &other),
+            ] {
                 // Literal payloads are shared by unrelated places and contract constants.
                 // Joining their slots must not rename the constant itself.
                 if *value == joined
                     || matches!(
                         value,
-                        ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_)
+                        ExecutionCondition::Literal(_)
+                            | ExecutionCondition::Boolean(_)
+                            | ExecutionCondition::Unknown
                     )
                 {
                     continue;
                 }
 
-                // A value shared by differently merged aliases has no unique replacement.
-                map.entry(value.clone())
-                    .and_modify(|prior| {
-                        if *prior != joined {
-                            *prior = ExecutionCondition::Unknown;
-                        }
-                    })
-                    .or_insert_with(|| joined.clone());
+                // Contents and containing identity have different substitution domains.
+                insert_replacement(map, value, &joined);
+
+                for identity in [value, value.owner_identity()] {
+                    if *identity != joined {
+                        insert_replacement(identities, identity, &joined);
+                    }
+                }
             }
         }
 
-        if !places.is_empty() {
-            target.join_values(&left);
+        if joins {
+            target.join_values(&left, &left_identities);
 
             let incoming = incoming_joined.to_mut();
 
-            incoming.join_values(&right);
+            incoming.join_values(&right, &right_identities);
+
+            for (condition, holds) in joined_facts {
+                condition.clone().assume(holds, &mut target.assumptions);
+                condition.assume(holds, &mut incoming.assumptions);
+            }
 
             for (place, value) in places {
                 changed |= target.current.get(&place) != Some(&value);
-                target.current.insert(place.clone(), value.clone());
-                incoming.current.insert(place, value);
+                target.assign(place.clone(), value.clone());
+                incoming.assign(place, value);
             }
         }
     }
@@ -125,13 +166,14 @@ pub(super) fn merge(
 
     changed |= before != target.assumptions.len();
 
-    let before = target.witness_carriers.len();
+    // Proven truth is intersected below; retain every possible carrier obligation.
+    for (carrier, conditions) in &incoming.witness_carriers {
+        let retained = target.witness_carriers.entry(carrier.clone()).or_default();
+        let before = retained.len();
 
-    target
-        .witness_carriers
-        .retain(|value| incoming.witness_carriers.contains(value));
-
-    changed |= before != target.witness_carriers.len();
+        retained.extend(conditions.iter().cloned());
+        changed |= before != retained.len();
+    }
 
     let before = target.trusted_assumptions.len();
 
@@ -206,4 +248,20 @@ fn merge_values<K: Ord + Clone>(
     }
 
     changed
+}
+
+fn insert_replacement(
+    replacements: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
+    value: &ExecutionCondition,
+    joined: &ExecutionCondition,
+) {
+    // A value shared by differently merged aliases has no unique replacement.
+    replacements
+        .entry(value.clone())
+        .and_modify(|prior| {
+            if prior != joined {
+                *prior = ExecutionCondition::Unknown;
+            }
+        })
+        .or_insert_with(|| joined.clone());
 }

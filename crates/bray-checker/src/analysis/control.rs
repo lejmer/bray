@@ -193,10 +193,10 @@ where
                 self.push_edge(current, completed, AnalysisEdgeKind::Sequential, None);
             }
 
-            if self.dependency_failures == super::build::DependencyFailureMode::PotentialExits {
-                self.push_exit(current, AnalysisExitKind::Panic, id.into());
-                self.push_exit(current, AnalysisExitKind::Cancellation, id.into());
-            }
+            self.push_dependency_failures(
+                current,
+                bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+            );
 
             let entered = if fallible {
                 let entered = self.push_block();

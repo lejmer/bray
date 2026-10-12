@@ -108,7 +108,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                             .expression()
                             .and_then(|expression| memory.operation(expression))
                             .is_some_and(|operation| {
-                                super::operation::checked_memory_guarantee(
+                                crate::memory::execution::guarantees(
                                     operation.kind(),
                                     crate::ExecutionProperty::Pure,
                                 )
@@ -149,10 +149,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
             dependencies.extend(state.completion_dependencies);
 
             if normal_exit_blocks.contains(&block.id()) {
-                results.insert(match state.result {
-                    crate::ExecutionCondition::Expression(expression)
-                    | crate::ExecutionCondition::Constructed(expression, _) => {
-                        match self.domain.semantics.selections().expression(expression) {
+                let mut result = &state.result;
+
+                while let crate::ExecutionCondition::Constructed(base, _) = result {
+                    result = base;
+                }
+
+                results.insert(match result {
+                    crate::ExecutionCondition::Expression(expression) => {
+                        match self.domain.semantics.selections().expression(*expression) {
                             Some(bray_bound_tree::SemanticSelection::Operation(
                                 bray_bound_tree::SelectedOperation::Construction(construction),
                             )) => match construction.target() {

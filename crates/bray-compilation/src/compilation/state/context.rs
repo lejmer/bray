@@ -186,6 +186,16 @@ pub(in crate::compilation) struct CompilationState {
         UnitQueryCache<bray_checker::ExecutionCandidates>,
     pub(in crate::compilation) certified_execution:
         UnitQueryCache<bray_checker::ExecutionCertification>,
+    pub(in crate::compilation) selected_body_behavior:
+        UnitQueryCache<bray_bound_tree::BodyBehaviorContributions>,
+    pub(in crate::compilation) result_dependency_components: UnitQueryCache<
+        std::collections::BTreeMap<
+            bray_symbols::CallableSymbolId,
+            bray_symbols::DependencyContractTemplateId,
+        >,
+    >,
+    pub(in crate::compilation) prepared_body_analysis:
+        UnitQueryCache<bray_checker::PreparedBodyAnalysis>,
     pub(in crate::compilation) body_semantics: UnitQueryCache<CheckedBodySemantics>,
     pub(in crate::compilation) checked_body_behaviors: UnitQueryCache<CheckedBodyBehavior>,
     pub(in crate::compilation) lowered_units: UnitQueryCache<Option<bray_lowering::LoweredUnit>>,

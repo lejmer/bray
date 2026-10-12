@@ -27,7 +27,9 @@ impl Compilation {
                 let expressions =
                     self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
 
-                let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
+                let prepared =
+                    self.prepared_body_analysis_with_cancellation(key.clone(), cancellation)?;
+
                 let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
                 let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
                 let context = self.checker_context_for(&key, cancellation)?;
@@ -44,8 +46,8 @@ impl Compilation {
 
                 let result = checker_result(check_unwind_candidate(
                     request,
+                    prepared.result().value(),
                     expressions.result().value(),
-                    patterns.result().value(),
                     storage.result().value(),
                     memory.result().value(),
                     entry,
@@ -58,7 +60,7 @@ impl Compilation {
                     &diagnostics,
                     bound.result().diagnostics(),
                     expressions.result().diagnostics(),
-                    patterns.result().diagnostics(),
+                    prepared.result().diagnostics(),
                     storage.result().diagnostics(),
                     memory.result().diagnostics(),
                 ]);

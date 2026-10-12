@@ -338,7 +338,7 @@ pub struct AsyncScopeExitPlan {
     storage: Arc<[AsyncStorageExitDecision]>,
     cancellation_broadcast: Arc<[StorageAccessId]>,
     lifecycle_resolution: Arc<[StorageAccessId]>,
-    moved: Arc<[StorageAccessId]>,
+    moved: Arc<[crate::StoragePath]>,
     is_recovered: bool,
 }
 
@@ -350,7 +350,7 @@ impl AsyncScopeExitPlan {
         storage: impl IntoIterator<Item = AsyncStorageExitDecision>,
         cancellation_broadcast: impl IntoIterator<Item = StorageAccessId>,
         lifecycle_resolution: impl IntoIterator<Item = StorageAccessId>,
-        moved: impl IntoIterator<Item = StorageAccessId>,
+        moved: impl IntoIterator<Item = crate::StoragePath>,
         is_recovered: bool,
     ) -> Self {
         Self {
@@ -416,7 +416,7 @@ impl AsyncScopeExitPlan {
     }
 
     /// Returns paths already moved at this scope exit.
-    pub fn moved(&self) -> &[StorageAccessId] {
+    pub fn moved(&self) -> &[crate::StoragePath] {
         &self.moved
     }
 
@@ -525,8 +525,8 @@ impl CheckedAsync {
                         .cancellation_broadcast()
                         .iter()
                         .chain(exit.lifecycle_resolution())
-                        .chain(exit.moved())
                         .any(|access| access.unit() != unit)
+                    || exit.moved().iter().any(|path| !path.is_valid_for(unit))
             })
         {
             return Err(AsyncAnalysisBuildError::ForeignUnit);
@@ -743,7 +743,9 @@ mod tests {
             )],
             [storage],
             [storage],
-            [storage],
+            [crate::StoragePath::root(
+                crate::StorageIdentityId::from_slot(unit, 5),
+            )],
             false,
         );
 
@@ -764,7 +766,14 @@ mod tests {
         assert_eq!(analysis.task_operations(), &[operation]);
         assert_eq!(analysis.suspensions().len(), 1);
         assert_eq!(analysis.scope_exits().len(), 1);
-        assert_eq!(analysis.scope_exits()[0].moved(), &[storage]);
+
+        assert_eq!(
+            analysis.scope_exits()[0].moved(),
+            &[crate::StoragePath::root(
+                crate::StorageIdentityId::from_slot(unit, 5)
+            )]
+        );
+
         assert_eq!(analysis.scope_exits()[0].storage().len(), 1);
     }
 

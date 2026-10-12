@@ -656,3 +656,37 @@ fn admission_failure_can_reach_enclosing_cleanup_catch() {
         DiagnosticKind::CheckingCallableResultRequired,
     );
 }
+
+#[test]
+fn lowered_constant_paths_do_not_request_unreachable_cleanup() {
+    for body in [
+        "if false && observe(Guard {}) { return false; } return true;",
+        "if true || observe(Guard {}) { return true; } return false;",
+        "if true { return true; } else if observe(Guard {}) { return false; } else { return false; }",
+        "while true { break; } else { let guard = Guard {}; } return true;",
+        "let result = false && observe(Guard {}); return result;",
+        "let result = true || observe(Guard {}); return result;",
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            struct Guard {{ destruct() {{ panic("cleanup"); }} }}
+            func observe(pos value: Guard) -> bool {{ return true; }}
+            func caller() -> bool {{ {body} }}
+        "#
+        );
+
+        let compilation = compilation(&source);
+
+        assert!(
+            !compilation.check_diagnostics().has_errors(),
+            "{body}: {:?}",
+            compilation.check_diagnostics()
+        );
+
+        let key = crate::test_support::source_function_body_key(&compilation, "caller");
+        let lowered = compilation.lowered_unit(key).unwrap();
+
+        assert!(lowered.value().as_ref().unwrap().mir().is_some(), "{body}");
+    }
+}

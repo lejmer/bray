@@ -177,6 +177,11 @@ pub(crate) enum AnalysisRefinement {
         value: bool,
     },
     TrustBoundary(BoundExpressionId),
+    InvocationFailure(bray_bound_tree::BoundExecutionSite),
+    CleanupRequired {
+        scope: bray_bound_tree::BoundBlockId,
+        exit: AnyBoundNodeId,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -221,12 +226,22 @@ impl AnalysisEdge {
         self.kind
     }
 
+    pub(crate) const fn is_dependency_failure(self) -> bool {
+        matches!(
+            self.refinement,
+            Some(
+                AnalysisRefinement::InvocationFailure(_)
+                    | AnalysisRefinement::CleanupRequired { .. }
+            )
+        )
+    }
+
     pub(crate) const fn refinement(self) -> Option<AnalysisRefinement> {
         self.refinement
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct AnalysisBlock {
     id: AnalysisBlockId,
     operations: Box<[AnalysisOperationId]>,
@@ -298,7 +313,7 @@ impl AnalysisExit {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct ControlFlowGraph {
     unit: BoundUnitId,
     entry: AnalysisBlockId,
@@ -411,6 +426,12 @@ impl ControlFlowGraph {
         });
 
         let refinements_are_valid = self.edges().iter().all(|edge| match edge.refinement() {
+            Some(AnalysisRefinement::InvocationFailure(invocation)) => {
+                invocation.node().unit() == self.unit
+            }
+            Some(AnalysisRefinement::CleanupRequired { scope, exit }) => {
+                scope.unit() == self.unit && exit.unit() == self.unit
+            }
             Some(
                 AnalysisRefinement::Condition { expression, .. }
                 | AnalysisRefinement::NullablePresence { expression, .. }

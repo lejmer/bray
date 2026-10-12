@@ -17,12 +17,8 @@ use bray_symbols::{AnyLocalSymbolId, CallableExecution, CallableSignatureQuery, 
 use super::cleanup::scope_exit_plans;
 use super::diagnostic::{add_unavailable_await_dependency_diagnostic, await_dependency_failure};
 
-use crate::analysis::{
-    AnalysisOperationKind, AnalysisSuspensionKind, AnalysisTaskOperationKind,
-    ControlFlowGraphBuildOutcome, build_storage_control_flow_graph,
-};
+use crate::analysis::{AnalysisOperationKind, AnalysisSuspensionKind, AnalysisTaskOperationKind};
 use crate::diagnostic::{diagnostic_id, expression_span};
-use crate::unit::assert_unit_inputs;
 use crate::{
     CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider,
     CheckerUnitView,
@@ -30,71 +26,10 @@ use crate::{
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "async checking consumes independently materialized semantic analysis sets explicitly"
-)]
-pub(crate) fn check_async_analysis<C>(
-    request: CheckerUnitView<'_, C>,
-    types: &CheckedExpressionTypes,
-    selections: &CheckedSemanticSelections,
-    patterns: &bray_bound_tree::CheckedPatterns,
-    liveness: &Liveness,
-    dependencies: &CheckedDependencyContracts,
-    storage: &StoragePlan,
-    refinements: &CheckedRefinements,
-    flow: &StorageFlow,
-) -> CheckerOutcome<CheckedAsync, C::UpstreamError>
-where
-    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
-{
-    if request.is_cancelled() {
-        return CheckerOutcome::Cancelled;
-    }
-
-    assert_unit_inputs(request, [("patterns", (patterns.unit(), patterns.kind()))]);
-
-    assert_inputs(
-        request,
-        types,
-        selections,
-        liveness,
-        dependencies,
-        storage,
-        refinements,
-        flow,
-    );
-
-    let graph = match build_storage_control_flow_graph(
-        request,
-        storage,
-        selections,
-        Some(patterns),
-        None,
-    ) {
-        ControlFlowGraphBuildOutcome::Complete(graph) => graph,
-        ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
-    };
-
-    check_async_analysis_with_graph(
-        request,
-        types,
-        selections,
-        liveness,
-        dependencies,
-        storage,
-        refinements,
-        flow,
-        &graph,
-    )
-}
-
-#[expect(
-    clippy::too_many_arguments,
     reason = "async checking consumes correlated durable inputs and one shared control-flow graph"
 )]
 pub(crate) fn check_async_analysis_with_graph<C>(
+    cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     selections: &CheckedSemanticSelections,
@@ -286,7 +221,15 @@ where
     }
 
     let (storage_requirements, cleanup_types, scope_exits, replacements, cleanup_diagnostics) =
-        match scope_exit_plans(request, storage, flow, dependencies, selections, types) {
+        match scope_exit_plans(
+            cleanup_shapes,
+            request,
+            storage,
+            flow,
+            dependencies,
+            selections,
+            types,
+        ) {
             Ok(plans) => plans,
             Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
             Err(CheckerQueryError::Upstream(error)) => {
@@ -353,38 +296,6 @@ fn add_selected_task_operations<C>(
             );
         }
     }
-}
-
-fn assert_inputs<C>(
-    request: CheckerUnitView<'_, C>,
-    types: &CheckedExpressionTypes,
-    selections: &CheckedSemanticSelections,
-    liveness: &Liveness,
-    dependencies: &CheckedDependencyContracts,
-    storage: &StoragePlan,
-    refinements: &CheckedRefinements,
-    flow: &StorageFlow,
-) where
-    C: CheckerRequestContext + ?Sized,
-{
-    assert_unit_inputs(
-        request,
-        [
-            ("expression types", (types.unit(), types.kind())),
-            (
-                "semantic selections",
-                (selections.unit(), selections.kind()),
-            ),
-            ("liveness", (liveness.unit(), liveness.kind())),
-            (
-                "dependency contracts",
-                (dependencies.unit(), dependencies.kind()),
-            ),
-            ("storage plan", (storage.unit(), storage.kind())),
-            ("refinements", (refinements.unit(), refinements.kind())),
-            ("storage flow", (flow.unit(), flow.kind())),
-        ],
-    )
 }
 
 fn containing_execution<C>(
@@ -674,7 +585,7 @@ mod tests {
     use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::{
-        AnalysisTaskOperationKind, add_task_context_diagnostic, check_async_analysis,
+        AnalysisTaskOperationKind, add_task_context_diagnostic, check_async_analysis_with_graph,
         selected_task_operation,
     };
     use crate::test_support::{
@@ -990,6 +901,7 @@ mod tests {
             suspension,
             [],
             [],
+            [],
             false,
         )
         .unwrap_or_else(|error| panic!("test storage flow must validate: {error:?}"));
@@ -997,16 +909,36 @@ mod tests {
         let patterns =
             bray_bound_tree::CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], []);
 
-        check_async_analysis(
+        let mut cleanup_shapes = crate::asynchronous::CleanupShapeResolver::new(request);
+
+        let graph = match crate::analysis::build_storage_control_flow_graph(
+            &mut cleanup_shapes,
+            request,
+            &storage,
+            &selections,
+            Some(&patterns),
+            None,
+        ) {
+            crate::analysis::ControlFlowGraphBuildOutcome::Complete(graph) => graph,
+            crate::analysis::ControlFlowGraphBuildOutcome::Cancelled => {
+                return CheckerOutcome::Cancelled;
+            }
+            crate::analysis::ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
+                return CheckerOutcome::UpstreamFailure(error);
+            }
+        };
+
+        check_async_analysis_with_graph(
+            &mut cleanup_shapes,
             request,
             &types,
             &selections,
-            &patterns,
             &liveness,
             &dependencies,
             &storage,
             &refinements,
             &flow,
+            &graph,
         )
     }
 

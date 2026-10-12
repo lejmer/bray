@@ -5,8 +5,7 @@ use bray_base::{shared_slice, sorted_unique_shared_slice};
 use crate::{
     AnyBoundNodeId, BorrowCapabilityId, BoundBlockId, BoundExpressionId, BoundUnitId,
     BoundUnitKind, CheckedMemoryOperation, CheckedMemoryOperations, MemoryOperationDecision,
-    StorageAccessId, StorageAccessPurpose, StorageIdentityId, StoragePlan, StorageProjection,
-    storage_identity_transfers_at_unit_exit,
+    StorageAccessId, StorageAccessPurpose, StorageIdentityId,
 };
 
 /// The checker result for one evaluated storage operation.
@@ -102,7 +101,7 @@ pub struct StorageSuspensionState {
     occurrence: crate::BoundExecutionSite,
     live: Arc<[StorageIdentityId]>,
     initialized: Arc<[StorageIdentityId]>,
-    moved: Arc<[StorageAccessId]>,
+    moved: Arc<[crate::StoragePath]>,
     active_borrows: Arc<[BorrowCapabilityId]>,
 }
 
@@ -112,7 +111,7 @@ impl StorageSuspensionState {
         occurrence: impl Into<crate::BoundExecutionSite>,
         live: impl IntoIterator<Item = StorageIdentityId>,
         initialized: impl IntoIterator<Item = StorageIdentityId>,
-        moved: impl IntoIterator<Item = StorageAccessId>,
+        moved: impl IntoIterator<Item = crate::StoragePath>,
         active_borrows: impl IntoIterator<Item = BorrowCapabilityId>,
     ) -> Self {
         Self {
@@ -147,7 +146,7 @@ impl StorageSuspensionState {
     }
 
     /// Returns storage accesses moved before suspension.
-    pub fn moved(&self) -> &[StorageAccessId] {
+    pub fn moved(&self) -> &[crate::StoragePath] {
         &self.moved
     }
 
@@ -188,9 +187,9 @@ pub struct StorageExitDecision {
     exit: AnyBoundNodeId,
     live: Arc<[StorageIdentityId]>,
     initialized: Arc<[StorageIdentityId]>,
-    moved: Arc<[StorageAccessId]>,
+    moved: Arc<[crate::StoragePath]>,
     fully_moved: Arc<[StorageIdentityId]>,
-    definitely_absent: Arc<[StorageAccessId]>,
+    definitely_absent: Arc<[crate::StoragePath]>,
     active_borrows: Arc<[BorrowCapabilityId]>,
     is_recovered: bool,
 }
@@ -202,8 +201,8 @@ impl StorageExitDecision {
         exit: AnyBoundNodeId,
         live: impl IntoIterator<Item = StorageIdentityId>,
         initialized: impl IntoIterator<Item = StorageIdentityId>,
-        moved: impl IntoIterator<Item = StorageAccessId>,
-        definitely_absent: impl IntoIterator<Item = StorageAccessId>,
+        moved: impl IntoIterator<Item = crate::StoragePath>,
+        definitely_absent: impl IntoIterator<Item = crate::StoragePath>,
         fully_moved: impl IntoIterator<Item = StorageIdentityId>,
         active_borrows: impl IntoIterator<Item = BorrowCapabilityId>,
         is_recovered: bool,
@@ -242,12 +241,12 @@ impl StorageExitDecision {
     }
 
     /// Returns storage accesses whose reached values were moved before this exit.
-    pub fn moved(&self) -> &[StorageAccessId] {
+    pub fn moved(&self) -> &[crate::StoragePath] {
         &self.moved
     }
 
     /// Returns storage paths with no live value on every incoming path, after moves or absence refinements.
-    pub fn definitely_absent(&self) -> &[StorageAccessId] {
+    pub fn definitely_absent(&self) -> &[crate::StoragePath] {
         &self.definitely_absent
     }
 
@@ -287,6 +286,9 @@ pub struct StorageFlow {
     kind: BoundUnitKind,
     operations: Arc<[StorageOperationDecision]>,
     suspensions: Arc<[StorageSuspensionState]>,
+    reachable_blocks: Arc<[BoundBlockId]>,
+    conditions: std::collections::BTreeMap<BoundExpressionId, bool>,
+    assignment_targets: std::collections::BTreeMap<BoundExpressionId, crate::StoragePath>,
     reachable_exits: Arc<[StorageExitPoint]>,
     exits: Arc<[StorageExitDecision]>,
     memory_operations: Arc<[MemoryOperationDecision]>,
@@ -302,12 +304,14 @@ impl StorageFlow {
         kind: BoundUnitKind,
         operations: impl IntoIterator<Item = StorageOperationDecision>,
         suspensions: impl IntoIterator<Item = StorageSuspensionState>,
+        reachable_blocks: impl IntoIterator<Item = BoundBlockId>,
         reachable_exits: impl IntoIterator<Item = StorageExitPoint>,
         exits: impl IntoIterator<Item = StorageExitDecision>,
         is_recovered: bool,
     ) -> Result<Self, StorageFlowBuildError> {
         let operations = operations.into_iter().collect::<Vec<_>>();
         let mut suspensions = suspensions.into_iter().collect::<Vec<_>>();
+        let reachable_blocks = sorted_unique_shared_slice(reachable_blocks);
         let reachable_exits = sorted_unique_shared_slice(reachable_exits);
         let exits = exits.into_iter().collect::<Vec<_>>();
 
@@ -331,14 +335,15 @@ impl StorageFlow {
                 || suspension
                     .moved()
                     .iter()
-                    .any(|access| access.unit() != unit)
+                    .any(|access| !access.is_valid_for(unit))
                 || suspension
                     .active_borrows()
                     .iter()
                     .any(|borrow| borrow.unit() != unit)
-        }) || reachable_exits
-            .iter()
-            .any(|exit| exit.scope().unit() != unit || exit.exit().unit() != unit)
+        }) || reachable_blocks.iter().any(|block| block.unit() != unit)
+            || reachable_exits
+                .iter()
+                .any(|exit| exit.scope().unit() != unit || exit.exit().unit() != unit)
             || exits.iter().any(|exit| {
                 exit.scope().unit() != unit
                     || exit.exit().unit() != unit
@@ -351,7 +356,7 @@ impl StorageFlow {
                         .moved()
                         .iter()
                         .chain(exit.definitely_absent())
-                        .any(|access| access.unit() != unit)
+                        .any(|access| !access.is_valid_for(unit))
                     || exit
                         .fully_moved()
                         .iter()
@@ -379,10 +384,13 @@ impl StorageFlow {
             kind,
             operations: shared_slice(operations),
             suspensions: shared_slice(suspensions),
+            reachable_blocks,
+            conditions: Default::default(),
             reachable_exits,
             exits: shared_slice(exits),
             memory_operations: Arc::from([]),
             checked_memory_operations: Arc::from([]),
+            assignment_targets: std::collections::BTreeMap::new(),
             replacements: Arc::from([]),
             is_recovered,
         })
@@ -402,7 +410,7 @@ impl StorageFlow {
                     .moved()
                     .iter()
                     .chain(decision.definitely_absent())
-                    .any(|access| access.unit() != self.unit)
+                    .any(|access| !access.is_valid_for(self.unit))
         }) {
             return Err(StorageFlowBuildError::ForeignUnit);
         }
@@ -480,6 +488,65 @@ impl StorageFlow {
         &self.suspensions
     }
 
+    /// Publishes boolean results established at their branch sites by correlated flow.
+    pub fn with_conditions(
+        mut self,
+        conditions: std::collections::BTreeMap<BoundExpressionId, bool>,
+    ) -> Result<Self, StorageFlowBuildError> {
+        if conditions
+            .keys()
+            .any(|expression| expression.unit() != self.unit)
+        {
+            return Err(StorageFlowBuildError::ForeignUnit);
+        }
+
+        self.conditions = conditions;
+
+        Ok(self)
+    }
+
+    /// Publishes exact assignment destinations agreed by every reachable evaluation.
+    pub fn with_assignment_targets(
+        mut self,
+        targets: std::collections::BTreeMap<BoundExpressionId, crate::StoragePath>,
+    ) -> Result<Self, StorageFlowBuildError> {
+        if targets.iter().any(|(expression, access)| {
+            expression.unit() != self.unit || !access.is_valid_for(self.unit)
+        }) {
+            return Err(StorageFlowBuildError::ForeignUnit);
+        }
+
+        self.assignment_targets = targets;
+
+        Ok(self)
+    }
+
+    /// Returns the physical destination established for an assignment through a reference.
+    pub fn assignment_target(&self, expression: BoundExpressionId) -> Option<&crate::StoragePath> {
+        self.assignment_targets.get(&expression)
+    }
+
+    /// Returns the established decision for a selected raw-memory operation.
+    pub fn memory_operation_status(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Option<crate::MemoryOperationStatus> {
+        self.memory_operations
+            .binary_search_by_key(&expression, |operation| operation.expression())
+            .ok()
+            .map(|index| self.memory_operations[index].status())
+    }
+
+    /// Returns a boolean result established on every reachable evaluation of a condition.
+    pub fn condition_value(&self, expression: BoundExpressionId) -> Option<bool> {
+        self.conditions.get(&expression).copied()
+    }
+
+    /// Whether the correlated flow can enter a lexical block.
+    pub fn is_block_reachable(&self, block: BoundBlockId) -> bool {
+        self.reachable_blocks.binary_search(&block).is_ok()
+    }
+
     /// Returns the exact scope exits proven reachable by checked control flow.
     pub fn reachable_exits(&self) -> &[StorageExitPoint] {
         &self.reachable_exits
@@ -499,33 +566,6 @@ impl StorageFlow {
     /// Returns lexical scope-exit decisions in control-flow order.
     pub fn exits(&self) -> &[StorageExitDecision] {
         &self.exits
-    }
-
-    /// Returns moved represented-part paths needed by this owner's cleanup or replacement.
-    ///
-    /// Retained inner-scope exits and transferred-out storage do not contribute exit paths.
-    pub fn cleanup_moved_projections<'a>(
-        &'a self,
-        storage: &'a StoragePlan,
-        identity: StorageIdentityId,
-        owner: Option<BoundBlockId>,
-    ) -> impl Iterator<Item = &'a [StorageProjection]> {
-        let transfers = storage_identity_transfers_at_unit_exit(storage, identity);
-
-        self.exits
-            .iter()
-            .filter(move |exit| owner == Some(exit.scope()) && !transfers)
-            .flat_map(|exit| exit.moved())
-            .chain(
-                self.replacements
-                    .iter()
-                    .flat_map(|replacement| replacement.moved()),
-            )
-            .filter(move |access| {
-                storage.root_identity(**access) == Some(identity)
-                    && !storage.is_root_access(**access)
-            })
-            .filter_map(move |access| storage.resolved_projections(*access))
     }
 
     /// Returns memory-operation decisions in bound-expression order.
@@ -583,21 +623,30 @@ mod tests {
             scope.into(),
             [storage, storage],
             [storage, storage],
-            [access, access],
+            [
+                crate::StoragePath::root(storage),
+                crate::StoragePath::root(storage),
+            ],
             [],
             [storage, storage],
             [],
             false,
         );
 
-        let suspension =
-            StorageSuspensionState::new(expression, [storage], [storage], [access], []);
+        let suspension = StorageSuspensionState::new(
+            expression,
+            [storage],
+            [storage],
+            [crate::StoragePath::root(storage)],
+            [],
+        );
 
         let storage_flow = StorageFlow::try_new(
             unit,
             BoundUnitKind::CallableBody,
             [operation],
             [suspension],
+            [scope],
             [StorageExitPoint::new(scope, scope.into())],
             [exit],
             false,
@@ -614,7 +663,12 @@ mod tests {
         );
 
         assert_eq!(storage_flow.exits()[0].initialized(), &[storage]);
-        assert_eq!(storage_flow.exits()[0].moved(), &[access]);
+
+        assert_eq!(
+            storage_flow.exits()[0].moved(),
+            &[crate::StoragePath::root(storage)]
+        );
+
         assert_eq!(storage_flow.exits()[0].fully_moved(), &[storage]);
         assert!(!storage_flow.is_recovered());
     }
@@ -641,8 +695,32 @@ mod tests {
                 [],
                 [],
                 [],
+                [],
                 true,
             ),
+            Err(StorageFlowBuildError::ForeignUnit)
+        );
+    }
+
+    #[test]
+    fn derived_paths_reject_foreign_projection_occurrences() {
+        let unit = BoundUnitId::new(6);
+        let expression = BoundExpressionId::from_slot(unit, 0);
+
+        let target = crate::StoragePath {
+            root: StorageIdentityId::from_slot(unit, 0),
+            projections: [crate::StorageProjection::Element(
+                BoundExpressionId::from_slot(BoundUnitId::new(7), 0),
+            )]
+            .into(),
+        };
+
+        let flow =
+            StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], [], false)
+                .unwrap();
+
+        assert_eq!(
+            flow.with_assignment_targets([(expression, target)].into()),
             Err(StorageFlowBuildError::ForeignUnit)
         );
     }

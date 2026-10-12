@@ -604,3 +604,278 @@ func other()
 
     semantic_unit_context(symbols, bound.value());
 }
+
+#[test]
+fn selected_call_inventory_precedes_flow_and_reuses_its_publication() {
+    let compilation = compilation(
+        "module app; func identity(pos value: bool) -> bool { return value; } func main() -> bool { return identity(true); }",
+    );
+
+    let key = crate::test_support::source_function_body_key(&compilation, "main");
+    let cancellation = CancellationToken::new();
+
+    let first = compilation
+        .selected_body_behavior_with_cancellation(key.clone(), &cancellation)
+        .unwrap();
+
+    assert_eq!(first.result().value().calls().len(), 1);
+
+    assert_eq!(
+        compilation.state.body_semantics.is_published(&key),
+        Ok(false)
+    );
+
+    assert_eq!(
+        compilation.state.storage_plans.is_published(&key),
+        Ok(false)
+    );
+
+    let checked = compilation
+        .body_semantics_with_cancellation(key.clone(), &cancellation)
+        .unwrap();
+
+    assert!(!checked.result().diagnostics().has_errors(), "{checked:#?}");
+
+    let second = compilation
+        .selected_body_behavior_with_cancellation(key.clone(), &cancellation)
+        .unwrap();
+
+    assert!(Arc::ptr_eq(&first, &second));
+
+    let dependencies = compilation
+        .state
+        .fact_runtime
+        .dependencies(&crate::fact::CompilationFactKey::BodySemantics(key.clone()))
+        .unwrap()
+        .unwrap();
+
+    assert!(dependencies.contains(&crate::fact::CompilationFactKey::SelectedBodyBehavior(key)));
+}
+
+#[test]
+fn prepared_body_is_shared_by_ownership_unwind_and_execution_proofs() {
+    let compilation = compilation(
+        r#"
+        module app;
+        struct Resource { destruct() {} }
+        func consume(pos resource: Resource) {}
+        func main() {
+            let resource: Resource = Resource {};
+            consume(resource);
+        }
+    "#,
+    );
+
+    let key = crate::test_support::source_function_body_key(&compilation, "main");
+    let cancellation = CancellationToken::new();
+
+    let prepared = compilation
+        .prepared_body_analysis_with_cancellation(key.clone(), &cancellation)
+        .unwrap();
+
+    assert!(
+        !prepared.result().diagnostics().has_errors(),
+        "{:?}",
+        prepared.result().diagnostics()
+    );
+
+    assert_eq!(
+        compilation.state.body_semantics.is_published(&key),
+        Ok(false)
+    );
+
+    assert_eq!(
+        compilation.state.unwind_candidates.is_published(&key),
+        Ok(false)
+    );
+
+    assert_eq!(
+        compilation.state.execution_candidates.is_published(&key),
+        Ok(false)
+    );
+
+    let unwind = compilation
+        .unwind_behavior(key.clone(), &cancellation)
+        .unwrap();
+
+    assert!(!unwind.result().diagnostics().has_errors(), "{unwind:#?}");
+
+    let body = compilation
+        .body_semantics_with_cancellation(key.clone(), &cancellation)
+        .unwrap();
+
+    assert!(!body.result().diagnostics().has_errors(), "{body:#?}");
+
+    let execution = compilation.execution_properties(key.clone()).unwrap();
+
+    assert!(!execution.diagnostics().has_errors(), "{execution:#?}");
+
+    let reused = compilation
+        .prepared_body_analysis_with_cancellation(key.clone(), &cancellation)
+        .unwrap();
+
+    assert!(Arc::ptr_eq(&prepared, &reused));
+
+    for consumer in [
+        crate::fact::CompilationFactKey::BodySemantics(key.clone()),
+        crate::fact::CompilationFactKey::UnwindCandidate(key.clone()),
+        crate::fact::CompilationFactKey::ExecutionCandidates(key.clone()),
+    ] {
+        let dependencies = compilation
+            .state
+            .fact_runtime
+            .dependencies(&consumer)
+            .unwrap()
+            .unwrap();
+
+        assert!(
+            dependencies.contains(&crate::fact::CompilationFactKey::PreparedBodyAnalysis(
+                key.clone()
+            )),
+            "{consumer:?}: {dependencies:?}"
+        );
+    }
+}
+
+#[test]
+fn recursive_result_dependencies_share_one_component_publication() {
+    let application = compilation(
+        r#"
+        module app;
+        func first(pos value: &u32, pos flag: bool) -> &u32 {
+            if flag { return value; }
+            return second(value, true);
+        }
+        func second(pos value: &u32, pos flag: bool) -> &u32 {
+            if flag { return value; }
+            return first(value, true);
+        }
+    "#,
+    );
+
+    let members = ["first", "second"].map(|name| {
+        let callable: bray_symbols::CallableSymbolId =
+            crate::test_support::source_function(&application, name).into();
+
+        (
+            callable,
+            crate::test_support::source_function_body_key(&application, name),
+        )
+    });
+
+    let owner = members
+        .iter()
+        .min_by_key(|(callable, _)| *callable)
+        .unwrap();
+
+    let key = crate::fact::CompilationFactKey::ResultDependencyComponent(owner.1.clone());
+    let cancellation = &application.state.cancellation;
+    let context = application.binding_context(cancellation).unwrap();
+    let start = std::sync::Barrier::new(members.len());
+
+    std::thread::scope(|scope| {
+        let handles = members
+            .iter()
+            .map(|(callable, _)| {
+                let start = &start;
+
+                scope.spawn(move || {
+                    start.wait();
+
+                    bray_binder::SymbolQueryProvider::resolve_symbol_query(
+                        &context,
+                        bray_symbols::SymbolQueryRequest::<
+                            bray_symbols::CallableResultDependenciesQuery,
+                        >::new(*callable),
+                    )
+                    .unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for handle in handles {
+            let result = handle.join().unwrap();
+
+            assert!(!result.diagnostics().has_errors(), "{result:?}");
+        }
+    });
+
+    let mut first = None;
+
+    for (callable, body) in members.iter().rev() {
+        let request = bray_symbols::SymbolQueryRequest::<
+            bray_symbols::CallableResultDependenciesQuery,
+        >::new(*callable);
+
+        let result =
+            bray_binder::SymbolQueryProvider::resolve_symbol_query(&context, request).unwrap();
+
+        assert!(!result.diagnostics().has_errors(), "{result:?}");
+
+        let published = application
+            .state
+            .result_dependency_components
+            .get_or_compute(
+                &application.state.fact_runtime,
+                cancellation,
+                key.clone(),
+                owner.1.clone(),
+                || panic!("demanding any member must publish the complete component"),
+            )
+            .unwrap();
+
+        assert_eq!(
+            published
+                .result()
+                .value()
+                .keys()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>(),
+            members.iter().map(|(callable, _)| *callable).collect()
+        );
+
+        assert_eq!(published.result().value()[callable], *result.value());
+
+        if let Some(first) = &first {
+            assert!(Arc::ptr_eq(first, &published));
+        }
+
+        first = Some(published);
+
+        let dependencies = application
+            .state
+            .fact_runtime
+            .dependencies(&crate::fact::CompilationFactKey::from(
+                crate::fact::SymbolQueryKey::new(request.symbol(), request.kind()),
+            ))
+            .unwrap()
+            .unwrap();
+
+        assert!(dependencies.contains(&key), "{dependencies:?}");
+
+        assert_eq!(
+            application
+                .state
+                .result_dependency_components
+                .is_published(body),
+            Ok(body == &owner.1)
+        );
+    }
+
+    let dependencies = application
+        .state
+        .fact_runtime
+        .dependencies(&key)
+        .unwrap()
+        .unwrap();
+
+    for (_, body) in members {
+        assert!(
+            dependencies.contains(&crate::fact::CompilationFactKey::SelectedBodyBehavior(
+                body.clone()
+            ))
+        );
+
+        assert!(dependencies.contains(&crate::fact::CompilationFactKey::BoundUnit(body)));
+    }
+}

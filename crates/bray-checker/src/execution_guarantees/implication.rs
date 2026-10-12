@@ -168,8 +168,8 @@ pub fn map_execution_condition_substitutions<E>(
         ExecutionCondition::Projection(field, value) => {
             map_execution_condition_substitutions(value, map)?.component(*field)
         }
-        ExecutionCondition::Constructed(expression, fields) => ExecutionCondition::Constructed(
-            *expression,
+        ExecutionCondition::Constructed(base, fields) => ExecutionCondition::Constructed(
+            std::sync::Arc::new(map_execution_condition_substitutions(base, map)?),
             fields
                 .iter()
                 .map(|(field, value)| {

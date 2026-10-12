@@ -111,6 +111,7 @@ impl Lowerer<'_> {
             );
         }
 
+        let entry = current;
         let mut current = current;
 
         let source = self.source(expression.origin());
@@ -118,6 +119,10 @@ impl Lowerer<'_> {
         let (join, result, ty) = self.push_result_join(id, expression.origin())?;
 
         for (index, then_block) in blocks.iter().take(conditions.len()).enumerate() {
+            if !self.is_reachable(entry, current) {
+                break;
+            }
+
             let depth = self.active_scopes.len();
             let scope = self.begin_condition_scope(conditions[index]);
 
@@ -149,13 +154,8 @@ impl Lowerer<'_> {
                 };
             }
 
-            let mut then_completion = if self.is_reachable(current, then_entry) {
-                self.lower_yielding_block(*then_block, then_entry, join, ty, depth, None)?
-            } else {
-                self.finish_unreachable_blocks(&[then_entry], &source)?;
-
-                LoweredExpression::terminated(Self::retained_source(&source))
-            };
+            let mut then_completion =
+                self.lower_yielding_block(*then_block, then_entry, join, ty, depth, None)?;
 
             if let (Some(scope), Some(block)) = (scope, then_completion.block) {
                 then_completion.block =
@@ -177,6 +177,11 @@ impl Lowerer<'_> {
         }
 
         let else_completion = match blocks.get(conditions.len()).copied() {
+            _ if !self.is_reachable(entry, current) => {
+                self.finish_unreachable_blocks(&[current], &source)?;
+
+                LoweredExpression::terminated(Self::retained_source(&source))
+            }
             Some(block) => {
                 self.lower_yielding_block(block, current, join, ty, self.active_scopes.len(), None)?
             }
@@ -189,11 +194,7 @@ impl Lowerer<'_> {
 
         self.finish_result_edge(else_completion, join, ty)?;
 
-        Ok(LoweredExpression::continuing(
-            join,
-            Some(MirOperand::Value(result)),
-            source,
-        ))
+        self.finish_result_join(entry, join, result, source)
     }
 
     pub(in crate::lowering::expression) fn lower_short_circuit(
@@ -224,6 +225,20 @@ impl Lowerer<'_> {
         };
 
         let source = self.expression_source(id);
+
+        if let Some(value) = self.known_condition(*left_id, &left) {
+            let short_circuits = match operator {
+                BoundOperator::LogicalOr => value,
+                BoundOperator::LogicalAnd => !value,
+                _ => panic!("invalid short-circuit operator {operator:?} for {id:?}"),
+            };
+
+            return if short_circuits {
+                Ok(LoweredExpression::continuing(current, Some(left), source))
+            } else {
+                self.lower_expression(*right_id, current)
+            };
+        }
 
         let right_entry = self
             .builder

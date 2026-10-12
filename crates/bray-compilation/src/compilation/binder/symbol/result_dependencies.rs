@@ -37,35 +37,23 @@ fn infer_reachable_results(
 ) -> BindingQueryResult<DiagnosticResult<DependencyContractTemplateId>> {
     let compilation = context.compilation();
 
-    let empty = context
-        .semantic_values()
-        .empty_dependency_contract_template()
-        .unwrap_or_else(|error| {
-            panic!("semantic_value_binding_error in infer_reachable_results: {error:?}")
-        });
+    if let Some(address) = context.imported_semantic_address(root.into_any())? {
+        return super::imported::imported_result_dependencies(context, address);
+    }
 
-    let mut templates = BTreeMap::new();
     let mut units = BTreeMap::new();
     let mut pending = vec![root];
     let mut edges = BTreeMap::<CallableSymbolId, BTreeSet<CallableSymbolId>>::new();
     let mut visited = BTreeSet::new();
-    let mut diagnostics = DiagnosticBag::new();
 
     while let Some(callable) = pending.pop() {
         context.cancellation.check().map_err(binder_error)?;
 
-        if !visited.insert(callable) {
-            continue;
-        }
-
-        templates.insert(callable, empty);
-
-        if let Some(address) = context.imported_semantic_address(callable.into_any())? {
-            let dependencies = super::imported::imported_result_dependencies(context, address)?;
-
-            templates.insert(callable, *dependencies.value());
-            diagnostics = diagnostics.merged(dependencies.diagnostics());
-
+        if !visited.insert(callable)
+            || context
+                .imported_semantic_address(callable.into_any())?
+                .is_some()
+        {
             continue;
         }
 
@@ -76,36 +64,120 @@ fn infer_reachable_results(
             continue;
         };
 
-        // Related queries and the fixed-point worklist retain the same immutable unit key.
-        let bound = compilation
-            .bound_unit_with_cancellation(key.clone(), context.cancellation)
+        let behavior = compilation
+            .selected_body_behavior_with_cancellation(key.clone(), context.cancellation)
             .map_err(binder_error)?;
 
-        let expressions = compilation
-            .expression_semantics_with_cancellation(key.clone(), context.cancellation)
-            .map_err(binder_error)?;
-
-        let patterns = compilation
-            .patterns_with_cancellation(key.clone(), context.cancellation)
-            .map_err(binder_error)?;
-
-        for entry in expressions.result().value().selections().entries() {
-            let instances = match entry.selection() {
-                SemanticSelection::Call(call) => match call.target() {
-                    BoundCallableTarget::Declaration(instance) => [Some(instance), None],
-                    _ => [None, None],
-                },
-                SemanticSelection::ScopedUse(scoped) => {
-                    [Some(scoped.enter().0), Some(scoped.exit().0)]
-                }
-                _ => [None, None],
-            };
-
-            for instance in instances.into_iter().flatten() {
+        for call in behavior.result().value().calls() {
+            if let BoundCallableTarget::Declaration(instance) = call.target() {
                 let callee = instance.definition().callable_symbol();
 
                 pending.push(callee);
                 edges.entry(callable).or_default().insert(callee);
+            }
+        }
+
+        units.insert(callable, key);
+    }
+
+    if !units.contains_key(&root) {
+        let empty = context
+            .semantic_values()
+            .empty_dependency_contract_template()
+            .expect("empty result dependency template satisfies the semantic store contract");
+
+        return Ok(DiagnosticResult::new(empty, DiagnosticBag::new()));
+    }
+
+    let components = bray_base::strongly_connected_components(units.keys().copied(), |callable| {
+        edges.get(&callable).into_iter().flatten().copied()
+    });
+
+    let component = components
+        .into_iter()
+        .find(|component| component.contains(&root))
+        .expect("a demanded source callable belongs to its reachable call component");
+
+    let owner = component.iter().min().expect("call component is nonempty");
+
+    let key = units
+        .get(owner)
+        .expect("source component owner retains its body")
+        .clone();
+
+    let published = compilation
+        .unit_query(
+            &compilation.state.result_dependency_components,
+            crate::fact::CompilationFactKey::ResultDependencyComponent(key.clone()),
+            key,
+            context.cancellation,
+            |cancellation| {
+                let result = infer_component(compilation, &component, cancellation)?;
+
+                Ok((result, Box::new([])))
+            },
+        )
+        .map_err(binder_error)?;
+
+    Ok(DiagnosticResult::new(
+        *published
+            .result()
+            .value()
+            .get(&root)
+            .expect("settled component publishes every member"),
+        published.result().diagnostics().clone(),
+    ))
+}
+
+fn infer_component(
+    compilation: &crate::Compilation,
+    component: &[CallableSymbolId],
+    cancellation: &crate::fact::CancellationToken,
+) -> Result<
+    DiagnosticResult<BTreeMap<CallableSymbolId, DependencyContractTemplateId>>,
+    crate::fact::FactQueryError,
+> {
+    use crate::compilation::binder::binding_query_error;
+
+    let context = compilation.binding_context(cancellation)?;
+
+    let empty = context
+        .semantic_values()
+        .empty_dependency_contract_template()
+        .expect("empty result dependency template satisfies the semantic store contract");
+
+    let members = component.iter().copied().collect::<BTreeSet<_>>();
+    let mut units = BTreeMap::new();
+    let mut callees = BTreeSet::new();
+    let mut cyclic = component.len() > 1;
+    let mut diagnostics = DiagnosticBag::new();
+
+    for callable in component {
+        let key = compilation
+            .declared_unit_key(callable.into_any(), BoundUnitKind::CallableBody)?
+            .expect("source summary component member retains its body");
+
+        // Read each prerequisite inside the publication owner so incremental reuse
+        // follows the member's own selected body and semantic inputs.
+        let bound = compilation.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
+        let expressions =
+            compilation.expression_semantics_with_cancellation(key.clone(), cancellation)?;
+
+        let patterns = compilation.patterns_with_cancellation(key.clone(), cancellation)?;
+
+        let behavior =
+            compilation.selected_body_behavior_with_cancellation(key.clone(), cancellation)?;
+
+        for call in behavior.result().value().calls() {
+            if let BoundCallableTarget::Declaration(instance) = call.target() {
+                let callee = instance.definition().callable_symbol();
+
+                cyclic |= callee == *callable;
+
+                if !members.contains(&callee) {
+                    callees.insert(callee);
+                }
             }
         }
 
@@ -114,58 +186,62 @@ fn infer_reachable_results(
             bound.result().diagnostics(),
             expressions.result().diagnostics(),
             patterns.result().diagnostics(),
+            behavior.result().diagnostics(),
         ]);
 
-        units.insert(callable, (key, bound, expressions, patterns));
+        units.insert(*callable, (key, bound, expressions, patterns));
     }
 
-    let recursive_callees =
-        bray_base::strongly_connected_components(units.keys().copied(), |callable| {
-            edges.get(&callable).into_iter().flatten().copied()
-        })
-        .into_iter()
-        .filter(|component| {
-            component.len() > 1
-                || component.first().is_some_and(|callable| {
-                    edges
-                        .get(callable)
-                        .is_some_and(|callees| callees.contains(callable))
-                })
-        })
-        .flatten()
-        .collect::<BTreeSet<_>>();
+    let mut templates = members
+        .iter()
+        .map(|callable| (*callable, empty))
+        .collect::<BTreeMap<_, _>>();
+
+    for callee in callees {
+        let result = context
+            .resolve_symbol_query(SymbolQueryRequest::<CallableResultDependenciesQuery>::new(
+                callee,
+            ))
+            .map_err(binding_query_error)?;
+
+        templates.insert(callee, *result.value());
+        diagnostics = diagnostics.merged(result.diagnostics());
+    }
+
+    let recursive = if cyclic {
+        members.clone()
+    } else {
+        BTreeSet::new()
+    };
 
     loop {
-        context.cancellation.check().map_err(binder_error)?;
+        cancellation.check()?;
 
         let mut changed = false;
 
         for (callable, (key, bound, expressions, patterns)) in &units {
             let dependencies = infer_checked_result(
-                context,
+                &context,
                 key,
                 bound.result().value(),
                 expressions.result().value(),
                 patterns.result().value(),
                 &templates,
-                &recursive_callees,
-            )?;
+                &recursive,
+            )
+            .map_err(binding_query_error)?;
 
             changed |= templates.insert(*callable, dependencies) != Some(dependencies);
         }
 
-        if !changed {
+        if !cyclic || !changed {
             break;
         }
     }
 
-    let result = templates.get(&root).copied().ok_or_else(|| {
-        BindingQueryError::Binding(bray_binder::BindingError::SymbolRecordUnavailable(
-            root.into_any(),
-        ))
-    })?;
+    templates.retain(|callable, _| members.contains(callable));
 
-    Ok(DiagnosticResult::new(result, diagnostics))
+    Ok(DiagnosticResult::new(templates, diagnostics))
 }
 
 fn infer_checked_result(
@@ -225,10 +301,15 @@ pub(in crate::compilation) fn expression_result_dependencies(
     let mut templates = BTreeMap::new();
     let mut diagnostics = DiagnosticBag::new();
 
-    for entry in expressions.selections().entries() {
-        if let SemanticSelection::Call(call) = entry.selection()
-            && let BoundCallableTarget::Declaration(instance) = call.target()
-        {
+    let behavior = context
+        .compilation()
+        .selected_body_behavior_with_cancellation(key.clone(), context.cancellation)
+        .map_err(binder_error)?;
+
+    diagnostics = diagnostics.merged(behavior.result().diagnostics());
+
+    for call in behavior.result().value().calls() {
+        if let BoundCallableTarget::Declaration(instance) = call.target() {
             let callable = instance.definition().callable_symbol();
 
             if templates.contains_key(&callable) {

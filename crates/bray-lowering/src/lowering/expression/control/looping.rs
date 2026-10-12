@@ -1,5 +1,5 @@
 use bray_bound_tree::{BoundExpressionId, BoundStructuredExpression};
-use bray_ir::{MirBlockId, MirBlockKind, MirEdge, MirOperand, MirTerminatorKind};
+use bray_ir::{MirBlockId, MirBlockKind, MirEdge, MirTerminatorKind};
 
 use super::super::super::LoweringError;
 use super::super::super::block::LoweredExpression;
@@ -71,13 +71,7 @@ impl Lowerer<'_> {
             scope_depth: depth,
         });
 
-        let mut completion = if self.is_reachable(header, body_entry) {
-            self.lower_block(*body, body_entry)?
-        } else {
-            self.finish_unreachable_blocks(&[body_entry], &source)?;
-
-            LoweredExpression::terminated(Self::retained_source(&source))
-        };
+        let mut completion = self.lower_block(*body, body_entry)?;
 
         if let (Some(scope), Some(block)) = (scope, completion.block) {
             completion.block = Some(self.finish_scope(scope, block, &source, (*body).into())?);
@@ -97,6 +91,11 @@ impl Lowerer<'_> {
         };
 
         let exhausted = match expression.blocks().get(1).copied() {
+            _ if !self.is_reachable(header, exhausted) => {
+                self.finish_unreachable_blocks(&[exhausted], &source)?;
+
+                LoweredExpression::terminated(Self::retained_source(&source))
+            }
             Some(else_body) => self.lower_block(else_body, exhausted)?,
             None => LoweredExpression::continuing(
                 exhausted,
@@ -109,11 +108,7 @@ impl Lowerer<'_> {
 
         self.loop_targets.pop();
 
-        Ok(LoweredExpression::continuing(
-            join,
-            Some(MirOperand::Value(result)),
-            source,
-        ))
+        self.finish_result_join(header, join, result, source)
     }
 
     pub(super) fn lower_loop(
@@ -157,11 +152,7 @@ impl Lowerer<'_> {
 
         self.loop_targets.pop();
 
-        Ok(LoweredExpression::continuing(
-            join,
-            Some(MirOperand::Value(result)),
-            source,
-        ))
+        self.finish_result_join(header, join, result, source)
     }
 
     pub(super) fn lower_with(
@@ -170,6 +161,8 @@ impl Lowerer<'_> {
         expression: &BoundStructuredExpression,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
+        let entry = current;
+
         let [pattern] = expression.patterns() else {
             panic!(
                 "lowering contract violation: UnsupportedExpression {value:?}",
@@ -228,10 +221,6 @@ impl Lowerer<'_> {
 
         self.finish_result_edge(body, join, result_type)?;
 
-        Ok(LoweredExpression::continuing(
-            join,
-            Some(MirOperand::Value(result)),
-            self.source(expression.origin()),
-        ))
+        self.finish_result_join(entry, join, result, self.source(expression.origin()))
     }
 }

@@ -631,3 +631,59 @@ fn inferred_unwind_behavior_survives_export_and_import() {
         );
     }
 }
+
+#[test]
+fn imported_generic_addresses_retain_authority_only_while_the_owner_lives() {
+    let provider = compilation(
+        r#"
+        module api;
+        func forward<T>(pos pointer: RawPointer<T>) -> RawPointer<T>
+            executes(pure, total)
+        { return pointer; }
+    "#,
+    );
+
+    for (body, valid) in [
+        (
+            r#"
+            let value: u8 = 1;
+            let pointer = example.package.api.forward<u8>(core.memory.address_of<u8>(&value));
+            return core.memory.read<u8>(pointer);
+        "#,
+            true,
+        ),
+        (
+            r#"
+            let mut pointer = core.memory.null<u8>();
+            {
+                let value: u8 = 1;
+                pointer = example.package.api.forward<u8>(core.memory.address_of<u8>(&value));
+            };
+            return core.memory.read<u8>(pointer);
+        "#,
+            false,
+        ),
+    ] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            trusted module app;
+            using example.package.api;
+            trusted func caller() -> u8 uses(raw_memory) {{ {body} }}
+        "#
+            ),
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{body}: {diagnostics:?}");
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}

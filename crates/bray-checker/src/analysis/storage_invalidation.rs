@@ -10,6 +10,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
     request: CheckerUnitView<'_, C>,
     expressions: &CheckedExpressionSemantics,
     storage: &StoragePlan,
+    memory: &bray_bound_tree::CheckedMemoryOperations,
     copied_types: &BTreeSet<bray_symbols::TypeId>,
 ) -> BTreeMap<BoundExecutionSite, StorageInvalidation> {
     let selections = expressions.selections();
@@ -34,10 +35,14 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
     }) {
         let invalidation = accesses
             .entry(plan.occurrence())
-            .or_insert_with(|| StorageInvalidation::Accesses(Vec::new()));
+            .or_insert_with(|| StorageInvalidation::Paths(Vec::new()));
 
-        if let StorageInvalidation::Accesses(changed) = invalidation {
-            changed.push(plan.access());
+        if let StorageInvalidation::Paths(changed) = invalidation {
+            if let Some(path) = storage.logical_path(plan.access()) {
+                changed.push(path.clone());
+            } else {
+                *invalidation = StorageInvalidation::All;
+            }
         }
     }
 
@@ -80,7 +85,12 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
                     if callable.constness() == bray_symbols::CallableConstness::Constant)));
 
         if constant
-            || call_preserves_storage(call, copied_types)
+            || call_preserves_storage(
+                call,
+                memory
+                    .operation(expression)
+                    .map(|operation| operation.kind()),
+            )
             || !matches!(
                 call.resolution().result(),
                 bray_bound_tree::BoundCallResult::Immediate(_)
@@ -96,21 +106,19 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
     }
 
     for invalidation in accesses.values_mut() {
-        let StorageInvalidation::Accesses(changed) = invalidation else {
+        let StorageInvalidation::Paths(changed) = invalidation else {
             continue;
         };
 
-        let aliases_storage = changed.iter().any(|access| {
-            storage.root_identity(*access).is_some_and(|identity| {
+        let aliases_storage = changed.iter().any(|path| {
+            matches!(
+                storage.identity(path.root),
+                Some(bray_bound_tree::StorageIdentity::LocalOwned(_))
+            ) && storage.identity_type(path.root).is_none_or(|ty| {
                 matches!(
-                    storage.identity(identity),
-                    Some(bray_bound_tree::StorageIdentity::LocalOwned(_))
-                ) && storage.identity_type(identity).is_none_or(|ty| {
-                    matches!(
-                        request.semantic_values().type_data(ty).as_ref(),
-                        TypeData::Borrow { .. }
-                    )
-                })
+                    request.semantic_values().type_data(ty).as_ref(),
+                    TypeData::Borrow { .. }
+                )
             })
         });
 
@@ -131,46 +139,22 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
 
 fn call_preserves_storage(
     call: &SelectedCall,
-    copied_types: &BTreeSet<bray_symbols::TypeId>,
+    operation: Option<bray_bound_tree::CheckedMemoryOperationKind>,
 ) -> bool {
+    if let Some(operation) = operation {
+        return crate::memory::execution::storage_effect(operation)
+            == crate::memory::execution::StorageEffect::None;
+    }
+
     call.phase_behaviors()
         .invocation()
         .execution_properties()
         .contains(&ExecutionProperty::Pure)
-        || (call.implementation_hook()
-            == Some(bray_compiler_known::ImplementationHook::RawPointerRead)
-            && copied_types.contains(&call.resolution().result().ty()))
         || matches!(
             call.implementation_hook(),
             Some(
-                bray_compiler_known::ImplementationHook::SequenceLength
-                    // Fresh allocation cannot reach or retire existing input storage.
-                    | bray_compiler_known::ImplementationHook::RawAllocate
-                    | bray_compiler_known::ImplementationHook::Allocate
-                    | bray_compiler_known::ImplementationHook::RawBufferAllocate
-                    | bray_compiler_known::ImplementationHook::SequenceIsEmpty
-                    // Pointer arithmetic, layout queries and scalar conversion do not access storage.
-                    | bray_compiler_known::ImplementationHook::RawPointerNull
-                    | bray_compiler_known::ImplementationHook::RawPointerIsNull
-                    | bray_compiler_known::ImplementationHook::RawPointerOffset
-                    | bray_compiler_known::ImplementationHook::RawPointerByteOffset
-                    | bray_compiler_known::ImplementationHook::MemorySizeOf
-                    | bray_compiler_known::ImplementationHook::MemoryAlignOf
-                    | bray_compiler_known::ImplementationHook::MemoryStrideOf
-                    | bray_compiler_known::ImplementationHook::MemoryLayoutOf
-                    | bray_compiler_known::ImplementationHook::MemoryTrailingLayoutOf
+                bray_compiler_known::ImplementationHook::SequenceIsEmpty
                     | bray_compiler_known::ImplementationHook::NumericTruncate
-                    | bray_compiler_known::ImplementationHook::RawPointerReinterpret
-                    | bray_compiler_known::ImplementationHook::AtomicLoad
-                    | bray_compiler_known::ImplementationHook::ByteBufferRead
-                    | bray_compiler_known::ImplementationHook::AddressOf
-                    | bray_compiler_known::ImplementationHook::AddressOfMut
-                    | bray_compiler_known::ImplementationHook::RawBufferCapacity
-                    | bray_compiler_known::ImplementationHook::RawBufferInitializedCount
-                    | bray_compiler_known::ImplementationHook::RawBufferPointer
-                    | bray_compiler_known::ImplementationHook::RawBufferInitializedSlice
-                    | bray_compiler_known::ImplementationHook::RawBufferInitializedSliceMut
-                    | bray_compiler_known::ImplementationHook::RawBufferSparePointer
             )
         )
 }

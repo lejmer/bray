@@ -1,3 +1,4 @@
+mod behavior;
 mod declaration;
 mod memory;
 mod query;

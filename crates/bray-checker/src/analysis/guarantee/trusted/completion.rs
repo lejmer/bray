@@ -124,6 +124,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .collect::<BTreeMap<_, _>>();
 
+        // Normal postconditions read the final parameter observations. Retiring the
+        // parameter owner must revoke its authority without making lookup fall back
+        // to the entry value. Restore these snapshots only after owner retirement.
+        let completed_inputs = state
+            .current
+            .iter()
+            .filter(|(place, _)| place.is_callable_input() && expired_roots.contains(&place.root))
+            .map(|(place, value)| (place.clone(), value.clone()))
+            .collect::<BTreeMap<_, _>>();
+
         state.invalidate_trusted_roots(&expired_roots);
 
         state
@@ -141,31 +151,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .cloned()
             .collect::<BTreeSet<_>>();
 
-        let mut pending = values;
-        let mut visited = BTreeSet::new();
-        let mut retired = Vec::new();
-
-        while let Some(value) = pending.pop() {
-            if retained.contains(&value) || !visited.insert(value.clone()) {
-                continue;
-            }
-
-            if matches!(
-                value,
-                ExecutionCondition::Constructed(..) | ExecutionCondition::Present(_)
-            ) {
-                pending.extend(value.owned_components().cloned());
-
-                continue;
-            }
-
-            retired.push(value);
-        }
+        let retired = values
+            .into_iter()
+            .filter(|value| !retained.contains(value))
+            .collect::<Vec<_>>();
 
         // An input aggregate can retire after one of its complete children moved
         // into the result. The child's value survives, but dependencies on the
         // expired storage were invalidated above and cannot be restored here.
         state.retire_trusted_values(retired, &retained);
+        state.current.extend(completed_inputs);
     }
 
     pub(in crate::analysis::guarantee) fn complete_trusted_await(
@@ -270,7 +265,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let preserves = preserves_inputs
             || !matches!(
-                self.refinements.invalidation_at(expression.into()),
+                self.refinements.get(&expression.into()),
                 Some(bray_bound_tree::StorageInvalidation::All)
             );
 
@@ -432,7 +427,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // old facts stay immutable; only the declared completion promises restore authority.
         if !replacements.is_empty() {
             for value in state.current.values_mut() {
-                *value = value.with_joined_values(&replacements);
+                *value = value.with_joined_values(&replacements, &replacements);
             }
         }
 
@@ -638,7 +633,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             _ => None,
         };
 
-        let result = self.complete_returned_borrows(invocation, result, &arguments);
+        let result = self.complete_returned_references(invocation, result, &arguments);
 
         let instantiate = |condition: &ExecutionCondition| {
             let condition = condition.substitute(
@@ -673,13 +668,34 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            if contract.result_is_witness && condition.observes(&result) {
-                state.witness_carriers.insert(result.clone());
+            if subject.observes_completion_result() {
+                state.carry_guarantee(condition.clone(), guarantee.clone());
+
+                let mut pending = vec![&guarantee];
+
+                while let Some(predicate) = pending.pop() {
+                    match predicate {
+                        ExecutionCondition::Trusted(predicate) => pending.push(predicate),
+                        ExecutionCondition::Operation(_, operands) => {
+                            pending.extend(operands.iter())
+                        }
+                        ExecutionCondition::Predicate(symbol, _, _)
+                            if Some(*symbol) == self.owned_allocation
+                                && (predicate.observes(&condition)
+                                    || !contract.transferred_inputs.is_empty()) =>
+                        {
+                            state
+                                .allocation_owners
+                                .insert(predicate.clone(), condition.clone());
+                        }
+                        _ => {}
+                    }
+                }
             }
 
             for carrier in &carriers {
                 if *carrier != ExecutionCondition::Unknown && condition.observes(carrier) {
-                    state.witness_carriers.insert(carrier.clone());
+                    state.carry_guarantee(carrier.clone(), guarantee.clone());
                 }
             }
         }
@@ -687,39 +703,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         for guarantee in &guarantees {
             let guarantee = instantiate(guarantee);
 
-            if contract.result_is_witness {
-                let mut pending = vec![&guarantee];
-
-                while let Some(condition) = pending.pop() {
-                    match condition {
-                        ExecutionCondition::Trusted(condition) => pending.push(condition),
-                        ExecutionCondition::Operation(_, operands) => {
-                            pending.extend(operands.iter())
-                        }
-                        ExecutionCondition::Predicate(predicate, _, _)
-                            if Some(*predicate) == self.owned_allocation
-                                && (condition.observes(&result)
-                                    || !contract.transferred_inputs.is_empty()) =>
-                        {
-                            // The allocation condition follows the complete linear value, not copies of its fields.
-                            state
-                                .allocation_owners
-                                .insert(condition.clone(), result.clone());
-
-                            state.witness_carriers.insert(result.clone());
-                        }
-                        _ => {}
-                    }
-                }
-            }
-
             guarantee.assume(true, &mut state.trusted_assumptions);
         }
 
         if !contract.guarantees.is_empty() && !owners.is_empty() {
             let dependencies = state
                 .witness_dependencies
-                .entry(result.clone())
+                .entry(result.owner_identity().clone())
                 .or_default();
 
             // The ordinary dependency checker validates the reached storage and borrow capability.

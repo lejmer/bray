@@ -61,7 +61,7 @@ where
     let mut instantiated = instantiate_callable_contracts(request, contracts, &mut context)?;
 
     let template = crate::dependency::call_result_template(request, call, |callable| {
-        request.context().callable_result_dependencies(callable)
+        request.callable_result_dependencies(callable)
     })
     .map_err(DependencyContractInstantiationError::Resolution)?;
 
@@ -280,7 +280,6 @@ where
 
     if result.is_some() {
         let template = request
-            .context()
             .callable_result_dependencies(callable.definition().callable_symbol())
             .map_err(DependencyContractInstantiationError::Resolution)?;
 

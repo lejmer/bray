@@ -9,13 +9,21 @@ use crate::{
     TrustedCallContract,
 };
 
-#[derive(Default)]
-pub(in crate::analysis::guarantee) struct Cleanup<'a> {
+pub(crate) struct Cleanup<'a> {
     pub(super) selected: Option<(&'a CheckedAsync, &'a bray_bound_tree::StorageFlow)>,
+    pub(super) plan: &'a Plan,
+}
+
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub(crate) struct Plan {
+    pub(super) requirements: std::sync::Arc<[bray_bound_tree::AsyncStorageRequirement]>,
+    pub(super) replacements:
+        BTreeMap<StorageAccessId, bray_bound_tree::AsyncStorageCleanupRequirement>,
     pub(super) steps: BTreeMap<StorageAccessId, Vec<Step>>,
     pub(super) lifecycles: BTreeMap<(TypeId, TypeAssociatedLifecycleSlot), Lifecycle>,
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(super) enum Step {
     Invalidate,
     Lifecycle {
@@ -26,17 +34,37 @@ pub(super) enum Step {
     },
 }
 
-pub(in crate::analysis::guarantee) struct Lifecycle {
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(in crate::analysis) struct Lifecycle {
     pub(in crate::analysis::guarantee) callable: CallableInstanceData,
     pub(in crate::analysis::guarantee) result: TypeId,
     pub(in crate::analysis::guarantee) receiver: BoundReferenceTarget,
     pub(in crate::analysis::guarantee) synchronous: bool,
-    pub(in crate::analysis::guarantee) contract: TrustedCallContract,
+    pub(in crate::analysis) contract: TrustedCallContract,
     pub(in crate::analysis::guarantee) borrows: Vec<bray_symbols::DependencyBorrowRelation>,
 }
 
 impl<'a> Cleanup<'a> {
-    pub(in crate::analysis::guarantee) fn borrowed_inputs(&self) -> BTreeSet<ExecutionPlace> {
+    pub(crate) fn new(plan: &'a Plan) -> Self {
+        Self {
+            plan,
+            selected: None,
+        }
+    }
+
+    pub(crate) fn with_selection(
+        mut self,
+        cleanup: &'a CheckedAsync,
+        flow: &'a bray_bound_tree::StorageFlow,
+    ) -> Self {
+        self.selected = Some((cleanup, flow));
+
+        self
+    }
+}
+
+impl Plan {
+    pub(crate) fn borrowed_inputs(&self) -> BTreeSet<ExecutionPlace> {
         self.steps
             .values()
             .flatten()
@@ -69,69 +97,61 @@ impl<'a> Cleanup<'a> {
             .collect()
     }
 
-    pub(in crate::analysis::guarantee) fn requires_validation(&self) -> bool {
-        self.lifecycles
-            .values()
-            .any(|lifecycle| !lifecycle.contract.requirements.is_empty())
-    }
-
-    pub(in crate::analysis::guarantee) fn prepare<C: CheckerRequestContext + ?Sized>(
+    pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
+        cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
-        cleanup: &'a CheckedAsync,
-        flow: &'a bray_bound_tree::StorageFlow,
     ) -> Result<DiagnosticResult<Self>, CheckerQueryError<C::UpstreamError>> {
-        let mut prepared = Self {
-            selected: Some((cleanup, flow)),
-            ..Self::default()
-        };
+        let mut prepared = Self::default();
 
         let mut diagnostics = DiagnosticBag::new();
 
         if request.unit().key().kind() == bray_bound_tree::BoundUnitKind::ContractClause {
-            prepared.selected = None;
-
             return Ok(DiagnosticResult::new(prepared, diagnostics));
         }
 
-        let accesses = cleanup
-            .scope_exits()
-            .iter()
-            .flat_map(|plan| plan.lifecycle_resolution().iter().copied())
-            .map(|access| {
-                let parts = storage
-                    .root_identity(access)
-                    .and_then(|identity| cleanup.storage_requirement(identity))
-                    .and_then(|requirement| requirement.parts());
+        prepared.requirements = cleanup_shapes.storage_requirements(storage)?;
 
-                (access, parts)
+        let accesses = storage
+            .identity_entries()
+            .filter_map(|(identity, _)| {
+                (!bray_bound_tree::storage_identity_transfers_at_unit_exit(storage, identity))
+                    .then(|| storage.root_access(identity))
+                    .flatten()
             })
             .chain(
-                cleanup
-                    .replacements()
+                storage
+                    .access_plans()
                     .iter()
                     .filter(|plan| {
-                        matches!(
-                            plan.cleanup(),
-                            bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_)
-                        )
+                        plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment
                     })
-                    .map(|plan| (plan.access(), plan.parts())),
+                    .map(|plan| plan.access()),
             )
-            .collect::<BTreeMap<_, _>>();
+            .collect::<BTreeSet<_>>();
 
         let mut types = BTreeSet::new();
 
-        for (access, selected) in accesses {
+        for access in accesses {
             let reached = storage
                 .access(access)
                 .expect("checked cleanup retains its storage access");
 
+            prepared
+                .replacements
+                .insert(access, cleanup_shapes.requirement(reached.reached_type())?);
+
             let expanded = crate::asynchronous::full_cleanup_parts(
-                request,
+                cleanup_shapes,
                 reached.reached_type(),
                 reached.source(),
-                selected,
+                storage.root_identity(access).is_some_and(|identity| {
+                    bray_bound_tree::storage_identity_is_destructor_receiver(
+                        request.unit(),
+                        storage,
+                        identity,
+                    ) && storage.is_root_access(access)
+                }),
             )?;
 
             let (parts, additional) = expanded.into_parts();
@@ -170,7 +190,7 @@ impl<'a> Cleanup<'a> {
                 })
                 .collect();
 
-            if steps.is_empty() && selected.is_none() {
+            if steps.is_empty() {
                 // Opaque native cleanup has no represented lifecycle whose effects we can apply.
                 steps.push(Step::Invalidate);
             }
@@ -198,13 +218,7 @@ impl<'a> Cleanup<'a> {
                 let mut lifecycle = lifecycle(request.semantic_values(), *callable, signature)
                     .expect("selected lifecycle contract uses checked semantic terms");
 
-                lifecycle.contract.completes |= lifecycle.synchronous
-                    && request.target_cannot_unwind(
-                        bray_bound_tree::BoundCallableTarget::Declaration(*callable),
-                    );
-
                 let template = request
-                    .context()
                     .callable_result_dependencies(callable.definition().callable_symbol())?;
 
                 let template = crate::dependency::resolved_result_template(

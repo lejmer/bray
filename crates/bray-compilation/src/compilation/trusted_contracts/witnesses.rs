@@ -17,14 +17,19 @@ impl Compilation {
         let context = self.binding_context(cancellation)?;
         let values = self.semantic_value_store()?;
         let symbols = self.available_compiler_known_symbols();
-        let mut pending = requirements.iter().collect::<Vec<_>>();
+
+        let mut pending = requirements
+            .iter()
+            .map(|condition| (condition, condition))
+            .collect::<Vec<_>>();
+
         let mut witnesses = Vec::new();
         let mut diagnostics = DiagnosticBag::new();
 
-        while let Some(condition) = pending.pop() {
+        while let Some((requirement, condition)) = pending.pop() {
             let ExecutionCondition::Trusted(condition) = condition else {
                 if let ExecutionCondition::Operation(_, operands) = condition {
-                    pending.extend(operands.iter());
+                    pending.extend(operands.iter().map(|condition| (requirement, condition)));
                 }
 
                 continue;
@@ -115,12 +120,12 @@ impl Compilation {
                 };
 
                 if owns_authority {
-                    witnesses.extend(argument.inputs().into_iter().map(|place| {
-                        (
-                            ExecutionCondition::Trusted(condition.clone()),
-                            place.clone(),
-                        )
-                    }));
+                    witnesses.extend(
+                        argument
+                            .inputs()
+                            .into_iter()
+                            .map(|place| (requirement.clone(), place.clone())),
+                    );
                 }
             }
         }
@@ -131,6 +136,7 @@ impl Compilation {
     pub(super) fn trusted_predicate_subjects(
         &self,
         conditions: &[ExecutionCondition],
+        result: Option<bray_symbols::TypeId>,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Vec<(ExecutionCondition, ExecutionCondition)>, FactQueryError> {
@@ -160,11 +166,32 @@ impl Compilation {
                     diagnostics.add_range(signature.diagnostics().iter().cloned());
 
                     if !signature.diagnostics().has_errors() && signature.value().is_trusted() {
-                        subjects.extend(
-                            arguments
-                                .iter()
-                                .map(|argument| (guarantee.clone(), argument.clone())),
-                        );
+                        for argument in arguments.iter() {
+                            let subject = if argument.observes_completion_result() {
+                                if let Some(result) = result {
+                                    let (carrier, ty) = argument
+                                        .witness_carrier(self.semantic_value_store()?, result)
+                                        .unwrap_or((ExecutionCondition::Result, result));
+
+                                    if !self.trusted_result_is_witness(
+                                        ty,
+                                        std::slice::from_ref(guarantee),
+                                        cancellation,
+                                        diagnostics,
+                                    )? {
+                                        continue;
+                                    }
+
+                                    carrier
+                                } else {
+                                    ExecutionCondition::Result
+                                }
+                            } else {
+                                argument.clone()
+                            };
+
+                            subjects.push((guarantee.clone(), subject));
+                        }
                     }
                 }
                 ExecutionCondition::Operation(_, operands) => {

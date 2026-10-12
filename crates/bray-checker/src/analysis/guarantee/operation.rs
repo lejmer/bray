@@ -1,9 +1,9 @@
 use bray_bound_tree::{
     BoundCallResult, BoundExpression, BoundExpressionId, BoundReferenceTarget,
-    BoundStructuredExpressionKind, CheckedMemoryOperationKind, CheckedMemoryOperations,
-    CheckedSemanticSelections, ConstructionTarget, OperatorTarget, SelectedArgument,
-    SelectedConstructionInput, SelectedConversion, SelectedOperation, SemanticSelection,
-    StorageIdentity, StoragePlan, StorageProjection,
+    BoundStructuredExpressionKind, CheckedMemoryOperations, CheckedSemanticSelections,
+    ConstructionTarget, OperatorTarget, SelectedArgument, SelectedConstructionInput,
+    SelectedConversion, SelectedOperation, SemanticSelection, StorageIdentity, StoragePlan,
+    StorageProjection,
 };
 use bray_symbols::AnySymbolId;
 
@@ -47,7 +47,7 @@ pub(super) fn collect_preservation_dependencies(
             .execution_properties()
             .contains(&ExecutionProperty::Pure)
             && !memory.operation(expression).is_some_and(|operation| {
-                checked_memory_guarantee(operation.kind(), ExecutionProperty::Pure)
+                crate::memory::execution::guarantees(operation.kind(), ExecutionProperty::Pure)
             })
         {
             dependencies.push(ExecutionDependency {
@@ -83,74 +83,6 @@ pub(super) fn scoped_invocation_preserves_inputs(
         .invocation()
         .execution_properties()
         .contains(&ExecutionProperty::Pure)
-}
-
-pub(super) fn checked_memory_guarantee(
-    kind: CheckedMemoryOperationKind,
-    property: ExecutionProperty,
-) -> bool {
-    if property == ExecutionProperty::Total
-        && matches!(
-            kind,
-            CheckedMemoryOperationKind::SpinLoopHint
-                | CheckedMemoryOperationKind::Read { .. }
-                | CheckedMemoryOperationKind::Write { .. }
-                | CheckedMemoryOperationKind::Copy { .. }
-                | CheckedMemoryOperationKind::IsNull { .. }
-                | CheckedMemoryOperationKind::Offset { .. }
-                | CheckedMemoryOperationKind::Reinterpret { .. }
-                | CheckedMemoryOperationKind::PointerFromCallable { .. }
-                | CheckedMemoryOperationKind::CallableFromPointer { .. }
-                | CheckedMemoryOperationKind::ExposeAddress { .. }
-                | CheckedMemoryOperationKind::FromExposedAddress { .. }
-                | CheckedMemoryOperationKind::LayoutQuery { .. }
-                | CheckedMemoryOperationKind::RawBufferCapacity
-                | CheckedMemoryOperationKind::RawBufferInitializedCount
-                | CheckedMemoryOperationKind::RawBufferPointer
-                | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
-                | CheckedMemoryOperationKind::RawBufferSetInitializedCount
-                | CheckedMemoryOperationKind::RawBufferPush { .. }
-                | CheckedMemoryOperationKind::RawBufferRelocate { .. }
-                | CheckedMemoryOperationKind::AtomicInitialize { .. }
-                | CheckedMemoryOperationKind::AtomicLoad { .. }
-                | CheckedMemoryOperationKind::AtomicStore { .. }
-                | CheckedMemoryOperationKind::AtomicExchange { .. }
-                | CheckedMemoryOperationKind::AtomicCompareExchange { .. }
-                | CheckedMemoryOperationKind::AtomicFetch { .. }
-        )
-    {
-        // These checked primitives complete on their required storage domains.
-        // Allocation and selected cleanup retain their fallible call dependencies.
-        return true;
-    }
-
-    return matches!(
-        kind,
-        CheckedMemoryOperationKind::SequenceLength
-            | CheckedMemoryOperationKind::AtomicInitialize { .. }
-            | CheckedMemoryOperationKind::ByteBufferRead
-            | CheckedMemoryOperationKind::Read {
-                kind: bray_bound_tree::MemoryReadKind::Copy,
-                ..
-            }
-            | CheckedMemoryOperationKind::IsNull { .. }
-            | CheckedMemoryOperationKind::Offset { .. }
-            | CheckedMemoryOperationKind::Reinterpret { .. }
-            | CheckedMemoryOperationKind::PointerFromCallable { .. }
-            | CheckedMemoryOperationKind::CallableFromPointer { .. }
-            | CheckedMemoryOperationKind::LayoutQuery { .. }
-            | CheckedMemoryOperationKind::Null { .. }
-            | CheckedMemoryOperationKind::Address { .. }
-            | CheckedMemoryOperationKind::BorrowFrom { .. }
-            | CheckedMemoryOperationKind::UninitFrom { .. }
-            | CheckedMemoryOperationKind::UninitPointer { .. }
-            | CheckedMemoryOperationKind::RawBufferInitializedSlice
-            | CheckedMemoryOperationKind::RawBufferInitializedSliceMut
-            | CheckedMemoryOperationKind::RawBufferCapacity
-            | CheckedMemoryOperationKind::RawBufferInitializedCount
-            | CheckedMemoryOperationKind::RawBufferPointer
-            | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
-    );
 }
 
 pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
@@ -191,7 +123,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
     }
 
     if let Some(operation) = memory.operation(expression) {
-        return checked_memory_guarantee(operation.kind(), property);
+        return crate::memory::execution::guarantees(operation.kind(), property);
     }
 
     match selections.expression(expression) {

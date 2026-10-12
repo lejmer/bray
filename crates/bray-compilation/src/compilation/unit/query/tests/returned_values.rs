@@ -1330,3 +1330,199 @@ fn copied_stored_borrow_outlives_its_consumed_carrier() {
 
     assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
 }
+
+#[test]
+fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
+    for (body, exact) in [
+        ("return &pair.second;", true),
+        (
+            "if condition { return &pair.first; } return &pair.second;",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            struct Pair {{ first: bool; second: bool; }}
+            func select_value(pos pair: &Pair, pos condition: bool) -> &bool {{ {body} }}
+            func caller(pos pair: &Pair, pos condition: bool) -> &bool {{
+                return select_value(pair, condition);
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let callable = crate::test_support::source_function(&application, "select_value");
+
+        let context = application
+            .binding_context(&application.state.cancellation)
+            .unwrap();
+
+        let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
+            &context,
+            bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(
+                callable.into(),
+            ),
+        )
+        .unwrap();
+
+        let template = application
+            .semantic_value_store()
+            .unwrap()
+            .dependency_contract_template_data(*dependencies.value());
+
+        assert_eq!(
+            !template.borrows().is_empty(),
+            exact,
+            "{source}\n{template:#?}"
+        );
+
+        let key = source_function_body_key(&application, "caller");
+        let selections = application.semantic_selections(key.clone()).unwrap();
+
+        let call = selections
+            .value()
+            .entries()
+            .iter()
+            .find(|entry| {
+                matches!(
+                    entry.selection(),
+                    bray_bound_tree::SemanticSelection::Call(_)
+                )
+            })
+            .unwrap()
+            .expression();
+
+        let storage = application.storage_plan(key).unwrap();
+
+        assert!(
+            !storage.diagnostics().has_errors(),
+            "{source}\n{storage:#?}"
+        );
+
+        let storage = storage.value();
+
+        let returned = storage
+            .borrow_capability_entries()
+            .filter(|(_, capability)| capability.expression() == Some(call))
+            .collect::<Vec<_>>();
+
+        assert_eq!(!returned.is_empty(), exact, "{source}\n{returned:#?}");
+
+        for (_, capability) in returned {
+            assert!(
+                matches!(
+                    storage.resolved_projections(capability.access()),
+                    Some([bray_bound_tree::StorageProjection::ProductField(_)])
+                ),
+                "the checked referent is a field, while its lifetime anchor is the whole parameter: {storage:#?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn unknown_returned_borrow_keeps_every_possible_input_protected() {
+    for mutated in ["first", "second"] {
+        let source = format!(
+            r#"
+            module app;
+            struct Cell {{ mut value: bool; }}
+            func select_value(pos first: &Cell, pos second: &Cell, pos condition: bool) -> &Cell {{
+                if condition {{ return first; }}
+                return second;
+            }}
+            func caller(pos condition: bool) -> bool {{
+                let mut first: Cell = {{ value = true }};
+                let mut second: Cell = {{ value = false }};
+                let selected = select_value(&first, &second, condition);
+                {mutated}.value = false;
+                return selected.value;
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+
+        assert_goal_state_diagnostic_kind(
+            application.check_diagnostics(),
+            DiagnosticKind::CheckingConflictingBorrow,
+        );
+    }
+}
+
+#[test]
+fn copied_scalar_releases_unknown_returned_borrow_dependencies() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Cell { mut value: bool; }
+        func select_value(pos first: &Cell, pos second: &Cell, pos condition: bool) -> &Cell {
+            if condition { return first; }
+            return second;
+        }
+        func caller(pos condition: bool) -> bool {
+            let mut first: Cell = { value = true };
+            let mut second: Cell = { value = false };
+            let selected = select_value(&first, &second, condition);
+            let copied = selected.value;
+            first.value = false;
+            second.value = true;
+            return copied;
+        }
+    "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+}
+
+#[test]
+fn reading_an_independent_carrier_field_does_not_retain_other_field_loans() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Cell { mut value: bool; }
+        struct Holder { reference: &Cell; flag: bool; }
+        func hold(pos cell: &Cell) -> Holder {
+            return { reference = cell, flag = true };
+        }
+        func caller() -> bool {
+            let mut cell: Cell = { value = false };
+            let holder = hold(&cell);
+            cell.value = true;
+            return holder.flag;
+        }
+    "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+}
+
+#[test]
+fn reading_through_a_stored_reference_retains_its_loan() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Cell { mut value: bool; }
+        struct Holder { reference: &Cell; flag: bool; }
+        func hold(pos cell: &Cell) -> Holder {
+            return { reference = cell, flag = true };
+        }
+        func caller() -> bool {
+            let mut cell: Cell = { value = false };
+            let holder = hold(&cell);
+            cell.value = true;
+            return holder.reference.value;
+        }
+    "#,
+    );
+
+    assert_goal_state_diagnostic_kind(
+        application.check_diagnostics(),
+        DiagnosticKind::CheckingConflictingBorrow,
+    );
+}

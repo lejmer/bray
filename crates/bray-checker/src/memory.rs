@@ -1,4 +1,5 @@
 mod classification;
+pub(crate) mod execution;
 mod operations;
 
 pub(crate) use classification::memory_read_kind;

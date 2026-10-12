@@ -13,17 +13,40 @@ use crate::{
 pub enum StorageInvalidation {
     /// An opaque operation can reach storage through untracked aliases.
     All,
-    /// Only the listed accesses and overlapping storage may change.
-    Accesses(Vec<StorageAccessId>),
+    /// Only the listed paths and overlapping storage may change.
+    Paths(Vec<crate::StoragePath>),
 }
 
 impl StorageInvalidation {
+    /// Retains every target that either incoming execution can mutate.
+    pub fn merge(&mut self, incoming: &Self) {
+        match (&mut *self, incoming) {
+            (_, Self::All) => *self = Self::All,
+            (Self::All, _) => {}
+            (Self::Paths(current), Self::Paths(incoming)) => {
+                current.extend_from_slice(incoming);
+                current.sort_unstable();
+                current.dedup();
+            }
+        }
+    }
+
+    /// Returns whether this operation can change the independently resolved path.
+    pub fn invalidates_path(&self, path: &crate::StoragePath, storage: &StoragePlan) -> bool {
+        match self {
+            Self::All => true,
+            Self::Paths(accesses) => accesses.iter().any(|access| {
+                storage.path_relationship(access, path) != StorageRelationship::Disjoint
+            }),
+        }
+    }
+
     /// Returns whether this operation invalidates facts about the given access.
     pub fn invalidates(&self, access: StorageAccessId, storage: &StoragePlan) -> bool {
         match self {
             Self::All => true,
-            Self::Accesses(mutations) => mutations.iter().any(|mutation| {
-                storage.relationship(access, *mutation) != StorageRelationship::Disjoint
+            Self::Paths(mutations) => mutations.iter().any(|mutation| {
+                storage.relationship_to_path(access, mutation) != StorageRelationship::Disjoint
             }),
         }
     }
@@ -195,7 +218,7 @@ impl CheckedRefinements {
 
         if invalidations.iter().any(|(site, invalidation)| {
             site.node().unit() != unit || matches!(invalidation,
-                StorageInvalidation::Accesses(accesses) if accesses.iter().any(|access| access.unit() != unit))
+                StorageInvalidation::Paths(accesses) if accesses.iter().any(|path| !path.is_valid_for(unit)))
         }) {
             return Err(RefinementSetBuildError::ForeignUnit);
         }
@@ -242,6 +265,11 @@ impl CheckedRefinements {
             .unwrap_or_default()
     }
 
+    /// Returns the prepared mutation effects for this unit.
+    pub fn invalidations(&self) -> &BTreeMap<BoundExecutionSite, StorageInvalidation> {
+        &self.invalidations
+    }
+
     /// Returns the checked mutation effect of one execution site.
     pub fn invalidation_at(&self, site: BoundExecutionSite) -> Option<&StorageInvalidation> {
         self.invalidations.get(&site)
@@ -260,8 +288,8 @@ mod tests {
         RefinementSetBuildError,
     };
     use crate::{
-        AnyBoundNodeId, BoundExecutionSite, BoundExpressionId, BoundPatternId, BoundUnitId,
-        BoundUnitKind, PatternPredicate, StorageAccessId, StoragePlan, StorageRelationship,
+        AnyBoundNodeId, BoundExpressionId, BoundPatternId, BoundUnitId, BoundUnitKind,
+        PatternPredicate, StorageAccessId,
     };
 
     #[test]
@@ -380,6 +408,34 @@ mod tests {
                 false,
             ),
             Err(RefinementSetBuildError::DuplicateOccurrence)
+        );
+    }
+    #[test]
+    fn published_effects_reject_foreign_path_selectors() {
+        let unit = BoundUnitId::new(4);
+        let expression = BoundExpressionId::from_slot(unit, 0);
+
+        let path = crate::StoragePath {
+            root: crate::StorageIdentityId::from_slot(unit, 0),
+            projections: [crate::StorageProjection::Element(
+                BoundExpressionId::from_slot(BoundUnitId::new(5), 0),
+            )]
+            .into(),
+        };
+
+        assert_eq!(
+            CheckedRefinements::try_new(
+                unit,
+                BoundUnitKind::CallableBody,
+                [],
+                [(
+                    expression.into(),
+                    super::StorageInvalidation::Paths(vec![path])
+                )]
+                .into(),
+                false,
+            ),
+            Err(RefinementSetBuildError::ForeignUnit)
         );
     }
 }

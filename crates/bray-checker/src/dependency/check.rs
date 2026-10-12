@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use bray_bound_tree::{
     BoundDependencyContract, BoundDependencyRequirement, BoundDependencyRequirementKind,
     BoundDependencySubject, CheckedDependencyContracts, CheckedSemanticSelections,
-    DependencyContractInstantiationError, SemanticSelection, StorageFlow, StoragePlan,
+    DependencyContractInstantiationError, SemanticSelection, StoragePlan,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::CallableSignatureQuery;
@@ -23,7 +23,6 @@ pub(crate) fn check_dependency_contracts<C>(
     selections: &CheckedSemanticSelections,
     patterns: &bray_bound_tree::CheckedPatterns,
     storage: &StoragePlan,
-    flow: &StorageFlow,
 ) -> CheckerOutcome<CheckedDependencyContracts, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
@@ -42,7 +41,6 @@ where
                 (selections.unit(), selections.kind()),
             ),
             ("storage plan", (storage.unit(), storage.kind())),
-            ("storage flow", (flow.unit(), flow.kind())),
         ],
     );
 
@@ -50,29 +48,31 @@ where
     let mut expression_requirements = BTreeMap::new();
     let mut deferred_expression_requirements = BTreeMap::new();
     let mut access_requirements = BTreeMap::new();
-    let mut is_recovered = flow.is_recovered();
+    let mut is_recovered = storage.is_recovered();
 
-    for operation in flow.operations() {
+    for operation in storage.access_plans().iter().copied() {
         if request.is_cancelled() {
             return CheckerOutcome::Cancelled;
         }
 
-        match operation.status() {
-            bray_bound_tree::StorageOperationStatus::Unreachable => continue,
-            bray_bound_tree::StorageOperationStatus::Valid => {}
-            _ => {
-                is_recovered = true;
-
-                continue;
-            }
+        if storage
+            .access(operation.access())
+            .expect("planned operation retains its access")
+            .is_recovered()
+        {
+            continue;
         }
 
         let requirements = operation_requirements(storage, operation);
 
+        let occurrence = match operation.occurrence() {
+            scoped @ (bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+            | bray_bound_tree::BoundExecutionSite::ScopedExit(_)) => scoped,
+            bray_bound_tree::BoundExecutionSite::Node(_) => operation.expression().into(),
+        };
+
         expression_requirements
-            .entry(bray_bound_tree::BoundExecutionSite::from(
-                operation.expression(),
-            ))
+            .entry(occurrence)
             .or_insert_with(Vec::new)
             .extend(requirements.iter().cloned());
 
@@ -273,14 +273,12 @@ fn failed_contract<E, T>(
             CheckerOutcome::UpstreamFailure(error)
         }
         DependencyContractInstantiationError::UnresolvedWitness => {
-            // rust-style: allow(context-erasing-failure-conversion, reason = "unresolved witness error has no payload and its exact expression is retained")
             panic!(
                 "A call reached concrete dependency checking without its selected witness. in failed_contract, expression: {:?}",
                 expression
             )
         }
         DependencyContractInstantiationError::ForeignUnit => {
-            // rust-style: allow(context-erasing-failure-conversion, reason = "foreign unit error has no payload and its exact cause is retained")
             panic!(
                 "A selected call or iteration produced a dependency contract for another source body. in failed_contract"
             )

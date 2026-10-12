@@ -54,35 +54,37 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
 
 pub(in crate::analysis::guarantee) struct ReturnedDependencies {
     pub(in crate::analysis::guarantee) inputs: BTreeSet<BoundExpressionId>,
-    pub(in crate::analysis::guarantee) template: bray_symbols::DependencyContractTemplateData,
+    pub(in crate::analysis::guarantee) references: Vec<bray_symbols::DependencyBorrowRelation>,
 }
 
-pub(in crate::analysis::guarantee) struct ExecutionFlowDomain<
-    'a,
-    'view,
-    C: CheckerRequestContext + ?Sized,
-> {
+pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Sized> {
     pub(in crate::analysis::guarantee) result_dependencies:
         BTreeMap<BoundExpressionId, ReturnedDependencies>,
-    pub(in crate::analysis::guarantee) sequence_lengths: Vec<BoundExpressionId>,
-    pub(super) observed_types: BTreeMap<crate::ExecutionPlace, Option<bray_symbols::TypeId>>,
-    pub(in crate::analysis::guarantee) borrowed_inputs: BTreeSet<crate::ExecutionPlace>,
-    pub(super) assigned_places: BTreeSet<crate::ExecutionPlace>,
-    pub(in crate::analysis::guarantee) scope_places: BTreeMap<
+    pub(in crate::analysis::guarantee) sequence_lengths: &'a [BoundExpressionId],
+    pub(super) observed_types: &'a BTreeMap<crate::ExecutionPlace, Option<bray_symbols::TypeId>>,
+    pub(in crate::analysis::guarantee) borrowed_inputs: &'a BTreeSet<crate::ExecutionPlace>,
+    pub(super) assigned_places: &'a BTreeSet<crate::ExecutionPlace>,
+    pub(in crate::analysis::guarantee) scope_places: &'a BTreeMap<
         bray_bound_tree::BoundBlockId,
         Vec<(crate::ExecutionPlace, bray_bound_tree::StorageIdentityId)>,
     >,
-    pub(super) yield_targets: BTreeMap<BoundExpressionId, BoundExpressionId>,
+    pub(super) yield_targets: &'a BTreeMap<BoundExpressionId, BoundExpressionId>,
     pub(in crate::analysis::guarantee) graph: &'a ControlFlowGraph,
+    pub(super) excluded_edges: BTreeSet<AnalysisEdgeId>,
     pub(in crate::analysis::guarantee) request: CheckerUnitView<'view, C>,
     pub(in crate::analysis::guarantee) semantics: &'a CheckedExpressionSemantics,
     pub(super) assumptions: &'a [ExecutionCondition],
     pub(super) literals: &'a BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(in crate::analysis::guarantee) storage: &'a bray_bound_tree::StoragePlan,
+    pub(super) memory: &'a bray_bound_tree::CheckedMemoryOperations,
+    pub(super) checked_flow: Option<&'a bray_bound_tree::StorageFlow>,
     pub(in crate::analysis::guarantee) contracts:
         &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
-    pub(in crate::analysis::guarantee) disposal: super::super::cleanup::Cleanup<'a>,
-    pub(in crate::analysis::guarantee) refinements: &'a bray_bound_tree::CheckedRefinements,
+    pub(in crate::analysis::guarantee) disposal: &'a super::super::cleanup::Cleanup<'a>,
+    pub(in crate::analysis::guarantee) refinements: &'a std::collections::BTreeMap<
+        bray_bound_tree::BoundExecutionSite,
+        bray_bound_tree::StorageInvalidation,
+    >,
     pub(in crate::analysis::guarantee) spatial_predicates:
         BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
     pub(in crate::analysis::guarantee) owned_allocation:
@@ -96,24 +98,48 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Each outgoing path owns its independently refined flow environment.
         let mut next = state.clone();
 
+        self.refine_edge(&mut next, edge).then_some(next)
+    }
+
+    pub(in crate::analysis) fn condition_evidence(
+        &self,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+    ) -> (ExecutionCondition, Option<bool>) {
+        let condition = state
+            .expressions
+            .get(&expression)
+            .cloned()
+            .unwrap_or_else(|| self.value(state, expression));
+
+        let value = self
+            .checked_flow
+            .and_then(|flow| flow.condition_value(expression))
+            .or_else(|| {
+                condition.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+            });
+
+        (condition, value)
+    }
+
+    pub(in crate::analysis) fn refine_edge(
+        &self,
+        state: &mut ExecutionState,
+        edge: &AnalysisEdge,
+    ) -> bool {
+        if self.excluded_edges.contains(&edge.id()) {
+            return false;
+        }
+
         if let Some(AnalysisRefinement::TrustBoundary(expression)) = edge.refinement() {
-            next.trust_boundaries.insert(expression);
+            state.trust_boundaries.insert(expression);
         }
 
         if let Some(AnalysisRefinement::Condition { expression, value }) = edge.refinement() {
-            let condition = state
-                .expressions
-                .get(&expression)
-                .cloned()
-                .unwrap_or_else(|| self.value(state, expression));
+            let (condition, known) = self.condition_evidence(state, expression);
 
-            if condition
-                .prove(&state.assumptions, &mut {
-                    crate::ExecutionCondition::WORK_LIMIT
-                })
-                .is_some_and(|known| known != value)
-            {
-                return None;
+            if known.is_some_and(|known| known != value) {
+                return false;
             }
 
             if !value
@@ -148,10 +174,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             {
                 // Integer ordering has no unordered outcome; floating-point NaN does.
                 ExecutionCondition::operation(complement, operands.iter().cloned().collect())
-                    .assume(true, &mut next.assumptions);
+                    .assume(true, &mut state.assumptions);
             }
 
-            condition.assume(value, &mut next.assumptions);
+            condition.assume(value, &mut state.assumptions);
         }
 
         if let Some(AnalysisRefinement::PatternOutcome {
@@ -173,15 +199,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
                 .is_some_and(|known| known != value)
             {
-                return None;
+                return false;
             }
 
-            condition.assume(value, &mut next.assumptions);
+            condition.assume(value, &mut state.assumptions);
         }
 
-        self.complete_trusted_await(&mut next, edge);
+        self.complete_trusted_await(state, edge);
 
-        Some(next)
+        true
     }
 }
 
@@ -207,7 +233,12 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
             }
         }
 
-        for assumption in self.assumptions {
+        for assumption in self.assumptions.iter().chain(
+            self.request
+                .trusted_contracts()
+                .into_iter()
+                .flat_map(|contracts| &contracts.requirements),
+        ) {
             for place in assumption.inputs() {
                 // The state owns a key and immutable entry snapshot for each observed input field.
                 state
@@ -215,7 +246,9 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                     .entry(place.clone())
                     .or_insert_with(|| ExecutionCondition::Input(place.clone()));
             }
+        }
 
+        for assumption in self.assumptions {
             if assumption.prove(&state.assumptions, &mut {
                 crate::ExecutionCondition::WORK_LIMIT
             }) == Some(false)
@@ -240,16 +273,43 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
             }
 
             for condition in &contracts.requirements {
+                if condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
+                    == Some(false)
+                {
+                    return None;
+                }
+
                 condition
                     .clone()
                     .assume(true, &mut state.trusted_assumptions);
             }
 
+            for (condition, subject) in &contracts.required_witnesses {
+                let mut root = subject.clone();
+
+                root.projections = std::sync::Arc::new([]);
+
+                let subject = ExecutionCondition::Input(subject.clone());
+
+                let carrier = self
+                    .observed_types
+                    .get(&root)
+                    .copied()
+                    .flatten()
+                    .and_then(|ty| subject.witness_carrier(self.request.semantic_values(), ty))
+                    .map_or(subject, |(carrier, _)| carrier);
+
+                state.carry_guarantee(carrier, condition.clone());
+            }
+
             for (condition, owner) in self.allocation_subjects(&contracts.requirements) {
                 let owner = ExecutionCondition::Input(owner);
 
-                state.allocation_owners.insert(condition, owner.clone());
-                state.witness_carriers.insert(owner);
+                state
+                    .allocation_owners
+                    .insert(condition.clone(), owner.clone());
+
+                state.carry_guarantee(owner, condition);
             }
         }
 

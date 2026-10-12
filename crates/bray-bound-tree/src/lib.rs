@@ -121,7 +121,7 @@ pub use storage::{
     StorageAlternative, StorageAlternativeId, StorageBinding, StorageBindingTarget,
     StorageCleanupPart, StorageCleanupProjection, StorageCleanupProjectionKind, StorageCleanupType,
     StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError, StorageIdentity,
-    StorageIdentityId, StorageOperationDecision, StorageOperationStatus, StoragePlan,
+    StorageIdentityId, StorageOperationDecision, StorageOperationStatus, StoragePath, StoragePlan,
     StoragePlanBuildError, StoragePlanBuilder, StorageProjection, StorageProtocolCall,
     StorageRelationship, StorageReplacementDecision, StorageReplacementPlan,
     StorageReplacementState, StorageScopeBuildError, StorageScopeOwners, StorageSuspensionState,

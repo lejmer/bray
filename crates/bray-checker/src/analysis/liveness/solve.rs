@@ -1,12 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    BoundDependencySubject, CheckedMemoryOperations, CheckedSemanticSelections, LastUse,
-    LiveAcrossScope, LiveAcrossSuspension, Liveness, StoragePlan,
+    BoundDependencySubject, LastUse, LiveAcrossScope, LiveAcrossSuspension, Liveness, StoragePlan,
 };
 use bray_symbols::CallableSignatureQuery;
 
-use crate::analysis::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 use crate::analysis::fixed_point::{
     FixedPointDomain, FixedPointOutcome, FixedPointResult, FlowDirection, solve_fixed_point,
 };
@@ -15,85 +13,15 @@ use crate::analysis::model::{
     AnalysisBlock, AnalysisCallPhase, AnalysisEdge, AnalysisEdgeKind, AnalysisOperation,
     AnalysisOperationKind, AnalysisScopeExitPhase, ControlFlowGraph,
 };
-use crate::analysis::reachability::{ReachabilityResult, analyze_reachability};
-use crate::unit::assert_unit_inputs;
-use crate::{
-    CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider,
-    CheckerUnitView,
-};
+use crate::analysis::reachability::ReachabilityResult;
+use crate::{CheckerOutcome, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView};
 
 use super::effects::OperationEffects;
 
-pub(crate) fn analyze_storage_liveness<C>(
-    request: CheckerUnitView<'_, C>,
-    selections: &CheckedSemanticSelections,
-    types: &bray_bound_tree::CheckedExpressionTypes,
-    patterns: &bray_bound_tree::CheckedPatterns,
-    storage: &StoragePlan,
-    memory: &CheckedMemoryOperations,
-) -> CheckerOutcome<Liveness, C::UpstreamError>
-where
-    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
-{
-    assert_unit_inputs(
-        request,
-        [
-            ("expression types", (types.unit(), types.kind())),
-            (
-                "semantic selections",
-                (selections.unit(), selections.kind()),
-            ),
-            ("patterns", (patterns.unit(), patterns.kind())),
-            ("storage plan", (storage.unit(), storage.kind())),
-            ("memory operations", (memory.unit(), memory.kind())),
-        ],
-    );
-
-    let graph = match build_storage_control_flow_graph(
-        request,
-        storage,
-        selections,
-        Some(patterns),
-        None,
-    ) {
-        ControlFlowGraphBuildOutcome::Complete(graph) => graph,
-        ControlFlowGraphBuildOutcome::Cancelled => {
-            return CheckerOutcome::Cancelled;
-        }
-        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
-    };
-
-    let Some(reachability) = analyze_reachability(&graph, request) else {
-        return CheckerOutcome::Cancelled;
-    };
-
-    match analyze_storage_liveness_with_graph(
-        request,
-        selections,
-        types,
-        patterns,
-        storage,
-        memory,
-        &graph,
-        &reachability,
-    ) {
-        CheckerOutcome::Complete(result) => {
-            CheckerOutcome::Complete(result.map(|(liveness, _)| liveness))
-        }
-        CheckerOutcome::Cancelled => CheckerOutcome::Cancelled,
-        CheckerOutcome::UpstreamFailure(error) => CheckerOutcome::UpstreamFailure(error),
-    }
-}
-
 pub(crate) fn analyze_storage_liveness_with_graph<C>(
     request: CheckerUnitView<'_, C>,
-    selections: &CheckedSemanticSelections,
-    types: &bray_bound_tree::CheckedExpressionTypes,
-    patterns: &bray_bound_tree::CheckedPatterns,
+    effects: &OperationEffects,
     storage: &StoragePlan,
-    memory: &CheckedMemoryOperations,
     graph: &ControlFlowGraph,
     reachability: &ReachabilityResult,
 ) -> CheckerOutcome<
@@ -106,17 +34,7 @@ pub(crate) fn analyze_storage_liveness_with_graph<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    let effects = match OperationEffects::from_checked_inputs(
-        request, selections, types, patterns, storage, memory,
-    ) {
-        Ok(effects) => effects,
-        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Upstream(error)) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
-    };
-
-    let domain = LivenessDomain::new(&graph, &reachability, &effects);
+    let domain = LivenessDomain::new(&graph, &reachability, effects);
 
     let result = match solve_fixed_point(&graph, &domain, &request) {
         FixedPointOutcome::Complete(result) => result,
@@ -131,7 +49,7 @@ where
     let liveness = collect_liveness(
         &graph,
         &reachability,
-        &effects,
+        effects,
         domain.universe(),
         &result,
         &domain,
@@ -141,7 +59,7 @@ where
     match liveness {
         Ok(liveness) => CheckerOutcome::without_diagnostics((
             liveness,
-            collect_edge_lifetime_ends(graph, &reachability, &effects, &domain, &result),
+            collect_edge_lifetime_ends(graph, &reachability, effects, &domain, &result),
         )),
         Err(error) => {
             panic!(
@@ -538,18 +456,19 @@ fn collect_edge_lifetime_ends(
                 .and_then(|block| block.operations().last())
                 .and_then(|id| graph.operation(*id));
 
-            let target_operation = target
-                .operations()
-                .first()
-                .and_then(|id| graph.operation(*id));
-
             let bypassed_attempt = source_operation.filter(|operation| {
-                let AnalysisOperationKind::Call { invocation, phase: AnalysisCallPhase::Attempt } = operation.kind() else {
+                let AnalysisOperationKind::Call {
+                    invocation,
+                    phase: AnalysisCallPhase::Attempt,
+                } = operation.kind()
+                else {
                     return false;
                 };
 
-                !target_operation.is_some_and(|target| matches!(target.kind(),
-                    AnalysisOperationKind::Call { invocation: completed, phase: AnalysisCallPhase::Completion } if completed == invocation))
+                edge.refinement()
+                    == Some(
+                        crate::analysis::model::AnalysisRefinement::InvocationFailure(invocation),
+                    )
             });
 
             // Failed calls bypass the completion where storage flow applies input last uses.

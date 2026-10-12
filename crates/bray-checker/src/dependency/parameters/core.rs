@@ -58,9 +58,8 @@ impl ResultParameters {
                 return Err(CheckerQueryError::Cancelled);
             }
 
-            let template = request
-                .context()
-                .callable_result_dependencies(callable.definition().callable_symbol())?;
+            let template =
+                request.callable_result_dependencies(callable.definition().callable_symbol())?;
 
             let template = values.dependency_contract_template_data(template);
 

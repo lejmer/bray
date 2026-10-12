@@ -2,7 +2,6 @@ use crate::test_support::{
     compilation, source_callable_body_key, source_function_body_key,
     source_trait_callable_fulfillment_body_key,
 };
-use bray_binder::semantic_unit_context;
 use bray_bound_tree::{
     BoundUnitKind, StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageBindingTarget,
     StorageIdentity, StorageProjection,
@@ -471,11 +470,7 @@ func main(pos value: &(Guard?, Guard?)) -> usize
 }
 
 #[test]
-#[should_panic(expected = "InactiveProjection")]
-fn missing_projection_refinements_remain_storage_invariant_failures() {
-    use bray_bound_tree::CheckedRefinements;
-    use bray_checker::{CheckerOutcome, DefaultStorageFlowChecker, StorageFlowChecker};
-
+fn nullable_projection_refinements_are_established_by_body_analysis() {
     let compilation = compilation(
         r#"module app;
 
@@ -498,57 +493,12 @@ func main(pos value: &Guard?) -> usize
     assert!(compilation.check_diagnostics().is_empty());
 
     let key = source_function_body_key(&compilation, "main");
-    let bound = compilation.bound_unit(key.clone()).unwrap();
-    let storage = compilation.storage_plan(key.clone()).unwrap();
-
-    let expressions = compilation
-        .expression_semantics_with_cancellation(key.clone(), &compilation.state.cancellation)
-        .unwrap();
-
-    let patterns = compilation.patterns(key.clone()).unwrap();
-    let memory = compilation.memory_operations(key.clone()).unwrap();
     let refinements = compilation.refinements(key.clone()).unwrap();
+    let flow = compilation.storage_flow(key).unwrap();
 
-    let context = compilation
-        .checker_context_for(&key, &compilation.state.cancellation)
-        .unwrap();
-
-    let semantic_context = semantic_unit_context(context.symbols(), bound.value());
-
-    let request = bray_checker::CheckerUnitView::new(bound.value(), &semantic_context, &context);
-
-    assert!(!storage.value().is_recovered());
     assert!(!refinements.value().is_recovered());
-
-    assert!(matches!(
-        DefaultStorageFlowChecker.check_storage_flow(
-            request,
-            expressions.result().value(),
-            patterns.value(),
-            storage.value(),
-            refinements.value(),
-            memory.value()
-        ),
-        CheckerOutcome::Complete(_)
-    ));
-
-    let missing = CheckedRefinements::try_new(
-        bound.value().unit(),
-        key.kind(),
-        [],
-        Default::default(),
-        false,
-    )
-    .unwrap();
-
-    DefaultStorageFlowChecker.check_storage_flow(
-        request,
-        expressions.result().value(),
-        patterns.value(),
-        storage.value(),
-        &missing,
-        memory.value(),
-    );
+    assert!(!refinements.value().occurrences().is_empty());
+    assert!(!flow.value().is_recovered());
 }
 
 #[test]

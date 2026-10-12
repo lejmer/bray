@@ -19,6 +19,35 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) {
         self.transition_cleanup(state, operation, observe);
 
+        let expression = operation.occurrence().expression();
+
+        let target = self
+            .checked_flow
+            .and_then(|flow| flow.assignment_target(expression?));
+
+        let assignment =
+            target.and_then(|target| crate::ExecutionPlace::storage_path(self.storage, target));
+
+        let invalidation = self
+            .checked_flow
+            .filter(|flow| {
+                target.is_some()
+                    || expression.is_some_and(|expression| {
+                        flow.checked_memory_operation(expression).is_some()
+                    })
+            })
+            .and_then(|_| self.refinements.get(&operation.occurrence()));
+
+        self.transfer_operation(state, operation, invalidation, assignment.as_ref());
+    }
+
+    pub(in crate::analysis) fn transfer_operation(
+        &self,
+        state: &mut ExecutionState,
+        operation: super::super::super::model::AnalysisOperationKind,
+        invalidation: Option<&bray_bound_tree::StorageInvalidation>,
+        assignment_place: Option<&crate::ExecutionPlace>,
+    ) {
         if let super::super::super::model::AnalysisOperationKind::Call {
             invocation:
                 invocation @ (bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
@@ -37,7 +66,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         state.invalidate_trusted(&ExecutionCondition::ScopedCapability(expression));
                     }
 
-                    self.invalidate(state, invocation);
+                    self.invalidate(state, invocation, invalidation);
 
                     // The invocation owns its captured inputs after transfer. Invalidation
                     // retires caller authority and earlier computations, not this callee's entry evidence.
@@ -77,43 +106,47 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         ..
                     }
                 ) {
-                    // This occurrence is executing again; its cached observation belongs
-                    // to the prior iteration, even when it contains an immutable input term.
-                    state.expressions.remove(&expression);
+                    // Only a repeated evaluation can retire an earlier incarnation of this
+                    // occurrence. Every evaluated expression retains a cache key at joins.
+                    if state.expressions.remove(&expression).is_some() {
+                        state.witness_carriers.retain(|value, conditions| {
+                            conditions.retain(|condition| !condition.depends_on(expression));
 
-                    state
-                        .witness_carriers
-                        .retain(|value| !value.depends_on(expression));
+                            !value.depends_on(expression) && !conditions.is_empty()
+                        });
 
-                    state
-                        .trusted_assumptions
-                        .retain(|(condition, _)| !condition.depends_on(expression));
+                        state
+                            .trusted_assumptions
+                            .retain(|(condition, _)| !condition.depends_on(expression));
 
-                    state.allocation_owners.retain(|condition, owner| {
-                        !condition.depends_on(expression) && !owner.depends_on(expression)
-                    });
+                        state.allocation_owners.retain(|condition, owner| {
+                            !condition.depends_on(expression) && !owner.depends_on(expression)
+                        });
 
-                    state
-                        .assumptions
-                        .retain(|(condition, _)| !condition.depends_on(expression));
+                        state
+                            .assumptions
+                            .retain(|(condition, _)| !condition.depends_on(expression));
 
-                    for value in state
-                        .current
-                        .values_mut()
-                        .chain(state.expressions.values_mut())
-                        .chain(state.pending_results.values_mut())
-                    {
-                        if value.depends_on(expression) {
-                            *value = ExecutionCondition::Unknown;
+                        for value in state
+                            .current
+                            .values_mut()
+                            .chain(state.expressions.values_mut())
+                            .chain(state.pending_results.values_mut())
+                        {
+                            if value.depends_on(expression) {
+                                *value = ExecutionCondition::Unknown;
+                            }
                         }
                     }
 
                     if let Some(entry) = self.call_entry(state, expression.into()) {
                         state.entries.insert(expression.into(), entry);
                     }
-                }
 
-                self.expression(state, expression);
+                    // Split calls apply their effects at entry. Normal completion only
+                    // contributes the result and completion contracts.
+                    self.expression(state, expression, invalidation, assignment_place);
+                }
 
                 if !matches!(
                     operation,
@@ -121,7 +154,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         phase: super::super::super::model::AnalysisCallPhase::Attempt,
                         ..
                     }
-                ) {
+                ) && self
+                    .checked_flow
+                    .and_then(|flow| flow.memory_operation_status(expression))
+                    .is_none_or(|status| status == bray_bound_tree::MemoryOperationStatus::Valid)
+                {
                     self.complete_call(state, expression);
                 }
 
@@ -141,7 +178,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             _ => {}
         }
     }
-    fn expression(&self, state: &mut ExecutionState, expression: BoundExpressionId) {
+    fn expression(
+        &self,
+        state: &mut ExecutionState,
+        expression: BoundExpressionId,
+        invalidation: Option<&bray_bound_tree::StorageInvalidation>,
+        assignment_place: Option<&crate::ExecutionPlace>,
+    ) {
         state.expressions.remove(&expression);
 
         let mut value = state
@@ -179,7 +222,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         state.expressions.insert(expression, value);
-        self.invalidate(state, expression.into());
+        self.invalidate(state, expression.into(), invalidation);
 
         match self.request.view().expression(expression) {
             Some(BoundExpression::Assignment(assignment)) => {
@@ -214,16 +257,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                 .ty(),
                         );
 
-                        if let Some(owner) = self.borrowed_assignment_place(state, *target, &place)
-                        {
-                            for length in 0..owner.projections.len() {
-                                let mut prefix = owner.clone();
-
-                                prefix.projections = owner.projections[..length].into();
-                                state.current.insert(prefix, ExecutionCondition::Unknown);
-                            }
-
-                            state.assign(owner, value.clone());
+                        if let Some(owner) = assignment_place {
+                            state.assign(owner.clone(), value.clone());
                         }
 
                         state.assign(place, value);

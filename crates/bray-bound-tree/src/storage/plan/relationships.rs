@@ -1,7 +1,5 @@
 use crate::{StorageIdentity, StorageProjection, StorageRelationship};
 
-use super::model::ResolvedStoragePath;
-
 pub(super) const fn identity_is_distinct_storage(identity: StorageIdentity) -> bool {
     matches!(
         identity,
@@ -21,33 +19,29 @@ pub(super) const fn identity_is_distinct_storage(identity: StorageIdentity) -> b
     )
 }
 
-pub(super) fn path_contains(
-    container: &ResolvedStoragePath,
-    contained: &ResolvedStoragePath,
-) -> bool {
-    container.root == contained.root && contained.projections.starts_with(&container.projections)
-}
+impl StorageProjection {
+    /// Compares two projection paths within the same physical storage root.
+    pub fn relationship(
+        left: &[StorageProjection],
+        right: &[StorageProjection],
+    ) -> StorageRelationship {
+        for (left, right) in left.iter().zip(right) {
+            if left == right {
+                continue;
+            }
 
-pub(super) fn projection_relationship(
-    left: &[StorageProjection],
-    right: &[StorageProjection],
-) -> StorageRelationship {
-    for (left, right) in left.iter().zip(right) {
-        if left == right {
-            continue;
+            return if projections_are_disjoint(*left, *right) {
+                StorageRelationship::Disjoint
+            } else {
+                StorageRelationship::PotentiallyOverlapping
+            };
         }
 
-        return if projections_are_disjoint(*left, *right) {
-            StorageRelationship::Disjoint
+        if left == right {
+            StorageRelationship::Identical
         } else {
             StorageRelationship::PotentiallyOverlapping
-        };
-    }
-
-    if left == right {
-        StorageRelationship::Identical
-    } else {
-        StorageRelationship::PotentiallyOverlapping
+        }
     }
 }
 

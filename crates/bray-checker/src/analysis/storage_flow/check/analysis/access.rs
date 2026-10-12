@@ -69,7 +69,7 @@ where
             return Some(BorrowConflict::Unlocated);
         };
 
-        let created_borrow = self.input.borrow(plan);
+        let created_borrow = self.storage.borrow_for_plan(plan);
 
         let inactive_authorizing_borrows = authorizing_borrows
             .iter()
@@ -224,19 +224,24 @@ where
         matches!(data.as_ref(), bray_symbols::TypeData::Borrow { .. })
     }
 
-    pub(super) fn refinements_allow_access(
+    pub(super) fn refinements_allow_access<'refinements>(
         &self,
         state: &StorageFlowState,
         access: StorageAccessId,
-        refinements: &[Refinement],
+        refinements: impl Iterator<Item = &'refinements Refinement> + Clone,
     ) -> bool {
         let Some(projections) = self.storage.resolved_projections(access) else {
             return false;
         };
 
         for (depth, projection) in projections.iter().enumerate() {
-            if !projection_is_available(self.storage, access, *projection, depth, refinements)
-                && !self.borrow_establishes_projection(state, access, depth)
+            if !projection_is_available(
+                self.storage,
+                access,
+                *projection,
+                depth,
+                refinements.clone(),
+            ) && !self.borrow_establishes_projection(state, access, depth)
             {
                 return false;
             }

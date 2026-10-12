@@ -1,7 +1,5 @@
-use std::collections::BTreeSet;
-
 use bray_bound_tree::{BoundExpressionId, SelectedCall, StorageAccessId, StorageProjection};
-use bray_symbols::{DependencyProjection, DependencyRequirement, DependencySubjectRoot, TypeData};
+use bray_symbols::{DependencyProjection, DependencySubjectRoot, TypeData};
 
 use super::super::plan::{PlanError, Planner};
 use crate::CheckerRequestContext;
@@ -23,33 +21,12 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         let (kind, target) = (*kind, *target);
 
         let template = crate::dependency::call_result_template(self.request, call, |callable| {
-            self.request
-                .context()
-                .callable_result_dependencies(callable)
+            self.request.callable_result_dependencies(callable)
         })?;
 
-        let sources: BTreeSet<_> = template
-            .template
-            .requirements()
-            .iter()
-            .filter_map(|requirement| match requirement {
-                DependencyRequirement::Direct { subject, .. } => Some(subject),
-                DependencyRequirement::Guarded(_)
-                | DependencyRequirement::ResultCall { .. }
-                | DependencyRequirement::FixedPoint { .. }
-                | DependencyRequirement::Variable { .. } => None,
-            })
-            .collect();
-
-        let mut sources = sources.into_iter();
-
-        let Some(source) = sources.next() else {
+        let Some(source) = returned_borrow_subject(&template.template) else {
             return Ok(None);
         };
-
-        if sources.next().is_some() {
-            return Ok(None);
-        }
 
         if source.subject_root() == DependencySubjectRoot::Receiver
             && call.receiver().is_none_or(|receiver| {
@@ -250,28 +227,16 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
 
         let template = self
             .request
-            .context()
             .callable_result_dependencies(callable.definition().callable_symbol())?;
 
         let template =
             crate::dependency::resolved_result_template(self.request, Some(callable), template)?;
 
-        let sources = template
-            .requirements()
-            .iter()
-            .filter_map(|requirement| match requirement {
-                DependencyRequirement::Direct { subject, .. } => Some(subject),
-                _ => None,
-            })
-            .collect::<BTreeSet<_>>();
-
-        let mut sources = sources.into_iter();
-
-        let Some(source) = sources.next() else {
+        let Some(source) = returned_borrow_subject(&template) else {
             return Ok(None);
         };
 
-        if sources.next().is_some() || source.subject_root() != DependencySubjectRoot::Receiver {
+        if source.subject_root() != DependencySubjectRoot::Receiver {
             return Ok(None);
         }
 
@@ -288,4 +253,21 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             source.projections(),
         )
     }
+}
+
+fn returned_borrow_subject(
+    template: &bray_symbols::DependencyContractTemplateData,
+) -> Option<&bray_symbols::DependencySubject> {
+    let mut sources = template.borrows().iter().filter(|relation| {
+        relation.kind() == bray_symbols::DependencyReferenceKind::Borrow
+            && relation.exit().subject_root() == DependencySubjectRoot::Result
+            && relation.exit().projections().is_empty()
+    });
+
+    let source = sources.next()?.entry();
+
+    // Lifetime requirements constrain survival, but cannot identify a referent.
+    sources
+        .all(|relation| relation.entry() == source)
+        .then_some(source)
 }

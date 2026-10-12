@@ -1,4 +1,5 @@
 use bray_bound_tree::{BoundUnitId, ControlCompletion, ControlCompletionKind};
+use std::collections::BTreeSet;
 
 use crate::{CheckerRequestContext, CheckerUnitView};
 
@@ -40,7 +41,7 @@ impl ReachabilityResult {
             .unwrap_or(false)
     }
 
-    pub(super) const fn completion(&self) -> ControlCompletion {
+    pub(crate) const fn completion(&self) -> ControlCompletion {
         self.completion
     }
 }
@@ -52,7 +53,15 @@ pub(crate) fn analyze_reachability<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let forward_domain = ReachabilityDomain::forward(graph);
+    analyze_reachability_excluding(graph, request, &BTreeSet::new())
+}
+
+pub(crate) fn analyze_reachability_excluding<C: CheckerRequestContext + ?Sized>(
+    graph: &ControlFlowGraph,
+    request: CheckerUnitView<'_, C>,
+    excluded: &BTreeSet<AnalysisEdgeId>,
+) -> Option<ReachabilityResult> {
+    let forward_domain = ReachabilityDomain { graph, excluded };
     let forward = solve_fixed_point(graph, &forward_domain, &request);
 
     let forward = match forward {
@@ -72,7 +81,7 @@ where
     let reachable_edges = graph
         .edges()
         .iter()
-        .map(|edge| state_is_reachable(&forward, edge.source()))
+        .map(|edge| !excluded.contains(&edge.id()) && state_is_reachable(&forward, edge.source()))
         .collect::<Box<[_]>>();
 
     let completion = collect_completion(graph, &forward);
@@ -166,15 +175,12 @@ impl ReachabilityState {
     }
 }
 
-pub(super) struct ReachabilityDomain<'graph> {
-    graph: &'graph ControlFlowGraph,
+pub(super) struct ReachabilityDomain<'a> {
+    graph: &'a ControlFlowGraph,
+    excluded: &'a BTreeSet<AnalysisEdgeId>,
 }
 
-impl<'graph> ReachabilityDomain<'graph> {
-    pub(super) const fn forward(graph: &'graph ControlFlowGraph) -> Self {
-        Self { graph }
-    }
-
+impl ReachabilityDomain<'_> {
     fn transfer(&self, block: &AnalysisBlock, state: ReachabilityState) -> ReachabilityState {
         if self.block_has_recovery(block) {
             return state.after_recovery();
@@ -224,6 +230,10 @@ impl FixedPointDomain for ReachabilityDomain<'_> {
         edge: &AnalysisEdge,
         target: &mut Self::State,
     ) -> bool {
+        if self.excluded.contains(&edge.id()) {
+            return false;
+        }
+
         let incoming = if edge.kind() == AnalysisEdgeKind::Recovery {
             source.after_recovery()
         } else {

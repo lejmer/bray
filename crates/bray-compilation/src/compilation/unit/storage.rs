@@ -62,6 +62,52 @@ impl Compilation {
         )
     }
 
+    pub(in crate::compilation) fn prepared_body_analysis_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitResult<bray_checker::PreparedBodyAnalysis>>, FactQueryError> {
+        self.unit_query(
+            &self.state.prepared_body_analysis,
+            CompilationFactKey::PreparedBodyAnalysis(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
+                let expressions =
+                    self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
+
+                let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
+                let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
+                let context = self.checker_context_for(&key, cancellation)?;
+                let semantic = semantic_unit_context(context.symbols(), bound.result().value());
+
+                let request =
+                    bray_checker::CheckerUnitView::new(bound.result().value(), &semantic, &context);
+
+                let result = checker_result(bray_checker::prepare_body_analysis(
+                    request,
+                    expressions.result().value(),
+                    patterns.result().value(),
+                    storage.result().value(),
+                ))?;
+
+                let (prepared, diagnostics) = result.into_parts();
+
+                let diagnostics = DiagnosticBag::merged_all([
+                    bound.result().diagnostics(),
+                    expressions.result().diagnostics(),
+                    patterns.result().diagnostics(),
+                    storage.result().diagnostics(),
+                    &diagnostics,
+                ]);
+
+                Ok((DiagnosticResult::new(prepared, diagnostics), Box::new([])))
+            },
+        )
+    }
+
     pub(in crate::compilation) fn body_semantics_with_cancellation(
         &self,
         key: BoundUnitKey,
@@ -75,11 +121,14 @@ impl Compilation {
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
-                let control_flow =
-                    self.control_flow_with_cancellation(key.clone(), cancellation)?;
-
                 let expressions =
                     self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
+
+                let behavior =
+                    self.selected_body_behavior_with_cancellation(key.clone(), cancellation)?;
+
+                let prepared =
+                    self.prepared_body_analysis_with_cancellation(key.clone(), cancellation)?;
 
                 let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
                 let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
@@ -108,7 +157,8 @@ impl Compilation {
 
                 let result = checker_result(DefaultBodySemanticChecker.check_body_semantics(
                     unit,
-                    control_flow.result().value(),
+                    prepared.result().value(),
+                    behavior.result().value(),
                     expressions.result().value(),
                     patterns.result().value(),
                     storage.result().value(),
@@ -118,6 +168,8 @@ impl Compilation {
                 let (semantics, mut semantic_diagnostics) = result.into_parts();
 
                 semantic_diagnostics.add_range(contracts.into_parts().1);
+                semantic_diagnostics.add_range(prepared.result().diagnostics().iter().cloned());
+                semantic_diagnostics.add_range(behavior.result().diagnostics().iter().cloned());
 
                 Ok((
                     DiagnosticResult::new(

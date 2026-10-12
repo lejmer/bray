@@ -2,10 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpressionId,
-    CheckedMemoryOperations, CheckedRefinements, Liveness, StorageAccessId, StorageAccessPlan,
-    StorageAccessPurpose, StorageIdentity, StorageIdentityId, StoragePlan,
+    CheckedMemoryOperations, Liveness, StorageAccessId, StorageAccessPlan, StorageAccessPurpose,
+    StorageIdentity, StorageIdentityId, StoragePlan,
 };
-use bray_symbols::{BorrowKind, TypeId};
+use bray_symbols::BorrowKind;
 
 use crate::storage::{StorageScopeOwners, local_initialization_destinations};
 use crate::{CheckerRequestContext, CheckerUnitView};
@@ -18,8 +18,7 @@ use super::check::StorageFlowCollector;
 
 #[derive(Debug, Default)]
 pub(super) struct StorageFlowInput {
-    expression_roots: BTreeMap<BoundExpressionId, Vec<StorageIdentityId>>,
-    borrows: BTreeMap<StorageAccessPlan, BorrowCapabilityId>,
+    expression_places: BTreeMap<BoundExpressionId, Vec<super::memory::Place>>,
     definitions: BTreeMap<AnyBoundNodeId, Vec<StorageIdentityId>>,
     initialization_destinations: BTreeMap<BoundExpressionId, StorageIdentityId>,
     mutable_storage: BTreeSet<StorageIdentityId>,
@@ -32,6 +31,7 @@ pub(super) struct StorageFlowInput {
 
 impl StorageFlowInput {
     pub(super) fn new<C>(
+        cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
         mutable_storage: BTreeSet<StorageIdentityId>,
@@ -58,45 +58,13 @@ impl StorageFlowInput {
             ..Self::default()
         };
 
-        let planned_borrows = storage
-            .borrow_capability_entries()
-            .filter_map(|(id, capability)| {
-                capability
-                    .expression()
-                    .map(|expression| ((expression, capability.kind(), capability.access()), id))
-            })
-            .collect::<BTreeMap<_, _>>();
-
         for plan in storage.access_plans().iter().copied() {
-            if let Some(root) = storage.root_identity(plan.access()) {
+            if let Some(place) = storage.logical_path(plan.access()).cloned() {
                 input
-                    .expression_roots
+                    .expression_places
                     .entry(plan.expression())
                     .or_default()
-                    .push(root);
-            }
-
-            let StorageAccessPurpose::Borrow(kind) = plan.purpose() else {
-                continue;
-            };
-
-            let direct = storage
-                .access(plan.access())
-                .and_then(|access| access.root().borrow_capability());
-
-            let capability = planned_borrows
-                .get(&(plan.expression(), kind, plan.access()))
-                .copied()
-                .or_else(|| {
-                    direct.filter(|capability| {
-                        storage
-                            .borrow_capability(*capability)
-                            .is_some_and(|capability| capability.kind() == kind)
-                    })
-                });
-
-            if let Some(capability) = capability {
-                input.borrows.insert(plan, capability);
+                    .push(place);
             }
         }
 
@@ -112,7 +80,7 @@ impl StorageFlowInput {
             super::authority::immutable_field_accesses(request, storage, &input)?;
 
         let (cleanup_free, diagnostics) =
-            crate::asynchronous::cleanup_free_storage(request, storage)?;
+            crate::asynchronous::cleanup_free_storage(cleanup_shapes, request, storage)?;
 
         input.prepare_storage_retirement(storage, liveness, &cleanup_free);
         input.cleanup_free_storage = cleanup_free;
@@ -160,8 +128,11 @@ impl StorageFlowInput {
             }));
     }
 
-    pub(super) fn expression_roots(&self, expression: BoundExpressionId) -> &[StorageIdentityId] {
-        self.expression_roots
+    pub(super) fn expression_places(
+        &self,
+        expression: BoundExpressionId,
+    ) -> &[super::memory::Place] {
+        self.expression_places
             .get(&expression)
             .map(Vec::as_slice)
             .unwrap_or_default()
@@ -177,16 +148,13 @@ impl StorageFlowInput {
             .unwrap_or_default()
     }
 
-    pub(super) fn borrow(&self, plan: StorageAccessPlan) -> Option<BorrowCapabilityId> {
-        self.borrows.get(&plan).copied()
-    }
-
     pub(super) fn borrowed_access(
         &self,
         plan: StorageAccessPlan,
         storage: &StoragePlan,
     ) -> Option<StorageAccessId> {
-        self.borrow(plan)
+        storage
+            .borrow_for_plan(plan)
             .and_then(|borrow| storage.borrow_capability(borrow))
             .map(|borrow| {
                 if borrow.expression() == Some(plan.expression()) {
@@ -246,31 +214,73 @@ impl StorageFlowInput {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum StorageAbsence {
+pub(in crate::analysis) enum StorageAbsence {
     Moved,
     NoPayload,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(super) struct StorageFlowState {
+pub(in crate::analysis) struct StorageFlowState {
     pub(super) reachable: bool,
-    pub(super) live: BTreeSet<StorageIdentityId>,
-    pub(super) initialized: BTreeSet<StorageIdentityId>,
+    pub(super) execution: Option<crate::analysis::guarantee::ExecutionState>,
+    pub(super) refinements: crate::analysis::refinement::RefinementSet,
+    pub(in crate::analysis) live: BTreeSet<StorageIdentityId>,
+    pub(in crate::analysis) initialized: BTreeSet<StorageIdentityId>,
     pub(super) observed_pattern_bindings: BTreeSet<StorageIdentityId>,
-    pub(super) moved: BTreeMap<StorageAccessId, BoundExpressionId>,
-    pub(super) definitely_absent: BTreeMap<StorageAccessId, StorageAbsence>,
-    pub(super) fully_moved: BTreeSet<StorageIdentityId>,
+    pub(in crate::analysis) moved:
+        BTreeMap<bray_bound_tree::StoragePath, BTreeMap<BoundExpressionId, bray_symbols::TypeId>>,
+    pub(in crate::analysis) definitely_absent:
+        BTreeMap<bray_bound_tree::StoragePath, StorageAbsence>,
+    pub(in crate::analysis) fully_moved: BTreeSet<StorageIdentityId>,
     pub(super) active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(super) definitely_active_borrows: BTreeSet<BorrowCapabilityId>,
-    pub(super) raw_initialized:
-        BTreeMap<StorageIdentityId, BTreeMap<TypeId, BTreeSet<BoundExpressionId>>>,
-    pub(super) active_allocations: BTreeMap<StorageIdentityId, BTreeSet<BoundExpressionId>>,
-    pub(super) allocation_origins: BTreeMap<StorageIdentityId, BTreeSet<BoundExpressionId>>,
-    pub(super) invalidated_allocations: BTreeMap<StorageIdentityId, BTreeSet<BoundExpressionId>>,
+    pub(super) memory: super::memory::State,
     pub(super) recovered: bool,
 }
 
 impl StorageFlowState {
+    pub(super) fn record_move(
+        &mut self,
+        path: bray_bound_tree::StoragePath,
+        origin: BoundExpressionId,
+        ty: bray_symbols::TypeId,
+        definite: bool,
+    ) {
+        if definite && path.is_exact() {
+            if path.projections.is_empty() {
+                self.move_complete_storage(path.root);
+            }
+
+            // Both indexes own their physical path, sharing its immutable projections.
+            self.definitely_absent
+                .insert(path.clone(), StorageAbsence::Moved);
+        }
+
+        self.moved.entry(path).or_default().insert(origin, ty);
+    }
+
+    pub(super) fn initialize_path(&mut self, path: &bray_bound_tree::StoragePath) {
+        if path.is_exact() {
+            self.fully_moved.remove(&path.root);
+
+            if path.projections.is_empty() {
+                self.live.insert(path.root);
+                self.initialized.insert(path.root);
+            }
+
+            self.moved.retain(|moved, _| !path.contains(moved));
+        }
+
+        // An uncertain write cannot prove initialization, but can make prior absence uncertain.
+        self.definitely_absent.retain(|absent, _| {
+            path.root != absent.root
+                || bray_bound_tree::StorageProjection::relationship(
+                    &path.projections,
+                    &absent.projections,
+                ) == bray_bound_tree::StorageRelationship::Disjoint
+        });
+    }
+
     pub(super) fn end_storage_lifetime(
         &mut self,
         identity: StorageIdentityId,
@@ -286,7 +296,7 @@ impl StorageFlowState {
             return;
         }
 
-        self.forget_storage(identity, storage);
+        self.forget_storage(identity);
     }
 
     pub(super) fn end_borrows(
@@ -300,23 +310,23 @@ impl StorageFlowState {
             .retain(|borrow| !ended.contains(borrow));
 
         self.moved.retain(|access, _| {
-            storage.access(*access).is_none_or(|access| {
-                access
-                    .root()
-                    .borrow_capability()
-                    .is_none_or(|borrow| !ended.contains(&borrow))
-            })
+            access
+                .access_id(storage)
+                .and_then(|access| storage.access(access))
+                .is_none_or(|access| {
+                    access
+                        .root()
+                        .borrow_capability()
+                        .is_none_or(|borrow| !ended.contains(&borrow))
+                })
         });
 
-        self.retain_absent_storage(storage);
+        self.retain_absent_storage();
     }
 
-    pub(super) fn retain_absent_storage(&mut self, storage: &StoragePlan) {
-        self.definitely_absent.retain(|access, _| {
-            storage
-                .root_identity(*access)
-                .is_some_and(|root| self.live.contains(&root))
-        });
+    pub(super) fn retain_absent_storage(&mut self) {
+        self.definitely_absent
+            .retain(|path, _| self.live.contains(&path.root));
     }
 
     pub(super) fn mark_absent(
@@ -325,13 +335,9 @@ impl StorageFlowState {
         reason: StorageAbsence,
         storage: &StoragePlan,
     ) {
-        if let (Some(identity), Some(path)) = (
-            storage.root_identity(access),
-            storage.resolved_projections(access),
-        ) && let Some(access) = storage.access_at(identity, path)
-        {
+        if let Some(path) = storage.logical_path(access).cloned() {
             self.definitely_absent
-                .entry(access)
+                .entry(path)
                 .and_modify(|current| {
                     if reason == StorageAbsence::Moved {
                         *current = reason;
@@ -348,13 +354,7 @@ impl StorageFlowState {
     ) {
         self.definitely_absent.retain(|access, reason| {
             // Opaque mutation can change an observed nullable value, but cannot restore moved ownership.
-            *reason == StorageAbsence::Moved || !invalidation.invalidates(*access, storage)
-        });
-    }
-
-    pub(super) fn invalidate_absence(&mut self, access: StorageAccessId, storage: &StoragePlan) {
-        self.definitely_absent.retain(|absent, _| {
-            storage.relationship(access, *absent) == bray_bound_tree::StorageRelationship::Disjoint
+            *reason == StorageAbsence::Moved || !invalidation.invalidates_path(access, storage)
         });
     }
 
@@ -374,6 +374,8 @@ impl StorageFlowState {
 
         Self {
             reachable: true,
+            execution: None,
+            refinements: Default::default(),
             live: initialized.clone(),
             initialized,
             observed_pattern_bindings: BTreeSet::new(),
@@ -382,15 +384,16 @@ impl StorageFlowState {
             fully_moved: BTreeSet::new(),
             definitely_active_borrows: active_borrows.clone(),
             active_borrows,
-            raw_initialized: BTreeMap::new(),
-            active_allocations: BTreeMap::new(),
-            allocation_origins: BTreeMap::new(),
-            invalidated_allocations: BTreeMap::new(),
+            memory: super::memory::State::default(),
             recovered: false,
         }
     }
 
-    pub(super) fn merge(&mut self, incoming: &Self) -> bool {
+    pub(super) fn merge(
+        &mut self,
+        incoming: &Self,
+        block: Option<crate::analysis::id::AnalysisBlockId>,
+    ) -> bool {
         if !incoming.reachable {
             return false;
         }
@@ -402,6 +405,13 @@ impl StorageFlowState {
             return true;
         }
 
+        let execution_changed = crate::analysis::guarantee::merge_execution(
+            &mut self.execution,
+            &incoming.execution,
+            block,
+        );
+
+        let refinements_changed = self.refinements.intersect(&incoming.refinements);
         let live_count = self.live.len();
         let initialized_count = self.initialized.len();
         let observed_count = self.observed_pattern_bindings.len();
@@ -410,17 +420,6 @@ impl StorageFlowState {
         let fully_moved_count = self.fully_moved.len();
         let borrow_count = self.active_borrows.len();
         let definite_borrow_count = self.definitely_active_borrows.len();
-        let raw_storage_count = self.raw_initialized.len();
-
-        let raw_initialized_count = self
-            .raw_initialized
-            .values()
-            .map(BTreeMap::len)
-            .sum::<usize>();
-
-        let active_allocation_count = self.active_allocations.len();
-        let allocation_origin_count = self.allocation_origins.len();
-        let invalidated_allocation_count = self.invalidated_allocations.len();
         let was_recovered = self.recovered;
 
         self.live.extend(incoming.live.iter().copied());
@@ -433,18 +432,13 @@ impl StorageFlowState {
 
         let mut moved_changed = false;
 
-        for (&access, &origin) in &incoming.moved {
-            match self.moved.get_mut(&access) {
-                Some(current) if origin < *current => {
-                    *current = origin;
-                    moved_changed = true;
-                }
-                Some(_) => {}
-                None => {
-                    self.moved.insert(access, origin);
-                    moved_changed = true;
-                }
-            }
+        for (path, origins) in &incoming.moved {
+            // Each joined state owns its cause set and shares the immutable path.
+            let current = self.moved.entry(path.clone()).or_default();
+            let count = current.len();
+
+            current.extend(origins.iter().map(|(origin, ty)| (*origin, *ty)));
+            moved_changed |= current.len() != count;
         }
 
         self.definitely_absent.retain(|access, reason| {
@@ -471,61 +465,13 @@ impl StorageFlowState {
         self.definitely_active_borrows
             .retain(|borrow| incoming.definitely_active_borrows.contains(borrow));
 
-        let mut memory_origins_changed = false;
-
-        self.raw_initialized.retain(|storage, initialized| {
-            let Some(incoming) = incoming.raw_initialized.get(storage) else {
-                return false;
-            };
-
-            initialized.retain(|ty, origins| {
-                let Some(incoming_origins) = incoming.get(ty) else {
-                    return false;
-                };
-
-                let count = origins.len();
-
-                origins.extend(incoming_origins.iter().copied());
-                memory_origins_changed |= origins.len() != count;
-
-                true
-            });
-
-            !initialized.is_empty()
-        });
-
-        self.active_allocations.retain(|storage, origins| {
-            let Some(incoming_origins) = incoming.active_allocations.get(storage) else {
-                return false;
-            };
-
-            let count = origins.len();
-
-            origins.extend(incoming_origins.iter().copied());
-            memory_origins_changed |= origins.len() != count;
-
-            true
-        });
-
-        for (&storage, incoming_origins) in &incoming.allocation_origins {
-            let origins = self.allocation_origins.entry(storage).or_default();
-            let count = origins.len();
-
-            origins.extend(incoming_origins.iter().copied());
-            memory_origins_changed |= origins.len() != count;
-        }
-
-        for (&storage, incoming_origins) in &incoming.invalidated_allocations {
-            let origins = self.invalidated_allocations.entry(storage).or_default();
-            let count = origins.len();
-
-            origins.extend(incoming_origins.iter().copied());
-            memory_origins_changed |= origins.len() != count;
-        }
+        let memory_changed = self.memory.merge(&incoming.memory);
 
         self.recovered |= incoming.recovered;
 
-        self.live.len() != live_count
+        execution_changed
+            || refinements_changed
+            || self.live.len() != live_count
             || self.initialized.len() != initialized_count
             || self.observed_pattern_bindings.len() != observed_count
             || self.moved.len() != moved_count
@@ -534,37 +480,23 @@ impl StorageFlowState {
             || self.fully_moved.len() != fully_moved_count
             || self.active_borrows.len() != borrow_count
             || self.definitely_active_borrows.len() != definite_borrow_count
-            || self.raw_initialized.len() != raw_storage_count
-            || self
-                .raw_initialized
-                .values()
-                .map(BTreeMap::len)
-                .sum::<usize>()
-                != raw_initialized_count
-            || self.active_allocations.len() != active_allocation_count
-            || self.allocation_origins.len() != allocation_origin_count
-            || self.invalidated_allocations.len() != invalidated_allocation_count
-            || memory_origins_changed
+            || memory_changed
             || self.recovered != was_recovered
     }
 
-    pub(super) fn forget_storage(&mut self, identity: StorageIdentityId, storage: &StoragePlan) {
+    pub(super) fn forget_storage(&mut self, identity: StorageIdentityId) {
         self.live.remove(&identity);
         self.initialized.remove(&identity);
         self.fully_moved.remove(&identity);
         self.observed_pattern_bindings.remove(&identity);
-        self.raw_initialized.remove(&identity);
-        self.active_allocations.remove(&identity);
-        self.allocation_origins.remove(&identity);
-        self.invalidated_allocations.remove(&identity);
+        self.memory.forget(identity);
 
-        self.moved
-            .retain(|access, _| storage.root_identity(*access) != Some(identity));
+        self.moved.retain(|access, _| access.root != identity);
 
-        self.retain_absent_storage(storage);
+        self.retain_absent_storage();
     }
 
-    pub(super) fn retain_live_storage(&mut self, storage: &StoragePlan) {
+    pub(super) fn retain_live_storage(&mut self) {
         self.initialized
             .retain(|identity| self.live.contains(identity));
 
@@ -574,25 +506,11 @@ impl StorageFlowState {
         self.fully_moved
             .retain(|identity| self.live.contains(identity));
 
-        self.raw_initialized
-            .retain(|identity, _| self.live.contains(identity));
+        self.memory.retain_live(&self.live);
 
-        self.active_allocations
-            .retain(|identity, _| self.live.contains(identity));
+        self.moved.retain(|path, _| self.live.contains(&path.root));
 
-        self.allocation_origins
-            .retain(|identity, _| self.live.contains(identity));
-
-        self.invalidated_allocations
-            .retain(|identity, _| self.live.contains(identity));
-
-        self.moved.retain(|access, _| {
-            storage
-                .root_identity(*access)
-                .is_some_and(|identity| self.live.contains(&identity))
-        });
-
-        self.retain_absent_storage(storage);
+        self.retain_absent_storage();
     }
 
     pub(super) fn move_complete_storage(&mut self, storage: StorageIdentityId) {
@@ -610,11 +528,13 @@ where
     reachability: &'analysis ReachabilityResult,
     storage: &'analysis StoragePlan,
     liveness: &'analysis Liveness,
-    refinements: &'analysis CheckedRefinements,
+    refinements: &'analysis crate::analysis::refinement::RefinementUniverse,
     memory: &'analysis CheckedMemoryOperations,
     input: &'analysis StorageFlowInput,
     owners: &'analysis StorageScopeOwners,
     request: CheckerUnitView<'analysis, C>,
+    execution: &'analysis crate::analysis::guarantee::ExecutionFlowDomain<'analysis, 'analysis, C>,
+    dependencies: &'analysis bray_bound_tree::CheckedDependencyContracts,
 }
 
 impl<'analysis, C> StorageFlowDomain<'analysis, C>
@@ -631,11 +551,17 @@ where
         reachability: &'analysis ReachabilityResult,
         storage: &'analysis StoragePlan,
         liveness: &'analysis Liveness,
-        refinements: &'analysis CheckedRefinements,
+        refinements: &'analysis crate::analysis::refinement::RefinementUniverse,
         memory: &'analysis CheckedMemoryOperations,
         input: &'analysis StorageFlowInput,
         owners: &'analysis StorageScopeOwners,
         request: CheckerUnitView<'analysis, C>,
+        execution: &'analysis crate::analysis::guarantee::ExecutionFlowDomain<
+            'analysis,
+            'analysis,
+            C,
+        >,
+        dependencies: &'analysis bray_bound_tree::CheckedDependencyContracts,
     ) -> Self {
         Self {
             graph,
@@ -648,12 +574,18 @@ where
             input,
             owners,
             request,
+            execution,
+            dependencies,
         }
     }
 
     fn transfer_block(&self, block: &AnalysisBlock, source: &StorageFlowState) -> StorageFlowState {
         // Transfer owns an independent task-local successor state.
         let mut state = source.clone();
+
+        if !state.reachable {
+            return state;
+        }
 
         let mut collector = StorageFlowCollector::without_publication(
             self.request,
@@ -663,6 +595,8 @@ where
             self.memory,
             self.input,
             self.owners,
+            self.execution,
+            self.dependencies,
         );
 
         for operation in block.operations() {
@@ -692,11 +626,21 @@ where
     }
 
     fn boundary(&self) -> Self::State {
-        StorageFlowState::entry(self.storage, self.input)
+        let mut state = StorageFlowState::entry(self.storage, self.input);
+
+        state.execution = self.execution.boundary();
+        state.reachable = state.execution.is_some();
+
+        state.refinements =
+            crate::analysis::refinement::RefinementSet::empty(self.refinements.len());
+
+        state.recovered |= self.refinements.is_recovered();
+
+        state
     }
 
     fn merge_boundary(&self, target: &mut Self::State, boundary: &Self::State) -> bool {
-        target.merge(boundary)
+        target.merge(boundary, None)
     }
 
     fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
@@ -713,24 +657,47 @@ where
             return false;
         }
 
+        let single_predecessor = self
+            .graph
+            .block(edge.target())
+            .expect("flow edge has a target")
+            .predecessors()
+            .len()
+            == 1;
+
+        // Each edge owns one correlated state before refining and joining it.
+        let mut incoming = source.clone();
+
+        if !incoming.reachable
+            || !incoming
+                .execution
+                .as_mut()
+                .is_some_and(|state| self.execution.refine_edge(state, edge))
+        {
+            if single_predecessor && target.reachable {
+                *target = Self::State::default();
+
+                return true;
+            }
+
+            return false;
+        }
+
+        if edge.kind() == AnalysisEdgeKind::Recovery {
+            incoming.recovered = true;
+            incoming.refinements.clear();
+        } else if let Some(refinement) = edge.refinement() {
+            self.refinements
+                .insert_refinement(&mut incoming.refinements, refinement);
+        }
+
         let ends = self
             .edge_lifetime_ends
             .get(&edge.id())
             .map(Vec::as_slice)
             .unwrap_or_default();
 
-        if edge.kind() == AnalysisEdgeKind::Recovery {
-            let mut incoming = source.clone();
-
-            incoming.recovered = true;
-
-            return target.merge(&incoming);
-        }
-
         if !ends.is_empty() && !source.recovered && !self.liveness.is_recovered() {
-            // Each outgoing continuation owns independently retired availability facts.
-            let mut incoming = source.clone();
-
             let ended_borrows = ends
                 .iter()
                 .filter_map(|end| {
@@ -757,11 +724,19 @@ where
                     incoming.end_storage_lifetime(id, self.storage);
                 }
             }
-
-            return target.merge(&incoming);
         }
 
-        target.merge(source)
+        if single_predecessor {
+            if *target == incoming {
+                return false;
+            }
+
+            *target = incoming;
+
+            return true;
+        }
+
+        target.merge(&incoming, Some(edge.target()))
     }
 
     fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {
@@ -772,9 +747,14 @@ where
             .saturating_add(self.storage.accesses().len().saturating_mul(2))
             .saturating_add(self.storage.borrow_capabilities().len())
             .saturating_add(self.storage.identities().len().saturating_mul(3))
+            .saturating_add(self.refinements.len())
             .saturating_add(2);
 
-        graph.blocks().len().saturating_mul(domain_size)
+        graph
+            .blocks()
+            .len()
+            .saturating_mul(domain_size)
+            .saturating_add(self.execution.convergence_bound(graph))
     }
 }
 
@@ -860,26 +840,38 @@ mod tests {
         let semantic_context = callable_entry(unit.key());
         let request = CheckerUnitView::new(&unit, &semantic_context, &context);
 
-        let (input, _) =
-            super::StorageFlowInput::new(request, &storage, BTreeSet::new(), &liveness)
-                .expect("test storage indexes must build");
+        let (input, _) = super::StorageFlowInput::new(
+            &mut crate::asynchronous::CleanupShapeResolver::new(request),
+            request,
+            &storage,
+            BTreeSet::new(),
+            &liveness,
+        )
+        .expect("test storage indexes must build");
 
         assert_eq!(input.definitions(expressions[0].into()), &[first, second]);
-        assert_eq!(input.expression_roots(expressions[1]), &[first, second]);
+
+        assert_eq!(
+            input.expression_places(expressions[1]),
+            &[
+                super::super::memory::Place::root(first),
+                super::super::memory::Place::root(second)
+            ]
+        );
 
         let mut state = reachable_state();
 
-        state
-            .allocation_origins
-            .insert(second, BTreeSet::from([expressions[0]]));
+        state.memory.fresh(
+            super::super::memory::Place::root(second),
+            Some(expressions[0]),
+        );
 
         assert_eq!(
             input
-                .expression_roots(expressions[1])
+                .expression_places(expressions[1])
                 .iter()
-                .copied()
-                .find(|identity| state.allocation_origins.contains_key(identity)),
-            Some(second)
+                .find(|place| state.memory.has_reference(place)),
+            Some(&super::super::memory::Place::root(second))
         );
     }
 
@@ -896,76 +888,11 @@ mod tests {
 
         let mut merged = observed.clone();
 
-        assert!(!merged.merge(&observed));
+        assert!(!merged.merge(&observed, None));
         assert!(merged.observed_pattern_bindings.contains(&identity));
-        assert!(merged.merge(&reachable_state()));
+        assert!(merged.merge(&reachable_state(), None));
         assert!(merged.observed_pattern_bindings.is_empty());
-        assert!(!merged.merge(&observed));
-    }
-
-    #[test]
-    fn raw_memory_merge_preserves_conservative_state_and_branch_origin() {
-        let (identity, expressions) = storage_and_expressions(77);
-
-        let ty = error_type();
-        let mut left = reachable_state();
-
-        left.raw_initialized
-            .entry(identity)
-            .or_default()
-            .entry(ty)
-            .or_default()
-            .insert(expressions[1]);
-
-        left.active_allocations
-            .entry(identity)
-            .or_default()
-            .insert(expressions[0]);
-
-        assert!(left.merge(&reachable_state()));
-        assert!(!left.raw_initialized.contains_key(&identity));
-        assert!(!left.active_allocations.contains_key(&identity));
-
-        let mut invalidated = reachable_state();
-
-        invalidated
-            .invalidated_allocations
-            .entry(identity)
-            .or_default()
-            .insert(expressions[2]);
-
-        assert!(left.merge(&invalidated));
-
-        assert_eq!(
-            left.invalidated_allocations[&identity],
-            [expressions[2]].into_iter().collect()
-        );
-    }
-
-    #[test]
-    fn raw_memory_merge_unions_and_deduplicates_all_causative_origins() {
-        let (identity, expressions) = storage_and_expressions(78);
-
-        let ty = error_type();
-        let mut merged = memory_state(identity, ty, expressions[0], expressions[1]);
-        let incoming = memory_state(identity, ty, expressions[2], expressions[1]);
-
-        assert!(merged.merge(&incoming));
-
-        assert_eq!(
-            merged.raw_initialized[&identity][&ty],
-            [expressions[0], expressions[2]].into_iter().collect()
-        );
-
-        assert_eq!(
-            merged.invalidated_allocations[&identity],
-            [expressions[1]].into_iter().collect()
-        );
-
-        assert_eq!(
-            merged.allocation_origins[&identity],
-            [expressions[0], expressions[2]].into_iter().collect()
-        );
+        assert!(!merged.merge(&observed, None));
     }
 
     #[test]
@@ -978,10 +905,10 @@ mod tests {
         left.fully_moved.insert(identity);
         moved.fully_moved.insert(identity);
 
-        assert!(!left.merge(&moved));
+        assert!(!left.merge(&moved, None));
         assert_eq!(left.fully_moved, [identity].into_iter().collect());
 
-        assert!(left.merge(&reachable_state()));
+        assert!(left.merge(&reachable_state(), None));
         assert!(left.fully_moved.is_empty());
     }
 
@@ -1007,7 +934,7 @@ mod tests {
         initialized.live.insert(identity);
         initialized.initialized.insert(identity);
 
-        assert!(initialized.merge(&reachable_state()));
+        assert!(initialized.merge(&reachable_state(), None));
         assert_eq!(initialized.live, [identity].into_iter().collect());
         assert!(initialized.initialized.is_empty());
     }
@@ -1063,18 +990,20 @@ mod tests {
         let (moved, observed) = (*moved, *observed);
 
         let storage = builder.finish();
+        let moved = storage.logical_path(moved).cloned().unwrap();
+        let observed = storage.logical_path(observed).cloned().unwrap();
         let mut state = reachable_state();
 
         state.definitely_absent.extend([
-            (moved, StorageAbsence::Moved),
+            (moved.clone(), StorageAbsence::Moved),
             (observed, StorageAbsence::NoPayload),
         ]);
 
         state.invalidate_observed_absence(&StorageInvalidation::All, &storage);
 
         assert_eq!(
-            state.definitely_absent.keys().copied().collect::<Vec<_>>(),
-            [moved]
+            state.definitely_absent.keys().cloned().collect::<Vec<_>>(),
+            [moved.clone()]
         );
 
         let mut incoming = reachable_state();
@@ -1083,10 +1012,46 @@ mod tests {
             .definitely_absent
             .insert(moved, StorageAbsence::NoPayload);
 
-        assert!(state.merge(&incoming));
-        assert!(!state.merge(&incoming));
+        assert!(state.merge(&incoming, None));
+        assert!(!state.merge(&incoming, None));
         state.invalidate_observed_absence(&StorageInvalidation::All, &storage);
         assert!(state.definitely_absent.is_empty());
+    }
+
+    #[test]
+    fn uncertain_writes_do_not_reconstruct_a_definitely_moved_component() {
+        let (root, expressions) = storage_and_expressions(125);
+
+        let exact = bray_bound_tree::StoragePath {
+            root,
+            projections: [bray_bound_tree::StorageProjection::ElementFromStart(
+                bray_symbols::SymbolOrdinal::new(0),
+            )]
+            .into(),
+        };
+
+        let dynamic = bray_bound_tree::StoragePath {
+            root,
+            projections: [bray_bound_tree::StorageProjection::Element(expressions[1])].into(),
+        };
+
+        let mut state = reachable_state();
+
+        state.live.insert(root);
+        state.initialized.insert(root);
+
+        state.record_move(
+            exact.clone(),
+            expressions[0],
+            crate::test_support::error_type(),
+            true,
+        );
+
+        state.initialize_path(&dynamic);
+        assert!(state.moved.contains_key(&exact));
+        assert!(state.definitely_absent.is_empty());
+        state.initialize_path(&exact);
+        assert!(state.moved.is_empty());
     }
 
     fn reachable_state() -> StorageFlowState {
@@ -1094,37 +1059,6 @@ mod tests {
             reachable: true,
             ..StorageFlowState::default()
         }
-    }
-
-    fn memory_state(
-        identity: bray_bound_tree::StorageIdentityId,
-        ty: bray_symbols::TypeId,
-        initialization: bray_bound_tree::BoundExpressionId,
-        invalidation: bray_bound_tree::BoundExpressionId,
-    ) -> StorageFlowState {
-        let mut state = reachable_state();
-
-        state
-            .raw_initialized
-            .entry(identity)
-            .or_default()
-            .entry(ty)
-            .or_default()
-            .insert(initialization);
-
-        state
-            .invalidated_allocations
-            .entry(identity)
-            .or_default()
-            .insert(invalidation);
-
-        state
-            .allocation_origins
-            .entry(identity)
-            .or_default()
-            .insert(initialization);
-
-        state
     }
 
     fn storage_and_expressions(

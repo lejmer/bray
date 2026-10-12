@@ -57,11 +57,7 @@ impl Lowerer<'_> {
 
         self.finish_result_edge(completion, join, result_type)?;
 
-        Ok(LoweredExpression::continuing(
-            join,
-            Some(MirOperand::Value(result)),
-            source,
-        ))
+        self.finish_result_join(current, join, result, source)
     }
 
     pub(super) fn lower_block(
@@ -84,6 +80,16 @@ impl Lowerer<'_> {
         }
 
         let source = self.source(block.origin());
+
+        if !self.input.storage_flow().is_block_reachable(id) {
+            self.set_terminator(
+                current,
+                Self::retained_source(&source),
+                bray_ir::MirTerminatorKind::Unreachable,
+            )?;
+
+            return Ok(LoweredExpression::terminated(source));
+        }
 
         self.active_scopes.push(id);
 

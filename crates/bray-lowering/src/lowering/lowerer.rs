@@ -1835,6 +1835,7 @@ mod tests {
             unit.key().kind(),
             [],
             [],
+            unit.tree().blocks().map(|(block, _)| block),
             scope_exits
                 .iter()
                 .map(|(scope, exit)| StorageExitPoint::new(*scope, *exit)),

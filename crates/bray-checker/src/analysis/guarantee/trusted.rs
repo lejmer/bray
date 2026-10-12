@@ -2,7 +2,8 @@ mod borrows;
 mod check;
 mod completion;
 mod proof;
+mod transfers;
 
-pub(crate) use check::{check_trusted_completion, collect_trusted_memory_evidence};
+pub(in crate::analysis) use check::TrustedChecks;
 
 pub(super) use borrows::project_place;

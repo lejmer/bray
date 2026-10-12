@@ -139,6 +139,20 @@ impl BodyBehaviorContributions {
         }
     }
 
+    /// Appends the execution contributions selected when checked lazy bodies are driven.
+    pub fn with_deferred_calls(
+        mut self,
+        calls: impl IntoIterator<Item = BodyBehaviorCall>,
+    ) -> Self {
+        let mut calls = calls.into_iter().peekable();
+
+        if calls.peek().is_some() {
+            self.calls = self.calls.iter().cloned().chain(calls).collect();
+        }
+
+        self
+    }
+
     /// Returns the checked semantic unit described by these contributions.
     pub const fn unit(&self) -> BoundUnitId {
         self.unit

@@ -57,6 +57,13 @@ impl ExecutionPlace {
         Self::storage_owner(storage, access)?.project(storage.resolved_projections(access)?)
     }
 
+    pub(crate) fn storage_path(
+        storage: &bray_bound_tree::StoragePlan,
+        path: &bray_bound_tree::StoragePath,
+    ) -> Option<Self> {
+        Self::storage_identity(storage, path.root)?.project(&path.projections)
+    }
+
     pub(crate) fn storage_owner(
         storage: &bray_bound_tree::StoragePlan,
         access: bray_bound_tree::StorageAccessId,

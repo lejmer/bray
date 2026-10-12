@@ -192,7 +192,7 @@ struct Output<T>
         requires(trusted core.memory.uninit_initialized<T>(storage = &self.storage))
         uses(unchecked_init)
     {
-        return trusted assume_initialized<T>(self.storage);
+        return trusted move_initialized<T>(&mut self.storage);
     }
 }
 
@@ -806,11 +806,6 @@ trusted internal func slice_pointer<T>(pos values: &[T], count: usize) -> RawPoi
     )
     executes(pure)
 {
-    if !(count <= values.length())
-    {
-        panic("slice pointer extent exceeds its storage");
-    }
-
     if count == 0
     {
         return null<T>();
@@ -829,11 +824,6 @@ trusted internal func slice_pointer_mut<T>(pos values: &mut [T], count: usize) -
     )
     executes(pure)
 {
-    if !(count <= values.length())
-    {
-        panic("slice pointer extent exceeds its storage");
-    }
-
     if count == 0
     {
         return null<T>();

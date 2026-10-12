@@ -260,21 +260,14 @@ impl Compilation {
             conditions.push(decode(predicate)?);
         }
 
-        let result_is_witness = match result {
-            Some(ty) => {
-                self.trusted_result_is_witness(ty, &guarantees, cancellation, diagnostics)?
-            }
-            None => true,
-        };
-
         Ok(TrustedCallContract {
             arguments: Default::default(),
             transferred_inputs: Vec::new(),
             completes: result.is_some(),
             preserves_inputs: false,
-            result_is_witness,
             witness_subjects: self.trusted_predicate_subjects(
                 &guarantees,
+                result,
                 cancellation,
                 diagnostics,
             )?,

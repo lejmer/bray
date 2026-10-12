@@ -174,16 +174,7 @@ impl Compilation {
         ));
 
         if let Some(profile) = fact_runtime.profile() {
-            profile.record_metric(
-                crate::profile::ProfileMetricKind::SourceUnits,
-                u64::try_from(source_count).unwrap_or(u64::MAX),
-            );
-
-            let source_bytes = sources.iter().fold(0_u64, |total, source| {
-                total.saturating_add(u64::try_from(source.text().len()).unwrap_or(u64::MAX))
-            });
-
-            profile.record_metric(crate::profile::ProfileMetricKind::SourceBytes, source_bytes);
+            record_source_metrics(profile, &sources);
         }
 
         let compiler_known_symbols = super::inputs::shared_catalog();
@@ -275,6 +266,9 @@ impl Compilation {
                 unwind_behavior: UnitQueryCache::new(),
                 execution_candidates: UnitQueryCache::new(),
                 certified_execution: UnitQueryCache::new(),
+                selected_body_behavior: UnitQueryCache::new(),
+                prepared_body_analysis: UnitQueryCache::new(),
+                result_dependency_components: UnitQueryCache::new(),
                 body_semantics: UnitQueryCache::new(),
                 checked_body_behaviors: UnitQueryCache::new(),
                 lowered_units: UnitQueryCache::new(),
@@ -1706,4 +1700,17 @@ mod tests {
             None => panic!("test compiler-known declaration key should be valid"),
         }
     }
+}
+
+fn record_source_metrics(profile: &crate::profile::ProfileSession, sources: &SourceStore) {
+    profile.record_metric(
+        crate::profile::ProfileMetricKind::SourceUnits,
+        u64::try_from(sources.len()).unwrap_or(u64::MAX),
+    );
+
+    let source_bytes = sources.iter().fold(0_u64, |total, source| {
+        total.saturating_add(u64::try_from(source.text().len()).unwrap_or(u64::MAX))
+    });
+
+    profile.record_metric(crate::profile::ProfileMetricKind::SourceBytes, source_bytes);
 }

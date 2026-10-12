@@ -27,8 +27,8 @@ where
     source_snapshot: Option<&'view bray_source::SourceSnapshot>,
     unwind: Option<&'view bray_bound_tree::CheckedUnwind>,
     trusted_contracts: Option<&'view crate::TrustedContractInputs>,
-    // Proven sites map to whether a raw copy is known to have an empty extent.
-    trusted_memory_evidence: Option<&'view std::collections::BTreeMap<BoundExpressionId, bool>>,
+    result_dependencies:
+        Option<&'view BTreeMap<CallableSymbolId, bray_symbols::DependencyContractTemplateId>>,
 }
 
 impl<C> Clone for CheckerUnitView<'_, C>
@@ -95,7 +95,7 @@ where
             source_snapshot: None,
             unwind: None,
             trusted_contracts: None,
-            trusted_memory_evidence: None,
+            result_dependencies: None,
         }
     }
 
@@ -116,6 +116,32 @@ where
         self.source_snapshot = Some(source);
 
         self
+    }
+
+    /// Supplies the complete selected-callee summary environment for component inference.
+    /// Requests within the component consume these provisional facts instead of reentering
+    /// the public query whose result this component is establishing.
+    pub fn with_result_dependencies(
+        mut self,
+        dependencies: &'view BTreeMap<CallableSymbolId, bray_symbols::DependencyContractTemplateId>,
+    ) -> Self {
+        self.result_dependencies = Some(dependencies);
+
+        self
+    }
+
+    pub(crate) fn callable_result_dependencies(
+        self,
+        callable: CallableSymbolId,
+    ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, C::UpstreamError> {
+        match self.result_dependencies {
+            Some(dependencies) => Ok(*dependencies.get(&callable).unwrap_or_else(|| {
+                panic!(
+                    "selected callable {callable:?} must belong to the prepared summary environment"
+                )
+            })),
+            None => self.context.callable_result_dependencies(callable),
+        }
     }
 
     /// Supplies the owning analysis's checked unwind results.
@@ -147,30 +173,6 @@ where
 
     pub(crate) const fn trusted_contracts(self) -> Option<&'view crate::TrustedContractInputs> {
         self.trusted_contracts
-    }
-
-    pub(crate) fn with_trusted_memory_evidence<'evidence>(
-        self,
-        evidence: &'evidence std::collections::BTreeMap<BoundExpressionId, bool>,
-    ) -> CheckerUnitView<'evidence, C>
-    where
-        'view: 'evidence,
-    {
-        CheckerUnitView {
-            unit: self.unit,
-            semantic_context: self.semantic_context,
-            context: self.context,
-            source_snapshot: self.source_snapshot,
-            unwind: self.unwind,
-            trusted_contracts: self.trusted_contracts,
-            trusted_memory_evidence: Some(evidence),
-        }
-    }
-
-    pub(crate) fn trusted_memory_evidence(
-        self,
-    ) -> Option<&'view std::collections::BTreeMap<BoundExpressionId, bool>> {
-        self.trusted_memory_evidence
     }
 
     pub(crate) fn anonymous_callable_unit(self, call: BoundExpressionId) -> Option<BoundUnitKey> {

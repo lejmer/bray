@@ -1,9 +1,5 @@
-use crate::analysis::analyze_storage_liveness;
 use crate::analysis::check_control_flow;
-use crate::analysis::check_refinements;
-use crate::analysis::check_storage_flow;
-use crate::asynchronous::check_async_analysis;
-use crate::behavior::collect_body_behavior;
+use crate::behavior::collect_selected_behavior;
 use crate::body_semantics::check_body_semantics;
 use crate::constant::{check_constant_term, evaluate_constant};
 use crate::dependency::check_dependency_contracts;
@@ -21,11 +17,11 @@ use crate::{
     OperationSelectionRequest, PatternCheckInput, TargetValidity, TargetValidityRequest,
 };
 use bray_bound_tree::{
-    BodyBehaviorContributions, CheckedAsync, CheckedBodySemantics, CheckedControlFlow,
+    BodyBehaviorContributions, CheckedBodySemantics, CheckedControlFlow,
     CheckedDependencyContracts, CheckedExpressionSemantics, CheckedExpressionTypes,
-    CheckedLiteralValues, CheckedMemoryOperations, CheckedPatterns, CheckedRefinements,
-    CheckedSemanticSelections, DeclaredValueTypeTemplates, Liveness, SelectedCall,
-    SelectedIterationSource, SelectedOperation, StorageFlow, StoragePlan,
+    CheckedLiteralValues, CheckedMemoryOperations, CheckedPatterns, CheckedSemanticSelections,
+    DeclaredValueTypeTemplates, SelectedCall, SelectedIterationSource, SelectedOperation,
+    StoragePlan,
 };
 use bray_symbols::{
     CallableSignatureQuery, ConstantTermId, ConstantValueId, DeclarationDirectivesQuery,
@@ -69,25 +65,9 @@ pub struct DefaultTargetValidityChecker;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultStoragePlanner;
 
-/// The standard Bray storage and obligation liveness analyzer.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct DefaultLivenessAnalyzer;
-
-/// The standard Bray flow-sensitive analyzer.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct DefaultRefinementAnalyzer;
-
-/// The standard Bray storage, ownership, and borrow checker.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct DefaultStorageFlowChecker;
-
 /// The standard Bray dependency-contract checker.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultDependencyContractChecker;
-
-/// The standard Bray async frame and structured-task checker.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct DefaultAsyncChecker;
 
 /// The standard Bray compiler-provided memory-operation checker.
 #[derive(Clone, Copy, Debug, Default)]
@@ -194,88 +174,20 @@ impl<C> StoragePlanner<C> for DefaultStoragePlanner where
 {
 }
 
-/// Storage, access, capability, and obligation liveness over one checked bound unit.
-pub trait LivenessAnalyzer<C>: Sync
-where
-    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
-{
-    /// Computes durable last-use and lexical scope-boundary decisions.
-    fn analyze_liveness(
-        &self,
-        request: CheckerUnitView<'_, C>,
-        selections: &CheckedSemanticSelections,
-        types: &CheckedExpressionTypes,
-        patterns: &CheckedPatterns,
-        storage: &StoragePlan,
-        memory: &CheckedMemoryOperations,
-    ) -> CheckerOutcome<Liveness, C::UpstreamError> {
-        analyze_storage_liveness(request, selections, types, patterns, storage, memory)
-    }
-}
-
-impl<C> LivenessAnalyzer<C> for DefaultLivenessAnalyzer where
-    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized
-{
-}
-
-/// Flow-sensitive semantic analysis over one checked bound unit.
-pub trait RefinementAnalyzer<C>: Sync
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    /// Computes durable refinements available before checked operation occurrences.
-    fn analyze_refinements(
-        &self,
-        request: CheckerUnitView<'_, C>,
-        patterns: &CheckedPatterns,
-        expressions: &CheckedExpressionSemantics,
-        storage: &StoragePlan,
-    ) -> CheckerOutcome<CheckedRefinements, C::UpstreamError> {
-        check_refinements(request, patterns, expressions, storage)
-    }
-}
-
-impl<C> RefinementAnalyzer<C> for DefaultRefinementAnalyzer where C: CheckerRequestContext + ?Sized {}
-
-/// Composite storage, ownership, movement, and borrow checking over one unit.
-pub trait StorageFlowChecker<C>: Sync
-where
-    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
-{
-    /// Computes durable per-operation storage decisions.
-    fn check_storage_flow(
-        &self,
-        request: CheckerUnitView<'_, C>,
-        expressions: &CheckedExpressionSemantics,
-        patterns: &CheckedPatterns,
-        storage: &StoragePlan,
-        refinements: &CheckedRefinements,
-        memory: &CheckedMemoryOperations,
-    ) -> CheckerOutcome<StorageFlow, C::UpstreamError> {
-        check_storage_flow(request, expressions, patterns, storage, refinements, memory)
-    }
-}
-
-impl<C> StorageFlowChecker<C> for DefaultStorageFlowChecker where
-    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized
-{
-}
-
 /// Value, access, borrow, witness, and selected-call dependency propagation over one unit.
 pub trait DependencyContractChecker<C>: Sync
 where
     C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    /// Computes durable normalized contracts without repeating storage analysis.
+    /// Prepares durable dependencies from selected operations and call contracts.
     fn check_dependency_contracts(
         &self,
         request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
         patterns: &CheckedPatterns,
         storage: &StoragePlan,
-        flow: &StorageFlow,
     ) -> CheckerOutcome<CheckedDependencyContracts, C::UpstreamError> {
-        check_dependency_contracts(request, selections, patterns, storage, flow)
+        check_dependency_contracts(request, selections, patterns, storage)
     }
 }
 
@@ -311,61 +223,19 @@ impl<C> MemoryOperationChecker<C> for DefaultMemoryOperationChecker where
 {
 }
 
-/// Async frame, suspension, task ownership, and cleanup checking over one unit.
-pub trait AsyncChecker<C>: Sync
-where
-    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
-{
-    /// Computes durable async analysis from independently checked semantic inputs.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the checker service keeps each independently materialized async input explicit"
-    )]
-    fn check_async_analysis(
-        &self,
-        request: CheckerUnitView<'_, C>,
-        types: &CheckedExpressionTypes,
-        selections: &CheckedSemanticSelections,
-        patterns: &CheckedPatterns,
-        liveness: &Liveness,
-        dependencies: &CheckedDependencyContracts,
-        storage: &StoragePlan,
-        refinements: &CheckedRefinements,
-        flow: &StorageFlow,
-    ) -> CheckerOutcome<CheckedAsync, C::UpstreamError> {
-        check_async_analysis(
-            request,
-            types,
-            selections,
-            patterns,
-            liveness,
-            dependencies,
-            storage,
-            refinements,
-            flow,
-        )
-    }
-}
-
-impl<C> AsyncChecker<C> for DefaultAsyncChecker where
-    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized
-{
-}
-
 /// Direct effect, capability, lifecycle, and callable contributions from one checked unit.
 pub trait BodyBehaviorCollector<C>: Sync
 where
     C: CheckerRequestContext + ?Sized,
 {
     /// Collects direct contributions without traversing into other semantic units.
-    fn collect_body_behavior(
+    fn collect_selected_behavior(
         &self,
         request: CheckerUnitView<'_, C>,
         control_flow: &CheckedControlFlow,
         selections: &CheckedSemanticSelections,
-        async_analysis: &CheckedAsync,
     ) -> CheckerOutcome<BodyBehaviorContributions, C::UpstreamError> {
-        collect_body_behavior(request, control_flow, selections, async_analysis).with_upstream()
+        collect_selected_behavior(request, control_flow, selections).with_upstream()
     }
 }
 
@@ -383,7 +253,8 @@ where
     fn check_body_semantics(
         &self,
         request: CheckerUnitView<'_, C>,
-        control_flow: &CheckedControlFlow,
+        prepared: &crate::PreparedBodyAnalysis,
+        behavior: &BodyBehaviorContributions,
         expressions: &CheckedExpressionSemantics,
         patterns: &CheckedPatterns,
         storage: &StoragePlan,
@@ -391,7 +262,8 @@ where
     ) -> CheckerOutcome<CheckedBodySemantics, C::UpstreamError> {
         check_body_semantics(
             request,
-            control_flow,
+            prepared,
+            behavior,
             expressions,
             patterns,
             storage,

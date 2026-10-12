@@ -378,8 +378,12 @@ impl<'unit> LoweringInput<'unit> {
                     .cloned()
                     .unwrap_or_else(|| {
                         panic!(
-                            "lowering cleanup contract violated: missing scope-exit plan for scope {scope:?} and exit {exit:?} in {:?}; selected operation: {:?}",
+                            "lowering cleanup contract violated: missing scope-exit plan for scope {scope:?} and exit {exit:?} in {:?}, node: {:?}; selected operation: {:?}",
                             self.unit.key(),
+                            match exit {
+                                AnyBoundNodeId::Expression(expression) => self.unit.view().expression(expression),
+                                _ => None,
+                            },
                             match exit {
                                 AnyBoundNodeId::Expression(expression) => self.selections.expression(expression),
                                 _ => None,
@@ -793,7 +797,7 @@ mod tests {
         analysis.storage = storage.finish();
 
         analysis.storage_flow =
-            StorageFlow::try_new(unit.unit(), kind, operations, [], [], [], false).unwrap();
+            StorageFlow::try_new(unit.unit(), kind, operations, [], [], [], [], false).unwrap();
 
         let control_flow = CheckedControlFlow::new(unit.unit(), kind, ControlCompletion::default());
         let input = lowering_input(&unit, &control_flow, (&analysis).into());
@@ -866,6 +870,7 @@ mod tests {
         let storage_flow = StorageFlow::try_new(
             unit.unit(),
             kind,
+            [],
             [],
             [],
             [StorageExitPoint::new(scope, exit)],
@@ -1076,7 +1081,7 @@ mod tests {
         let storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind()).finish();
 
         let storage_flow =
-            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
+            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
                 .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
 
         let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)

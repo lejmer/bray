@@ -41,10 +41,20 @@ impl Lowerer<'_> {
         let source = self.source(expression.origin());
         let result_type = self.expression_type(id);
 
-        if self.constant_boolean(&condition) == Some(false) {
-            self.finish_assertion_failure(id, expression, current, &source)?;
+        match self.known_condition(condition_id, &condition) {
+            Some(true) => {
+                return Ok(LoweredExpression::continuing(
+                    current,
+                    Some(self.unit_operand(result_type)),
+                    source,
+                ));
+            }
+            Some(false) => {
+                self.finish_assertion_failure(id, expression, current, &source)?;
 
-            return Ok(LoweredExpression::terminated(source));
+                return Ok(LoweredExpression::terminated(source));
+            }
+            None => {}
         }
 
         let success = self
@@ -257,11 +267,7 @@ impl Lowerer<'_> {
             MirTerminatorKind::Goto(MirEdge::new(join, [error_result])),
         )?;
 
-        Ok(LoweredExpression::continuing(
-            join,
-            Some(MirOperand::Value(result)),
-            source,
-        ))
+        self.finish_result_join(current, join, result, source)
     }
 
     fn lower_catch_operand(

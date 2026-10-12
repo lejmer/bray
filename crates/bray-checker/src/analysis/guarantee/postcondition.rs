@@ -31,70 +31,7 @@ pub(super) fn unproven_postconditions<C: CheckerRequestContext + ?Sized>(
             continue;
         };
 
-        // Replay each exit once, sharing any implication closure across its clauses.
-        let mut trusted = None;
-        let mut unsigned = None;
-
-        for ((condition, _), failed) in postconditions.iter().zip(&mut failed) {
-            if *failed {
-                continue;
-            }
-
-            let condition = condition.substitute(
-                &|input| {
-                    input
-                        .value_in(&state.current)
-                        .unwrap_or_else(|| ExecutionCondition::Input(input.clone()))
-                },
-                &state.result,
-                &mut { ExecutionCondition::WORK_LIMIT },
-            );
-
-            if condition.prove_mixed(&state.trusted_assumptions, &state.assumptions, &mut {
-                ExecutionCondition::WORK_LIMIT
-            }) == Some(true)
-            {
-                continue;
-            }
-
-            let trusted = trusted.get_or_insert_with(|| {
-                crate::execution_guarantees::trusted_condition_closure(
-                    state.trusted_assumptions.clone(),
-                    &state.assumptions,
-                )
-            });
-
-            if condition.prove_mixed(trusted, &state.assumptions, &mut {
-                ExecutionCondition::WORK_LIMIT
-            }) == Some(true)
-            {
-                continue;
-            }
-
-            if !matches!(&condition, ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LessEqual, operands)
-                if matches!(operands.first(), Some(ExecutionCondition::Operation(bray_bound_tree::BoundOperator::Add, _))))
-            {
-                *failed = true;
-                continue;
-            }
-
-            let (equalities, known) = unsigned.get_or_insert_with(|| {
-                let equalities = ExecutionCondition::equalities(&state.assumptions, None);
-
-                let known = state
-                    .assumptions
-                    .iter()
-                    .map(|(condition, holds)| (condition.with_equalities(&equalities), *holds))
-                    .collect();
-
-                (equalities, known)
-            });
-
-            *failed =
-                !unsigned_sum_is_bounded(&condition.with_equalities(equalities), known, &|value| {
-                    flow.domain.unsigned_value(value)
-                });
-        }
+        check_postconditions(&flow.domain, &state, postconditions, &mut failed);
     }
 
     postconditions
@@ -102,6 +39,78 @@ pub(super) fn unproven_postconditions<C: CheckerRequestContext + ?Sized>(
         .zip(failed)
         .filter_map(|((_, span), failed)| failed.then_some(*span))
         .collect()
+}
+
+pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>,
+    state: &ExecutionState,
+    postconditions: &[(ExecutionCondition, bray_source::SourceSpan)],
+    failed: &mut [bool],
+) {
+    // Replay each exit once, sharing any implication closure across its clauses.
+    let mut trusted = None;
+    let mut unsigned = None;
+
+    for ((condition, _), failed) in postconditions.iter().zip(failed) {
+        if *failed {
+            continue;
+        }
+
+        let condition = condition.substitute(
+            &|input| {
+                input
+                    .value_in(&state.current)
+                    .unwrap_or_else(|| ExecutionCondition::Input(input.clone()))
+            },
+            &state.result,
+            &mut { ExecutionCondition::WORK_LIMIT },
+        );
+
+        if condition.prove_mixed(&state.trusted_assumptions, &state.assumptions, &mut {
+            ExecutionCondition::WORK_LIMIT
+        }) == Some(true)
+        {
+            continue;
+        }
+
+        let trusted = trusted.get_or_insert_with(|| {
+            crate::execution_guarantees::trusted_condition_closure(
+                state.trusted_assumptions.clone(),
+                &state.assumptions,
+            )
+        });
+
+        if condition.prove_mixed(trusted, &state.assumptions, &mut {
+            ExecutionCondition::WORK_LIMIT
+        }) == Some(true)
+        {
+            continue;
+        }
+
+        if !matches!(&condition, ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LessEqual, operands)
+            if matches!(operands.first(), Some(ExecutionCondition::Operation(bray_bound_tree::BoundOperator::Add, _))))
+        {
+            *failed = true;
+            continue;
+        }
+
+        let (equalities, known) = unsigned.get_or_insert_with(|| {
+            let equalities = ExecutionCondition::equalities(&state.assumptions, None);
+
+            let known = state
+                .assumptions
+                .iter()
+                .map(|(condition, holds)| (condition.with_equalities(&equalities), *holds))
+                .collect();
+
+            (equalities, known)
+        });
+
+        *failed =
+            !unsigned_sum_is_bounded(&condition.with_equalities(equalities), known, &|value| {
+                domain.unsigned_value(value)
+            });
+    }
 }
 
 fn unsigned_sum_is_bounded(

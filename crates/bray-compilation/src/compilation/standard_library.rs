@@ -35,7 +35,6 @@ impl Compilation {
 
         let mut contract = TrustedCallContract {
             completes: true,
-            result_is_witness: true,
             ..Default::default()
         };
 
@@ -182,6 +181,10 @@ impl Compilation {
         for condition in &contract.requirements {
             if matches!(condition, ExecutionCondition::Trusted(_)) {
                 contract.guarantees.push(condition.clone());
+
+                contract
+                    .witness_subjects
+                    .push((condition.clone(), ExecutionCondition::Result));
             } else {
                 contract.postconditions.push(condition.clone());
             }

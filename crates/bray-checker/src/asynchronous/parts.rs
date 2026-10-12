@@ -47,6 +47,8 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
             .or_insert_with(|| bray_bound_tree::StorageCleanupType::new(ty, cleanup));
 
         if expansion == CleanupExpansion::FullDisposal {
+            self.expanded_types.insert(ty);
+
             let definition = match self.request.semantic_values().type_data(ty).as_ref() {
                 TypeData::Named { definition, .. } => Some(*definition),
                 _ => None,
@@ -327,35 +329,87 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
     }
 }
 
+impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
+    fn full_disposal(
+        &mut self,
+        ty: TypeId,
+        source: BoundSourceAnchor,
+    ) -> Result<
+        std::sync::Arc<[(TypeId, Option<StorageCleanupPart>)]>,
+        CheckerQueryError<C::UpstreamError>,
+    > {
+        if let Some(parts) = self.full_parts.get(&ty) {
+            return Ok(std::sync::Arc::clone(parts));
+        }
+
+        self.recursive_cleanup = false;
+        self.expanded_types.clear();
+
+        let parts = self.represented_parts(ty, &[], CleanupExpansion::FullDisposal, source)?;
+
+        let mut receivers = parts
+            .into_iter()
+            .flatten()
+            .map(|part| {
+                (
+                    part.projections()
+                        .last()
+                        .map_or(ty, |projection| projection.result_type()),
+                    Some(part),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        if self.recursive_cleanup {
+            // A recursive subtree has no finite source access path. Its selected declarations still
+            // incur their obligations, but a concrete parent's field evidence cannot prove them.
+            receivers.extend(self.expanded_types.iter().copied().map(|ty| (ty, None)));
+        }
+
+        let receivers: std::sync::Arc<[_]> = receivers.into();
+
+        self.full_parts
+            .insert(ty, std::sync::Arc::clone(&receivers));
+
+        Ok(receivers)
+    }
+}
+
 pub(crate) fn full_cleanup_parts<C: CheckerRequestContext + ?Sized>(
-    request: crate::CheckerUnitView<'_, C>,
+    resolver: &mut CleanupShapeResolver<'_, C>,
     ty: TypeId,
     source: BoundSourceAnchor,
-    selected: Option<&[StorageCleanupPart]>,
+    destructor_receiver: bool,
 ) -> Result<
     bray_diagnostics::DiagnosticResult<Vec<(TypeId, Option<StorageCleanupPart>)>>,
     CheckerQueryError<C::UpstreamError>,
 > {
-    let mut resolver = CleanupShapeResolver::new(request);
-    let mut result = Vec::new();
+    let mut receivers = Vec::new();
 
-    if let Some(selected) = selected {
+    let selected = if destructor_receiver {
+        resolver.represented_parts(ty, &[], CleanupExpansion::DestructorReceiver, source)?
+    } else {
+        None
+    };
+
+    if let Some(selected) = selected.as_deref() {
         for part in selected {
-            if part.release().is_some() || !part.phases().includes_lifecycle() {
-                result.push(part.clone());
-
-                continue;
-            }
-
             let reached = part
                 .projections()
                 .last()
                 .map_or(ty, |projection| projection.result_type());
 
-            if let Some(parts) =
-                resolver.represented_parts(reached, &[], CleanupExpansion::FullDisposal, source)?
-            {
-                result.extend(parts.into_iter().map(|nested| {
+            if part.release().is_some() || !part.phases().includes_lifecycle() {
+                // This occurrence owns the selected projection while the published plan retains it.
+                receivers.push((reached, Some(part.clone())));
+
+                continue;
+            }
+
+            let nested = resolver.full_disposal(reached, source)?;
+
+            receivers.extend(nested.iter().map(|(ty, nested)| {
+                let part = nested.as_ref().map(|nested| {
                     let projections = part
                         .projections()
                         .iter()
@@ -366,35 +420,18 @@ pub(crate) fn full_cleanup_parts<C: CheckerRequestContext + ?Sized>(
                         Some(release) => StorageCleanupPart::release_storage(projections, release),
                         None => StorageCleanupPart::new(projections, nested.phases()),
                     }
-                }));
-            }
+                });
+
+                (*ty, part)
+            }));
         }
-    } else if let Some(parts) =
-        resolver.represented_parts(ty, &[], CleanupExpansion::FullDisposal, source)?
-    {
-        result = parts;
-    }
-
-    let mut receivers = result
-        .into_iter()
-        .map(|part| {
-            (
-                part.projections()
-                    .last()
-                    .map_or(ty, |projection| projection.result_type()),
-                Some(part),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    if resolver.recursive_cleanup {
-        // A recursive subtree has no finite source access path. Its selected declarations still
-        // incur their obligations, but a concrete parent's field evidence cannot prove them.
-        receivers.extend(resolver.cleanup_types.keys().copied().map(|ty| (ty, None)));
+    } else {
+        // Each storage access owns its paths, while type expansion is shared across accesses.
+        receivers.extend(resolver.full_disposal(ty, source)?.iter().cloned());
     }
 
     Ok(bray_diagnostics::DiagnosticResult::new(
         receivers,
-        resolver.diagnostics,
+        std::mem::take(&mut resolver.diagnostics),
     ))
 }

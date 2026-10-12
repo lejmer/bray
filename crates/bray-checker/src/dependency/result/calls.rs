@@ -68,9 +68,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
             crate::dependency::defaults::expand_result_defaults(self.request, call, &template)
         } else {
             crate::dependency::call_result_template(self.request, call, |callable| {
-                Ok(self.callees.get(&callable).copied().unwrap_or_else(|| {
-                    panic!("selected call requires its result dependency template for {callable:?}")
-                }))
+                self.request.callable_result_dependencies(callable)
             })
         }
     }
@@ -110,9 +108,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
 
             requirements
         } else {
-            let template = self.callees.get(&symbol).copied().unwrap_or_else(|| {
-                panic!("scoped_values requires selected scoped call, symbol: {symbol:?}")
-            });
+            let template = self.request.callable_result_dependencies(symbol)?;
 
             crate::dependency::returned::resolved_result_template(
                 self.request,

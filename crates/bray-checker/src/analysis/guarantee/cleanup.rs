@@ -3,5 +3,6 @@ mod plan;
 mod transition;
 
 pub(super) use check::{check_cleanup, check_scope_cleanup};
-pub(super) use plan::{Cleanup, Lifecycle};
-pub(super) use transition::Observer;
+pub(in crate::analysis) use plan::Lifecycle;
+pub(crate) use plan::{Cleanup, Plan};
+pub(in crate::analysis) use transition::Observer;

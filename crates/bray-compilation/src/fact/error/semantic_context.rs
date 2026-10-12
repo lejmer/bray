@@ -240,6 +240,21 @@ fn push_fact_context(
 
             "certified_execution"
         }
+        Fact::SelectedBodyBehavior(unit) => {
+            push_bound_unit_key(fields, unit);
+
+            "selected_body_behavior"
+        }
+        Fact::PreparedBodyAnalysis(unit) => {
+            push_bound_unit_key(fields, unit);
+
+            "prepared_body_analysis"
+        }
+        Fact::ResultDependencyComponent(unit) => {
+            push_bound_unit_key(fields, unit);
+
+            "result_dependency_component"
+        }
         Fact::BodySemantics(unit) => {
             push_bound_unit_key(fields, unit);
 

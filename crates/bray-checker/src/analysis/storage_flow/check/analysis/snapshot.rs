@@ -1,8 +1,6 @@
 use std::collections::BTreeSet;
 
-use bray_bound_tree::{
-    BorrowCapabilityId, StorageAccessId, StorageAccessPlan, StorageIdentityId, StoragePlan,
-};
+use bray_bound_tree::{BorrowCapabilityId, StorageAccessPlan, StorageIdentityId, StoragePlan};
 
 use crate::analysis::storage_flow::model::StorageFlowState;
 
@@ -10,8 +8,8 @@ use crate::analysis::storage_flow::model::StorageFlowState;
 pub(super) struct ExitState {
     pub(super) live: BTreeSet<StorageIdentityId>,
     pub(super) initialized: BTreeSet<StorageIdentityId>,
-    pub(super) moved: BTreeSet<StorageAccessId>,
-    pub(super) definitely_absent: BTreeSet<StorageAccessId>,
+    pub(super) moved: BTreeSet<bray_bound_tree::StoragePath>,
+    pub(super) definitely_absent: BTreeSet<bray_bound_tree::StoragePath>,
     pub(super) fully_moved: BTreeSet<StorageIdentityId>,
     pub(super) active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(super) recovered: bool,
@@ -23,8 +21,8 @@ impl ExitState {
         Self {
             live: state.live.clone(),
             initialized: state.initialized.clone(),
-            moved: state.moved.keys().copied().collect(),
-            definitely_absent: state.definitely_absent.keys().copied().collect(),
+            moved: state.moved.keys().cloned().collect(),
+            definitely_absent: state.definitely_absent.keys().cloned().collect(),
             fully_moved: state.fully_moved.clone(),
             active_borrows: state.active_borrows.clone(),
             recovered: state.recovered,
@@ -37,7 +35,7 @@ impl ExitState {
         self.initialized
             .retain(|identity| incoming.initialized.contains(identity));
 
-        self.moved.extend(incoming.moved.keys().copied());
+        self.moved.extend(incoming.moved.keys().cloned());
 
         self.definitely_absent
             .retain(|access| incoming.definitely_absent.contains_key(access));
@@ -53,18 +51,18 @@ impl ExitState {
 }
 
 #[derive(Debug)]
-pub(super) struct ReplacementState {
-    pub(super) live: bool,
-    pub(super) initialized: bool,
-    pub(super) fully_moved: bool,
-    pub(super) overlapping_move: bool,
-    pub(super) moved: BTreeSet<StorageAccessId>,
-    pub(super) definitely_absent: BTreeSet<StorageAccessId>,
-    pub(super) recovered: bool,
+pub(in crate::analysis) struct ReplacementState {
+    pub(in crate::analysis) live: bool,
+    pub(in crate::analysis) initialized: bool,
+    pub(in crate::analysis) fully_moved: bool,
+    pub(in crate::analysis) overlapping_move: bool,
+    pub(in crate::analysis) moved: BTreeSet<bray_bound_tree::StoragePath>,
+    pub(in crate::analysis) definitely_absent: BTreeSet<bray_bound_tree::StoragePath>,
+    pub(in crate::analysis) recovered: bool,
 }
 
 impl ReplacementState {
-    pub(super) fn new(
+    pub(in crate::analysis) fn new(
         state: &StorageFlowState,
         plan: StorageAccessPlan,
         storage: &StoragePlan,
@@ -76,32 +74,47 @@ impl ReplacementState {
             // A move through another logical alias has no path in this root's partition.
             initialized: root.is_some_and(|root| state.initialized.contains(&root))
                 && !state.moved.keys().any(|access| {
-                    storage.root_identity(*access) != root
-                        && (storage.access_contains(plan.access(), *access)
-                            || storage.access_contains(*access, plan.access()))
+                    Some(access.root) != root
+                        && storage.relationship_to_path(plan.access(), access)
+                            != bray_bound_tree::StorageRelationship::Disjoint
                 }),
             fully_moved: root.is_some_and(|root| state.fully_moved.contains(&root)),
             overlapping_move: state.moved.keys().any(|access| {
-                storage.access_contains(plan.access(), *access)
-                    || storage.access_contains(*access, plan.access())
+                storage.relationship_to_path(plan.access(), access)
+                    != bray_bound_tree::StorageRelationship::Disjoint
             }),
             moved: state
                 .moved
                 .keys()
-                .copied()
-                .filter(|access| storage.root_identity(*access) == root)
+                .cloned()
+                .filter(|access| Some(access.root) == root)
                 .collect(),
             definitely_absent: state
                 .definitely_absent
                 .keys()
-                .copied()
-                .filter(|access| storage.root_identity(*access) == root)
+                .cloned()
+                .filter(|access| Some(access.root) == root)
                 .collect(),
             recovered: state.recovered || root.is_none(),
         }
     }
 
-    pub(super) fn merge(&mut self, incoming: Self) {
+    pub(in crate::analysis) fn state(
+        &self,
+        has_root: bool,
+    ) -> bray_bound_tree::StorageReplacementState {
+        if !has_root {
+            bray_bound_tree::StorageReplacementState::Conditional
+        } else if !self.live || self.fully_moved {
+            bray_bound_tree::StorageReplacementState::Absent
+        } else if self.initialized && !self.overlapping_move {
+            bray_bound_tree::StorageReplacementState::Present
+        } else {
+            bray_bound_tree::StorageReplacementState::Conditional
+        }
+    }
+
+    pub(in crate::analysis) fn merge(&mut self, incoming: Self) {
         self.live |= incoming.live;
         self.initialized &= incoming.initialized;
         self.fully_moved &= incoming.fully_moved;
@@ -117,7 +130,6 @@ impl ReplacementState {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
 
     use bray_bound_tree::{
         BorrowCapabilityOrigin, BoundErrorExpression, BoundExpression, BoundUnitId,
@@ -213,7 +225,13 @@ mod tests {
 
         state.live.extend([owner, alias]);
         state.initialized.extend([owner, alias]);
-        state.moved.insert(moved, expressions[1]);
+
+        state.record_move(
+            storage.logical_path(moved).cloned().expect("alias path"),
+            expressions[1],
+            crate::test_support::error_type(),
+            false,
+        );
 
         assert_ne!(
             storage.root_identity(moved),
@@ -270,8 +288,10 @@ mod tests {
         left.initialized.insert(identity);
         left.fully_moved.insert(moved_identity);
 
-        left.allocation_origins
-            .insert(identity, BTreeSet::from([expressions[0]]));
+        left.memory.fresh(
+            crate::analysis::storage_flow::memory::Place::root(identity),
+            Some(expressions[0]),
+        );
 
         let mut snapshot = ExitState::new(&left);
 
@@ -286,7 +306,7 @@ mod tests {
         right.fully_moved.insert(identity);
 
         snapshot.merge(&right);
-        left.merge(&right);
+        left.merge(&right, None);
 
         assert_eq!(snapshot.live, left.live);
         assert_eq!(snapshot.initialized, left.initialized);
