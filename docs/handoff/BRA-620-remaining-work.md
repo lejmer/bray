@@ -5,6 +5,12 @@ Recorded on 2026-10-10. This handoff covers the remaining trusted synchronizatio
 Updated on 2026-10-11: use the [current stack completion plan](stack-completion.md) for work order and status.
 This document retains BRA-620's evidence and acceptance details. The earlier boundary before BRA-553 is retired.
 
+The user accepted the architectural groundwork on 2026-10-12 and requested self-contained Linear issues.
+Use the [Linear execution guide](runtime-stack-linear-execution.md) for the exact recovery checkpoint and ordered work.
+The [rule coverage and replacement plan](runtime-stack-rule-coverage.md) and [closed inventory](runtime-stack-coverage-inventory.md)
+replace the earlier proposal. The [architectural assessment](stack-architecture-assessment.md) and the instructions below
+retain dated evidence and acceptance requirements. Issue preparation does not begin implementation.
+
 ## Issue and stack
 
 - [BRA-620](https://linear.app/bray-lang/issue/BRA-620/complete-standard-library-trusted-storage-and-foreign-contracts): complete standard-library trusted storage and foreign contracts.
@@ -53,6 +59,67 @@ Use the existing trusted predicate and dependency mechanisms. Audit producers an
 
 Mutex, read/write lock, and once-cell findings have not all been independently reproduced in this handoff. Treat them as mandatory sibling audit targets, not as four already proven identical defects. Cover the acquisition, access, release, and failure paths that each API actually implements.
 
+## Current compiler repair checkpoint
+
+The active, uncommitted repair is on `feature/bra-620-repair-synchronization-authority`, based on the combined BRA-553 tip
+`cca4bd4429d0648cae0493db72045b7d4a7a3e73`. It retains the earlier BRA-620 and BRA-621 work. The primary checkout has separate
+handoff changes that must be preserved.
+
+Execution propagation, cleanup evidence collection, and trusted validation now share one prepared cleanup transition.
+Replacement partitions, definitely moved parts, and conditional cleanup use existing storage-flow facts. The earlier
+232-test result remains in `target/bra-620-authority/cleanup-availability-broad.log`. Later checked dependency inference
+carries exact returned-reference origins and unchanged stored-reference identities through generic export/import.
+The owning inference also publishes whether each reference is a language borrow or a raw address. Execution flow consumes
+that category without reconstructing result projection types.
+
+The previous ordinary SpinLock acquisition failure is resolved. The current six-test production selection passes actual
+synchronization declaration bodies, SpinLock/Mutex acquisition and forged-guard rejection, nullable SpinLock acquisition,
+ConditionVariable release/reacquisition, and the production payload-origin check. Seventeen origin-related tests pass,
+including an encoded package round-trip carrying both borrow and address origins. Evidence is in
+`target/bra-620-authority/reference-kind-production.log` and `reference-kind-origin-tests.log`. These focused results do not
+replace the remaining native and full standard-library checks.
+
+BRA-620 remains incomplete. Mutation through a guard still loses acquisition authority, and RwLock writer-overflow unwind
+still loses initialization evidence needed for cleanup. Exact origin alone does not establish preservation of an opaque
+predicate. A new negative regression confirms that an opaque carrier predicate must be revoked when its referenced payload
+changes. The user authorized investigating an acquisition witness using existing language features, with adoption conditional
+on proving authority and acceptable performance. No new language syntax or replacement production representation has been added.
+Do not infer permission to preserve arbitrary opaque predicates from the successful origin tests.
+
+Once and the bootstrap report pool still need their authority audit. Full source/imported acceptance, native validation,
+the complete maintainability audit, integration-stack reconciliation and published review remain required.
+
+## Acquisition witness investigation, 2026-10-12
+
+An empty `Permit` with an opaque `held(&permit)` predicate can be stored beside an immutable owner reference in a guard.
+A whole-value destructor requiring the permit prevents detachment from leaving a valid original guard. This uses public
+fields and existing mutation/lifecycle rules, not field privacy. The retained synthetic regression checks nine cases:
+acquisition and whole-guard movement succeed; fabrication, fabrication beside a live witness, detachment, whole-source
+replacement, fresh-result detachment, immutable-field restoration, and consuming-pattern detachment are rejected with
+specific authority, mutation, or lifecycle diagnostics. This is evidence for the candidate shape, not a completed proof
+against production declarations, imported contracts, and every acquisition path.
+
+The retained codegen layout comparison gives the empty permit size 0 and alignment 1. Both the baseline owner-reference
+wrapper and the wrapper with a permit have size 8 and alignment 8 on the tested baseline target. Evidence is in
+`target/bra-620-authority/acquisition-permit-verified.log`, with two passing tests. This establishes no added storage for
+that shape. It does not establish compile-time cost or optimized/unoptimized instruction and cleanup cost.
+
+Two positive experiments still fail, so the candidate was not adopted:
+
+- An ordinary `get()` returning the exact mutable payload reference followed by `value += 1` loses the independent permit
+  obligation. `analysis/storage_invalidation.rs` currently classifies writes through local borrows as global invalidation.
+  Evidence: `acquisition-permit-payload.log`.
+- A const helper mapping `&Guard?` to `(&Permit)?` is accepted, but the acquired condition on that helper result does not
+  prove `held(&guard.permit)` after consuming the present nullable guard. Evidence: `acquisition-permit-nullable2.log`.
+  The first nullable experiment used the wrong nullable-borrow spelling and is not evidence for this conclusion.
+
+The unsuccessful experimental test sources are retained locally in
+`target/bra-620-authority/acquisition-witness-probes.rs`, outside the passing regression suite. Addressing these findings
+requires compiler work in the owning mutation and contract analyses. Do not add downstream revalidation, preserve all
+opaque conditions, or treat the measured empty layout as proof of complete performance neutrality. The next discussion
+should distinguish that compiler work from introducing an explicit preservation contract. Actual production/export/native
+proof and performance comparisons remain gates before adoption.
+
 ## Required regression coverage
 
 Add negative source and separately compiled/imported tests for fabricated guards or attempts, ordinary internal field construction, copied or replaced authority fields, owner mismatch, stale authority after release, and mutation that invalidates a live witness. Verify that supplying only an ordinary condition cannot discharge a trusted acquisition obligation.
@@ -80,6 +147,13 @@ cargo xtask standard-library test --part outcomes
 
 After Rust changes run the mutating `cargo xtask style`. Finish with `cargo xtask format` and the repository compliance/maintainability audit. Preserve known independent structural style warnings outside this functional repair unless the user extends the scope. Record exact heads and distinguish focused results from broader audits.
 
-Commit and push coherent fixes, update the stacked draft PR, then obtain a fresh subagent review under the [Bray issue workflow](../../.agents/skills/work-on-bray-issues/SKILL.md). The reviewer must publish its summary and all genuine actionable inline findings directly on PR #604. Verify the artifacts and repeat review after material fixes until clean or concrete disagreements are recorded.
+The user replaced the original PR #604 publication plan on 2026-10-11. Finish this repair on the combined source, then
+reconcile the stack through `feature/trusted-storage-integration` as described in the [shared completion plan](stack-completion.md).
+Publish the combined draft PR into `develop` and obtain review there under the [Bray issue workflow](../../.agents/skills/work-on-bray-issues/SKILL.md).
+The reviewer must publish its summary and genuine actionable inline findings on that integration PR. Verify those artifacts
+and repeat review after material fixes until clean or concrete disagreements are recorded.
 
-Only after the authority defect, sibling audit, validation, and current-head review are complete should PR #604 become ready and BRA-620 move to In Review. Do not mark it Done. BRA-619's missing native scoped-incident transfer remains documented in [its handoff](BRA-619-remaining-work.md). Use the shared completion plan for sequencing.
+Only after the authority defect, sibling audit, validation, and current-head review are complete should BRA-620 move to
+In Review. Do not mark it Done. Keep old PRs available until the integration lands, then reconcile their superseded status
+without closing incomplete issues. BRA-619's missing native scoped-incident transfer remains documented in
+[its handoff](BRA-619-remaining-work.md).
