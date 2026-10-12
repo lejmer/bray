@@ -27,8 +27,9 @@ where
     source_snapshot: Option<&'view bray_source::SourceSnapshot>,
     unwind: Option<&'view bray_bound_tree::CheckedUnwind>,
     trusted_contracts: Option<&'view crate::TrustedContractInputs>,
-    result_dependencies:
-        Option<&'view BTreeMap<CallableSymbolId, bray_symbols::DependencyContractTemplateId>>,
+    result_dependencies: Option<
+        &'view BTreeMap<bray_symbols::AnySymbolId, bray_symbols::DependencyContractTemplateId>,
+    >,
 }
 
 impl<C> Clone for CheckerUnitView<'_, C>
@@ -118,12 +119,15 @@ where
         self
     }
 
-    /// Supplies the complete selected-callee summary environment for component inference.
-    /// Requests within the component consume these provisional facts instead of reentering
-    /// the public query whose result this component is establishing.
+    /// Supplies component approximations and already resolved callee summaries.
+    /// Every component member has an entry before inference starts. Witness specialization
+    /// may select additional external declarations whose summaries remain normal queries.
     pub fn with_result_dependencies(
         mut self,
-        dependencies: &'view BTreeMap<CallableSymbolId, bray_symbols::DependencyContractTemplateId>,
+        dependencies: &'view BTreeMap<
+            bray_symbols::AnySymbolId,
+            bray_symbols::DependencyContractTemplateId,
+        >,
     ) -> Self {
         self.result_dependencies = Some(dependencies);
 
@@ -134,14 +138,18 @@ where
         self,
         callable: CallableSymbolId,
     ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, C::UpstreamError> {
-        match self.result_dependencies {
-            Some(dependencies) => Ok(*dependencies.get(&callable).unwrap_or_else(|| {
-                panic!(
-                    "selected callable {callable:?} must belong to the prepared summary environment"
-                )
-            })),
-            None => self.context.callable_result_dependencies(callable),
-        }
+        self.result_dependencies
+            .and_then(|dependencies| dependencies.get(&callable.into_any()).copied())
+            .map_or_else(|| self.context.callable_result_dependencies(callable), Ok)
+    }
+
+    pub(crate) fn default_result_dependencies(
+        self,
+        provider: bray_bound_tree::DefaultValueProvider,
+    ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, C::UpstreamError> {
+        self.result_dependencies
+            .and_then(|dependencies| dependencies.get(&provider.symbol()).copied())
+            .map_or_else(|| self.context.default_result_dependencies(provider), Ok)
     }
 
     /// Supplies the owning analysis's checked unwind results.

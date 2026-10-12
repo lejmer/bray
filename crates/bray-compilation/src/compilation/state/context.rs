@@ -190,8 +190,8 @@ pub(in crate::compilation) struct CompilationState {
         UnitQueryCache<bray_bound_tree::BodyBehaviorContributions>,
     pub(in crate::compilation) result_dependency_components: UnitQueryCache<
         std::collections::BTreeMap<
-            bray_symbols::CallableSymbolId,
-            crate::compilation::binder::CallableAnalysis,
+            bray_symbols::AnySymbolId,
+            crate::compilation::binder::BodyAnalysis,
         >,
     >,
     pub(in crate::compilation) prepared_body_analysis:

@@ -12,7 +12,8 @@ mod initializer;
 mod module_surface;
 mod result_dependencies;
 pub(in crate::compilation) use result_dependencies::{
-    CallableAnalysis, callable_body_semantics, expression_result_dependencies,
+    BodyAnalysis, default_result_dependencies, expression_result_dependencies,
+    source_body_semantics,
 };
 mod static_storage;
 pub(in crate::compilation) use static_storage::static_dependencies_from_contract;

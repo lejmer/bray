@@ -11,6 +11,40 @@ The [rule coverage and replacement plan](runtime-stack-rule-coverage.md) and [cl
 replace the earlier proposal. The [architectural assessment](stack-architecture-assessment.md) and the instructions below
 retain dated evidence and acceptance requirements. Issue preparation did not begin implementation.
 
+## Default component checkpoint, 2026-10-13
+
+This continuation follows `5a13b1eb` on the same repair branch. Runtime-default providers now participate in the same
+source summary components as callable bodies. Both publish their checked body and retained dependencies together.
+The default-expression summary consumer reuses that publication instead of running a separate inference pass.
+Selected arguments supply their already substituted types, removing the full default query and repeated substitution
+from storage-borrow classification. One callee iterator covers explicit calls, selected defaults and implicit lifecycle calls.
+
+Every component member receives a provisional entry before inference. Specializing a portable generic result can select
+additional witness implementations beyond the direct selected-call inventory. These use ordinary summary queries, while
+members of the active component use its approximations. Query-cycle errors still propagate. Demand-graph closure for
+specialization, membership reuse, finite recursive paths and recursive must candidates remain required by the plan.
+This checkpoint does not claim those broader summary requirements are complete.
+
+Evidence in `target/bra-620-authority/`:
+
+- `default-component-resolved-defaults.log`: all 44 default-related tests pass, including the previously failing recursive
+  runtime default, source/imported storage rejection, generic and trait results, and construction defaults.
+- `default-component-publication.log`: 35 pass. The new concurrent test crosses a callable/default cycle and proves
+  that both public body queries share the component's checked allocations.
+- `default-component-recursive_dependencies.log`, `default-component-returned_dependencies.log` and
+  `default-component-returned_values.log`: seven recursive, 13 imported dependency and 21 returned-value tests pass.
+- `default-component-checker.log`: all 289 checker tests pass.
+
+`default-component-authority.log` confirms 134 passes and the same 16 production authority failures after formatting.
+`cargo fmt --all`, mutating `cargo xtask style`, `cargo xtask format` and `git diff --check` pass. The audit covered
+summary ownership, source/imported default selection, trait witness resolution, generic type reuse, diagnostics and
+concurrent publication. Production code grows by about 80 lines, replacing duplicate default analysis with the common
+component and adapting the three imported default kinds. The new concurrency coverage adds about 100 test lines.
+
+The 16 production authority failures remain acceptance work. Protected payload identities,
+nested references, retirement, deferred effects and the production acquisition representation are still unfinished.
+No new language feature, runtime operation or interface encoding is introduced here.
+
 ## Shared target and observation checkpoint, 2026-10-13
 
 This continuation follows `6d8a4a6a` on `feature/bra-620-repair-synchronization-authority`. BRA-620 remains incomplete.

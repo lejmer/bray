@@ -158,12 +158,15 @@ impl Compilation {
             key.clone(),
             cancellation,
             |cancellation| {
-                if key.kind() == bray_bound_tree::BoundUnitKind::CallableBody {
+                if matches!(
+                    key.kind(),
+                    bray_bound_tree::BoundUnitKind::CallableBody
+                        | bray_bound_tree::BoundUnitKind::RuntimeDefault
+                ) {
                     let context = self.binding_context_for(&key, cancellation)?;
 
-                    let result =
-                        crate::compilation::binder::callable_body_semantics(&context, &key)
-                            .map_err(crate::compilation::binder::binding_query_error)?;
+                    let result = crate::compilation::binder::source_body_semantics(&context, &key)
+                        .map_err(crate::compilation::binder::binding_query_error)?;
 
                     return Ok((result, Box::new([])));
                 }
@@ -201,7 +204,7 @@ impl BodyAnalysisInputs {
         cancellation: &CancellationToken,
         templates: Option<
             &std::collections::BTreeMap<
-                bray_symbols::CallableSymbolId,
+                bray_symbols::AnySymbolId,
                 bray_symbols::DependencyContractTemplateId,
             >,
         >,

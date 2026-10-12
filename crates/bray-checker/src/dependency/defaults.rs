@@ -20,11 +20,18 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
     let mut defaults = std::collections::BTreeMap::new();
 
     for argument in call.arguments() {
-        let SelectedArgument::Default { parameter, .. } = argument else {
+        let SelectedArgument::Default {
+            parameter,
+            provider,
+            ..
+        } = argument
+        else {
             continue;
         };
 
-        let (_, provider) = request.context().parameter_default_result(*parameter)?;
+        let provider = request.default_result_dependencies(
+            bray_bound_tree::DefaultValueProvider::CallableParameter(*provider),
+        )?;
 
         let provider = super::resolved_result_template(
             request,
@@ -254,16 +261,7 @@ fn default_borrows_argument_storage<C: CheckerRequestContext + ?Sized>(
                 } => *actual == ordinal.raw(),
             }) {
                 Some(SelectedArgument::Explicit { conversion, .. }) => conversion.target_type(),
-                Some(SelectedArgument::Default { parameter, .. }) => {
-                    let (ty, _) = request.context().parameter_default_result(*parameter)?;
-
-                    match call.target() {
-                        bray_bound_tree::BoundCallableTarget::Declaration(instance) => request
-                            .semantic_values()
-                            .substitute_type(ty, instance.substitution()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in default_borrows_argument_storage: {error:?}")),
-                        _ => ty,
-                    }
-                }
+                Some(SelectedArgument::Default { ty, .. }) => *ty,
                 None => {
                     panic!(
                         "Semantic-selection inputs do not describe the requested bound unit or operation category. in default_borrows_argument_storage"

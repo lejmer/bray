@@ -165,25 +165,15 @@ impl CheckerRequestContext for TestCheckerContext {
         Ok(self.semantic_values()
             .empty_dependency_contract_template().unwrap_or_else(|error| panic!("callable_result_dependencies must satisfy its checked construction contract: {error:?}")))
     }
-    fn parameter_default_result(
+    fn default_result_dependencies(
         &self,
-        _parameter: bray_symbols::CallableParameterSymbolId,
-    ) -> crate::CheckerQueryResult<
-        (
-            bray_symbols::TypeId,
-            bray_symbols::DependencyContractTemplateId,
-        ),
-        Self::UpstreamError,
-    > {
-        let ty = self
+        _provider: bray_bound_tree::DefaultValueProvider,
+    ) -> crate::CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>
+    {
+        Ok(self
             .semantic_values()
-            .intern_type(TypeData::Error).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in parameter_default_result: {error:?}"));
-
-        let dependencies = self
-            .semantic_values()
-            .empty_dependency_contract_template().unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in parameter_default_result: {error:?}"));
-
-        Ok((ty, dependencies))
+            .empty_dependency_contract_template()
+            .expect("test default summary has no retained inputs"))
     }
 
     type UpstreamError = std::convert::Infallible;

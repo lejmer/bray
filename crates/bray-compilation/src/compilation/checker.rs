@@ -407,30 +407,12 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .map_err(checker_binder_error)
     }
 
-    fn parameter_default_result(
+    fn default_result_dependencies(
         &self,
-        parameter: bray_symbols::CallableParameterSymbolId,
-    ) -> CheckerQueryResult<(
-        bray_symbols::TypeId,
-        bray_symbols::DependencyContractTemplateId,
-    )> {
-        let checked = self
-            .binding_context
-            .resolve_symbol_query(SymbolQueryRequest::<
-                bray_symbols::CallableParameterDefaultQuery,
-            >::new(parameter))
-            .map_err(checker_binder_error)?;
-
-        match checked.value().value() {
-            bray_symbols::CallableParameterDefaultValue::Valid(surface) => {
-                Ok((surface.result(), surface.behavior().result_dependencies()))
-            }
-            bray_symbols::CallableParameterDefaultValue::Error(_) => {
-                panic!(
-                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in parameter_default_result"
-                )
-            }
-        }
+        provider: bray_bound_tree::DefaultValueProvider,
+    ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId> {
+        super::binder::default_result_dependencies(&self.binding_context, provider)
+            .map_err(checker_binder_error)
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {

@@ -18,7 +18,7 @@ pub fn infer_result_dependencies<C>(
     types: &CheckedExpressionTypes,
     selections: &CheckedSemanticSelections,
     patterns: &CheckedPatterns,
-    callees: &BTreeMap<CallableSymbolId, DependencyContractTemplateId>,
+    callees: &BTreeMap<bray_symbols::AnySymbolId, DependencyContractTemplateId>,
     recursive_callees: &BTreeSet<CallableSymbolId>,
     static_roots: &BTreeMap<StaticSymbolId, DependencySubjectRoot>,
 ) -> Result<DependencyContractTemplateId, CheckerQueryError<C::UpstreamError>>

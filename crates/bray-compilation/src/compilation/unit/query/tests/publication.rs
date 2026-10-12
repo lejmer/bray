@@ -906,11 +906,14 @@ fn recursive_result_dependencies_share_one_component_publication() {
                 .keys()
                 .copied()
                 .collect::<std::collections::BTreeSet<_>>(),
-            members.iter().map(|(callable, _)| *callable).collect()
+            members
+                .iter()
+                .map(|(callable, _)| callable.into_any())
+                .collect()
         );
 
         assert_eq!(
-            published.result().value()[callable].dependencies,
+            published.result().value()[&callable.into_any()].dependencies,
             *result.value()
         );
 
@@ -924,7 +927,9 @@ fn recursive_result_dependencies_share_one_component_publication() {
 
         assert!(
             Arc::ptr_eq(
-                published.result().value()[callable].body.value(),
+                published.result().value()[&callable.into_any()]
+                    .body
+                    .value(),
                 body_result.result().value()
             ),
             "the body query must share the component's settled snapshot without copying or rechecking it"
@@ -967,5 +972,107 @@ fn recursive_result_dependencies_share_one_component_publication() {
         );
 
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::BoundUnit(body)));
+    }
+}
+
+#[test]
+fn recursive_runtime_default_and_callable_share_checked_component() {
+    let application = compilation(
+        r#"
+        module app;
+        func recurse(value: u32 = repeat()) -> u32 { return value; }
+        func repeat() -> u32 { return recurse(); }
+    "#,
+    );
+
+    let cancellation = &application.state.cancellation;
+    let context = application.binding_context(cancellation).unwrap();
+
+    let callable: bray_symbols::CallableSymbolId =
+        crate::test_support::source_function(&application, "repeat").into();
+
+    let body = crate::test_support::source_function_body_key(&application, "repeat");
+
+    let behavior = application
+        .selected_body_behavior_with_cancellation(body.clone(), cancellation)
+        .unwrap();
+
+    let provider = behavior.result().value().defaults()[0];
+
+    let default = application
+        .declared_unit_key(
+            provider.symbol(),
+            bray_bound_tree::BoundUnitKind::RuntimeDefault,
+        )
+        .unwrap()
+        .unwrap();
+
+    let members = [(callable.into_any(), body), (provider.symbol(), default)];
+    let owner = members.iter().min_by_key(|(symbol, _)| *symbol).unwrap();
+    let start = std::sync::Barrier::new(2);
+
+    std::thread::scope(|scope| {
+        let handles = members
+            .iter()
+            .map(|(_, key)| {
+                let application = &application;
+                let start = &start;
+
+                scope.spawn(move || {
+                    start.wait();
+
+                    application
+                        .body_semantics_with_cancellation(key.clone(), cancellation)
+                        .unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for handle in handles {
+            let body = handle.join().unwrap();
+
+            assert!(!body.result().diagnostics().has_errors(), "{body:?}");
+        }
+    });
+
+    let published = application
+        .state
+        .result_dependency_components
+        .get_or_compute(
+            &application.state.fact_runtime,
+            cancellation,
+            crate::fact::CompilationFactKey::ResultDependencyComponent(owner.1.clone()),
+            owner.1.clone(),
+            || panic!("both bodies must already share one completed component"),
+        )
+        .unwrap();
+
+    assert_eq!(published.result().value().len(), 2);
+
+    let summary =
+        crate::compilation::binder::default_result_dependencies(&context, provider).unwrap();
+
+    assert_eq!(
+        summary,
+        published.result().value()[&provider.symbol()].dependencies
+    );
+
+    for (symbol, key) in &members {
+        let body = application
+            .body_semantics_with_cancellation(key.clone(), cancellation)
+            .unwrap();
+
+        assert!(Arc::ptr_eq(
+            body.result().value(),
+            published.result().value()[symbol].body.value()
+        ));
+
+        assert_eq!(
+            application
+                .state
+                .result_dependency_components
+                .is_published(key),
+            Ok(key == &owner.1)
+        );
     }
 }
