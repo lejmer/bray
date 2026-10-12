@@ -18,10 +18,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             SemanticSelection,
         };
 
-        if let Some(source) = self.returned_reference_input(expression) {
-            return Some(source);
-        }
-
         match self.request.view().expression(expression)? {
             BoundExpression::Structured(operation)
                 if matches!(
@@ -48,27 +44,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
-    fn returned_reference_input(
-        &self,
-        expression: bray_bound_tree::BoundExpressionId,
-    ) -> Option<bray_bound_tree::BoundExpressionId> {
-        let dependencies = self.result_dependencies.get(&expression)?;
-
-        let bray_bound_tree::SemanticSelection::Call(call) =
-            self.semantics.selections().expression(expression)?
-        else {
-            return None;
-        };
-
-        let relation = dependencies.references.iter().find(|relation| {
-            relation.exit().subject_root() == DependencySubjectRoot::Result
-                && relation.exit().projections().is_empty()
-                && relation.entry().projections().is_empty()
-        })?;
-
-        crate::dependency::result_argument(call, relation.entry().subject_root())
-    }
-
     pub(super) fn preserve_cleanup_borrows(
         &self,
         state: &mut ExecutionState,
@@ -77,8 +52,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         entry: &crate::ExecutionCallEvidence,
         arguments: &mut BTreeMap<ExecutionPlace, ExecutionCondition>,
     ) {
-        for relation in &self.disposal.references[&lifecycle.callable] {
-            if relation.entry().subject_root() != DependencySubjectRoot::Receiver
+        for relation in self.disposal.dependencies[&lifecycle.callable].borrows() {
+            if relation.entry() != relation.exit()
                 || relation.exit().subject_root() != DependencySubjectRoot::Receiver
             {
                 continue;
@@ -119,7 +94,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return result;
         }
 
-        let Some(dependencies) = self.result_dependencies.get(&expression) else {
+        let Some(dependencies) = self.dependencies.calls().get(&expression.into()) else {
             return result;
         };
 
@@ -131,7 +106,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut fields = BTreeMap::new();
 
-        for relation in &dependencies.references {
+        for relation in dependencies
+            .references()
+            .iter()
+            .filter(|reference| reference.preserves_value())
+            .map(|reference| reference.relation())
+        {
             if relation.exit().subject_root() != DependencySubjectRoot::Result {
                 continue;
             }

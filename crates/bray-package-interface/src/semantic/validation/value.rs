@@ -83,6 +83,34 @@ impl InterfaceSemantics {
                 self.validate_dependency_subject(relation.exit(), symbol_count, dependency_count)?;
             }
 
+            for effect in &*contract.effects {
+                use bray_symbols::DependencyStorageEffect;
+
+                match effect {
+                    DependencyStorageEffect::Unknown => {}
+                    DependencyStorageEffect::Direct { subject, .. } => {
+                        self.validate_dependency_subject(subject, symbol_count, dependency_count)?
+                    }
+                    DependencyStorageEffect::Indirect {
+                        reference,
+                        projections,
+                        ..
+                    } => {
+                        self.validate_dependency_subject(
+                            reference,
+                            symbol_count,
+                            dependency_count,
+                        )?;
+
+                        self.validate_dependency_projections(
+                            projections,
+                            symbol_count,
+                            dependency_count,
+                        )?;
+                    }
+                }
+            }
+
             for requirement in &*contract.requirements {
                 self.validate_dependency_requirement(
                     requirement,
@@ -495,7 +523,22 @@ impl InterfaceSemantics {
             validate_index(id.to_index(), self.implementation_instances.len())?;
         }
 
-        for projection in &*subject.projections {
+        if let InterfaceDependencySubjectRoot::ProductStatic(symbol)
+        | InterfaceDependencySubjectRoot::ExactThreadStatic(symbol) = &subject.root
+        {
+            validate_symbol(symbol, symbol_count, dependency_count)?;
+        }
+
+        self.validate_dependency_projections(&subject.projections, symbol_count, dependency_count)
+    }
+
+    fn validate_dependency_projections(
+        &self,
+        projections: &[InterfaceDependencyProjection],
+        symbol_count: usize,
+        dependency_count: usize,
+    ) -> Result<(), InterfaceValidationError> {
+        for projection in projections {
             match projection {
                 InterfaceDependencyProjection::ProductField(symbol)
                 | InterfaceDependencyProjection::UnionPayloadField(symbol) => {

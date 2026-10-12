@@ -17,6 +17,41 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
     call: &SelectedCall,
     template: &DependencyContractTemplateData,
 ) -> Result<CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
+    let mut defaults = std::collections::BTreeMap::new();
+
+    for argument in call.arguments() {
+        let SelectedArgument::Default { parameter, .. } = argument else {
+            continue;
+        };
+
+        let (_, provider) = request.context().parameter_default_result(*parameter)?;
+
+        let provider = super::resolved_result_template(
+            request,
+            match call.target() {
+                bray_bound_tree::BoundCallableTarget::Declaration(instance) => Some(instance),
+                _ => None,
+            },
+            provider,
+        )?;
+
+        defaults.insert(*parameter, provider);
+    }
+
+    expand(request, call, template, &defaults)
+}
+
+type Defaults = std::collections::BTreeMap<
+    bray_symbols::CallableParameterSymbolId,
+    DependencyContractTemplateData,
+>;
+
+fn expand<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    call: &SelectedCall,
+    template: &DependencyContractTemplateData,
+    defaults: &Defaults,
+) -> Result<CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
     let mut result = Vec::new();
     let mut escaping_evaluation_inputs = std::collections::BTreeSet::new();
 
@@ -37,10 +72,12 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
         {
             let definitions = definitions
                 .iter()
-                .map(|definition| expand_witness_input_defaults(request, call, definition))
+                .map(|definition| {
+                    expand_witness_input_defaults(request, call, definition, defaults)
+                })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let roots = expand_witness_input_defaults(request, call, &roots)?;
+            let roots = expand_witness_input_defaults(request, call, &roots, defaults)?;
 
             result.push(DependencyRequirement::fixed_point(definitions, roots));
             continue;
@@ -60,7 +97,7 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
             result.push(DependencyRequirement::result_call(
                 callable,
                 requirement,
-                expand_call_inputs(request, call, &inputs)?,
+                expand_call_inputs(request, call, &inputs, defaults)?,
             ));
 
             continue;
@@ -119,37 +156,35 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
             continue;
         }
 
-        let (_, template) = request.context().parameter_default_result(parameter)?;
-
-        let template = match call.target() {
-            bray_bound_tree::BoundCallableTarget::Declaration(instance) => request
-                .semantic_values()
-                .substitute_dependency_contract(template, instance.substitution()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in expand_result_defaults: {error:?}")),
-            _ => template,
-        };
-
-        let template = request
-            .semantic_values()
-            .dependency_contract_template_data(template);
-
         pending.extend(
-            super::witness::resolve(request, template.requirements())?
-                .into_iter()
+            defaults[&parameter]
+                .requirements()
+                .iter()
+                .cloned()
                 .map(|requirement| (requirement, true)),
         );
     }
 
+    // All selected providers run, including those whose values are absent from the result.
+    let effects = template
+        .effects()
+        .iter()
+        .chain(defaults.values().flat_map(|provider| provider.effects()))
+        .cloned();
+
     Ok(CallResultDependencies {
         // Default arguments have no caller expression to anchor an exact entry identity.
-        template: DependencyContractTemplateData::new(result).with_borrows(
-            template
-                .borrows()
-                .iter()
-                .filter(|relation| {
-                    super::result_argument(call, relation.entry().subject_root()).is_some()
-                })
-                .cloned(),
-        ),
+        template: DependencyContractTemplateData::new(result)
+            .with_borrows(
+                template
+                    .borrows()
+                    .iter()
+                    .filter(|relation| {
+                        super::result_argument(call, relation.entry().subject_root()).is_some()
+                    })
+                    .cloned(),
+            )
+            .with_effects(effects),
         escaping_evaluation_inputs: escaping_evaluation_inputs.into_iter().collect(),
     })
 }
@@ -158,14 +193,15 @@ fn expand_call_inputs<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     call: &SelectedCall,
     inputs: &[bray_symbols::DependencyCallInput],
+    defaults: &Defaults,
 ) -> Result<Vec<bray_symbols::DependencyCallInput>, CheckerQueryError<C::UpstreamError>> {
     inputs
         .iter()
         .map(|input| {
             Ok(bray_symbols::DependencyCallInput::new(
                 input.root(),
-                expand_witness_input_defaults(request, call, input.values())?,
-                expand_witness_input_defaults(request, call, input.storage())?,
+                expand_witness_input_defaults(request, call, input.values(), defaults)?,
+                expand_witness_input_defaults(request, call, input.storage(), defaults)?,
             ))
         })
         .collect::<Result<Vec<_>, CheckerQueryError<C::UpstreamError>>>()
@@ -175,9 +211,10 @@ fn expand_witness_input_defaults<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     call: &SelectedCall,
     requirements: &[DependencyRequirement],
+    defaults: &Defaults,
 ) -> Result<Vec<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
     let template = DependencyContractTemplateData::new(requirements.iter().cloned());
-    let expanded = expand_result_defaults(request, call, &template)?;
+    let expanded = expand(request, call, &template, defaults)?;
 
     let errors = expanded.escaping_evaluation_inputs.iter().map(|_| {
         DependencyRequirement::direct(

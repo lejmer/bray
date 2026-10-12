@@ -55,6 +55,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         body.refinements().invalidations(),
         contracts,
         &disposal,
+        body.dependencies(),
     ) {
         CheckerOutcome::Complete(flow) => {
             let (flow, additional) = flow.into_parts();

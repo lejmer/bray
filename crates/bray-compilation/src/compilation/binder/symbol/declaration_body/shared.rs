@@ -360,7 +360,7 @@ fn checked_source_diagnostics(
     bound: &PublishedUnitResult<BoundUnit>,
     semantics: &PublishedUnitResult<CheckedExpressionSemantics>,
     storage: &PublishedUnitResult<StoragePlan>,
-    body: &PublishedUnitResult<CheckedBodySemantics>,
+    body: &PublishedUnitResult<std::sync::Arc<CheckedBodySemantics>>,
 ) -> DiagnosticBag {
     DiagnosticBag::merged_all([
         bound.result().diagnostics(),

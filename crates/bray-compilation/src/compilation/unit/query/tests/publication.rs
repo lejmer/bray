@@ -61,6 +61,21 @@ fn liveness_is_demanded_independently_and_reuses_its_publication() {
         Err(error) => panic!("liveness dependencies must be readable: {error:?}"),
     };
 
+    assert!(
+        dependencies.contains(&crate::fact::CompilationFactKey::ResultDependencyComponent(
+            key.clone()
+        ))
+    );
+
+    let dependencies = compilation
+        .state
+        .fact_runtime
+        .dependencies(&crate::fact::CompilationFactKey::ResultDependencyComponent(
+            key.clone(),
+        ))
+        .unwrap()
+        .expect("the component owns this body's prerequisites");
+
     assert!(dependencies.contains(&crate::fact::CompilationFactKey::BoundUnit(key.clone())));
     assert!(dependencies.contains(&crate::fact::CompilationFactKey::StoragePlan(key)));
 }
@@ -123,6 +138,21 @@ fn dependency_contracts_reuse_the_body_semantic_publication() {
         Ok(None) => panic!("published dependency contracts must retain dependencies"),
         Err(error) => panic!("dependency contract dependencies must be readable: {error:?}"),
     };
+
+    assert!(
+        dependencies.contains(&crate::fact::CompilationFactKey::ResultDependencyComponent(
+            key.clone()
+        ))
+    );
+
+    let dependencies = compilation
+        .state
+        .fact_runtime
+        .dependencies(&crate::fact::CompilationFactKey::ResultDependencyComponent(
+            key.clone(),
+        ))
+        .unwrap()
+        .expect("the component owns this body's prerequisites");
 
     assert!(
         dependencies.contains(&crate::fact::CompilationFactKey::ExpressionSemantics(
@@ -196,6 +226,21 @@ fn storage_flow_is_lazy_and_reports_overlapping_borrows() {
         Ok(None) => panic!("published storage flow must retain dependencies"),
         Err(error) => panic!("storage-flow dependencies must be readable: {error:?}"),
     };
+
+    assert!(
+        dependencies.contains(&crate::fact::CompilationFactKey::ResultDependencyComponent(
+            key.clone()
+        ))
+    );
+
+    let dependencies = compilation
+        .state
+        .fact_runtime
+        .dependencies(&crate::fact::CompilationFactKey::ResultDependencyComponent(
+            key.clone(),
+        ))
+        .unwrap()
+        .expect("the component owns this body's prerequisites");
 
     assert!(dependencies.contains(&crate::fact::CompilationFactKey::StoragePlan(key.clone())));
 
@@ -864,11 +909,26 @@ fn recursive_result_dependencies_share_one_component_publication() {
             members.iter().map(|(callable, _)| *callable).collect()
         );
 
-        assert_eq!(published.result().value()[callable], *result.value());
+        assert_eq!(
+            published.result().value()[callable].dependencies,
+            *result.value()
+        );
 
         if let Some(first) = &first {
             assert!(Arc::ptr_eq(first, &published));
         }
+
+        let body_result = application
+            .body_semantics_with_cancellation(body.clone(), cancellation)
+            .unwrap();
+
+        assert!(
+            Arc::ptr_eq(
+                published.result().value()[callable].body.value(),
+                body_result.result().value()
+            ),
+            "the body query must share the component's settled snapshot without copying or rechecking it"
+        );
 
         first = Some(published);
 

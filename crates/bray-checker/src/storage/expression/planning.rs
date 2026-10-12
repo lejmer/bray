@@ -325,12 +325,6 @@ where
             }
         }
 
-        if let Some(call) = selection
-            && let Some(access) = self.returned_borrow_access(id, call)?
-        {
-            return Ok(access);
-        }
-
         self.temporary_access(id)
     }
 
@@ -598,17 +592,14 @@ where
                 source,
             ).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in plan_scoped_use: {error:?}"));
 
-        let capability = match self.scoped_borrow_access(scoped, *pattern)? {
-            Some(capability) => capability,
-            None => self.protocol_access(
-                id,
-                StorageIdentity::ScopedCapability {
-                    expression: id,
-                    pattern: *pattern,
-                },
-                capability_type,
-            )?,
-        };
+        let capability = self.protocol_access(
+            id,
+            StorageIdentity::ScopedCapability {
+                expression: id,
+                pattern: *pattern,
+            },
+            capability_type,
+        )?;
 
         self.builder_mut()
             .plan_access(

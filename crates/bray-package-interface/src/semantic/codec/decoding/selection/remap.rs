@@ -99,32 +99,7 @@ pub(super) fn remap_selected_records(
     let dependency_contracts = records
         .dependency_contracts
         .into_values()
-        .map(|mut contract| {
-            for requirement in Arc::make_mut(&mut contract.requirements) {
-                remap_dependency_requirement(requirement, &maps)?;
-            }
-
-            let borrows = contract
-                .borrows
-                .iter()
-                .map(|relation| {
-                    // The selected record owns remapped paths independently of the decoded table.
-                    let mut entry = relation.entry().clone();
-                    let mut exit = relation.exit().clone();
-
-                    remap_dependency_subject(&mut entry, &maps)?;
-                    remap_dependency_subject(&mut exit, &maps)?;
-
-                    Ok(bray_symbols::DependencyBorrowRelation::new(
-                        entry,
-                        exit,
-                        relation.kind(),
-                    ))
-                })
-                .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
-
-            Ok(contract.with_borrows(borrows))
-        })
+        .map(|contract| remap_dependency_contract(contract, &maps))
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
     let constraints = records
@@ -257,6 +232,59 @@ pub(super) fn remap_selected_records(
         .with_implementations(implementations, coherence)
         .with_target_dependencies(target_dependencies, [])
         .with_runtime_requirements(runtime_requirements))
+}
+
+fn remap_dependency_contract(
+    mut contract: crate::InterfaceDependencyContract,
+    maps: &RecordMaps,
+) -> Result<crate::InterfaceDependencyContract, InterfaceValidationError> {
+    for requirement in Arc::make_mut(&mut contract.requirements) {
+        remap_dependency_requirement(requirement, maps)?;
+    }
+
+    let borrows = contract
+        .borrows
+        .iter()
+        .map(|relation| {
+            // The selected record owns remapped paths independently of the decoded table.
+            let mut entry = relation.entry().clone();
+            let mut exit = relation.exit().clone();
+
+            remap_dependency_subject(&mut entry, maps)?;
+            remap_dependency_subject(&mut exit, maps)?;
+
+            Ok(bray_symbols::DependencyBorrowRelation::new(
+                entry,
+                exit,
+                relation.kind(),
+            ))
+        })
+        .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+    for effect in Arc::make_mut(&mut contract.effects) {
+        use bray_symbols::DependencyStorageEffect;
+
+        match effect {
+            DependencyStorageEffect::Unknown => {}
+            DependencyStorageEffect::Direct { subject, .. } => {
+                remap_dependency_subject(subject, maps)?
+            }
+            DependencyStorageEffect::Indirect {
+                reference,
+                projections,
+                ..
+            } => {
+                remap_dependency_subject(reference, maps)?;
+                remap_dependency_projections(Arc::make_mut(projections), maps)?;
+            }
+        }
+    }
+
+    let effects = Arc::clone(&contract.effects);
+
+    Ok(contract
+        .with_borrows(borrows)
+        .with_effects(effects.iter().cloned()))
 }
 
 fn remap_callable_contract(
@@ -584,7 +612,14 @@ fn remap_dependency_subject(
         *implementation = maps.implementation_instance_id(*implementation)?;
     }
 
-    for projection in Arc::make_mut(&mut subject.projections) {
+    remap_dependency_projections(Arc::make_mut(&mut subject.projections), maps)
+}
+
+fn remap_dependency_projections(
+    projections: &mut [InterfaceDependencyProjection],
+    maps: &RecordMaps,
+) -> Result<(), InterfaceValidationError> {
+    for projection in projections {
         if let InterfaceDependencyProjection::Element(term) = projection {
             *term = maps.constant_term_id(*term)?;
         }

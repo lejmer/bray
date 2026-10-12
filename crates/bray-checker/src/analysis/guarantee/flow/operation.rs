@@ -257,7 +257,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                 .ty(),
                         );
 
-                        if let Some(owner) = assignment_place {
+                        if let Some(owner) = assignment_place
+                            && *owner != place
+                        {
                             state.assign(owner.clone(), value.clone());
                         }
 

@@ -8,7 +8,7 @@ use crate::execution_guarantees::{ExecutionCondition, expression_condition};
 use super::super::state::ExecutionState;
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    pub(in crate::analysis::guarantee) fn value(
+    pub(in crate::analysis) fn value(
         &self,
         state: &ExecutionState,
         expression: BoundExpressionId,

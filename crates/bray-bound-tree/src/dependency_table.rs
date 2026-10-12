@@ -49,17 +49,67 @@ pub enum DependencyContractsBuildError {
     ContractCapacityExceeded,
 }
 
+/// An exact input-to-output reference relation of a selected call.
+/// Address formation locates storage without equating a pointer with the borrowed value.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct BoundCallReference {
+    relation: bray_symbols::DependencyBorrowRelation,
+    preserves_value: bool,
+    addressed_type: Option<bray_symbols::TypeId>,
+    output_argument: Option<BoundExpressionId>,
+}
+
+impl BoundCallReference {
+    /// Records whether the reference forwards an input value or forms an address.
+    pub const fn new(
+        relation: bray_symbols::DependencyBorrowRelation,
+        preserves_value: bool,
+        addressed_type: Option<bray_symbols::TypeId>,
+        output_argument: Option<BoundExpressionId>,
+    ) -> Self {
+        Self {
+            relation,
+            preserves_value,
+            addressed_type,
+            output_argument,
+        }
+    }
+
+    /// The caller-visible borrowed input whose field receives the output reference.
+    pub const fn output_argument(&self) -> Option<BoundExpressionId> {
+        self.output_argument
+    }
+
+    /// Returns the checked formal reference relation.
+    pub const fn relation(&self) -> &bray_symbols::DependencyBorrowRelation {
+        &self.relation
+    }
+
+    /// The source storage type when the result forms an address instead of forwarding a reference.
+    pub const fn addressed_type(&self) -> Option<bray_symbols::TypeId> {
+        self.addressed_type
+    }
+
+    /// Whether the output retains the input reference value, rather than only its target.
+    pub const fn preserves_value(&self) -> bool {
+        self.preserves_value
+    }
+}
+
 /// The distinct invocation, returned-value and deferred requirements of one selected call.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundCallDependencyContracts {
     invocation: BoundDependencyContract,
     result: BoundDependencyContract,
     deferred: Option<BoundDependencyContract>,
+    references: Vec<BoundCallReference>,
+    effects: Arc<[bray_symbols::DependencyStorageEffect]>,
+    retained_inputs: Option<BTreeSet<BoundExpressionId>>,
 }
 
 impl BoundCallDependencyContracts {
     /// Creates the instantiated phase contracts for a selected call.
-    pub const fn new(
+    pub fn new(
         invocation: BoundDependencyContract,
         result: BoundDependencyContract,
         deferred: Option<BoundDependencyContract>,
@@ -68,6 +118,9 @@ impl BoundCallDependencyContracts {
             invocation,
             result,
             deferred,
+            references: Vec::new(),
+            effects: Arc::new([bray_symbols::DependencyStorageEffect::Unknown]),
+            retained_inputs: None,
         }
     }
 
@@ -76,6 +129,43 @@ impl BoundCallDependencyContracts {
         self.result = result;
 
         self
+    }
+
+    /// Records reference transfers and the inputs retained by a returned witness.
+    pub fn with_references(
+        mut self,
+        references: Vec<BoundCallReference>,
+        retained_inputs: Option<BTreeSet<BoundExpressionId>>,
+    ) -> Self {
+        self.references = references;
+        self.retained_inputs = retained_inputs;
+
+        self
+    }
+
+    /// Retains the selected callable's checked formal mutation effects.
+    pub fn with_effects(
+        mut self,
+        effects: impl IntoIterator<Item = bray_symbols::DependencyStorageEffect>,
+    ) -> Self {
+        self.effects = bray_symbols::DependencyStorageEffect::normalize(effects);
+
+        self
+    }
+
+    /// Returns the complete may-mutation summary for this invocation.
+    pub fn effects(&self) -> &[bray_symbols::DependencyStorageEffect] {
+        &self.effects
+    }
+
+    /// Returns exact reference transfers on normal completion.
+    pub fn references(&self) -> &[BoundCallReference] {
+        &self.references
+    }
+
+    /// Returns retained witness inputs when the returned value has a checked dependency source.
+    pub const fn retained_inputs(&self) -> Option<&BTreeSet<BoundExpressionId>> {
+        self.retained_inputs.as_ref()
     }
 
     /// Returns the requirements for beginning the invocation.
@@ -102,6 +192,11 @@ impl BoundCallDependencyContracts {
     fn is_valid_for(&self, unit: BoundUnitId) -> bool {
         self.phase_contracts()
             .all(|contract| contract.is_valid_for(unit))
+            && self
+                .retained_inputs
+                .iter()
+                .flatten()
+                .all(|input| input.unit() == unit)
     }
 }
 
@@ -118,8 +213,8 @@ pub struct CheckedDependencyContracts {
     borrows: Arc<[ContractEntry<BorrowCapabilityId>]>,
     pub(crate) lifecycle_consumers:
         Arc<BTreeMap<crate::StorageIdentityId, BTreeSet<crate::StorageIdentityId>>>,
-    lifecycle_references: Arc<
-        BTreeMap<bray_symbols::CallableInstanceData, Vec<bray_symbols::DependencyBorrowRelation>>,
+    lifecycle_dependencies: Arc<
+        BTreeMap<bray_symbols::CallableInstanceData, bray_symbols::DependencyContractTemplateData>,
     >,
     is_recovered: bool,
 }
@@ -200,7 +295,7 @@ impl CheckedDependencyContracts {
             accesses: accesses.into(),
             borrows: borrows.into(),
             lifecycle_consumers: Arc::default(),
-            lifecycle_references: Arc::default(),
+            lifecycle_dependencies: Arc::default(),
             is_recovered,
         };
 
@@ -215,7 +310,20 @@ impl CheckedDependencyContracts {
         calls: BTreeMap<crate::BoundExecutionSite, BoundCallDependencyContracts>,
     ) -> Result<Self, DependencyContractsBuildError> {
         for (occurrence, contract) in &calls {
-            if self.expression(*occurrence).is_none() {
+            if self.expression(*occurrence).is_none()
+                || contract
+                    .retained_inputs
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .chain(
+                        contract
+                            .references
+                            .iter()
+                            .filter_map(BoundCallReference::output_argument),
+                    )
+                    .any(|input| self.expression(input).is_none())
+            {
                 return Err(DependencyContractsBuildError::InvalidExpression);
             }
 
@@ -234,25 +342,25 @@ impl CheckedDependencyContracts {
         &self.calls
     }
 
-    /// Attaches checked reference relationships for the body's selected cleanup callees.
-    pub fn with_lifecycle_references(
+    /// Attaches the checked dependency and mutation summaries for selected cleanup callees.
+    pub fn with_lifecycle_dependencies(
         mut self,
         references: BTreeMap<
             bray_symbols::CallableInstanceData,
-            Vec<bray_symbols::DependencyBorrowRelation>,
+            bray_symbols::DependencyContractTemplateData,
         >,
     ) -> Self {
-        self.lifecycle_references = Arc::new(references);
+        self.lifecycle_dependencies = Arc::new(references);
 
         self
     }
 
-    /// Returns the instantiated relationships shared by flow and execution-property checking.
-    pub fn lifecycle_references(
+    /// Returns instantiated cleanup summaries shared by flow and execution-property checking.
+    pub fn lifecycle_dependencies(
         &self,
-    ) -> &BTreeMap<bray_symbols::CallableInstanceData, Vec<bray_symbols::DependencyBorrowRelation>>
+    ) -> &BTreeMap<bray_symbols::CallableInstanceData, bray_symbols::DependencyContractTemplateData>
     {
-        &self.lifecycle_references
+        &self.lifecycle_dependencies
     }
 
     /// Returns the checked semantic unit described by this table.
@@ -655,6 +763,24 @@ mod tests {
             Some(deferred.clone()),
         );
 
+        let relation = bray_symbols::DependencyBorrowRelation::new(
+            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Parameter(
+                bray_symbols::SymbolOrdinal::new(0),
+            )),
+            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result),
+            bray_symbols::DependencyReferenceKind::Borrow,
+        );
+
+        let references = vec![super::BoundCallReference::new(
+            relation.clone(),
+            true,
+            None,
+            None,
+        )];
+
+        let retained = Some(std::collections::BTreeSet::from([expression]));
+        let phases = phases.with_references(references.clone(), retained.clone());
+
         let published = table()
             .try_with_calls([(expression.into(), phases.clone())].into())
             .unwrap();
@@ -664,6 +790,43 @@ mod tests {
         assert_eq!(call.invocation(), &invocation);
         assert_eq!(call.result(), &result);
         assert_eq!(call.deferred(), Some(&deferred));
+        assert_eq!(call.references(), &references);
+        assert_eq!(call.retained_inputs(), retained.as_ref());
+
+        let missing = BoundExpressionId::from_slot(unit, 1);
+
+        assert_eq!(
+            table().try_with_calls(
+                [(
+                    expression.into(),
+                    phases.clone().with_references(
+                        references,
+                        Some(std::collections::BTreeSet::from([missing]))
+                    )
+                )]
+                .into()
+            ),
+            Err(DependencyContractsBuildError::InvalidExpression)
+        );
+
+        assert_eq!(
+            table().try_with_calls(
+                [(
+                    expression.into(),
+                    phases.clone().with_references(
+                        vec![super::BoundCallReference::new(
+                            relation,
+                            true,
+                            None,
+                            Some(missing)
+                        )],
+                        None,
+                    )
+                )]
+                .into()
+            ),
+            Err(DependencyContractsBuildError::InvalidExpression),
+        );
 
         for occurrence in [
             BoundExpressionId::from_slot(BoundUnitId::new(6), 0),

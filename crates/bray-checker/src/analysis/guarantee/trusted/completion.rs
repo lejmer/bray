@@ -259,9 +259,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Address and field guarantees also depend on the borrowed storage that
         // established them, even when the raw value has no ordinary borrow.
         let returned = |operand| {
-            self.result_dependencies
-                .get(&expression)
-                .is_none_or(|dependencies| dependencies.inputs.contains(&operand))
+            self.dependencies
+                .calls()
+                .get(&expression.into())
+                .and_then(|dependencies| dependencies.retained_inputs())
+                .is_none_or(|inputs| inputs.contains(&operand))
         };
 
         let preserves = preserves_inputs

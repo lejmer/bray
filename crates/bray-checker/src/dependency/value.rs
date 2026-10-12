@@ -11,8 +11,10 @@ use bray_bound_tree::{
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ValueInputs {
     independent: std::collections::BTreeSet<BoundExpressionId>,
-    pub(super) projections:
-        BTreeMap<(BoundExpressionId, bray_symbols::DependencyProjection), BoundExpressionId>,
+    pub(super) projections: BTreeMap<
+        BoundExpressionId,
+        BTreeMap<bray_symbols::DependencyProjection, BoundExpressionId>,
+    >,
     pub(super) initializers: BTreeMap<BoundExpressionId, BoundExpressionId>,
     pub(super) borrowed: BTreeMap<
         BoundExpressionId,
@@ -140,6 +142,17 @@ impl ValueInputs {
         inputs.collect_propagation(request, selections)?;
 
         Ok(inputs)
+    }
+
+    pub(crate) fn constructed_fields(
+        &self,
+        expression: BoundExpressionId,
+    ) -> impl Iterator<Item = (bray_symbols::DependencyProjection, BoundExpressionId)> + '_ {
+        self.projections
+            .get(&expression)
+            .into_iter()
+            .flatten()
+            .map(|(projection, operand)| (*projection, *operand))
     }
 
     pub(crate) fn projected_operands(

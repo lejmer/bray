@@ -9,6 +9,22 @@ use bray_symbols::{
 
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
+pub(crate) fn reference_kind<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+) -> Option<bray_symbols::DependencyReferenceKind> {
+    if matches!(
+        request.semantic_values().type_data(ty).as_ref(),
+        TypeData::Borrow { .. }
+    ) {
+        Some(bray_symbols::DependencyReferenceKind::Borrow)
+    } else if type_representation(request, ty) == Some(RepresentationRole::RawPointer) {
+        Some(bray_symbols::DependencyReferenceKind::Address)
+    } else {
+        None
+    }
+}
+
 pub(crate) fn type_supports_complete_fixed_layout<C>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,

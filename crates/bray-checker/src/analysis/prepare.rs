@@ -32,6 +32,11 @@ pub struct PreparedBodyAnalysis {
 }
 
 impl PreparedBodyAnalysis {
+    /// Returns selected implicit lifecycle callees required by this body's summary component.
+    pub fn lifecycle_callees(&self) -> impl Iterator<Item = bray_symbols::CallableSymbolId> + '_ {
+        self.cleanup.callees()
+    }
+
     pub(crate) const fn kind(&self) -> BoundUnitKind {
         self.kind
     }

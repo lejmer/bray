@@ -975,6 +975,25 @@ impl<'bytes> SelectionBuilder<'bytes> {
             self.include_dependency_subject(relation.exit());
         }
 
+        for effect in &*contract.effects {
+            use bray_symbols::DependencyStorageEffect;
+
+            match effect {
+                DependencyStorageEffect::Unknown => {}
+                DependencyStorageEffect::Direct { subject, .. } => {
+                    self.include_dependency_subject(subject)
+                }
+                DependencyStorageEffect::Indirect {
+                    reference,
+                    projections,
+                    ..
+                } => {
+                    self.include_dependency_subject(reference);
+                    self.include_dependency_projections(projections);
+                }
+            }
+        }
+
         self.records.dependency_contracts.insert(index, contract);
 
         Ok(())
@@ -1037,7 +1056,11 @@ impl<'bytes> SelectionBuilder<'bytes> {
             self.enqueue(PendingRecord::ImplementationInstance(implementation.raw()));
         }
 
-        for projection in &*subject.projections {
+        self.include_dependency_projections(&subject.projections);
+    }
+
+    fn include_dependency_projections(&mut self, projections: &[InterfaceDependencyProjection]) {
+        for projection in projections {
             if let InterfaceDependencyProjection::Element(term) = projection {
                 self.enqueue(PendingRecord::ConstantTerm(term.raw()));
             }

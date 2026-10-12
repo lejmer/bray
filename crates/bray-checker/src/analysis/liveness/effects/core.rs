@@ -34,6 +34,10 @@ pub(crate) struct OperationEffects {
 }
 
 impl OperationEffects {
+    pub(crate) fn value_inputs(&self) -> &ValueInputs {
+        &self.value_inputs
+    }
+
     pub(crate) fn from_checked_inputs<C>(
         request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,

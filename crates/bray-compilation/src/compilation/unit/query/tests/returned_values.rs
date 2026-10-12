@@ -84,6 +84,31 @@ fn returned_nullable_sequence_borrows_reject_local_storage() {
 fn returned_values_reject_local_storage_dependencies() {
     for source in [
         r#"
+            module app;
+            struct Holder { mut value: &bool; }
+            func set(pos target: &mut Holder, pos value: &bool) { target.value = value; }
+            func bad(pos caller: &bool, pos condition: bool) -> Holder {
+                let local = true;
+                let mut result: Holder = { value = caller };
+                if condition { set(&mut result, &local); }
+                return result;
+            }
+        "#,
+        r#"
+            module app;
+            struct Holder { mut value: &bool; }
+            func set(pos target: &mut Holder, pos value: &bool) { target.value = value; }
+            func replace(pos first: &bool, pos second: &bool) -> Holder {
+                let mut result: Holder = { value = first };
+                set(&mut result, second);
+                return result;
+            }
+            func bad(pos caller: &bool) -> Holder {
+                let local = true;
+                return replace(caller, &local);
+            }
+        "#,
+        r#"
                 module app;
 
                 struct Holder
@@ -1054,23 +1079,35 @@ fn returned_static_borrows_preserve_their_owner_through_calls() {
 }
 
 #[test]
-fn exact_returned_borrow_origins_require_agreement_and_unchanged_slots() {
+fn exact_returned_borrow_origins_follow_replacements_and_require_path_agreement() {
     for (body, expected) in [
-        ("return first;", true),
-        ("if condition { return first; } return first;", true),
-        ("if condition { return first; } return second;", false),
-        ("return forward(first);", true),
+        ("return first;", Some(0)),
+        ("if condition { return first; } return first;", Some(0)),
+        ("if condition { return first; } return second;", None),
+        ("return forward(first);", Some(0)),
         (
             "let result: Holder = { value = first }; return result;",
-            true,
+            Some(0),
         ),
         (
             "let mut result: Holder = { value = first }; result.value = second; return result;",
-            false,
+            Some(1),
         ),
         (
             "let mut result: Holder = { value = first }; replace(&mut result, second); return result;",
-            false,
+            Some(1),
+        ),
+        (
+            "let mut result: Holder = { value = first }; let alias = &mut result; replace(alias, second); return result;",
+            Some(1),
+        ),
+        (
+            "let mut result: Holder = { value = first }; if condition { replace(&mut result, second); } return result;",
+            None,
+        ),
+        (
+            "let mut result: Holder = { value = first }; result.value = result.value; return result;",
+            Some(0),
         ),
     ] {
         let result_type = if body.contains("Holder") {
@@ -1094,24 +1131,22 @@ fn exact_returned_borrow_origins_require_agreement_and_unchanged_slots() {
 
         assert!(!diagnostics.has_errors(), "{source}\n{diagnostics:#?}");
 
-        let callable = crate::test_support::source_function(&application, "test");
+        if body.contains("replace(&mut") {
+            let replaced = crate::compilation::result_dependencies::source_function_dependencies(
+                &application,
+                "replace",
+            );
 
-        let context = application
-            .binding_context(&application.state.cancellation)
-            .unwrap();
+            assert!(
+                !replaced.borrows().is_empty(),
+                "replacement must publish its changed field: {replaced:#?}"
+            );
+        }
 
-        let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
-            &context,
-            bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(
-                callable.into(),
-            ),
-        )
-        .unwrap();
-
-        let template = application
-            .semantic_value_store()
-            .unwrap()
-            .dependency_contract_template_data(*dependencies.value());
+        let template = crate::compilation::result_dependencies::source_function_dependencies(
+            &application,
+            "test",
+        );
 
         let returns = template
             .borrows()
@@ -1121,12 +1156,18 @@ fn exact_returned_borrow_origins_require_agreement_and_unchanged_slots() {
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(!returns.is_empty(), expected, "{source}\n{template:#?}");
+        assert_eq!(
+            !returns.is_empty(),
+            expected.is_some(),
+            "{source}\n{template:#?}"
+        );
 
         for relation in returns {
             assert_eq!(
                 relation.entry().subject_root(),
-                bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
+                bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(
+                    expected.expect("an exact returned reference has an input")
+                ))
             );
         }
     }
@@ -1172,24 +1213,10 @@ fn stored_borrow_preservation_excludes_replacement_and_carrier_escape() {
 
         assert!(!diagnostics.has_errors(), "{source}\n{diagnostics:#?}");
 
-        let callable = crate::test_support::source_function(&application, "test");
-
-        let context = application
-            .binding_context(&application.state.cancellation)
-            .unwrap();
-
-        let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
-            &context,
-            bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(
-                callable.into(),
-            ),
-        )
-        .unwrap();
-
-        let template = application
-            .semantic_value_store()
-            .unwrap()
-            .dependency_contract_template_data(*dependencies.value());
+        let template = crate::compilation::result_dependencies::source_function_dependencies(
+            &application,
+            "test",
+        );
 
         assert_eq!(
             template
@@ -1258,24 +1285,10 @@ fn nullable_borrow_origins_preserve_payload_paths() {
 
         assert!(!diagnostics.has_errors(), "{source}\n{diagnostics:#?}");
 
-        let callable = crate::test_support::source_function(&application, "test");
-
-        let context = application
-            .binding_context(&application.state.cancellation)
-            .unwrap();
-
-        let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
-            &context,
-            bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(
-                callable.into(),
-            ),
-        )
-        .unwrap();
-
-        let template = application
-            .semantic_value_store()
-            .unwrap()
-            .dependency_contract_template_data(*dependencies.value());
+        let template = crate::compilation::result_dependencies::source_function_dependencies(
+            &application,
+            "test",
+        );
 
         let returned = template
             .borrows()
@@ -1334,19 +1347,21 @@ fn copied_stored_borrow_outlives_its_consumed_carrier() {
 #[test]
 fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
     for (body, exact) in [
-        ("return &pair.second;", true),
+        ("return &mut pair.second;", true),
         (
-            "if condition { return &pair.first; } return &pair.second;",
+            "if condition { return &mut pair.first; } return &mut pair.second;",
             false,
         ),
     ] {
         let source = format!(
             r#"
             module app;
-            struct Pair {{ first: bool; second: bool; }}
-            func select_value(pos pair: &Pair, pos condition: bool) -> &bool {{ {body} }}
-            func caller(pos pair: &Pair, pos condition: bool) -> &bool {{
-                return select_value(pair, condition);
+            struct Cell {{ mut value: bool; }}
+            struct Pair {{ mut first: Cell; mut second: Cell; }}
+            func select_value(pos pair: &mut Pair, pos condition: bool) -> &mut Cell {{ {body} }}
+            func caller(pos pair: &mut Pair, pos condition: bool) {{
+                let selected = select_value(pair, condition);
+                selected.value = false;
             }}
         "#
         );
@@ -1377,6 +1392,17 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
             "{source}\n{template:#?}"
         );
 
+        let producer = application
+            .storage_flow(source_function_body_key(&application, "select_value"))
+            .unwrap();
+
+        assert_eq!(
+            !producer.value().dependencies().borrows().is_empty(),
+            exact,
+            "{source}\nnormal-exit references: {:?}",
+            producer.value().dependencies().borrows()
+        );
+
         let key = source_function_body_key(&application, "caller");
         let selections = application.semantic_selections(key.clone()).unwrap();
 
@@ -1393,7 +1419,15 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
             .unwrap()
             .expression();
 
+        let flow = application.storage_flow(key.clone()).unwrap();
+        let refinements = application.refinements(key.clone()).unwrap();
         let storage = application.storage_plan(key).unwrap();
+
+        assert!(
+            !flow.diagnostics().has_errors(),
+            "{source}\n{:?}",
+            flow.diagnostics()
+        );
 
         assert!(
             !storage.diagnostics().has_errors(),
@@ -1407,16 +1441,45 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
             .filter(|(_, capability)| capability.expression() == Some(call))
             .collect::<Vec<_>>();
 
-        assert_eq!(!returned.is_empty(), exact, "{source}\n{returned:#?}");
+        assert!(
+            returned.is_empty(),
+            "storage planning leaves call results symbolic"
+        );
 
-        for (_, capability) in returned {
-            assert!(
-                matches!(
-                    storage.resolved_projections(capability.access()),
-                    Some([bray_bound_tree::StorageProjection::ProductField(_)])
-                ),
-                "the checked referent is a field, while its lifetime anchor is the whole parameter: {storage:#?}"
-            );
+        let physical = refinements
+            .value()
+            .invalidations()
+            .values()
+            .filter_map(|invalidation| {
+                let bray_bound_tree::StorageInvalidation::Paths(paths) = invalidation else {
+                    return None;
+                };
+
+                paths.iter().find(|path| {
+                    matches!(
+                        storage.identity(path.root),
+                        Some(bray_bound_tree::StorageIdentity::Parameter(_))
+                    ) && path.projections.len() == 2
+                })
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            !physical.is_empty(),
+            exact,
+            "{source}\n{:?}",
+            refinements.value().invalidations()
+        );
+
+        if exact {
+            let bray_symbols::DependencyProjection::ProductField(expected) =
+                template.borrows()[0].entry().projections()[0]
+            else {
+                panic!("the exact result refers to the selected field");
+            };
+
+            assert!(physical.iter().all(|path| path.projections[0]
+                == bray_bound_tree::StorageProjection::ProductField(expected)));
         }
     }
 }
@@ -1524,5 +1587,141 @@ fn reading_through_a_stored_reference_retains_its_loan() {
     assert_goal_state_diagnostic_kind(
         application.check_diagnostics(),
         DiagnosticKind::CheckingConflictingBorrow,
+    );
+}
+
+#[test]
+fn normal_exit_references_follow_constructed_fields_and_nullable_conversion() {
+    for (result_type, body, depth) in [
+        ("&bool", "return value;", 0),
+        ("(&bool)?", "return value;", 1),
+        ("(&bool, bool)", "return (value, true);", 1),
+        ("Holder", "return { reference = value, flag = true };", 1),
+        (
+            "Holder?",
+            "let holder: Holder = { reference = value, flag = true }; return holder;",
+            2,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            struct Holder {{ reference: &bool; flag: bool; }}
+            func returned(pos value: &bool) -> {result_type} {{
+                {body}
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+
+        let flow = application
+            .storage_flow(source_function_body_key(&application, "returned"))
+            .unwrap();
+
+        assert!(!flow.diagnostics().has_errors(), "{source}\n{flow:#?}");
+
+        let references = flow.value().dependencies().borrows();
+
+        assert_eq!(references.len(), 1, "{source}\n{references:?}");
+
+        assert_eq!(
+            references[0].entry(),
+            &bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Parameter(
+                bray_symbols::SymbolOrdinal::new(0)
+            ))
+        );
+
+        assert_eq!(references[0].exit().projections().len(), depth, "{source}");
+    }
+}
+
+#[test]
+fn normal_exit_references_keep_original_stored_inputs() {
+    for (body, expected_parameter) in [
+        ("return holder.reference;", 0),
+        (
+            "holder.reference = replacement; return holder.reference;",
+            1,
+        ),
+        (
+            "let original = holder.reference; holder.reference = replacement; return original;",
+            0,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            struct Holder {{ mut reference: &bool; }}
+            func returned(pos mut holder: Holder, pos replacement: &bool) -> &bool {{
+                {body}
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+
+        let flow = application
+            .storage_flow(source_function_body_key(&application, "returned"))
+            .unwrap();
+
+        assert!(
+            !flow.diagnostics().has_errors(),
+            "{source}\n{:?}",
+            flow.diagnostics()
+        );
+
+        let references = flow
+            .value()
+            .dependencies()
+            .borrows()
+            .iter()
+            .filter(|relation| {
+                relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(references.len(), 1, "{source}\n{references:?}");
+
+        assert_eq!(
+            references[0].entry().subject_root(),
+            bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(
+                expected_parameter
+            )),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn absent_return_payload_does_not_invent_a_conflicting_reference() {
+    let application = compilation(
+        r#"
+        module app;
+        func returned(pos value: &bool, pos present: bool) -> (&bool)? {
+            if present { return value; }
+            return none;
+        }
+    "#,
+    );
+
+    let flow = application
+        .storage_flow(source_function_body_key(&application, "returned"))
+        .unwrap();
+
+    assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
+
+    assert_eq!(
+        flow.value().dependencies().borrows(),
+        &[bray_symbols::DependencyBorrowRelation::new(
+            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Parameter(
+                bray_symbols::SymbolOrdinal::new(0)
+            )),
+            bray_symbols::DependencySubject::new(
+                bray_symbols::DependencySubjectRoot::Result,
+                [bray_symbols::DependencyProjection::NullableValue]
+            ),
+            bray_symbols::DependencyReferenceKind::Borrow,
+        )]
     );
 }

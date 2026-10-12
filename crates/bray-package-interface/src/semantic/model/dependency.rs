@@ -239,6 +239,12 @@ pub enum InterfaceDependencyRequirementKind {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceDependencyContract {
     pub(crate) requirements: Arc<[InterfaceDependencyRequirement]>,
+    pub(crate) effects: Arc<
+        [bray_symbols::DependencyStorageEffect<
+            InterfaceDependencySubject,
+            InterfaceDependencyProjection,
+        >],
+    >,
     pub(crate) borrows: Arc<[bray_symbols::DependencyBorrowRelation<InterfaceDependencySubject>]>,
 }
 
@@ -248,7 +254,23 @@ impl InterfaceDependencyContract {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
             borrows: Arc::new([]),
+            effects: Arc::new([bray_symbols::DependencyStorageEffect::Unknown]),
         }
+    }
+
+    /// Attaches the complete checked mutation summary.
+    pub fn with_effects(
+        mut self,
+        effects: impl IntoIterator<
+            Item = bray_symbols::DependencyStorageEffect<
+                InterfaceDependencySubject,
+                InterfaceDependencyProjection,
+            >,
+        >,
+    ) -> Self {
+        self.effects = bray_symbols::DependencyStorageEffect::normalize(effects);
+
+        self
     }
 
     /// Attaches checked borrow identities across normal completion.

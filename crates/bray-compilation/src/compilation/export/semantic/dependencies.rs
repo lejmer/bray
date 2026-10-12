@@ -49,8 +49,41 @@ impl<'a> SemanticExporter<'a> {
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
-        self.dependency_contracts
-            .push(InterfaceDependencyContract::new(requirements).with_borrows(borrows));
+        let effects = data
+            .effects()
+            .iter()
+            .map(|effect| {
+                use bray_symbols::DependencyStorageEffect;
+
+                Ok(match effect {
+                    DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
+                    DependencyStorageEffect::Direct { subject, kind } => {
+                        DependencyStorageEffect::Direct {
+                            subject: self.dependency_subject(subject)?,
+                            kind: *kind,
+                        }
+                    }
+                    DependencyStorageEffect::Indirect {
+                        reference,
+                        projections,
+                        kind,
+                    } => DependencyStorageEffect::Indirect {
+                        reference: self.dependency_subject(reference)?,
+                        projections: projections
+                            .iter()
+                            .map(|projection| self.dependency_projection(projection))
+                            .collect::<Result<_, PackageInterfaceExportError>>()?,
+                        kind: *kind,
+                    },
+                })
+            })
+            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
+
+        self.dependency_contracts.push(
+            InterfaceDependencyContract::new(requirements)
+                .with_borrows(borrows)
+                .with_effects(effects),
+        );
 
         self.dependency_contract_ids.insert(id, exported);
 
@@ -212,27 +245,32 @@ impl<'a> SemanticExporter<'a> {
         let projections = subject
             .projections()
             .iter()
-            .map(|projection| match projection {
-                DependencyProjection::ProductField(field) => self
-                    .symbol_reference((*field).into())
-                    .map(InterfaceDependencyProjection::ProductField),
-                DependencyProjection::TupleElement(ordinal) => {
-                    Ok(InterfaceDependencyProjection::TupleElement(*ordinal))
-                }
-                DependencyProjection::Element(term) => self
-                    .constant_term_id(*term)
-                    .map(InterfaceDependencyProjection::Element),
-                DependencyProjection::NullableValue => {
-                    Ok(InterfaceDependencyProjection::NullableValue)
-                }
-                DependencyProjection::UnionPayloadField(field) => self
-                    .symbol_reference((*field).into())
-                    .map(InterfaceDependencyProjection::UnionPayloadField),
-                DependencyProjection::OwnedTarget => Ok(InterfaceDependencyProjection::OwnedTarget),
-            })
+            .map(|projection| self.dependency_projection(projection))
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(InterfaceDependencySubject::new(root, projections))
+    }
+
+    fn dependency_projection(
+        &mut self,
+        projection: &DependencyProjection,
+    ) -> Result<InterfaceDependencyProjection, PackageInterfaceExportError> {
+        match projection {
+            DependencyProjection::ProductField(field) => self
+                .symbol_reference((*field).into())
+                .map(InterfaceDependencyProjection::ProductField),
+            DependencyProjection::TupleElement(ordinal) => {
+                Ok(InterfaceDependencyProjection::TupleElement(*ordinal))
+            }
+            DependencyProjection::Element(term) => self
+                .constant_term_id(*term)
+                .map(InterfaceDependencyProjection::Element),
+            DependencyProjection::NullableValue => Ok(InterfaceDependencyProjection::NullableValue),
+            DependencyProjection::UnionPayloadField(field) => self
+                .symbol_reference((*field).into())
+                .map(InterfaceDependencyProjection::UnionPayloadField),
+            DependencyProjection::OwnedTarget => Ok(InterfaceDependencyProjection::OwnedTarget),
+        }
     }
 
     pub(in crate::compilation::export) fn substitution_id(

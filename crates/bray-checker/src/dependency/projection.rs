@@ -48,7 +48,10 @@ impl ValueInputs {
                             ConstructionInputId::CallableParameter(_) => continue,
                         };
 
-                        self.projections.insert((id, projection), *expression);
+                        self.projections
+                            .entry(id)
+                            .or_default()
+                            .insert(projection, *expression);
                     }
                 }
             }
@@ -58,11 +61,8 @@ impl ValueInputs {
             {
                 for (ordinal, child) in value.operands().iter().enumerate() {
                     if let Ok(ordinal) = u32::try_from(ordinal) {
-                        self.projections.insert(
-                            (
-                                id,
-                                DependencyProjection::TupleElement(SymbolOrdinal::new(ordinal)),
-                            ),
+                        self.projections.entry(id).or_default().insert(
+                            DependencyProjection::TupleElement(SymbolOrdinal::new(ordinal)),
                             *child,
                         );
                     }
@@ -250,7 +250,11 @@ impl ValueInputs {
                 break;
             }
 
-            if let Some(child) = self.projections.get(&(expression, *projection)) {
+            if let Some(child) = self
+                .projections
+                .get(&expression)
+                .and_then(|fields| fields.get(projection))
+            {
                 expression = *child;
                 path = rest;
             } else if let Some(initializer) = self.initializers.get(&expression) {

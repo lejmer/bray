@@ -446,10 +446,13 @@ impl ExecutionState {
         self.allocation_owners
             .retain(|condition, owner| !observes(condition) && !invalidated.contains(owner));
 
+        // A content write may revoke all old facts on an intermediate address.
+        // Keep its lifetime edge so newly established facts still expire with the owner.
         self.witness_dependencies.retain(|carrier, _| {
             !invalidated_observations.contains(carrier)
                 || retained_observations.contains(carrier)
                 || self.witness_carriers.contains_key(carrier)
+                || !stable_predicates.is_empty() && !directly_changed.contains(carrier)
         });
 
         for entry in self
@@ -601,6 +604,52 @@ mod tests {
         assert!(overwritten.trusted_assumptions.is_empty());
     }
 
+    #[test]
+    fn content_changes_retain_intermediate_lifetime_dependencies_without_old_guarantees() {
+        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>(
+            "ValidWrite",
+        );
+
+        let substitution = crate::test_support::empty_substitution(symbol.into());
+        let owner = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let intermediate = ExecutionPlace::argument(SymbolOrdinal::new(1));
+        let carrier = input(2);
+
+        let spatial = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Predicate(
+            symbol.into(),
+            substitution,
+            [carrier.clone(), ExecutionCondition::Boolean(true)].into(),
+        )));
+
+        let mut state = ExecutionState::default();
+
+        state.current.insert(owner.clone(), input(0));
+        state.current.insert(intermediate.clone(), input(1));
+
+        state
+            .witness_dependencies
+            .insert(input(1), BTreeSet::from([owner.clone()]));
+
+        state
+            .witness_dependencies
+            .insert(carrier.clone(), BTreeSet::from([intermediate]));
+
+        state.carry_guarantee(carrier, spatial.clone());
+        state.trusted_assumptions.insert((spatial.clone(), true));
+
+        state.invalidate_contents(
+            &BTreeSet::from([owner.clone()]),
+            [input(0)],
+            &BTreeSet::from([symbol.into()]),
+        );
+
+        assert_eq!(state.trusted_assumptions, BTreeSet::from([(spatial, true)]));
+        assert!(state.witness_dependencies.contains_key(&input(1)));
+
+        state.invalidate_trusted_roots(&BTreeSet::from([owner.root]));
+        assert!(state.trusted_assumptions.is_empty());
+        assert!(state.witness_dependencies.is_empty());
+    }
     #[test]
     fn retiring_a_container_preserves_only_its_transferred_child_value() {
         let root = ExecutionPlace::argument(SymbolOrdinal::new(0));

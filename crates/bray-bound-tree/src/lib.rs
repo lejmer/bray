@@ -53,7 +53,8 @@ pub use dependency::{
     GuardedBoundDependencyRequirement, LifecycleObligationId, ScopedCapabilityId,
 };
 pub use dependency_table::{
-    BoundCallDependencyContracts, CheckedDependencyContracts, DependencyContractsBuildError,
+    BoundCallDependencyContracts, BoundCallReference, CheckedDependencyContracts,
+    DependencyContractsBuildError,
 };
 pub use lifecycle::{LifecycleAction, LifecycleCallable, LifecyclePhase};
 pub use literal::{

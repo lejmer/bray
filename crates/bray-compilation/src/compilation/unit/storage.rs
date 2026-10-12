@@ -108,78 +108,142 @@ impl Compilation {
         )
     }
 
+    pub(in crate::compilation) fn body_analysis_inputs(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<BodyAnalysisInputs, FactQueryError> {
+        let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
+        let expressions = self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
+
+        let behavior = self.selected_body_behavior_with_cancellation(key.clone(), cancellation)?;
+
+        let prepared = self.prepared_body_analysis_with_cancellation(key.clone(), cancellation)?;
+
+        let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
+        let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
+        let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
+
+        let contracts = self.trusted_contract_inputs(
+            &key,
+            bound.result().value(),
+            expressions.result().value(),
+            cancellation,
+        )?;
+
+        let non_unwinding = self.checked_unwind(key.clone(), cancellation)?;
+
+        Ok(BodyAnalysisInputs {
+            key,
+            bound,
+            expressions,
+            behavior,
+            prepared,
+            patterns,
+            storage,
+            memory,
+            contracts,
+            non_unwinding,
+        })
+    }
+
     pub(in crate::compilation) fn body_semantics_with_cancellation(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitResult<CheckedBodySemantics>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitResult<Arc<CheckedBodySemantics>>>, FactQueryError> {
         self.unit_query(
             &self.state.body_semantics,
             CompilationFactKey::BodySemantics(key.clone()),
             key.clone(),
             cancellation,
             |cancellation| {
-                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+                if key.kind() == bray_bound_tree::BoundUnitKind::CallableBody {
+                    let context = self.binding_context_for(&key, cancellation)?;
 
-                let expressions =
-                    self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
+                    let result =
+                        crate::compilation::binder::callable_body_semantics(&context, &key)
+                            .map_err(crate::compilation::binder::binding_query_error)?;
 
-                let behavior =
-                    self.selected_body_behavior_with_cancellation(key.clone(), cancellation)?;
+                    return Ok((result, Box::new([])));
+                }
 
-                let prepared =
-                    self.prepared_body_analysis_with_cancellation(key.clone(), cancellation)?;
+                let inputs = self.body_analysis_inputs(key.clone(), cancellation)?;
+                let result = inputs.check(self, cancellation, None)?;
 
-                let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
-                let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
-                let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
-                let context = self.checker_context_for(&key, cancellation)?;
-
-                let semantic_context =
-                    semantic_unit_context(context.symbols(), bound.result().value());
-
-                let contracts = self.trusted_contract_inputs(
-                    &key,
-                    bound.result().value(),
-                    expressions.result().value(),
-                    cancellation,
-                )?;
-
-                let non_unwinding = self.checked_unwind(key.clone(), cancellation)?;
-
-                let unit = bray_checker::CheckerUnitView::new(
-                    bound.result().value(),
-                    &semantic_context,
-                    &context,
-                )
-                .with_trusted_contracts(contracts.value())
-                .with_unwind(&non_unwinding);
-
-                let result = checker_result(DefaultBodySemanticChecker.check_body_semantics(
-                    unit,
-                    prepared.result().value(),
-                    behavior.result().value(),
-                    expressions.result().value(),
-                    patterns.result().value(),
-                    storage.result().value(),
-                    memory.result().value(),
-                ))?;
-
-                let (semantics, mut semantic_diagnostics) = result.into_parts();
-
-                semantic_diagnostics.add_range(contracts.into_parts().1);
-                semantic_diagnostics.add_range(prepared.result().diagnostics().iter().cloned());
-                semantic_diagnostics.add_range(behavior.result().diagnostics().iter().cloned());
-
-                Ok((
-                    DiagnosticResult::new(
-                        semantics.with_unwind(non_unwinding),
-                        semantic_diagnostics,
-                    ),
-                    Box::new([]),
-                ))
+                Ok((result, Box::new([])))
             },
         )
+    }
+}
+
+/// Immutable body prerequisites shared by every round of a demanded call component.
+pub(in crate::compilation) struct BodyAnalysisInputs {
+    key: BoundUnitKey,
+    pub(in crate::compilation) bound: Arc<PublishedUnitResult<bray_bound_tree::BoundUnit>>,
+    pub(in crate::compilation) expressions:
+        Arc<PublishedUnitResult<bray_bound_tree::CheckedExpressionSemantics>>,
+    pub(in crate::compilation) patterns: Arc<PublishedUnitResult<bray_bound_tree::CheckedPatterns>>,
+    pub(in crate::compilation) behavior:
+        Arc<PublishedUnitResult<bray_bound_tree::BodyBehaviorContributions>>,
+    pub(in crate::compilation) prepared:
+        Arc<PublishedUnitResult<bray_checker::PreparedBodyAnalysis>>,
+    storage: Arc<PublishedUnitResult<StoragePlan>>,
+    memory: Arc<PublishedUnitResult<bray_bound_tree::CheckedMemoryOperations>>,
+    contracts: DiagnosticResult<bray_checker::TrustedContractInputs>,
+    non_unwinding: bray_bound_tree::CheckedUnwind,
+}
+
+impl BodyAnalysisInputs {
+    pub(in crate::compilation) fn check(
+        &self,
+        compilation: &Compilation,
+        cancellation: &CancellationToken,
+        templates: Option<
+            &std::collections::BTreeMap<
+                bray_symbols::CallableSymbolId,
+                bray_symbols::DependencyContractTemplateId,
+            >,
+        >,
+    ) -> Result<DiagnosticResult<Arc<CheckedBodySemantics>>, FactQueryError> {
+        let context = compilation.checker_context_for(&self.key, cancellation)?;
+
+        let semantic_context =
+            semantic_unit_context(context.symbols(), self.bound.result().value());
+
+        let mut unit = bray_checker::CheckerUnitView::new(
+            self.bound.result().value(),
+            &semantic_context,
+            &context,
+        )
+        .with_trusted_contracts(self.contracts.value())
+        .with_unwind(&self.non_unwinding);
+
+        if let Some(templates) = templates {
+            unit = unit.with_result_dependencies(templates);
+        }
+
+        let result = checker_result(DefaultBodySemanticChecker.check_body_semantics(
+            unit,
+            self.prepared.result().value(),
+            self.behavior.result().value(),
+            self.expressions.result().value(),
+            self.patterns.result().value(),
+            self.storage.result().value(),
+            self.memory.result().value(),
+        ))?;
+
+        let (semantics, mut diagnostics) = result.into_parts();
+
+        diagnostics.add_range(self.contracts.diagnostics().iter().cloned());
+        diagnostics.add_range(self.prepared.result().diagnostics().iter().cloned());
+        diagnostics.add_range(self.behavior.result().diagnostics().iter().cloned());
+
+        Ok(DiagnosticResult::new(
+            Arc::new(semantics.with_unwind(self.non_unwinding.clone())),
+            diagnostics,
+        ))
     }
 }
 

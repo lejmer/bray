@@ -325,6 +325,7 @@ impl<Subject> DependencyBorrowRelation<Subject> {
 pub struct DependencyContractTemplateData {
     requirements: Arc<[DependencyRequirement]>,
     borrows: Arc<[DependencyBorrowRelation]>,
+    effects: Arc<[super::DependencyStorageEffect]>,
 }
 
 impl DependencyContractTemplateData {
@@ -333,6 +334,7 @@ impl DependencyContractTemplateData {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
             borrows: Arc::new([]),
+            effects: Arc::new([super::DependencyStorageEffect::Unknown]),
         }
     }
 
@@ -349,6 +351,21 @@ impl DependencyContractTemplateData {
     /// Returns proven borrow identities, distinct from required lifetime conditions.
     pub fn borrows(&self) -> &[DependencyBorrowRelation] {
         &self.borrows
+    }
+
+    /// Attaches the complete may-mutation summary proved by the owning body analysis.
+    pub fn with_effects(
+        mut self,
+        effects: impl IntoIterator<Item = super::DependencyStorageEffect>,
+    ) -> Self {
+        self.effects = super::DependencyStorageEffect::normalize(effects);
+
+        self
+    }
+
+    /// Returns possible mutations. An empty slice proves storage is unchanged.
+    pub fn effects(&self) -> &[super::DependencyStorageEffect] {
+        &self.effects
     }
 
     /// Returns the normalized requirements.

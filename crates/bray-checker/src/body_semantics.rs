@@ -102,19 +102,17 @@ where
 
     let completion_contracts = std::collections::BTreeMap::new();
 
-    let execution = complete!(
-        diagnostics,
-        crate::analysis::guarantee::prepare_execution_flow(
-            prepared,
-            request,
-            expressions,
-            &[],
-            storage,
-            memory,
-            &refinement_universe.invalidating_accesses,
-            &completion_contracts,
-            &disposal,
-        )
+    let execution = crate::analysis::guarantee::prepare_execution_flow(
+        prepared,
+        request,
+        expressions,
+        &[],
+        storage,
+        memory,
+        &refinement_universe.invalidating_accesses,
+        &completion_contracts,
+        &disposal,
+        &dependencies,
     );
 
     let effects = crate::analysis::liveness::OperationEffects::from_checked_inputs(
@@ -151,6 +149,7 @@ where
                 request,
                 &execution,
                 &dependencies,
+                effects.value_inputs(),
                 storage,
                 &liveness,
                 &refinement_universe,

@@ -52,14 +52,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
     }
 }
 
-pub(in crate::analysis::guarantee) struct ReturnedDependencies {
-    pub(in crate::analysis::guarantee) inputs: BTreeSet<BoundExpressionId>,
-    pub(in crate::analysis::guarantee) references: Vec<bray_symbols::DependencyBorrowRelation>,
-}
-
 pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Sized> {
-    pub(in crate::analysis::guarantee) result_dependencies:
-        BTreeMap<BoundExpressionId, ReturnedDependencies>,
+    pub(in crate::analysis::guarantee) dependencies:
+        &'a bray_bound_tree::CheckedDependencyContracts,
     pub(in crate::analysis::guarantee) sequence_lengths: &'a [BoundExpressionId],
     pub(super) observed_types: &'a BTreeMap<crate::ExecutionPlace, Option<bray_symbols::TypeId>>,
     pub(in crate::analysis::guarantee) borrowed_inputs: &'a BTreeSet<crate::ExecutionPlace>,
@@ -72,7 +67,7 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(in crate::analysis::guarantee) graph: &'a ControlFlowGraph,
     pub(super) excluded_edges: BTreeSet<AnalysisEdgeId>,
     pub(in crate::analysis::guarantee) request: CheckerUnitView<'view, C>,
-    pub(in crate::analysis::guarantee) semantics: &'a CheckedExpressionSemantics,
+    pub(in crate::analysis) semantics: &'a CheckedExpressionSemantics,
     pub(super) assumptions: &'a [ExecutionCondition],
     pub(super) literals: &'a BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(in crate::analysis::guarantee) storage: &'a bray_bound_tree::StoragePlan,

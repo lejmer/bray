@@ -223,7 +223,7 @@ where
         (access, BoundDependencyContract::new(requirements))
     });
 
-    let lifecycle_references = match prepared.cleanup.check_references(request) {
+    let lifecycle_dependencies = match prepared.cleanup.check_dependencies(request) {
         Ok(references) => references,
         Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
         Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
@@ -240,7 +240,7 @@ where
     )
     .and_then(|contracts| contracts.try_with_calls(calls))
     {
-        Ok(contracts) => contracts.with_lifecycle_references(lifecycle_references),
+        Ok(contracts) => contracts.with_lifecycle_dependencies(lifecycle_dependencies),
         Err(error) => {
             panic!(
                 "Durable dependency-contract construction rejected an exact invariant. in check_dependency_contracts, value0: {:?}",

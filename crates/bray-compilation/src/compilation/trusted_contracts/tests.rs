@@ -2266,6 +2266,8 @@ fn ordinary_equalities_match_existing_trusted_conditions() {
 fn deferred_producers_require_live_entry_evidence_when_their_body_begins() {
     for (intervening, valid) in [
         ("", true),
+        ("unchanged();", true),
+        ("if flag { unchanged(); }", true),
         ("opaque();", false),
         ("if flag { opaque(); }", false),
         ("epoch = 2;", false),
@@ -2280,7 +2282,8 @@ fn deferred_producers_require_live_entry_evidence_when_their_body_begins() {
                 requires(trusted admitted(epoch)) ensures(trusted live(&result))
                 {{ return {{ epoch = epoch }}; }}
             func observe(pos value: &Owner) requires(trusted live(value)) {{}}
-            func opaque() {{}}
+            func unchanged() {{}}
+            extern func opaque();
             async func caller(pos mut epoch: u64, flag: bool) requires(trusted admitted(epoch)) {{
                 let future = owner(epoch);
                 {intervening}

@@ -15,6 +15,34 @@ use crate::compilation::binder::{BindingQueryResult, CompilationBindingContext};
 
 use crate::fact::SymbolQueryCache;
 
+/// The body and its callable summary are settled and published by the same component.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(in crate::compilation) struct CallableAnalysis {
+    pub(in crate::compilation) dependencies: DependencyContractTemplateId,
+    pub(in crate::compilation) body:
+        DiagnosticResult<std::sync::Arc<bray_bound_tree::CheckedBodySemantics>>,
+}
+
+type Component = BTreeMap<CallableSymbolId, CallableAnalysis>;
+
+pub(in crate::compilation) fn callable_body_semantics(
+    context: &CompilationBindingContext<'_>,
+    key: &bray_bound_tree::BoundUnitKey,
+) -> BindingQueryResult<DiagnosticResult<std::sync::Arc<bray_bound_tree::CheckedBodySemantics>>> {
+    let owner = context
+        .symbols()
+        .symbol_for_key(key.declared_owner())
+        .expect("declared callable body retains its symbol");
+
+    let callable = CallableSymbolId::try_from_any(owner)
+        .expect("callable body is owned by a callable declaration");
+
+    let component = source_component(context, callable)?
+        .expect("declared callable body belongs to a source component");
+
+    Ok(component.result().value()[&callable].body.clone())
+}
+
 impl CompilationSymbolQueryEvaluator<CallableResultDependenciesQuery>
     for CompilationSymbolSemantics
 {
@@ -35,12 +63,30 @@ fn infer_reachable_results(
     context: &CompilationBindingContext<'_>,
     root: CallableSymbolId,
 ) -> BindingQueryResult<DiagnosticResult<DependencyContractTemplateId>> {
-    let compilation = context.compilation();
-
     if let Some(address) = context.imported_semantic_address(root.into_any())? {
         return super::imported::imported_result_dependencies(context, address);
     }
 
+    let Some(component) = source_component(context, root)? else {
+        let empty = context
+            .semantic_values()
+            .empty_dependency_contract_template()
+            .expect("empty result dependency template satisfies the semantic store contract");
+
+        return Ok(DiagnosticResult::new(empty, DiagnosticBag::new()));
+    };
+
+    Ok(DiagnosticResult::new(
+        component.result().value()[&root].dependencies,
+        component.result().diagnostics().clone(),
+    ))
+}
+
+fn source_component(
+    context: &CompilationBindingContext<'_>,
+    root: CallableSymbolId,
+) -> BindingQueryResult<Option<std::sync::Arc<crate::fact::PublishedUnitResult<Component>>>> {
+    let compilation = context.compilation();
     let mut units = BTreeMap::new();
     let mut pending = vec![root];
     let mut edges = BTreeMap::<CallableSymbolId, BTreeSet<CallableSymbolId>>::new();
@@ -77,16 +123,20 @@ fn infer_reachable_results(
             }
         }
 
+        let prepared = compilation
+            .prepared_body_analysis_with_cancellation(key.clone(), context.cancellation)
+            .map_err(binder_error)?;
+
+        for callee in prepared.result().value().lifecycle_callees() {
+            pending.push(callee);
+            edges.entry(callable).or_default().insert(callee);
+        }
+
         units.insert(callable, key);
     }
 
     if !units.contains_key(&root) {
-        let empty = context
-            .semantic_values()
-            .empty_dependency_contract_template()
-            .expect("empty result dependency template satisfies the semantic store contract");
-
-        return Ok(DiagnosticResult::new(empty, DiagnosticBag::new()));
+        return Ok(None);
     }
 
     let components = bray_base::strongly_connected_components(units.keys().copied(), |callable| {
@@ -119,31 +169,23 @@ fn infer_reachable_results(
         )
         .map_err(binder_error)?;
 
-    Ok(DiagnosticResult::new(
-        *published
-            .result()
-            .value()
-            .get(&root)
-            .expect("settled component publishes every member"),
-        published.result().diagnostics().clone(),
-    ))
+    Ok(Some(published))
 }
 
 fn infer_component(
     compilation: &crate::Compilation,
     component: &[CallableSymbolId],
     cancellation: &crate::fact::CancellationToken,
-) -> Result<
-    DiagnosticResult<BTreeMap<CallableSymbolId, DependencyContractTemplateId>>,
-    crate::fact::FactQueryError,
-> {
+) -> Result<DiagnosticResult<Component>, crate::fact::FactQueryError> {
     use crate::compilation::binder::binding_query_error;
 
     let context = compilation.binding_context(cancellation)?;
 
     let empty = context
         .semantic_values()
-        .empty_dependency_contract_template()
+        .intern_dependency_contract_template(
+            bray_symbols::DependencyContractTemplateData::new([]).with_effects([]),
+        )
         .expect("empty result dependency template satisfies the semantic store contract");
 
     let members = component.iter().copied().collect::<BTreeSet<_>>();
@@ -159,37 +201,39 @@ fn infer_component(
 
         // Read each prerequisite inside the publication owner so incremental reuse
         // follows the member's own selected body and semantic inputs.
-        let bound = compilation.bound_unit_with_cancellation(key.clone(), cancellation)?;
+        let inputs = compilation.body_analysis_inputs(key.clone(), cancellation)?;
 
-        let expressions =
-            compilation.expression_semantics_with_cancellation(key.clone(), cancellation)?;
+        let selected =
+            inputs
+                .behavior
+                .result()
+                .value()
+                .calls()
+                .iter()
+                .filter_map(|call| match call.target() {
+                    BoundCallableTarget::Declaration(instance) => {
+                        Some(instance.definition().callable_symbol())
+                    }
+                    _ => None,
+                });
 
-        let patterns = compilation.patterns_with_cancellation(key.clone(), cancellation)?;
+        for callee in selected.chain(inputs.prepared.result().value().lifecycle_callees()) {
+            cyclic |= callee == *callable;
 
-        let behavior =
-            compilation.selected_body_behavior_with_cancellation(key.clone(), cancellation)?;
-
-        for call in behavior.result().value().calls() {
-            if let BoundCallableTarget::Declaration(instance) = call.target() {
-                let callee = instance.definition().callable_symbol();
-
-                cyclic |= callee == *callable;
-
-                if !members.contains(&callee) {
-                    callees.insert(callee);
-                }
+            if !members.contains(&callee) {
+                callees.insert(callee);
             }
         }
 
         diagnostics = DiagnosticBag::merged_all([
             &diagnostics,
-            bound.result().diagnostics(),
-            expressions.result().diagnostics(),
-            patterns.result().diagnostics(),
-            behavior.result().diagnostics(),
+            inputs.bound.result().diagnostics(),
+            inputs.expressions.result().diagnostics(),
+            inputs.patterns.result().diagnostics(),
+            inputs.behavior.result().diagnostics(),
         ]);
 
-        units.insert(*callable, (key, bound, expressions, patterns));
+        units.insert(*callable, (key, inputs));
     }
 
     let mut templates = members
@@ -214,22 +258,39 @@ fn infer_component(
         BTreeSet::new()
     };
 
+    let mut bodies = BTreeMap::new();
+
     loop {
         cancellation.check()?;
 
         let mut changed = false;
 
-        for (callable, (key, bound, expressions, patterns)) in &units {
+        for (callable, (key, inputs)) in &units {
             let dependencies = infer_checked_result(
                 &context,
                 key,
-                bound.result().value(),
-                expressions.result().value(),
-                patterns.result().value(),
+                inputs.bound.result().value(),
+                inputs.expressions.result().value(),
+                inputs.patterns.result().value(),
                 &templates,
                 &recursive,
             )
             .map_err(binding_query_error)?;
+
+            let body = inputs.check(compilation, cancellation, Some(&templates))?;
+            let values = context.semantic_values();
+            let template = values.dependency_contract_template_data(dependencies);
+            let previous = values.dependency_contract_template_data(templates[callable]);
+
+            let dependencies = values
+                .intern_dependency_contract_template(body_result_dependencies(
+                    &template,
+                    body.value().storage_flow().dependencies(),
+                    previous.effects(),
+                ))
+                .expect("checked component summary has established semantic identities");
+
+            bodies.insert(*callable, CallableAnalysis { dependencies, body });
 
             changed |= templates.insert(*callable, dependencies) != Some(dependencies);
         }
@@ -239,9 +300,7 @@ fn infer_component(
         }
     }
 
-    templates.retain(|callable, _| members.contains(callable));
-
-    Ok(DiagnosticResult::new(templates, diagnostics))
+    Ok(DiagnosticResult::new(bodies, diagnostics))
 }
 
 fn infer_checked_result(
@@ -343,5 +402,39 @@ pub(in crate::compilation) fn expression_result_dependencies(
         &BTreeSet::new(),
     )?;
 
+    let body = context
+        .compilation()
+        .body_semantics_with_cancellation(key.clone(), context.cancellation)
+        .map_err(binder_error)?;
+
+    diagnostics = diagnostics.merged(body.result().diagnostics());
+
+    let values = context.semantic_values();
+    let template = values.dependency_contract_template_data(result);
+
+    let result = values
+        .intern_dependency_contract_template(body_result_dependencies(
+            &template,
+            body.result().value().storage_flow().dependencies(),
+            &[],
+        ))
+        .expect("checked default summary retains its semantic identities");
+
     Ok(DiagnosticResult::new(result, diagnostics))
+}
+
+fn body_result_dependencies(
+    inferred: &bray_symbols::DependencyContractTemplateData,
+    checked: &bray_symbols::DependencyContractTemplateData,
+    previous_effects: &[bray_symbols::DependencyStorageEffect],
+) -> bray_symbols::DependencyContractTemplateData {
+    bray_symbols::DependencyContractTemplateData::new(
+        inferred
+            .requirements()
+            .iter()
+            .chain(checked.requirements())
+            .cloned(),
+    )
+    .with_borrows(checked.borrows().iter().cloned())
+    .with_effects(previous_effects.iter().chain(checked.effects()).cloned())
 }

@@ -82,6 +82,8 @@ impl State {
         origin: BoundExpressionId,
         value: References,
     ) {
+        self.invalidate_entry_slots(references);
+
         let exact = references.is_exact();
 
         for target in self.affected_targets(references) {
@@ -188,6 +190,8 @@ impl State {
     }
 
     fn consume_targets(&mut self, references: &References, ty: TypeId) {
+        self.invalidate_entry_slots(references);
+
         let exact = references.is_exact();
 
         for target in &self.affected_targets(references) {

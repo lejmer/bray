@@ -89,107 +89,6 @@ impl<'analysis, C> StorageFlowCollector<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    pub(super) fn transfer_memory_result_state(
-        &self,
-        state: &mut StorageFlowState,
-        node: AnyBoundNodeId,
-    ) {
-        let AnyBoundNodeId::Expression(expression) = node else {
-            return;
-        };
-
-        if let Some(bray_bound_tree::BoundExpression::Structured(borrow)) =
-            self.request.view().expression(expression)
-            && borrow.kind() == bray_bound_tree::BoundStructuredExpressionKind::Borrow
-        {
-            let destination = self
-                .input
-                .initialization_destination(expression)
-                .map(Place::root);
-
-            let result = self
-                .expression_result_storage(expression)
-                .or_else(|| destination.clone());
-
-            let source = self
-                .storage
-                .node_plans(expression.into())
-                .find(|plan| matches!(plan.purpose(), StorageAccessPurpose::Borrow(_)))
-                .and_then(|plan| self.physical_place(state, plan.access()));
-
-            if let (Some(source), Some(result)) = (source, result)
-                && let Some(ty) = self.storage.identity_type(result.root)
-                && let bray_symbols::TypeData::Borrow { target, .. } =
-                    self.request.semantic_values().type_data(ty).as_ref()
-            {
-                state.memory.borrow(source, result.clone(), *target);
-
-                if let Some(destination) = destination {
-                    state.memory.transfer(&result, destination);
-                }
-            }
-
-            return;
-        }
-
-        if self.memory.operation(expression).is_none()
-            && let Some(result) = self.expression_result_storage(expression)
-            && let Some(source) = self.execution.reference_value_source(expression)
-            && let Some(source) = self.expression_value_storage(state, source)
-        {
-            state.memory.transfer(&source, result);
-        }
-
-        let Some(destination) = self.input.initialization_destination(expression) else {
-            return;
-        };
-
-        let destination = Place::root(destination);
-
-        match self.expression_value_storage(state, expression) {
-            Some(source) => state.memory.transfer(&source, destination),
-            None => state.memory.clear(&destination),
-        }
-    }
-
-    pub(super) fn transfer_raw_pointer_state(
-        &self,
-        state: &mut StorageFlowState,
-        node: AnyBoundNodeId,
-    ) {
-        let mut sources = Vec::new();
-        let mut destinations = Vec::new();
-
-        for plan in self.storage.node_plans(node) {
-            let Some(root) = self.storage.logical_path(plan.access()).cloned() else {
-                continue;
-            };
-
-            match self.storage.effective_purpose(plan) {
-                StorageAccessPurpose::Move
-                | StorageAccessPurpose::Copy
-                | StorageAccessPurpose::ValueTransfer => sources.push(root),
-                StorageAccessPurpose::Initialize | StorageAccessPurpose::Assignment => {
-                    destinations.push(root);
-                }
-                StorageAccessPurpose::Read
-                | StorageAccessPurpose::Write
-                | StorageAccessPurpose::Borrow(_)
-                | StorageAccessPurpose::Member
-                | StorageAccessPurpose::Index
-                | StorageAccessPurpose::Slice
-                | StorageAccessPurpose::Projection => {}
-            }
-        }
-
-        let ([source], [destination]) = (sources.as_slice(), destinations.as_slice()) else {
-            return;
-        };
-
-        // Place clones share their immutable projection path.
-        state.memory.transfer(source, destination.clone());
-    }
-
     pub(super) fn apply_memory_operation<'refinements>(
         &mut self,
         state: &mut StorageFlowState,
@@ -366,21 +265,12 @@ where
                     return MemoryOperationStatus::Recovered;
                 };
 
-                let source = self
-                    .input
-                    .expression_places(arguments[0])
-                    .first()
-                    .and_then(|place| place.access_id(self.storage))
-                    .and_then(|access| self.physical_place(state, access))
-                    .or_else(|| {
-                        self.expression_result_storage(arguments[0])
-                            .and_then(|place| state.memory.referent(&place, pointee))
-                    });
+                if let Some(source) = self.expression_reference(state, arguments[0]) {
+                    source.transfer(&mut state.memory, result.clone());
 
-                if let Some(source) = source {
                     state
                         .memory
-                        .address(source, result, pointee, operation.expression());
+                        .expose_address(&result, pointee, operation.expression());
                 } else {
                     state.memory.clear(&result);
                 }
@@ -558,17 +448,42 @@ where
         state: &StorageFlowState,
         access: bray_bound_tree::StorageAccessId,
     ) -> Option<Place> {
-        let place = self.storage.logical_path(access).cloned()?;
-        let root = self.storage.root_identity(access)?;
-        let ty = self.storage.identity_type(root)?;
-        let reached = self.storage.access(access)?.reached_type();
+        let logical = self.storage.logical_path(access)?;
+        let borrows = self.input.borrowed_projections.get(&access)?;
+        let mut place = Place::root(logical.root);
+        let mut copied = 0;
 
-        if ty != reached
-            && let bray_symbols::TypeData::Borrow { target, .. } =
-                self.request.semantic_values().type_data(ty).as_ref()
-        {
-            return state.memory.referent(&place, *target);
+        for (index, target) in borrows {
+            place.projections = place
+                .projections
+                .iter()
+                .copied()
+                .chain(logical.projections[copied..*index].iter().copied())
+                .collect();
+
+            let entry = (*index == 0)
+                .then(|| self.storage.access(access)?.root().borrow_capability())
+                .flatten()
+                .filter(|borrow| {
+                    self.storage
+                        .borrow_capability(*borrow)
+                        .is_some_and(|borrow| borrow.entry_binding().is_some())
+                });
+
+            place = match entry {
+                Some(capability) => state.memory.borrow_referent(capability, &place, *target)?,
+                None => state.memory.slot_referent(&place, *target)?,
+            };
+
+            copied = *index;
         }
+
+        place.projections = place
+            .projections
+            .iter()
+            .copied()
+            .chain(logical.projections[copied..].iter().copied())
+            .collect();
 
         Some(place)
     }
@@ -584,13 +499,7 @@ where
             .find(|plan| plan.purpose() == StorageAccessPurpose::Assignment)?
             .access();
 
-        let physical = self.physical_place(state, access)?;
-
-        if Some(&physical) == self.storage.logical_path(access) {
-            return None;
-        }
-
-        Some(physical)
+        self.physical_place(state, access)
     }
 
     pub(super) fn memory_invalidation(
@@ -612,7 +521,7 @@ where
         Some(bray_bound_tree::StorageInvalidation::Paths(places))
     }
 
-    fn argument_storage(&self, expression: BoundExpressionId) -> Option<Place> {
+    pub(super) fn argument_storage(&self, expression: BoundExpressionId) -> Option<Place> {
         self.input
             .expression_places(expression)
             .first()
@@ -620,23 +529,68 @@ where
             .or_else(|| self.expression_result_storage(expression))
     }
 
-    fn expression_result_storage(&self, expression: BoundExpressionId) -> Option<Place> {
+    pub(super) fn expression_result_storage(&self, expression: BoundExpressionId) -> Option<Place> {
         self.input.definitions(expression.into()).iter().copied().find(|identity| {
             matches!(self.storage.identity(*identity), Some(StorageIdentity::Temporary(candidate) | StorageIdentity::Allocation(candidate)) if candidate == expression)
         }).map(Place::root)
     }
 
-    fn expression_value_storage(
+    pub(super) fn expression_reference(
         &self,
         state: &StorageFlowState,
         expression: BoundExpressionId,
-    ) -> Option<Place> {
-        self.expression_result_storage(expression)
+    ) -> Option<ReferenceSource> {
+        if let Some(slot) = self
+            .expression_result_storage(expression)
             .filter(|storage| state.memory.has_reference(storage))
-            .or_else(|| {
-                self.argument_storage(expression)
-                    .filter(|storage| state.memory.has_reference(storage))
+        {
+            return Some(ReferenceSource::Slot(slot));
+        }
+
+        let borrowed = self
+            .execution
+            .semantics
+            .types()
+            .expression(expression)
+            .is_some_and(|ty| {
+                matches!(
+                    self.request.semantic_values().type_data(ty.ty()).as_ref(),
+                    bray_symbols::TypeData::Borrow { .. }
+                )
+            });
+
+        if borrowed
+            && let Some(capability) = self
+                .storage
+                .node_plans(expression.into())
+                .filter_map(|plan| self.storage.borrow_for_plan(plan))
+                .find(|capability| state.memory.has_borrow(*capability))
+        {
+            // A newly formed borrow names the aggregate, not a reference stored inside it.
+            return Some(ReferenceSource::Borrow(capability));
+        }
+
+        if let Some(slot) = self
+            .argument_storage(expression)
+            .filter(|storage| state.memory.has_reference(storage))
+        {
+            return Some(ReferenceSource::Slot(slot));
+        }
+
+        if !borrowed {
+            return None;
+        }
+
+        self.storage
+            .node_plans(expression.into())
+            .filter_map(|plan| {
+                self.storage
+                    .access(plan.access())?
+                    .root()
+                    .borrow_capability()
             })
+            .find(|capability| state.memory.has_borrow(*capability))
+            .map(ReferenceSource::Borrow)
     }
 
     fn memory_failure_origins(
@@ -748,5 +702,45 @@ where
         self.memory_decisions
             .iter()
             .map(|(expression, status)| MemoryOperationDecision::new(*expression, *status))
+    }
+}
+
+pub(super) enum ReferenceSource {
+    Slot(Place),
+    Borrow(bray_bound_tree::BorrowCapabilityId),
+}
+
+impl ReferenceSource {
+    pub(super) fn stage(
+        self,
+        state: &mut crate::analysis::storage_flow::memory::State,
+        call: bray_bound_tree::BoundExecutionSite,
+        destination: Place,
+    ) {
+        match self {
+            Self::Slot(source) => state.stage_slot(call, &source, destination),
+            Self::Borrow(capability) => state.stage_borrow(call, capability, destination),
+        }
+    }
+
+    pub(super) fn located_storage(
+        self,
+        state: &crate::analysis::storage_flow::memory::State,
+    ) -> Option<Vec<Place>> {
+        match self {
+            Self::Slot(source) => state.located_storage(&source),
+            Self::Borrow(capability) => state.borrowed_storage(capability),
+        }
+    }
+
+    pub(super) fn transfer(
+        self,
+        state: &mut crate::analysis::storage_flow::memory::State,
+        destination: Place,
+    ) {
+        match self {
+            Self::Slot(source) => state.transfer(&source, destination),
+            Self::Borrow(capability) => state.retain_borrow(capability, destination),
+        }
     }
 }

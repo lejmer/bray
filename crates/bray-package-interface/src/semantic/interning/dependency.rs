@@ -51,9 +51,17 @@ impl InternState {
                 continue;
             }
 
-            self.dependency_contracts[index] = Some(store.intern_dependency_contract_template(
-                DependencyContractTemplateData::new(requirements).with_borrows(borrows),
-            )?);
+            let Some(effects) = self.convert_dependency_effects(&input.effects, symbols)? else {
+                continue;
+            };
+
+            self.dependency_contracts[index] = Some(
+                store.intern_dependency_contract_template(
+                    DependencyContractTemplateData::new(requirements)
+                        .with_borrows(borrows)
+                        .with_effects(effects),
+                )?,
+            );
         }
 
         Ok(())
@@ -225,9 +233,22 @@ impl InternState {
             }
         };
 
-        let mut projections = Vec::with_capacity(input.projections.len());
+        let Some(projections) = self.convert_dependency_projections(&input.projections, symbols)?
+        else {
+            return Ok(None);
+        };
 
-        for projection in &*input.projections {
+        Ok(Some(DependencySubject::new(root, projections)))
+    }
+
+    fn convert_dependency_projections(
+        &self,
+        input: &[InterfaceDependencyProjection],
+        symbols: &impl InterfaceSymbolResolver,
+    ) -> Result<Option<Vec<DependencyProjection>>, InterfaceSemanticInternError> {
+        let mut projections = Vec::with_capacity(input.len());
+
+        for projection in input {
             let projection = match projection {
                 InterfaceDependencyProjection::ProductField(field) => {
                     DependencyProjection::ProductField(resolve_exact(symbols, field)?)
@@ -252,7 +273,57 @@ impl InternState {
             projections.push(projection);
         }
 
-        Ok(Some(DependencySubject::new(root, projections)))
+        Ok(Some(projections))
+    }
+
+    fn convert_dependency_effects(
+        &self,
+        input: &[bray_symbols::DependencyStorageEffect<
+            InterfaceDependencySubject,
+            InterfaceDependencyProjection,
+        >],
+        symbols: &impl InterfaceSymbolResolver,
+    ) -> Result<Option<Vec<bray_symbols::DependencyStorageEffect>>, InterfaceSemanticInternError>
+    {
+        use bray_symbols::DependencyStorageEffect;
+
+        let mut effects = Vec::with_capacity(input.len());
+
+        for effect in input {
+            effects.push(match effect {
+                DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
+                DependencyStorageEffect::Direct { subject, kind } => {
+                    let Some(subject) = self.convert_dependency_subject(subject, symbols)? else {
+                        return Ok(None);
+                    };
+
+                    DependencyStorageEffect::Direct {
+                        subject,
+                        kind: *kind,
+                    }
+                }
+                DependencyStorageEffect::Indirect {
+                    reference,
+                    projections,
+                    kind,
+                } => {
+                    let (Some(reference), Some(projections)) = (
+                        self.convert_dependency_subject(reference, symbols)?,
+                        self.convert_dependency_projections(projections, symbols)?,
+                    ) else {
+                        return Ok(None);
+                    };
+
+                    DependencyStorageEffect::Indirect {
+                        reference,
+                        projections: projections.into(),
+                        kind: *kind,
+                    }
+                }
+            });
+        }
+
+        Ok(Some(effects))
     }
 
     pub(super) fn convert_dependency_guard(

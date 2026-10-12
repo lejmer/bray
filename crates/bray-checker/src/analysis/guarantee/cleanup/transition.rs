@@ -106,7 +106,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
         operation: AnalysisOperationKind,
         mut observe: Option<&mut Observer<'_>>,
-    ) {
+    ) -> bool {
+        let mut changes_storage = false;
+
         match operation {
             AnalysisOperationKind::ScopeExit { block, phase, .. } => {
                 let mut lifecycle = Vec::new();
@@ -138,6 +140,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                 if phases.includes_cancellation() =>
                             {
                                 state.invalidate_cleanup(None);
+                                changes_storage = true;
                                 break;
                             }
                             AnalysisScopeExitPhase::LifecycleResolution
@@ -154,7 +157,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     match dependencies.lifecycle_order(self.storage, &lifecycle) {
                         Ok(ordered) => {
                             for access in ordered {
-                                self.dispose(
+                                changes_storage |= self.dispose(
                                     state,
                                     access,
                                     self.storage.root_identity(access).is_some_and(|identity| {
@@ -167,7 +170,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             }
                         }
                         // The owning cleanup analysis publishes the unavailable-order recovery.
-                        Err(_) => state.invalidate_cleanup(None),
+                        Err(_) => {
+                            state.invalidate_cleanup(None);
+                            changes_storage = true;
+                        }
                     }
 
                     self.expire_trusted_scope(state, block);
@@ -194,7 +200,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         && replacement.state(self.storage.root_identity(plan.access()).is_some())
                             != bray_bound_tree::StorageReplacementState::Absent
                     {
-                        self.dispose(
+                        changes_storage |= self.dispose(
                             state,
                             plan.access(),
                             replacement.initialized,
@@ -207,6 +213,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
             _ => {}
         }
+
+        changes_storage
     }
 
     fn dispose(
@@ -217,7 +225,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         moved: impl Iterator<Item = bray_bound_tree::StoragePath>,
         definitely_absent: impl Iterator<Item = bray_bound_tree::StoragePath>,
         observe: &mut Option<&mut Observer<'_>>,
-    ) {
+    ) -> bool {
+        let mut changes_storage = false;
+
         let steps = self
             .disposal
             .plan
@@ -250,6 +260,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 conditional,
             } = step
             else {
+                changes_storage = true;
+
                 if !preserves {
                     state.invalidate_cleanup(None);
                 }
@@ -280,6 +292,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let Some(lifecycle) = self.disposal.plan.lifecycles.get(&(*ty, slot)) else {
                     continue;
                 };
+
+                changes_storage |= !self.disposal.dependencies[&lifecycle.callable]
+                    .effects()
+                    .is_empty();
 
                 let completes = lifecycle.contract.completes
                     || (lifecycle.synchronous
@@ -315,6 +331,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
             }
         }
+
+        changes_storage
     }
 }
 

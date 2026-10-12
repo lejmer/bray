@@ -289,6 +289,7 @@ pub struct StorageFlow {
     reachable_blocks: Arc<[BoundBlockId]>,
     conditions: std::collections::BTreeMap<BoundExpressionId, bool>,
     assignment_targets: std::collections::BTreeMap<BoundExpressionId, crate::StoragePath>,
+    dependencies: bray_symbols::DependencyContractTemplateData,
     reachable_exits: Arc<[StorageExitPoint]>,
     exits: Arc<[StorageExitDecision]>,
     memory_operations: Arc<[MemoryOperationDecision]>,
@@ -391,9 +392,27 @@ impl StorageFlow {
             memory_operations: Arc::from([]),
             checked_memory_operations: Arc::from([]),
             assignment_targets: std::collections::BTreeMap::new(),
+            dependencies: bray_symbols::DependencyContractTemplateData::new([]),
             replacements: Arc::from([]),
             is_recovered,
         })
+    }
+
+    /// Publishes carried dependencies, exact reference relations and possible mutations from this flow.
+    pub fn with_dependencies(
+        mut self,
+        dependencies: bray_symbols::DependencyContractTemplateData,
+    ) -> Self {
+        if !self.is_recovered {
+            self.dependencies = dependencies;
+        }
+
+        self
+    }
+
+    /// Returns the body boundary facts established by the composite flow.
+    pub const fn dependencies(&self) -> &bray_symbols::DependencyContractTemplateData {
+        &self.dependencies
     }
 
     /// Adds source-ordered replacement decisions, rejecting foreign and duplicate identities.

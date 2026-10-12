@@ -12,8 +12,8 @@ use crate::{
 pub(crate) struct Cleanup<'a> {
     pub(super) selected: Option<(&'a CheckedAsync, &'a bray_bound_tree::StorageFlow)>,
     pub(super) plan: &'a Plan,
-    pub(in crate::analysis::guarantee) references:
-        &'a BTreeMap<CallableInstanceData, Vec<bray_symbols::DependencyBorrowRelation>>,
+    pub(in crate::analysis::guarantee) dependencies:
+        &'a BTreeMap<CallableInstanceData, bray_symbols::DependencyContractTemplateData>,
     pub(in crate::analysis::guarantee) borrowed_inputs: BTreeSet<ExecutionPlace>,
 }
 
@@ -51,12 +51,12 @@ impl<'a> Cleanup<'a> {
         plan: &'a Plan,
         dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
     ) -> Self {
-        let references = dependencies.lifecycle_references();
+        let references = dependencies.lifecycle_dependencies();
         let borrowed_inputs = plan.borrowed_inputs(references);
 
         Self {
             plan,
-            references,
+            dependencies: references,
             borrowed_inputs,
             selected: None,
         }
@@ -74,11 +74,19 @@ impl<'a> Cleanup<'a> {
 }
 
 impl Plan {
-    pub(crate) fn check_references<C: CheckerRequestContext + ?Sized>(
+    pub(in crate::analysis) fn callees(
+        &self,
+    ) -> impl Iterator<Item = bray_symbols::CallableSymbolId> + '_ {
+        self.lifecycles
+            .values()
+            .map(|lifecycle| lifecycle.callable.definition().callable_symbol())
+    }
+
+    pub(crate) fn check_dependencies<C: CheckerRequestContext + ?Sized>(
         &self,
         request: CheckerUnitView<'_, C>,
     ) -> Result<
-        BTreeMap<CallableInstanceData, Vec<bray_symbols::DependencyBorrowRelation>>,
+        BTreeMap<CallableInstanceData, bray_symbols::DependencyContractTemplateData>,
         CheckerQueryError<C::UpstreamError>,
     > {
         let mut references = BTreeMap::new();
@@ -97,7 +105,7 @@ impl Plan {
                     template,
                 )?;
 
-                entry.insert(template.borrows().to_vec());
+                entry.insert(template);
             }
         }
 
@@ -106,7 +114,7 @@ impl Plan {
 
     fn borrowed_inputs(
         &self,
-        references: &BTreeMap<CallableInstanceData, Vec<bray_symbols::DependencyBorrowRelation>>,
+        references: &BTreeMap<CallableInstanceData, bray_symbols::DependencyContractTemplateData>,
     ) -> BTreeSet<ExecutionPlace> {
         self.steps
             .values()
@@ -128,10 +136,12 @@ impl Plan {
                 .filter_map(move |slot| self.lifecycles.get(&(*ty, slot)))
                 .flat_map(move |lifecycle| {
                     references[&lifecycle.callable]
+                        .borrows()
                         .iter()
                         .filter_map(move |relation| {
-                            (relation.exit().subject_root()
-                                == bray_symbols::DependencySubjectRoot::Receiver)
+                            (relation.entry() == relation.exit()
+                                && relation.exit().subject_root()
+                                    == bray_symbols::DependencySubjectRoot::Receiver)
                                 .then(|| {
                                     super::super::trusted::project_place(
                                         place.clone(),

@@ -37,6 +37,31 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                 encode_dependency_subject(encoder, relation.exit());
                 encoder.write_u32(relation.kind().to_wire());
             }
+
+            write_count(encoder, contract.effects.len());
+
+            for effect in &*contract.effects {
+                use bray_symbols::DependencyStorageEffect;
+
+                match effect {
+                    DependencyStorageEffect::Unknown => encoder.write_u32(0),
+                    DependencyStorageEffect::Direct { subject, kind } => {
+                        encoder.write_u32(1);
+                        encode_dependency_subject(encoder, subject);
+                        encoder.write_u32(kind.to_wire());
+                    }
+                    DependencyStorageEffect::Indirect {
+                        reference,
+                        projections,
+                        kind,
+                    } => {
+                        encoder.write_u32(2);
+                        encode_dependency_subject(encoder, reference);
+                        encode_dependency_projections(encoder, projections);
+                        encoder.write_u32(kind.to_wire());
+                    }
+                }
+            }
         },
     );
 
@@ -285,9 +310,16 @@ pub(super) fn encode_dependency_subject(
         }
     }
 
-    write_count(encoder, subject.projections.len());
+    encode_dependency_projections(encoder, &subject.projections);
+}
 
-    for projection in &*subject.projections {
+fn encode_dependency_projections(
+    encoder: &mut WireEncoder,
+    projections: &[InterfaceDependencyProjection],
+) {
+    write_count(encoder, projections.len());
+
+    for projection in projections {
         match projection {
             InterfaceDependencyProjection::ProductField(field) => {
                 encoder.write_u32(1);

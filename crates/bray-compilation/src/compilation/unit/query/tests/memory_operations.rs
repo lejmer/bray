@@ -396,6 +396,19 @@ fn call_results_transfer_raw_state_only_from_checked_reference_inputs() {
 
         let compilation = compilation_with_target_operations(&source, true, true);
 
+        let forwarding = compilation
+            .storage_flow(crate::test_support::source_function_body_key(
+                &compilation,
+                "forward",
+            ))
+            .unwrap();
+
+        assert!(
+            forwarding.value().dependencies().effects().is_empty(),
+            "forwarding performs no caller-storage mutation: {:?}",
+            forwarding.value().dependencies().effects()
+        );
+
         let flow = compilation
             .storage_flow(crate::test_support::source_function_body_key(
                 &compilation,
@@ -429,6 +442,38 @@ fn call_results_transfer_raw_state_only_from_checked_reference_inputs() {
         );
     }
 }
+#[test]
+fn checked_writes_preserve_unrelated_raw_initialization() {
+    for target in ["left", "right"] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Cell {{ mut value: u8; }}
+            func rewrite(pos cell: &mut Cell) {{ cell.value = 2; }}
+            trusted func main() -> u8 uses(raw_memory, unchecked_init) {{
+                let mut left: Cell = {{ value = 1 }};
+                let mut right: Cell = {{ value = 1 }};
+                let pointer = core.memory.address_of_mut(&mut left.value);
+                rewrite(&mut {target});
+                return trusted core.memory.read<u8>(pointer);
+            }}
+        "#
+        );
+
+        let compilation = compilation_with_target_operations(&source, true, true);
+        let key = crate::test_support::source_function_body_key(&compilation, "main");
+        let flow = compilation.storage_flow(key).unwrap();
+        let status = flow.value().memory_operations().last().unwrap().status();
+
+        assert_eq!(
+            status,
+            bray_bound_tree::MemoryOperationStatus::Valid,
+            "{target}: {:?}",
+            flow.diagnostics()
+        );
+    }
+}
+
 #[test]
 fn raw_memory_aliases_share_consumption_and_retirement() {
     use bray_bound_tree::MemoryOperationStatus;
@@ -729,4 +774,36 @@ fn raw_moves_through_stored_borrows_reach_the_original_fields() {
             flow.diagnostics()
         );
     }
+}
+
+#[test]
+fn cleanup_without_external_mutation_preserves_raw_initialization() {
+    let compilation = compilation_with_target_operations(
+        r#"
+        trusted module app;
+        struct Guard { flag: bool; consume func destroy() {} }
+        trusted func main() -> u8 uses(raw_memory, unchecked_init) {
+            let mut value: u8 = 1;
+            let pointer = core.memory.address_of_mut(&mut value);
+            { let guard: Guard = { flag = false }; }
+            return trusted core.memory.read<u8>(pointer);
+        }
+    "#,
+        true,
+        true,
+    );
+
+    let flow = compilation
+        .storage_flow(crate::test_support::source_function_body_key(
+            &compilation,
+            "main",
+        ))
+        .unwrap();
+
+    assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
+
+    assert_eq!(
+        flow.value().memory_operations().last().unwrap().status(),
+        bray_bound_tree::MemoryOperationStatus::Valid
+    );
 }

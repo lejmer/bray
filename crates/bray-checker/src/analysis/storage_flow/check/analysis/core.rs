@@ -49,6 +49,7 @@ pub(crate) fn check_storage_flow_with_graph<C>(
     request: CheckerUnitView<'_, C>,
     execution: &crate::analysis::guarantee::ExecutionFlowDomain<'_, '_, C>,
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
+    values: &crate::dependency::ValueInputs,
     storage: &StoragePlan,
     liveness: &Liveness,
     refinements: &crate::analysis::refinement::RefinementUniverse,
@@ -62,8 +63,16 @@ where
 {
     let ((input, cleanup_diagnostics), authority_diagnostics) =
         match mutable_storage(request, storage).and_then(|(mutable, diagnostics)| {
-            StorageFlowInput::new(cleanup_shapes, request, storage, mutable, liveness)
-                .map(|input| (input, diagnostics))
+            StorageFlowInput::new(
+                cleanup_shapes,
+                request,
+                storage,
+                mutable,
+                liveness,
+                dependencies,
+                values,
+            )
+            .map(|input| (input, diagnostics))
         }) {
             Ok(result) => result,
             Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
@@ -178,35 +187,11 @@ where
             collector.apply_operation(&mut state, operation);
         }
 
-        for edge in block
-            .successors()
-            .iter()
-            .filter_map(|edge| graph.edge(*edge))
-        {
-            if let Some(crate::analysis::model::AnalysisRefinement::Condition {
-                expression, ..
-            }) = edge.refinement()
-            {
-                let (_, value) = execution.condition_evidence(
-                    state
-                        .execution
-                        .as_ref()
-                        .expect("reachable storage state has execution facts"),
-                    expression,
-                );
-
-                conditions
-                    .entry(expression)
-                    .and_modify(|known| {
-                        if *known != value {
-                            *known = None;
-                        }
-                    })
-                    .or_insert(value);
-            }
-        }
+        collector.collect_conditions(&state, block, graph, &mut conditions);
 
         if normal_exits.contains(&block.id()) {
+            collector.collect_exit_references(&state);
+
             collector.trusted.exit(
                 execution,
                 state
@@ -228,12 +213,19 @@ where
         };
     }
 
+    let dependencies = match collector.reference_dependencies() {
+        Ok(dependencies) => dependencies,
+        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
+    };
+
     let decisions = collector.decisions().collect::<Vec<_>>();
     let memory_decisions = collector.memory_decisions().collect::<Vec<_>>();
     let exits = collector.exit_decisions().collect::<Vec<_>>();
     let replacements = collector.replacement_decisions().collect::<Vec<_>>();
 
     let assignments = collector.take_assignment_targets();
+    let effects = std::mem::take(&mut collector.effects);
 
     let analysis = match StorageFlow::try_new(
         storage.unit(),
@@ -260,7 +252,7 @@ where
     .and_then(|analysis| analysis.with_replacements(replacements))
     .and_then(|analysis| analysis.with_assignment_targets(assignments))
     {
-        Ok(analysis) => analysis,
+        Ok(analysis) => analysis.with_dependencies(dependencies.with_effects(effects)),
         Err(error) => {
             panic!(
                 "Durable storage-flow construction rejected an exact invariant. in check_storage_flow_with_graph, value0: {:?}",
@@ -341,7 +333,7 @@ where
     pub(super) owners: &'analysis StorageScopeOwners,
     pub(super) execution:
         &'analysis crate::analysis::guarantee::ExecutionFlowDomain<'analysis, 'analysis, C>,
-    dependencies: &'analysis bray_bound_tree::CheckedDependencyContracts,
+    pub(super) dependencies: &'analysis bray_bound_tree::CheckedDependencyContracts,
     trusted: crate::analysis::guarantee::TrustedChecks,
     pub(super) memory_evidence: Option<bool>,
     pub(super) statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
@@ -350,6 +342,8 @@ where
     exit_indices: BTreeMap<(bray_bound_tree::BoundBlockId, AnyBoundNodeId), usize>,
     replacements: BTreeMap<StorageAccessPlan, ReplacementState>,
     assignments: BTreeMap<BoundExpressionId, Option<crate::analysis::storage_flow::memory::Place>>,
+    pub(super) effects: BTreeSet<bray_symbols::DependencyStorageEffect>,
+    pub(super) references: Option<crate::analysis::storage_flow::memory::ReferenceExit>,
     invalidations:
         BTreeMap<bray_bound_tree::BoundExecutionSite, bray_bound_tree::StorageInvalidation>,
     pub(super) memory_decisions: BTreeMap<BoundExpressionId, MemoryOperationStatus>,
@@ -365,6 +359,42 @@ impl<'analysis, C> StorageFlowCollector<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    fn collect_conditions(
+        &self,
+        state: &StorageFlowState,
+        block: &crate::analysis::model::AnalysisBlock,
+        graph: &crate::analysis::model::ControlFlowGraph,
+        conditions: &mut BTreeMap<BoundExpressionId, Option<bool>>,
+    ) {
+        for edge in block
+            .successors()
+            .iter()
+            .filter_map(|edge| graph.edge(*edge))
+        {
+            if let Some(crate::analysis::model::AnalysisRefinement::Condition {
+                expression, ..
+            }) = edge.refinement()
+            {
+                let (_, value) = self.execution.condition_evidence(
+                    state
+                        .execution
+                        .as_ref()
+                        .expect("reachable storage state has execution facts"),
+                    expression,
+                );
+
+                conditions
+                    .entry(expression)
+                    .and_modify(|known| {
+                        if *known != value {
+                            *known = None;
+                        }
+                    })
+                    .or_insert(value);
+            }
+        }
+    }
+
     fn new(
         request: CheckerUnitView<'analysis, C>,
         storage: &'analysis StoragePlan,
@@ -399,6 +429,8 @@ where
             replacements: BTreeMap::new(),
             assignments: BTreeMap::new(),
             invalidations: BTreeMap::new(),
+            effects: BTreeSet::new(),
+            references: None,
             memory_decisions: BTreeMap::new(),
             diagnostics: DiagnosticBag::new(),
             reported_diagnostics: BTreeSet::new(),
@@ -475,7 +507,7 @@ where
             );
         };
 
-        self.execution.transition_storage_cleanup(
+        let cleanup_changes_storage = self.execution.transition_storage_cleanup(
             &mut execution,
             state,
             self.dependencies,
@@ -483,6 +515,19 @@ where
             self.publish
                 .then_some(&mut observe as &mut crate::analysis::guarantee::Observer<'_>),
         );
+
+        if cleanup_changes_storage {
+            self.record_effects(
+                &bray_bound_tree::StorageInvalidation::All,
+                bray_symbols::DependencyMutationKind::Retire,
+            );
+
+            state.memory.invalidate(
+                &bray_bound_tree::StorageInvalidation::All,
+                self.storage,
+                bray_symbols::DependencyMutationKind::Retire,
+            );
+        }
 
         let completing = matches!(
             kind,
@@ -496,18 +541,30 @@ where
             .then(|| self.assignment_target(state, kind.node()))
             .flatten();
 
+        let call_effects = self.begin_transition(state, kind, assignment.as_ref());
+
         let invalidation = if completing {
             None
         } else {
-            self.memory_invalidation(state, kind.node()).or_else(|| {
-                // Assignment publication and mutation share one resolved path.
-                assignment
-                    .as_ref()
-                    .map(|path| bray_bound_tree::StorageInvalidation::Paths(vec![path.clone()]))
-            })
+            let call_effects = call_effects.as_ref().map(|effects| {
+                bray_bound_tree::StorageInvalidation::Paths(
+                    effects.iter().map(|(path, _)| path.clone()).collect(),
+                )
+            });
+
+            call_effects
+                .or_else(|| self.memory_invalidation(state, kind.node()))
+                .or_else(|| {
+                    // Assignment publication and mutation share one resolved path.
+                    assignment
+                        .as_ref()
+                        .map(|path| bray_bound_tree::StorageInvalidation::Paths(vec![path.clone()]))
+                })
         };
 
         if !completing {
+            self.record_operation_effects(kind, invalidation.as_ref(), call_effects.as_deref());
+
             if self.publish {
                 if let AnyBoundNodeId::Expression(expression) = kind.node()
                     && matches!(
@@ -555,6 +612,8 @@ where
             .trusted_memory_evidence(&execution, kind.occurrence());
 
         state.execution = Some(execution);
+
+        self.apply_call_effects(state, kind, call_effects.as_deref(), invalidation.as_ref());
 
         let memory_status = self.apply_storage_operation(
             state,
@@ -695,14 +754,16 @@ where
             self.apply_plan(state, plan, refinements.clone());
         }
 
-        self.transfer_raw_pointer_state(state, operation.kind().node());
-
         let memory_status =
             self.apply_memory_operation(state, operation.kind().node(), refinements.clone());
 
         if memory_status
             .is_none_or(|status| status == bray_bound_tree::MemoryOperationStatus::Valid)
         {
+            state
+                .memory
+                .complete_transition(operation.kind().occurrence());
+
             self.transfer_memory_result_state(state, operation.kind().node());
         }
 
@@ -908,45 +969,46 @@ where
         borrow: Option<BorrowCapabilityId>,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         match purpose {
-            StorageAccessPurpose::Move => {
-                if let Some(place) = self
-                    .physical_place(state, plan.access())
-                    .or_else(|| self.storage.logical_path(plan.access()).cloned())
-                {
-                    // The move index and memory transition independently own the shared path.
-                    state.record_move(
-                        place.clone(),
-                        plan.expression(),
-                        self.storage
-                            .access(plan.access())
-                            .expect("checked move access")
-                            .reached_type(),
-                        true,
-                    );
+            StorageAccessPurpose::Move
+            | StorageAccessPurpose::Initialize
+            | StorageAccessPurpose::Assignment => {
+                let physical = self.physical_place(state, plan.access());
 
-                    state.memory.consume_place(
-                        place,
-                        self.storage
-                            .access(plan.access())
-                            .expect("checked move access")
-                            .reached_type(),
-                    );
+                let logical = physical
+                    .as_ref()
+                    .or_else(|| self.storage.logical_path(plan.access()));
+
+                let ty = self
+                    .storage
+                    .access(plan.access())
+                    .expect("checked storage transition has its access")
+                    .reached_type();
+
+                if let Some(place) = logical {
+                    if purpose == StorageAccessPurpose::Move {
+                        // Ownership tracking retains the selected path independently of the memory transition.
+                        state.record_move(place.clone(), plan.expression(), ty, true);
+                    } else {
+                        state.initialize_path(place);
+                    }
                 }
-            }
-            StorageAccessPurpose::Initialize | StorageAccessPurpose::Assignment => {
-                if let Some(place) = self
-                    .physical_place(state, plan.access())
-                    .or_else(|| self.storage.logical_path(plan.access()).cloned())
-                {
-                    state.initialize_path(&place);
 
-                    state.memory.write_place(
-                        place,
-                        self.storage
-                            .access(plan.access())
-                            .expect("checked initialization access")
-                            .reached_type(),
-                        plan.expression(),
+                if let Some(place) = physical {
+                    if purpose == StorageAccessPurpose::Move {
+                        state.memory.consume_place(place, ty);
+                    } else {
+                        state.memory.write_place(place, ty, plan.expression());
+                    }
+                } else {
+                    // A lifetime anchor cannot stand in for an unresolved physical target.
+                    state.memory.invalidate(
+                        &bray_bound_tree::StorageInvalidation::All,
+                        self.storage,
+                        if purpose == StorageAccessPurpose::Move {
+                            bray_symbols::DependencyMutationKind::Consume
+                        } else {
+                            bray_symbols::DependencyMutationKind::Write
+                        },
                     );
                 }
             }
@@ -954,6 +1016,42 @@ where
                 if let Some(borrow) = borrow {
                     state.active_borrows.insert(borrow);
                     state.definitely_active_borrows.insert(borrow);
+
+                    let capability = self
+                        .storage
+                        .borrow_capability(borrow)
+                        .expect("checked borrow retains its capability");
+
+                    if capability.expression() == Some(plan.expression()) {
+                        let access = capability.access();
+
+                        if let Some(source) = self.physical_place(state, access) {
+                            let ty = self
+                                .storage
+                                .access(access)
+                                .expect("borrow has its source access")
+                                .reached_type();
+
+                            let result = self
+                                .execution
+                                .semantics
+                                .types()
+                                .expression(plan.expression())
+                                .expect("borrow expression has its checked type")
+                                .ty();
+
+                            let values = self.request.semantic_values();
+
+                            let reborrow = matches!((values.type_data(ty).as_ref(), values.type_data(result).as_ref()),
+                                (bray_symbols::TypeData::Borrow { target: source, .. }, bray_symbols::TypeData::Borrow { target: result, .. }) if source == result);
+
+                            if reborrow {
+                                state.memory.reborrow(borrow, &source, capability.parent());
+                            } else {
+                                state.memory.begin_borrow(borrow, source, ty);
+                            }
+                        }
+                    }
                 }
             }
             StorageAccessPurpose::Read
@@ -1114,9 +1212,10 @@ where
         block: bray_bound_tree::BoundBlockId,
         exit: AnyBoundNodeId,
     ) {
-        state
-            .live
-            .retain(|storage| self.owners.identity_scope(self.storage, *storage) != Some(block));
+        state.live.retain(|storage| {
+            bray_bound_tree::storage_identity_transfers_at_unit_exit(self.storage, *storage)
+                || self.owners.identity_scope(self.storage, *storage) != Some(block)
+        });
 
         state.retain_live_storage();
 

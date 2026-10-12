@@ -191,12 +191,12 @@ pub(in crate::compilation) struct CompilationState {
     pub(in crate::compilation) result_dependency_components: UnitQueryCache<
         std::collections::BTreeMap<
             bray_symbols::CallableSymbolId,
-            bray_symbols::DependencyContractTemplateId,
+            crate::compilation::binder::CallableAnalysis,
         >,
     >,
     pub(in crate::compilation) prepared_body_analysis:
         UnitQueryCache<bray_checker::PreparedBodyAnalysis>,
-    pub(in crate::compilation) body_semantics: UnitQueryCache<CheckedBodySemantics>,
+    pub(in crate::compilation) body_semantics: UnitQueryCache<Arc<CheckedBodySemantics>>,
     pub(in crate::compilation) checked_body_behaviors: UnitQueryCache<CheckedBodyBehavior>,
     pub(in crate::compilation) lowered_units: UnitQueryCache<Option<bray_lowering::LoweredUnit>>,
     pub(in crate::compilation) source_outputs: crate::compilation::source_output::SourceOutputs,

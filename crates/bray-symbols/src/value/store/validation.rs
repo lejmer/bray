@@ -289,6 +289,25 @@ pub(super) fn validate_dependency_template_data(
         validate_dependency_subject(tables, store, relation.exit());
     }
 
+    for effect in data.effects() {
+        use crate::DependencyStorageEffect;
+
+        match effect {
+            DependencyStorageEffect::Unknown => {}
+            DependencyStorageEffect::Direct { subject, .. } => {
+                validate_dependency_subject(tables, store, subject)
+            }
+            DependencyStorageEffect::Indirect {
+                reference,
+                projections,
+                ..
+            } => {
+                validate_dependency_subject(tables, store, reference);
+                validate_dependency_projections(tables, store, projections);
+            }
+        }
+    }
+
     validate_dependency_variables(data.requirements(), &mut Vec::new());
 
     let mut pending: Vec<_> = data.requirements().iter().collect();
@@ -402,7 +421,15 @@ fn validate_dependency_subject(
         tables.implementation_instances.get(store, instance);
     }
 
-    for projection in subject.projections() {
+    validate_dependency_projections(tables, store, subject.projections());
+}
+
+fn validate_dependency_projections(
+    tables: &SemanticTables,
+    store: SemanticValueStoreId,
+    projections: &[DependencyProjection],
+) {
+    for projection in projections {
         if let DependencyProjection::Element(index) = projection {
             tables.constant_terms.get(store, *index);
         }

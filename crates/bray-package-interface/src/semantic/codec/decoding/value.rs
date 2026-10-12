@@ -608,6 +608,64 @@ mod tests {
     };
 
     #[test]
+    fn mutation_effects_round_trip_and_intern_entry_reference_targets() {
+        use crate::{
+            InterfaceDependencyContract, InterfaceDependencyProjection, InterfaceDependencySubject,
+            InterfaceDependencySubjectRoot,
+        };
+
+        use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
+
+        let (surface, mut semantics) = fixture();
+
+        let subject = InterfaceDependencySubject::new(
+            InterfaceDependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
+            [],
+        );
+
+        let effects = [
+            DependencyStorageEffect::Direct {
+                subject: subject.clone(),
+                kind: DependencyMutationKind::Write,
+            },
+            DependencyStorageEffect::Direct {
+                subject: subject.clone(),
+                kind: DependencyMutationKind::Consume,
+            },
+            DependencyStorageEffect::Indirect {
+                reference: subject,
+                projections: [InterfaceDependencyProjection::Element(
+                    crate::InterfaceConstantTermId::new(0),
+                )]
+                .into(),
+                kind: DependencyMutationKind::Retire,
+            },
+        ];
+
+        semantics.dependency_contracts =
+            vec![InterfaceDependencyContract::new([]).with_effects(effects)].into();
+
+        let limits = InterfaceValidationLimits::default();
+        let sections = encode_semantics(&semantics, &surface, limits).unwrap();
+
+        let decoded =
+            decode_semantics(&encoded_section_views(&sections), &surface, limits).unwrap();
+
+        assert_eq!(decoded, semantics);
+
+        let store = SemanticValueStore::try_new().unwrap();
+        let imported = decoded.intern(&store, &resolver(&surface)).unwrap();
+        let template = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
+
+        assert_eq!(template.effects().len(), 3);
+
+        assert!(
+            matches!(&template.effects()[2], DependencyStorageEffect::Indirect { projections, kind: DependencyMutationKind::Retire, .. }
+            if projections.as_ref() == [bray_symbols::DependencyProjection::Element(imported.constant_terms()[0])])
+        );
+    }
+
+    #[test]
     fn semantic_sections_round_trip_and_intern_without_persisting_local_value_ids() {
         let (surface, semantics) = fixture();
 

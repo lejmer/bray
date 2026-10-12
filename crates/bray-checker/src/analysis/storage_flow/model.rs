@@ -26,6 +26,17 @@ pub(super) struct StorageFlowInput {
     storage_last_uses: BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageIdentityId>>,
     unused_entry_storage: BTreeSet<StorageIdentityId>,
     cleanup_free_storage: BTreeSet<StorageIdentityId>,
+    pub(super) borrowed_projections: BTreeMap<StorageAccessId, Vec<(usize, bray_symbols::TypeId)>>,
+    pub(super) entry_references: BTreeSet<super::memory::Place>,
+    pub(super) reference_constructions: BTreeMap<
+        BoundExpressionId,
+        Vec<(
+            BoundExpressionId,
+            super::memory::Place,
+            bray_symbols::TypeId,
+        )>,
+    >,
+    pub(super) retained_storage: BTreeSet<StorageAccessId>,
     pub(super) suspension_borrows: BTreeSet<BorrowCapabilityId>,
 }
 
@@ -36,13 +47,22 @@ impl StorageFlowInput {
         storage: &StoragePlan,
         mutable_storage: BTreeSet<StorageIdentityId>,
         liveness: &Liveness,
+        dependencies: &bray_bound_tree::CheckedDependencyContracts,
+        values: &crate::dependency::ValueInputs,
     ) -> crate::CheckerQueryResult<(Self, bray_diagnostics::DiagnosticBag), C::UpstreamError>
     where
         C: CheckerRequestContext + ?Sized,
     {
         let initialization_destinations = local_initialization_destinations(request, storage);
 
+        let mut retained_storage = BTreeSet::new();
+
+        for call in dependencies.calls().values() {
+            collect_retained_storage(call.result().requirements(), &mut retained_storage);
+        }
+
         let mut input = Self {
+            retained_storage,
             initialization_destinations,
             mutable_storage,
             suspension_borrows: liveness
@@ -75,6 +95,10 @@ impl StorageFlowInput {
 
             input.definitions.entry(node).or_default().push(storage);
         }
+
+        input.prepare_reference_constructions(request, storage, values)?;
+        input.prepare_entry_references(request, storage);
+        input.prepare_borrowed_projections(request, storage)?;
 
         input.immutable_field_accesses =
             super::authority::immutable_field_accesses(request, storage, &input)?;
@@ -286,7 +310,8 @@ impl StorageFlowState {
         identity: StorageIdentityId,
         storage: &StoragePlan,
     ) {
-        if self.recovered
+        if bray_bound_tree::storage_identity_transfers_at_unit_exit(storage, identity)
+            || self.recovered
             || self.active_borrows.iter().any(|borrow| {
                 storage
                     .borrow_capability(*borrow)
@@ -304,6 +329,7 @@ impl StorageFlowState {
         ended: &BTreeSet<BorrowCapabilityId>,
         storage: &StoragePlan,
     ) {
+        self.memory.end_borrows(ended);
         self.active_borrows.retain(|borrow| !ended.contains(borrow));
 
         self.definitely_active_borrows
@@ -372,6 +398,28 @@ impl StorageFlowState {
             .filter_map(|(id, capability)| capability.entry_binding().is_some().then_some(id))
             .collect::<BTreeSet<_>>();
 
+        let mut memory = super::memory::State::default();
+
+        for slot in &input.entry_references {
+            // The body owns its entry values while immutable projection paths are shared.
+            memory.entry_reference(slot.clone());
+        }
+
+        for capability in &active_borrows {
+            let borrow = storage
+                .borrow_capability(*capability)
+                .expect("entry capability is planned");
+
+            if let Some(path) = storage.logical_path(borrow.access()) {
+                let ty = storage
+                    .access(borrow.access())
+                    .expect("entry borrow has a planned target")
+                    .reached_type();
+
+                memory.begin_borrow(*capability, path.clone(), ty);
+            }
+        }
+
         Self {
             reachable: true,
             execution: None,
@@ -384,7 +432,7 @@ impl StorageFlowState {
             fully_moved: BTreeSet::new(),
             definitely_active_borrows: active_borrows.clone(),
             active_borrows,
-            memory: super::memory::State::default(),
+            memory,
             recovered: false,
         }
     }
@@ -441,6 +489,12 @@ impl StorageFlowState {
             moved_changed |= current.len() != count;
         }
 
+        let memory_changed = self.memory.merge(
+            &incoming.memory,
+            &self.definitely_absent,
+            &incoming.definitely_absent,
+        );
+
         self.definitely_absent.retain(|access, reason| {
             let Some(incoming) = incoming.definitely_absent.get(access) else {
                 absence_changed = true;
@@ -464,8 +518,6 @@ impl StorageFlowState {
 
         self.definitely_active_borrows
             .retain(|borrow| incoming.definitely_active_borrows.contains(borrow));
-
-        let memory_changed = self.memory.merge(&incoming.memory);
 
         self.recovered |= incoming.recovered;
 
@@ -846,6 +898,17 @@ mod tests {
             &storage,
             BTreeSet::new(),
             &liveness,
+            &bray_bound_tree::CheckedDependencyContracts::try_new(
+                &unit,
+                &storage,
+                [],
+                [],
+                [],
+                [],
+                false,
+            )
+            .expect("empty test dependencies"),
+            &crate::dependency::ValueInputs::default(),
         )
         .expect("test storage indexes must build");
 
@@ -1087,5 +1150,25 @@ mod tests {
             .unwrap_or_else(|error| panic!("allocation identity must validate: {error:?}"));
 
         (identity, expressions)
+    }
+}
+
+fn collect_retained_storage(
+    requirements: &[bray_bound_tree::BoundDependencyRequirement],
+    output: &mut BTreeSet<StorageAccessId>,
+) {
+    for requirement in requirements {
+        match requirement {
+            bray_bound_tree::BoundDependencyRequirement::Direct {
+                subject: BoundDependencySubject::StorageAccess(access),
+                kind,
+            } if *kind != bray_bound_tree::BoundDependencyRequirementKind::ValueDependencies => {
+                output.insert(*access);
+            }
+            bray_bound_tree::BoundDependencyRequirement::Guarded(guard) => {
+                collect_retained_storage(guard.requirements(), output)
+            }
+            _ => {}
+        }
     }
 }

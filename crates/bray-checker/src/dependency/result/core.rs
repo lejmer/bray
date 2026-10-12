@@ -220,11 +220,9 @@ where
         requirements
     };
 
-    let borrows = inference.borrow_relations()?;
-
     Ok(request
         .semantic_values()
-        .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements).with_borrows(borrows)).unwrap_or_else(|error| panic!("infer_result_dependencies must satisfy its checked construction contract: {error:?}")))
+        .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements)).unwrap_or_else(|error| panic!("infer_result_dependencies must satisfy its checked construction contract: {error:?}")))
 }
 
 pub(super) struct ResultInference<'a, C: CheckerRequestContext + ?Sized> {

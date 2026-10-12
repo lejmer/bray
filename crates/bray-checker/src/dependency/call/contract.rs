@@ -80,7 +80,14 @@ where
     }
 
     Ok((
-        instantiated.with_result(result),
+        super::references::with_references(
+            request,
+            expression,
+            call,
+            instantiated.with_result(result),
+            &template.template,
+        )
+        .map_err(DependencyContractInstantiationError::Resolution)?,
         template.escaping_evaluation_inputs,
     ))
 }

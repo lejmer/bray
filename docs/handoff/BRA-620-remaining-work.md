@@ -11,6 +11,67 @@ The [rule coverage and replacement plan](runtime-stack-rule-coverage.md) and [cl
 replace the earlier proposal. The [architectural assessment](stack-architecture-assessment.md) and the instructions below
 retain dated evidence and acceptance requirements. Issue preparation did not begin implementation.
 
+## Shared reference producer checkpoint, 2026-10-12
+
+This continuation follows `88bd8ca4` on `feature/bra-620-repair-synchronization-authority`. It is an incomplete BRA-620
+checkpoint. The production authority requirements below remain active. Read this section before the older checkpoints.
+
+Callable components now publish the checked body and its dependency summary together. Summary consumers reuse that body.
+The shared storage flow supplies returned reference origins, observable input-field replacements, returned lifetime
+requirements, and formal mutation effects. Runtime defaults use the same body publication. Selected default-provider
+contracts are prepared once and reused across their requirements and effects.
+
+The separate `dependency/result/borrows.rs` syntax analysis and `storage/expression/result.rs` lifetime-as-referent planner
+are removed. The execution checker no longer resolves a second set of returned-reference summaries. Storage planning
+provides expression storage independently of inferred results. Ordinary calls and assignments snapshot reference values
+before mutation and publish their outputs on normal completion through the same pending transition. Nullable absence
+participates in the existing reference join. A missing, moved, or unknown present value cannot prove exact identity.
+
+Portable mutation summaries distinguish direct slot changes, changes through an entry reference, and unknown effects.
+Export, import, substitution, validation and specialization identity preserve those summaries. An absent summary means
+unknown mutation, not purity. Package interfaces retain revision 1 because this repository requires no compatibility
+with the superseded development encoding.
+
+Cleanup preserves an external reference only when its entry and exit subjects are identical. A replacement relation does
+not justify a postcondition about the old reference. Address formation transfers the actual borrowed target independently
+of its lifetime anchor. Content writes retain intermediate lifetime dependencies even when they revoke all old content
+facts, so a newly established pointer guarantee still expires with the original owner.
+
+Evidence is in the shared primary checkout's `target/bra-620-authority/`:
+
+- `normal-exit-address-checker.log`: 283 checker tests pass.
+- `normal-exit-data-contracts.log`: 119 bound-tree, 189 package-interface and 202 symbol tests pass.
+- The `normal-exit-final-` logs record 19 returned-value, 15 memory-operation, 34 publication, 12 imported-result and eight
+  default-borrow tests passing after the final address correction. Five substitution tests and two specialization-identity
+  tests also pass after moving dependency logic into focused modules.
+- `normal-exit-fix-consuming_cleanup_retains.log` and `normal-exit-fix-default_borrows.log`: cleanup replacement rejection
+  and eight default-borrow tests pass.
+- `normal-exit-address-trusted.log`: 131 pass and 18 fail. Seventeen failures are retained production/authority work.
+  The additional `production_guard_borrow_origin_reaches_the_protected_payload` failure must be repaired in this issue.
+  The earlier deferred-producer failure was a stale pure/opaque fixture and is corrected.
+- `address-fix.log`: nine address tests pass, including the owner-lifetime and distinct-origin regressions. The broader
+  `raw_allocation_address_copies_preserve_whole_owner_transfer` test fails while checking production `std.memory` bodies.
+  Its moved-storage, initialization, trusted-obligation and totality diagnostics remain BRA-620 work.
+
+The mandatory mutating `cargo xtask style`, `cargo xtask format`, `cargo fmt --all` and `git diff --check` pass.
+
+The maintainability audit removed duplicate body/default summary construction and shares reference classification,
+projection typing, subtree transfer and join operations with the existing domain owners. Reference implementation roots
+are thin modules. Dependency substitution and specialization encoding live in focused sibling modules under their existing
+owners. The diff against `88bd8ca4` adds approximately 1,800 production lines and 1,000 test lines, excluding documentation.
+The added production code supplies the checked target state, normal-output transitions, portable effects and shared body
+publication that replace the two deleted analyses. Moving functions between modules is not counted as simplification.
+The next representation work must resolve symbolic borrowed targets and protected payload views in the owning shared
+flow. A formal reference identity is not evidence of a disjoint physical allocation. Do not reinstate the deleted syntax
+inference to restore the guard summary. The current physical resolver cannot express the full path through `Uninit<T>`.
+Preserve the distinction between a reference slot, its reached storage, a protected payload, and the owner supplying
+lifetime/authority. Check parameter aliasing, nested borrowed fields, payload epoch retirement, callee replacement, and
+source/imported summaries together. No new source syntax or field-privacy assumption is authorized.
+
+Other consolidation still required by the accepted plan: finite cleanup effects and actual retirement transitions,
+invocation versus deferred effects, demanded-component graph reuse, finite recursive path closure, recursive must candidates, and replacement of the
+remaining separate lifetime inference. Finish these and the production protocol matrix before treating BRA-620 as ready.
+No binary-performance, binary-size or native guard-layout acceptance claim is made by this checkpoint.
 ## Shared storage transition checkpoint, 2026-10-12
 
 Implementation is in progress in `feature/bra-620-repair-synchronization-authority`, after the published recovery and plan

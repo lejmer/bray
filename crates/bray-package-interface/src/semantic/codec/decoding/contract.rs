@@ -96,7 +96,37 @@ pub(super) fn decode_dependency_contract(
         ));
     }
 
-    Ok(InterfaceDependencyContract::new(requirements).with_borrows(borrows))
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut effects = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        use bray_symbols::DependencyStorageEffect;
+
+        let raw = read_u32(reader)?;
+
+        effects.push(match raw {
+            0 => DependencyStorageEffect::Unknown,
+            1 => DependencyStorageEffect::Direct {
+                subject: decode_dependency_subject(reader, limits, context)?,
+                kind: decode_tag(read_u32(reader)?)?,
+            },
+            2 => DependencyStorageEffect::Indirect {
+                reference: decode_dependency_subject(reader, limits, context)?,
+                projections: decode_dependency_projections(reader, limits, context)?.into(),
+                kind: decode_tag(read_u32(reader)?)?,
+            },
+            _ => {
+                return Err(crate::semantic::codec::invalid_discriminant(
+                    crate::InterfaceValidationField::Dependency,
+                    raw,
+                ));
+            }
+        });
+    }
+
+    Ok(InterfaceDependencyContract::new(requirements)
+        .with_borrows(borrows)
+        .with_effects(effects))
 }
 
 pub(super) fn decode_constraint(
@@ -467,6 +497,16 @@ pub(super) fn decode_dependency_subject(
         }
     };
 
+    let projections = decode_dependency_projections(reader, limits, context)?;
+
+    Ok(InterfaceDependencySubject::new(root, projections))
+}
+
+fn decode_dependency_projections(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<Vec<InterfaceDependencyProjection>, InterfaceValidationError> {
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
 
     let mut projections = context.allocate_items(reader, count)?;
@@ -496,7 +536,7 @@ pub(super) fn decode_dependency_subject(
         });
     }
 
-    Ok(InterfaceDependencySubject::new(root, projections))
+    Ok(projections)
 }
 
 pub(super) fn decode_dependency_guard(
@@ -582,6 +622,7 @@ mod tests {
             1, 0, // Receiver input with no projection.
             1, 1, 2, 5, 0, 7, // Values carried by parameter five.
             1, 1, 8, 0, 1, // Evaluation-owned storage.
+            0, 1, 0, // No reference relations and unknown mutation effects.
         ];
 
         let decoded = decode_words(&words, InterfaceValidationLimits::default()).unwrap();
@@ -651,7 +692,7 @@ mod tests {
     }
     #[test]
     fn dependency_equations_decode_with_bounded_nesting() {
-        let words = [1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0];
+        let words = [1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 1, 0];
         let variable = InterfaceDependencyRequirement::variable(0, SymbolOrdinal::new(0));
 
         let expected =

@@ -3,8 +3,9 @@ use bray_runtime_interface::{ExecutionLaneRequirement, RuntimeCapability};
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableConstness, CallableExecution, CallableParameterMode,
     CallablePosition, CallableTrust, ConstantBinaryOperation, ConstantUnaryOperation,
-    CurrentRunCancellation, DependencyReferenceKind, LifecycleObligationKind, ReceiverMode,
-    SymbolKind, SynthesizedSymbolRole, TargetSizedIntegerType,
+    CurrentRunCancellation, DependencyMutationKind, DependencyReferenceKind,
+    LifecycleObligationKind, ReceiverMode, SymbolKind, SynthesizedSymbolRole,
+    TargetSizedIntegerType,
 };
 
 use super::{
@@ -132,6 +133,12 @@ wire_tags!(SymbolKind {
     52 => SymbolKind::PostconditionResult,
     53 => SymbolKind::TrustedCapability,
     54 => SymbolKind::Static,
+});
+
+wire_tags!(DependencyMutationKind {
+    1 => DependencyMutationKind::Write,
+    2 => DependencyMutationKind::Consume,
+    3 => DependencyMutationKind::Retire,
 });
 
 wire_tags!(DependencyReferenceKind {

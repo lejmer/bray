@@ -1,37 +1,6 @@
-use super::plan::{PlanError, Planner};
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
-use bray_bound_tree::StorageProjection;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{DeclaredStorageShape, DependencyProjection, TypeData, TypeId};
-
-impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
-    pub(super) fn projected_storage_type(
-        &mut self,
-        owner: TypeId,
-        projection: StorageProjection,
-    ) -> Result<TypeId, PlanError<C::UpstreamError>> {
-        let projection = match projection {
-            StorageProjection::OwnedTarget => DependencyProjection::OwnedTarget,
-            StorageProjection::NullableValue => DependencyProjection::NullableValue,
-            StorageProjection::TupleElement(index) => DependencyProjection::TupleElement(index),
-            StorageProjection::ProductField(field) => DependencyProjection::ProductField(field),
-            StorageProjection::ActiveUnionPayloadField { field, .. } => {
-                DependencyProjection::UnionPayloadField(field)
-            }
-            _ => panic!(
-                "Storage-planning inputs or constructed records violate the requested unit contract. in projected_storage_type"
-            ),
-        };
-
-        let checked = projected_value_type(self.request, owner, projection)?;
-
-        let (ty, diagnostics) = checked.into_parts();
-
-        self.diagnostics.add_range(diagnostics);
-
-        Ok(ty.unwrap_or_else(|| panic!("checked storage projection must have a type, owner: {owner:?}, projection: {projection:?}")))
-    }
-}
 
 /// Resolves one checked value projection while preserving declaration diagnostics and substitution.
 pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(

@@ -104,7 +104,8 @@ pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
         request,
         template.requirements(),
     )?)
-    .with_borrows(template.borrows().iter().cloned()))
+    .with_borrows(template.borrows().iter().cloned())
+    .with_effects(template.effects().iter().cloned()))
 }
 
 fn value_requirement(root: DependencySubjectRoot) -> DependencyRequirement {

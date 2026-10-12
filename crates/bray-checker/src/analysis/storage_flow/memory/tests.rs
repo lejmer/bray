@@ -11,9 +11,19 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 fn places() -> ([Place; 4], Vec<BoundExpressionId>) {
+    let (places, expressions, _) = borrowed_places();
+
+    (places, expressions)
+}
+
+fn borrowed_places() -> (
+    [Place; 4],
+    Vec<BoundExpressionId>,
+    bray_bound_tree::BorrowCapabilityId,
+) {
     let unit = BoundUnitId::new(41);
 
-    let (_, expressions) = expression_unit(unit, |tree, origin| {
+    let (bound, expressions) = expression_unit(unit, |tree, origin| {
         (0..4)
             .map(|_| {
                 push_expression(
@@ -37,7 +47,39 @@ fn places() -> ([Place; 4], Vec<BoundExpressionId>) {
         })
         .collect::<Vec<_>>();
 
-    (places.try_into().expect("four test places"), expressions)
+    let source = bound
+        .tree()
+        .expression(expressions[0])
+        .unwrap()
+        .origin()
+        .source_anchor();
+
+    let access = storage
+        .push_access(bray_bound_tree::StorageAccess::new(
+            bray_bound_tree::StorageAccessRoot::Storage(places[0].root),
+            [],
+            error_type(),
+            source,
+            false,
+        ))
+        .unwrap();
+
+    let borrow = storage
+        .push_borrow_capability(bray_bound_tree::PlannedBorrowCapability::new(
+            bray_bound_tree::BorrowCapabilityOrigin::Expression(expressions[0]),
+            bray_symbols::BorrowKind::Shared,
+            access,
+            None,
+            source,
+            false,
+        ))
+        .unwrap();
+
+    (
+        places.try_into().expect("four test places"),
+        expressions,
+        borrow,
+    )
 }
 
 #[test]
@@ -258,8 +300,8 @@ fn join_intersects_initialization_but_preserves_possible_obligations_and_origins
     let mut right = left.clone();
 
     left.write(&source, error_type(), origins[1], None);
-    assert!(left.merge(&right));
-    assert!(!left.merge(&right));
+    assert!(left.merge(&right, &Default::default(), &Default::default()));
+    assert!(!left.merge(&right, &Default::default(), &Default::default()));
 
     assert_eq!(
         left.read(&source, error_type(), MemoryReadKind::Copy, None, None),
@@ -272,7 +314,7 @@ fn join_intersects_initialization_but_preserves_possible_obligations_and_origins
     );
 
     right.deallocate(&source, origins[2]);
-    assert!(left.merge(&right));
+    assert!(left.merge(&right, &Default::default(), &Default::default()));
 
     assert_eq!(
         left.read(&source, error_type(), MemoryReadKind::Copy, None, None),
@@ -298,7 +340,7 @@ fn joined_targets_require_all_possible_contents_and_weak_writes_do_not_initializ
     let mut right = left.clone();
 
     right.transfer(&second, alias.clone());
-    assert!(left.merge(&right));
+    assert!(left.merge(&right, &Default::default(), &Default::default()));
     left.write(&alias, error_type(), origins[2], None);
 
     for target in [&first, &second, &alias] {
@@ -424,7 +466,7 @@ fn origin_join_unions_and_deduplicates_diagnostic_causes() {
 
     left.write(&source, error_type(), origins[1], None);
     right.write(&source, error_type(), origins[2], None);
-    left.merge(&right);
+    left.merge(&right, &Default::default(), &Default::default());
 
     assert_eq!(
         left.initialization_origins(&source).collect::<Vec<_>>(),
@@ -436,7 +478,7 @@ fn origin_join_unions_and_deduplicates_diagnostic_causes() {
         MemoryOperationStatus::Valid
     );
 
-    assert!(!left.merge(&right));
+    assert!(!left.merge(&right, &Default::default(), &Default::default()));
 }
 
 #[test]
@@ -711,7 +753,7 @@ fn direct_moves_and_reinitialization_change_existing_pointer_targets() {
 
 #[test]
 fn reinterpreted_views_do_not_relabel_the_original_typed_storage() {
-    let ([owner, pointer, alias, _], origins) = places();
+    let ([owner, pointer, alias, _], origins, capability) = borrowed_places();
 
     let mut state = State::default();
     let ty = error_type();
@@ -728,4 +770,270 @@ fn reinterpreted_views_do_not_relabel_the_original_typed_storage() {
     assert_eq!(state.referent(&alias, ty), Some(owner));
     assert_eq!(state.referent(&alias, other), None);
     assert_eq!(state.reached_storage(&alias)[0].1, Some(ty));
+    state.begin_borrow(capability, state.referent(&alias, ty).unwrap(), other);
+    state.retain_borrow(capability, alias.clone());
+    assert_eq!(state.referent(&alias, other), None);
+    assert_eq!(state.reached_storage(&alias)[0].1, Some(ty));
+}
+
+#[test]
+fn retained_borrow_values_share_targets_and_outlive_expression_capabilities() {
+    let ([source, alias, _, _], _, capability) = borrowed_places();
+
+    let mut state = State::default();
+
+    state.begin_borrow(capability, source.clone(), error_type());
+    state.retain_borrow(capability, alias.clone());
+    state.end_borrows(&BTreeSet::from([capability]));
+
+    assert!(!state.has_borrow(capability));
+    assert_eq!(state.referent(&alias, error_type()), Some(source.clone()));
+    assert!(!state.initialized(&alias, error_type()));
+
+    state.begin(source.root);
+    assert_eq!(state.referent(&alias, error_type()), None);
+}
+
+#[test]
+fn joined_borrow_capabilities_require_one_current_target_on_every_path() {
+    let ([source, other, alias, _], _, capability) = borrowed_places();
+
+    let mut state = State::default();
+
+    state.begin_borrow(capability, source.clone(), error_type());
+
+    for incoming in [Some(source.clone()), Some(other), None] {
+        let mut incoming_state = State::default();
+
+        if let Some(place) = &incoming {
+            incoming_state.begin_borrow(capability, place.clone(), error_type());
+        }
+
+        let mut joined = state.clone();
+
+        joined.merge(&incoming_state, &Default::default(), &Default::default());
+        assert!(!joined.merge(&incoming_state, &Default::default(), &Default::default()));
+        joined.retain_borrow(capability, alias.clone());
+
+        assert_eq!(
+            joined.referent(&alias, error_type()),
+            (incoming.as_ref() == Some(&source)).then(|| source.clone())
+        );
+    }
+}
+
+#[test]
+fn opaque_mutation_forgets_stored_references_without_retargeting_live_borrows() {
+    let ([source, slot, alias, _], origins, capability) = borrowed_places();
+
+    let mut state = State::default();
+
+    state.address(source.clone(), slot.clone(), error_type(), origins[0]);
+    state.begin_borrow(capability, source.clone(), error_type());
+
+    let storage =
+        StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish();
+
+    state.invalidate(
+        &bray_bound_tree::StorageInvalidation::All,
+        &storage,
+        bray_symbols::DependencyMutationKind::Retire,
+    );
+
+    assert!(!state.has_reference(&slot));
+    state.retain_borrow(capability, alias.clone());
+    assert_eq!(state.referent(&alias, error_type()), Some(source));
+    assert!(!state.initialized(&alias, error_type()));
+}
+
+#[test]
+fn call_results_keep_entry_reference_identity_across_slot_reassignment() {
+    let ([first, argument, second, result], expressions) = places();
+
+    let call = expressions[0].into();
+    let mut state = State::default();
+
+    state.address(
+        first.clone(),
+        argument.clone(),
+        error_type(),
+        expressions[0],
+    );
+
+    state.begin_transition(call);
+    state.stage_slot(call, &argument, result.clone());
+
+    state.address(
+        second.clone(),
+        argument.clone(),
+        error_type(),
+        expressions[1],
+    );
+
+    state.complete_transition(call);
+    assert_eq!(state.referent(&argument, error_type()), Some(second));
+    assert_eq!(state.referent(&result, error_type()), Some(first));
+}
+
+#[test]
+fn call_entry_snapshots_do_not_restore_consumed_or_retired_contents() {
+    let ([owner, argument, result, _], expressions) = places();
+
+    let call = expressions[0].into();
+    let mut state = State::default();
+
+    state.address(
+        owner.clone(),
+        argument.clone(),
+        error_type(),
+        expressions[0],
+    );
+
+    state.begin_transition(call);
+    state.stage_slot(call, &argument, result.clone());
+
+    state.read(
+        &argument,
+        error_type(),
+        MemoryReadKind::Move,
+        Some(expressions[1]),
+        None,
+    );
+
+    state.complete_transition(call);
+    assert_eq!(state.referent(&result, error_type()), Some(owner.clone()));
+    assert!(!state.initialized(&result, error_type()));
+    state.begin_transition(call);
+    state.stage_slot(call, &argument, result.clone());
+    state.begin(owner.root);
+    state.complete_transition(call);
+    assert_eq!(state.referent(&result, error_type()), None);
+}
+
+#[test]
+fn a_call_snapshot_present_on_only_one_path_has_no_must_target() {
+    let ([owner, argument, result, _], expressions) = places();
+
+    let call = expressions[0].into();
+    let mut state = State::default();
+
+    state.address(owner, argument.clone(), error_type(), expressions[0]);
+    state.begin_transition(call);
+    state.stage_slot(call, &argument, result.clone());
+
+    let mut missing = State::default();
+
+    missing.merge(&state, &Default::default(), &Default::default());
+    state.merge(&State::default(), &Default::default(), &Default::default());
+
+    for mut joined in [state, missing] {
+        joined.complete_transition(call);
+        assert_eq!(joined.referent(&result, error_type()), None);
+    }
+}
+
+#[test]
+fn original_entry_references_survive_slot_reassignment_without_proving_disjointness() {
+    let ([first, second, captured, _], origins) = places();
+
+    let mut state = State::default();
+
+    state.entry_reference(first.clone());
+    state.entry_reference(second.clone());
+    state.transfer(&first, captured.clone());
+    state.transfer(&second, first.clone());
+
+    let exact = state.exact_references(&captured).collect::<Vec<_>>();
+
+    assert_eq!(
+        exact,
+        vec![(&captured, &super::model::Origin::Entry(first.clone()))]
+    );
+
+    state.write(&first, error_type(), origins[0], None);
+
+    assert!(
+        !state.has_reference(&second),
+        "an unknown input target may overwrite another input slot"
+    );
+
+    assert!(
+        state.has_reference(&captured),
+        "overwriting an input slot does not rewrite a copied reference value"
+    );
+
+    assert!(
+        state.located_storage(&captured).is_none(),
+        "original value identity does not locate its target"
+    );
+}
+
+#[test]
+fn absent_payload_is_ignored_but_unknown_or_moved_payload_blocks_exact_identity() {
+    let ([source, payload, _, _], _) = places();
+
+    for absence in [
+        None,
+        Some(crate::analysis::storage_flow::model::StorageAbsence::NoPayload),
+        Some(crate::analysis::storage_flow::model::StorageAbsence::Moved),
+    ] {
+        for present_first in [false, true] {
+            let mut present = State::default();
+
+            present.entry_reference(source.clone());
+            present.transfer(&source, payload.clone());
+
+            let absent = State::default();
+
+            let absent_places = absence
+                .map(|reason| (payload.clone(), reason))
+                .into_iter()
+                .collect();
+
+            let empty = Default::default();
+
+            let mut joined = if present_first {
+                present.clone()
+            } else {
+                absent.clone()
+            };
+
+            if present_first {
+                joined.merge(&absent, &empty, &absent_places);
+            } else {
+                joined.merge(&present, &absent_places, &empty);
+            }
+
+            assert_eq!(
+                joined.exact_references(&payload).count(),
+                usize::from(
+                    absence
+                        == Some(crate::analysis::storage_flow::model::StorageAbsence::NoPayload)
+                )
+            );
+        }
+    }
+}
+
+#[test]
+fn exposed_entry_reference_keeps_its_origin_without_claiming_a_physical_place() {
+    let ([source, pointer, _, _], origins) = places();
+
+    let mut state = State::default();
+
+    state.entry_reference(source.clone());
+    state.transfer(&source, pointer.clone());
+    state.expose_address(&pointer, error_type(), origins[0]);
+
+    assert_eq!(
+        state.exact_references(&pointer).collect::<Vec<_>>(),
+        vec![(&pointer, &super::model::Origin::Entry(source))]
+    );
+
+    assert!(state.located_storage(&pointer).is_none());
+
+    assert_eq!(
+        state.read(&pointer, error_type(), MemoryReadKind::Copy, None, None),
+        MemoryOperationStatus::Valid
+    );
 }

@@ -12,6 +12,7 @@ fn runtime_defaults_reject_provider_owned_borrows_in_every_declaration_kind() {
         struct Flag
         {
             value: bool;
+            func borrow() -> &bool { return &self.value; }
         }
 
         struct Holder
@@ -37,6 +38,9 @@ fn runtime_defaults_reject_provider_owned_borrows_in_every_declaration_kind() {
     "#;
 
     for declaration in [
+        r#"func bad(value: &bool = make_flag().borrow()) {}"#,
+        r#"struct Bad { value: &bool = make_flag().borrow(); }"#,
+        r#"union Bad { Value(value: &bool = make_flag().borrow()); }"#,
         r#"
             func bad(value: &Flag = &make_flag())
             {
