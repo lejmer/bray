@@ -140,7 +140,16 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
     }
 
     Ok(CallResultDependencies {
-        template: DependencyContractTemplateData::new(result),
+        // Default arguments have no caller expression to anchor an exact entry identity.
+        template: DependencyContractTemplateData::new(result).with_borrows(
+            template
+                .borrows()
+                .iter()
+                .filter(|relation| {
+                    super::result_argument(call, relation.entry().subject_root()).is_some()
+                })
+                .cloned(),
+        ),
         escaping_evaluation_inputs: escaping_evaluation_inputs.into_iter().collect(),
     })
 }

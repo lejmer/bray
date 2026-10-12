@@ -277,3 +277,37 @@ fn unsupported_atomic_plain_storage_sizes_fail_before_lowering() {
         DiagnosticKind::CheckingTargetMemoryOperationUnavailable,
     );
 }
+
+#[test]
+fn atomic_value_initialization_is_pure_but_observation_and_mutation_are_not() {
+    for (operation, valid) in [
+        ("return core.atomic.initialize<u32>(7);", true),
+        (
+            "let _: u32 = core.atomic.load<u32, 0>(existing); return core.atomic.initialize<u32>(7);",
+            false,
+        ),
+        (
+            "core.atomic.store<u32, 0>(existing, 7); return core.atomic.initialize<u32>(7);",
+            false,
+        ),
+    ] {
+        let application = compilation(&format!(
+            "module app; func root(pos existing: &core.atomic.Atomic<u32>) -> core.atomic.Atomic<u32> executes(pure, total) {{ {operation} }}"
+        ));
+
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{operation}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+        }
+    }
+}

@@ -39,6 +39,17 @@ impl ExecutionPlace {
             ExecutionInput::Argument(_) => None,
         }
     }
+    pub(crate) fn is_callable_input(&self) -> bool {
+        matches!(
+            self.reference(),
+            Some(BoundReferenceTarget::Surface(
+                AnySymbolId::CallableParameter(_) | AnySymbolId::ReceiverParameter(_)
+            )) | Some(BoundReferenceTarget::Local(
+                bray_symbols::AnyLocalSymbolId::AnonymousCallableParameter(_)
+            ))
+        )
+    }
+
     pub(crate) fn storage(
         storage: &bray_bound_tree::StoragePlan,
         access: bray_bound_tree::StorageAccessId,
@@ -108,6 +119,9 @@ impl ExecutionPlace {
                 }
                 bray_bound_tree::StorageProjection::ActiveUnionPayloadField { field, .. } => {
                     self = self.field((*field).into());
+                }
+                bray_bound_tree::StorageProjection::NullableValue => {
+                    self = self.component(ConstantProjectionKind::NullableValue);
                 }
                 bray_bound_tree::StorageProjection::TupleElement(index) => {
                     self = self.component(ConstantProjectionKind::TupleElement(*index));

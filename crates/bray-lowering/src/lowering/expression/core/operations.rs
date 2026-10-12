@@ -1139,7 +1139,7 @@ impl Lowerer<'_> {
             }
         }
 
-        let call = self.selected_mir_call(selection, target, arguments);
+        let call = self.selected_mir_call(id, selection, target, arguments);
 
         let (current, value) =
             self.lower_call_operation(id, current, Self::retained_source(&source), call)?;
@@ -1149,6 +1149,7 @@ impl Lowerer<'_> {
 
     fn selected_mir_call(
         &self,
+        expression: BoundExpressionId,
         selection: &bray_bound_tree::SelectedCall,
         target: MirCallTarget,
         arguments: Vec<MirCallArgument>,
@@ -1158,7 +1159,13 @@ impl Lowerer<'_> {
             target,
             selection.resolution().result(),
             arguments,
-            selection.phase_behaviors().clone(),
+            selection
+                .phase_behaviors()
+                .clone()
+                .with_invocation_may_unwind(
+                    !self.input.call_cannot_unwind(expression)
+                        && selection.phase_behaviors().invocation().may_unwind(),
+                ),
             selection.contract().cloned(),
             selection
                 .resolution()

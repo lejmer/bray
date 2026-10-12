@@ -1,3 +1,4 @@
+mod copyability;
 mod expression;
 mod pattern;
 mod plan;
@@ -13,3 +14,5 @@ pub(crate) use protocol::selected_storage_protocol_call;
 pub(crate) use scope::{
     local_initialization_destinations, storage_scope_owners, value_transfer_bindings,
 };
+
+pub use copyability::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};

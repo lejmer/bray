@@ -1,0 +1,71 @@
+trusted module std.sync;
+
+using internal std.sync.mutex;
+
+struct MutexGuard<T>
+{
+    mutex: &Mutex<T>;
+
+    internal trusted func storage() -> &Uninit<std.sync.mutex.State<T>>
+        requires(trusted std.sync.mutex.acquired<T>(self))
+        ensures(trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = result))
+        executes(pure, total)
+    {
+        return &self.mutex.storage;
+    }
+
+    trusted destruct()
+        requires(trusted std.sync.mutex.acquired<T>(self))
+        ensures(trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = &self.mutex.storage))
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = trusted std.sync.mutex.pointer<T>(self.storage());
+        let state = trusted std.memory.borrow_from<std.sync.mutex.State<T>, Mutex<T>>(self.mutex, pointer);
+        let _: u32 = core.atomic.fetch_add<u32, 2>(&state.serving_ticket, 1);
+
+        trusted internal std.atomic.platform_wake_all_words(&state.serving_ticket);
+    }
+
+    internal trusted func pointer() -> RawPointer<T>
+        requires(trusted std.sync.mutex.acquired<T>(self))
+        ensures(
+            trusted core.memory.valid_write<T>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<T>(pointer = result),
+            trusted core.memory.initialized_as<T>(pointer = result),
+            trusted core.memory.exclusive_alias_valid<T>(pointer = result),
+            trusted core.memory.epoch_current<T>(pointer = result),
+            trusted core.memory.synchronized_access<T>(pointer = result),
+            trusted core.memory.movement_stable<T>(pointer = result),
+            trusted core.memory.finalization_pending<T>(pointer = result),
+        )
+        executes(pure, total)
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = trusted std.sync.mutex.pointer<T>(self.storage());
+        let state = trusted std.memory.borrow_from<std.sync.mutex.State<T>, Mutex<T>>(self.mutex, pointer);
+        let value = std.memory.address_of<T>(&state.value);
+
+        return value;
+    }
+
+    trusted mut func get() -> &mut T
+        requires(trusted std.sync.mutex.acquired<T>(self))
+        ensures(trusted std.sync.mutex.acquired<T>(self))
+        executes(pure, total)
+        uses(raw_memory, unchecked_alias)
+    {
+        let value = self.pointer();
+
+        return trusted std.memory.borrow_mut_from<T, MutexGuard<T>>(&mut self, value);
+    }
+
+    internal func owner() -> &Mutex<T>
+        executes(pure, total)
+    {
+        return self.mutex;
+    }
+
+    consume func unlock()
+        requires(trusted std.sync.mutex.acquired<T>(self))
+        ensures(trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = &self.mutex.storage)) {}
+}

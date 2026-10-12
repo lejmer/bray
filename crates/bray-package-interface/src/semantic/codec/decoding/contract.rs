@@ -85,7 +85,18 @@ pub(super) fn decode_dependency_contract(
         requirements.push(decode_dependency_requirement(reader, limits, context, 0)?);
     }
 
-    Ok(InterfaceDependencyContract::new(requirements))
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut borrows = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        borrows.push(bray_symbols::DependencyBorrowRelation::new(
+            decode_dependency_subject(reader, limits, context)?,
+            decode_dependency_subject(reader, limits, context)?,
+            decode_tag(read_u32(reader)?)?,
+        ));
+    }
+
+    Ok(InterfaceDependencyContract::new(requirements).with_borrows(borrows))
 }
 
 pub(super) fn decode_constraint(
@@ -255,6 +266,18 @@ pub(super) fn decode_callable_behavior(
 
     let dependency_contract = InterfaceDependencyContractId::new(read_u32(reader)?);
     let current_run_cancellation = decode_tag(read_u32(reader)?)?;
+
+    let may_unwind = match read_u32(reader)? {
+        0 => false,
+        1 => true,
+        raw => {
+            return Err(crate::semantic::codec::invalid_discriminant(
+                crate::InterfaceValidationField::Dependency,
+                raw,
+            ));
+        }
+    };
+
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
     let mut execution_properties = context.allocate_items(reader, count)?;
 
@@ -270,7 +293,8 @@ pub(super) fn decode_callable_behavior(
         lifecycle_obligations,
         dependency_contract,
         current_run_cancellation,
-    );
+    )
+    .with_may_unwind(may_unwind);
 
     behavior.predicate_guarantees = predicate_sets
         .pop()

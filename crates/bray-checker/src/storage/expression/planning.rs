@@ -311,8 +311,14 @@ where
                 bray_bound_tree::SelectedArgument::Default { .. } => None,
             });
 
+        let observational = matches!(semantic_selection, Some(SemanticSelection::Predicate(_)))
+            || selection
+                .is_some_and(|call| matches!(call.target(), BoundCallableTarget::Predicate(_)));
+
         for argument in arguments {
-            if let Some(kind) = reborrows.next().flatten() {
+            if observational {
+                self.plan_expression(argument, Some(StorageAccessPurpose::Read))?;
+            } else if let Some(kind) = reborrows.next().flatten() {
                 self.plan_call_reborrow(argument, kind)?;
             } else {
                 self.plan_expression(argument, Some(StorageAccessPurpose::ValueTransfer))?;

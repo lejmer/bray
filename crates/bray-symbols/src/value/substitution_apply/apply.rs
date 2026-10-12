@@ -641,7 +641,21 @@ impl SemanticValueStore {
             .map(|requirement| self.substitute_dependency_requirement(requirement, substitution))
             .collect::<Result<Vec<_>, _>>()?;
 
-        self.intern_dependency_contract_template(DependencyContractTemplateData::new(requirements))
+        let borrows = template
+            .borrows()
+            .iter()
+            .map(|relation| {
+                Ok(super::super::DependencyBorrowRelation::new(
+                    self.substitute_dependency_subject(relation.entry(), substitution)?,
+                    self.substitute_dependency_subject(relation.exit(), substitution)?,
+                    relation.kind(),
+                ))
+            })
+            .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
+
+        self.intern_dependency_contract_template(
+            DependencyContractTemplateData::new(requirements).with_borrows(borrows),
+        )
     }
 
     fn substitute_dependency_call_inputs(

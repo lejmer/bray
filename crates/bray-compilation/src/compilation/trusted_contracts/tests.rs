@@ -2553,7 +2553,9 @@ fn borrowed_completion_preserves_the_reached_owner_for_cleanup() {
             trusted func observe(pos value: &Owner)
                 requires(trusted live(value)) ensures(trusted live(value)) executes(total) {{}}
             trusted func may_fail(pos value: &Owner)
-                requires(trusted live(value)) ensures(trusted live(value)) {{}}
+                requires(trusted live(value)) ensures(trusted live(value)) {{
+                    if value.epoch == 2 {{ panic("stopped"); }}
+                }}
             trusted func observe_mut(pos value: &mut Owner)
                 requires(trusted live(&value)) ensures(trusted live(&value)) executes(total) {{}}
             func forget(pos value: &Owner) {{}}
@@ -2574,10 +2576,21 @@ fn borrowed_completion_preserves_the_reached_owner_for_cleanup() {
 
 #[test]
 fn cleanup_checks_destructor_against_finalizer_completion() {
-    for (guarantee, execution, valid) in [
-        ("ensures(trusted finished(&self))", "executes(total)", true),
-        ("ensures(trusted finished(&self))", "", false),
-        ("", "executes(total)", false),
+    for (guarantee, execution, body, valid) in [
+        (
+            "ensures(trusted finished(&self))",
+            "executes(total)",
+            "",
+            true,
+        ),
+        ("ensures(trusted finished(&self))", "", "", true),
+        (
+            "ensures(trusted finished(&self))",
+            "",
+            "if self.epoch == 2 { panic(\"stopped\"); }",
+            false,
+        ),
+        ("", "executes(total)", "", false),
     ] {
         let source = format!(
             r#"
@@ -2588,7 +2601,7 @@ fn cleanup_checks_destructor_against_finalizer_completion() {
             struct Owner {{
                 epoch: u64;
 
-                trusted finalize() {execution} {guarantee} {{}}
+                trusted finalize() {execution} {guarantee} {{ {body} }}
 
                 trusted destruct() requires(trusted finished(&self)) {{}}
             }}

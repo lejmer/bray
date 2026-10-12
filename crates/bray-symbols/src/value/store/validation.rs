@@ -284,6 +284,11 @@ pub(super) fn validate_dependency_template_data(
     store: SemanticValueStoreId,
     data: &DependencyContractTemplateData,
 ) {
+    for relation in data.borrows() {
+        validate_dependency_subject(tables, store, relation.entry());
+        validate_dependency_subject(tables, store, relation.exit());
+    }
+
     validate_dependency_variables(data.requirements(), &mut Vec::new());
 
     let mut pending: Vec<_> = data.requirements().iter().collect();

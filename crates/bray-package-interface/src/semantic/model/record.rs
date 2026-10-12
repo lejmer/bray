@@ -268,9 +268,22 @@ pub struct InterfaceCallablePhaseBehavior {
     pub(crate) lifecycle_obligations: Arc<[LifecycleObligationKind]>,
     pub(crate) dependency_contract: InterfaceDependencyContractId,
     pub(crate) current_run_cancellation: CurrentRunCancellation,
+    pub(crate) may_unwind: bool,
 }
 
 impl InterfaceCallablePhaseBehavior {
+    /// Attaches inferred abnormal-exit behavior on valid inputs, independent of termination.
+    pub const fn with_may_unwind(mut self, may_unwind: bool) -> Self {
+        self.may_unwind = may_unwind;
+
+        self
+    }
+
+    /// Returns whether panic or cancellation can escape this phase.
+    pub const fn may_unwind(&self) -> bool {
+        self.may_unwind
+    }
+
     /// Creates normalized behavior for one invocation or deferred execution phase.
     pub fn new(
         effects: impl IntoIterator<Item = InterfaceSymbolReference>,
@@ -292,6 +305,7 @@ impl InterfaceCallablePhaseBehavior {
             execution_properties: Arc::from([]),
             dependency_contract,
             current_run_cancellation,
+            may_unwind: true,
         }
     }
 

@@ -987,3 +987,88 @@ fn imported_mixed_predicate_conditions_preserve_trusted_occurrences() {
         }
     }
 }
+
+#[test]
+fn nullable_absence_contract_survives_interface_transport() {
+    let provider = compilation(
+        r#"
+        module api;
+        func absent(pos value: u32?) requires(value matches none) executes(total) {}
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for (argument, valid) in [("none", true), ("1", false)] {
+        let source = format!(
+            "module app; using example.package.api; func root() executes(total) {{ example.package.api.absent({argument}); }}"
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(
+            !consumer.check_diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            consumer.check_diagnostics()
+        );
+    }
+}
+#[test]
+fn imported_cleanup_guarantees_reach_following_calls() {
+    let provider = compilation(
+        r#"
+        trusted module api;
+        trusted predicate ready();
+        struct Producer {
+            tag: u8;
+            trusted destruct() ensures(trusted ready()) executes(total) {}
+        }
+        func observe() requires(trusted ready()) executes(pure, total) {}
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for (interference, valid) in [
+        ("", true),
+        ("{ let other: Interference = { tag = 0 }; }", false),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            using example.package.api;
+            struct Interference {{ tag: u8; destruct() executes(total) {{}} }}
+            func caller() {{
+                {{ let value: example.package.api.Producer = {{ tag = 0 }}; }}
+                {interference}
+                example.package.api.observe();
+            }}
+        "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}

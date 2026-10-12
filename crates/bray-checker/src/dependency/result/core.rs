@@ -23,7 +23,9 @@ pub fn infer_result_dependencies<C>(
     static_roots: &BTreeMap<StaticSymbolId, DependencySubjectRoot>,
 ) -> Result<DependencyContractTemplateId, CheckerQueryError<C::UpstreamError>>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext
+        + crate::CheckerSemanticQueryProvider<bray_symbols::CallableSignatureQuery>
+        + ?Sized,
 {
     crate::unit::assert_unit_inputs(
         request,
@@ -219,9 +221,11 @@ where
         requirements
     };
 
+    let borrows = inference.borrow_relations()?;
+
     Ok(request
         .semantic_values()
-        .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements)).unwrap_or_else(|error| panic!("infer_result_dependencies must satisfy its checked construction contract: {error:?}")))
+        .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements).with_borrows(borrows)).unwrap_or_else(|error| panic!("infer_result_dependencies must satisfy its checked construction contract: {error:?}")))
 }
 
 pub(super) struct ResultInference<'a, C: CheckerRequestContext + ?Sized> {

@@ -6,7 +6,6 @@ use bray_bound_tree::{
     BoundUnit, BoundUnitKey, BoundUnitRoot, CheckedBodySemantics, CheckedExpressionSemantics,
     SemanticSelection, StoragePlan,
 };
-use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{CallableExecutionRequirement, DependencyContractTemplateId, TypeId};
 
@@ -344,12 +343,7 @@ fn execution_requirement(
         return None;
     };
 
-    if !matches!(
-        call.implementation_hook()?,
-        ImplementationHook::BlockingExecution
-            | ImplementationHook::ComputeExecution
-            | ImplementationHook::MainThreadExecution
-    ) {
+    if !call.implementation_hook()?.is_execution_requirement() {
         return None;
     }
 

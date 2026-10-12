@@ -378,12 +378,14 @@ where
         TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
     };
 
-    Ok(
-        resolve_type_expression_template(request.semantic_values(), template, &constants).map_or(
-            TemplateResolution::Unsupported,
-            TemplateResolution::Resolved,
-        ),
-    )
+    let Some(ty) =
+        resolve_type_expression_template(request.semantic_values(), template, &constants)
+    else {
+        return Ok(TemplateResolution::Unsupported);
+    };
+
+    crate::normalize_type_valued_members(request.context(), ty, diagnostics)
+        .map(TemplateResolution::Resolved)
 }
 
 pub(crate) fn resolve_signature<C>(

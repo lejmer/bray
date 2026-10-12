@@ -254,6 +254,14 @@ define_catalog_enum! {
 }
 
 impl ImplementationHook {
+    /// Whether this predicate describes the current runtime execution lane.
+    pub const fn is_execution_requirement(self) -> bool {
+        matches!(
+            self,
+            Self::BlockingExecution | Self::ComputeExecution | Self::MainThreadExecution
+        )
+    }
+
     /// Compiler-provided raw-memory and layout operations.
     pub const MEMORY_OPERATIONS: &'static [Self] = &[
         Self::AddressOf,

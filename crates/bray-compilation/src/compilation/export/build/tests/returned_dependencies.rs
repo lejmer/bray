@@ -519,3 +519,115 @@ fn storage_projection_guarantees_survive_generic_interfaces() {
         );
     }
 }
+
+#[test]
+fn exact_borrow_origin_survives_generic_export_and_import() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Holder<T> { reference: &T; address: RawPointer<T>; }
+        func make<T>(pos input: &T, pos address: RawPointer<T>) -> Holder<T> { return { reference = input, address = address }; }
+    "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api;
+        func forwarded(pos input: &bool, pos address: RawPointer<bool>) -> example.package.api.Holder<bool> { return example.package.api.make(input, address); }
+    "#,
+    );
+
+    let diagnostics = consumer.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let callable = crate::test_support::source_function(&consumer, "forwarded");
+
+    let context = consumer
+        .binding_context(&consumer.state.cancellation)
+        .unwrap();
+
+    let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
+        &context,
+        bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(
+            callable.into(),
+        ),
+    )
+    .unwrap();
+
+    let template = consumer
+        .semantic_value_store()
+        .unwrap()
+        .dependency_contract_template_data(*dependencies.value());
+
+    assert_eq!(template.borrows().len(), 2, "{template:#?}");
+
+    for (parameter, kind) in [
+        (0, bray_symbols::DependencyReferenceKind::Borrow),
+        (1, bray_symbols::DependencyReferenceKind::Address),
+    ] {
+        let relation = template
+            .borrows()
+            .iter()
+            .find(|relation| relation.kind() == kind)
+            .unwrap_or_else(|| panic!("imported origin must retain {kind:?}: {template:#?}"));
+
+        assert_eq!(
+            relation.entry().subject_root(),
+            bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(
+                parameter
+            ))
+        );
+
+        assert_eq!(
+            relation.exit().subject_root(),
+            bray_symbols::DependencySubjectRoot::Result
+        );
+
+        assert_eq!(relation.exit().projections().len(), 1);
+    }
+}
+
+#[test]
+fn inferred_unwind_behavior_survives_export_and_import() {
+    let provider = compilation(
+        r#"
+        module api;
+        func spin() { while true {} }
+        func fail() { panic("failure"); }
+    "#,
+    );
+
+    for (callee, expected) in [("spin", false), ("fail", true)] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                "module app; using example.package.api; func root() {{ example.package.api.{callee}(); }}"
+            ),
+        );
+
+        let key = source_function_body_key(&consumer, "root");
+
+        let summary = consumer
+            .unwind_behavior(key.clone(), &consumer.state.cancellation)
+            .unwrap();
+
+        assert!(
+            !summary.result().diagnostics().has_errors(),
+            "{:?}",
+            summary.result().diagnostics()
+        );
+
+        assert_eq!(*summary.result().value(), expected, "{callee}");
+
+        let lowered = consumer.lowered_unit(key).unwrap();
+
+        assert!(
+            !lowered.diagnostics().has_errors(),
+            "{:?}",
+            lowered.diagnostics()
+        );
+    }
+}

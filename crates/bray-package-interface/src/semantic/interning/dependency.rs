@@ -30,8 +30,29 @@ impl InternState {
                 continue;
             };
 
+            let mut borrows = Vec::with_capacity(input.borrows.len());
+
+            for relation in input.borrows.iter() {
+                let (Some(entry), Some(exit)) = (
+                    self.convert_dependency_subject(relation.entry(), symbols)?,
+                    self.convert_dependency_subject(relation.exit(), symbols)?,
+                ) else {
+                    break;
+                };
+
+                borrows.push(bray_symbols::DependencyBorrowRelation::new(
+                    entry,
+                    exit,
+                    relation.kind(),
+                ));
+            }
+
+            if borrows.len() != input.borrows.len() {
+                continue;
+            }
+
             self.dependency_contracts[index] = Some(store.intern_dependency_contract_template(
-                DependencyContractTemplateData::new(requirements),
+                DependencyContractTemplateData::new(requirements).with_borrows(borrows),
             )?);
         }
 

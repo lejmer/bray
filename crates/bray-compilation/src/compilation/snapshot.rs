@@ -393,6 +393,15 @@ fn reuse_mapped_cells(
         CompilationFactKey::MemoryOperations(key.clone())
     });
 
+    reuse!(
+        unwind_candidates,
+        |key| CompilationFactKey::UnwindCandidate(key.clone())
+    );
+
+    reuse!(unwind_behavior, |key| CompilationFactKey::UnwindBehavior(
+        key.clone()
+    ));
+
     reuse!(execution_candidates, |key| {
         CompilationFactKey::ExecutionCandidates(key.clone())
     });

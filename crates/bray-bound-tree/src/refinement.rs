@@ -1,11 +1,33 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_base::shared_slice;
 
 use crate::{
-    AnyBoundNodeId, BoundExpressionId, BoundPatternId, BoundUnitId, BoundUnitKind,
-    PatternPredicate, StorageAccessId,
+    AnyBoundNodeId, BoundExecutionSite, BoundExpressionId, BoundPatternId, BoundUnitId,
+    BoundUnitKind, PatternPredicate, StorageAccessId, StoragePlan, StorageRelationship,
 };
+
+/// Storage whose previously observed contents may change at one execution site.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum StorageInvalidation {
+    /// An opaque operation can reach storage through untracked aliases.
+    All,
+    /// Only the listed accesses and overlapping storage may change.
+    Accesses(Vec<StorageAccessId>),
+}
+
+impl StorageInvalidation {
+    /// Returns whether this operation invalidates facts about the given access.
+    pub fn invalidates(&self, access: StorageAccessId, storage: &StoragePlan) -> bool {
+        match self {
+            Self::All => true,
+            Self::Accesses(mutations) => mutations.iter().any(|mutation| {
+                storage.relationship(access, *mutation) != StorageRelationship::Disjoint
+            }),
+        }
+    }
+}
 
 /// One flow-sensitive refinement established while checking a bound unit.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -143,6 +165,7 @@ pub struct CheckedRefinements {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     occurrences: Arc<[RefinementOccurrence]>,
+    invalidations: BTreeMap<BoundExecutionSite, StorageInvalidation>,
     is_recovered: bool,
 }
 
@@ -152,6 +175,7 @@ impl CheckedRefinements {
         unit: BoundUnitId,
         kind: BoundUnitKind,
         occurrences: impl IntoIterator<Item = RefinementOccurrence>,
+        invalidations: BTreeMap<BoundExecutionSite, StorageInvalidation>,
         is_recovered: bool,
     ) -> Result<Self, RefinementSetBuildError> {
         let mut occurrences = occurrences.into_iter().collect::<Vec<_>>();
@@ -169,6 +193,13 @@ impl CheckedRefinements {
             return Err(RefinementSetBuildError::ForeignUnit);
         }
 
+        if invalidations.iter().any(|(site, invalidation)| {
+            site.node().unit() != unit || matches!(invalidation,
+                StorageInvalidation::Accesses(accesses) if accesses.iter().any(|access| access.unit() != unit))
+        }) {
+            return Err(RefinementSetBuildError::ForeignUnit);
+        }
+
         occurrences.sort_unstable_by_key(RefinementOccurrence::node);
 
         if occurrences
@@ -182,6 +213,7 @@ impl CheckedRefinements {
             unit,
             kind,
             occurrences: occurrences.into(),
+            invalidations,
             is_recovered,
         })
     }
@@ -210,6 +242,11 @@ impl CheckedRefinements {
             .unwrap_or_default()
     }
 
+    /// Returns the checked mutation effect of one execution site.
+    pub fn invalidation_at(&self, site: BoundExecutionSite) -> Option<&StorageInvalidation> {
+        self.invalidations.get(&site)
+    }
+
     /// Returns whether recovery prevented complete refinement evidence.
     pub const fn is_recovered(&self) -> bool {
         self.is_recovered
@@ -223,8 +260,8 @@ mod tests {
         RefinementSetBuildError,
     };
     use crate::{
-        AnyBoundNodeId, BoundExpressionId, BoundPatternId, BoundUnitId, BoundUnitKind,
-        PatternPredicate, StorageAccessId,
+        AnyBoundNodeId, BoundExecutionSite, BoundExpressionId, BoundPatternId, BoundUnitId,
+        BoundUnitKind, PatternPredicate, StorageAccessId, StoragePlan, StorageRelationship,
     };
 
     #[test]
@@ -256,6 +293,7 @@ mod tests {
                 RefinementOccurrence::new(second.into(), [refinement.clone(), refinement.clone()]),
                 RefinementOccurrence::new(first.into(), []),
             ],
+            Default::default(),
             false,
         )
         .unwrap_or_else(|error| panic!("valid refinements must build: {error:?}"));
@@ -310,6 +348,7 @@ mod tests {
                     expression.into(),
                     [foreign_refinement]
                 )],
+                Default::default(),
                 false,
             ),
             Err(RefinementSetBuildError::ForeignUnit)
@@ -323,6 +362,7 @@ mod tests {
                     expression.into(),
                     [foreign_pattern_refinement]
                 )],
+                Default::default(),
                 false,
             ),
             Err(RefinementSetBuildError::ForeignUnit)
@@ -336,6 +376,7 @@ mod tests {
                     RefinementOccurrence::new(expression.into(), []),
                     RefinementOccurrence::new(expression.into(), []),
                 ],
+                Default::default(),
                 false,
             ),
             Err(RefinementSetBuildError::DuplicateOccurrence)

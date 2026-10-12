@@ -12,3 +12,6 @@ mod host_tests;
 pub(in crate::compilation) use host_tests::{
     production_host_compilation, production_host_compilation_for_target,
 };
+
+#[cfg(test)]
+mod sync;

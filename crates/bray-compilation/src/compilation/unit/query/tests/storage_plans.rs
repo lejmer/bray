@@ -532,7 +532,14 @@ func main(pos value: &Guard?) -> usize
         CheckerOutcome::Complete(_)
     ));
 
-    let missing = CheckedRefinements::try_new(bound.value().unit(), key.kind(), [], false).unwrap();
+    let missing = CheckedRefinements::try_new(
+        bound.value().unit(),
+        key.kind(),
+        [],
+        Default::default(),
+        false,
+    )
+    .unwrap();
 
     DefaultStorageFlowChecker.check_storage_flow(
         request,

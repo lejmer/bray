@@ -317,14 +317,21 @@ impl ControlFlowGraph {
         operations: impl Into<Box<[AnalysisOperation]>>,
         exits: impl Into<Box<[AnalysisExit]>>,
     ) -> Self {
-        Self {
+        let graph = Self {
             unit,
             entry,
             blocks: blocks.into(),
             edges: edges.into(),
             operations: operations.into(),
             exits: exits.into(),
-        }
+        };
+
+        assert!(
+            graph.is_well_formed(),
+            "control-flow graph construction violated its invariants for {unit:?}"
+        );
+
+        graph
     }
 
     pub(crate) const fn unit(&self) -> BoundUnitId {

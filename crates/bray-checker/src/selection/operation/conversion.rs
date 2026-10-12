@@ -169,12 +169,15 @@ fn phase_contract_is_compatible(
     // Removing promises compares the same immutable phase contracts without widening obligations.
     source
         .clone()
+        .with_may_unwind(true)
         .with_execution_properties([])
         .with_predicates([], [])
         == target
             .clone()
+            .with_may_unwind(true)
             .with_execution_properties([])
             .with_predicates([], [])
+        && (target.may_unwind() || !source.may_unwind())
         && source.predicate_requirements().iter().all(|condition| {
             target.predicate_requirements().iter().any(|candidate| {
                 candidate.condition() == condition.condition()

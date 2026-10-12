@@ -22,11 +22,11 @@ pub(in crate::compilation::binder::symbol) fn extend_dependency_contract_with_st
         return Ok(contract);
     }
 
-    let mut requirements = context
+    let template = context
         .semantic_values()
-        .dependency_contract_template_data(contract)
-        .requirements()
-        .to_vec();
+        .dependency_contract_template_data(contract);
+
+    let mut requirements = template.requirements().to_vec();
 
     for dependency in dependencies {
         requirements.push(DependencyRequirement::direct(
@@ -37,7 +37,7 @@ pub(in crate::compilation::binder::symbol) fn extend_dependency_contract_with_st
 
     Ok(context
         .semantic_values()
-        .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements)).unwrap_or_else(|error| panic!("extend_dependency_contract_with_statics must satisfy its checked construction contract: {error:?}")))
+        .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements).with_borrows(template.borrows().iter().cloned())).unwrap_or_else(|error| panic!("extend_dependency_contract_with_statics must satisfy its checked construction contract: {error:?}")))
 }
 
 pub(in crate::compilation::binder::symbol) fn portable_dependency_contract(

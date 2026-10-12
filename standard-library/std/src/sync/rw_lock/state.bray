@@ -1,0 +1,59 @@
+trusted module std.sync.rw_lock;
+
+const WRITE_LOCKED: u64 = 9_223_372_036_854_775_808;
+
+const WRITER_PENDING_ONE: u64 = 4_294_967_296;
+
+const WRITER_PENDING_MASK: u64 = 9_223_372_032_559_808_512;
+
+const READER_COUNT_MASK: u64 = 4_294_967_295;
+
+const READER_BLOCKED_MASK: u64 = 18_446_744_069_414_584_320;
+
+struct State<T>
+{
+    state: core.atomic.Atomic<u64>;
+    generation: core.atomic.Atomic<u32>;
+    value: T;
+}
+
+trusted internal func pointer<T>(pos storage: &Uninit<State<T>>) -> RawPointer<State<T>>
+    requires(trusted core.memory.uninit_initialized<State<T>>(storage = storage))
+    ensures(
+        trusted core.memory.valid_read<State<T>>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<State<T>>(pointer = result),
+        trusted core.memory.initialized_as<State<T>>(pointer = result),
+        trusted core.memory.shared_alias_valid<State<T>>(pointer = result),
+        trusted core.memory.epoch_current<State<T>>(pointer = result),
+        trusted core.memory.synchronized_access<State<T>>(pointer = result),
+        trusted core.memory.movement_stable<State<T>>(pointer = result),
+        trusted core.memory.finalization_pending<State<T>>(pointer = result),
+    )
+    executes(pure, total)
+{
+    return std.memory.uninit_pointer<State<T>>(storage);
+}
+
+trusted internal func register_writer<T>(pos lock: &State<T>)
+{
+    while true
+    {
+        let state: u64 = core.atomic.load<u64, 0>(&lock.state);
+
+        if state & WRITER_PENDING_MASK == WRITER_PENDING_MASK
+        {
+            panic("reader-writer lock pending writer count exceeded the target range");
+        }
+
+        let (_, registered) = core.atomic.compare_exchange<u64, 1, 0>(
+            &lock.state,
+            expected = state,
+            desired = state + WRITER_PENDING_ONE,
+        );
+
+        if registered
+        {
+            return unit;
+        }
+    }
+}

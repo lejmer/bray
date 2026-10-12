@@ -1,27 +1,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_bound_tree::{
-    AnyBoundNodeId, BoundExpressionId, BoundReferenceTarget, CheckedAsync, StorageAccessId,
-};
-use bray_symbols::{
-    CallableExecution, CallableInstanceData, TypeAssociatedLifecycleSlot, TypeData, TypeId,
-};
+use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundReferenceTarget, StorageAccessId};
+use bray_symbols::{TypeAssociatedLifecycleSlot, TypeData};
 
-use super::super::model::{AnalysisOperationKind, AnalysisScopeExitPhase};
 use super::flow::{ExecutionFlow, ExecutionFlowDomain};
 use super::state::ExecutionState;
-use crate::{
-    CheckerQueryError, CheckerRequestContext, ExecutionCallEvidence, ExecutionCondition,
-    ExecutionPlace,
-};
+use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
     pub(super) fn candidate(
         &self,
-        cleanup: &CheckedAsync,
         memory: &bray_bound_tree::CheckedMemoryOperations,
         collect_cleanup: bool,
-    ) -> Result<crate::ExecutionCandidate, CheckerQueryError<C::UpstreamError>> {
+    ) -> crate::ExecutionCandidate {
         let mut candidate = crate::ExecutionCandidate::default();
         let mut dependencies = BTreeSet::new();
         let mut results = BTreeSet::new();
@@ -55,76 +46,48 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                 .iter()
                 .filter_map(|id| self.domain.graph.operation(*id))
             {
-                let targets = match operation.kind() {
-                    AnalysisOperationKind::ScopeExit {
-                        block,
-                        exit,
-                        phase: AnalysisScopeExitPhase::LifecycleResolution,
-                        ..
-                    } if collect_cleanup => cleanup
-                        .scope_exit_plan(block, exit)
-                        .into_iter()
-                        .flat_map(|plan| {
-                            plan.lifecycle_resolution()
-                                .iter()
-                                .map(move |access| (exit, *access))
-                        })
-                        .collect::<Vec<_>>(),
-                    AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression))
-                        if collect_cleanup =>
-                    {
-                        cleanup
-                            .replacement(expression)
-                            .into_iter()
-                            .filter(|plan| {
-                                plan.parts().is_none()
-                                    && matches!(
-                                        plan.cleanup(),
-                                        bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_)
-                                    )
-                            })
-                            .map(|plan| (expression.into(), plan.access()))
-                            .collect()
-                    }
-                    _ => Vec::new(),
-                };
-
-                for (node, access) in targets {
-                    for slot in [
-                        TypeAssociatedLifecycleSlot::Finalizer,
-                        TypeAssociatedLifecycleSlot::Destructor,
-                    ] {
-                        if let Some((callable, result, evidence)) =
-                            self.cleanup_entry(&state, access, slot, true)?
-                        {
-                            if slot == TypeAssociatedLifecycleSlot::Finalizer {
-                                // Cleanup discharge and execution certification independently
-                                // retain this receiver evidence, so share the query and copy its result.
-                                candidate
-                                    .cleanup
-                                    .entry((node, access))
-                                    .and_modify(|(_, _, previous)| {
-                                        previous.intersect(&evidence);
-                                    })
-                                    .or_insert_with(|| (callable, result, evidence.clone()));
-                            }
-
-                            candidate
-                                .disposal
-                                .entry((node.into(), callable))
-                                .and_modify(|previous| {
-                                    previous.intersect(&evidence);
-                                })
-                                .or_insert(evidence);
-                        }
-                    }
-
-                    if !self.domain.cleanup_preserves_inputs(&state, access) {
-                        state.invalidate_cleanup(None);
-                    }
+                if !collect_cleanup {
+                    self.domain.operation(&mut state, operation.kind(), None);
+                    continue;
                 }
 
-                self.domain.operation(&mut state, operation.kind());
+                self.domain.operation(
+                    &mut state,
+                    operation.kind(),
+                    Some(&mut |access, slot, lifecycle, whole, evidence, _| {
+                        if !lifecycle.synchronous {
+                            return;
+                        }
+
+                        let node = match operation.kind() {
+                            super::super::model::AnalysisOperationKind::ScopeExit {
+                                exit, ..
+                            } => exit,
+                            operation => operation.node(),
+                        };
+
+                        if whole && slot == TypeAssociatedLifecycleSlot::Finalizer {
+                            candidate
+                                .cleanup
+                                .entry((node, access))
+                                .and_modify(|(_, _, previous)| {
+                                    previous.intersect(evidence);
+                                })
+                                // Cleanup discharge and execution certification retain independent evidence.
+                                .or_insert_with(|| {
+                                    (lifecycle.callable, lifecycle.result, evidence.clone())
+                                });
+                        }
+
+                        candidate
+                            .disposal
+                            .entry((node.into(), lifecycle.callable))
+                            .and_modify(|previous| {
+                                previous.intersect(evidence);
+                            })
+                            .or_insert_with(|| evidence.clone());
+                    }),
+                );
             }
 
             for operation in block
@@ -214,99 +177,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
             None
         };
 
-        Ok(candidate)
-    }
-
-    pub(super) fn cleanup_entry(
-        &self,
-        state: &ExecutionState,
-        access: StorageAccessId,
-        slot: TypeAssociatedLifecycleSlot,
-        require_synchronous: bool,
-    ) -> Result<
-        Option<(CallableInstanceData, TypeId, ExecutionCallEvidence)>,
-        CheckerQueryError<C::UpstreamError>,
-    > {
-        let access_type = self
-            .domain
-            .storage
-            .access(access)
-            .expect("checked cleanup has committed storage")
-            .reached_type();
-
-        self.cleanup_place_entry(
-            state,
-            ExecutionPlace::storage(self.domain.storage, access),
-            access_type,
-            slot,
-            require_synchronous,
-        )
-    }
-
-    pub(super) fn cleanup_place_entry(
-        &self,
-        state: &ExecutionState,
-        place: Option<ExecutionPlace>,
-        ty: TypeId,
-        slot: TypeAssociatedLifecycleSlot,
-        require_synchronous: bool,
-    ) -> Result<
-        Option<(CallableInstanceData, TypeId, ExecutionCallEvidence)>,
-        CheckerQueryError<C::UpstreamError>,
-    > {
-        let request = self.domain.request;
-        let selected = request.context().lifecycle_callable(ty, slot)?;
-
-        let Some((callable, signature)) = selected.value() else {
-            return Ok(None);
-        };
-
-        let Some(receiver) = signature.receiver() else {
-            return Ok(None);
-        };
-
-        if selected.diagnostics().has_errors()
-            || (require_synchronous
-                && !matches!(request.semantic_values().type_data(signature.callable_type())
-                .as_ref(), TypeData::Callable(callable) if callable.execution() == CallableExecution::Synchronous))
-        {
-            return Ok(None);
-        }
-
-        let mut arguments = BTreeMap::new();
-        let receiver = BoundReferenceTarget::Surface(receiver.parameter().into());
-
-        for (observed, value) in &state.current {
-            if let Some(place) = &place
-                && place.contains(observed)
-            {
-                let mut input = ExecutionPlace::from(receiver);
-
-                for field in observed.projections.iter().skip(place.projections.len()) {
-                    input = input.component(*field);
-                }
-
-                // The finalizer candidate retains the current immutable value snapshot.
-                arguments.insert(input, value.clone());
-            }
-        }
-
-        if let Some(value) = place.and_then(|place| place.value_in(&state.current)) {
-            arguments.entry(receiver.into()).or_insert(value);
-        }
-
-        // A candidate owns its entry assumptions independently of subsequent cleanup.
-        Ok(Some((
-            *callable,
-            signature.result(),
-            ExecutionCallEvidence {
-                trusted_boundary: !state.trust_boundaries.is_empty(),
-                pending_execution: false,
-                arguments,
-                assumptions: state.assumptions.clone(),
-                trusted_assumptions: state.trusted_assumptions.clone(),
-            },
-        )))
+        candidate
     }
 }
 
@@ -347,6 +218,34 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Disposing their local representation cannot execute storage release or user cleanup.
         matches!(value, Some(ExecutionCondition::Literal(value))
             if matches!(value.kind(), bray_symbols::ConstantValueKind::String(_)))
+    }
+
+    fn call_argument_value(
+        &self,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+        conversion: &bray_bound_tree::SelectedConversion,
+    ) -> ExecutionCondition {
+        let value = if matches!(
+            conversion.target(),
+            bray_bound_tree::ConversionTarget::Identity
+                | bray_bound_tree::ConversionTarget::CallableContract
+                | bray_bound_tree::ConversionTarget::NullablePresent
+        ) {
+            state
+                .expressions
+                .get(&expression)
+                .cloned()
+                .unwrap_or_else(|| self.value(state, expression))
+        } else {
+            ExecutionCondition::Unknown
+        };
+
+        if *conversion.target() == bray_bound_tree::ConversionTarget::NullablePresent {
+            value.present()
+        } else {
+            value
+        }
     }
 
     pub(super) fn call_entry(
@@ -456,19 +355,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 ..
             } = argument
             {
-                let value = if matches!(
-                    conversion.target(),
-                    bray_bound_tree::ConversionTarget::Identity
-                        | bray_bound_tree::ConversionTarget::CallableContract
-                ) {
-                    state
-                        .expressions
-                        .get(expression)
-                        .cloned()
-                        .unwrap_or_else(|| self.value(state, *expression))
-                } else {
-                    ExecutionCondition::Unknown
-                };
+                let value = self.call_argument_value(state, *expression, conversion);
 
                 if let Some(parameter) = parameter {
                     arguments.insert(
@@ -619,19 +506,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if matches!(
             call.target(),
             bray_bound_tree::BoundCallableTarget::Predicate(_)
-        ) {
-            return;
-        }
-
-        // TODO(BRA-500): Carry async completion evidence through the future and await boundary.
-        if !matches!(
+        ) || !matches!(
             call.resolution().result(),
             bray_bound_tree::BoundCallResult::Immediate(_)
         ) {
             return;
         }
 
-        let result = ExecutionCondition::Expression(expression);
+        let result = self.value(state, expression);
 
         let contracts = self
             .contracts

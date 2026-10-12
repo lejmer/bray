@@ -15,10 +15,6 @@ where
         ControlFlowGraphBuildOutcome::UpstreamFailure(error) => match error {},
     };
 
-    if !graph.is_well_formed() {
-        panic!("checker control-flow graph violated its construction invariants");
-    }
-
     let Some(reachability) = analyze_reachability(&graph, request) else {
         return CheckerOutcome::Cancelled;
     };

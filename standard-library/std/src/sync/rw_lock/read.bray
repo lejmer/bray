@@ -1,0 +1,3 @@
+trusted module std.sync.rw_lock.read;
+
+trusted predicate acquired<T>(guard: std.sync.RwLockReadGuard<T>?);

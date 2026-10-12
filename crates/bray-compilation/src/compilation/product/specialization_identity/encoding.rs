@@ -520,6 +520,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
 
         self.dependency_contract(behavior.dependency_contract())?;
         self.current_run_cancellation(behavior.current_run_cancellation());
+        self.tag(u8::from(behavior.may_unwind()));
 
         Ok(())
     }
@@ -530,7 +531,37 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
     ) -> Result<(), FactQueryError> {
         let data = self.values.dependency_contract_template_data(id);
 
-        self.dependency_requirements(data.requirements())
+        self.dependency_requirements(data.requirements())?;
+
+        let mut identities = Vec::with_capacity(data.borrows().len());
+
+        for relation in data.borrows() {
+            let mut encoder = StructuralValueEncoder {
+                values: self.values,
+                binding_context: self.binding_context,
+                digest: StableDigestHasher::new(),
+                allow_static_address: self.allow_static_address,
+            };
+
+            encoder.dependency_subject(relation.entry())?;
+            encoder.dependency_subject(relation.exit())?;
+
+            encoder.tag(match relation.kind() {
+                bray_symbols::DependencyReferenceKind::Borrow => 1,
+                bray_symbols::DependencyReferenceKind::Address => 2,
+            });
+
+            identities.push(encoder.digest.finalize());
+        }
+
+        identities.sort_unstable();
+        self.length(identities.len());
+
+        for identity in identities {
+            self.digest.write(&identity);
+        }
+
+        Ok(())
     }
 
     fn dependency_requirements(

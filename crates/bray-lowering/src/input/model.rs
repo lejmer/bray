@@ -32,6 +32,7 @@ pub(crate) enum ScopeExitCleanupStatus {
 /// only the indexes needed by its hot lookup paths instead of certifying those analyses again.
 #[derive(Clone)]
 pub struct LoweringInput<'unit> {
+    unwind: Option<&'unit bray_bound_tree::CheckedUnwind>,
     unit: &'unit BoundUnit,
     control_flow: &'unit CheckedControlFlow,
     expression_types: &'unit CheckedExpressionTypes,
@@ -65,6 +66,18 @@ pub struct LoweringInput<'unit> {
 }
 
 impl<'unit> LoweringInput<'unit> {
+    /// Borrows the owning analysis's checked unwind results.
+    pub fn with_unwind(mut self, unwind: &'unit bray_bound_tree::CheckedUnwind) -> Self {
+        self.unwind = Some(unwind);
+
+        self
+    }
+
+    pub(crate) fn call_cannot_unwind(&self, expression: BoundExpressionId) -> bool {
+        self.unwind
+            .is_some_and(|unwind| unwind.call_cannot_unwind(expression))
+    }
+
     /// Publishes checked semantic inputs and the indexes used directly by lowering.
     #[expect(
         clippy::too_many_arguments,
@@ -205,6 +218,7 @@ impl<'unit> LoweringInput<'unit> {
         }
 
         Self {
+            unwind: None,
             unit,
             control_flow,
             expression_types,
@@ -1068,8 +1082,14 @@ mod tests {
         let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
             .unwrap_or_else(|error| panic!("empty liveness must validate: {error:?}"));
 
-        let refinements = CheckedRefinements::try_new(unit.unit(), unit.key().kind(), [], false)
-            .unwrap_or_else(|error| panic!("empty refinements must validate: {error:?}"));
+        let refinements = CheckedRefinements::try_new(
+            unit.unit(),
+            unit.key().kind(),
+            [],
+            Default::default(),
+            false,
+        )
+        .unwrap_or_else(|error| panic!("empty refinements must validate: {error:?}"));
 
         let dependencies = CheckedDependencyContracts::try_new(
             unit,

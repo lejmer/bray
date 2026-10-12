@@ -92,7 +92,8 @@ pub(super) fn checked_memory_guarantee(
     if property == ExecutionProperty::Total
         && matches!(
             kind,
-            CheckedMemoryOperationKind::Read { .. }
+            CheckedMemoryOperationKind::SpinLoopHint
+                | CheckedMemoryOperationKind::Read { .. }
                 | CheckedMemoryOperationKind::Write { .. }
                 | CheckedMemoryOperationKind::Copy { .. }
                 | CheckedMemoryOperationKind::IsNull { .. }
@@ -126,6 +127,7 @@ pub(super) fn checked_memory_guarantee(
     return matches!(
         kind,
         CheckedMemoryOperationKind::SequenceLength
+            | CheckedMemoryOperationKind::AtomicInitialize { .. }
             | CheckedMemoryOperationKind::ByteBufferRead
             | CheckedMemoryOperationKind::Read {
                 kind: bray_bound_tree::MemoryReadKind::Copy,
@@ -173,6 +175,21 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
         return false;
     }
 
+    if let Some(SemanticSelection::Call(call)) = selections.expression(expression) {
+        // Defaults and argument conversions execute before both source and intrinsic calls.
+        if call.evaluates_defaults() {
+            return false;
+        }
+
+        for argument in call.arguments() {
+            if let SelectedArgument::Explicit { conversion, .. } = argument
+                && !collect_conversion_dependencies(conversion, property, expression, dependencies)
+            {
+                return false;
+            }
+        }
+    }
+
     if let Some(operation) = memory.operation(expression) {
         return checked_memory_guarantee(operation.kind(), property);
     }
@@ -182,25 +199,8 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
             // TODO(BRA-500): Certify trait dispatch from its preserved contract and dependencies.
             if call.resolution().trait_dispatch().is_some()
                 || !matches!(call.resolution().result(), BoundCallResult::Immediate(_))
-                || call
-                    .arguments()
-                    .iter()
-                    .any(|argument| matches!(argument, SelectedArgument::Default { .. }))
             {
                 return false;
-            }
-
-            for argument in call.arguments() {
-                if let SelectedArgument::Explicit { conversion, .. } = argument
-                    && !collect_conversion_dependencies(
-                        conversion,
-                        property,
-                        expression,
-                        dependencies,
-                    )
-                {
-                    return false;
-                }
             }
 
             if call.implementation_hook()

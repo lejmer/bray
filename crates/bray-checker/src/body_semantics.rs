@@ -60,14 +60,19 @@ where
         ],
     );
 
-    let graph =
-        match build_storage_control_flow_graph(request, storage, expressions.selections(), None) {
-            ControlFlowGraphBuildOutcome::Complete(graph) => graph,
-            ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-            ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
-                return CheckerOutcome::UpstreamFailure(error);
-            }
-        };
+    let graph = match build_storage_control_flow_graph(
+        request,
+        storage,
+        expressions.selections(),
+        Some(patterns),
+        None,
+    ) {
+        ControlFlowGraphBuildOutcome::Complete(graph) => graph,
+        ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
+        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
+    };
 
     let mut diagnostics = DiagnosticBag::new();
 
@@ -112,6 +117,10 @@ pub(crate) fn check_body_semantics_with_graph<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
+    let Some(reachability) = crate::analysis::analyze_reachability(graph, request) else {
+        return CheckerOutcome::Cancelled;
+    };
+
     let mut diagnostics = DiagnosticBag::new();
 
     let (liveness, edge_lifetime_ends) = complete!(
@@ -124,12 +133,20 @@ where
             storage,
             memory,
             graph,
+            &reachability,
         )
     );
 
     let refinements = complete!(
         diagnostics,
-        check_refinements_with_graph(request, patterns, expressions.selections(), storage, graph)
+        check_refinements_with_graph(
+            request,
+            patterns,
+            expressions,
+            storage,
+            graph,
+            &reachability
+        )
     );
 
     let trusted = complete!(
@@ -138,6 +155,7 @@ where
             request,
             expressions,
             storage,
+            &refinements,
             graph,
         )
     );
@@ -153,6 +171,7 @@ where
             &refinements,
             memory,
             graph,
+            &reachability,
             &edge_lifetime_ends,
         )
     );
@@ -183,7 +202,9 @@ where
             request,
             expressions,
             storage,
+            &refinements,
             &asynchronous,
+            &flow,
             graph
         )
     );

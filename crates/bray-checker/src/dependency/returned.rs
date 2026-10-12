@@ -69,7 +69,18 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
         _ => None,
     };
 
-    let template = resolved_result_template(request, instance, template)?;
+    let mut template = resolved_result_template(request, instance, template)?;
+
+    if let Some((parameter, kind)) = call
+        .implementation_hook()
+        .and_then(super::implementation::implementation_borrow_source)
+    {
+        template = template.with_borrows([bray_symbols::DependencyBorrowRelation::new(
+            DependencySubject::root(DependencySubjectRoot::Parameter(parameter)),
+            DependencySubject::root(DependencySubjectRoot::Result),
+            kind,
+        )]);
+    }
 
     super::defaults::expand_result_defaults(request, call, &template)
 }
@@ -89,9 +100,11 @@ pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
 
     let template = store.dependency_contract_template_data(template);
 
-    Ok(DependencyContractTemplateData::new(
-        super::witness::resolve(request, template.requirements())?,
-    ))
+    Ok(DependencyContractTemplateData::new(super::witness::resolve(
+        request,
+        template.requirements(),
+    )?)
+    .with_borrows(template.borrows().iter().cloned()))
 }
 
 fn value_requirement(root: DependencySubjectRoot) -> DependencyRequirement {

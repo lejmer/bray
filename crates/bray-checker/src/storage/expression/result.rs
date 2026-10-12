@@ -159,6 +159,26 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             )?;
         }
 
+        // A copied reference retains the referent's dependencies, not a loan on the
+        // aggregate slot that held it. Those dependencies are instantiated separately.
+        let reached = self
+            .builder()
+            .access(access)
+            .expect("returned dependency path is planned")
+            .reached_type();
+
+        if !projections.is_empty()
+            && matches!(
+                self.request.semantic_values().type_data(reached).as_ref(),
+                TypeData::Borrow {
+                    kind: bray_symbols::BorrowKind::Shared,
+                    ..
+                }
+            )
+        {
+            return Ok(None);
+        }
+
         let builder = self.builder();
 
         let creates_capability = builder.access(access).is_some_and(|access| {

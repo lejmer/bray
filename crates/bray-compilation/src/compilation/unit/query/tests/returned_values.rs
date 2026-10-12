@@ -1052,3 +1052,281 @@ fn returned_static_borrows_preserve_their_owner_through_calls() {
         );
     }
 }
+
+#[test]
+fn exact_returned_borrow_origins_require_agreement_and_unchanged_slots() {
+    for (body, expected) in [
+        ("return first;", true),
+        ("if condition { return first; } return first;", true),
+        ("if condition { return first; } return second;", false),
+        ("return forward(first);", true),
+        (
+            "let result: Holder = { value = first }; return result;",
+            true,
+        ),
+        (
+            "let mut result: Holder = { value = first }; result.value = second; return result;",
+            false,
+        ),
+        (
+            "let mut result: Holder = { value = first }; replace(&mut result, second); return result;",
+            false,
+        ),
+    ] {
+        let result_type = if body.contains("Holder") {
+            "Holder"
+        } else {
+            "&bool"
+        };
+
+        let source = format!(
+            r#"
+            module app;
+            struct Holder {{ mut value: &bool; }}
+            func forward(pos value: &bool) -> &bool {{ return value; }}
+            func replace(pos target: &mut Holder, pos value: &bool) {{ target.value = value; }}
+            func test(pos first: &bool, pos second: &bool, pos condition: bool) -> {result_type} {{ {body} }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "{source}\n{diagnostics:#?}");
+
+        let callable = crate::test_support::source_function(&application, "test");
+
+        let context = application
+            .binding_context(&application.state.cancellation)
+            .unwrap();
+
+        let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
+            &context,
+            bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(
+                callable.into(),
+            ),
+        )
+        .unwrap();
+
+        let template = application
+            .semantic_value_store()
+            .unwrap()
+            .dependency_contract_template_data(*dependencies.value());
+
+        let returns = template
+            .borrows()
+            .iter()
+            .filter(|relation| {
+                relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(!returns.is_empty(), expected, "{source}\n{template:#?}");
+
+        for relation in returns {
+            assert_eq!(
+                relation.entry().subject_root(),
+                bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
+            );
+        }
+    }
+}
+
+#[test]
+fn stored_borrow_preservation_excludes_replacement_and_carrier_escape() {
+    for (lifecycle, body, preserved) in [
+        ("", "observe(value.reference);", true),
+        (
+            "destruct() { self.reference = self.other; }",
+            "observe(value.reference);",
+            false,
+        ),
+        (
+            "",
+            "value.reference = other; observe(value.reference);",
+            false,
+        ),
+        (
+            "",
+            "replace(&mut value, other); observe(value.reference);",
+            false,
+        ),
+        (
+            "",
+            "let alias = &mut value; replace(alias, other); observe(value.reference);",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            struct Holder {{ mut reference: &bool; other: &bool; {lifecycle} }}
+            func observe(pos value: &bool) {{}}
+            func replace(pos value: &mut Holder, pos other: &bool) {{ value.reference = other; }}
+            func test(pos mut value: Holder, pos other: &bool) {{ {body} }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "{source}\n{diagnostics:#?}");
+
+        let callable = crate::test_support::source_function(&application, "test");
+
+        let context = application
+            .binding_context(&application.state.cancellation)
+            .unwrap();
+
+        let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
+            &context,
+            bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(
+                callable.into(),
+            ),
+        )
+        .unwrap();
+
+        let template = application
+            .semantic_value_store()
+            .unwrap()
+            .dependency_contract_template_data(*dependencies.value());
+
+        assert_eq!(
+            template
+                .borrows()
+                .iter()
+                .any(|relation| relation.entry() == relation.exit()
+                    && !relation.entry().projections().is_empty()),
+            preserved,
+            "{source}\n{template:#?}"
+        );
+    }
+}
+
+#[test]
+fn nullable_borrow_origins_preserve_payload_paths() {
+    for (result_type, body, expected, nullable_depth) in [
+        (
+            "(&bool)?",
+            "if condition { return none; } return first;",
+            true,
+            1,
+        ),
+        (
+            "(&bool)?",
+            "if condition { return first; } return second;",
+            false,
+            1,
+        ),
+        (
+            "(&bool)?",
+            "let value: (&bool)? = first; return value;",
+            true,
+            1,
+        ),
+        ("(&bool)?", "return optional(first, condition);", true, 1),
+        (
+            "Holder",
+            "let wrapped: (&bool)? = first; return { value = wrapped };",
+            true,
+            1,
+        ),
+        (
+            "Holder?",
+            "if condition { return none; } let wrapped: (&bool)? = first; let value: Holder = { value = wrapped }; return value;",
+            true,
+            2,
+        ),
+        (
+            "&bool",
+            "if condition { return first; } return test(first, second, condition);",
+            false,
+            0,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            struct Holder {{ value: (&bool)?; }}
+            func optional(pos value: &bool, pos flag: bool) -> (&bool)? {{ if flag {{ return none; }} return value; }}
+            func test(pos first: &bool, pos second: &bool, pos condition: bool) -> {result_type} {{ {body} }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "{source}\n{diagnostics:#?}");
+
+        let callable = crate::test_support::source_function(&application, "test");
+
+        let context = application
+            .binding_context(&application.state.cancellation)
+            .unwrap();
+
+        let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
+            &context,
+            bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(
+                callable.into(),
+            ),
+        )
+        .unwrap();
+
+        let template = application
+            .semantic_value_store()
+            .unwrap()
+            .dependency_contract_template_data(*dependencies.value());
+
+        let returned = template
+            .borrows()
+            .iter()
+            .filter(|relation| {
+                relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(!returned.is_empty(), expected, "{source}\n{template:#?}");
+
+        for relation in returned {
+            assert_eq!(
+                relation.entry().subject_root(),
+                bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
+            );
+
+            assert_eq!(
+                relation
+                    .exit()
+                    .projections()
+                    .iter()
+                    .filter(|projection| **projection
+                        == bray_symbols::DependencyProjection::NullableValue)
+                    .count(),
+                nullable_depth,
+                "{relation:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn copied_stored_borrow_outlives_its_consumed_carrier() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Holder {
+            reference: &bool;
+            func get() -> &bool { return self.reference; }
+            consume func finish() {}
+        }
+        func test(pos holder: Holder) -> &bool {
+            let reference = holder.get();
+            holder.finish();
+            return reference;
+        }
+    "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+}

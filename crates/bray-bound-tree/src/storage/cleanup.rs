@@ -149,7 +149,7 @@ impl crate::AsyncStorageRequirement {
 
         if self.parts().is_some_and(|parts| {
             parts.iter().all(|part| {
-                exit.definitely_moved().iter().any(|access| {
+                exit.definitely_absent().iter().any(|access| {
                     storage.root_identity(*access) == Some(self.identity())
                         && storage
                             .resolved_projections(*access)

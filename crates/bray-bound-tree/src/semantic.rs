@@ -139,6 +139,33 @@ impl CheckedExpressionSemantics {
     }
 }
 
+/// Call occurrences and selected targets proven unable to propagate panic or cancellation.
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub struct CheckedUnwind {
+    calls: std::collections::BTreeSet<crate::BoundExpressionId>,
+    targets: std::collections::BTreeSet<crate::BoundCallableTarget>,
+}
+
+impl CheckedUnwind {
+    /// Publishes the owning unwind analysis's occurrence and target results.
+    pub fn new(
+        calls: std::collections::BTreeSet<crate::BoundExpressionId>,
+        targets: std::collections::BTreeSet<crate::BoundCallableTarget>,
+    ) -> Self {
+        Self { calls, targets }
+    }
+
+    /// Whether this invocation and its implicit argument conversions cannot unwind.
+    pub fn call_cannot_unwind(&self, expression: crate::BoundExpressionId) -> bool {
+        self.calls.contains(&expression)
+    }
+
+    /// Whether this selected target cannot unwind under the checked entry conditions.
+    pub fn target_cannot_unwind(&self, target: crate::BoundCallableTarget) -> bool {
+        self.targets.contains(&target)
+    }
+}
+
 /// Correlated flow and behavior semantics established for one checked body.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CheckedBodySemantics {
@@ -148,9 +175,22 @@ pub struct CheckedBodySemantics {
     dependencies: CheckedDependencyContracts,
     asynchronous: CheckedAsync,
     behavior: BodyBehaviorContributions,
+    unwind: CheckedUnwind,
 }
 
 impl CheckedBodySemantics {
+    /// Retains unwind facts established before checking this body's flow.
+    pub fn with_unwind(mut self, unwind: CheckedUnwind) -> Self {
+        self.unwind = unwind;
+
+        self
+    }
+
+    /// Returns the owning unwind analysis's established results.
+    pub const fn unwind(&self) -> &CheckedUnwind {
+        &self.unwind
+    }
+
     /// Creates a snapshot when every result describes the same unit and unit kind.
     pub fn try_new(
         liveness: Liveness,
@@ -210,6 +250,7 @@ impl CheckedBodySemantics {
             dependencies,
             asynchronous,
             behavior,
+            unwind: CheckedUnwind::default(),
         })
     }
 

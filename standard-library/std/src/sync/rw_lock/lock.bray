@@ -1,0 +1,180 @@
+trusted module std.sync;
+
+using internal std.sync.rw_lock;
+
+struct RwLock<T>
+{
+    mut storage: Uninit<std.sync.rw_lock.State<T>>;
+
+    trusted construct(pos value: T) -> Self
+        ensures(trusted core.memory.uninit_initialized<std.sync.rw_lock.State<T>>(storage = &result.storage))
+    {
+        return
+        {
+            storage = std.memory.uninit_from<std.sync.rw_lock.State<T>>(
+                {
+                    state = core.atomic.initialize<u64>(0),
+                    generation = core.atomic.initialize<u32>(0),
+                    value = value,
+                }
+            ),
+        };
+    }
+
+    trusted destruct()
+        requires(trusted core.memory.uninit_initialized<std.sync.rw_lock.State<T>>(storage = &self.storage))
+    {
+        trusted std.memory.destroy_initialized<std.sync.rw_lock.State<T>>(&mut self.storage);
+    }
+
+    trusted func read() -> RwLockReadGuard<T>
+        requires(blocking_execution())
+        requires(trusted core.memory.uninit_initialized<std.sync.rw_lock.State<T>>(storage = &self.storage))
+        ensures(
+            trusted core.memory.uninit_initialized<std.sync.rw_lock.State<T>>(storage = &self.storage),
+            trusted std.sync.rw_lock.read.acquired<T>(result),
+        )
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = trusted std.sync.rw_lock.pointer<T>(&self.storage);
+        let storage = trusted std.memory.borrow_from<std.sync.rw_lock.State<T>, Self>(&self, pointer);
+
+        while true
+        {
+            let generation: u32 = core.atomic.load<u32, 0>(&storage.generation);
+            let state: u64 = core.atomic.load<u64, 0>(&storage.state);
+
+            if state & std.sync.rw_lock.READER_BLOCKED_MASK == 0 && state & std.sync.rw_lock.READER_COUNT_MASK <
+                std.sync.rw_lock.READER_COUNT_MASK
+            {
+                let (_, acquired) = core.atomic.compare_exchange<u64, 1, 0>(
+                    &storage.state,
+                    expected = state,
+                    desired = state + 1,
+                );
+
+                if acquired
+                {
+                    let guard: RwLockReadGuard<T> =
+                    {
+                        lock = &self,
+                    };
+
+                    return guard;
+                }
+            }
+
+            trusted internal std.atomic.platform_wait_word(&storage.generation, expected = generation);
+        }
+    }
+
+    trusted func write() -> RwLockWriteGuard<T>
+        requires(blocking_execution())
+        requires(trusted core.memory.uninit_initialized<std.sync.rw_lock.State<T>>(storage = &self.storage))
+        ensures(
+            trusted core.memory.uninit_initialized<std.sync.rw_lock.State<T>>(storage = &self.storage),
+            trusted std.sync.rw_lock.write.acquired<T>(result),
+        )
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = trusted std.sync.rw_lock.pointer<T>(&self.storage);
+        let storage = trusted std.memory.borrow_from<std.sync.rw_lock.State<T>, Self>(&self, pointer);
+
+        trusted internal std.sync.rw_lock.register_writer<T>(storage);
+
+        while true
+        {
+            let generation: u32 = core.atomic.load<u32, 0>(&storage.generation);
+            let state: u64 = core.atomic.load<u64, 0>(&storage.state);
+
+            if state & (std.sync.rw_lock.WRITE_LOCKED | std.sync.rw_lock.READER_COUNT_MASK) == 0
+            {
+                let (_, acquired) = core.atomic.compare_exchange<u64, 1, 0>(
+                    &storage.state,
+                    expected = state,
+                    desired = (state - std.sync.rw_lock.WRITER_PENDING_ONE) | std.sync.rw_lock.WRITE_LOCKED,
+                );
+
+                if acquired
+                {
+                    let guard: RwLockWriteGuard<T> =
+                    {
+                        lock = &self,
+                    };
+
+                    return guard;
+                }
+            }
+
+            trusted internal std.atomic.platform_wait_word(&storage.generation, expected = generation);
+        }
+    }
+
+    trusted func try_read() -> RwLockReadGuard<T>?
+        requires(trusted core.memory.uninit_initialized<std.sync.rw_lock.State<T>>(storage = &self.storage))
+        ensures(
+            trusted core.memory.uninit_initialized<std.sync.rw_lock.State<T>>(storage = &self.storage),
+            trusted std.sync.rw_lock.read.acquired<T>(result),
+        )
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = trusted std.sync.rw_lock.pointer<T>(&self.storage);
+        let storage = trusted std.memory.borrow_from<std.sync.rw_lock.State<T>, Self>(&self, pointer);
+
+        let state: u64 = core.atomic.load<u64, 0>(&storage.state);
+
+        if state & std.sync.rw_lock.READER_BLOCKED_MASK != 0 || state & std.sync.rw_lock.READER_COUNT_MASK ==
+            std.sync.rw_lock.READER_COUNT_MASK
+        {
+            return none;
+        }
+
+        let (_, acquired) = core.atomic.compare_exchange<u64, 1, 0>(
+            &storage.state,
+            expected = state,
+            desired = state + 1
+        );
+
+        if !acquired
+        {
+            return none;
+        }
+
+        let guard: RwLockReadGuard<T> =
+        {
+            lock = &self,
+        };
+
+        return guard;
+    }
+
+    trusted func try_write() -> RwLockWriteGuard<T>?
+        requires(trusted core.memory.uninit_initialized<std.sync.rw_lock.State<T>>(storage = &self.storage))
+        ensures(
+            trusted core.memory.uninit_initialized<std.sync.rw_lock.State<T>>(storage = &self.storage),
+            trusted std.sync.rw_lock.write.acquired<T>(result),
+        )
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = trusted std.sync.rw_lock.pointer<T>(&self.storage);
+        let storage = trusted std.memory.borrow_from<std.sync.rw_lock.State<T>, Self>(&self, pointer);
+
+        let (_, acquired) = core.atomic.compare_exchange<u64, 1, 0>(
+            &storage.state,
+            expected = 0,
+            desired = std.sync.rw_lock.WRITE_LOCKED
+        );
+
+        if !acquired
+        {
+            return none;
+        }
+
+        let guard: RwLockWriteGuard<T> =
+        {
+            lock = &self,
+        };
+
+        return guard;
+    }
+}

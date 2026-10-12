@@ -11,12 +11,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         place: Option<crate::ExecutionPlace>,
-        contract: &crate::TrustedCallContract,
+        lifecycle: &super::super::cleanup::Lifecycle,
         entry: &crate::ExecutionCallEvidence,
     ) {
         let Some(place) = place else {
             return;
         };
+
+        let contract = &lifecycle.contract;
 
         // Cleanup keeps the receiver's owner, but its fields describe a new initialized state.
         for value in entry.arguments.values() {
@@ -27,9 +29,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let root = ExecutionCondition::Input(place.clone());
 
-        state.assign(place, root.clone());
+        state.assign(place.clone(), root.clone());
 
-        let arguments = entry
+        let mut arguments = entry
             .arguments
             .keys()
             .map(|input| {
@@ -42,6 +44,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 (input.clone(), value)
             })
             .collect::<BTreeMap<_, _>>();
+
+        self.preserve_cleanup_borrows(state, &place, lifecycle, entry, &mut arguments);
 
         for (conditions, trusted) in [
             (&contract.guarantees, true),
@@ -107,11 +111,26 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .map(|(place, _)| place.root)
             .collect::<BTreeSet<_>>();
 
+        // A formal carrier's stored reference names caller-owned storage. Retain its
+        // checked final value for completion clauses after disposing the carrier.
+        let borrowed = self
+            .borrowed_inputs
+            .iter()
+            .filter(|place| expired_roots.contains(&place.root))
+            .filter_map(|place| {
+                place
+                    .value_in(&state.current)
+                    .map(|value| (place.clone(), value))
+            })
+            .collect::<BTreeMap<_, _>>();
+
         state.invalidate_trusted_roots(&expired_roots);
 
         state
             .current
             .retain(|place, _| !expired_roots.contains(&place.root));
+
+        state.current.extend(borrowed);
 
         // Index retained owners once instead of scanning all live aggregates for
         // every expired value and each of its owned components.
@@ -131,8 +150,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            if let ExecutionCondition::Constructed(_, components) = value {
-                pending.extend(components.iter().map(|(_, value)| value.clone()));
+            if matches!(
+                value,
+                ExecutionCondition::Constructed(..) | ExecutionCondition::Present(_)
+            ) {
+                pending.extend(value.owned_components().cloned());
 
                 continue;
             }
@@ -241,15 +263,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Address and field guarantees also depend on the borrowed storage that
         // established them, even when the raw value has no ordinary borrow.
         let returned = |operand| {
-            self.result_inputs
+            self.result_dependencies
                 .get(&expression)
-                .is_none_or(|inputs| inputs.contains(&operand))
+                .is_none_or(|dependencies| dependencies.inputs.contains(&operand))
         };
 
         let preserves = preserves_inputs
-            || super::super::super::storage_invalidation::call_preserves_storage(
-                call,
-                &self.copied_types,
+            || !matches!(
+                self.refinements.invalidation_at(expression.into()),
+                Some(bray_bound_tree::StorageInvalidation::All)
             );
 
         let mut complete_input =
@@ -482,13 +504,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invocation: bray_bound_tree::BoundExecutionSite,
         result: ExecutionCondition,
     ) {
-        let Some(contract) = self
+        // Calls without trusted clauses still establish checked result identities.
+        // An empty contract contributes no authority or preservation guarantees.
+        let ordinary = crate::TrustedCallContract {
+            completes: true,
+            ..Default::default()
+        };
+
+        let contract = self
             .request
             .trusted_contracts()
             .and_then(|contracts| contracts.calls.get(&invocation))
-        else {
-            return;
-        };
+            .unwrap_or(&ordinary);
 
         let Some(mut entry) = state
             .entries
@@ -606,6 +633,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             Default::default()
         };
 
+        let result_expression = match result {
+            ExecutionCondition::Expression(expression) => Some(expression),
+            _ => None,
+        };
+
+        let result = self.complete_returned_borrows(invocation, result, &arguments);
+
         let instantiate = |condition: &ExecutionCondition| {
             let condition = condition.substitute(
                 &|place| {
@@ -699,7 +733,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             condition.assume(true, &mut state.assumptions);
         }
 
-        if let ExecutionCondition::Expression(expression) = result {
+        if let Some(expression) = result_expression {
             state.expressions.insert(expression, result);
         }
     }

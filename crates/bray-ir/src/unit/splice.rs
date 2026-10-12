@@ -23,7 +23,7 @@ pub fn inline_scalar_call(
 ) -> Result<Option<MirUnit>, MirCapacityError> {
     let Some((call_block_id, call_block)) = caller
         .blocks_with_ids()
-        .find(|(_, block)| block.operations().last() == Some(&site))
+        .find(|(_, block)| block.operations().contains(&site))
     else {
         return Ok(None);
     };
@@ -36,9 +36,14 @@ pub fn inline_scalar_call(
         return Ok(None);
     };
 
-    let MirTerminatorKind::CheckCallOutcome { completed, .. } = call_block.terminator().kind()
-    else {
-        return Ok(None);
+    let mut continuation = match call_block.terminator().kind() {
+        MirTerminatorKind::CheckCallOutcome { completed, .. }
+            if call_block.operations().last() == Some(&site) =>
+        {
+            MirTerminatorKind::Goto(completed.clone())
+        }
+        kind if !call.may_propagate_panic() => kind.clone(),
+        _ => return Ok(None),
     };
 
     let parameters = callee
@@ -142,7 +147,13 @@ pub fn inline_scalar_call(
         caller.unit(),
     )?;
 
-    copy_unit_operations(caller, &mut caller_ids, &mut builder, Some(site), None)?;
+    copy_unit_operations(
+        caller,
+        &mut caller_ids,
+        &mut builder,
+        Some((site, join)),
+        None,
+    )?;
 
     copy_unit_operations(
         callee,
@@ -222,10 +233,8 @@ pub fn inline_scalar_call(
         );
     }
 
-    let mut normal = MirTerminatorKind::Goto(completed.clone());
-
-    remap_terminator(&mut normal, &caller_ids);
-    builder.set_terminator(join, source, normal);
+    remap_terminator(&mut continuation, &caller_ids);
+    builder.set_terminator(join, call_block.terminator().source().clone(), continuation);
 
     let inlined = builder.finish(caller_ids.block(caller.entry()));
 
@@ -380,7 +389,7 @@ fn copy_unit_operations(
     unit: &MirUnit,
     ids: &mut LocalIds<'_>,
     builder: &mut MirUnitBuilder,
-    skip: Option<MirOperationId>,
+    split: Option<(MirOperationId, MirBlockId)>,
     parameter_values: Option<&BTreeMap<MirBlockId, BTreeMap<MirStorageId, MirValueId>>>,
 ) -> Result<(), MirCapacityError> {
     for (old, block) in unit.blocks_with_ids() {
@@ -389,8 +398,13 @@ fn copy_unit_operations(
             ids.parameters = parameters[&old].clone();
         }
 
+        let mut destination = ids.block(old);
+
         for operation_id in block.operations() {
-            if Some(*operation_id) == skip {
+            if let Some((site, continuation)) = split
+                && *operation_id == site
+            {
+                destination = continuation;
                 continue;
             }
 
@@ -404,7 +418,7 @@ fn copy_unit_operations(
                 .map(|value| ids.ty(unit.value(value).expect("result").ty()));
 
             let commit =
-                builder.push_operation(ids.block(old), original.source().clone(), kind, ty)?;
+                builder.push_operation(destination, original.source().clone(), kind, ty)?;
 
             assert_eq!(
                 commit.result(),

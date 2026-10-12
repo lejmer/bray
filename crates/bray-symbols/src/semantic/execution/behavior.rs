@@ -64,6 +64,7 @@ pub struct CallablePhaseBehavior {
     lifecycle_obligations: Arc<[LifecycleObligationKind]>,
     dependency_contract: DependencyContractTemplateId,
     current_run_cancellation: CurrentRunCancellation,
+    may_unwind: bool,
 }
 
 impl CallablePhaseBehavior {
@@ -88,6 +89,7 @@ impl CallablePhaseBehavior {
             lifecycle_obligations: sorted_unique_shared_slice(lifecycle_obligations),
             dependency_contract,
             current_run_cancellation,
+            may_unwind: true,
         }
     }
 
@@ -169,6 +171,18 @@ impl CallablePhaseBehavior {
     /// Returns the portable dependencies retained by this phase.
     pub const fn dependency_contract(&self) -> DependencyContractTemplateId {
         self.dependency_contract
+    }
+
+    /// Attaches inferred abnormal-exit behavior on valid inputs, independent of termination.
+    pub const fn with_may_unwind(mut self, may_unwind: bool) -> Self {
+        self.may_unwind = may_unwind;
+
+        self
+    }
+
+    /// Returns whether panic or cancellation can escape this phase.
+    pub const fn may_unwind(&self) -> bool {
+        self.may_unwind
     }
 
     /// Returns whether execution can enter cancellation for its current run.
@@ -268,6 +282,13 @@ impl CallablePhaseBehaviors {
     /// Returns behavior incurred while invoking the callable.
     pub fn invocation(&self) -> &CallablePhaseBehavior {
         &self.invocation
+    }
+
+    /// Replaces the invocation's inferred unwind behavior while retaining its other contracts.
+    pub fn with_invocation_may_unwind(mut self, may_unwind: bool) -> Self {
+        Arc::make_mut(&mut self.invocation).may_unwind = may_unwind;
+
+        self
     }
 
     /// Returns behavior retained until deferred async execution.

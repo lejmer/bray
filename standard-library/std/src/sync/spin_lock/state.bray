@@ -1,0 +1,27 @@
+trusted module std.sync.spin_lock;
+
+struct State<T>
+{
+    next_ticket: core.atomic.Atomic<u32>;
+    serving_ticket: core.atomic.Atomic<u32>;
+    value: T;
+}
+
+trusted predicate acquired<T>(guard: std.sync.SpinLockGuard<T>?);
+
+trusted internal func pointer<T>(pos storage: &Uninit<State<T>>) -> RawPointer<State<T>>
+    requires(trusted core.memory.uninit_initialized<State<T>>(storage = storage))
+    ensures(
+        trusted core.memory.valid_read<State<T>>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<State<T>>(pointer = result),
+        trusted core.memory.initialized_as<State<T>>(pointer = result),
+        trusted core.memory.shared_alias_valid<State<T>>(pointer = result),
+        trusted core.memory.epoch_current<State<T>>(pointer = result),
+        trusted core.memory.synchronized_access<State<T>>(pointer = result),
+        trusted core.memory.movement_stable<State<T>>(pointer = result),
+        trusted core.memory.finalization_pending<State<T>>(pointer = result),
+    )
+    executes(pure, total)
+{
+    return std.memory.uninit_pointer<State<T>>(storage);
+}

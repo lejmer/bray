@@ -271,6 +271,8 @@ impl Compilation {
                 checked_patterns: UnitQueryCache::new(),
                 storage_plans: UnitQueryCache::new(),
                 memory_operations: UnitQueryCache::new(),
+                unwind_candidates: UnitQueryCache::new(),
+                unwind_behavior: UnitQueryCache::new(),
                 execution_candidates: UnitQueryCache::new(),
                 certified_execution: UnitQueryCache::new(),
                 body_semantics: UnitQueryCache::new(),

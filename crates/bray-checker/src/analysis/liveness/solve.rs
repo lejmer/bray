@@ -49,7 +49,13 @@ where
         ],
     );
 
-    let graph = match build_storage_control_flow_graph(request, storage, selections, None) {
+    let graph = match build_storage_control_flow_graph(
+        request,
+        storage,
+        selections,
+        Some(patterns),
+        None,
+    ) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => {
             return CheckerOutcome::Cancelled;
@@ -59,8 +65,19 @@ where
         }
     };
 
+    let Some(reachability) = analyze_reachability(&graph, request) else {
+        return CheckerOutcome::Cancelled;
+    };
+
     match analyze_storage_liveness_with_graph(
-        request, selections, types, patterns, storage, memory, &graph,
+        request,
+        selections,
+        types,
+        patterns,
+        storage,
+        memory,
+        &graph,
+        &reachability,
     ) {
         CheckerOutcome::Complete(result) => {
             CheckerOutcome::Complete(result.map(|(liveness, _)| liveness))
@@ -78,6 +95,7 @@ pub(crate) fn analyze_storage_liveness_with_graph<C>(
     storage: &StoragePlan,
     memory: &CheckedMemoryOperations,
     graph: &ControlFlowGraph,
+    reachability: &ReachabilityResult,
 ) -> CheckerOutcome<
     (
         Liveness,
@@ -88,10 +106,6 @@ pub(crate) fn analyze_storage_liveness_with_graph<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    if !graph.is_well_formed() {
-        panic!("checker control-flow graph violated its construction invariants");
-    }
-
     let effects = match OperationEffects::from_checked_inputs(
         request, selections, types, patterns, storage, memory,
     ) {
@@ -100,10 +114,6 @@ where
         Err(CheckerQueryError::Upstream(error)) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
-    };
-
-    let Some(reachability) = analyze_reachability(&graph, request) else {
-        return CheckerOutcome::Cancelled;
     };
 
     let domain = LivenessDomain::new(&graph, &reachability, &effects);

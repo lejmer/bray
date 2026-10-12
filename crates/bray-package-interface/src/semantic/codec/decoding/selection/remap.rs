@@ -104,7 +104,26 @@ pub(super) fn remap_selected_records(
                 remap_dependency_requirement(requirement, &maps)?;
             }
 
-            Ok(contract)
+            let borrows = contract
+                .borrows
+                .iter()
+                .map(|relation| {
+                    // The selected record owns remapped paths independently of the decoded table.
+                    let mut entry = relation.entry().clone();
+                    let mut exit = relation.exit().clone();
+
+                    remap_dependency_subject(&mut entry, &maps)?;
+                    remap_dependency_subject(&mut exit, &maps)?;
+
+                    Ok(bray_symbols::DependencyBorrowRelation::new(
+                        entry,
+                        exit,
+                        relation.kind(),
+                    ))
+                })
+                .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+            Ok(contract.with_borrows(borrows))
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 

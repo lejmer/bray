@@ -1,33 +1,18 @@
 use crate::{CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{
-    BoundExecutionSite, CheckedSemanticSelections, SelectedCall, SemanticSelection,
-    StorageAccessId, StorageAccessPurpose, StoragePlan, StorageRelationship,
+    BoundExecutionSite, CheckedExpressionSemantics, SelectedCall, SemanticSelection,
+    StorageAccessPurpose, StorageInvalidation, StoragePlan,
 };
 use bray_symbols::{ExecutionProperty, TypeData};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) enum StorageInvalidation {
-    All,
-    Accesses(Vec<StorageAccessId>),
-}
-
-impl StorageInvalidation {
-    pub(super) fn invalidates(&self, access: StorageAccessId, storage: &StoragePlan) -> bool {
-        match self {
-            Self::All => true,
-            Self::Accesses(mutations) => mutations.iter().any(|mutation| {
-                storage.relationship(access, *mutation) != StorageRelationship::Disjoint
-            }),
-        }
-    }
-}
-
 pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    selections: &CheckedSemanticSelections,
+    expressions: &CheckedExpressionSemantics,
     storage: &StoragePlan,
     copied_types: &BTreeSet<bray_symbols::TypeId>,
 ) -> BTreeMap<BoundExecutionSite, StorageInvalidation> {
+    let selections = expressions.selections();
     let mut accesses = BTreeMap::new();
 
     for plan in storage.access_plans().iter().filter(|plan| {
@@ -56,7 +41,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
         }
     }
 
-    for (expression, _) in request.unit().tree().expressions() {
+    for (expression, node) in request.unit().tree().expressions() {
         if let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(expression) {
             for occurrence in [
                 BoundExecutionSite::ScopedEnter(expression),
@@ -89,7 +74,19 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
             continue;
         };
 
-        if call_preserves_storage(call, copied_types) {
+        let constant = matches!(node, bray_bound_tree::BoundExpression::Call(bound)
+            if expressions.types().expression(bound.callee()).is_some_and(|entry|
+                matches!(request.semantic_values().type_data(entry.ty()).as_ref(), TypeData::Callable(callable)
+                    if callable.constness() == bray_symbols::CallableConstness::Constant)));
+
+        if constant
+            || call_preserves_storage(call, copied_types)
+            || !matches!(
+                call.resolution().result(),
+                bray_bound_tree::BoundCallResult::Immediate(_)
+            )
+        {
+            accesses.remove(&expression.into());
             continue;
         }
 
@@ -132,7 +129,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
     accesses
 }
 
-pub(in crate::analysis) fn call_preserves_storage(
+fn call_preserves_storage(
     call: &SelectedCall,
     copied_types: &BTreeSet<bray_symbols::TypeId>,
 ) -> bool {

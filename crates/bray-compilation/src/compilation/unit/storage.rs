@@ -96,12 +96,15 @@ impl Compilation {
                     cancellation,
                 )?;
 
+                let non_unwinding = self.checked_unwind(key.clone(), cancellation)?;
+
                 let unit = bray_checker::CheckerUnitView::new(
                     bound.result().value(),
                     &semantic_context,
                     &context,
                 )
-                .with_trusted_contracts(contracts.value());
+                .with_trusted_contracts(contracts.value())
+                .with_unwind(&non_unwinding);
 
                 let result = checker_result(DefaultBodySemanticChecker.check_body_semantics(
                     unit,
@@ -117,7 +120,10 @@ impl Compilation {
                 semantic_diagnostics.add_range(contracts.into_parts().1);
 
                 Ok((
-                    DiagnosticResult::new(semantics, semantic_diagnostics),
+                    DiagnosticResult::new(
+                        semantics.with_unwind(non_unwinding),
+                        semantic_diagnostics,
+                    ),
                     Box::new([]),
                 ))
             },

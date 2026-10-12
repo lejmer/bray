@@ -14,26 +14,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
             return Ok(BTreeSet::new());
         };
 
-        let recursive = match call.target() {
-            bray_bound_tree::BoundCallableTarget::Declaration(instance) => {
-                self.recursive_callees
-                    .contains(&instance.definition().callable_symbol())
-                    && call.resolution().trait_dispatch().is_none()
-            }
-            _ => false,
-        };
-
-        let template = if recursive {
-            let template = crate::dependency::witness::deferred_result(self.request, call, None)?;
-
-            crate::dependency::defaults::expand_result_defaults(self.request, call, &template)?
-        } else {
-            crate::dependency::call_result_template(self.request, call, |callable| {
-                Ok(self.callees.get(&callable).copied().unwrap_or_else(|| {
-                    panic!("selected call requires its result dependency template for {callable:?}")
-                }))
-            })?
-        };
+        let template = self.selected_result_template(call)?;
 
         let mut result = BTreeSet::new();
 
@@ -63,6 +44,35 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         )?);
 
         Ok(result)
+    }
+
+    pub(super) fn selected_result_template(
+        &self,
+        call: &bray_bound_tree::SelectedCall,
+    ) -> Result<
+        crate::dependency::defaults::CallResultDependencies,
+        CheckerQueryError<C::UpstreamError>,
+    > {
+        let recursive = match call.target() {
+            bray_bound_tree::BoundCallableTarget::Declaration(instance) => {
+                self.recursive_callees
+                    .contains(&instance.definition().callable_symbol())
+                    && call.resolution().trait_dispatch().is_none()
+            }
+            _ => false,
+        };
+
+        if recursive {
+            let template = crate::dependency::witness::deferred_result(self.request, call, None)?;
+
+            crate::dependency::defaults::expand_result_defaults(self.request, call, &template)
+        } else {
+            crate::dependency::call_result_template(self.request, call, |callable| {
+                Ok(self.callees.get(&callable).copied().unwrap_or_else(|| {
+                    panic!("selected call requires its result dependency template for {callable:?}")
+                }))
+            })
+        }
     }
 
     pub(super) fn scoped_values(

@@ -239,6 +239,7 @@ pub enum InterfaceDependencyRequirementKind {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceDependencyContract {
     pub(crate) requirements: Arc<[InterfaceDependencyRequirement]>,
+    pub(crate) borrows: Arc<[bray_symbols::DependencyBorrowRelation<InterfaceDependencySubject>]>,
 }
 
 impl InterfaceDependencyContract {
@@ -246,7 +247,20 @@ impl InterfaceDependencyContract {
     pub fn new(requirements: impl IntoIterator<Item = InterfaceDependencyRequirement>) -> Self {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
+            borrows: Arc::new([]),
         }
+    }
+
+    /// Attaches checked borrow identities across normal completion.
+    pub fn with_borrows(
+        mut self,
+        borrows: impl IntoIterator<
+            Item = bray_symbols::DependencyBorrowRelation<InterfaceDependencySubject>,
+        >,
+    ) -> Self {
+        self.borrows = sorted_unique_shared_slice(borrows);
+
+        self
     }
 }
 

@@ -11,7 +11,7 @@ pub(super) struct ExitState {
     pub(super) live: BTreeSet<StorageIdentityId>,
     pub(super) initialized: BTreeSet<StorageIdentityId>,
     pub(super) moved: BTreeSet<StorageAccessId>,
-    pub(super) definitely_moved: BTreeSet<StorageAccessId>,
+    pub(super) definitely_absent: BTreeSet<StorageAccessId>,
     pub(super) fully_moved: BTreeSet<StorageIdentityId>,
     pub(super) active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(super) recovered: bool,
@@ -24,7 +24,7 @@ impl ExitState {
             live: state.live.clone(),
             initialized: state.initialized.clone(),
             moved: state.moved.keys().copied().collect(),
-            definitely_moved: state.definitely_moved.clone(),
+            definitely_absent: state.definitely_absent.keys().copied().collect(),
             fully_moved: state.fully_moved.clone(),
             active_borrows: state.active_borrows.clone(),
             recovered: state.recovered,
@@ -39,8 +39,8 @@ impl ExitState {
 
         self.moved.extend(incoming.moved.keys().copied());
 
-        self.definitely_moved
-            .retain(|access| incoming.definitely_moved.contains(access));
+        self.definitely_absent
+            .retain(|access| incoming.definitely_absent.contains_key(access));
 
         self.fully_moved
             .retain(|identity| incoming.fully_moved.contains(identity));
@@ -59,6 +59,7 @@ pub(super) struct ReplacementState {
     pub(super) fully_moved: bool,
     pub(super) overlapping_move: bool,
     pub(super) moved: BTreeSet<StorageAccessId>,
+    pub(super) definitely_absent: BTreeSet<StorageAccessId>,
     pub(super) recovered: bool,
 }
 
@@ -72,7 +73,13 @@ impl ReplacementState {
 
         Self {
             live: root.is_some_and(|root| state.live.contains(&root)),
-            initialized: root.is_some_and(|root| state.initialized.contains(&root)),
+            // A move through another logical alias has no path in this root's partition.
+            initialized: root.is_some_and(|root| state.initialized.contains(&root))
+                && !state.moved.keys().any(|access| {
+                    storage.root_identity(*access) != root
+                        && (storage.access_contains(plan.access(), *access)
+                            || storage.access_contains(*access, plan.access()))
+                }),
             fully_moved: root.is_some_and(|root| state.fully_moved.contains(&root)),
             overlapping_move: state.moved.keys().any(|access| {
                 storage.access_contains(plan.access(), *access)
@@ -80,6 +87,12 @@ impl ReplacementState {
             }),
             moved: state
                 .moved
+                .keys()
+                .copied()
+                .filter(|access| storage.root_identity(*access) == root)
+                .collect(),
+            definitely_absent: state
+                .definitely_absent
                 .keys()
                 .copied()
                 .filter(|access| storage.root_identity(*access) == root)
@@ -94,6 +107,10 @@ impl ReplacementState {
         self.fully_moved &= incoming.fully_moved;
         self.overlapping_move |= incoming.overlapping_move;
         self.moved.extend(incoming.moved);
+
+        self.definitely_absent
+            .retain(|access| incoming.definitely_absent.contains(access));
+
         self.recovered |= incoming.recovered;
     }
 }
@@ -207,7 +224,8 @@ mod tests {
 
         let projected = ReplacementState::new(&state, plan, &storage);
 
-        assert!(projected.live && projected.initialized);
+        assert!(projected.live);
+        assert!(!projected.initialized);
         assert!(projected.overlapping_move);
         assert!(projected.moved.is_empty());
 

@@ -22,7 +22,6 @@ pub(super) struct StorageFlowInput {
     borrows: BTreeMap<StorageAccessPlan, BorrowCapabilityId>,
     definitions: BTreeMap<AnyBoundNodeId, Vec<StorageIdentityId>>,
     initialization_destinations: BTreeMap<BoundExpressionId, StorageIdentityId>,
-    copyable_types: BTreeSet<TypeId>,
     mutable_storage: BTreeSet<StorageIdentityId>,
     immutable_field_accesses: BTreeSet<StorageAccessId>,
     storage_last_uses: BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageIdentityId>>,
@@ -35,7 +34,6 @@ impl StorageFlowInput {
     pub(super) fn new<C>(
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
-        copyable_types: BTreeSet<TypeId>,
         mutable_storage: BTreeSet<StorageIdentityId>,
         liveness: &Liveness,
     ) -> crate::CheckerQueryResult<(Self, bray_diagnostics::DiagnosticBag), C::UpstreamError>
@@ -45,7 +43,6 @@ impl StorageFlowInput {
         let initialization_destinations = local_initialization_destinations(request, storage);
 
         let mut input = Self {
-            copyable_types,
             initialization_destinations,
             mutable_storage,
             suspension_borrows: liveness
@@ -215,10 +212,6 @@ impl StorageFlowInput {
         self.initialization_destinations.get(&expression).copied()
     }
 
-    pub(super) fn type_is_copyable(&self, ty: TypeId) -> bool {
-        self.copyable_types.contains(&ty)
-    }
-
     pub(super) fn mutation_authority_access(
         &self,
         plan: StorageAccessPlan,
@@ -252,6 +245,12 @@ impl StorageFlowInput {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum StorageAbsence {
+    Moved,
+    NoPayload,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct StorageFlowState {
     pub(super) reachable: bool,
@@ -259,7 +258,7 @@ pub(super) struct StorageFlowState {
     pub(super) initialized: BTreeSet<StorageIdentityId>,
     pub(super) observed_pattern_bindings: BTreeSet<StorageIdentityId>,
     pub(super) moved: BTreeMap<StorageAccessId, BoundExpressionId>,
-    pub(super) definitely_moved: BTreeSet<StorageAccessId>,
+    pub(super) definitely_absent: BTreeMap<StorageAccessId, StorageAbsence>,
     pub(super) fully_moved: BTreeSet<StorageIdentityId>,
     pub(super) active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(super) definitely_active_borrows: BTreeSet<BorrowCapabilityId>,
@@ -309,15 +308,53 @@ impl StorageFlowState {
             })
         });
 
-        self.retain_definite_moves(storage);
+        self.retain_absent_storage(storage);
     }
 
-    pub(super) fn retain_definite_moves(&mut self, storage: &StoragePlan) {
-        self.definitely_moved.retain(|definite| {
-            self.moved.keys().any(|possible| {
-                storage.relationship(*possible, *definite)
-                    == bray_bound_tree::StorageRelationship::Identical
-            })
+    pub(super) fn retain_absent_storage(&mut self, storage: &StoragePlan) {
+        self.definitely_absent.retain(|access, _| {
+            storage
+                .root_identity(*access)
+                .is_some_and(|root| self.live.contains(&root))
+        });
+    }
+
+    pub(super) fn mark_absent(
+        &mut self,
+        access: StorageAccessId,
+        reason: StorageAbsence,
+        storage: &StoragePlan,
+    ) {
+        if let (Some(identity), Some(path)) = (
+            storage.root_identity(access),
+            storage.resolved_projections(access),
+        ) && let Some(access) = storage.access_at(identity, path)
+        {
+            self.definitely_absent
+                .entry(access)
+                .and_modify(|current| {
+                    if reason == StorageAbsence::Moved {
+                        *current = reason;
+                    }
+                })
+                .or_insert(reason);
+        }
+    }
+
+    pub(super) fn invalidate_observed_absence(
+        &mut self,
+        invalidation: &bray_bound_tree::StorageInvalidation,
+        storage: &StoragePlan,
+    ) {
+        self.definitely_absent.retain(|access, reason| {
+            // Opaque mutation can change an observed nullable value, but cannot restore moved ownership.
+            *reason == StorageAbsence::Moved || !invalidation.invalidates(*access, storage)
+        });
+    }
+
+    pub(super) fn invalidate_absence(&mut self, access: StorageAccessId, storage: &StoragePlan) {
+        self.definitely_absent.retain(|absent, _| {
+            storage.relationship(access, *absent) == bray_bound_tree::StorageRelationship::Disjoint
         });
     }
 
@@ -341,7 +378,7 @@ impl StorageFlowState {
             initialized,
             observed_pattern_bindings: BTreeSet::new(),
             moved: BTreeMap::new(),
-            definitely_moved: BTreeSet::new(),
+            definitely_absent: BTreeMap::new(),
             fully_moved: BTreeSet::new(),
             definitely_active_borrows: active_borrows.clone(),
             active_borrows,
@@ -369,7 +406,7 @@ impl StorageFlowState {
         let initialized_count = self.initialized.len();
         let observed_count = self.observed_pattern_bindings.len();
         let moved_count = self.moved.len();
-        let definite_move_count = self.definitely_moved.len();
+        let mut absence_changed = false;
         let fully_moved_count = self.fully_moved.len();
         let borrow_count = self.active_borrows.len();
         let definite_borrow_count = self.definitely_active_borrows.len();
@@ -410,8 +447,20 @@ impl StorageFlowState {
             }
         }
 
-        self.definitely_moved
-            .retain(|access| incoming.definitely_moved.contains(access));
+        self.definitely_absent.retain(|access, reason| {
+            let Some(incoming) = incoming.definitely_absent.get(access) else {
+                absence_changed = true;
+
+                return false;
+            };
+
+            if *reason == StorageAbsence::Moved && *incoming == StorageAbsence::NoPayload {
+                *reason = StorageAbsence::NoPayload;
+                absence_changed = true;
+            }
+
+            true
+        });
 
         self.fully_moved
             .retain(|storage| incoming.fully_moved.contains(storage));
@@ -481,7 +530,7 @@ impl StorageFlowState {
             || self.observed_pattern_bindings.len() != observed_count
             || self.moved.len() != moved_count
             || moved_changed
-            || self.definitely_moved.len() != definite_move_count
+            || absence_changed
             || self.fully_moved.len() != fully_moved_count
             || self.active_borrows.len() != borrow_count
             || self.definitely_active_borrows.len() != definite_borrow_count
@@ -512,7 +561,7 @@ impl StorageFlowState {
         self.moved
             .retain(|access, _| storage.root_identity(*access) != Some(identity));
 
-        self.retain_definite_moves(storage);
+        self.retain_absent_storage(storage);
     }
 
     pub(super) fn retain_live_storage(&mut self, storage: &StoragePlan) {
@@ -543,7 +592,7 @@ impl StorageFlowState {
                 .is_some_and(|identity| self.live.contains(&identity))
         });
 
-        self.retain_definite_moves(storage);
+        self.retain_absent_storage(storage);
     }
 
     pub(super) fn move_complete_storage(&mut self, storage: StorageIdentityId) {
@@ -811,14 +860,9 @@ mod tests {
         let semantic_context = callable_entry(unit.key());
         let request = CheckerUnitView::new(&unit, &semantic_context, &context);
 
-        let (input, _) = super::StorageFlowInput::new(
-            request,
-            &storage,
-            BTreeSet::new(),
-            BTreeSet::new(),
-            &liveness,
-        )
-        .expect("test storage indexes must build");
+        let (input, _) =
+            super::StorageFlowInput::new(request, &storage, BTreeSet::new(), &liveness)
+                .expect("test storage indexes must build");
 
         assert_eq!(input.definitions(expressions[0].into()), &[first, second]);
         assert_eq!(input.expression_roots(expressions[1]), &[first, second]);
@@ -966,6 +1010,83 @@ mod tests {
         assert!(initialized.merge(&reachable_state()));
         assert_eq!(initialized.live, [identity].into_iter().collect());
         assert!(initialized.initialized.is_empty());
+    }
+
+    #[test]
+    fn absence_provenance_survives_mutation_and_joins_conservatively() {
+        use super::StorageAbsence;
+        use bray_bound_tree::{StorageAccess, StorageAccessRoot, StorageInvalidation};
+
+        let (unit, expressions) = expression_unit(BoundUnitId::new(82), |tree, origin| {
+            (0..2)
+                .map(|_| {
+                    push_expression(
+                        tree,
+                        BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
+                    )
+                })
+                .collect::<Vec<_>>()
+        });
+
+        let mut builder = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+
+        let accesses = expressions
+            .iter()
+            .map(|expression| {
+                let identity = builder
+                    .push_identity(StorageIdentity::Allocation(*expression))
+                    .unwrap();
+
+                let origin = unit
+                    .tree()
+                    .expression(*expression)
+                    .unwrap()
+                    .origin()
+                    .source_anchor();
+
+                builder
+                    .push_access(StorageAccess::new(
+                        StorageAccessRoot::Storage(identity),
+                        [],
+                        error_type(),
+                        origin,
+                        false,
+                    ))
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let [moved, observed] = accesses.as_slice() else {
+            panic!("test builds two accesses");
+        };
+
+        let (moved, observed) = (*moved, *observed);
+
+        let storage = builder.finish();
+        let mut state = reachable_state();
+
+        state.definitely_absent.extend([
+            (moved, StorageAbsence::Moved),
+            (observed, StorageAbsence::NoPayload),
+        ]);
+
+        state.invalidate_observed_absence(&StorageInvalidation::All, &storage);
+
+        assert_eq!(
+            state.definitely_absent.keys().copied().collect::<Vec<_>>(),
+            [moved]
+        );
+
+        let mut incoming = reachable_state();
+
+        incoming
+            .definitely_absent
+            .insert(moved, StorageAbsence::NoPayload);
+
+        assert!(state.merge(&incoming));
+        assert!(!state.merge(&incoming));
+        state.invalidate_observed_absence(&StorageInvalidation::All, &storage);
+        assert!(state.definitely_absent.is_empty());
     }
 
     fn reachable_state() -> StorageFlowState {

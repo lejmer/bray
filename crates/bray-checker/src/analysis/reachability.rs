@@ -9,7 +9,7 @@ use super::model::{
     ControlFlowGraph,
 };
 
-pub(super) struct ReachabilityResult {
+pub(crate) struct ReachabilityResult {
     unit: BoundUnitId,
     reachable_blocks: Box<[bool]>,
     reachable_edges: Box<[bool]>,
@@ -62,23 +62,6 @@ where
             panic!("finite reachability analysis exceeded its convergence bound")
         }
     };
-
-    let reverse_domain = ReachabilityDomain::backward(graph);
-    let reverse = solve_fixed_point(graph, &reverse_domain, &request);
-
-    let reverse = match reverse {
-        FixedPointOutcome::Complete(result) => result,
-        FixedPointOutcome::Cancelled => return None,
-        FixedPointOutcome::ConvergenceInvariantViolated => {
-            panic!("finite reverse reachability analysis exceeded its convergence bound")
-        }
-    };
-
-    for block in graph.blocks() {
-        if forward.state(block.id()).is_none() || reverse.state(block.id()).is_none() {
-            panic!("reachability state did not cover every analysis block");
-        }
-    }
 
     let reachable_blocks = graph
         .blocks()
@@ -185,22 +168,11 @@ impl ReachabilityState {
 
 pub(super) struct ReachabilityDomain<'graph> {
     graph: &'graph ControlFlowGraph,
-    direction: FlowDirection,
 }
 
 impl<'graph> ReachabilityDomain<'graph> {
     pub(super) const fn forward(graph: &'graph ControlFlowGraph) -> Self {
-        Self {
-            graph,
-            direction: FlowDirection::Forward,
-        }
-    }
-
-    pub(super) const fn backward(graph: &'graph ControlFlowGraph) -> Self {
-        Self {
-            graph,
-            direction: FlowDirection::Backward,
-        }
+        Self { graph }
     }
 
     fn transfer(&self, block: &AnalysisBlock, state: ReachabilityState) -> ReachabilityState {
@@ -224,7 +196,7 @@ impl FixedPointDomain for ReachabilityDomain<'_> {
     type State = ReachabilityState;
 
     fn direction(&self) -> FlowDirection {
-        self.direction
+        FlowDirection::Forward
     }
 
     fn bottom(&self) -> Self::State {

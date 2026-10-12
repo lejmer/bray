@@ -37,8 +37,20 @@ impl<'a> SemanticExporter<'a> {
 
         let exported = InterfaceDependencyContractId::new(index(self.dependency_contracts.len())?);
 
+        let borrows = data
+            .borrows()
+            .iter()
+            .map(|relation| {
+                Ok(bray_symbols::DependencyBorrowRelation::new(
+                    self.dependency_subject(relation.entry())?,
+                    self.dependency_subject(relation.exit())?,
+                    relation.kind(),
+                ))
+            })
+            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
+
         self.dependency_contracts
-            .push(InterfaceDependencyContract::new(requirements));
+            .push(InterfaceDependencyContract::new(requirements).with_borrows(borrows));
 
         self.dependency_contract_ids.insert(id, exported);
 

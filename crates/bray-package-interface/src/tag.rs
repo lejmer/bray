@@ -3,8 +3,8 @@ use bray_runtime_interface::{ExecutionLaneRequirement, RuntimeCapability};
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableConstness, CallableExecution, CallableParameterMode,
     CallablePosition, CallableTrust, ConstantBinaryOperation, ConstantUnaryOperation,
-    CurrentRunCancellation, LifecycleObligationKind, ReceiverMode, SymbolKind,
-    SynthesizedSymbolRole, TargetSizedIntegerType,
+    CurrentRunCancellation, DependencyReferenceKind, LifecycleObligationKind, ReceiverMode,
+    SymbolKind, SynthesizedSymbolRole, TargetSizedIntegerType,
 };
 
 use super::{
@@ -132,6 +132,11 @@ wire_tags!(SymbolKind {
     52 => SymbolKind::PostconditionResult,
     53 => SymbolKind::TrustedCapability,
     54 => SymbolKind::Static,
+});
+
+wire_tags!(DependencyReferenceKind {
+    1 => DependencyReferenceKind::Borrow,
+    2 => DependencyReferenceKind::Address,
 });
 
 wire_tags!(BorrowKind {
@@ -284,10 +289,26 @@ wire_tags!(CurrentRunCancellation {
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{CheckedTemplateKind, CheckedTemplateShortCircuitKind};
-    use bray_symbols::{CurrentRunCancellation, LifecycleObligationKind, SymbolKind};
+    use bray_symbols::{
+        CurrentRunCancellation, DependencyReferenceKind, LifecycleObligationKind, SymbolKind,
+    };
 
     use super::WireTag;
     use crate::{InterfacePredicateDefinitionState, SymbolRelationshipKind};
+
+    #[test]
+    fn dependency_reference_tags_are_exact_and_closed() {
+        for (raw, kind) in [
+            (1, DependencyReferenceKind::Borrow),
+            (2, DependencyReferenceKind::Address),
+        ] {
+            assert_eq!(kind.to_wire(), raw);
+            assert_eq!(DependencyReferenceKind::from_wire(raw), Some(kind));
+        }
+
+        assert_eq!(DependencyReferenceKind::from_wire(0), None);
+        assert_eq!(DependencyReferenceKind::from_wire(3), None);
+    }
 
     #[test]
     fn symbol_kind_tags_are_exact_and_closed() {

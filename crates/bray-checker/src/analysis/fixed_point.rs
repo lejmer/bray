@@ -102,7 +102,15 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
         enqueue(boundary, &mut worklist, &mut queued);
     }
 
-    for block in graph.blocks() {
+    // Seed backward analyses from the end so straight-line uses reach their
+    // definitions before earlier blocks run. Forward seeding would resend each
+    // growing suffix through the whole body.
+    let mut blocks = graph.blocks().iter();
+
+    while let Some(block) = match domain.direction() {
+        FlowDirection::Forward => blocks.next(),
+        FlowDirection::Backward => blocks.next_back(),
+    } {
         if domain.should_seed(block) {
             enqueue(block.id(), &mut worklist, &mut queued);
         }
@@ -246,14 +254,15 @@ mod tests {
         AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, AnalysisExit, AnalysisExitKind,
         ControlFlowGraph,
     };
-    use crate::analysis::reachability::ReachabilityDomain;
 
     #[test]
     fn forward_and_backward_domains_use_the_same_indexes() {
         let graph = linear_graph();
 
-        let forward = solve_fixed_point(&graph, &ReachabilityDomain::forward(&graph), &|| false);
-        let backward = solve_fixed_point(&graph, &ReachabilityDomain::backward(&graph), &|| false);
+        let forward = solve_fixed_point(&graph, &CounterDomain(FlowDirection::Forward), &|| false);
+
+        let backward =
+            solve_fixed_point(&graph, &CounterDomain(FlowDirection::Backward), &|| false);
 
         let FixedPointOutcome::Complete(forward) = forward else {
             panic!("forward analysis must complete");
@@ -266,20 +275,20 @@ mod tests {
         assert!(
             forward
                 .state(graph.entry())
-                .is_some_and(|state| state.is_clean())
+                .is_some_and(|state| *state == 1)
         );
 
         assert!(
             backward
                 .state(graph.entry())
-                .is_some_and(|state| state.is_clean())
+                .is_some_and(|state| *state == 1)
         );
     }
 
     #[test]
     fn cancellation_discards_fixed_point_state() {
         let graph = linear_graph();
-        let outcome = solve_fixed_point(&graph, &ReachabilityDomain::forward(&graph), &|| true);
+        let outcome = solve_fixed_point(&graph, &CounterDomain(FlowDirection::Forward), &|| true);
 
         assert_eq!(outcome, FixedPointOutcome::Cancelled);
     }
@@ -287,7 +296,7 @@ mod tests {
     #[test]
     fn fixed_point_results_reject_blocks_from_another_unit() {
         let graph = linear_graph();
-        let outcome = solve_fixed_point(&graph, &ReachabilityDomain::forward(&graph), &|| false);
+        let outcome = solve_fixed_point(&graph, &CounterDomain(FlowDirection::Forward), &|| false);
 
         let FixedPointOutcome::Complete(result) = outcome else {
             panic!("forward analysis must complete");
@@ -301,7 +310,7 @@ mod tests {
     #[test]
     fn cyclic_domains_converge_under_their_proven_finite_bound() {
         let graph = cyclic_graph();
-        let outcome = solve_fixed_point(&graph, &CounterDomain, &|| false);
+        let outcome = solve_fixed_point(&graph, &CounterDomain(FlowDirection::Forward), &|| false);
 
         let FixedPointOutcome::Complete(result) = outcome else {
             panic!("finite cyclic analysis must converge");
@@ -310,13 +319,13 @@ mod tests {
         assert_eq!(result.state(graph.entry()), Some(&3));
     }
 
-    struct CounterDomain;
+    struct CounterDomain(FlowDirection);
 
     impl FixedPointDomain for CounterDomain {
         type State = u8;
 
         fn direction(&self) -> FlowDirection {
-            FlowDirection::Forward
+            self.0
         }
 
         fn bottom(&self) -> Self::State {

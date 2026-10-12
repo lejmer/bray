@@ -151,7 +151,7 @@ where
             return false;
         }
 
-        let Some((_, _, cleanup_free)) = self.completion_semantics else {
+        let Some((_, cleanup_free)) = self.completion_semantics else {
             return true;
         };
 

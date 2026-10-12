@@ -11,7 +11,7 @@ use crate::{
 };
 use bray_base::shared_slice;
 use bray_symbols::{BorrowKind, TypeId};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 /// Immutable storage identities and occurrence-specific access plans for one bound unit.
@@ -21,6 +21,7 @@ pub struct StoragePlan {
     kind: BoundUnitKind,
     identities: Arc<[StorageIdentity]>,
     identity_types: BTreeMap<StorageIdentityId, TypeId>,
+    copyable_types: BTreeSet<TypeId>,
     owned_borrows: BTreeMap<(TypeId, BorrowKind), crate::StorageProtocolCall>,
     accesses: Arc<[StorageAccess]>,
     alternatives: Arc<[StorageAlternative]>,
@@ -48,6 +49,18 @@ pub(super) struct ResolvedStoragePath {
 }
 
 impl StoragePlan {
+    /// Attaches the checked copy contracts for types transferred by this unit.
+    pub fn with_copyable_types(mut self, types: BTreeSet<TypeId>) -> Self {
+        self.copyable_types = types;
+
+        self
+    }
+
+    /// Returns the checked copyable types used by this unit's transfer plans.
+    pub fn copyable_types(&self) -> &BTreeSet<TypeId> {
+        &self.copyable_types
+    }
+
     pub(in crate::storage) fn new(builder: StoragePlanBuilder) -> Self {
         let StoragePlanBuilder {
             unit,
@@ -107,6 +120,7 @@ impl StoragePlan {
         Self {
             unit,
             kind,
+            copyable_types: BTreeSet::new(),
             identities: identities.into(),
             identity_types,
             owned_borrows,

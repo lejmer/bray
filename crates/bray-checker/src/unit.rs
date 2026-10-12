@@ -25,6 +25,7 @@ where
     semantic_context: &'view SemanticUnitContext,
     context: &'view C,
     source_snapshot: Option<&'view bray_source::SourceSnapshot>,
+    unwind: Option<&'view bray_bound_tree::CheckedUnwind>,
     trusted_contracts: Option<&'view crate::TrustedContractInputs>,
     // Proven sites map to whether a raw copy is known to have an empty extent.
     trusted_memory_evidence: Option<&'view std::collections::BTreeMap<BoundExpressionId, bool>>,
@@ -92,6 +93,7 @@ where
             semantic_context,
             context,
             source_snapshot: None,
+            unwind: None,
             trusted_contracts: None,
             trusted_memory_evidence: None,
         }
@@ -114,6 +116,23 @@ where
         self.source_snapshot = Some(source);
 
         self
+    }
+
+    /// Supplies the owning analysis's checked unwind results.
+    pub fn with_unwind(mut self, unwind: &'view bray_bound_tree::CheckedUnwind) -> Self {
+        self.unwind = Some(unwind);
+
+        self
+    }
+
+    pub(crate) fn call_cannot_unwind(self, expression: BoundExpressionId) -> bool {
+        self.unwind
+            .is_some_and(|unwind| unwind.call_cannot_unwind(expression))
+    }
+
+    pub(crate) fn target_cannot_unwind(self, target: bray_bound_tree::BoundCallableTarget) -> bool {
+        self.unwind
+            .is_some_and(|unwind| unwind.target_cannot_unwind(target))
     }
 
     /// Supplies normalized trusted predicate contracts for body checking.
@@ -142,6 +161,7 @@ where
             semantic_context: self.semantic_context,
             context: self.context,
             source_snapshot: self.source_snapshot,
+            unwind: self.unwind,
             trusted_contracts: self.trusted_contracts,
             trusted_memory_evidence: Some(evidence),
         }

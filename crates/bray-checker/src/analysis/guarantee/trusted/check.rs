@@ -14,6 +14,7 @@ pub(crate) fn collect_trusted_memory_evidence<C: CheckerRequestContext + ?Sized>
     request: CheckerUnitView<'_, C>,
     expressions: &CheckedExpressionSemantics,
     storage: &StoragePlan,
+    refinements: &bray_bound_tree::CheckedRefinements,
     graph: &super::super::super::model::ControlFlowGraph,
 ) -> CheckerOutcome<BTreeMap<BoundExpressionId, bool>, C::UpstreamError> {
     let Some(contracts) = request.trusted_contracts() else {
@@ -39,8 +40,9 @@ pub(crate) fn collect_trusted_memory_evidence<C: CheckerRequestContext + ?Sized>
         &contracts.requirements,
         &literals,
         storage,
+        refinements,
         &completion,
-        None,
+        super::super::cleanup::Cleanup::default(),
     ) {
         CheckerOutcome::Complete(flow) => flow.into_parts().0,
         CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
@@ -57,11 +59,11 @@ fn check_trusted_contracts_in_flow<C: CheckerRequestContext + ?Sized>(
     flow: &ExecutionFlow<'_, '_, C>,
     final_check: bool,
 ) -> CheckerOutcome<BTreeMap<BoundExpressionId, bool>, C::UpstreamError> {
-    let Some(contracts) = request.trusted_contracts() else {
-        return CheckerOutcome::without_diagnostics(BTreeMap::new());
-    };
+    let empty = crate::TrustedContractInputs::default();
+    let contracts = request.trusted_contracts().unwrap_or(&empty);
 
-    if contracts.requirements.is_empty()
+    if !final_check
+        && contracts.requirements.is_empty()
         && contracts.guarantees.is_empty()
         && contracts.calls.is_empty()
     {
@@ -73,6 +75,7 @@ fn check_trusted_contracts_in_flow<C: CheckerRequestContext + ?Sized>(
     let mut proven = BTreeMap::new();
     let mut failed = BTreeSet::new();
     let mut transfers = BTreeSet::new();
+    let mut cleanup_failures = BTreeSet::new();
 
     for block in graph.blocks() {
         let Some(Some(entry)) = flow.states.state(block.id()) else {
@@ -99,7 +102,15 @@ fn check_trusted_contracts_in_flow<C: CheckerRequestContext + ?Sized>(
                 );
             }
 
-            flow.domain.operation(&mut state, operation.kind());
+            flow.domain.operation(
+                &mut state,
+                operation.kind(),
+                Some(&mut |_, _, lifecycle, _, _, established| {
+                    if final_check && !established && !lifecycle.contract.requirements.is_empty() {
+                        cleanup_failures.insert(operation.kind().node());
+                    }
+                }),
+            );
 
             let AnyBoundNodeId::Expression(expression) = operation.kind().node() else {
                 continue;
@@ -204,6 +215,15 @@ fn check_trusted_contracts_in_flow<C: CheckerRequestContext + ?Sized>(
         );
     }
 
+    for node in cleanup_failures {
+        diagnostics.add(trusted_diagnostic(
+            request,
+            expressions,
+            node,
+            DiagnosticKind::CheckingTrustedObligationNotProven,
+        ));
+    }
+
     for expression in transfers {
         diagnostics.add(trusted_diagnostic(
             request,
@@ -265,10 +285,7 @@ fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
             continue;
         }
 
-        let mut is_witness = state.is_witness(&value);
-
-        let mut partial_witness =
-            matches!(&value, ExecutionCondition::Projection(_, base) if state.is_witness(base));
+        let (mut is_witness, mut partial_witness) = state.witness_projection(&value);
 
         for (condition, subject) in requirements {
             let condition = condition.substitute(
@@ -292,11 +309,18 @@ fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
                 .value_in(&state.current)
                 .unwrap_or_else(|| ExecutionCondition::Input(subject.clone()));
 
-            is_witness |= subject == value
+            let nullable_payload = matches!((&subject, &value),
+                (ExecutionCondition::Input(owner), ExecutionCondition::Input(payload))
+                    if owner.contains(payload) && payload.projections[owner.projections.len()..].iter()
+                        .all(|projection| *projection == bray_symbols::ConstantProjectionKind::NullableValue));
+
+            is_witness |= nullable_payload
+                || subject == value
                 || matches!((&subject, &value),
                         (ExecutionCondition::Input(subject), ExecutionCondition::Input(copied)) if copied.contains(subject));
 
-            partial_witness |= subject != value
+            partial_witness |= !nullable_payload
+                && subject != value
                 && matches!((&subject, &value),
                         (ExecutionCondition::Input(subject), ExecutionCondition::Input(part)) if subject.contains(part));
         }
@@ -318,7 +342,7 @@ fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
         }
 
         let copies = plan.purpose() != bray_bound_tree::StorageAccessPurpose::Move
-            && flow.domain.copied_types.contains(&ty);
+            && storage.copyable_types().contains(&ty);
 
         if (is_witness && copies) || (partial_witness && !copies) {
             transfers.insert(plan.expression());
@@ -330,105 +354,29 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     expressions: &CheckedExpressionSemantics,
     storage: &StoragePlan,
+    refinements: &bray_bound_tree::CheckedRefinements,
     cleanup: &bray_bound_tree::CheckedAsync,
+    storage_flow: &bray_bound_tree::StorageFlow,
     graph: &super::super::super::model::ControlFlowGraph,
 ) -> CheckerOutcome<(), C::UpstreamError> {
-    use bray_symbols::{TypeAssociatedLifecycleSlot, TypeData};
-
     let mut diagnostics = DiagnosticBag::new();
 
-    // Predicate clauses describe entry and completion; they do not execute owner cleanup.
-    let accesses = if request.unit().key().kind() == bray_bound_tree::BoundUnitKind::ContractClause
-    {
-        BTreeSet::new()
-    } else {
-        cleanup
-            .scope_exits()
-            .iter()
-            .flat_map(|plan| plan.lifecycle_resolution().iter().copied())
-            .chain(cleanup.replacements().iter().map(|plan| plan.access()))
-            .collect::<BTreeSet<_>>()
-    };
+    let disposal =
+        match super::super::cleanup::Cleanup::prepare(request, storage, cleanup, storage_flow) {
+            Ok(prepared) => {
+                let (prepared, additional) = prepared.into_parts();
 
-    let mut contracts = BTreeMap::new();
+                diagnostics.add_range(additional);
 
-    macro_rules! query {
-        ($query:expr) => {
-            match $query {
-                Ok(value) => value,
-                Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-
-                Err(crate::CheckerQueryError::Upstream(error)) => {
-                    return CheckerOutcome::UpstreamFailure(error)
-                }
+                prepared
+            }
+            Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(crate::CheckerQueryError::Upstream(error)) => {
+                return CheckerOutcome::UpstreamFailure(error);
             }
         };
-    }
 
-    let mut parts = BTreeMap::new();
-
-    for access in accesses {
-        let reached = storage
-            .access(access)
-            .expect("checked cleanup retains its storage access");
-
-        let selected = storage
-            .root_identity(access)
-            .and_then(|identity| cleanup.storage_requirement(identity))
-            .and_then(|requirement| requirement.parts());
-
-        let expanded = query!(crate::asynchronous::full_cleanup_parts(
-            request,
-            reached.reached_type(),
-            reached.source(),
-            selected
-        ));
-
-        diagnostics.add_range(expanded.diagnostics().iter().cloned());
-        parts.insert(access, expanded.into_parts().0);
-    }
-
-    let types = parts
-        .values()
-        .flat_map(|parts| parts.iter().map(|(ty, _)| *ty))
-        .collect::<BTreeSet<_>>();
-
-    for ty in types {
-        if !matches!(
-            request.semantic_values().type_data(ty).as_ref(),
-            TypeData::Named { .. }
-        ) {
-            continue;
-        }
-
-        for slot in [
-            TypeAssociatedLifecycleSlot::Finalizer,
-            TypeAssociatedLifecycleSlot::Destructor,
-        ] {
-            let selected = query!(request.context().lifecycle_callable(ty, slot));
-
-            diagnostics.add_range(selected.diagnostics().iter().cloned());
-
-            let Some((_, signature)) = selected.value() else {
-                continue;
-            };
-
-            let contract = match cleanup_contract(request.semantic_values(), signature) {
-                Ok(contract) => contract,
-                Err(error) => {
-                    panic!(
-                        "The canonical semantic value store rejected a construction or lookup operation. in check_trusted_completion, value0: {:?}",
-                        error
-                    );
-                }
-            };
-
-            // Even a lifecycle with no predicates can invalidate the next lifecycle's evidence.
-            contracts.insert((ty, slot), contract);
-        }
-    }
-
-    if contracts.is_empty()
+    if !disposal.requires_validation()
         && request.trusted_contracts().is_none_or(|contracts| {
             contracts.requirements.is_empty()
                 && contracts.guarantees.is_empty()
@@ -454,8 +402,9 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
         requirements,
         &literals,
         storage,
+        refinements,
         &completion,
-        Some(cleanup),
+        disposal,
     ) {
         CheckerOutcome::Complete(flow) => {
             let (flow, additional) = flow.into_parts();
@@ -468,97 +417,6 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
         CheckerOutcome::UpstreamFailure(error) => return CheckerOutcome::UpstreamFailure(error),
     };
 
-    if !contracts.is_empty() {
-        let mut failed = BTreeSet::new();
-
-        for block in graph.blocks() {
-            let Some(Some(entry)) = flow.states.state(block.id()) else {
-                continue;
-            };
-
-            let mut state = entry.clone();
-
-            for operation in block
-                .operations()
-                .iter()
-                .filter_map(|id| graph.operation(*id))
-            {
-                let targets = cleanup_targets(cleanup, operation.kind());
-
-                for access in targets {
-                    let preserves_inputs = flow.domain.cleanup_preserves_inputs(&state, access);
-
-                    for (ty, part) in parts
-                        .get(&access)
-                        .expect("cleanup access has its selected expansion")
-                    {
-                        let place = part.as_ref().and_then(|part| {
-                            crate::ExecutionPlace::cleanup_part(storage, access, part)
-                        });
-
-                        for slot in [
-                            TypeAssociatedLifecycleSlot::Finalizer,
-                            TypeAssociatedLifecycleSlot::Destructor,
-                        ] {
-                            let Some(contract) = contracts.get(&(*ty, slot)) else {
-                                continue;
-                            };
-
-                            let evidence = query!(flow.cleanup_place_entry(
-                                &state,
-                                place.clone(),
-                                *ty,
-                                slot,
-                                false
-                            ));
-
-                            let established = evidence.as_ref().is_some_and(|(_, _, evidence)| {
-                                flow.domain
-                                    .trusted_requirements_proven(evidence, &contract.requirements)
-                                    && evidence.proves(&contract.preconditions)
-                            });
-
-                            if !established && !contract.requirements.is_empty() {
-                                failed.insert(operation.kind().node());
-                            }
-
-                            if !preserves_inputs {
-                                state.invalidate_cleanup(None);
-                            }
-
-                            if established
-                                && contract.completes
-                                && let Some((_, _, evidence)) = evidence
-                            {
-                                flow.domain.complete_trusted_cleanup(
-                                    &mut state,
-                                    place.clone(),
-                                    contract,
-                                    &evidence,
-                                );
-                            }
-                        }
-
-                        if !preserves_inputs {
-                            state.invalidate_cleanup(None);
-                        }
-                    }
-                }
-
-                flow.domain.operation(&mut state, operation.kind());
-            }
-        }
-
-        for node in failed {
-            diagnostics.add(trusted_diagnostic(
-                request,
-                expressions,
-                node,
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            ));
-        }
-    }
-
     match check_trusted_contracts_in_flow(request, expressions, storage, &flow, true) {
         CheckerOutcome::Complete(result) => diagnostics.add_range(result.into_parts().1),
         CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
@@ -566,97 +424,6 @@ pub(crate) fn check_trusted_completion<C: CheckerRequestContext + ?Sized>(
     }
 
     CheckerOutcome::complete((), diagnostics)
-}
-
-fn cleanup_targets(
-    cleanup: &bray_bound_tree::CheckedAsync,
-    operation: super::super::super::model::AnalysisOperationKind,
-) -> Vec<bray_bound_tree::StorageAccessId> {
-    match operation {
-        super::super::super::model::AnalysisOperationKind::ScopeExit {
-            block,
-            exit,
-            phase: super::super::super::model::AnalysisScopeExitPhase::LifecycleResolution,
-            ..
-        } => cleanup
-            .scope_exit_plan(block, exit)
-            .into_iter()
-            .flat_map(|plan| plan.lifecycle_resolution().iter().copied())
-            .collect::<Vec<_>>(),
-        super::super::super::model::AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(
-            expression,
-        )) => cleanup
-            .replacement(expression)
-            .into_iter()
-            .map(|plan| plan.access())
-            .collect(),
-        _ => Vec::new(),
-    }
-}
-
-fn cleanup_contract(
-    values: &bray_symbols::SemanticValueStore,
-    signature: &bray_symbols::CallableSignature,
-) -> Result<crate::TrustedCallContract, bray_symbols::SemanticValueStoreError> {
-    use bray_symbols::TypeData;
-
-    let data = values.type_data(signature.callable_type());
-
-    let TypeData::Callable(callable) = data.as_ref() else {
-        panic!("selected lifecycle must have a callable type");
-    };
-
-    let references = signature
-        .receiver()
-        .map(|receiver| bray_bound_tree::BoundReferenceTarget::Surface(receiver.parameter().into()))
-        .into_iter()
-        .chain(signature.parameters().iter().map(|parameter| {
-            bray_bound_tree::BoundReferenceTarget::Surface(parameter.parameter().into())
-        }))
-        .collect::<Vec<_>>();
-
-    let behavior = callable.phase_behaviors().invocation();
-
-    let completion = callable
-        .phase_behaviors()
-        .deferred_execution()
-        .unwrap_or(behavior);
-
-    let mut contract = crate::TrustedCallContract {
-        // Failed finalizer attempts can still be followed by destruction.
-        completes: callable.execution() == bray_symbols::CallableExecution::Synchronous
-            && behavior
-                .execution_properties()
-                .contains(&bray_symbols::ExecutionProperty::Total),
-        ..Default::default()
-    };
-
-    for (predicates, completion) in [
-        (behavior.predicate_requirements(), false),
-        (completion.predicate_guarantees(), true),
-    ] {
-        for predicate in predicates {
-            let condition = match predicate
-                .condition()
-                .map(|term| crate::execution_condition_from_term(values, term, &references))
-                .transpose()
-            {
-                Ok(condition) => condition.unwrap_or(ExecutionCondition::Unknown),
-                Err(error) => return Err(error),
-            };
-
-            let destination = match (completion, predicate.is_trusted()) {
-                (false, true) => &mut contract.requirements,
-                (false, false) => &mut contract.preconditions,
-                (true, true) => &mut contract.guarantees,
-                (true, false) => &mut contract.postconditions,
-            };
-
-            destination.push(condition);
-        }
-    }
-
-    Ok(contract)
 }
 
 fn trusted_diagnostic<C: CheckerRequestContext + ?Sized>(

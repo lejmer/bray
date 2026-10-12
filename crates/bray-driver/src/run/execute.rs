@@ -242,8 +242,13 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
         };
 
     if command_kind == DriverCommandKind::Check {
-        return run_check_command(request, interface_output, output_format)
-            .with_profile_output(profile_output);
+        return run_check_command(
+            request,
+            interface_output,
+            output_format,
+            options.compilation().product(),
+        )
+        .with_profile_output(profile_output);
     }
 
     if command_kind == DriverCommandKind::InspectSource {
@@ -332,6 +337,7 @@ fn run_check_command(
     request: CompilationRequest,
     interface_output: Option<PathBuf>,
     output_format: OutputFormat,
+    product: &bray_symbols::ProductIdentity,
 ) -> DriverRunResult {
     let compilation = match load_compilation(request) {
         Ok(compilation) => compilation,
@@ -345,8 +351,8 @@ fn run_check_command(
     {
         let diagnostic_id = DiagnosticId::from_index(diagnostics.len());
 
-        if let Err(error) = publish_package_interface(&compilation, &path, diagnostic_id) {
-            diagnostics.add(error);
+        if let Err(error) = publish_package_interface(&compilation, &path, diagnostic_id, product) {
+            diagnostics.add_range(error);
 
             return driver_result_from_compilation(
                 compilation,
@@ -549,15 +555,25 @@ fn publish_package_interface(
     compilation: &Compilation,
     destination: &Path,
     diagnostic_id: DiagnosticId,
-) -> Result<(), Diagnostic> {
+    product: &bray_symbols::ProductIdentity,
+) -> Result<(), DiagnosticBag> {
+    use bray_compilation::ProductEmissionErrorKind;
+
+    let failure = |kind: ProductEmissionErrorKind| {
+        kind.diagnostics(
+            product,
+            compilation.selected_target().target().profile().identity(),
+        )
+    };
+
     let bundle = compilation
         .package_interface_export_bundle()
-        .and_then(|result| result.as_ref().ok())
-        .ok_or_else(|| artifact_write_failure(diagnostic_id, destination, io::ErrorKind::Other))?;
+        .ok_or_else(|| failure(ProductEmissionErrorKind::PackageInterfaceUnavailable))?
+        .as_ref()
+        .map_err(|error| failure(ProductEmissionErrorKind::PackageInterface(error.clone())))?;
 
-    let artifact = bray_package_interface::encode_package_interface(bundle).map_err(|_| {
-        artifact_write_failure(diagnostic_id, destination, io::ErrorKind::InvalidData)
-    })?;
+    let artifact = bray_package_interface::encode_package_interface(bundle)
+        .map_err(|error| failure(ProductEmissionErrorKind::PackageInterfaceEncoding(error)))?;
 
     let implementation =
         bray_package_interface::PackageImplementationArtifact::try_from_export_bundle(
@@ -565,11 +581,10 @@ fn publish_package_interface(
             bundle,
             bray_package_interface::InterfaceValidationLimits::default(),
         )
-        .map_err(|_| {
-            artifact_write_failure(diagnostic_id, destination, io::ErrorKind::InvalidData)
-        })?;
+        .map_err(|error| failure(ProductEmissionErrorKind::PackageImplementation(error)))?;
 
-    publish_artifact(destination, artifact.bytes(), diagnostic_id)?;
+    publish_artifact(destination, artifact.bytes(), diagnostic_id)
+        .map_err(DiagnosticBag::single)?;
 
     implementation.verify_all().expect(
         "compiler-produced interface implementation must pass complete publication authentication",
@@ -581,11 +596,11 @@ fn publish_package_interface(
         &implementation_destination,
         &implementation
             .shared_bytes()
-            .map_err(|error| error.into_diagnostic(diagnostic_id))?,
+            .map_err(|error| DiagnosticBag::single(error.into_diagnostic(diagnostic_id)))?,
         diagnostic_id,
     )
+    .map_err(DiagnosticBag::single)
 }
-
 fn publish_artifact(
     destination: &Path,
     bytes: &[u8],
@@ -736,6 +751,71 @@ mod tests {
         assert!(rendered.contains("request.json"));
     }
 
+    #[test]
+    fn interface_publication_preserves_the_export_failure() {
+        let package = PackageIdentity::try_new("app").unwrap();
+        let product = ProductIdentity::try_new(package.clone(), "library").unwrap();
+
+        let compilation = bray_compilation::Compilation::load(
+            bray_compilation::CompilationRequest::new(package, Vec::new()),
+        )
+        .unwrap();
+
+        let destination = TemporaryFile::write("output.brayi", b"unchanged");
+
+        let diagnostics = super::publish_package_interface(
+            &compilation,
+            destination.path(),
+            bray_diagnostics::DiagnosticId::new(0),
+            &product,
+        )
+        .unwrap_err();
+
+        assert!(
+            diagnostics
+                .iter()
+                .flat_map(|diagnostic| diagnostic.args())
+                .any(|argument| matches!(
+                    argument.value(),
+                    bray_diagnostics::DiagnosticArgValue::EmissionFailure(
+                        bray_diagnostics::DiagnosticEmissionFailure::PackageInterface(
+                            bray_diagnostics::DiagnosticPackageInterfaceFailure::Unavailable
+                        )
+                    )
+                )),
+            "{diagnostics:?}"
+        );
+
+        assert_eq!(std::fs::read(destination.path()).unwrap(), b"unchanged");
+    }
+
+    #[test]
+    fn check_emits_an_interface_with_a_nullable_pattern_contract() {
+        let file = TemporaryFile::write(
+            "main.bray",
+            b"module app;\nfunc absent(pos value: u32?) requires(value matches none) {}\n",
+        );
+
+        let output = file.path().with_extension("brayi");
+
+        let result = run_result([
+            OsString::from("brayc"),
+            OsString::from("check"),
+            OsString::from("--emit-interface"),
+            output.as_os_str().to_os_string(),
+            file.path().as_os_str().to_os_string(),
+        ]);
+
+        assert_eq!(
+            result.exit_code(),
+            ExitCode::SUCCESS,
+            "{:?}",
+            result.diagnostics()
+        );
+
+        assert!(output.is_file());
+        assert!(output.with_extension("brayimpl").is_file());
+    }
     #[test]
     fn profiling_is_absent_unless_explicitly_requested() {
         let file = TemporaryFile::write("main.bray", b"module app;\n");

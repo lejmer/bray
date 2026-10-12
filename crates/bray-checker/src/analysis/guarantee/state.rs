@@ -52,9 +52,7 @@ impl ExecutionState {
                 continue;
             }
 
-            if let ExecutionCondition::Constructed(_, fields) = &value {
-                transferred.extend(fields.iter().map(|(_, value)| value.clone()));
-            }
+            transferred.extend(value.owned_components().cloned());
 
             owners.insert(value);
         }
@@ -100,9 +98,7 @@ impl ExecutionState {
                 }
             }
 
-            if let ExecutionCondition::Constructed(_, fields) = value {
-                pending.extend(fields.iter().map(|(_, value)| value));
-            }
+            pending.extend(value.owned_components());
         }
 
         if carriers.is_empty() {
@@ -117,6 +113,25 @@ impl ExecutionState {
         })
     }
 
+    pub(super) fn witness_projection(&self, value: &ExecutionCondition) -> (bool, bool) {
+        let mut whole = self.is_witness(value);
+        let mut partial = false;
+        let mut projected_part = false;
+        let mut value = value;
+
+        while let ExecutionCondition::Projection(projection, parent) = value {
+            projected_part |= *projection != bray_symbols::ConstantProjectionKind::NullableValue;
+
+            if self.is_witness(parent) {
+                whole |= !projected_part;
+                partial |= projected_part;
+            }
+
+            value = parent;
+        }
+
+        (whole, partial)
+    }
     pub(super) fn invalidate_cleanup(&mut self, preserved_header: Option<&crate::ExecutionPlace>) {
         self.assumptions
             .retain(|(condition, _)| !condition.observes_borrowed(None));
@@ -261,9 +276,7 @@ impl ExecutionState {
                 continue;
             }
 
-            if let ExecutionCondition::Constructed(_, fields) = &value {
-                pending.extend(fields.iter().map(|(_, value)| value.clone()));
-            }
+            pending.extend(value.owned_components().cloned());
 
             if let ExecutionCondition::Input(place) = &value {
                 invalidated_inputs.insert(place.clone());

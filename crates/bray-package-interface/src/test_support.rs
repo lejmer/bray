@@ -639,6 +639,7 @@ pub(crate) fn callable_phase_behavior() -> InterfaceCallablePhaseBehavior {
         crate::InterfaceDependencyContractId::new(0),
         bray_symbols::CurrentRunCancellation::NotEntered,
     )
+    .with_may_unwind(false)
 }
 
 fn checked_template(

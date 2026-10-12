@@ -573,10 +573,12 @@ mod tests {
     #[test]
     fn anonymous_native_symbols_do_not_bind_the_enclosing_declaration() {
         use bray_codegen::CodeGenerator;
+
         use bray_package_interface::{
             InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
             PackageInterfaceIdentity,
         };
+
         use std::sync::Arc;
 
         let backend = Arc::new(bray_codegen_llvm::LlvmCodeGenerator::try_new().unwrap());
@@ -589,6 +591,7 @@ mod tests {
         let codegen =
             bray_codegen::CodegenConfiguration::try_new(registry, backend.identity().clone())
                 .unwrap();
+
         let package = crate::test_support::package_identity();
 
         let identity = PackageInterfaceIdentity::try_new(
@@ -642,6 +645,7 @@ mod tests {
             .unwrap()
             .as_ref()
             .unwrap();
+
         let target = bray_target::NativeTarget::for_identity(native.target().identity()).unwrap();
         let mut digests = std::collections::BTreeMap::new();
         let mut units = Vec::new();
@@ -695,6 +699,7 @@ mod tests {
             [],
         )
         .unwrap();
+
         let bindings =
             super::native_bindings(&compilation, &native, bundle, target, &index, &digests)
                 .unwrap();

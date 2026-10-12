@@ -257,10 +257,11 @@ impl MirCall {
         ) && matches!(self.result, BoundCallResult::Immediate(_))
             && self.intrinsic.is_none()
             && !self.phase_behaviors().is_some_and(|behavior| {
-                behavior
-                    .invocation()
-                    .execution_properties()
-                    .contains(&bray_symbols::ExecutionProperty::Total)
+                !behavior.invocation().may_unwind()
+                    || behavior
+                        .invocation()
+                        .execution_properties()
+                        .contains(&bray_symbols::ExecutionProperty::Total)
             })
     }
 

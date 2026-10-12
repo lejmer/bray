@@ -70,6 +70,8 @@ pub struct StorageReplacementDecision {
     access: StorageAccessId,
     state: StorageReplacementState,
     moved: Arc<[StorageAccessId]>,
+    definitely_absent: Arc<[StorageAccessId]>,
+    root_initialized: bool,
     is_recovered: bool,
 }
 
@@ -80,6 +82,8 @@ impl StorageReplacementDecision {
         access: StorageAccessId,
         state: StorageReplacementState,
         moved: impl IntoIterator<Item = StorageAccessId>,
+        definitely_absent: impl IntoIterator<Item = StorageAccessId>,
+        root_initialized: bool,
         is_recovered: bool,
     ) -> Self {
         Self {
@@ -87,6 +91,8 @@ impl StorageReplacementDecision {
             access,
             state,
             moved: sorted_unique_shared_slice(moved),
+            definitely_absent: sorted_unique_shared_slice(definitely_absent),
+            root_initialized,
             is_recovered,
         }
     }
@@ -109,6 +115,17 @@ impl StorageReplacementDecision {
     /// Returns moved accesses within the destination's storage root.
     pub fn moved(&self) -> &[StorageAccessId] {
         &self.moved
+    }
+
+    /// Returns paths moved on every incoming path before replacement.
+    pub fn definitely_absent(&self) -> &[StorageAccessId] {
+        &self.definitely_absent
+    }
+
+    /// Returns whether the destination root was initialized on every incoming path.
+    /// Moved represented parts are described separately by `moved`.
+    pub const fn root_initialized(&self) -> bool {
+        self.root_initialized
     }
 
     /// Returns whether recovery prevented a complete decision.
@@ -137,6 +154,8 @@ mod tests {
             destination,
             StorageReplacementState::Conditional,
             [moved, moved],
+            [moved, moved],
+            true,
             false,
         );
 
@@ -147,6 +166,8 @@ mod tests {
                 destination,
                 StorageReplacementState::Conditional,
                 [moved],
+                [moved],
+                true,
                 false,
             )
         );
@@ -156,6 +177,8 @@ mod tests {
             .with_replacements([decision.clone()])
             .unwrap();
 
+        assert!(decision.root_initialized());
+        assert_eq!(decision.definitely_absent(), &[moved]);
         assert_eq!(flow.replacements(), &[decision]);
     }
 
@@ -170,6 +193,8 @@ mod tests {
             access,
             StorageReplacementState::Present,
             [],
+            [],
+            true,
             false,
         );
 
@@ -204,6 +229,8 @@ mod tests {
                 access,
                 StorageReplacementState::Conditional,
                 moved,
+                [],
+                true,
                 false,
             );
 

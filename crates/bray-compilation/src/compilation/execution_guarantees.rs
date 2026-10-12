@@ -8,3 +8,6 @@ mod projection;
 mod proof;
 mod query;
 mod scan;
+mod unwind;
+
+pub(in crate::compilation) use unwind::has_runtime_preconditions;

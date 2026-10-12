@@ -59,8 +59,15 @@ impl TrustedCallContract {
         self.result_is_witness
             && subjects.peek().is_some()
             && subjects.all(|(_, subject)| {
+                let mut subject = subject;
+
+                while let ExecutionCondition::Borrowed(value) | ExecutionCondition::Present(value) =
+                    subject
+                {
+                    subject = value;
+                }
+
                 matches!(subject, ExecutionCondition::Result)
-                    || matches!(subject, ExecutionCondition::Borrowed(value) if **value == ExecutionCondition::Result)
             })
     }
 }

@@ -323,6 +323,7 @@ impl InternState {
             dependency,
             input.current_run_cancellation,
         )
+        .with_may_unwind(input.may_unwind)
         .with_execution_properties(input.execution_properties.iter().copied())
         .with_predicates(
             input

@@ -1,4 +1,5 @@
-use super::super::storage_invalidation::{StorageInvalidation, invalidating_operation_accesses};
+use super::super::storage_invalidation::invalidating_operation_accesses;
+use bray_bound_tree::StorageInvalidation;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
@@ -26,7 +27,8 @@ pub(super) struct RefinementUniverse {
     equivalent_accesses: BTreeMap<StorageAccessId, StorageAccessId>,
     edge_refinements: BTreeMap<AnalysisRefinement, Box<[usize]>>,
     trust_boundaries: BTreeMap<BoundExpressionId, usize>,
-    invalidating_accesses: BTreeMap<bray_bound_tree::BoundExecutionSite, StorageInvalidation>,
+    pub(super) invalidating_accesses:
+        BTreeMap<bray_bound_tree::BoundExecutionSite, StorageInvalidation>,
 }
 
 impl RefinementUniverse {
@@ -34,7 +36,7 @@ impl RefinementUniverse {
         graph: &ControlFlowGraph,
         request: CheckerUnitView<'_, C>,
         patterns: &CheckedPatterns,
-        selections: &bray_bound_tree::CheckedSemanticSelections,
+        expressions: &bray_bound_tree::CheckedExpressionSemantics,
         storage: &StoragePlan,
         copied_types: &BTreeSet<bray_symbols::TypeId>,
     ) -> Result<Self, RefinementUniverseError>
@@ -44,7 +46,7 @@ impl RefinementUniverse {
         let direct_dependencies = direct_expression_dependencies(storage);
 
         let invalidating_accesses =
-            invalidating_operation_accesses(request, selections, storage, copied_types);
+            invalidating_operation_accesses(request, expressions, storage, copied_types);
 
         let mut universe = Self {
             refinements: Vec::new(),

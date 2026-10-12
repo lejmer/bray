@@ -97,6 +97,7 @@ pub use pattern::{
 };
 pub use refinement::{
     CheckedRefinements, Refinement, RefinementKind, RefinementOccurrence, RefinementSetBuildError,
+    StorageInvalidation,
 };
 pub use selection::{
     CallableDeclarationTemplate, CallableParameterDefaultTemplate, CheckedSemanticSelections,
@@ -110,7 +111,7 @@ pub use selection::{
     SemanticSelectionTableBuildError,
 };
 pub use semantic::{
-    CheckedBodySemantics, CheckedExpressionSemantics, SemanticSnapshotBuildError,
+    CheckedBodySemantics, CheckedExpressionSemantics, CheckedUnwind, SemanticSnapshotBuildError,
     SemanticSnapshotInputKind,
 };
 pub use storage::{

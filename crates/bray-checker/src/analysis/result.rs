@@ -147,7 +147,8 @@ where
             request,
             storage,
             expressions.selections(),
-            Some((expressions, patterns, &cleanup_free)),
+            Some(patterns),
+            Some((expressions, &cleanup_free)),
         ) {
             ControlFlowGraphBuildOutcome::Complete(graph) => graph,
             ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
@@ -213,7 +214,7 @@ impl<C: CheckerRequestContext + ?Sized> ControlFlowGraphBuilder<'_, C> {
 
         if let Some(ty) = self
             .completion_semantics
-            .and_then(|(expressions, _, _)| expressions.types().expression(id))
+            .and_then(|(expressions, _)| expressions.types().expression(id))
             .map(|entry| entry.ty())
         {
             match crate::representation::type_representation(self.request(), ty) {

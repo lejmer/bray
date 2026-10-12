@@ -36,6 +36,7 @@ pub(crate) fn check_async_analysis<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     selections: &CheckedSemanticSelections,
+    patterns: &bray_bound_tree::CheckedPatterns,
     liveness: &Liveness,
     dependencies: &CheckedDependencyContracts,
     storage: &StoragePlan,
@@ -49,6 +50,8 @@ where
         return CheckerOutcome::Cancelled;
     }
 
+    assert_unit_inputs(request, [("patterns", (patterns.unit(), patterns.kind()))]);
+
     assert_inputs(
         request,
         types,
@@ -60,7 +63,13 @@ where
         flow,
     );
 
-    let graph = match build_storage_control_flow_graph(request, storage, selections, None) {
+    let graph = match build_storage_control_flow_graph(
+        request,
+        storage,
+        selections,
+        Some(patterns),
+        None,
+    ) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
         ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
@@ -962,8 +971,14 @@ mod tests {
         let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
             .unwrap_or_else(|error| panic!("empty test liveness must validate: {error:?}"));
 
-        let refinements = CheckedRefinements::try_new(unit.unit(), unit.key().kind(), [], false)
-            .unwrap_or_else(|error| panic!("empty test refinements must validate: {error:?}"));
+        let refinements = CheckedRefinements::try_new(
+            unit.unit(),
+            unit.key().kind(),
+            [],
+            Default::default(),
+            false,
+        )
+        .unwrap_or_else(|error| panic!("empty test refinements must validate: {error:?}"));
 
         let suspension = include_suspension_state
             .then(|| StorageSuspensionState::new(expressions[1], [], [], [], []));
@@ -979,10 +994,14 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("test storage flow must validate: {error:?}"));
 
+        let patterns =
+            bray_bound_tree::CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], []);
+
         check_async_analysis(
             request,
             &types,
             &selections,
+            &patterns,
             &liveness,
             &dependencies,
             &storage,

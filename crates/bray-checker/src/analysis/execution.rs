@@ -130,6 +130,10 @@ where
         expression: BoundExpressionId,
         hook: Option<ImplementationHook>,
     ) -> bool {
+        if self.request().call_cannot_unwind(expression) {
+            return false;
+        }
+
         let hook_may_panic = implementation_hook_may_propagate_synchronous_panic(hook);
 
         let Some(selections) = self.selections() else {
@@ -139,7 +143,8 @@ where
         match selections.expression(expression) {
             Some(SemanticSelection::Call(selection)) => {
                 selection.evaluates_defaults()
-                    || (hook_may_panic
+                    || (selection.phase_behaviors().invocation().may_unwind()
+                        && hook_may_panic
                         && !selection
                             .phase_behaviors()
                             .invocation()
@@ -180,7 +185,8 @@ where
     }
 }
 
-const fn implementation_hook_may_propagate_synchronous_panic(
+/// Whether a compiler hook can propagate synchronous failure on valid inputs.
+pub const fn implementation_hook_may_propagate_synchronous_panic(
     hook: Option<ImplementationHook>,
 ) -> bool {
     matches!(

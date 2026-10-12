@@ -377,7 +377,6 @@ pub(crate) fn full_cleanup_parts<C: CheckerRequestContext + ?Sized>(
 
     let mut receivers = result
         .into_iter()
-        .filter(|part| part.release().is_none() && part.phases().includes_lifecycle())
         .map(|part| {
             (
                 part.projections()

@@ -19,11 +19,13 @@ mod storage_index;
 
 pub(crate) use build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 pub(crate) use check::check_control_flow;
-pub use guarantee::check_execution_candidate;
+pub use execution::implementation_hook_may_propagate_synchronous_panic;
+pub use guarantee::{UnwindCandidate, check_execution_candidate, check_unwind_candidate};
 pub(crate) use liveness::{analyze_storage_liveness, analyze_storage_liveness_with_graph};
 pub(crate) use model::{
     AnalysisOperationKind, AnalysisSuspensionKind, AnalysisTaskOperationKind, ControlFlowGraph,
 };
+pub(crate) use reachability::analyze_reachability;
 pub(crate) use refinement::{check_refinements, check_refinements_with_graph};
 pub(crate) use result::check_callable_result;
 pub(crate) use storage_flow::{check_storage_flow, check_storage_flow_with_graph};

@@ -213,6 +213,7 @@ impl Compilation {
             self.runtime_lowering_calls(expressions.result().value().selections(), cancellation)?;
 
         let input = input
+            .with_unwind(body.result().value().unwind())
             .with_native_static_templates(&native_static_templates)
             .with_runtime_calls(&runtime_calls);
 

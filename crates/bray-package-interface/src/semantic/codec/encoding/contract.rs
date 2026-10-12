@@ -29,6 +29,14 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
             for requirement in &*contract.requirements {
                 encode_dependency_requirement(encoder, requirement);
             }
+
+            write_count(encoder, contract.borrows.len());
+
+            for relation in &*contract.borrows {
+                encode_dependency_subject(encoder, relation.entry());
+                encode_dependency_subject(encoder, relation.exit());
+                encoder.write_u32(relation.kind().to_wire());
+            }
         },
     );
 
@@ -158,6 +166,7 @@ pub(super) fn encode_callable_behavior(
 
     encoder.write_u32(behavior.dependency_contract.raw());
     encoder.write_u32(behavior.current_run_cancellation.to_wire());
+    encoder.write_u32(u32::from(behavior.may_unwind));
     write_count(encoder, behavior.execution_properties.len());
 
     for property in &*behavior.execution_properties {

@@ -94,6 +94,13 @@ fn encode(
 
             ConstantTermData::CallableArgument(SymbolOrdinal::new(ordinal))
         }
+        ExecutionCondition::Present(value) => {
+            let Some(value) = encode(values, value, inputs, boolean_type, budget)? else {
+                return Ok(None);
+            };
+
+            ConstantTermData::NullablePresent(value)
+        }
         ExecutionCondition::Borrowed(value) => {
             let Some(operand) = encode(values, value, inputs, boolean_type, budget)? else {
                 return Ok(None);
@@ -270,6 +277,9 @@ fn decode(
                 ConstantValueKind::Error => ExecutionCondition::Unknown,
                 _ => ExecutionCondition::Literal(value),
             }
+        }
+        ConstantTermData::NullablePresent(value) => {
+            decode(values, *value, inputs, budget)?.present()
         }
         ConstantTermData::CallableArgument(ordinal) => {
             let index = usize::try_from(ordinal.raw()).ok();

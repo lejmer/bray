@@ -18,6 +18,7 @@ use bray_diagnostics::{
 };
 use bray_symbols::{AnySymbolId, BorrowKind, CallableSignatureQuery};
 
+use crate::analysis::storage_flow::model::StorageAbsence;
 use crate::diagnostic::diagnostic_id;
 use crate::storage::{StorageScopeOwners, storage_scope_owners};
 use crate::unit::assert_unit_inputs;
@@ -34,7 +35,7 @@ use crate::analysis::liveness::analyze_storage_liveness_with_graph;
 use crate::analysis::model::{
     AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind, AnalysisScopeExitPhase,
 };
-use crate::analysis::reachability::analyze_reachability;
+use crate::analysis::reachability::{ReachabilityResult, analyze_reachability};
 use crate::analysis::storage_flow::authority::mutable_storage;
 use crate::analysis::storage_flow::decision::{diagnostic_kind, more_conservative};
 use crate::analysis::storage_flow::model::{StorageFlowDomain, StorageFlowInput, StorageFlowState};
@@ -67,14 +68,23 @@ where
         ],
     );
 
-    let graph =
-        match build_storage_control_flow_graph(request, storage, expressions.selections(), None) {
-            ControlFlowGraphBuildOutcome::Complete(graph) => graph,
-            ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-            ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
-                return CheckerOutcome::UpstreamFailure(error);
-            }
-        };
+    let graph = match build_storage_control_flow_graph(
+        request,
+        storage,
+        expressions.selections(),
+        Some(patterns),
+        None,
+    ) {
+        ControlFlowGraphBuildOutcome::Complete(graph) => graph,
+        ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
+        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
+    };
+
+    let Some(reachability) = analyze_reachability(&graph, request) else {
+        return CheckerOutcome::Cancelled;
+    };
 
     let ((liveness, edge_lifetime_ends), diagnostics) = match analyze_storage_liveness_with_graph(
         request,
@@ -84,6 +94,7 @@ where
         storage,
         memory,
         &graph,
+        &reachability,
     ) {
         CheckerOutcome::Complete(result) => result.into_parts(),
         CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
@@ -97,6 +108,7 @@ where
         refinements,
         memory,
         &graph,
+        &reachability,
         &edge_lifetime_ends,
     ) {
         CheckerOutcome::Complete(result) => {
@@ -124,27 +136,15 @@ pub(crate) fn check_storage_flow_with_graph<C>(
     refinements: &CheckedRefinements,
     memory: &CheckedMemoryOperations,
     graph: &crate::analysis::model::ControlFlowGraph,
+    reachability: &ReachabilityResult,
     edge_lifetime_ends: &BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>,
 ) -> CheckerOutcome<StorageFlow, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    let Some(reachability) = analyze_reachability(graph, request) else {
-        return CheckerOutcome::Cancelled;
-    };
-
-    let (copyable_types, copyability_diagnostics) =
-        match crate::analysis::storage_flow::copyability::storage_copyable_types(request, storage) {
-            Ok(result) => result,
-            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Upstream(error)) => {
-                return CheckerOutcome::UpstreamFailure(error);
-            }
-        };
-
     let ((input, cleanup_diagnostics), authority_diagnostics) =
         match mutable_storage(request, storage).and_then(|(mutable, diagnostics)| {
-            StorageFlowInput::new(request, storage, copyable_types, mutable, liveness)
+            StorageFlowInput::new(request, storage, mutable, liveness)
                 .map(|input| (input, diagnostics))
         }) {
             Ok(result) => result,
@@ -193,7 +193,6 @@ where
         &owners,
     );
 
-    collector.diagnostics.add_range(copyability_diagnostics);
     collector.diagnostics.add_range(authority_diagnostics);
     collector.diagnostics.add_range(cleanup_diagnostics);
 
@@ -409,6 +408,54 @@ where
         if matches!(operation.kind(), AnalysisOperationKind::Recovery(_)) {
             state.recovered = true;
             self.is_recovered = true;
+        }
+
+        let refinements = self.refinements.refinements_before(operation.kind().node());
+
+        for refinement in refinements {
+            let access = match refinement.kind() {
+                bray_bound_tree::RefinementKind::Pattern {
+                    access,
+                    predicate: bray_bound_tree::PatternPredicate::NullableAbsent,
+                    value: true,
+                    ..
+                }
+                | bray_bound_tree::RefinementKind::Pattern {
+                    access,
+                    predicate: bray_bound_tree::PatternPredicate::NullablePresent,
+                    value: false,
+                    ..
+                } => Some(access),
+                bray_bound_tree::RefinementKind::NullablePresence {
+                    expression,
+                    is_present: false,
+                } => self
+                    .storage
+                    .node_plans(expression.into())
+                    .find(|plan| plan.purpose() == StorageAccessPurpose::Read)
+                    .map(|plan| plan.access()),
+                _ => None,
+            };
+
+            if let Some(payload) = access.and_then(|access| {
+                self.storage
+                    .projected_access(access, &[bray_bound_tree::StorageProjection::NullableValue])
+            }) {
+                state.mark_absent(payload, StorageAbsence::NoPayload, self.storage);
+            }
+        }
+
+        if !matches!(
+            operation.kind(),
+            AnalysisOperationKind::Call {
+                phase: AnalysisCallPhase::Completion,
+                ..
+            } | AnalysisOperationKind::ScopeExit { .. }
+        ) && let Some(invalidation) = self
+            .refinements
+            .invalidation_at(operation.kind().occurrence())
+        {
+            state.invalidate_observed_absence(invalidation, self.storage);
         }
 
         if let AnalysisOperationKind::Call { invocation, phase } = operation.kind() {
@@ -631,7 +678,10 @@ where
         }
 
         if purpose == StorageAccessPurpose::Copy
-            && !self.input.type_is_copyable(access.reached_type())
+            && !self
+                .storage
+                .copyable_types()
+                .contains(&access.reached_type())
         {
             return StorageOperationOutcome::status(StorageOperationStatus::NotCopyable);
         }
@@ -650,13 +700,7 @@ where
             StorageAccessPurpose::Move => {
                 state.moved.insert(plan.access(), plan.expression());
 
-                if let (Some(identity), Some(path)) = (
-                    self.storage.root_identity(plan.access()),
-                    self.storage.resolved_projections(plan.access()),
-                ) && let Some(access) = self.storage.access_at(identity, path)
-                {
-                    state.definitely_moved.insert(access);
-                }
+                state.mark_absent(plan.access(), StorageAbsence::Moved, self.storage);
 
                 if self.storage.is_root_access(plan.access())
                     && self
@@ -684,9 +728,8 @@ where
                     .moved
                     .retain(|moved, _| !self.storage.access_contains(plan.access(), *moved));
 
-                state.retain_definite_moves(self.storage);
+                state.invalidate_absence(plan.access(), self.storage);
             }
-            StorageAccessPurpose::Write => {}
             StorageAccessPurpose::Borrow(_) => {
                 if let Some(borrow) = borrow {
                     state.active_borrows.insert(borrow);
@@ -694,6 +737,7 @@ where
                 }
             }
             StorageAccessPurpose::Read
+            | StorageAccessPurpose::Write
             | StorageAccessPurpose::Copy
             | StorageAccessPurpose::ValueTransfer
             | StorageAccessPurpose::Member
@@ -742,7 +786,11 @@ where
                 .is_none_or(|storage| !definitions.contains(&storage))
         });
 
-        state.retain_definite_moves(self.storage);
+        state.definitely_absent.retain(|access, _| {
+            self.storage
+                .root_identity(*access)
+                .is_none_or(|root| !definitions.contains(&root))
+        });
 
         state
             .fully_moved
@@ -792,7 +840,11 @@ where
             return StorageAccessPurpose::ValueTransfer;
         };
 
-        if self.input.type_is_copyable(access.reached_type()) {
+        if self
+            .storage
+            .copyable_types()
+            .contains(&access.reached_type())
+        {
             StorageAccessPurpose::Copy
         } else {
             StorageAccessPurpose::Move
@@ -922,7 +974,7 @@ where
                 state.live.iter().copied(),
                 state.initialized.iter().copied(),
                 state.moved.iter().copied(),
-                state.definitely_moved.iter().copied(),
+                state.definitely_absent.iter().copied(),
                 state.fully_moved.iter().copied(),
                 state.active_borrows.iter().copied(),
                 state.recovered,
@@ -949,6 +1001,8 @@ where
                 plan.access(),
                 initialization,
                 state.moved.iter().copied(),
+                state.definitely_absent.iter().copied(),
+                state.initialized,
                 state.recovered,
             )
         })

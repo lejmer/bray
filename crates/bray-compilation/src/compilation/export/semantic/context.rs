@@ -549,6 +549,7 @@ impl<'a> SemanticExporter<'a> {
             self.dependency_contract_id(behavior.dependency_contract())?,
             behavior.current_run_cancellation(),
         )
+        .with_may_unwind(behavior.may_unwind())
         .with_execution_properties(behavior.execution_properties().iter().copied())
         .with_predicates(
             behavior

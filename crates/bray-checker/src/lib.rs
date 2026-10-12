@@ -38,7 +38,8 @@ pub use trusted_contracts::{TrustedCallContract, TrustedContractInputs};
 #[cfg(test)]
 mod test_support;
 
-pub use analysis::check_execution_candidate;
+pub use analysis::implementation_hook_may_propagate_synchronous_panic;
+pub use analysis::{UnwindCandidate, check_execution_candidate, check_unwind_candidate};
 pub use analysis::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};
 pub use atomic::atomic_target_representation;
 pub use constant::{

@@ -228,10 +228,10 @@ where
         &self,
         request: CheckerUnitView<'_, C>,
         patterns: &CheckedPatterns,
-        selections: &CheckedSemanticSelections,
+        expressions: &CheckedExpressionSemantics,
         storage: &StoragePlan,
     ) -> CheckerOutcome<CheckedRefinements, C::UpstreamError> {
-        check_refinements(request, patterns, selections, storage)
+        check_refinements(request, patterns, expressions, storage)
     }
 }
 
@@ -326,6 +326,7 @@ where
         request: CheckerUnitView<'_, C>,
         types: &CheckedExpressionTypes,
         selections: &CheckedSemanticSelections,
+        patterns: &CheckedPatterns,
         liveness: &Liveness,
         dependencies: &CheckedDependencyContracts,
         storage: &StoragePlan,
@@ -336,6 +337,7 @@ where
             request,
             types,
             selections,
+            patterns,
             liveness,
             dependencies,
             storage,

@@ -220,6 +220,16 @@ fn push_fact_context(
 
             "memory_operations"
         }
+        Fact::UnwindCandidate(unit) => {
+            push_bound_unit_key(fields, unit);
+
+            "unwind_candidate"
+        }
+        Fact::UnwindBehavior(unit) => {
+            push_bound_unit_key(fields, unit);
+
+            "unwind_behavior"
+        }
         Fact::ExecutionCandidates(unit) => {
             push_bound_unit_key(fields, unit);
 

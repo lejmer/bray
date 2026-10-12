@@ -501,6 +501,10 @@ pub(crate) enum CompilationFactKey {
     BodySemantics(BoundUnitKey),
     /// Body-local execution obligations whose dependencies have not been certified.
     ExecutionCandidates(BoundUnitKey),
+    /// Body-local unwind behavior and dependencies, independent of termination.
+    UnwindCandidate(BoundUnitKey),
+    /// Transitive checked unwind behavior for a callable body.
+    UnwindBehavior(BoundUnitKey),
     /// Certified unconditional execution properties with foreign assertion provenance.
     CertifiedExecution(BoundUnitKey),
     /// Reachable normalized behavior of one checked semantic body.
@@ -651,6 +655,8 @@ impl CompilationFactKey {
             | Self::CheckedPatterns(key)
             | Self::StoragePlan(key)
             | Self::MemoryOperations(key)
+            | Self::UnwindCandidate(key)
+            | Self::UnwindBehavior(key)
             | Self::ExecutionCandidates(key)
             | Self::CertifiedExecution(key)
             | Self::BodySemantics(key)

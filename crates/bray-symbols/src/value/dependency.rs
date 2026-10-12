@@ -279,10 +279,52 @@ impl DependencyRequirement {
     }
 }
 
+/// The representation of a checked reference at normal completion.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DependencyReferenceKind {
+    /// A language borrow that observes its referent.
+    Borrow,
+    /// A raw address whose value does not itself observe its referent.
+    Address,
+}
+
+/// Proven identity of borrowed storage across one callable's normal completion.
+/// The exit subject, when initialized, refers to the entry subject's original storage.
+/// This relation grants no storage, initialization, or acquisition authority.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DependencyBorrowRelation<Subject = DependencySubject> {
+    entry: Subject,
+    exit: Subject,
+    kind: DependencyReferenceKind,
+}
+
+impl<Subject> DependencyBorrowRelation<Subject> {
+    /// Connects a normal-exit borrow to its proven entry storage.
+    pub const fn new(entry: Subject, exit: Subject, kind: DependencyReferenceKind) -> Self {
+        Self { entry, exit, kind }
+    }
+
+    /// Returns the reference representation established by dependency inference.
+    pub const fn kind(&self) -> DependencyReferenceKind {
+        self.kind
+    }
+
+    /// Returns the storage observed at invocation entry.
+    pub const fn entry(&self) -> &Subject {
+        &self.entry
+    }
+
+    /// Returns the borrow observed after normal completion.
+    pub const fn exit(&self) -> &Subject {
+        &self.exit
+    }
+}
+
 /// A normalized source-independent dependency-contract template.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DependencyContractTemplateData {
     requirements: Arc<[DependencyRequirement]>,
+    borrows: Arc<[DependencyBorrowRelation]>,
 }
 
 impl DependencyContractTemplateData {
@@ -290,7 +332,23 @@ impl DependencyContractTemplateData {
     pub fn new(requirements: impl IntoIterator<Item = DependencyRequirement>) -> Self {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
+            borrows: Arc::new([]),
         }
+    }
+
+    /// Attaches checked entry-to-exit borrow identities in deterministic order.
+    pub fn with_borrows(
+        mut self,
+        borrows: impl IntoIterator<Item = DependencyBorrowRelation>,
+    ) -> Self {
+        self.borrows = sorted_unique_shared_slice(borrows);
+
+        self
+    }
+
+    /// Returns proven borrow identities, distinct from required lifetime conditions.
+    pub fn borrows(&self) -> &[DependencyBorrowRelation] {
+        &self.borrows
     }
 
     /// Returns the normalized requirements.

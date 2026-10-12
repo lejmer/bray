@@ -488,10 +488,11 @@ fn bind_callable_contracts(
     let signature =
         context.resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(owner))?;
 
-    let (execution, trust, properties) = match signature.value().callable_type() {
+    let (execution, trust, abi, properties) = match signature.value().callable_type() {
         bray_symbols::TypeExpressionTemplate::Callable(callable) => (
             callable.execution(),
             callable.trust(),
+            callable.abi(),
             callable
                 .phase_behaviors()
                 .deferred_execution()
@@ -506,6 +507,7 @@ fn bind_callable_contracts(
                 TypeData::Callable(callable) => (
                     callable.execution(),
                     callable.trust(),
+                    callable.abi(),
                     callable
                         .phase_behaviors()
                         .deferred_execution()
@@ -581,7 +583,7 @@ fn bind_callable_contracts(
         .as_ref()
         .is_some_and(|behavior| behavior.result().value().is_recovered());
 
-    let (invocation_behavior, deferred_execution_behavior) = callable_phase_behaviors(
+    let (mut invocation_behavior, mut deferred_execution_behavior) = callable_phase_behaviors(
         execution,
         &properties,
         capabilities
@@ -595,6 +597,26 @@ fn bind_callable_contracts(
             .as_ref()
             .map(|behavior| behavior.result().value()),
     );
+
+    let may_unwind = if let Some(key) = body_key {
+        let unwind = context
+            .compilation()
+            .unwind_behavior(key, context.cancellation())
+            .map_err(super::binding::binder_error)?;
+
+        *unwind.result().value()
+    } else {
+        // A foreign ABI cannot propagate Bray panic or cancellation across its boundary.
+        abi == bray_symbols::CallableAbi::Bray
+    };
+
+    let may_unwind = may_unwind
+        || crate::compilation::execution_guarantees::has_runtime_preconditions(&predicates);
+
+    match deferred_execution_behavior.take() {
+        Some(deferred) => deferred_execution_behavior = Some(deferred.with_may_unwind(may_unwind)),
+        None => invocation_behavior = invocation_behavior.with_may_unwind(may_unwind),
+    }
 
     validate_trusted_capabilities(
         context,

@@ -361,16 +361,23 @@ fn lock_guard_borrows_end_before_unlock_and_keep_the_lock_alive() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock.bray"),
+        include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/lock.bray"),
+        include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/guard.bray"),
+        include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/state.bray"),
     ];
 
     let compilation = standard_library_compilation([
         sources[0],
         sources[1],
         sources[2],
+        sources[3],
+        sources[4],
+        sources[5],
         r#"
         module app;
 
-        func increment(pos lock: &std.sync.SpinLock<i32>) {
+        func increment(pos lock: &std.sync.SpinLock<i32>)
+            requires(trusted core.memory.uninit_initialized<std.sync.spin_lock.State<i32>>(storage = &lock.storage)) {
             let mut guard: std.sync.SpinLockGuard<i32> = lock.lock();
             let value: &mut i32 = guard.get();
 
@@ -405,7 +412,8 @@ fn lock_guard_borrows_end_before_unlock_and_keep_the_lock_alive() {
             r#"
             module app;
 
-            func use_after_unlock(pos lock: &std.sync.SpinLock<i32>) {
+            func use_after_unlock(pos lock: &std.sync.SpinLock<i32>)
+                requires(trusted core.memory.uninit_initialized<std.sync.spin_lock.State<i32>>(storage = &lock.storage)) {
                 let mut guard: std.sync.SpinLockGuard<i32> = lock.lock();
                 let value: &mut i32 = guard.get();
 
@@ -417,8 +425,9 @@ fn lock_guard_borrows_end_before_unlock_and_keep_the_lock_alive() {
             bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow,
         ),
     ] {
-        let compilation =
-            standard_library_compilation([sources[0], sources[1], sources[2], source]);
+        let compilation = standard_library_compilation([
+            sources[0], sources[1], sources[2], sources[3], sources[4], sources[5], source,
+        ]);
 
         bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(), kind);
     }

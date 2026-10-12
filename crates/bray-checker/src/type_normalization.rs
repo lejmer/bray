@@ -96,6 +96,25 @@ where
 
                 self.normalize_type(subject)?
             }
+            TypeData::ContextualSelf(bray_symbols::SelfTypeContext::NamedType(definition)) => {
+                let subject = self
+                    .request
+                    .semantic_values()
+                    .intern_open_named_type(self.request.symbols(), *definition)
+                    .expect("named Self has a valid generic identity")
+                    .expect("named Self retains its declaration");
+
+                let subject = match self.substitution {
+                    Some(substitution) => self
+                        .request
+                        .semantic_values()
+                        .substitute_type(subject, substitution)
+                        .expect("selected Self substitution is valid"),
+                    None => subject,
+                };
+
+                self.normalize_type(subject)?
+            }
             TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => ty,
             TypeData::Named {
                 definition,

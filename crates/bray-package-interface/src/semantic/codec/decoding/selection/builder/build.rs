@@ -970,6 +970,11 @@ impl<'bytes> SelectionBuilder<'bytes> {
             self.include_dependency_requirement(requirement);
         }
 
+        for relation in &*contract.borrows {
+            self.include_dependency_subject(relation.entry());
+            self.include_dependency_subject(relation.exit());
+        }
+
         self.records.dependency_contracts.insert(index, contract);
 
         Ok(())

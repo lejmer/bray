@@ -10,7 +10,7 @@ use crate::{
     SemanticUnitContext,
 };
 
-pub(in crate::analysis) fn storage_copyable_types<C>(
+pub(super) fn storage_copyable_types<C>(
     request: CheckerUnitView<'_, C>,
     storage: &bray_bound_tree::StoragePlan,
 ) -> CheckerQueryResult<(BTreeSet<TypeId>, DiagnosticBag), C::UpstreamError>
@@ -106,7 +106,7 @@ where
     }
 }
 
-pub(in crate::analysis) struct CopyabilityResolver<'analysis, C>
+struct CopyabilityResolver<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -121,7 +121,7 @@ impl<'analysis, C> CopyabilityResolver<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    pub(in crate::analysis) fn new(request: CheckerUnitView<'analysis, C>) -> Self {
+    fn new(request: CheckerUnitView<'analysis, C>) -> Self {
         Self::for_context(request.context(), request.semantic_context())
     }
 
@@ -148,10 +148,7 @@ where
         }
     }
 
-    pub(in crate::analysis) fn resolve(
-        &mut self,
-        ty: TypeId,
-    ) -> CheckerQueryResult<bool, C::UpstreamError> {
+    fn resolve(&mut self, ty: TypeId) -> CheckerQueryResult<bool, C::UpstreamError> {
         if let Some(copyable) = self.cache.get(&ty) {
             return Ok(*copyable);
         }
@@ -168,7 +165,7 @@ where
         Ok(copyable)
     }
 
-    pub(in crate::analysis) fn into_parts(self) -> (BTreeSet<TypeId>, DiagnosticBag) {
+    fn into_parts(self) -> (BTreeSet<TypeId>, DiagnosticBag) {
         let copyable = self
             .cache
             .into_iter()

@@ -180,6 +180,8 @@ pub(in crate::compilation) struct CompilationState {
     pub(in crate::compilation) checked_patterns: UnitQueryCache<CheckedPatterns>,
     pub(in crate::compilation) storage_plans: UnitQueryCache<StoragePlan>,
     pub(in crate::compilation) memory_operations: UnitQueryCache<CheckedMemoryOperations>,
+    pub(in crate::compilation) unwind_candidates: UnitQueryCache<bray_checker::UnwindCandidate>,
+    pub(in crate::compilation) unwind_behavior: UnitQueryCache<bool>,
     pub(in crate::compilation) execution_candidates:
         UnitQueryCache<bray_checker::ExecutionCandidates>,
     pub(in crate::compilation) certified_execution:

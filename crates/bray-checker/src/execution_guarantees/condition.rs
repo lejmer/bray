@@ -19,6 +19,8 @@ pub enum ExecutionCondition {
     Expression(bray_bound_tree::BoundExpressionId),
     /// The capability produced by successful entry at one actual with occurrence.
     ScopedCapability(bray_bound_tree::BoundExpressionId),
+    /// The present branch of a nullable value, retaining its contained owner.
+    Present(Arc<ExecutionCondition>),
     /// A checked structural value retaining the values placed in its actual storage components.
     Constructed(
         bray_bound_tree::BoundExpressionId,
@@ -162,6 +164,7 @@ impl ExecutionCondition {
                 Self::Projection(_, value)
                 | Self::Trusted(value)
                 | Self::Borrowed(value)
+                | Self::Present(value)
                 | Self::Entry {
                     condition: value, ..
                 } => pending.push(value),
@@ -210,6 +213,7 @@ impl ExecutionCondition {
                 Self::Trusted(Arc::new(value.substitute(input, result, budget)))
             }
             Self::Borrowed(value) => value.substitute(input, result, budget).borrowed(),
+            Self::Present(value) => value.substitute(input, result, budget).present(),
             Self::Entry {
                 condition,
                 captured: false,
@@ -260,6 +264,7 @@ impl ExecutionCondition {
                 Self::Projection(_, value)
                 | Self::Trusted(value)
                 | Self::Borrowed(value)
+                | Self::Present(value)
                 | Self::Entry {
                     condition: value, ..
                 } => pending.push(value),
@@ -270,15 +275,31 @@ impl ExecutionCondition {
         false
     }
 
+    pub(crate) fn owned_components(&self) -> impl Iterator<Item = &Self> {
+        let present = match self {
+            Self::Present(value)
+            | Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, value) => {
+                Some(value.as_ref())
+            }
+            _ => None,
+        };
+
+        let fields = match self {
+            Self::Constructed(_, fields) => fields.as_ref(),
+            _ => &[],
+        };
+
+        present
+            .into_iter()
+            .chain(fields.iter().map(|(_, value)| value))
+    }
     pub(crate) fn owned_values(&self) -> impl Iterator<Item = &Self> {
         let mut pending = vec![self];
 
         std::iter::from_fn(move || {
             let condition = pending.pop()?;
 
-            if let Self::Constructed(_, fields) = condition {
-                pending.extend(fields.iter().map(|(_, value)| value));
-            }
+            pending.extend(condition.owned_components());
 
             Some(condition)
         })
@@ -296,7 +317,10 @@ impl ExecutionCondition {
                 | Self::Call(_, operands) => {
                     pending.extend(operands.iter());
                 }
-                Self::Projection(_, subject) | Self::Trusted(subject) | Self::Borrowed(subject) => {
+                Self::Projection(_, subject)
+                | Self::Trusted(subject)
+                | Self::Borrowed(subject)
+                | Self::Present(subject) => {
                     pending.push(subject);
                 }
                 Self::Entry {
@@ -338,6 +362,39 @@ impl ExecutionCondition {
         }
     }
 
+    pub(crate) fn coerce(
+        self,
+        values: &bray_symbols::SemanticValueStore,
+        source: bray_symbols::TypeId,
+        target: bray_symbols::TypeId,
+    ) -> Self {
+        if source != target
+            && matches!(values.type_data(target).as_ref(), bray_symbols::TypeData::Nullable(element) if *element == source)
+        {
+            self.present()
+        } else {
+            self
+        }
+    }
+
+    pub(crate) fn present(self) -> Self {
+        match self {
+            Self::Unknown => Self::Unknown,
+            Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, value) => {
+                value.as_ref().clone()
+            }
+            Self::Input(mut place)
+                if place.projections.last()
+                    == Some(&bray_symbols::ConstantProjectionKind::NullableValue) =>
+            {
+                place.projections = place.projections[..place.projections.len() - 1].into();
+
+                Self::Input(place)
+            }
+            value => Self::Present(Arc::new(value)),
+        }
+    }
+
     pub(crate) fn borrowed(self) -> Self {
         if self == Self::Unknown {
             self
@@ -361,7 +418,9 @@ impl ExecutionCondition {
                 Self::Operation(_, operands)
                 | Self::Predicate(_, _, operands)
                 | Self::Call(_, operands) => pending.extend(operands.iter()),
-                Self::Trusted(value) | Self::Projection(_, value) => pending.push(value),
+                Self::Trusted(value) | Self::Projection(_, value) | Self::Present(value) => {
+                    pending.push(value)
+                }
                 Self::Entry {
                     condition,
                     captured: false,
@@ -463,33 +522,23 @@ impl ExecutionCondition {
     pub(crate) fn project(self, projection: bray_bound_tree::StorageProjection) -> Self {
         use bray_bound_tree::StorageProjection;
 
-        if projection == StorageProjection::NullableValue {
-            return self;
-        }
-
-        if let Self::Constructed(_, fields) = &self {
-            let projection = match projection {
-                StorageProjection::ElementFromEnd(index) => {
-                    let Some(index) = u32::try_from(fields.len())
-                        .ok()
-                        .and_then(|length| length.checked_sub(index.raw() + 1))
-                    else {
-                        return Self::Unknown;
-                    };
-
-                    StorageProjection::ElementFromStart(bray_symbols::SymbolOrdinal::new(index))
-                }
-                projection => projection,
+        if let (Self::Constructed(_, fields), StorageProjection::ElementFromEnd(index)) =
+            (&self, projection)
+        {
+            let Some(index) = u32::try_from(fields.len())
+                .ok()
+                .and_then(|length| length.checked_sub(index.raw() + 1))
+            else {
+                return Self::Unknown;
             };
 
-            return fields
-                .iter()
-                .find(|(candidate, _)| *candidate == projection)
-                .map(|(_, value)| value.clone())
-                .unwrap_or(Self::Unknown);
+            return self.project(StorageProjection::ElementFromStart(
+                bray_symbols::SymbolOrdinal::new(index),
+            ));
         }
 
         let projection = match projection {
+            StorageProjection::NullableValue => bray_symbols::ConstantProjectionKind::NullableValue,
             StorageProjection::ProductField(field) => {
                 bray_symbols::ConstantProjectionKind::ProductField(field)
             }
@@ -502,7 +551,16 @@ impl ExecutionCondition {
             StorageProjection::ElementFromStart(index) => {
                 bray_symbols::ConstantProjectionKind::ArrayElementOrdinal(index)
             }
-            _ => return Self::Unknown,
+            _ => {
+                return match self {
+                    Self::Constructed(_, fields) => fields
+                        .iter()
+                        .find(|(candidate, _)| *candidate == projection)
+                        .map(|(_, value)| value.clone())
+                        .unwrap_or(Self::Unknown),
+                    _ => Self::Unknown,
+                };
+            }
         };
 
         self.component(projection)
@@ -514,7 +572,8 @@ impl ExecutionCondition {
 
         if !matches!(
             projection,
-            ConstantProjectionKind::ProductField(_)
+            ConstantProjectionKind::NullableValue
+                | ConstantProjectionKind::ProductField(_)
                 | ConstantProjectionKind::UnionPayloadField(_)
                 | ConstantProjectionKind::TupleElement(_)
                 | ConstantProjectionKind::ArrayElementOrdinal(_)
@@ -523,10 +582,29 @@ impl ExecutionCondition {
         }
 
         match self {
+            Self::Present(value) if projection == ConstantProjectionKind::NullableValue => {
+                value.as_ref().clone()
+            }
             Self::Input(place) => Self::Input(place.component(projection)),
             // A field access through a borrow observes the referent's field,
             // rather than projecting a field from the borrow value itself.
             Self::Borrowed(value) => value.as_ref().clone().component(projection),
+            // Retain the nullable owner's identity when extracting its payload. Rewrapping
+            // that payload can then name the acquisition witness without asserting presence.
+            value @ Self::Constructed(_, _)
+                if projection == ConstantProjectionKind::NullableValue =>
+            {
+                Self::Projection(projection, Arc::new(value))
+            }
+            Self::Projection(ConstantProjectionKind::NullableValue, ref owner)
+                if let Self::Constructed(_, fields) = owner.as_ref() =>
+            {
+                fields
+                    .iter()
+                    .find(|(field, _)| *field == StorageProjection::NullableValue)
+                    .map(|(_, value)| value.clone().component(projection))
+                    .unwrap_or(Self::Unknown)
+            }
             Self::Constructed(_, fields) => fields
                 .iter()
                 .find(|(candidate, _)| match (candidate, projection) {
@@ -589,6 +667,17 @@ impl ExecutionCondition {
         }
 
         match (operator, operands.as_slice()) {
+            (
+                BoundOperator::Equal | BoundOperator::NotEqual,
+                [Self::Present(_), Self::Literal(absent)]
+                | [Self::Literal(absent), Self::Present(_)],
+            ) if matches!(
+                absent.kind(),
+                bray_symbols::ConstantValueKind::NullableAbsent
+            ) =>
+            {
+                Self::Boolean(operator == BoundOperator::NotEqual)
+            }
             (
                 BoundOperator::Equal | BoundOperator::LessEqual | BoundOperator::GreaterEqual,
                 [left, right],
@@ -840,6 +929,9 @@ fn rewrite_equalities(
             };
 
             ExecutionCondition::Trusted(Arc::new(value))
+        }
+        ExecutionCondition::Present(value) => {
+            rewrite_equalities(&value, replacements, join, budget).present()
         }
         ExecutionCondition::Borrowed(value) if join => {
             rewrite_equalities(&value, replacements, join, budget).borrowed()

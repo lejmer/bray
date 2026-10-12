@@ -125,6 +125,9 @@ pub fn map_execution_condition_substitutions<E>(
         ExecutionCondition::Trusted(value) => ExecutionCondition::Trusted(std::sync::Arc::new(
             map_execution_condition_substitutions(value, map)?,
         )),
+        ExecutionCondition::Present(value) => {
+            map_execution_condition_substitutions(value, map)?.present()
+        }
         ExecutionCondition::Borrowed(value) => {
             map_execution_condition_substitutions(value, map)?.borrowed()
         }

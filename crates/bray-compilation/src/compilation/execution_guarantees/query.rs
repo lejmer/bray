@@ -95,6 +95,7 @@ impl Compilation {
                 let expressions =
                     self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
 
+                let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
                 let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
                 let body = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
                 let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
@@ -116,7 +117,8 @@ impl Compilation {
                     &semantic_context,
                     &context,
                 )
-                .with_trusted_contracts(trusted.value());
+                .with_trusted_contracts(trusted.value())
+                .with_unwind(body.result().value().unwind());
 
                 let mut diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),
@@ -166,6 +168,7 @@ impl Compilation {
                         postconditions,
                         contracts.value(),
                         expressions.result().value(),
+                        patterns.result().value(),
                         storage.result().value(),
                         body.result().value(),
                         memory.result().value(),

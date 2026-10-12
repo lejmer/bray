@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{
-    AnyBoundNodeId, CheckedPatterns, CheckedRefinements, CheckedSemanticSelections,
+    AnyBoundNodeId, CheckedExpressionSemantics, CheckedPatterns, CheckedRefinements,
     RefinementOccurrence, StoragePlan,
 };
 use bray_diagnostics::{
@@ -11,7 +11,7 @@ use bray_diagnostics::{
 };
 
 use crate::unit::assert_unit_inputs;
-use crate::{CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 use super::super::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 use super::super::fixed_point::{
@@ -30,7 +30,7 @@ use super::universe::{
 pub(crate) fn check_refinements<C>(
     request: CheckerUnitView<'_, C>,
     patterns: &CheckedPatterns,
-    selections: &CheckedSemanticSelections,
+    expressions: &CheckedExpressionSemantics,
     storage: &StoragePlan,
 ) -> CheckerOutcome<CheckedRefinements, C::UpstreamError>
 where
@@ -42,13 +42,19 @@ where
             ("patterns", (patterns.unit(), patterns.kind())),
             (
                 "semantic selections",
-                (selections.unit(), selections.kind()),
+                (expressions.unit(), expressions.kind()),
             ),
             ("storage plan", (storage.unit(), storage.kind())),
         ],
     );
 
-    let graph = match build_storage_control_flow_graph(request, storage, selections, None) {
+    let graph = match build_storage_control_flow_graph(
+        request,
+        storage,
+        expressions.selections(),
+        Some(patterns),
+        None,
+    ) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
         ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
@@ -56,45 +62,45 @@ where
         }
     };
 
-    check_refinements_with_graph(request, patterns, selections, storage, &graph)
+    let Some(reachability) = analyze_reachability(&graph, request) else {
+        return CheckerOutcome::Cancelled;
+    };
+
+    check_refinements_with_graph(
+        request,
+        patterns,
+        expressions,
+        storage,
+        &graph,
+        &reachability,
+    )
 }
 
 pub(crate) fn check_refinements_with_graph<C>(
     request: CheckerUnitView<'_, C>,
     patterns: &CheckedPatterns,
-    selections: &CheckedSemanticSelections,
+    expressions: &CheckedExpressionSemantics,
     storage: &StoragePlan,
     graph: &ControlFlowGraph,
+    reachability: &ReachabilityResult,
 ) -> CheckerOutcome<CheckedRefinements, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if !graph.is_well_formed() {
-        panic!("checker control-flow graph violated its construction invariants");
-    }
-
-    let Some(reachability) = analyze_reachability(graph, request) else {
-        return CheckerOutcome::Cancelled;
+    let universe = match RefinementUniverse::new(
+        graph,
+        request,
+        patterns,
+        expressions,
+        storage,
+        storage.copyable_types(),
+    ) {
+        Ok(universe) => universe,
+        Err(RefinementUniverseError::CapacityExceeded(capacity)) => {
+            return capacity_recovery(request, capacity).with_upstream();
+        }
+        Err(RefinementUniverseError::Cancelled) => return CheckerOutcome::Cancelled,
     };
-
-    let (copied_types, diagnostics) =
-        match super::super::storage_flow::copyability::storage_copyable_types(request, storage) {
-            Ok(result) => result,
-            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Upstream(error)) => {
-                return CheckerOutcome::UpstreamFailure(error);
-            }
-        };
-
-    let universe =
-        match RefinementUniverse::new(graph, request, patterns, selections, storage, &copied_types)
-        {
-            Ok(universe) => universe,
-            Err(RefinementUniverseError::CapacityExceeded(capacity)) => {
-                return capacity_recovery(request, capacity).with_upstream();
-            }
-            Err(RefinementUniverseError::Cancelled) => return CheckerOutcome::Cancelled,
-        };
 
     let result = match analyze_refinements(graph, &reachability, &universe, storage, request) {
         Some(result) => result,
@@ -118,11 +124,12 @@ where
         graph.unit(),
         request.view().kind(),
         occurrences,
+        universe.invalidating_accesses,
         is_recovered,
     )
     .unwrap_or_else(|error| panic!("checker produced invalid refinements: {error:?}"));
 
-    CheckerOutcome::complete(refinements, diagnostics)
+    CheckerOutcome::without_diagnostics(refinements)
 }
 
 fn capacity_recovery<C>(
@@ -136,9 +143,14 @@ where
 
     let diagnostic = capacity_diagnostic(source.span(), capacity);
 
-    let refinements =
-        CheckedRefinements::try_new(request.view().unit(), request.view().kind(), [], true)
-            .unwrap_or_else(|error| panic!("empty recovery refinements must be valid: {error:?}"));
+    let refinements = CheckedRefinements::try_new(
+        request.view().unit(),
+        request.view().kind(),
+        [],
+        Default::default(),
+        true,
+    )
+    .unwrap_or_else(|error| panic!("empty recovery refinements must be valid: {error:?}"));
 
     CheckerOutcome::complete(refinements, DiagnosticBag::single(diagnostic))
 }

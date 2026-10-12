@@ -320,3 +320,21 @@ fn generic_instance_method_diagnostics_count_only_method_arguments() {
         )
     }));
 }
+
+#[test]
+fn explicit_generic_self_uses_the_enclosing_named_type() {
+    let compilation = compilation(
+        r#"
+        module example;
+        func identity<T>(pos value: &T) -> &T { return value; }
+        struct Holder<T> {
+            value: T;
+            func observe() -> &Self { return identity<Self>(&self); }
+        }
+    "#,
+    );
+
+    let diagnostics = compilation.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+}

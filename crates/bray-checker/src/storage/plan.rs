@@ -250,7 +250,14 @@ where
             );
         };
 
-        Ok(builder.finish())
+        let plan = builder.finish();
+
+        let (copyable, diagnostics) =
+            super::copyability::storage_copyable_types(self.request, &plan)?;
+
+        self.diagnostics.add_range(diagnostics);
+
+        Ok(plan.with_copyable_types(copyable))
     }
 
     fn install_entry_storage(&mut self) -> Result<(), PlanError<C::UpstreamError>> {

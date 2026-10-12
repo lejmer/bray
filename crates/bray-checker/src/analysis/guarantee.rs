@@ -1,3 +1,5 @@
+mod unwind;
+pub use unwind::{UnwindCandidate, check_unwind_candidate};
 mod bounds;
 mod check;
 mod cleanup;

@@ -368,6 +368,41 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
                         usage: Default::default(),
                     })
                 }
+                BoundStructuredExpressionKind::PatternTest
+                    if expression.patterns().first().is_some_and(|pattern| {
+                        self.unit.tree().pattern(*pattern).is_some_and(|pattern| {
+                            pattern.kind() == bray_bound_tree::BoundPatternKind::NullableAbsent
+                        })
+                    }) =>
+                {
+                    let [operand] = expression.operands() else {
+                        return Err(incomplete("invalid_pattern_subject_count"));
+                    };
+
+                    let left = self.expression(*operand)?;
+
+                    let subject_type = self
+                        .types
+                        .expression(*operand)
+                        .expect("checked pattern subject retains its type")
+                        .ty();
+
+                    let right = CheckedTemplateNodeId::new(index(self.nodes.len())?);
+
+                    self.nodes.push(InterfaceCheckedTemplateNode::new(
+                        InterfaceCheckedTemplateOperation::Constant {
+                            term: self.export.nullable_absence_term_id(subject_type)?,
+                            usage: Default::default(),
+                        },
+                        self.export.type_id(subject_type)?,
+                    ));
+
+                    Ok(InterfaceCheckedTemplateOperation::Binary {
+                        operation: ConstantBinaryOperation::Equal,
+                        left,
+                        right,
+                    })
+                }
                 BoundStructuredExpressionKind::Tuple => {
                     Ok(InterfaceCheckedTemplateOperation::tuple(
                         self.expressions(expression.operands())?,

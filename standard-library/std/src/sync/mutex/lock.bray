@@ -1,0 +1,93 @@
+trusted module std.sync;
+
+using internal std.sync.mutex;
+
+struct Mutex<T>
+{
+    mut storage: Uninit<std.sync.mutex.State<T>>;
+
+    trusted construct(pos value: T) -> Self
+        ensures(trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = &result.storage))
+    {
+        return
+        {
+            storage = std.memory.uninit_from<std.sync.mutex.State<T>>(
+                {
+                    next_ticket = core.atomic.initialize<u32>(0),
+                    serving_ticket = core.atomic.initialize<u32>(0),
+                    value = value,
+                }
+            ),
+        };
+    }
+
+    trusted destruct()
+        requires(trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = &self.storage))
+    {
+        trusted std.memory.destroy_initialized<std.sync.mutex.State<T>>(&mut self.storage);
+    }
+
+    trusted func lock() -> MutexGuard<T>
+        requires(blocking_execution())
+        requires(trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = &self.storage))
+        ensures(
+            trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = &self.storage),
+            trusted std.sync.mutex.acquired<T>(result),
+        )
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = trusted std.sync.mutex.pointer<T>(&self.storage);
+        let state = trusted std.memory.borrow_from<std.sync.mutex.State<T>, Self>(&self, pointer);
+        let ticket: u32 = core.atomic.fetch_add<u32, 0>(&state.next_ticket, 1);
+
+        let mut serving: u32 = core.atomic.load<u32, 1>(&state.serving_ticket);
+
+        while serving != ticket
+        {
+            trusted internal std.atomic.platform_wait_word(&state.serving_ticket, expected = serving);
+            serving = core.atomic.load<u32, 1>(&state.serving_ticket);
+        }
+
+        return
+        {
+            mutex = &self
+        };
+    }
+
+    trusted func try_lock() -> MutexGuard<T>?
+        requires(trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = &self.storage))
+        ensures(
+            trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = &self.storage),
+            trusted std.sync.mutex.acquired<T>(result),
+        )
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = trusted std.sync.mutex.pointer<T>(&self.storage);
+        let state = trusted std.memory.borrow_from<std.sync.mutex.State<T>, Self>(&self, pointer);
+        let serving: u32 = core.atomic.load<u32, 1>(&state.serving_ticket);
+        let next: u32 = core.atomic.load<u32, 0>(&state.next_ticket);
+
+        if next != serving
+        {
+            return none;
+        }
+
+        let (_, acquired) = core.atomic.compare_exchange<u32, 0, 0>(
+            &state.next_ticket,
+            expected = next,
+            desired = next + 1,
+        );
+
+        if !acquired
+        {
+            return none;
+        }
+
+        let guard: MutexGuard<T> =
+        {
+            mutex = &self
+        };
+
+        return guard;
+    }
+}

@@ -1,10 +1,13 @@
 trusted module std.sync;
 
+using internal std.sync.mutex;
+
 struct ConditionVariable
 {
     internal generation: core.atomic.Atomic<u32>;
 
     construct() -> Self
+        executes(pure, total)
     {
         return
         {
@@ -12,17 +15,34 @@ struct ConditionVariable
         };
     }
 
-    func wait<T>(pos mut guard: MutexGuard<T>) -> MutexGuard<T>
-        requires(blocking_execution())
+    trusted func wait<T>(pos guard: MutexGuard<T>) -> MutexGuard<T>
+        requires(blocking_execution(), trusted std.sync.mutex.acquired<T>(guard))
+        ensures(
+            trusted std.sync.mutex.acquired<T>(result),
+            trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = &result.mutex.storage),
+        )
     {
         let generation: u32 = core.atomic.load<u32, 0>(&self.generation);
 
-        trusted internal release_mutex<T>(guard.mutex);
-        guard.active = false;
+        let mutex = guard.owner();
 
+        guard.unlock();
+
+        return self.wait_for<T>(mutex, generation).lock();
+    }
+
+    internal trusted func wait_for<T>(pos mutex: &Mutex<T>, pos generation: u32) -> &Mutex<T>
+        requires(
+            blocking_execution(),
+            trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = &mutex.storage),
+        )
+        ensures(trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = &result.storage))
+    {
+        // The native wait observes only this condition's generation word. It neither
+        // consumes nor replaces the mutex's initialized storage while the guard is released.
         trusted internal std.atomic.platform_wait_word(&self.generation, expected = generation);
 
-        return guard.mutex.lock();
+        return mutex;
     }
 
     func notify_one()
