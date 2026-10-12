@@ -100,10 +100,9 @@ pub use service::{
     BodyBehaviorCollector, BodySemanticChecker, ConstantChecker, ConstantEvaluator,
     ControlFlowChecker, DefaultBodyBehaviorCollector, DefaultBodySemanticChecker,
     DefaultConstantChecker, DefaultConstantEvaluator, DefaultControlFlowChecker,
-    DefaultDependencyContractChecker, DefaultExpressionSemanticChecker,
-    DefaultExpressionTypeChecker, DefaultMemoryOperationChecker, DefaultPatternChecker,
-    DefaultSemanticSelector, DefaultStoragePlanner, DefaultTargetValidityChecker,
-    DependencyContractChecker, ExpressionSemanticChecker, ExpressionTypeChecker,
+    DefaultExpressionSemanticChecker, DefaultExpressionTypeChecker, DefaultMemoryOperationChecker,
+    DefaultPatternChecker, DefaultSemanticSelector, DefaultStoragePlanner,
+    DefaultTargetValidityChecker, ExpressionSemanticChecker, ExpressionTypeChecker,
     MemoryOperationChecker, PatternChecker, SemanticSelector, StoragePlanner,
     TargetValidityChecker,
 };

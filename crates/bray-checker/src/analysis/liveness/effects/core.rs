@@ -2,10 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AnyBoundNodeId, BoundDependencySubject, BoundExpression, BoundExpressionId, BoundUnit,
-    CheckedMemoryOperations, CheckedSemanticSelections, DependencyContractInstantiationError,
-    SemanticSelection, StoragePlan,
+    CheckedMemoryOperations, CheckedSemanticSelections, SemanticSelection, StoragePlan,
 };
-use bray_symbols::CallableSignatureQuery;
 
 use super::retention::retained_subtree_subjects;
 use super::subjects::{
@@ -14,10 +12,8 @@ use super::subjects::{
 };
 
 use crate::analysis::model::{AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind};
-use crate::dependency::{ValueInputs, selected_call_contracts};
-use crate::{
-    CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
-};
+use crate::dependency::ValueInputs;
+use crate::{CheckerRequestContext, CheckerUnitView};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::analysis::liveness) struct OperationEffect {
@@ -41,23 +37,19 @@ impl OperationEffects {
     pub(crate) fn from_checked_inputs<C>(
         request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
-        types: &bray_bound_tree::CheckedExpressionTypes,
-        patterns: &bray_bound_tree::CheckedPatterns,
+        value_inputs: ValueInputs,
+        dependencies: &bray_bound_tree::CheckedDependencyContracts,
         storage: &StoragePlan,
         memory: &CheckedMemoryOperations,
-    ) -> Result<Self, CheckerQueryError<C::UpstreamError>>
+    ) -> Self
     where
-        C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
+        C: CheckerRequestContext + ?Sized,
     {
         let mut effects = Self::from_storage_plan(request.unit(), storage, memory);
 
-        effects.value_inputs =
-            ValueInputs::prepare(request, types, selections, patterns, |callable| {
-                request.callable_result_dependencies(callable)
-            })?;
-
+        effects.value_inputs = value_inputs;
         effects.retain_call_input_dependencies(request.unit());
-        effects.add_selected_call_dependencies(request, selections, storage)?;
+        effects.add_selected_call_dependencies(selections, storage, dependencies);
 
         for plan in storage.access_plans() {
             let Some(access) = storage.access(plan.access()) else {
@@ -125,7 +117,7 @@ impl OperationEffects {
 
         effects.retain_owner_control_transfer_dependencies(request.unit());
 
-        Ok(effects)
+        effects
     }
 
     pub(in crate::analysis::liveness) fn from_storage_plan(
@@ -322,118 +314,39 @@ impl OperationEffects {
         }
     }
 
-    fn add_selected_call_dependencies<C>(
+    fn add_selected_call_dependencies(
         &mut self,
-        request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
-    ) -> Result<(), CheckerQueryError<C::UpstreamError>>
-    where
-        C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
-    {
-        for entry in selections.entries() {
-            if let SemanticSelection::ScopedUse(scoped) = entry.selection() {
-                for occurrence in [
-                    bray_bound_tree::BoundExecutionSite::ScopedEnter(entry.expression()),
-                    bray_bound_tree::BoundExecutionSite::ScopedExit(entry.expression()),
-                ] {
-                    let contracts = crate::dependency::selected_scoped_contracts(
-                        request, storage, scoped, occurrence,
-                    )
-                    .map_err(|error| match error {
-                        DependencyContractInstantiationError::Resolution(error) => error,
-                        DependencyContractInstantiationError::UnresolvedWitness => panic!(
-                            "selected scoped operation {:?} must retain its dependency witness",
-                            occurrence
-                        ),
-                        DependencyContractInstantiationError::ForeignUnit => panic!(
-                            "selected scoped operation {:?} must belong to liveness unit {:?}",
-                            occurrence,
-                            request.unit().unit()
-                        ),
-                    })?;
+        dependencies: &bray_bound_tree::CheckedDependencyContracts,
+    ) {
+        for (occurrence, contracts) in dependencies.calls() {
+            let mut invocation =
+                dependency_subjects(contracts.invocation().requirements(), storage);
 
-                    let mut subjects =
-                        dependency_subjects(contracts.invocation().requirements(), storage);
+            let mut returned = dependency_subjects(contracts.result().requirements(), storage);
 
-                    if let Some(deferred) = contracts.deferred() {
-                        collect_dependency_subjects(
-                            deferred.requirements(),
-                            storage,
-                            &mut subjects,
-                        );
-                    }
-
-                    self.universe.extend(subjects.iter().copied());
-                    self.extend_uses(occurrence, subjects);
-
-                    self.owner_dependencies
-                        .entry(occurrence)
-                        .or_default()
-                        .extend(dependency_subjects(
-                            contracts.result().requirements(),
-                            storage,
-                        ));
-                }
-
-                continue;
+            if occurrence.expression().is_some_and(|expression| {
+                matches!(selections.expression(expression), Some(SemanticSelection::Call(call))
+                    if call.implementation_hook() == Some(bray_compiler_known::ImplementationHook::NativeThreadStart))
+            }) {
+                // The structured thread result retains its invocation contract.
+                returned.clear();
+                returned.extend(invocation.iter().copied());
             }
 
-            let SemanticSelection::Call(call) = entry.selection() else {
-                continue;
-            };
-
-            let contracts = match selected_call_contracts(
-                request,
-                storage,
-                entry.expression(),
-                call,
-                &self.value_inputs,
-            ) {
-                Ok(contracts) => contracts,
-                Err(DependencyContractInstantiationError::Resolution(error)) => {
-                    return Err(error);
-                }
-                Err(DependencyContractInstantiationError::UnresolvedWitness) => {
-                    panic!(
-                        "A call reached concrete dependency checking without its selected witness. in add_selected_call_dependencies, expression: {:?}",
-                        entry.expression()
-                    );
-                }
-                Err(DependencyContractInstantiationError::ForeignUnit) => {
-                    panic!(
-                        "Liveness inputs or durable decisions violate the requested unit contract. in add_selected_call_dependencies"
-                    );
-                }
-            };
-
-            let invocation = dependency_subjects(contracts.invocation().requirements(), storage);
-            let returned = dependency_subjects(contracts.result().requirements(), storage);
-
             self.owner_dependencies
-                .entry(entry.expression().into())
+                .entry(*occurrence)
                 .or_default()
                 .extend(returned);
 
-            if call.implementation_hook()
-                == Some(bray_compiler_known::ImplementationHook::NativeThreadStart)
-            {
-                // The structured thread result retains the same contract used during invocation.
-                self.owner_dependencies
-                    .insert(entry.expression().into(), invocation.clone());
-            }
-
-            let mut subjects = invocation;
-
             if let Some(deferred) = contracts.deferred() {
-                collect_dependency_subjects(deferred.requirements(), storage, &mut subjects);
+                collect_dependency_subjects(deferred.requirements(), storage, &mut invocation);
             }
 
-            self.universe.extend(subjects.iter().copied());
-            self.extend_uses(entry.expression(), subjects);
+            self.universe.extend(invocation.iter().copied());
+            self.extend_uses(*occurrence, invocation);
         }
-
-        Ok(())
     }
 
     fn retain_owner_control_transfer_dependencies(&mut self, unit: &BoundUnit) {

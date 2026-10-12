@@ -77,7 +77,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         entry: &crate::ExecutionCallEvidence,
         arguments: &mut BTreeMap<ExecutionPlace, ExecutionCondition>,
     ) {
-        for relation in &lifecycle.borrows {
+        for relation in &self.disposal.references[&lifecycle.callable] {
             if relation.entry().subject_root() != DependencySubjectRoot::Receiver
                 || relation.exit().subject_root() != DependencySubjectRoot::Receiver
             {

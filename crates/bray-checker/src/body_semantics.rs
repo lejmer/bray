@@ -73,12 +73,32 @@ where
         prepare_refinements(request, patterns, expressions, storage, graph, memory)
     );
 
-    let disposal = crate::analysis::guarantee::Cleanup::new(&prepared.cleanup);
+    let value_inputs = match crate::dependency::ValueInputs::prepare(
+        request,
+        expressions.types(),
+        expressions.selections(),
+        patterns,
+        |callable| request.callable_result_dependencies(callable),
+    ) {
+        Ok(inputs) => inputs,
+        Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(crate::CheckerQueryError::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
+    };
 
     let dependencies = complete!(
         diagnostics,
-        check_dependency_contracts(request, expressions.selections(), patterns, storage,)
+        check_dependency_contracts(
+            request,
+            prepared,
+            expressions.selections(),
+            &value_inputs,
+            storage
+        )
     );
+
+    let disposal = crate::analysis::guarantee::Cleanup::new(&prepared.cleanup, &dependencies);
 
     let completion_contracts = std::collections::BTreeMap::new();
 
@@ -97,20 +117,14 @@ where
         )
     );
 
-    let effects = match crate::analysis::liveness::OperationEffects::from_checked_inputs(
+    let effects = crate::analysis::liveness::OperationEffects::from_checked_inputs(
         request,
         expressions.selections(),
-        expressions.types(),
-        patterns,
+        value_inputs,
+        &dependencies,
         storage,
         memory,
-    ) {
-        Ok(effects) => effects,
-        Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(crate::CheckerQueryError::Upstream(error)) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
-    };
+    );
 
     let mut excluded = std::collections::BTreeSet::new();
 

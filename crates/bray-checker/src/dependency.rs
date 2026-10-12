@@ -13,7 +13,6 @@ mod returned;
 mod value;
 mod witness;
 
-pub(crate) use call::{selected_call_contracts, selected_scoped_contracts};
 pub(crate) use check::check_dependency_contracts;
 pub(crate) use implementation::implementation_dependency_source;
 pub use result::infer_result_dependencies;

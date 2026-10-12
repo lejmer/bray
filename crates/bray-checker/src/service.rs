@@ -2,7 +2,6 @@ use crate::analysis::check_control_flow;
 use crate::behavior::collect_selected_behavior;
 use crate::body_semantics::check_body_semantics;
 use crate::constant::{check_constant_term, evaluate_constant};
-use crate::dependency::check_dependency_contracts;
 use crate::expression::check_expression_semantics;
 use crate::memory::check_memory_operations;
 use crate::pattern::check_patterns;
@@ -18,8 +17,8 @@ use crate::{
 };
 use bray_bound_tree::{
     BodyBehaviorContributions, CheckedBodySemantics, CheckedControlFlow,
-    CheckedDependencyContracts, CheckedExpressionSemantics, CheckedExpressionTypes,
-    CheckedLiteralValues, CheckedMemoryOperations, CheckedPatterns, CheckedSemanticSelections,
+    CheckedExpressionSemantics, CheckedExpressionTypes, CheckedLiteralValues,
+    CheckedMemoryOperations, CheckedPatterns, CheckedSemanticSelections,
     DeclaredValueTypeTemplates, SelectedCall, SelectedIterationSource, SelectedOperation,
     StoragePlan,
 };
@@ -64,10 +63,6 @@ pub struct DefaultTargetValidityChecker;
 /// The standard Bray per-unit storage planner.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultStoragePlanner;
-
-/// The standard Bray dependency-contract checker.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct DefaultDependencyContractChecker;
 
 /// The standard Bray compiler-provided memory-operation checker.
 #[derive(Clone, Copy, Debug, Default)]
@@ -170,28 +165,6 @@ where
 }
 
 impl<C> StoragePlanner<C> for DefaultStoragePlanner where
-    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized
-{
-}
-
-/// Value, access, borrow, witness, and selected-call dependency propagation over one unit.
-pub trait DependencyContractChecker<C>: Sync
-where
-    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
-{
-    /// Prepares durable dependencies from selected operations and call contracts.
-    fn check_dependency_contracts(
-        &self,
-        request: CheckerUnitView<'_, C>,
-        selections: &CheckedSemanticSelections,
-        patterns: &CheckedPatterns,
-        storage: &StoragePlan,
-    ) -> CheckerOutcome<CheckedDependencyContracts, C::UpstreamError> {
-        check_dependency_contracts(request, selections, patterns, storage)
-    }
-}
-
-impl<C> DependencyContractChecker<C> for DefaultDependencyContractChecker where
     C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized
 {
 }

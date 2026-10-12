@@ -52,7 +52,9 @@ pub use dependency::{
     DependencyContractInstantiationContext, DependencyContractInstantiationError,
     GuardedBoundDependencyRequirement, LifecycleObligationId, ScopedCapabilityId,
 };
-pub use dependency_table::{CheckedDependencyContracts, DependencyContractsBuildError};
+pub use dependency_table::{
+    BoundCallDependencyContracts, CheckedDependencyContracts, DependencyContractsBuildError,
+};
 pub use lifecycle::{LifecycleAction, LifecycleCallable, LifecyclePhase};
 pub use literal::{
     CheckedLiteralValueEntry, CheckedLiteralValueTableBuildError, CheckedLiteralValues,

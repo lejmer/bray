@@ -51,6 +51,32 @@ identity, changed contents and lifetime dependencies must remain distinct throug
 Continue with the production protocols and full rule-derived acceptance in the Linear issue after that consolidation.
 No new language syntax, field-privacy assumption or weaker authority contract is part of this checkpoint.
 
+## Call dependency publication checkpoint, 2026-10-12
+
+The shared storage transition work above is committed locally as `dca2312c`. The following continuation separates
+structural cleanup selection from inferred relationships and removes repeated selected-call checking.
+
+Structural cleanup preparation no longer requests inferred lifecycle reference summaries. Dependency checking
+instantiates each selected lifecycle once per callable instance and publishes the relationships in the existing
+checked dependency result. Body flow and execution-property consumers borrow that result. A regression walks the
+structural preparation dependency graph and rejects an inferred-result component anywhere in its prerequisites.
+
+Ordinary and scoped calls now publish their separate invocation, returned-value and deferred contracts once. Liveness
+consumes those contracts directly, including thread-result retention. The duplicate call instantiation and its error
+paths are removed from liveness. Body checking prepares value-source data once and transfers it to liveness after
+dependency checking. The unused independent dependency-checker service is removed.
+
+Checks pass for 273 checker tests, 119 bound-tree tests, and 78 focused compilation tests covering publication,
+returned values and assignments, reborrowing, async retention, recursive and trait result dependencies, cleanup and
+memory operations. The authority suite remains at 129 passing and the same 20 failing tests. Logs use the
+`call-publication-` prefix in the existing evidence directory. The mutating style check passes.
+
+This completes the cleanup-preparation separation and shared call-contract consumption. It does not yet replace the
+reference-summary producer. Storage planning still requests returned-reference summaries. The syntax-based result
+inference and the ordinary execution-flow reference adapter also remain. The next unit must replace those dependencies
+with symbolic reference slots and summaries projected from shared flow, covering input roots, mutation, normal exits
+and recursive component publication together. Do not infer entry identity from a refreshed `Input(place)` observation.
+
 ## Original issue and stack
 
 - [BRA-620](https://linear.app/bray-lang/issue/BRA-620/complete-standard-library-trusted-storage-and-foreign-contracts): complete standard-library trusted storage and foreign contracts.

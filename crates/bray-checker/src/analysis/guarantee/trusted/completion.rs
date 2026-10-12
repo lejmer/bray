@@ -116,6 +116,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let borrowed = self
             .borrowed_inputs
             .iter()
+            .chain(&self.disposal.borrowed_inputs)
             .filter(|place| expired_roots.contains(&place.root))
             .filter_map(|place| {
                 place

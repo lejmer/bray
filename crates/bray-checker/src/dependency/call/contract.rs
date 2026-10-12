@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    BoundCallableTarget, BoundDependencyContract, BoundExpressionId,
+    BoundCallDependencyContracts, BoundCallableTarget, BoundDependencyContract, BoundExpressionId,
     DependencyContractInstantiationError, SelectedCall, SelectedIterationSource, StorageIdentity,
     StoragePlan,
 };
@@ -15,27 +15,6 @@ use crate::{
     CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
-pub(crate) struct InstantiatedCallContracts {
-    invocation: BoundDependencyContract,
-    result: BoundDependencyContract,
-    deferred: Option<BoundDependencyContract>,
-    pub(crate) escaping_evaluation_inputs: Vec<DependencySubjectRoot>,
-}
-
-impl InstantiatedCallContracts {
-    pub(crate) const fn result(&self) -> &BoundDependencyContract {
-        &self.result
-    }
-
-    pub(crate) const fn invocation(&self) -> &BoundDependencyContract {
-        &self.invocation
-    }
-
-    pub(crate) const fn deferred(&self) -> Option<&BoundDependencyContract> {
-        self.deferred.as_ref()
-    }
-}
-
 pub(crate) fn selected_call_contracts<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
@@ -43,7 +22,7 @@ pub(crate) fn selected_call_contracts<C>(
     call: &SelectedCall,
     values: &crate::dependency::ValueInputs,
 ) -> Result<
-    InstantiatedCallContracts,
+    (BoundCallDependencyContracts, Vec<DependencySubjectRoot>),
     DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
 >
 where
@@ -58,7 +37,7 @@ where
 
     let mut context = CallInstantiationContext::new(request, storage, expression, call);
 
-    let mut instantiated = instantiate_callable_contracts(request, contracts, &mut context)?;
+    let instantiated = instantiate_callable_contracts(request, contracts, &mut context)?;
 
     let template = crate::dependency::call_result_template(request, call, |callable| {
         request.callable_result_dependencies(callable)
@@ -85,25 +64,25 @@ where
             .cloned(),
     );
 
-    instantiated.result = BoundDependencyContract::try_instantiate(&concrete, &mut result_context)?;
-
-    instantiated.escaping_evaluation_inputs = template.escaping_evaluation_inputs;
+    let mut result = BoundDependencyContract::try_instantiate(&concrete, &mut result_context)?;
 
     if crate::dependency::opaque_result(call)
         && let Some(bray_bound_tree::BoundExpression::Call(bound)) =
             request.view().expression(expression)
         && let Some(access) = expression_access(storage, bound.callee())
     {
-        instantiated.result =
-            BoundDependencyContract::new(instantiated.result.requirements().iter().cloned().chain(
-                [bray_bound_tree::BoundDependencyRequirement::Direct {
-                    subject: bray_bound_tree::BoundDependencySubject::StorageAccess(access),
-                    kind: bray_bound_tree::BoundDependencyRequirementKind::ValueDependencies,
-                }],
-            ));
+        result = BoundDependencyContract::new(result.requirements().iter().cloned().chain([
+            bray_bound_tree::BoundDependencyRequirement::Direct {
+                subject: bray_bound_tree::BoundDependencySubject::StorageAccess(access),
+                kind: bray_bound_tree::BoundDependencyRequirementKind::ValueDependencies,
+            },
+        ]));
     }
 
-    Ok(instantiated)
+    Ok((
+        instantiated.with_result(result),
+        template.escaping_evaluation_inputs,
+    ))
 }
 
 fn callable_dependencies_for_implementation<C>(
@@ -201,8 +180,7 @@ where
         selection.iterate(),
         (DependencySubjectRoot::Receiver, source),
         Some(cursor),
-    )?
-    .invocation;
+    )?;
 
     let next = instantiate_hidden_call(
         request,
@@ -210,14 +188,14 @@ where
         selection.next(),
         (DependencySubjectRoot::Receiver, cursor),
         Some(element),
-    )?
-    .invocation;
+    )?;
 
     Ok(BoundDependencyContract::new(
         iterate
+            .invocation()
             .requirements()
             .iter()
-            .chain(next.requirements())
+            .chain(next.invocation().requirements())
             .cloned(),
     ))
 }
@@ -228,7 +206,7 @@ pub(crate) fn selected_scoped_contracts<C>(
     scoped: &bray_bound_tree::SelectedScopedUse,
     occurrence: bray_bound_tree::BoundExecutionSite,
 ) -> Result<
-    InstantiatedCallContracts,
+    BoundCallDependencyContracts,
     DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
 >
 where
@@ -307,7 +285,10 @@ where
                 .cloned(),
         );
 
-        instantiated.result = BoundDependencyContract::try_instantiate(&concrete, &mut context)?;
+        instantiated = instantiated.with_result(BoundDependencyContract::try_instantiate(
+            &concrete,
+            &mut context,
+        )?);
     }
 
     Ok(instantiated)
@@ -320,7 +301,7 @@ fn instantiate_hidden_call<C>(
     input: (DependencySubjectRoot, bray_bound_tree::StorageAccessId),
     result: Option<bray_bound_tree::StorageAccessId>,
 ) -> Result<
-    InstantiatedCallContracts,
+    BoundCallDependencyContracts,
     DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
 >
 where
@@ -340,7 +321,7 @@ fn instantiate_callable_contracts<C>(
     contracts: CallableDependencyContracts,
     context: &mut CallInstantiationContext<'_, C>,
 ) -> Result<
-    InstantiatedCallContracts,
+    BoundCallDependencyContracts,
     DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
 >
 where
@@ -365,12 +346,11 @@ where
         })
         .transpose()?;
 
-    Ok(InstantiatedCallContracts {
-        escaping_evaluation_inputs: Vec::new(),
+    Ok(BoundCallDependencyContracts::new(
         invocation,
-        result: BoundDependencyContract::new([]),
+        BoundDependencyContract::new([]),
         deferred,
-    })
+    ))
 }
 
 fn callable_dependency_contracts<C>(
@@ -483,7 +463,7 @@ mod tests {
     };
 
     use super::{
-        InstantiatedCallContracts, callable_dependencies_for_implementation,
+        BoundCallDependencyContracts, callable_dependencies_for_implementation,
         instantiate_callable_contracts, selected_call_contracts,
     };
     use crate::CheckerUnitView;
@@ -1000,7 +980,7 @@ mod tests {
         storage: &bray_bound_tree::StoragePlan,
         expression: bray_bound_tree::BoundExpressionId,
         call: &SelectedCall,
-    ) -> InstantiatedCallContracts {
+    ) -> BoundCallDependencyContracts {
         let context = TestCheckerContext::new(false);
         let semantic_context = callable_entry(unit.key());
 
@@ -1014,6 +994,7 @@ mod tests {
             &crate::dependency::ValueInputs::default(),
         )
         .unwrap_or_else(|error| panic!("selected call contract must instantiate: {error:?}"))
+        .0
     }
 
     fn push_direct_storage(

@@ -31,7 +31,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     let graph = &prepared.graph;
     let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
 
-    let disposal = super::cleanup::Cleanup::new(&prepared.cleanup)
+    let disposal = super::cleanup::Cleanup::new(&prepared.cleanup, body.dependencies())
         .with_selection(body.asynchronous(), body.storage_flow());
 
     let mut excluded = graph

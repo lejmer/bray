@@ -694,6 +694,36 @@ fn prepared_body_is_shared_by_ownership_unwind_and_execution_proofs() {
         Ok(false)
     );
 
+    let mut pending = vec![crate::fact::CompilationFactKey::PreparedBodyAnalysis(
+        key.clone(),
+    )];
+
+    let mut visited = std::collections::BTreeSet::new();
+
+    while let Some(dependency) = pending.pop() {
+        if !visited.insert(dependency.clone()) {
+            continue;
+        }
+
+        assert!(
+            !matches!(
+                dependency,
+                crate::fact::CompilationFactKey::ResultDependencyComponent(_)
+            ),
+            "structural preparation must not demand inferred reference summaries: {dependency:?}",
+        );
+
+        pending.extend(
+            compilation
+                .state
+                .fact_runtime
+                .dependencies(&dependency)
+                .unwrap()
+                .into_iter()
+                .flatten(),
+        );
+    }
+
     let unwind = compilation
         .unwind_behavior(key.clone(), &cancellation)
         .unwrap();

@@ -49,18 +49,78 @@ pub enum DependencyContractsBuildError {
     ContractCapacityExceeded,
 }
 
+/// The distinct invocation, returned-value and deferred requirements of one selected call.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct BoundCallDependencyContracts {
+    invocation: BoundDependencyContract,
+    result: BoundDependencyContract,
+    deferred: Option<BoundDependencyContract>,
+}
+
+impl BoundCallDependencyContracts {
+    /// Creates the instantiated phase contracts for a selected call.
+    pub const fn new(
+        invocation: BoundDependencyContract,
+        result: BoundDependencyContract,
+        deferred: Option<BoundDependencyContract>,
+    ) -> Self {
+        Self {
+            invocation,
+            result,
+            deferred,
+        }
+    }
+
+    /// Records the dependencies carried by the returned value.
+    pub fn with_result(mut self, result: BoundDependencyContract) -> Self {
+        self.result = result;
+
+        self
+    }
+
+    /// Returns the requirements for beginning the invocation.
+    pub const fn invocation(&self) -> &BoundDependencyContract {
+        &self.invocation
+    }
+
+    /// Returns the dependencies retained by the result after completion.
+    pub const fn result(&self) -> &BoundDependencyContract {
+        &self.result
+    }
+
+    /// Returns the requirements for driving deferred execution, when present.
+    pub const fn deferred(&self) -> Option<&BoundDependencyContract> {
+        self.deferred.as_ref()
+    }
+
+    fn phase_contracts(&self) -> impl Iterator<Item = &BoundDependencyContract> {
+        [&self.invocation, &self.result]
+            .into_iter()
+            .chain(self.deferred.as_ref())
+    }
+
+    fn is_valid_for(&self, unit: BoundUnitId) -> bool {
+        self.phase_contracts()
+            .all(|contract| contract.is_valid_for(unit))
+    }
+}
+
 /// Durable dependency contracts for values, accesses, and borrows in one checked unit.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CheckedDependencyContracts {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     contracts: Arc<[BoundDependencyContract]>,
+    calls: Arc<BTreeMap<crate::BoundExecutionSite, BoundCallDependencyContracts>>,
     expressions: Arc<[ContractEntry<crate::BoundExecutionSite>]>,
     deferred_expressions: Arc<[ContractEntry<crate::BoundExecutionSite>]>,
     accesses: Arc<[ContractEntry<StorageAccessId>]>,
     borrows: Arc<[ContractEntry<BorrowCapabilityId>]>,
     pub(crate) lifecycle_consumers:
         Arc<BTreeMap<crate::StorageIdentityId, BTreeSet<crate::StorageIdentityId>>>,
+    lifecycle_references: Arc<
+        BTreeMap<bray_symbols::CallableInstanceData, Vec<bray_symbols::DependencyBorrowRelation>>,
+    >,
     is_recovered: bool,
 }
 
@@ -134,17 +194,65 @@ impl CheckedDependencyContracts {
             unit: unit.unit(),
             kind: unit.key().kind(),
             contracts: contracts.into(),
+            calls: Arc::default(),
             expressions: expressions.into(),
             deferred_expressions: deferred_expressions.into(),
             accesses: accesses.into(),
             borrows: borrows.into(),
             lifecycle_consumers: Arc::default(),
+            lifecycle_references: Arc::default(),
             is_recovered,
         };
 
         result.lifecycle_consumers = Arc::new(result.prepare_lifecycle_dependencies(unit, storage));
 
         Ok(result)
+    }
+
+    /// Publishes selected-call contracts after checking their unit-local subjects.
+    pub fn try_with_calls(
+        mut self,
+        calls: BTreeMap<crate::BoundExecutionSite, BoundCallDependencyContracts>,
+    ) -> Result<Self, DependencyContractsBuildError> {
+        for (occurrence, contract) in &calls {
+            if self.expression(*occurrence).is_none() {
+                return Err(DependencyContractsBuildError::InvalidExpression);
+            }
+
+            if !contract.is_valid_for(self.unit) {
+                return Err(DependencyContractsBuildError::ForeignContract);
+            }
+        }
+
+        self.calls = Arc::new(calls);
+
+        Ok(self)
+    }
+
+    /// Returns direct call contracts without inherited child-expression requirements.
+    pub fn calls(&self) -> &BTreeMap<crate::BoundExecutionSite, BoundCallDependencyContracts> {
+        &self.calls
+    }
+
+    /// Attaches checked reference relationships for the body's selected cleanup callees.
+    pub fn with_lifecycle_references(
+        mut self,
+        references: BTreeMap<
+            bray_symbols::CallableInstanceData,
+            Vec<bray_symbols::DependencyBorrowRelation>,
+        >,
+    ) -> Self {
+        self.lifecycle_references = Arc::new(references);
+
+        self
+    }
+
+    /// Returns the instantiated relationships shared by flow and execution-property checking.
+    pub fn lifecycle_references(
+        &self,
+    ) -> &BTreeMap<bray_symbols::CallableInstanceData, Vec<bray_symbols::DependencyBorrowRelation>>
+    {
+        &self.lifecycle_references
     }
 
     /// Returns the checked semantic unit described by this table.
@@ -274,6 +382,11 @@ impl CheckedDependencyContracts {
             && self
                 .contracts
                 .iter()
+                .chain(
+                    self.calls
+                        .values()
+                        .flat_map(BoundCallDependencyContracts::phase_contracts),
+                )
                 .all(|contract| contract.exists_in(storage))
     }
 
@@ -504,6 +617,86 @@ mod tests {
                 .unwrap_or_else(|error| panic!("partial dependency table must build: {error:?}"));
 
         assert!(!incomplete.is_complete_for(&bound, &storage));
+    }
+
+    #[test]
+    fn call_publication_preserves_distinct_phases_and_rejects_foreign_subjects() {
+        let unit = BoundUnitId::new(5);
+
+        let (bound, expression, storage, access) = expression_unit_with_storage(unit);
+
+        let table = || {
+            CheckedDependencyContracts::try_new(
+                &bound,
+                &storage,
+                [(expression.into(), BoundDependencyContract::new([]))],
+                [],
+                [(access, BoundDependencyContract::new([]))],
+                [],
+                false,
+            )
+            .unwrap()
+        };
+
+        let contract = |access, kind| {
+            BoundDependencyContract::new([BoundDependencyRequirement::direct(
+                BoundDependencySubject::StorageAccess(access),
+                kind,
+            )])
+        };
+
+        let invocation = contract(access, BoundDependencyRequirementKind::StorageAlive);
+        let result = contract(access, BoundDependencyRequirementKind::ValueDependencies);
+        let deferred = contract(access, BoundDependencyRequirementKind::StorageInitialized);
+
+        let phases = super::BoundCallDependencyContracts::new(
+            invocation.clone(),
+            result.clone(),
+            Some(deferred.clone()),
+        );
+
+        let published = table()
+            .try_with_calls([(expression.into(), phases.clone())].into())
+            .unwrap();
+
+        let call = &published.calls()[&expression.into()];
+
+        assert_eq!(call.invocation(), &invocation);
+        assert_eq!(call.result(), &result);
+        assert_eq!(call.deferred(), Some(&deferred));
+
+        for occurrence in [
+            BoundExpressionId::from_slot(BoundUnitId::new(6), 0),
+            BoundExpressionId::from_slot(unit, 1),
+        ] {
+            assert_eq!(
+                table().try_with_calls([(occurrence.into(), phases.clone())].into()),
+                Err(DependencyContractsBuildError::InvalidExpression),
+            );
+        }
+
+        let (_, _, _, foreign) = expression_unit_with_storage(BoundUnitId::new(6));
+
+        let foreign = contract(foreign, BoundDependencyRequirementKind::StorageAlive);
+
+        for phases in [
+            super::BoundCallDependencyContracts::new(
+                foreign.clone(),
+                result.clone(),
+                Some(deferred.clone()),
+            ),
+            super::BoundCallDependencyContracts::new(
+                invocation.clone(),
+                foreign.clone(),
+                Some(deferred.clone()),
+            ),
+            super::BoundCallDependencyContracts::new(invocation, result, Some(foreign)),
+        ] {
+            assert_eq!(
+                table().try_with_calls([(expression.into(), phases)].into()),
+                Err(DependencyContractsBuildError::ForeignContract),
+            );
+        }
     }
 
     fn expression_unit_with_storage(

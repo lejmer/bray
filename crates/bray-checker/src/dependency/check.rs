@@ -20,8 +20,9 @@ use crate::{
 
 pub(crate) fn check_dependency_contracts<C>(
     request: CheckerUnitView<'_, C>,
+    prepared: &crate::PreparedBodyAnalysis,
     selections: &CheckedSemanticSelections,
-    patterns: &bray_bound_tree::CheckedPatterns,
+    value_inputs: &crate::dependency::ValueInputs,
     storage: &StoragePlan,
 ) -> CheckerOutcome<CheckedDependencyContracts, C::UpstreamError>
 where
@@ -31,11 +32,13 @@ where
         return CheckerOutcome::Cancelled;
     }
 
-    crate::unit::assert_unit_inputs(request, [("patterns", (patterns.unit(), patterns.kind()))]);
-
     assert_unit_inputs(
         request,
         [
+            (
+                "prepared analysis",
+                (prepared.graph.unit(), prepared.kind()),
+            ),
             (
                 "semantic selections",
                 (selections.unit(), selections.kind()),
@@ -46,6 +49,7 @@ where
 
     let mut diagnostics = DiagnosticBag::new();
     let mut expression_requirements = BTreeMap::new();
+    let mut calls = BTreeMap::new();
     let mut deferred_expression_requirements = BTreeMap::new();
     let mut access_requirements = BTreeMap::new();
     let mut is_recovered = storage.is_recovered();
@@ -82,8 +86,6 @@ where
             .extend(requirements);
     }
 
-    let value_inputs = crate::dependency::ValueInputs::new(request.unit(), selections, patterns);
-
     for entry in selections.entries() {
         let contract = match entry.selection() {
             SemanticSelection::Call(call) => {
@@ -92,10 +94,10 @@ where
                     storage,
                     entry.expression(),
                     call,
-                    &value_inputs,
+                    value_inputs,
                 ) {
-                    Ok(contracts) => {
-                        if let Some(root) = contracts.escaping_evaluation_inputs.first().copied() {
+                    Ok((contracts, escaping)) => {
+                        if let Some(root) = escaping.first().copied() {
                             let diagnostic = super::defaults::escaping_evaluation_diagnostic(
                                 request,
                                 entry.expression(),
@@ -122,7 +124,12 @@ where
                                 .extend(deferred.requirements().iter().cloned());
                         }
 
-                        Ok(contracts.invocation().clone())
+                        // Bound contracts share immutable requirement arrays across publications.
+                        let invocation = contracts.invocation().clone();
+
+                        calls.insert(entry.expression().into(), contracts);
+
+                        Ok(invocation)
                     }
                     Err(error) => Err(error),
                 }
@@ -148,6 +155,8 @@ where
                                     .or_insert_with(Vec::new)
                                     .extend(deferred.requirements().iter().cloned());
                             }
+
+                            calls.insert(occurrence, contracts);
                         }
                         Err(error) => return failed_contract(error, entry.expression()),
                     }
@@ -214,6 +223,12 @@ where
         (access, BoundDependencyContract::new(requirements))
     });
 
+    let lifecycle_references = match prepared.cleanup.check_references(request) {
+        Ok(references) => references,
+        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
+    };
+
     let contracts = match CheckedDependencyContracts::try_new(
         request.unit(),
         storage,
@@ -222,8 +237,10 @@ where
         accesses,
         borrows,
         is_recovered,
-    ) {
-        Ok(contracts) => contracts,
+    )
+    .and_then(|contracts| contracts.try_with_calls(calls))
+    {
+        Ok(contracts) => contracts.with_lifecycle_references(lifecycle_references),
         Err(error) => {
             panic!(
                 "Durable dependency-contract construction rejected an exact invariant. in check_dependency_contracts, value0: {:?}",

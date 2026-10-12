@@ -12,6 +12,9 @@ use crate::{
 pub(crate) struct Cleanup<'a> {
     pub(super) selected: Option<(&'a CheckedAsync, &'a bray_bound_tree::StorageFlow)>,
     pub(super) plan: &'a Plan,
+    pub(in crate::analysis::guarantee) references:
+        &'a BTreeMap<CallableInstanceData, Vec<bray_symbols::DependencyBorrowRelation>>,
+    pub(in crate::analysis::guarantee) borrowed_inputs: BTreeSet<ExecutionPlace>,
 }
 
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
@@ -41,13 +44,20 @@ pub(in crate::analysis) struct Lifecycle {
     pub(in crate::analysis::guarantee) receiver: BoundReferenceTarget,
     pub(in crate::analysis::guarantee) synchronous: bool,
     pub(in crate::analysis) contract: TrustedCallContract,
-    pub(in crate::analysis::guarantee) borrows: Vec<bray_symbols::DependencyBorrowRelation>,
 }
 
 impl<'a> Cleanup<'a> {
-    pub(crate) fn new(plan: &'a Plan) -> Self {
+    pub(crate) fn new(
+        plan: &'a Plan,
+        dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
+    ) -> Self {
+        let references = dependencies.lifecycle_references();
+        let borrowed_inputs = plan.borrowed_inputs(references);
+
         Self {
             plan,
+            references,
+            borrowed_inputs,
             selected: None,
         }
     }
@@ -64,7 +74,40 @@ impl<'a> Cleanup<'a> {
 }
 
 impl Plan {
-    pub(crate) fn borrowed_inputs(&self) -> BTreeSet<ExecutionPlace> {
+    pub(crate) fn check_references<C: CheckerRequestContext + ?Sized>(
+        &self,
+        request: CheckerUnitView<'_, C>,
+    ) -> Result<
+        BTreeMap<CallableInstanceData, Vec<bray_symbols::DependencyBorrowRelation>>,
+        CheckerQueryError<C::UpstreamError>,
+    > {
+        let mut references = BTreeMap::new();
+
+        for lifecycle in self.lifecycles.values() {
+            if let std::collections::btree_map::Entry::Vacant(entry) =
+                references.entry(lifecycle.callable)
+            {
+                let template = request.callable_result_dependencies(
+                    lifecycle.callable.definition().callable_symbol(),
+                )?;
+
+                let template = crate::dependency::resolved_result_template(
+                    request,
+                    Some(lifecycle.callable),
+                    template,
+                )?;
+
+                entry.insert(template.borrows().to_vec());
+            }
+        }
+
+        Ok(references)
+    }
+
+    fn borrowed_inputs(
+        &self,
+        references: &BTreeMap<CallableInstanceData, Vec<bray_symbols::DependencyBorrowRelation>>,
+    ) -> BTreeSet<ExecutionPlace> {
         self.steps
             .values()
             .flatten()
@@ -84,14 +127,19 @@ impl Plan {
                 .into_iter()
                 .filter_map(move |slot| self.lifecycles.get(&(*ty, slot)))
                 .flat_map(move |lifecycle| {
-                    lifecycle.borrows.iter().filter_map(move |relation| {
-                        (relation.exit().subject_root()
-                            == bray_symbols::DependencySubjectRoot::Receiver)
-                            .then(|| {
-                                super::super::trusted::project_place(place.clone(), relation.exit())
-                            })
-                            .flatten()
-                    })
+                    references[&lifecycle.callable]
+                        .iter()
+                        .filter_map(move |relation| {
+                            (relation.exit().subject_root()
+                                == bray_symbols::DependencySubjectRoot::Receiver)
+                                .then(|| {
+                                    super::super::trusted::project_place(
+                                        place.clone(),
+                                        relation.exit(),
+                                    )
+                                })
+                                .flatten()
+                        })
                 })
             })
             .collect()
@@ -215,19 +263,8 @@ impl Plan {
                     continue;
                 };
 
-                let mut lifecycle = lifecycle(request.semantic_values(), *callable, signature)
+                let lifecycle = lifecycle(request.semantic_values(), *callable, signature)
                     .expect("selected lifecycle contract uses checked semantic terms");
-
-                let template = request
-                    .callable_result_dependencies(callable.definition().callable_symbol())?;
-
-                let template = crate::dependency::resolved_result_template(
-                    request,
-                    Some(*callable),
-                    template,
-                )?;
-
-                lifecycle.borrows = template.borrows().to_vec();
 
                 prepared.lifecycles.insert((ty, slot), lifecycle);
             }
@@ -313,6 +350,5 @@ fn lifecycle(
         ),
         synchronous: callable.execution() == bray_symbols::CallableExecution::Synchronous,
         contract,
-        borrows: Vec::new(),
     })
 }

@@ -116,7 +116,6 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
         cleanup_shapes: cleanup_shapes.completed,
     };
 
-    prepared.borrowed_inputs = prepared.cleanup.borrowed_inputs();
     prepared.prepare_observations(request, expressions);
     prepared.prepare_scope_places(request, storage);
 
