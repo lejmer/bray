@@ -81,6 +81,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         transfers: bool,
         content_only: bool,
     ) {
+        if matches!(mutation, bray_bound_tree::StorageMutation::Lifecycle { .. }) {
+            state.retire_evaluation(mutation);
+        }
+
         if matches!(invalidation, StorageInvalidation::All) {
             state.invalidate_cleanup();
 

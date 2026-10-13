@@ -290,7 +290,7 @@ fn portable_storage_identity(
     Ok(Some(PortableSubject::root(root)))
 }
 
-pub(in crate::compilation::binder::symbol) fn static_dependency_root(
+pub(in crate::compilation) fn static_dependency_root(
     context: &CompilationBindingContext<'_>,
     id: bray_symbols::StaticSymbolId,
 ) -> BindingQueryResult<DependencySubjectRoot> {

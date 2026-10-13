@@ -2052,3 +2052,61 @@ fn call_summary_reference_fields_follow_replacement_and_require_path_agreement()
         }
     }
 }
+
+#[test]
+fn nested_borrow_results_keep_the_selected_reference_layer() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Cell { flag: bool; }
+        func flag(pos outer: &&Cell) -> &bool { return &outer.flag; }
+        func forward(pos outer: &&Cell) -> &bool { return flag(outer); }
+    "#,
+    );
+
+    for name in ["flag", "forward"] {
+        let dependencies = crate::compilation::result_dependencies::source_function_dependencies(
+            &application,
+            name,
+        );
+
+        let relations = dependencies
+            .borrows()
+            .iter()
+            .filter(|relation| {
+                relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(relations.len(), 1, "{name}: {dependencies:#?}");
+        assert_eq!(relations[0].dereferences(), 1, "{name}: {dependencies:#?}");
+
+        assert_eq!(
+            relations[0].target_projections().len(),
+            1,
+            "{name}: {dependencies:#?}"
+        );
+    }
+}
+
+#[test]
+fn different_reference_layers_do_not_supply_a_common_exact_origin() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Cell { flag: bool; }
+        func choose(pos outer: &&Cell, pos other: &Cell, pos first: bool) -> &bool {
+            if first { return &outer.flag; }
+            return &other.flag;
+        }
+    "#,
+    );
+
+    let dependencies = crate::compilation::result_dependencies::source_function_dependencies(
+        &application,
+        "choose",
+    );
+
+    assert!(dependencies.borrows().is_empty(), "{dependencies:#?}");
+    assert!(!dependencies.requirements().is_empty(), "{dependencies:#?}");
+}

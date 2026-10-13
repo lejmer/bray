@@ -57,8 +57,8 @@ an owning implementation and meaningful verification.
 
 ## Shared observation and cleanup work, 2026-10-13
 
-Step 1 is published as `5c4d3513`. Step 2 is still in progress; this section records the current uncommitted work,
-not completion of the matrix above. No production synchronization API was changed.
+Step 1 is published as `5c4d3513`. The shared observation and normal-completion work is checkpointed and pushed
+as `c784e040`. Step 2 is still in progress. These checkpoints do not complete the matrix above. No production synchronization API was changed.
 
 Implicit lifecycle calls now resolve effects against the actual physical receiver and apply them in cleanup order.
 The owning storage analysis publishes those mutations for execution-property consumers. Harmless cleanup preserves
@@ -88,7 +88,7 @@ The remaining production authority failures are acceptance evidence, not permiss
 
 ## Normal call completion continuation, 2026-10-13
 
-Still uncommitted and incomplete. Implicit lifecycle calls now stage reference outputs using the same prepared
+Checkpointed in `c784e040` and still incomplete as a whole. Implicit lifecycle calls now stage reference outputs using the same prepared
 `BoundCallReference` and physical transfer implementation as explicit calls. A finalizer redirecting a reference feeds
 that exact target to the destructor. `cleanup_reference_outputs_feed_the_next_lifecycle` passes for the new target
 and rejects the previous target.
@@ -114,7 +114,49 @@ Bray formatting commands passed. The audit removed a redundant validation flag a
 
 Remaining work is unchanged: finish and audit shared completion, nested reference identities and demand closure,
 finite recursive may/must publication, replacement of the separate dependency syntax walk, and the entire step-2
-completion matrix. There is no step-2 implementation commit or completion claim yet. No source API migration began.
+completion matrix. The `c784e040` checkpoint preserves this work. It is not a step-2 completion claim. No source API migration began.
+
+## Shared result flow and nested references, 2026-10-13
+
+This checkpoint continues after `c784e040`. Result lifetime requirements now travel with the composite
+storage CFG state. The separate whole-syntax result fixed point and its repeated preparation are removed. Recursive
+and generic result equations remain symbolic. Recovery retains required lifetimes but publishes no exact borrow
+relations or claim of absent effects. This is covered by a direct publication regression.
+
+Nested reference entry snapshots now distinguish successive borrow layers at the same component path. Exact result
+relations retain additional dereference counts through substitution, interface encoding and specialization identity.
+The package interface format revision is 2. Source forwarding, rejection of mixed origins, and imported generic
+forwarding pass. Deeper indirect mutation effects remain conservative. This does not add Bray syntax or runtime state.
+
+Repeated cleanup retires evidence from an earlier execution of that exact lifecycle occurrence. Sibling lifecycle
+steps at the same boundary remain distinct. The same retirement helper handles repeated expression evaluation and
+also clears stale deferred entry evidence. Checker unit coverage is 302 passing tests before the latest interface edits.
+
+Result state omits empty sets and prepares source demands only where values or observed patterns can retain storage.
+The broad compilation run exposed excessive state growth in scalar-heavy control flow. It was stopped on its last
+stress case after collecting the other results. The focused scalar rerun was also stopped before completion to unblock
+a Windows executable lock. Do not claim performance acceptance from either run. Execution-value and call-evidence
+retention still need an owning analysis audit.
+
+Verification logs in `target/bra-620-authority`: `shared-results-libraries.log` has 121 bound-tree and 300 checker passes.
+`shared-results-recovery.log` has seven returned-assignment passes, and `shared-results-trait-final.log` has six trait
+result passes. `nested-returned.log` has 57 passes and two production fixture failures. `nested-summary-result.log`
+passes the nested source relation, and `nested-layers-import.log` passes its imported generic counterpart.
+`shared-results-full.log` is an incomplete broad run with failures, not a passing baseline. Besides production host and
+synchronization failures, it exposes standard-memory fixture failures, a missing slice conflict, scoped-call cases and
+an opaque-call refinement case. Classify and repair the step-2 mechanisms before accepting this step.
+
+The first style pass found the main storage collector function over its limit. Result publication was moved into its
+owning existing publication method to remove the duplicate assembly and satisfy the limit. The normal-exit classification was also shared across storage publication and execution postcondition consumers.
+`nested-all-libraries.log` has 121 bound-tree, 302 checker, 189 interface and 202 symbol passes.
+`nested-final-returned.log` has 26 returned-value passes. `nested-final-style.log` records the passing mutating style and Bray-formatting commands. The checkpoint audit
+removed repeated normal-exit classification, deduplicated static-root queries and bounded nested target traversal
+by unique physical targets. The broader acceptance and performance work remains open. No temporary diagnostic tracing remains. The checkpoint changes 734 production Rust lines and removes 521,
+for a net 213 production lines. Tests add 273 lines and remove five. Counts separate inline test modules from production.
+
+Still open: finite recursive exact-summary solving and demand closure, deferred-phase effects, retention/performance,
+all broader step-2 failures and the complete acceptance matrix. Do not stop at this checkpoint or migrate production
+synchronization APIs as a substitute for completing step 2.
 
 ## Prepared reference paths, 2026-10-13
 

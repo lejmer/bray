@@ -77,12 +77,12 @@ impl ValueInputs {
         patterns: &CheckedPatterns,
     ) -> BTreeMap<LocalBindingSymbolId, BoundExpressionId> {
         let mut initializers = BTreeMap::new();
-        let subjects = binding_subjects(unit);
+        let subjects = &self.pattern_subjects;
 
         loop {
             let mut changed = false;
 
-            for (pattern, initializer) in &subjects {
+            for (pattern, initializer) in subjects {
                 let mut pending = vec![(*pattern, *initializer)];
 
                 while let Some((id, initializer)) = pending.pop() {
@@ -293,7 +293,9 @@ pub(super) fn pattern_projection(
     }
 }
 
-fn binding_subjects(unit: &BoundUnit) -> Vec<(bray_bound_tree::BoundPatternId, BoundExpressionId)> {
+pub(super) fn binding_subjects(
+    unit: &BoundUnit,
+) -> Vec<(bray_bound_tree::BoundPatternId, BoundExpressionId)> {
     let mut subjects = Vec::new();
 
     for (_, block) in unit.tree().blocks() {
@@ -313,6 +315,8 @@ fn binding_subjects(unit: &BoundUnit) -> Vec<(bray_bound_tree::BoundPatternId, B
                     subjects.extend(value.patterns().iter().map(|pattern| (*pattern, *subject)));
                 }
             }
+            BoundExpression::For(value) => subjects.push((value.pattern(), value.source())),
+            BoundExpression::Generator(value) => subjects.push((value.pattern(), value.source())),
             BoundExpression::Match(value) => {
                 subjects.extend(
                     value

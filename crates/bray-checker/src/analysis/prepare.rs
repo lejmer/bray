@@ -133,7 +133,7 @@ impl PreparedBodyAnalysis {
         request: CheckerUnitView<'_, C>,
         semantics: &CheckedExpressionSemantics,
     ) {
-        let mut targets = BTreeMap::new();
+        let targets = crate::dependency::transfer_targets(request.unit());
         let mut yields = Vec::new();
 
         for (expression, node) in request.unit().tree().expressions() {
@@ -145,10 +145,11 @@ impl PreparedBodyAnalysis {
                 self.sequence_lengths.push(expression);
             }
 
-            targets.insert(node.origin().source_anchor().syntax(), expression);
-
             if let BoundExpression::ControlTransfer(transfer) = node
-                && transfer.kind() == BoundControlTransferKind::Yield
+                && matches!(
+                    transfer.kind(),
+                    BoundControlTransferKind::Yield | BoundControlTransferKind::Break
+                )
                 && let Some(target) = transfer.target()
             {
                 yields.push((expression, target));

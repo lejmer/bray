@@ -9,6 +9,7 @@ impl Target {
                 Origin::Entry {
                     reference,
                     projections,
+                    ..
                 } => {
                     reference.is_exact()
                         && projections.iter().all(|projection| projection.is_exact())
@@ -27,6 +28,7 @@ impl Target {
             Origin::Entry {
                 reference,
                 projections,
+                layer: 1,
             } if reference.projections.is_empty() => Some(Place {
                 root: reference.root,
                 projections: projections.clone(),
@@ -56,13 +58,17 @@ impl Target {
             (
                 Origin::Entry {
                     reference: left,
+                    layer: left_layer,
                     projections: left_path,
                 },
                 Origin::Entry {
                     reference: right,
+                    layer: right_layer,
                     projections: right_path,
                 },
-            ) if left == right => StorageProjection::relationship(left_path, right_path),
+            ) if left == right && left_layer == right_layer => {
+                StorageProjection::relationship(left_path, right_path)
+            }
             (Origin::Entry { .. }, _) | (_, Origin::Entry { .. }) => {
                 StorageRelationship::PotentiallyOverlapping
             }
@@ -81,13 +87,15 @@ impl Target {
             (
                 Origin::Entry {
                     reference: left,
+                    layer: left_layer,
                     projections: prefix,
                 },
                 Origin::Entry {
                     reference: right,
+                    layer: right_layer,
                     projections,
                 },
-            ) => left == right && projections.starts_with(prefix),
+            ) => left == right && left_layer == right_layer && projections.starts_with(prefix),
             (Origin::Storage(left), Origin::Storage(right))
             | (Origin::Allocation(left), Origin::Allocation(right)) => left.contains(right),
             _ => false,
@@ -109,10 +117,12 @@ impl Target {
         let origin = match &self.origin {
             Origin::Entry {
                 reference,
+                layer,
                 projections: prefix,
             } => Origin::Entry {
                 // The original reference identity survives later assignments to its source slot.
                 reference: reference.clone(),
+                layer: *layer,
                 projections: append(prefix),
             },
             Origin::Storage(place) => Origin::Storage(path(place)),
@@ -216,11 +226,16 @@ impl State {
     pub(in crate::analysis::storage_flow) fn entry_reference_at(
         &mut self,
         reference: Place,
+        layer: usize,
         location: Target,
         ty: Option<TypeId>,
     ) {
         let target = Target {
-            origin: Origin::entry(reference),
+            origin: Origin::Entry {
+                reference,
+                layer,
+                projections: std::sync::Arc::from([]),
+            },
             previous: false,
         };
 

@@ -140,6 +140,48 @@ impl ExecutionState {
 
         (whole, partial)
     }
+    /// Reusing a finite evaluation identity must not revive a previous iteration's evidence.
+    pub(super) fn retire_evaluation(&mut self, mutation: bray_bound_tree::StorageMutation) {
+        let stale = |value: &ExecutionCondition| value.depends_on(mutation);
+
+        self.witness_carriers.retain(|value, conditions| {
+            conditions.retain(|condition| !stale(condition));
+
+            !stale(value) && !conditions.is_empty()
+        });
+
+        self.witness_dependencies.retain(|value, _| !stale(value));
+
+        self.trusted_assumptions
+            .retain(|(condition, _)| !stale(condition));
+
+        self.assumptions.retain(|(condition, _)| !stale(condition));
+
+        self.allocation_owners
+            .retain(|condition, owner| !stale(condition) && !stale(owner));
+
+        for entry in self.entries.values_mut() {
+            entry.arguments.retain(|_, value| !stale(value));
+            entry.assumptions.retain(|(condition, _)| !stale(condition));
+
+            entry
+                .trusted_assumptions
+                .retain(|(condition, _)| !stale(condition));
+        }
+
+        for value in self
+            .current
+            .values_mut()
+            .chain(self.expressions.values_mut())
+            .chain(self.pending_results.values_mut())
+            .chain(std::iter::once(&mut self.result))
+        {
+            if stale(value) {
+                *value = ExecutionCondition::Unknown;
+            }
+        }
+    }
+
     pub(super) fn invalidate_cleanup(&mut self) {
         self.assumptions
             .retain(|(condition, _)| !condition.observes_borrowed(None));
@@ -590,6 +632,98 @@ mod tests {
 
     fn input(ordinal: u32) -> ExecutionCondition {
         ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)))
+    }
+
+    #[test]
+    fn repeated_cleanup_does_not_revive_old_evidence_or_retire_its_sibling() {
+        use crate::test_support::{error_type, expression_unit, push_block, push_expression};
+
+        use bray_bound_tree::{
+            BoundErrorExpression, BoundExpression, BoundUnitId, BoundUnitKind, StorageAccess,
+            StorageAccessRoot, StorageIdentity, StorageMutation, StoragePlanBuilder,
+        };
+
+        use bray_symbols::TypeAssociatedLifecycleSlot;
+
+        let unit = BoundUnitId::new(1);
+        let mut boundary = None;
+
+        let (bound, expressions) = expression_unit(unit, |tree, origin| {
+            boundary = Some(push_block(tree, origin, []));
+
+            vec![push_expression(
+                tree,
+                BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
+            )]
+        });
+
+        let occurrence =
+            bray_bound_tree::BoundExecutionSite::Node(boundary.expect("test boundary").into());
+
+        let mut storage = StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
+
+        let root = storage
+            .push_identity(StorageIdentity::Temporary(expressions[0]))
+            .unwrap();
+
+        let source = bound
+            .tree()
+            .expression(expressions[0])
+            .unwrap()
+            .origin()
+            .source_anchor();
+
+        let access = storage
+            .push_access(StorageAccess::new(
+                StorageAccessRoot::Storage(root),
+                [],
+                error_type(),
+                source,
+                false,
+            ))
+            .unwrap();
+
+        let mutation = |part| StorageMutation::Lifecycle {
+            occurrence,
+            access,
+            part,
+            slot: TypeAssociatedLifecycleSlot::Destructor,
+        };
+
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let old = ExecutionCondition::PostState(mutation(0), place.clone());
+        let sibling = ExecutionCondition::PostState(mutation(1), place.clone());
+        let mut state = ExecutionState::default();
+
+        state.carry_guarantee(old.clone(), old.clone());
+        state.carry_guarantee(sibling.clone(), sibling.clone());
+
+        state
+            .trusted_assumptions
+            .extend([(old.clone(), true), (sibling.clone(), true)]);
+
+        state.current.insert(place.clone(), old.clone());
+
+        state.entries.insert(
+            occurrence,
+            crate::ExecutionCallEvidence {
+                trusted_boundary: true,
+                pending_execution: true,
+                arguments: [(place.clone(), old.clone())].into(),
+                assumptions: [(old.clone(), true)].into(),
+                trusted_assumptions: [(old.clone(), true)].into(),
+            },
+        );
+
+        state.retire_evaluation(mutation(0));
+        state.assign(place, old.clone());
+
+        assert!(!state.is_witness(&old));
+        assert!(!state.trusted_assumptions.contains(&(old, true)));
+        assert!(state.is_witness(&sibling));
+        assert!(state.trusted_assumptions.contains(&(sibling, true)));
+        assert!(state.entries[&occurrence].arguments.is_empty());
+        assert!(state.entries[&occurrence].trusted_assumptions.is_empty());
     }
 
     #[test]

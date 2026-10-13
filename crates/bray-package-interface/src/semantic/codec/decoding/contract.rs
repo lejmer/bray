@@ -95,6 +95,7 @@ pub(super) fn decode_dependency_contract(
                 decode_dependency_subject(reader, limits, context)?,
                 decode_tag(read_u32(reader)?)?,
             )
+            .with_dereferences(read_u32(reader)?)
             .with_target_projections(decode_dependency_projections(reader, limits, context)?),
         );
     }

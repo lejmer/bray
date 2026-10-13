@@ -11,6 +11,8 @@ use bray_bound_tree::{
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ValueInputs {
     independent: std::collections::BTreeSet<BoundExpressionId>,
+    pub(super) source_inputs: std::collections::BTreeSet<BoundExpressionId>,
+    pub(super) pattern_subjects: BTreeMap<bray_bound_tree::BoundPatternId, BoundExpressionId>,
     pub(super) projections: BTreeMap<
         BoundExpressionId,
         BTreeMap<bray_symbols::DependencyProjection, BoundExpressionId>,
@@ -104,12 +106,30 @@ impl ValueInputs {
             returned_errors: Default::default(),
             expressions,
             projected_initializers: BTreeMap::new(),
+            pattern_subjects: super::projection::binding_subjects(unit)
+                .into_iter()
+                .collect(),
             independent: Default::default(),
+            source_inputs: Default::default(),
             projections: BTreeMap::new(),
             initializers: BTreeMap::new(),
             borrowed: BTreeMap::new(),
             writes: Default::default(),
         };
+
+        for entry in selections.entries() {
+            if let SemanticSelection::ScopedUse(_) = entry.selection()
+                && let Some(BoundExpression::Structured(value)) =
+                    unit.tree().expression(entry.expression())
+            {
+                result.pattern_subjects.extend(
+                    value
+                        .patterns()
+                        .iter()
+                        .map(|pattern| (*pattern, entry.expression())),
+                );
+            }
+        }
 
         result.collect_projections(unit, selections, patterns);
 
@@ -140,8 +160,64 @@ impl ValueInputs {
 
         inputs.filter_independent(request, types)?;
         inputs.collect_propagation(request, selections)?;
+        inputs.collect_source_inputs(request.unit(), patterns);
 
         Ok(inputs)
+    }
+
+    fn collect_source_inputs(
+        &mut self,
+        unit: &BoundUnit,
+        patterns: &bray_bound_tree::CheckedPatterns,
+    ) {
+        let mut pending = unit
+            .tree()
+            .expressions()
+            .filter(|(expression, _)| !self.is_independent(*expression))
+            .map(|(expression, _)| expression)
+            .collect::<Vec<_>>();
+
+        for (pattern, source) in &self.pattern_subjects {
+            let mut nested = vec![*pattern];
+
+            while let Some(pattern) = nested.pop() {
+                let node = unit
+                    .tree()
+                    .pattern(pattern)
+                    .expect("prepared pattern is bound");
+
+                let checked = patterns
+                    .pattern(pattern)
+                    .expect("prepared pattern is checked");
+
+                if checked.bindings(node).any(|binding| {
+                    patterns.binding_type(binding).is_some_and(|ty| {
+                        matches!(
+                            ty.operation(),
+                            bray_bound_tree::PatternOperation::Observe
+                                | bray_bound_tree::PatternOperation::SharedBorrow
+                                | bray_bound_tree::PatternOperation::MutableBorrow
+                        )
+                    })
+                }) {
+                    pending.push(*source);
+                    break;
+                }
+
+                nested.extend(node.children());
+            }
+        }
+
+        while let Some(expression) = pending.pop() {
+            if self.source_inputs.insert(expression) {
+                pending.extend(
+                    unit.tree()
+                        .expression(expression)
+                        .expect("source dependency expression is bound")
+                        .child_expressions(),
+                );
+            }
+        }
     }
 
     pub(crate) fn constructed_fields(
@@ -194,15 +270,6 @@ impl ValueInputs {
         self.error_exits
             .iter()
             .map(|(exit, (value, projection))| (*exit, *value, *projection))
-    }
-
-    pub(crate) fn returned_errors(
-        &self,
-    ) -> impl Iterator<Item = (BoundExpressionId, bray_symbols::DependencyProjection)> {
-        self.returned_errors
-            .iter()
-            .filter_map(|exit| self.error_exits.get(exit))
-            .copied()
     }
 
     pub(crate) fn filter_independent<C: CheckerRequestContext + ?Sized>(
@@ -350,7 +417,7 @@ pub(crate) fn independent_value_type<C: CheckerRequestContext + ?Sized>(
     Ok(true)
 }
 
-pub(super) fn transfer_targets(
+pub(crate) fn transfer_targets(
     unit: &BoundUnit,
 ) -> BTreeMap<bray_declarations::SyntaxAnchor, BoundExpressionId> {
     let mut targets = BTreeMap::new();

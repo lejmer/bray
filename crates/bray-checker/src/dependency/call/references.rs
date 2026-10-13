@@ -66,9 +66,19 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
 pub(crate) fn prepare_reference<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     relation: &bray_symbols::DependencyBorrowRelation,
-    ty: bray_symbols::TypeId,
+    mut ty: bray_symbols::TypeId,
     output: Option<BoundExpressionId>,
 ) -> Result<Option<BoundCallReference>, CheckerQueryError<C::UpstreamError>> {
+    for _ in 0..relation.dereferences() {
+        let bray_symbols::TypeData::Borrow { target, .. } =
+            *request.semantic_values().type_data(ty)
+        else {
+            return Ok(None);
+        };
+
+        ty = target;
+    }
+
     let kind = crate::representation::reference_kind(request, ty);
 
     let addressed_type = if relation.target_projections().is_empty() {

@@ -301,6 +301,7 @@ pub struct DependencyBorrowRelation<Subject = DependencySubject, Projection = De
     exit: Subject,
     kind: DependencyReferenceKind,
     target_projections: Arc<[Projection]>,
+    dereferences: u32,
 }
 
 impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
@@ -311,7 +312,20 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
             exit,
             kind,
             target_projections: Arc::from([]),
+            dereferences: 0,
         }
+    }
+
+    /// Selects additional nested borrow layers before reading the entry reference.
+    pub fn with_dereferences(mut self, count: u32) -> Self {
+        self.dereferences = count;
+
+        self
+    }
+
+    /// Additional borrow layers beyond the reference selected by the entry subject.
+    pub const fn dereferences(&self) -> u32 {
+        self.dereferences
     }
 
     /// Projects the reached storage without reading a reference value stored in the selected field.

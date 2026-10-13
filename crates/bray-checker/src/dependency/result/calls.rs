@@ -3,9 +3,9 @@ use bray_bound_tree::{BoundExpressionId, SemanticSelection};
 use bray_symbols::{DependencyRequirement, DependencyRequirementKind};
 use std::collections::BTreeSet;
 
-use super::core::ResultInference;
+use super::core::Transfer;
 
-impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
+impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
     pub(super) fn call_values(
         &self,
         expression: BoundExpressionId,
@@ -23,7 +23,8 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                 self.request.view().expression(expression)
         {
             result.extend(
-                self.values
+                self.state
+                    .values
                     .get(&bound.callee())
                     .into_iter()
                     .flatten()
@@ -55,8 +56,8 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
     > {
         let recursive = match call.target() {
             bray_bound_tree::BoundCallableTarget::Declaration(instance) => {
-                self.recursive_callees
-                    .contains(&instance.definition().callable_symbol())
+                self.request
+                    .is_recursive_result(instance.definition().callable_symbol())
                     && call.resolution().trait_dispatch().is_none()
             }
             _ => false,
@@ -80,7 +81,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         let instance = scoped.enter().0;
         let symbol = instance.definition().callable_symbol();
 
-        let template = if self.recursive_callees.contains(&symbol) {
+        let template = if self.request.is_recursive_result(symbol) {
             let callable = self
                 .request
                 .semantic_values()
@@ -156,13 +157,9 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                         .collect());
                 }
 
-                let sources = self.sources.get(&argument);
+                let sources = self.state.sources.get(&argument);
 
                 if sources.is_none_or(BTreeSet::is_empty) {
-                    if !self.include_evaluation_storage {
-                        return Ok(Vec::new());
-                    }
-
                     return Ok(vec![DependencyRequirement::direct(
                         bray_symbols::DependencySubject::root(
                             bray_symbols::DependencySubjectRoot::EvaluationStorage,

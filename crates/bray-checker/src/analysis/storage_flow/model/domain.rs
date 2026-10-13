@@ -25,6 +25,8 @@ where
     request: CheckerUnitView<'analysis, C>,
     execution: &'analysis crate::analysis::guarantee::ExecutionFlowDomain<'analysis, 'analysis, C>,
     dependencies: &'analysis bray_bound_tree::CheckedDependencyContracts,
+    values: &'analysis crate::dependency::ValueInputs,
+    patterns: &'analysis bray_bound_tree::CheckedPatterns,
 }
 
 impl<'analysis, C> StorageFlowDomain<'analysis, C>
@@ -52,6 +54,8 @@ where
             C,
         >,
         dependencies: &'analysis bray_bound_tree::CheckedDependencyContracts,
+        values: &'analysis crate::dependency::ValueInputs,
+        patterns: &'analysis bray_bound_tree::CheckedPatterns,
     ) -> Self {
         Self {
             graph,
@@ -66,6 +70,8 @@ where
             request,
             execution,
             dependencies,
+            values,
+            patterns,
         }
     }
 
@@ -87,6 +93,8 @@ where
             self.owners,
             self.execution,
             self.dependencies,
+            self.values,
+            self.patterns,
         );
 
         for operation in block.operations() {

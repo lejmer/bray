@@ -1,255 +1,161 @@
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{
-    BoundBlockItem, BoundControlTransferKind, BoundExpression, BoundExpressionId,
-    BoundReferenceTarget, BoundStructuredExpressionKind, CheckedExpressionTypes, CheckedPatterns,
-    CheckedSemanticSelections, SemanticSelection,
+    BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundStructuredExpressionKind,
+    CheckedExpressionTypes, CheckedPatterns, CheckedSemanticSelections, SemanticSelection,
 };
 use bray_symbols::{
-    AnyLocalSymbolId, CallableSymbolId, DependencyContractTemplateData,
-    DependencyContractTemplateId, DependencyRequirement, DependencyRequirementKind,
-    DependencySubject, DependencySubjectRoot, LocalBindingSymbolId, StaticSymbolId,
+    AnyLocalSymbolId, DependencyRequirement, DependencyRequirementKind, DependencySubject,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
-/// Infers the portable dependencies retained by normal returns using the supplied callee contracts.
-/// `recursive_callees` identifies members of recursive call-graph components.
-pub fn infer_result_dependencies<C>(
-    request: CheckerUnitView<'_, C>,
-    types: &CheckedExpressionTypes,
-    selections: &CheckedSemanticSelections,
-    patterns: &CheckedPatterns,
-    callees: &BTreeMap<bray_symbols::AnySymbolId, DependencyContractTemplateId>,
-    recursive_callees: &BTreeSet<CallableSymbolId>,
-    static_roots: &BTreeMap<StaticSymbolId, DependencySubjectRoot>,
-) -> Result<DependencyContractTemplateId, CheckerQueryError<C::UpstreamError>>
-where
-    C: CheckerRequestContext
-        + crate::CheckerSemanticQueryProvider<bray_symbols::CallableSignatureQuery>
-        + ?Sized,
-{
-    crate::unit::assert_unit_inputs(
-        request,
-        [
-            ("expression types", (types.unit(), types.kind())),
-            (
-                "semantic selections",
-                (selections.unit(), selections.kind()),
-            ),
-            ("patterns", (patterns.unit(), patterns.kind())),
-        ],
-    );
-
-    let request = request.with_result_dependencies(callees);
-
-    let mut inference = ResultInference {
-        request,
-        types,
-        selections,
-        patterns,
-        recursive_callees,
-        static_roots,
-        include_evaluation_storage: false,
-        call_definitions: BTreeMap::new(),
-        // Nodes own snapshots so fixed-point propagation can extend destinations independently.
-        values: BTreeMap::new(),
-        locals: BTreeMap::new(),
-        local_sources: BTreeMap::new(),
-        borrowed_bindings: BTreeMap::new(),
-        sources: BTreeMap::new(),
-        inputs: crate::dependency::ValueInputs::prepare(
-            request,
-            types,
-            selections,
-            patterns,
-            |callable| {
-                if recursive_callees.contains(&callable) {
-                    return Ok(request
-                        .semantic_values()
-                        .empty_dependency_contract_template().unwrap_or_else(|error| panic!("infer_result_dependencies must satisfy its checked construction contract: {error:?}")));
-                }
-
-                request.callable_result_dependencies(callable)
-            },
-        )?,
-    };
-
-    loop {
-        if request.is_cancelled() {
-            return Err(CheckerQueryError::Cancelled);
-        }
-
-        let mut changed = false;
-
-        for (id, expression) in request.unit().tree().expressions() {
-            let sources = inference.expression_sources(id, expression);
-            let values = inference.expression_values(id, expression)?;
-
-            changed |= extend(inference.sources.entry(id).or_default(), sources);
-            changed |= extend(inference.values.entry(id).or_default(), values);
-        }
-
-        for (_, block) in request.unit().tree().blocks() {
-            for item in block.items() {
-                let BoundBlockItem::LocalBinding(binding) = item else {
-                    continue;
-                };
-
-                let values = inference
-                    .values
-                    .get(&binding.initializer())
-                    .cloned()
-                    .unwrap_or_default();
-
-                changed |=
-                    inference.bind_pattern(binding.pattern(), binding.initializer(), values)?;
-            }
-        }
-
-        for (id, expression) in request.unit().tree().expressions() {
-            if let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(id) {
-                let BoundExpression::Structured(bound) = expression else {
-                    panic!("selected scoped use retains its with expression");
-                };
-
-                let values = inference.scoped_values(scoped)?;
-
-                changed |= inference.bind_pattern_values(
-                    bound.patterns()[0],
-                    None,
-                    BTreeSet::new(),
-                    values,
-                )?;
-            }
-
-            if let BoundExpression::Structured(value) = expression
-                && value.kind() == BoundStructuredExpressionKind::PatternBinding
-                && let Some(subject) = value.operands().first()
-            {
-                for pattern in value.patterns() {
-                    changed |= inference.bind_pattern(*pattern, *subject, BTreeSet::new())?;
-                }
-            }
-
-            let iteration = match expression {
-                BoundExpression::For(value) => Some((value.pattern(), value.source())),
-                BoundExpression::Generator(value) => Some((value.pattern(), value.source())),
-                _ => None,
-            };
-
-            if let Some((pattern, source)) = iteration {
-                let values = inference.values.get(&source).cloned().unwrap_or_default();
-
-                changed |= inference.bind_pattern(pattern, source, values)?;
-            }
-
-            if let BoundExpression::Match(value) = expression {
-                for arm in value.arms() {
-                    changed |=
-                        inference.bind_pattern(arm.pattern(), value.subject(), BTreeSet::new())?;
-                }
-            }
-        }
-
-        if !changed {
-            if !inference.include_evaluation_storage {
-                inference.include_evaluation_storage = true;
-                continue;
-            }
-
-            break;
-        }
-    }
-
-    let expression_result = match request.unit().root() {
-        bray_bound_tree::BoundUnitRoot::Expression(expression) => Some(expression),
-        _ => None,
-    };
-
-    let requirements = request
-        .unit()
-        .tree()
-        .expressions()
-        .filter_map(|(_, node)| {
-            let BoundExpression::ControlTransfer(transfer) = node else {
-                return None;
-            };
-
-            (transfer.kind() == BoundControlTransferKind::Return)
-                .then(|| transfer.operand())
-                .flatten()
-        })
-        .chain(expression_result)
-        .flat_map(|operand| {
-            inference
-                .values
-                .get(&operand)
-                .into_iter()
-                .flatten()
-                .cloned()
-        });
-
-    let requirements = requirements.chain(
-        inference
-            .inputs
-            .returned_errors()
-            .flat_map(|(value, projection)| inference.projected_values(value, &[projection])),
-    );
-
-    let requirements = requirements.collect::<Vec<_>>();
-
-    let requirements = if super::super::equations::has_variables(&requirements, false) {
-        let maximum = inference
-            .call_definitions
-            .keys()
-            .next_back()
-            .copied()
-            .unwrap_or(0);
-
-        let definitions = (0..=maximum).map(|ordinal| {
-            inference
-                .call_definitions
-                .remove(&ordinal)
-                .unwrap_or_default()
-        });
-
-        vec![DependencyRequirement::fixed_point(
-            definitions,
-            requirements,
-        )]
-    } else {
-        requirements
-    };
-
-    Ok(request
-        .semantic_values()
-        .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements)).unwrap_or_else(|error| panic!("infer_result_dependencies must satisfy its checked construction contract: {error:?}")))
-}
-
-pub(super) struct ResultInference<'a, C: CheckerRequestContext + ?Sized> {
+pub(crate) struct Transfer<'a, 'state, C: CheckerRequestContext + ?Sized> {
     pub(super) request: CheckerUnitView<'a, C>,
     pub(super) types: &'a CheckedExpressionTypes,
     pub(super) selections: &'a CheckedSemanticSelections,
     pub(super) patterns: &'a CheckedPatterns,
-    pub(super) recursive_callees: &'a BTreeSet<CallableSymbolId>,
-    pub(super) static_roots: &'a BTreeMap<StaticSymbolId, DependencySubjectRoot>,
-    pub(super) include_evaluation_storage: bool,
-    call_definitions: BTreeMap<u32, BTreeSet<DependencyRequirement>>,
-    pub(super) values: BTreeMap<BoundExpressionId, BTreeSet<DependencyRequirement>>,
-    pub(super) locals: BTreeMap<LocalBindingSymbolId, BTreeSet<DependencyRequirement>>,
-    pub(super) local_sources: BTreeMap<LocalBindingSymbolId, BTreeSet<super::sources::SourcePath>>,
-    pub(super) borrowed_bindings: BTreeMap<LocalBindingSymbolId, BoundExpressionId>,
-    pub(super) sources: BTreeMap<BoundExpressionId, BTreeSet<super::sources::SourcePath>>,
-    pub(super) inputs: crate::dependency::ValueInputs,
+    pub(super) inputs: &'a crate::dependency::ValueInputs,
+    pub(super) state: &'state mut super::state::State,
 }
 
-impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
+impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
+    pub(crate) fn new(
+        request: CheckerUnitView<'a, C>,
+        types: &'a CheckedExpressionTypes,
+        selections: &'a CheckedSemanticSelections,
+        patterns: &'a CheckedPatterns,
+        inputs: &'a crate::dependency::ValueInputs,
+        state: &'state mut super::state::State,
+    ) -> Self {
+        Self {
+            request,
+            types,
+            selections,
+            patterns,
+            inputs,
+            state,
+        }
+    }
+
+    pub(crate) fn operation(
+        &mut self,
+        operation: crate::analysis::AnalysisOperationKind,
+        yielded: Option<BoundExpressionId>,
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+        use crate::analysis::{AnalysisCallPhase, AnalysisOperationKind};
+
+        if matches!(
+            operation,
+            AnalysisOperationKind::Call {
+                phase: AnalysisCallPhase::Attempt,
+                ..
+            } | AnalysisOperationKind::ScopeExit { .. }
+                | AnalysisOperationKind::Suspension { .. }
+        ) {
+            return Ok(());
+        }
+
+        match operation.node() {
+            bray_bound_tree::AnyBoundNodeId::Expression(id) => {
+                let expression = self
+                    .request
+                    .view()
+                    .expression(id)
+                    .expect("flow expression is bound");
+
+                let values = self.expression_values(id, expression)?;
+
+                super::state::assign(&mut self.state.values, id, values);
+
+                let sources = if self.inputs.source_inputs.contains(&id) {
+                    self.expression_sources(id, expression)
+                } else {
+                    BTreeSet::new()
+                };
+
+                super::state::assign(&mut self.state.sources, id, sources);
+
+                if let Some(target) = yielded
+                    && let BoundExpression::ControlTransfer(transfer) = expression
+                    && let Some(operand) = transfer.operand()
+                {
+                    // The selected branch supplies the enclosing expression's result at this edge.
+                    let values = self.state.values.get(&operand).cloned().unwrap_or_default();
+
+                    let sources = self
+                        .state
+                        .sources
+                        .get(&operand)
+                        .cloned()
+                        .unwrap_or_default();
+
+                    super::state::assign(&mut self.state.values, target, values);
+                    super::state::assign(&mut self.state.sources, target, sources);
+                }
+
+                let returned = match expression {
+                    BoundExpression::ControlTransfer(transfer)
+                        if transfer.kind() == bray_bound_tree::BoundControlTransferKind::Return =>
+                    {
+                        transfer.operand()
+                    }
+                    _ if matches!(self.request.root(), crate::CheckerUnitRoot::Expression(root) if root == id) => {
+                        Some(id)
+                    }
+                    _ => None,
+                };
+
+                if let Some(value) = returned {
+                    self.state
+                        .returned
+                        .extend(self.state.values.get(&value).into_iter().flatten().cloned());
+                }
+
+                if self.inputs.returned_errors.contains(&id) {
+                    let (value, projection) = self.inputs.error_exits[&id];
+
+                    let requirements = self.projected_values(value, &[projection]);
+
+                    self.state.returned.extend(requirements);
+                }
+            }
+            bray_bound_tree::AnyBoundNodeId::Pattern(pattern) => {
+                if let Some(source) = self.inputs.pattern_subjects.get(&pattern).copied() {
+                    if let Some(SemanticSelection::ScopedUse(scoped)) =
+                        self.selections.expression(source)
+                    {
+                        let values = self.scoped_values(scoped)?;
+
+                        self.bind_pattern_values(pattern, None, BTreeSet::new(), values)?;
+                    } else {
+                        let values = self.state.values.get(&source).cloned().unwrap_or_default();
+
+                        self.bind_pattern(pattern, source, values)?;
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+}
+
+impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
     fn expression_values(
         &mut self,
         id: BoundExpressionId,
         expression: &BoundExpression,
     ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
+        if self.inputs.is_independent(id) {
+            return Ok(BTreeSet::new());
+        }
+
         let mut requirements = if let Some(initializer) = self.inputs.projected_initializer(id) {
-            self.values.get(&initializer).cloned().unwrap_or_default()
+            self.state
+                .values
+                .get(&initializer)
+                .cloned()
+                .unwrap_or_default()
         } else {
             match expression {
                 BoundExpression::Literal(_)
@@ -258,7 +164,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                 | BoundExpression::AnonymousCallable(_) => BTreeSet::new(),
                 BoundExpression::Name(name) => match name.target() {
                     BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(binding)) => {
-                        self.locals.get(&binding).cloned().unwrap_or_default()
+                        self.state.locals.get(&binding).cloned().unwrap_or_default()
                     }
                     _ => self
                         .expression_sources(id, expression)
@@ -272,6 +178,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                         .collect(),
                 },
                 BoundExpression::PatternReference(reference) => self
+                    .state
                     .locals
                     .get(&reference.binding())
                     .cloned()
@@ -293,7 +200,8 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                     if values.iter().any(|requirement| {
                         !matches!(requirement, DependencyRequirement::Direct { .. })
                     }) {
-                        self.call_definitions
+                        self.state
+                            .call_definitions
                             .entry(id.ordinal())
                             .or_default()
                             .extend(values);
@@ -329,10 +237,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                         return Ok(self.projected_values(receiver, &[]));
                     }
 
-                    if self.include_evaluation_storage
-                        && sources.is_empty()
-                        && self.borrows_evaluation_storage(operand)
-                    {
+                    if sources.is_empty() && self.borrows_evaluation_storage(operand) {
                         sources.insert((
                             DependencySubject::root(
                                 bray_symbols::DependencySubjectRoot::EvaluationStorage,
@@ -354,14 +259,10 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                 _ => self
                     .inputs
                     .operands(id)
-                    .flat_map(|child| self.values.get(&child).into_iter().flatten().cloned())
+                    .flat_map(|child| self.state.values.get(&child).into_iter().flatten().cloned())
                     .collect(),
             }
         };
-
-        if self.inputs.is_independent(id) {
-            return Ok(BTreeSet::new());
-        }
 
         for (value, path) in self.inputs.projected_operands(id) {
             requirements.extend(self.projected_values(value, &path));
@@ -379,7 +280,12 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         let sources = self.expression_sources(id, expression);
 
         if sources.is_empty() {
-            return Ok(self.values.get(&receiver).cloned().unwrap_or_default());
+            return Ok(self
+                .state
+                .values
+                .get(&receiver)
+                .cloned()
+                .unwrap_or_default());
         }
 
         Ok(sources

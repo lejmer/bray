@@ -63,13 +63,9 @@ pub(in crate::compilation::export) fn export_checked_source_template(
         }
     }
 
-    let result_dependencies = crate::compilation::binder::expression_result_dependencies(
-        &context,
-        &key,
-        bound.result().value(),
-        semantics.result().value(),
-    )
-    .map_err(super::super::binding_query_export_error)?;
+    let result_dependencies =
+        crate::compilation::binder::expression_result_dependencies(&context, &key)
+            .map_err(super::super::binding_query_export_error)?;
 
     let body = compilation
         .body_behavior_with_cancellation(key, cancellation)

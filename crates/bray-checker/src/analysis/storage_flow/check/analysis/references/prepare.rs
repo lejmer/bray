@@ -197,10 +197,6 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         }
 
         for path in paths {
-            if self.entry_references.contains_key(&path) {
-                continue;
-            }
-
             let ty = storage
                 .identity_type(path.root)
                 .expect("entry storage has its declared type");
@@ -239,7 +235,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             .borrows()
             .iter()
             .enumerate()
-            .filter(|(_, (index, _))| *index != 0)
+            .filter(|(step, (index, _))| *step != 0 || *index != 0)
         {
             let prefix = Place {
                 root: path.root,
@@ -247,7 +243,14 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             };
 
             self.entry_references
-                .entry(prefix.clone())
+                .entry((
+                    prefix.clone(),
+                    1 + prepared.borrows()[..step]
+                        .iter()
+                        .rev()
+                        .take_while(|(previous, _)| previous == index)
+                        .count(),
+                ))
                 .or_insert_with(|| {
                     (
                         bray_bound_tree::StorageReferencePath::new(
@@ -259,11 +262,20 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 });
         }
 
-        if is_entry_reference(request, ty, &path) {
+        let layer = 1 + prepared
+            .borrows()
+            .iter()
+            .rev()
+            .take_while(|(index, _)| *index == path.projections.len())
+            .count();
+
+        if is_entry_reference(request, ty, &path)
+            || layer > 1 && crate::representation::reference_kind(request, ty).is_some()
+        {
             let target = crate::representation::reference_target_type(request, ty);
 
             self.entry_references
-                .insert(path, (prepared.clone(), target));
+                .insert((path, layer), (prepared.clone(), target));
         }
     }
 

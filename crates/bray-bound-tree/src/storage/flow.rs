@@ -469,9 +469,15 @@ impl StorageFlow {
         mut self,
         dependencies: bray_symbols::DependencyContractTemplateData,
     ) -> Self {
-        if !self.is_recovered {
-            self.dependencies = dependencies;
-        }
+        self.dependencies = if self.is_recovered {
+            // Recovery cannot establish exact identities or absence of effects.
+            // Required lifetimes remain obligations even when another analysis recovered.
+            bray_symbols::DependencyContractTemplateData::new(
+                dependencies.requirements().iter().cloned(),
+            )
+        } else {
+            dependencies
+        };
 
         self
     }
@@ -756,6 +762,53 @@ mod tests {
 
         assert_eq!(storage_flow.exits()[0].fully_moved(), &[storage]);
         assert!(!storage_flow.is_recovered());
+    }
+
+    #[test]
+    fn recovered_flow_retains_requirements_without_establishing_authority() {
+        use bray_symbols::{
+            DependencyBorrowRelation, DependencyContractTemplateData, DependencyReferenceKind,
+            DependencyRequirement, DependencyRequirementKind, DependencyStorageEffect,
+            DependencySubject, DependencySubjectRoot,
+        };
+
+        let receiver = DependencySubject::root(DependencySubjectRoot::Receiver);
+
+        let requirement = DependencyRequirement::direct(
+            receiver.clone(),
+            DependencyRequirementKind::StorageAlive,
+        );
+
+        let relation = DependencyBorrowRelation::new(
+            receiver,
+            DependencySubject::root(DependencySubjectRoot::Result),
+            DependencyReferenceKind::Borrow,
+        );
+
+        let flow = StorageFlow::try_new(
+            BoundUnitId::new(9),
+            BoundUnitKind::CallableBody,
+            [],
+            [],
+            [],
+            [],
+            [],
+            true,
+        )
+        .expect("empty recovered flow is valid")
+        .with_dependencies(
+            DependencyContractTemplateData::new([requirement.clone()])
+                .with_borrows([relation])
+                .with_effects([]),
+        );
+
+        assert_eq!(flow.dependencies().requirements(), &[requirement]);
+        assert!(flow.dependencies().borrows().is_empty());
+
+        assert_eq!(
+            flow.dependencies().effects(),
+            &[DependencyStorageEffect::Unknown]
+        );
     }
 
     #[test]

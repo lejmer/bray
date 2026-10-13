@@ -48,6 +48,7 @@ impl InternState {
 
                 borrows.push(
                     bray_symbols::DependencyBorrowRelation::new(entry, exit, relation.kind())
+                        .with_dereferences(relation.dereferences())
                         .with_target_projections(projections),
                 );
             }

@@ -19,14 +19,7 @@ pub(super) fn unproven_postconditions<C: CheckerRequestContext + ?Sized>(
 
     let mut failed = vec![false; postconditions.len()];
 
-    for exit in flow.domain.graph.exits().iter().filter(|exit| {
-        matches!(
-            exit.kind(),
-            super::super::model::AnalysisExitKind::Return
-                | super::super::model::AnalysisExitKind::NormalFallthrough
-                | super::super::model::AnalysisExitKind::ResultErrorPropagation
-        )
-    }) {
+    for exit in flow.domain.graph.completion_exits() {
         let Some(state) = flow.output(exit.block()) else {
             continue;
         };

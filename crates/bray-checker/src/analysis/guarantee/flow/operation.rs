@@ -113,34 +113,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     // Only a repeated evaluation can retire an earlier incarnation of this
                     // occurrence. Every evaluated expression retains a cache key at joins.
                     if state.expressions.remove(&expression).is_some() {
-                        state.witness_carriers.retain(|value, conditions| {
-                            conditions.retain(|condition| !condition.depends_on(expression));
-
-                            !value.depends_on(expression) && !conditions.is_empty()
-                        });
-
-                        state
-                            .trusted_assumptions
-                            .retain(|(condition, _)| !condition.depends_on(expression));
-
-                        state.allocation_owners.retain(|condition, owner| {
-                            !condition.depends_on(expression) && !owner.depends_on(expression)
-                        });
-
-                        state
-                            .assumptions
-                            .retain(|(condition, _)| !condition.depends_on(expression));
-
-                        for value in state
-                            .current
-                            .values_mut()
-                            .chain(state.expressions.values_mut())
-                            .chain(state.pending_results.values_mut())
-                        {
-                            if value.depends_on(expression) {
-                                *value = ExecutionCondition::Unknown;
-                            }
-                        }
+                        state.retire_evaluation(bray_bound_tree::StorageMutation::Operation(
+                            expression.into(),
+                        ));
                     }
 
                     if let Some(entry) = self.call_entry(state, expression.into()) {
@@ -326,7 +301,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .unwrap_or(ExecutionCondition::Unknown);
             }
             Some(BoundExpression::ControlTransfer(transfer))
-                if transfer.kind() == BoundControlTransferKind::Yield =>
+                if matches!(
+                    transfer.kind(),
+                    BoundControlTransferKind::Yield | BoundControlTransferKind::Break
+                ) =>
             {
                 if let Some(target) = self.yield_targets.get(&expression) {
                     let value = transfer

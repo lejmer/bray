@@ -24,7 +24,8 @@ pub use execution::implementation_hook_may_propagate_synchronous_panic;
 pub use guarantee::{UnwindCandidate, check_execution_candidate, check_unwind_candidate};
 pub(crate) use liveness::analyze_storage_liveness_with_graph;
 pub(crate) use model::{
-    AnalysisOperationKind, AnalysisSuspensionKind, AnalysisTaskOperationKind, ControlFlowGraph,
+    AnalysisCallPhase, AnalysisOperationKind, AnalysisSuspensionKind, AnalysisTaskOperationKind,
+    ControlFlowGraph,
 };
 pub use prepare::{PreparedBodyAnalysis, prepare_body_analysis};
 pub(crate) use reachability::analyze_reachability_excluding;

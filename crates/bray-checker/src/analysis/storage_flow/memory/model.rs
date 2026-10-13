@@ -10,6 +10,8 @@ pub(in crate::analysis::storage_flow) use bray_bound_tree::StoragePath as Place;
 pub(in crate::analysis::storage_flow) enum Origin {
     Entry {
         reference: Place,
+        // Successive borrow layers at the same component path denote distinct entry snapshots.
+        layer: usize,
         projections: std::sync::Arc<[bray_bound_tree::StorageProjection]>,
     },
     Storage(Place),
@@ -28,6 +30,7 @@ impl Origin {
     pub(in crate::analysis::storage_flow) fn entry(reference: Place) -> Self {
         Self::Entry {
             reference,
+            layer: 1,
             projections: std::sync::Arc::from([]),
         }
     }

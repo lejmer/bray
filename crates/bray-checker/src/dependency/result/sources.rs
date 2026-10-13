@@ -8,7 +8,7 @@ use bray_symbols::{
 };
 use std::collections::BTreeSet;
 
-use super::core::{ResultInference, extend};
+use super::core::Transfer;
 use crate::dependency::projection::{binding_projection, pattern_projection};
 
 // Unknown indexes retain the owning aggregate, as in assignment inference. Keep that
@@ -16,7 +16,7 @@ use crate::dependency::projection::{binding_projection, pattern_projection};
 // be mistaken for projections directly from the aggregate.
 pub(super) type SourcePath = (DependencySubject, bool);
 
-impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
+impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
     pub(super) fn borrows_evaluation_storage(&self, mut expression: BoundExpressionId) -> bool {
         loop {
             match self.request.view().expression(expression) {
@@ -48,13 +48,15 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
             let receiver = match self.request.view().expression(expression) {
                 Some(BoundExpression::Name(name)) => match name.target() {
                     BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(binding)) => {
-                        self.borrowed_bindings.get(&binding).copied()
+                        self.state.borrowed_bindings.get(&binding).copied()
                     }
                     _ => None,
                 },
-                Some(BoundExpression::PatternReference(reference)) => {
-                    self.borrowed_bindings.get(&reference.binding()).copied()
-                }
+                Some(BoundExpression::PatternReference(reference)) => self
+                    .state
+                    .borrowed_bindings
+                    .get(&reference.binding())
+                    .copied(),
                 Some(BoundExpression::MemberAccess(member)) => Some(member.receiver()),
                 Some(BoundExpression::TraitQualifiedMember(member)) => Some(member.receiver()),
                 Some(BoundExpression::Structured(value))
@@ -94,11 +96,15 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         root: bray_bound_tree::BoundPatternId,
         expression: BoundExpressionId,
         values: BTreeSet<DependencyRequirement>,
-    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         self.bind_pattern_values(
             root,
             Some(expression),
-            self.sources.get(&expression).cloned().unwrap_or_default(),
+            self.state
+                .sources
+                .get(&expression)
+                .cloned()
+                .unwrap_or_default(),
             values,
         )
     }
@@ -109,8 +115,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         expression: Option<BoundExpressionId>,
         sources: BTreeSet<SourcePath>,
         values: BTreeSet<DependencyRequirement>,
-    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
-        let mut changed = false;
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         let mut pending = vec![(root, sources, Vec::new())];
 
         while let Some((id, mut sources, mut path)) = pending.pop() {
@@ -161,8 +166,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                     if let Some(receiver) = receiver {
                         // An observed payload reborrows the reached input, not the local slot
                         // storing the intermediate slice or nullable pattern binding.
-                        changed |=
-                            self.borrowed_bindings.insert(binding, receiver) != Some(receiver);
+                        self.state.borrowed_bindings.insert(binding, receiver);
                     }
                 }
 
@@ -184,9 +188,10 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                 };
 
                 if observes {
-                    changed |= extend(
-                        self.local_sources.entry(binding).or_default(),
-                        binding_sources.iter().cloned(),
+                    super::state::assign(
+                        &mut self.state.local_sources,
+                        binding,
+                        binding_sources.clone(),
                     );
                 }
 
@@ -197,9 +202,10 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                     )
                 });
 
-                changed |= extend(
-                    self.locals.entry(binding).or_default(),
-                    requirements.chain(binding_values.iter().cloned()),
+                super::state::assign(
+                    &mut self.state.locals,
+                    binding,
+                    requirements.chain(binding_values.iter().cloned()).collect(),
                 );
             }
 
@@ -212,7 +218,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
             );
         }
 
-        Ok(changed)
+        Ok(())
     }
 
     pub(super) fn expression_sources(
@@ -225,10 +231,10 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         {
             let declaration = selection.template().declaration();
 
-            let root = *self
-                .static_roots
-                .get(&declaration)
-                .expect("selected static reference must retain its established storage duration");
+            let root =
+                *self.request.static_dependencies().get(&declaration).expect(
+                    "selected static reference must retain its established storage duration",
+                );
 
             return BTreeSet::from([(DependencySubject::root(root), true)]);
         }
@@ -256,6 +262,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                     )])
                 }
                 BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(binding)) => self
+                    .state
                     .local_sources
                     .get(&binding)
                     .into_iter()
@@ -274,7 +281,8 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                 if borrowed.is_some_and(|data| {
                     matches!(data.as_ref(), bray_symbols::TypeData::Borrow { .. })
                 }) {
-                    self.values
+                    self.state
+                        .values
                         .get(&id)
                         .into_iter()
                         .flatten()
@@ -291,6 +299,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                 }
             }
             BoundExpression::PatternReference(reference) => self
+                .state
                 .local_sources
                 .get(&reference.binding())
                 .into_iter()
@@ -307,7 +316,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                     .operands()
                     .first()
                     .into_iter()
-                    .flat_map(|operand| self.sources.get(operand).into_iter().flatten())
+                    .flat_map(|operand| self.state.sources.get(operand).into_iter().flatten())
                     .map(|source| project_source(source, [None]))
                     .collect()
             }
@@ -322,7 +331,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                 value
                     .operands()
                     .first()
-                    .and_then(|operand| self.sources.get(operand))
+                    .and_then(|operand| self.state.sources.get(operand))
                     .cloned()
                     .unwrap_or_default()
             }
@@ -348,6 +357,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
 
             if remaining.is_empty() {
                 return self
+                    .state
                     .values
                     .get(&value)
                     .into_iter()
@@ -358,7 +368,8 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
             }
         }
 
-        self.sources
+        self.state
+            .sources
             .get(&receiver)
             .into_iter()
             .flatten()
@@ -394,10 +405,10 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
 
             let (value, path) = self.inputs.project(value, path);
 
-            let sources = self.sources.get(&value);
+            let sources = self.state.sources.get(&value);
 
             if path.is_empty() || sources.is_none_or(BTreeSet::is_empty) {
-                requirements.extend(self.values.get(&value).into_iter().flatten().cloned());
+                requirements.extend(self.state.values.get(&value).into_iter().flatten().cloned());
                 continue;
             }
 

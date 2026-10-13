@@ -59,7 +59,6 @@ pub use context::{
     CheckerQueryError, CheckerQueryResult, CheckerRequestContext, CheckerSemanticQueryProvider,
     CheckerSource, ImplementationHookResolution,
 };
-pub use dependency::infer_result_dependencies;
 pub use diagnostic::diagnostic_type;
 pub use execution_guarantees::{
     DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,

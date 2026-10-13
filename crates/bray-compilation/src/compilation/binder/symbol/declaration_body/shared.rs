@@ -175,12 +175,8 @@ pub(in crate::compilation::binder::symbol) fn checked_source_expression(
     let dependency_contract =
         portable_dependency_contract(context, storage.result().value(), contract)?;
 
-    let returned = super::super::result_dependencies::expression_result_dependencies(
-        context,
-        &key,
-        bound.result().value(),
-        semantics.result().value(),
-    )?;
+    let returned =
+        super::super::result_dependencies::expression_result_dependencies(context, &key)?;
 
     let diagnostics = checked_source_diagnostics(&bound, &semantics, &storage, &body)
         .merged(returned.diagnostics());

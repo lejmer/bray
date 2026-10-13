@@ -1078,7 +1078,7 @@ fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
         projections: [projection].into(),
     };
 
-    state.entry_reference_at(slot.clone(), target.clone(), Some(ty));
+    state.entry_reference_at(slot.clone(), 1, target.clone(), Some(ty));
     state.transfer_value(&target, field_reference.clone());
     state.borrow_target_storage(capability, target, ty);
     state.retain_borrow(capability, address.clone());
@@ -1560,4 +1560,30 @@ fn unlocated_aggregate_writes_keep_possible_origins_without_growing_paths() {
             .values()
             .all(|contents| contents.initialized.is_empty())
     );
+}
+
+#[test]
+fn repeated_dereferences_have_distinct_entry_snapshots() {
+    let ([root, _, _, _], _) = places();
+
+    let ty = error_type();
+    let mut state = State::default();
+    let slot = super::model::Target::storage(root.clone());
+
+    state.entry_reference_at(root.clone(), 1, slot.clone(), Some(ty));
+
+    let first = state.value_target(&slot, ty).expect("first entry target");
+
+    state.entry_reference_at(root.clone(), 2, first.clone(), Some(ty));
+
+    let second = state.value_target(&first, ty).expect("second entry target");
+
+    assert_ne!(first, second);
+    assert!(!first.contains(&second));
+    assert!(!second.contains(&first));
+    assert!(second.observation_path().is_none());
+
+    let path = bray_bound_tree::StorageReferencePath::new([].into(), [(0, ty), (0, ty)].into());
+
+    assert_eq!(state.reference_location(slot, &path, None), Some(second));
 }

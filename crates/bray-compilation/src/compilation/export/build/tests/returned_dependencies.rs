@@ -898,3 +898,47 @@ fn imported_generic_protected_payload_addresses_retain_their_storage_projection(
         &[bray_symbols::DependencyProjection::UninitPayload]
     );
 }
+
+#[test]
+fn imported_nested_reference_layers_survive_generic_specialization() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Cell<T> { value: T; }
+        func value<T>(pos outer: &&Cell<T>) -> &T { return &outer.value; }
+    "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api.Cell;
+        using example.package.api.value;
+        func forward(pos outer: &&example.package.api.Cell<bool>) -> &bool { return example.package.api.value<bool>(outer); }
+    "#,
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    let dependencies =
+        crate::compilation::result_dependencies::source_function_dependencies(&consumer, "forward");
+
+    assert_eq!(dependencies.borrows().len(), 1, "{dependencies:#?}");
+
+    assert_eq!(
+        dependencies.borrows()[0].dereferences(),
+        1,
+        "{dependencies:#?}"
+    );
+
+    assert_eq!(
+        dependencies.borrows()[0].target_projections().len(),
+        1,
+        "{dependencies:#?}"
+    );
+}

@@ -30,7 +30,7 @@ impl State {
 
     #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn entry_reference(&mut self, slot: Place) {
-        self.entry_reference_at(slot.clone(), Target::storage(slot), None);
+        self.entry_reference_at(slot.clone(), 1, Target::storage(slot), None);
     }
 
     pub(in crate::analysis::storage_flow) fn exit_references(

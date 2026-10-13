@@ -137,7 +137,8 @@ impl Plan {
                         .borrows()
                         .iter()
                         .filter_map(move |relation| {
-                            (relation.target_projections().is_empty()
+                            (relation.dereferences() == 0
+                                && relation.target_projections().is_empty()
                                 && relation.entry() == relation.exit()
                                 && relation.exit().subject_root()
                                     == bray_symbols::DependencySubjectRoot::Receiver)

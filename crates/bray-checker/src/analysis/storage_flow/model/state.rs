@@ -26,6 +26,7 @@ pub(in crate::analysis) struct StorageFlowState {
     pub(in crate::analysis) fully_moved: BTreeSet<StorageIdentityId>,
     pub(in crate::analysis::storage_flow) active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(in crate::analysis::storage_flow) definitely_active_borrows: BTreeSet<BorrowCapabilityId>,
+    pub(in crate::analysis::storage_flow) result_dependencies: crate::dependency::ResultState,
     pub(in crate::analysis::storage_flow) memory: crate::analysis::storage_flow::memory::State,
     pub(in crate::analysis::storage_flow) recovered: bool,
 }
@@ -186,11 +187,11 @@ impl StorageFlowState {
             }
         }
 
-        for (slot, (path, ty)) in &input.entry_references {
+        for ((slot, layer), (path, ty)) in &input.entry_references {
             if let Some(target) =
                 StorageFlowInput::reference_location(&memory, slot.root, path, None)
             {
-                memory.entry_reference_at(slot.clone(), target, *ty);
+                memory.entry_reference_at(slot.clone(), *layer, target, *ty);
             }
         }
 
@@ -207,6 +208,7 @@ impl StorageFlowState {
             definitely_active_borrows: active_borrows.clone(),
             active_borrows,
             memory,
+            result_dependencies: Default::default(),
             recovered: false,
         }
     }
@@ -232,6 +234,10 @@ impl StorageFlowState {
             &incoming.execution,
             block,
         );
+
+        let dependencies_changed = self
+            .result_dependencies
+            .merge(&incoming.result_dependencies);
 
         let refinements_changed = self.refinements.intersect(&incoming.refinements);
         let live_count = self.live.len();
@@ -295,7 +301,8 @@ impl StorageFlowState {
 
         self.recovered |= incoming.recovered;
 
-        execution_changed
+        dependencies_changed
+            || execution_changed
             || refinements_changed
             || self.live.len() != live_count
             || self.initialized.len() != initialized_count

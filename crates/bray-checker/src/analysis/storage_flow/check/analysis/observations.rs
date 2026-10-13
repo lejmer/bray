@@ -121,6 +121,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             if relation.kind() != bray_symbols::DependencyReferenceKind::Borrow
                 || relation.entry() != relation.exit()
+                || relation.dereferences() != 0
                 || !relation.target_projections().is_empty()
             {
                 continue;

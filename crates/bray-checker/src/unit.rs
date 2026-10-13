@@ -24,6 +24,9 @@ where
     unit: &'view BoundUnit,
     semantic_context: &'view SemanticUnitContext,
     context: &'view C,
+    recursive_results: Option<&'view std::collections::BTreeSet<CallableSymbolId>>,
+    static_dependencies:
+        Option<&'view BTreeMap<bray_symbols::StaticSymbolId, bray_symbols::DependencySubjectRoot>>,
     source_snapshot: Option<&'view bray_source::SourceSnapshot>,
     unwind: Option<&'view bray_bound_tree::CheckedUnwind>,
     trusted_contracts: Option<&'view crate::TrustedContractInputs>,
@@ -94,6 +97,8 @@ where
             semantic_context,
             context,
             source_snapshot: None,
+            recursive_results: None,
+            static_dependencies: None,
             unwind: None,
             trusted_contracts: None,
             result_dependencies: None,
@@ -128,10 +133,34 @@ where
             bray_symbols::AnySymbolId,
             bray_symbols::DependencyContractTemplateId,
         >,
+        recursive: &'view std::collections::BTreeSet<CallableSymbolId>,
     ) -> Self {
         self.result_dependencies = Some(dependencies);
+        self.recursive_results = Some(recursive);
 
         self
+    }
+
+    /// Supplies established product/thread identities for selected static references.
+    pub fn with_static_dependencies(
+        mut self,
+        roots: &'view BTreeMap<bray_symbols::StaticSymbolId, bray_symbols::DependencySubjectRoot>,
+    ) -> Self {
+        self.static_dependencies = Some(roots);
+
+        self
+    }
+
+    pub(crate) fn static_dependencies(
+        self,
+    ) -> &'view BTreeMap<bray_symbols::StaticSymbolId, bray_symbols::DependencySubjectRoot> {
+        self.static_dependencies
+            .expect("selected static reference has prepared storage identities")
+    }
+
+    pub(crate) fn is_recursive_result(self, callable: CallableSymbolId) -> bool {
+        self.recursive_results
+            .is_some_and(|members| members.contains(&callable))
     }
 
     pub(crate) fn callable_result_dependencies(

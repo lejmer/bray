@@ -26,12 +26,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
     }
 
-    pub(in crate::analysis::storage_flow::check::analysis) fn reference_dependencies(
-        &self,
+    pub(in crate::analysis::storage_flow::check::analysis) fn result_dependencies(
+        &mut self,
     ) -> crate::CheckerQueryResult<bray_symbols::DependencyContractTemplateData, C::UpstreamError>
     {
         let mut relations = Vec::new();
-        let mut requirements = Vec::new();
+        let mut requirements = std::mem::take(&mut self.results).requirements();
 
         for (slot, target, exact) in self
             .references
@@ -222,6 +222,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 ),
                 kind,
             )
+            .with_dereferences(match origin {
+                Origin::Entry { layer, .. } => {
+                    u32::try_from(layer - 1).expect("borrow layers fit the bounded source type")
+                }
+                _ => 0,
+            })
             .with_target_projections(target_projections),
         ))
     }

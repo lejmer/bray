@@ -333,6 +333,55 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         destination: Target,
         reference: &bray_bound_tree::BoundCallReference,
     ) {
+        let count = reference.relation().dereferences();
+
+        if count == 0 {
+            self.stage_reference_value(memory, occurrence, source, destination, reference);
+            return;
+        }
+
+        let Some(targets) = source.targets(memory) else {
+            return;
+        };
+
+        let mut targets = targets
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+
+        for _ in 1..count {
+            let mut next = std::collections::BTreeSet::new();
+
+            for target in targets {
+                let Some(values) = memory.value_targets(&target) else {
+                    return;
+                };
+
+                next.extend(values);
+            }
+
+            targets = next;
+        }
+
+        for target in targets {
+            // Each possible origin contributes to the same independently owned output.
+            self.stage_reference_value(
+                memory,
+                occurrence,
+                crate::analysis::storage_flow::memory::Source::Value(target),
+                destination.clone(),
+                reference,
+            );
+        }
+    }
+
+    fn stage_reference_value(
+        &self,
+        memory: &mut crate::analysis::storage_flow::memory::State,
+        occurrence: BoundExecutionSite,
+        source: crate::analysis::storage_flow::memory::Source,
+        destination: Target,
+        reference: &bray_bound_tree::BoundCallReference,
+    ) {
         let relation = reference.relation();
 
         if !relation.target_projections().is_empty() {

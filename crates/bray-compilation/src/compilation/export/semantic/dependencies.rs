@@ -46,6 +46,7 @@ impl<'a> SemanticExporter<'a> {
                     self.dependency_subject(relation.exit())?,
                     relation.kind(),
                 )
+                .with_dereferences(relation.dereferences())
                 .with_target_projections(
                     relation
                         .target_projections()

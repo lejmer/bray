@@ -150,6 +150,7 @@ where
                 &execution,
                 &dependencies,
                 effects.value_inputs(),
+                patterns,
                 storage,
                 &liveness,
                 &refinement_universe,

@@ -1,8 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_binder::semantic_unit_context;
-use bray_binder::{BindingQueryContext, BindingQueryError, SymbolQueryProvider};
-use bray_bound_tree::{BoundCallableTarget, BoundUnitKind, SemanticSelection};
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
+use bray_bound_tree::{BoundCallableTarget, BoundUnitKind};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, CallableResultDependenciesQuery, CallableSymbolId, DependencyContractTemplateId,
@@ -204,7 +203,7 @@ fn infer_component(
             inputs.behavior.result().diagnostics(),
         ]);
 
-        units.insert(*callable, (key, inputs));
+        units.insert(*callable, inputs);
     }
 
     let mut templates = members
@@ -236,26 +235,13 @@ fn infer_component(
 
         let mut changed = false;
 
-        for (callable, (key, inputs)) in &units {
-            let dependencies = infer_checked_result(
-                &context,
-                key,
-                inputs.bound.result().value(),
-                inputs.expressions.result().value(),
-                inputs.patterns.result().value(),
-                &templates,
-                &recursive,
-            )
-            .map_err(binding_query_error)?;
-
-            let body = inputs.check(compilation, cancellation, Some(&templates))?;
+        for (callable, inputs) in &units {
+            let body = inputs.check(compilation, cancellation, Some(&templates), &recursive)?;
             let values = context.semantic_values();
-            let template = values.dependency_contract_template_data(dependencies);
             let previous = values.dependency_contract_template_data(templates[callable]);
 
             let dependencies = values
                 .intern_dependency_contract_template(body_result_dependencies(
-                    &template,
                     body.value().storage_flow().dependencies(),
                     previous.effects(),
                 ))
@@ -274,59 +260,9 @@ fn infer_component(
     Ok(DiagnosticResult::new(bodies, diagnostics))
 }
 
-fn infer_checked_result(
-    context: &CompilationBindingContext<'_>,
-    key: &bray_bound_tree::BoundUnitKey,
-    bound: &bray_bound_tree::BoundUnit,
-    expressions: &bray_bound_tree::CheckedExpressionSemantics,
-    patterns: &bray_bound_tree::CheckedPatterns,
-    templates: &BTreeMap<AnySymbolId, DependencyContractTemplateId>,
-    recursive_callees: &BTreeSet<CallableSymbolId>,
-) -> BindingQueryResult<DependencyContractTemplateId> {
-    let checker = context
-        .compilation()
-        .checker_context_for(key, context.cancellation)
-        .map_err(binder_error)?;
-
-    let semantic = semantic_unit_context(checker.symbols(), bound);
-    let request = bray_checker::CheckerUnitView::new(bound, &semantic, &checker);
-
-    let static_roots = expressions
-        .selections()
-        .entries()
-        .iter()
-        .filter_map(|entry| match entry.selection() {
-            SemanticSelection::StaticReference(selection) => {
-                Some(selection.template().declaration())
-            }
-            _ => None,
-        })
-        .map(|declaration| {
-            super::declaration_body::static_dependency_root(context, declaration)
-                .map(|root| (declaration, root))
-        })
-        .collect::<BindingQueryResult<BTreeMap<_, _>>>()?;
-
-    bray_checker::infer_result_dependencies(
-        request,
-        expressions.types(),
-        expressions.selections(),
-        patterns,
-        templates,
-        recursive_callees,
-        &static_roots,
-    )
-    .map_err(|error| match error {
-        bray_checker::CheckerQueryError::Cancelled => BindingQueryError::Cancelled,
-        bray_checker::CheckerQueryError::Upstream(error) => binder_error(error),
-    })
-}
-
 pub(in crate::compilation) fn expression_result_dependencies(
     context: &CompilationBindingContext<'_>,
     key: &bray_bound_tree::BoundUnitKey,
-    bound: &bray_bound_tree::BoundUnit,
-    expressions: &bray_bound_tree::CheckedExpressionSemantics,
 ) -> BindingQueryResult<DiagnosticResult<DependencyContractTemplateId>> {
     if key.kind() == BoundUnitKind::RuntimeDefault {
         let owner = context
@@ -338,65 +274,17 @@ pub(in crate::compilation) fn expression_result_dependencies(
             .map(|result| result.expect("source default belongs to a summary component"));
     }
 
-    let mut templates = BTreeMap::new();
-    let mut diagnostics = DiagnosticBag::new();
-
-    let behavior = context
-        .compilation()
-        .selected_body_behavior_with_cancellation(key.clone(), context.cancellation)
-        .map_err(binder_error)?;
-
-    diagnostics = diagnostics.merged(behavior.result().diagnostics());
-
-    let prepared = context
-        .compilation()
-        .prepared_body_analysis_with_cancellation(key.clone(), context.cancellation)
-        .map_err(binder_error)?;
-
-    diagnostics = diagnostics.merged(prepared.result().diagnostics());
-
-    for callee in body_callees(behavior.result().value(), prepared.result().value()) {
-        if templates.contains_key(&callee) {
-            continue;
-        }
-
-        let result = summary(context, callee)?;
-
-        templates.insert(callee, *result.value());
-        diagnostics = diagnostics.merged(result.diagnostics());
-    }
-
-    // The query retains its immutable unit key independently of the enclosing default query.
-    let patterns = context
-        .compilation()
-        .patterns_with_cancellation(key.clone(), context.cancellation)
-        .map_err(binder_error)?;
-
-    diagnostics = diagnostics.merged(patterns.result().diagnostics());
-
-    let result = infer_checked_result(
-        context,
-        key,
-        bound,
-        expressions,
-        patterns.result().value(),
-        &templates,
-        &BTreeSet::new(),
-    )?;
-
     let body = context
         .compilation()
         .body_semantics_with_cancellation(key.clone(), context.cancellation)
         .map_err(binder_error)?;
 
-    diagnostics = diagnostics.merged(body.result().diagnostics());
+    let diagnostics = body.result().diagnostics().clone();
 
     let values = context.semantic_values();
-    let template = values.dependency_contract_template_data(result);
 
     let result = values
         .intern_dependency_contract_template(body_result_dependencies(
-            &template,
             body.result().value().storage_flow().dependencies(),
             &[],
         ))
@@ -406,19 +294,12 @@ pub(in crate::compilation) fn expression_result_dependencies(
 }
 
 fn body_result_dependencies(
-    inferred: &bray_symbols::DependencyContractTemplateData,
     checked: &bray_symbols::DependencyContractTemplateData,
     previous_effects: &[bray_symbols::DependencyStorageEffect],
 ) -> bray_symbols::DependencyContractTemplateData {
-    bray_symbols::DependencyContractTemplateData::new(
-        inferred
-            .requirements()
-            .iter()
-            .chain(checked.requirements())
-            .cloned(),
-    )
-    .with_borrows(checked.borrows().iter().cloned())
-    .with_effects(previous_effects.iter().chain(checked.effects()).cloned())
+    bray_symbols::DependencyContractTemplateData::new(checked.requirements().iter().cloned())
+        .with_borrows(checked.borrows().iter().cloned())
+        .with_effects(previous_effects.iter().chain(checked.effects()).cloned())
 }
 
 fn body_kind(owner: AnySymbolId) -> BoundUnitKind {

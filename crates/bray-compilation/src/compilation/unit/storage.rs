@@ -132,6 +132,28 @@ impl Compilation {
         )?;
 
         let non_unwinding = self.checked_unwind(key.clone(), cancellation)?;
+        let binding = self.binding_context_for(&key, cancellation)?;
+
+        let static_dependencies = expressions
+            .result()
+            .value()
+            .selections()
+            .entries()
+            .iter()
+            .filter_map(|entry| match entry.selection() {
+                bray_bound_tree::SemanticSelection::StaticReference(selection) => {
+                    Some(selection.template().declaration())
+                }
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .map(|declaration| {
+                super::super::binder::static_dependency_root(&binding, declaration)
+                    .map(|root| (declaration, root))
+                    .map_err(super::super::binder::binding_query_error)
+            })
+            .collect::<Result<std::collections::BTreeMap<_, _>, _>>()?;
 
         Ok(BodyAnalysisInputs {
             key,
@@ -144,6 +166,7 @@ impl Compilation {
             memory,
             contracts,
             non_unwinding,
+            static_dependencies,
         })
     }
 
@@ -172,7 +195,7 @@ impl Compilation {
                 }
 
                 let inputs = self.body_analysis_inputs(key.clone(), cancellation)?;
-                let result = inputs.check(self, cancellation, None)?;
+                let result = inputs.check(self, cancellation, None, &Default::default())?;
 
                 Ok((result, Box::new([])))
             },
@@ -195,6 +218,10 @@ pub(in crate::compilation) struct BodyAnalysisInputs {
     memory: Arc<PublishedUnitResult<bray_bound_tree::CheckedMemoryOperations>>,
     contracts: DiagnosticResult<bray_checker::TrustedContractInputs>,
     non_unwinding: bray_bound_tree::CheckedUnwind,
+    static_dependencies: std::collections::BTreeMap<
+        bray_symbols::StaticSymbolId,
+        bray_symbols::DependencySubjectRoot,
+    >,
 }
 
 impl BodyAnalysisInputs {
@@ -208,6 +235,7 @@ impl BodyAnalysisInputs {
                 bray_symbols::DependencyContractTemplateId,
             >,
         >,
+        recursive: &std::collections::BTreeSet<bray_symbols::CallableSymbolId>,
     ) -> Result<DiagnosticResult<Arc<CheckedBodySemantics>>, FactQueryError> {
         let context = compilation.checker_context_for(&self.key, cancellation)?;
 
@@ -220,10 +248,11 @@ impl BodyAnalysisInputs {
             &context,
         )
         .with_trusted_contracts(self.contracts.value())
-        .with_unwind(&self.non_unwinding);
+        .with_unwind(&self.non_unwinding)
+        .with_static_dependencies(&self.static_dependencies);
 
         if let Some(templates) = templates {
-            unit = unit.with_result_dependencies(templates);
+            unit = unit.with_result_dependencies(templates, recursive);
         }
 
         let result = checker_result(DefaultBodySemanticChecker.check_body_semantics(

@@ -20,16 +20,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
         let normal_exit_blocks = self
             .domain
             .graph
-            .exits()
-            .iter()
-            .filter(|exit| {
-                matches!(
-                    exit.kind(),
-                    super::super::model::AnalysisExitKind::Return
-                        | super::super::model::AnalysisExitKind::NormalFallthrough
-                        | super::super::model::AnalysisExitKind::ResultErrorPropagation,
-                )
-            })
+            .completion_exits()
             .map(|exit| exit.block())
             .collect::<BTreeSet<_>>();
 

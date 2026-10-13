@@ -113,17 +113,18 @@ impl ExecutionCondition {
         inputs
     }
 
-    pub(crate) fn depends_on(&self, expression: bray_bound_tree::BoundExpressionId) -> bool {
+    pub(crate) fn depends_on(&self, mutation: bray_bound_tree::StorageMutation) -> bool {
         let mut pending = vec![self];
 
         while let Some(condition) = pending.pop() {
             match condition {
                 Self::Expression(candidate) | Self::ScopedCapability(candidate)
-                    if *candidate == expression =>
+                    if mutation
+                        == bray_bound_tree::StorageMutation::Operation((*candidate).into()) =>
                 {
                     return true;
                 }
-                Self::PostState(site, _) if site.occurrence().expression() == Some(expression) => {
+                Self::PostState(site, _) if *site == mutation => {
                     return true;
                 }
                 Self::Constructed(base, fields) => {

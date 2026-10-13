@@ -373,6 +373,18 @@ impl ControlFlowGraph {
         &self.exits
     }
 
+    /// Exits that publish a normal result, including the error variant of a Result.
+    pub(crate) fn completion_exits(&self) -> impl Iterator<Item = &AnalysisExit> {
+        self.exits.iter().filter(|exit| {
+            matches!(
+                exit.kind(),
+                AnalysisExitKind::Return
+                    | AnalysisExitKind::NormalFallthrough
+                    | AnalysisExitKind::ResultErrorPropagation
+            )
+        })
+    }
+
     pub(crate) fn block(&self, id: AnalysisBlockId) -> Option<&AnalysisBlock> {
         (id.unit() == self.unit)
             .then(|| id.to_index())

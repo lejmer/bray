@@ -31,7 +31,7 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     pub(in crate::analysis::storage_flow) reference_paths:
         BTreeMap<StorageAccessId, bray_bound_tree::StorageReferencePath>,
     pub(in crate::analysis::storage_flow) entry_references: BTreeMap<
-        crate::analysis::storage_flow::memory::Place,
+        (crate::analysis::storage_flow::memory::Place, usize),
         (
             bray_bound_tree::StorageReferencePath,
             Option<bray_symbols::TypeId>,

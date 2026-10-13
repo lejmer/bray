@@ -206,6 +206,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             Origin::Entry {
                 reference,
                 projections,
+                layer: 1,
             } => {
                 let Some(root) = self.formal_root(reference.root) else {
                     return;
@@ -223,6 +224,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     _ => Some(DependencyStorageEffect::Unknown),
                 }
             }
+            Origin::Entry { .. } => Some(DependencyStorageEffect::Unknown),
             Origin::Storage(path) => self.formal_effect(path, kind),
             Origin::Allocation(_) => None,
         };

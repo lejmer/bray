@@ -50,6 +50,7 @@ pub(crate) fn check_storage_flow_with_graph<C>(
     execution: &crate::analysis::guarantee::ExecutionFlowDomain<'_, '_, C>,
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
     values: &crate::dependency::ValueInputs,
+    patterns: &bray_bound_tree::CheckedPatterns,
     storage: &StoragePlan,
     liveness: &Liveness,
     refinements: &crate::analysis::refinement::RefinementUniverse,
@@ -104,6 +105,8 @@ where
         request,
         execution,
         dependencies,
+        values,
+        patterns,
     );
 
     let result = match solve_fixed_point(&graph, &domain, &request) {
@@ -124,6 +127,8 @@ where
         &owners,
         execution,
         dependencies,
+        values,
+        patterns,
     );
 
     collector.trusted = crate::analysis::guarantee::TrustedChecks::new(execution);
@@ -136,16 +141,7 @@ where
     let mut occurrences = BTreeMap::<_, crate::analysis::refinement::RefinementSet>::new();
 
     let normal_exits = graph
-        .exits()
-        .iter()
-        .filter(|exit| {
-            matches!(
-                exit.kind(),
-                crate::analysis::model::AnalysisExitKind::Return
-                    | crate::analysis::model::AnalysisExitKind::NormalFallthrough
-                    | crate::analysis::model::AnalysisExitKind::ResultErrorPropagation
-            )
-        })
+        .completion_exits()
         .map(|exit| exit.block())
         .collect::<BTreeSet<_>>();
 
@@ -193,6 +189,7 @@ where
 
         if normal_exits.contains(&block.id()) {
             collector.collect_exit_references(&state);
+            collector.results.merge_returns(&state.result_dependencies);
 
             collector.trusted.exit(
                 execution,
@@ -215,7 +212,7 @@ where
         };
     }
 
-    let dependencies = match collector.reference_dependencies() {
+    let dependencies = match collector.result_dependencies() {
         Ok(dependencies) => dependencies,
         Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
         Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
@@ -339,6 +336,9 @@ where
     pub(super) execution:
         &'analysis crate::analysis::guarantee::ExecutionFlowDomain<'analysis, 'analysis, C>,
     pub(super) dependencies: &'analysis bray_bound_tree::CheckedDependencyContracts,
+    values: &'analysis crate::dependency::ValueInputs,
+    patterns: &'analysis bray_bound_tree::CheckedPatterns,
+    pub(super) results: crate::dependency::ResultState,
     pub(super) trusted: crate::analysis::guarantee::TrustedChecks,
     pub(super) memory_evidence: Option<bool>,
     pub(super) statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
@@ -427,6 +427,8 @@ where
             C,
         >,
         dependencies: &'analysis bray_bound_tree::CheckedDependencyContracts,
+        values: &'analysis crate::dependency::ValueInputs,
+        patterns: &'analysis bray_bound_tree::CheckedPatterns,
     ) -> Self {
         Self {
             request,
@@ -438,6 +440,9 @@ where
             owners,
             execution,
             dependencies,
+            values,
+            patterns,
+            results: Default::default(),
             trusted: Default::default(),
             memory_evidence: None,
             statuses: BTreeMap::new(),
@@ -475,6 +480,8 @@ where
             C,
         >,
         dependencies: &'analysis bray_bound_tree::CheckedDependencyContracts,
+        values: &'analysis crate::dependency::ValueInputs,
+        patterns: &'analysis bray_bound_tree::CheckedPatterns,
     ) -> Self {
         Self {
             publish: false,
@@ -488,6 +495,8 @@ where
                 owners,
                 execution,
                 dependencies,
+                values,
+                patterns,
             )
         }
     }
@@ -519,6 +528,24 @@ where
             .expect("reachable storage state has execution facts");
 
         let kind = operation.kind();
+
+        let mut transfer = crate::dependency::ResultTransfer::new(
+            self.request,
+            self.execution.semantics.types(),
+            self.execution.semantics.selections(),
+            self.patterns,
+            self.values,
+            &mut state.result_dependencies,
+        );
+
+        if let Err(error) = transfer.operation(
+            kind,
+            kind.occurrence()
+                .expression()
+                .and_then(|id| self.execution.yield_targets.get(&id).copied()),
+        ) {
+            self.query_failure = Some(error);
+        }
 
         if self.publish {
             self.trusted

@@ -143,10 +143,17 @@ impl ExecutionCondition {
 
             // An explicit exit transfer must name the surviving value rather than an alias
             // whose scoped authority is ending. Keep the same bounded equality solver.
-            let left_order = (expiring.is_some_and(|scope| left.depends_on(scope)), &left);
+            let left_order = (
+                expiring.is_some_and(|scope| {
+                    left.depends_on(bray_bound_tree::StorageMutation::Operation(scope.into()))
+                }),
+                &left,
+            );
 
             let right_order = (
-                expiring.is_some_and(|scope| right.depends_on(scope)),
+                expiring.is_some_and(|scope| {
+                    right.depends_on(bray_bound_tree::StorageMutation::Operation(scope.into()))
+                }),
                 &right,
             );
 

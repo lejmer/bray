@@ -15,10 +15,10 @@ mod witness;
 
 pub(crate) use check::check_dependency_contracts;
 pub(crate) use implementation::implementation_dependency_source;
-pub use result::infer_result_dependencies;
+pub(crate) use result::{State as ResultState, Transfer as ResultTransfer};
 pub(crate) use returned::{
     call_result_template, opaque_result, resolved_result_template, result_argument, result_inputs,
 };
-pub(crate) use value::ValueInputs;
+pub(crate) use value::{ValueInputs, transfer_targets};
 
 pub(crate) use call::prepare_reference;
