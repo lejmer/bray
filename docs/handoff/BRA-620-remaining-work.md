@@ -9,8 +9,9 @@ in [contract reasoning](../language/contracts-and-trust/contract-reasoning.md),
 [witnesses](../language/contracts-and-trust/trusted-witness-values.md).
 
 Continue on `feature/trusted-storage-integration`, the published combined branch. The implementation baseline is `e3f56424`, with proof checkpoint `7f300ef2`.
-Step 2 must complete shared authority analysis and remove its superseded mechanisms. Production API migration is step 3
-and is not part of this authorization. Historical test results below remain evidence, not current acceptance.
+Steps 1 and 2 are complete. Shared authority analysis and its required removals passed published review at
+`5144e732`. Production API migration is Step 3 and remains the next work, outside this completed authorization.
+Dated progress entries below are historical evidence. The current verification checkpoint supersedes their status.
 
 Recorded on 2026-10-10. This handoff covers the remaining trusted synchronization authority defect and review requirements.
 
@@ -57,15 +58,18 @@ an owning implementation and meaningful verification.
 
 ## Current verification checkpoint
 
-Step 2 implementation is checkpointed at `ffbff1f5ebeac9cc709bfdfaa6443543a515aa94` and undergoing the required published review in [PR #607](https://github.com/lejmer/bray/pull/607). Continue on `feature/trusted-storage-integration`. The repair branch retains the same checkpoint.
+Step 2 is complete at `5144e732b63b27e1d405fff4439d26cbc866e817` in [PR #607](https://github.com/lejmer/bray/pull/607).
+[Published re-review 5509446980](https://github.com/lejmer/bray/pull/607#pullrequestreview-5509446980) found no remaining
+actionable Step 2 findings. Both earlier findings are fixed and their threads resolved. Continue on
+`feature/trusted-storage-integration`. The repair branch retains the earlier `ffbff1f5` checkpoint.
 The current worktree is `C:/Users/anton/.codex/worktrees/bra-553-host-bootstrap/bray`. Do not edit the unrelated primary checkout.
-No production API migration has started. The combined draft targets `develop` and includes all five original PRs. Review completion is still pending.
+The agreed Step 3 production API migration remains outstanding. The combined draft targets `develop` and includes all five original PRs.
 
 The combined branch contains the verified current heads of all five open PRs: #601 (`f244c10c`), #602 (`e3dbc6c5`),
 #604 (`22473ff6`), #605 (`fb69346e`), and #606 (`cca4bd44`). The user explicitly requires the final PR and its description
 to cover all five, not only the current step. Checkpoints may be committed and pushed under the standing authorization.
 
-Latest verification evidence, in the shared target's `bra-620-authority/` directory:
+Verification evidence, in the shared target's `bra-620-authority/` directory. The final reviewed run below supersedes the earlier broad checkpoint:
 
 - `step2-final-broad.log`: 1570 passes and 18 failures out of 1588 compilation tests, 449.11 seconds.
   This includes the finite entry-demand recovery test and the pointer/slice fixes. The failures remain visible.
@@ -105,9 +109,9 @@ No runtime witness storage, allocation, lookup or helper call was introduced. Co
 product benchmarks remain separate acceptance work, and wall times from differently cached test runs are not benchmarks.
 
 The first published review is [5509164658](https://github.com/lejmer/bray/pull/607#pullrequestreview-5509164658).
-Its two findings belong to Step 2 and must close before completion: owned heap storage was incorrectly included in
-invocation-slot separation, and source component discovery repeated transitive walks before the component cache.
-The local repairs restrict separation to inline slots and share component membership in the immutable compilation
+Its two Step 2 findings were fixed in `5144e732`: owned heap storage was incorrectly included in invocation-slot
+separation, and source component discovery repeated transitive walks before the component cache.
+The published repairs restrict separation to inline slots and share component membership in the immutable compilation
 snapshot. Semantic results and their dependencies still publish through the existing component query. Discovery
 reaches each component's outgoing closure, so known components cannot reach an undiscovered source node in that same
 snapshot. Concurrent publication may prune a partial walk, whose already indexed members retain the complete result.
@@ -118,7 +122,13 @@ of heap payloads under invocation-owned headers. `step2-review-publication.log` 
 including concurrent recursive publication and a 16-body chain demanded in both orders, with exactly 16 discoveries.
 `step2-reviewed-broad.log` finishes with 1571 passes and the same 18 deferred failures in 515.84 seconds.
 `step2-reviewed-style.log` and `step2-reviewed-format.log` both pass. Rust formatting was also applied to the six review
-repair files. The final published re-review of these repairs remains pending at this checkpoint.
+repair files. `step2-reviewed-final-layout.log` records the final mutating style pass after Rust formatting.
+The final published re-review covers `5144e732` and reports no remaining actionable Step 2 findings.
+
+Builds reused shared Cargo storage at `C:/Users/anton/source/repos/bray/target/cargo` and LLVM at
+`C:/Users/anton/source/repos/bray/target/toolchains/llvm/active`. No new target or toolchain was created.
+Retained task logs and copied test executables in `C:/Users/anton/source/repos/bray/target/bra-620-authority`
+occupy approximately 958.2 MiB. All task-owned build/test processes and review agents have completed.
 
 The owning analysis now separates slice descriptor identity from payload observations, bounds dynamic indices by their
 known region, and closes entry-reference demands through moved inline aggregates. Cyclic recovered inline types stop

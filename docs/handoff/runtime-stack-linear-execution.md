@@ -9,8 +9,9 @@ in [contract reasoning](../language/contracts-and-trust/contract-reasoning.md),
 [witnesses](../language/contracts-and-trust/trusted-witness-values.md).
 
 Continue on `feature/trusted-storage-integration`, the published combined branch. The implementation baseline is `e3f56424`, with proof checkpoint `7f300ef2`.
-Step 2 must complete shared authority analysis and remove its superseded mechanisms. Production API migration is step 3
-and is not part of this authorization. Historical test results below remain evidence, not current acceptance.
+Steps 1 and 2 are complete. Shared authority analysis and its required removals passed published review at
+`5144e732`. Production API migration is Step 3 and remains the next work, outside this completed authorization.
+Dated progress entries below are historical evidence. The current verification checkpoint supersedes their status.
 
 Updated 2026-10-12. The user accepted the architectural groundwork and requested executable Linear issues.
 This checkpoint prepares that work. No new compiler, runtime or test behavior was implemented during issue preparation.
@@ -19,11 +20,13 @@ current implementation contract. No chat transcript is needed.
 
 ## Current implementation checkpoint
 
-The shared-analysis implementation is published at `ffbff1f5ebeac9cc709bfdfaa6443543a515aa94` on
-`feature/trusted-storage-integration` in [draft PR #607](https://github.com/lejmer/bray/pull/607), targeting `develop`.
-The required published review is in progress. Use [BRA-620 remaining work](BRA-620-remaining-work.md) for the current
-matrix, verification and failure ownership. All five heads below were rechecked on 2026-10-13 and are included.
-The repair branch retains the same checkpoint. Continue on the integration branch and preserve the old PRs as history.
+Steps 1 and 2 are complete at `5144e732b63b27e1d405fff4439d26cbc866e817` on `feature/trusted-storage-integration`
+in [draft PR #607](https://github.com/lejmer/bray/pull/607), targeting `develop`.
+[Published re-review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5509446980) has no remaining actionable
+Step 2 findings. Use [BRA-620 remaining work](BRA-620-remaining-work.md) for the matrix, verification and failure ownership.
+The final compilation run has 1571 passes and 18 deferred failures, 17 for production Step 3 and one for BRA-619.
+All five heads below were rechecked on 2026-10-13 and are included.
+The repair branch retains `ffbff1f5`. Continue on the integration branch and preserve the old PRs as history.
 This draft publication does not complete production Step 3, later stack prerequisites, or authorize a merge.
 
 ## Original recovery checkpoint, retained as history
@@ -75,7 +78,7 @@ of this plan. If the model cannot express a required rule, discuss that specific
 
 ## Execution and publication
 
-1. Continue BRA-620's compiler consolidation and all production authority repairs on the combined checkpoint.
+1. Shared compiler consolidation is complete. Continue with BRA-620 Step 3 production authority repairs on the combined checkpoint.
    BRA-609 retains trusted-caller acceptance, performed through this implementation. Its blocking relation does not
    require a second branch or an independent reimplementation.
 2. Recheck BRA-621 and BRA-553 against the consolidated production contracts. Preserve their completed migration.

@@ -19,13 +19,15 @@ retains historical findings. The user authorized the agreed specification checkp
 analysis in BRA-620. Production migration and the later stack remain separate steps.
 The user accepted the groundwork and requested actionable issues. Start from BRA-620 using the
 [Linear execution guide](runtime-stack-linear-execution.md), which records the recoverable checkpoint and current order.
-Issue preparation preserves inherited work and publishes the plan. It does not implement the replacements or merge the integration.
+Issue preparation preserved inherited work and published the plan. The implementation checkpoint below records subsequent work.
+
 ## Published integration checkpoint, 2026-10-13
 
 [Draft PR #607](https://github.com/lejmer/bray/pull/607) targets `develop` from `feature/trusted-storage-integration`.
-It contains all five original PR heads and the shared-analysis checkpoint `ffbff1f5`. The required published review is
-in progress. Continue on that integration branch, using the current matrix and evidence in
-[BRA-620 remaining work](BRA-620-remaining-work.md). The old repair branch retains the checkpoint. Production Step 3 and
+It contains all five original PR heads. Steps 1 and 2 are complete at `5144e732`, with
+[no remaining actionable Step 2 review findings](https://github.com/lejmer/bray/pull/607#pullrequestreview-5509446980).
+Continue on that integration branch, using the current matrix and evidence in
+[BRA-620 remaining work](BRA-620-remaining-work.md). The old repair branch retains `ffbff1f5`. Production Step 3 and
 the remaining stack acceptance are outstanding, so the integration remains draft and BRA-620 remains In Progress.
 
 ## Earlier baseline, retained as evidence
@@ -44,10 +46,10 @@ The original repair branch was `feature/bra-620-repair-synchronization-authority
 `22473ff6384db081ad3e131e0726e16e7ff9c682` is fully contained in this base, through BRA-621 head
 `fb69346e31b225c39105d095e9f900c9cebad97c`. No original BRA-620 commits were missing.
 
-This branch owns the remaining BRA-620 synchronization authority repair and associated compiler findings. First unify
-cleanup state transitions and remove redundant analysis, then reassess the existing `Uninit` witness flow. Proposed
-storage-identity and entry-state language additions are on hold. Do not implement these findings independently on the
-original BRA-620 branch.
+The integration branch owns the remaining BRA-620 production authority repair. Shared cleanup transitions,
+exact-reference summaries and observation dependencies are complete. Next apply the agreed whole-carrier and
+immutable-marker representation to production APIs. No new storage-identity or entry-state language feature is needed
+by the agreed plan. Do not implement these findings independently on the original BRA-620 branch.
 
 ## Integration and publication
 
@@ -91,8 +93,8 @@ issues and dependencies before the integration PR. BRA-619 remains incomplete un
 | Synchronization acquisition authority and later refactor review | [BRA-620 handoff](BRA-620-remaining-work.md). BRA-620 owns the repair and sibling audit. |
 | Native scoped-exit transfer | [BRA-619 acceptance](BRA-619-remaining-work.md) and [dependency investigation](BRA-619-native-transfer-dependency.md). BRA-502 supplies backing, BRA-558 supplies consumption, and BRA-619 completes the scoped consumer. |
 | `CleanupIncidentTransfer` failure found during BRA-553 | The same BRA-619 transfer gap above. Do not create a second repair for the same failure. |
-| Sibling-field witness invalidation, conditional-destructor proof limitation, and returned-owner proof after mutation through a borrow | [BRA-553 findings](https://github.com/lejmer/bray/blob/8c789dfa3febea1ec03c120016d44bf6c4b7a98a/docs/handoff/BRA-553-other-work.md). BRA-620 owns these findings. Focused sibling-field and scoped-borrow regressions now pass in the repair worktree. The remaining cleanup/owner-identity proof is still open. Preserve the language authority contract. |
-| Contract-pattern export and loss of the specific export diagnostic | The same BRA-553 findings document. BRA-620 owns both findings. The repair worktree normalizes nullable absence for export and preserves precise publication diagnostics. Focused tests pass; integration review is pending. |
+| Sibling-field witness invalidation, conditional-destructor proof limitation, and returned-owner proof after mutation through a borrow | [BRA-553 findings](https://github.com/lejmer/bray/blob/8c789dfa3febea1ec03c120016d44bf6c4b7a98a/docs/handoff/BRA-553-other-work.md). BRA-620 owns these findings. Focused sibling-field and scoped-borrow regressions now pass in the repair worktree. Shared cleanup and exact-owner analysis passed Step 2 review. Production guard representation remains Step 3. Preserve the language authority contract. |
+| Contract-pattern export and loss of the specific export diagnostic | The same BRA-553 findings document. BRA-620 owns both findings. The repair worktree normalizes nullable absence for export and preserves precise publication diagnostics. Source/import checks pass and Step 2 review is complete. Final production integration acceptance remains outstanding. |
 | Completed host implementation and cost evidence | [BRA-553 verification](https://github.com/lejmer/bray/blob/8c789dfa3febea1ec03c120016d44bf6c4b7a98a/docs/handoff/BRA-553-verification.md). Preserve this verified behavior through later repairs. |
 
 ## Completion criteria
