@@ -1076,3 +1076,67 @@ fn recursive_runtime_default_and_callable_share_checked_component() {
         );
     }
 }
+
+#[test]
+fn dependency_component_discovery_visits_each_chain_body_once() {
+    const LENGTH: usize = 16;
+
+    let mut source = String::from("module app;\n");
+
+    for index in 0..LENGTH {
+        let result = if index + 1 == LENGTH {
+            "value".to_owned()
+        } else {
+            format!("link{}(value)", index + 1)
+        };
+
+        source.push_str(&format!(
+            r#"
+            func link{index}(pos value: &u32) -> &u32 {{
+                return {result};
+            }}
+            "#
+        ));
+    }
+
+    for reverse in [false, true] {
+        let application = compilation(&source);
+
+        let context = application
+            .binding_context(&application.state.cancellation)
+            .unwrap();
+
+        for step in 0..LENGTH {
+            let index = if reverse { LENGTH - step - 1 } else { step };
+            let name = format!("link{index}");
+
+            let callable: bray_symbols::CallableSymbolId =
+                crate::test_support::source_function(&application, &name).into();
+
+            let summary = bray_binder::SymbolQueryProvider::resolve_symbol_query(
+                &context,
+                bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(callable),
+            ).unwrap();
+
+            assert!(!summary.diagnostics().has_errors(), "{summary:?}");
+
+            let body = application
+                .body_semantics_with_cancellation(
+                    crate::test_support::source_function_body_key(&application, &name),
+                    &application.state.cancellation,
+                )
+                .unwrap();
+
+            assert!(!body.result().diagnostics().has_errors(), "{body:?}");
+        }
+
+        assert_eq!(
+            application
+                .state
+                .result_dependency_discoveries
+                .load(std::sync::atomic::Ordering::Relaxed),
+            LENGTH,
+            "both caller-first and callee-first demand must reuse discovered membership"
+        );
+    }
+}

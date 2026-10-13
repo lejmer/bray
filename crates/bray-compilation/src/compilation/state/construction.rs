@@ -268,6 +268,9 @@ impl Compilation {
                 certified_execution: UnitQueryCache::new(),
                 selected_body_behavior: UnitQueryCache::new(),
                 prepared_body_analysis: UnitQueryCache::new(),
+                result_dependency_membership: Mutex::new(BTreeMap::new()),
+                #[cfg(test)]
+                result_dependency_discoveries: std::sync::atomic::AtomicUsize::new(0),
                 result_dependency_components: UnitQueryCache::new(),
                 body_semantics: UnitQueryCache::new(),
                 checked_body_behaviors: UnitQueryCache::new(),

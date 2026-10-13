@@ -96,13 +96,29 @@ symbols operation. The intrinsic trust classifier lives with intrinsic execution
 and wire booleans share one decoder. Type/termination analysis and physical targets versus lifetime anchors remain
 separate because they establish different facts. No post-analysis validation pass was added.
 
-Relative to the Step 1 specification checkpoint `5c4d3513`, the Step 2 Rust diff spans 134 files. The measured changes
-are production +4,989/-2,136 lines and tests +2,459/-353 lines. This classifies dedicated test files and text after inline
+Relative to the Step 1 specification checkpoint `5c4d3513`, the Step 2 Rust diff spans 137 files. Approximate textual attribution gives
+production +5,021/-2,188 lines and tests +2,690/-353 lines. This classifies dedicated test files and text after inline
 `#[cfg(test)]` boundaries as tests. These are textual change counts, including moves and formatting, not a claim of
 semantic simplification by line deletion. The necessary added capabilities are exact physical reference publication,
 finite productive summary inference, explicit deferred execution phases and dependency-aware observation retention.
 No runtime witness storage, allocation, lookup or helper call was introduced. Comparable compiler-speed and generated
 product benchmarks remain separate acceptance work, and wall times from differently cached test runs are not benchmarks.
+
+The first published review is [5509164658](https://github.com/lejmer/bray/pull/607#pullrequestreview-5509164658).
+Its two findings belong to Step 2 and must close before completion: owned heap storage was incorrectly included in
+invocation-slot separation, and source component discovery repeated transitive walks before the component cache.
+The local repairs restrict separation to inline slots and share component membership in the immutable compilation
+snapshot. Semantic results and their dependencies still publish through the existing component query. Discovery
+reaches each component's outgoing closure, so known components cannot reach an undiscovered source node in that same
+snapshot. Concurrent publication may prune a partial walk, whose already indexed members retain the complete result.
+The membership index is not carried across source revisions.
+
+`step2-review-alias.log` passes all 52 memory tests, including overlap and affected-target checks for incoming aliases
+of heap payloads under invocation-owned headers. `step2-review-publication.log` passes all 14 publication tests,
+including concurrent recursive publication and a 16-body chain demanded in both orders, with exactly 16 discoveries.
+`step2-reviewed-broad.log` finishes with 1571 passes and the same 18 deferred failures in 515.84 seconds.
+`step2-reviewed-style.log` and `step2-reviewed-format.log` both pass. Rust formatting was also applied to the six review
+repair files. The final published re-review of these repairs remains pending at this checkpoint.
 
 The owning analysis now separates slice descriptor identity from payload observations, bounds dynamic indices by their
 known region, and closes entry-reference demands through moved inline aggregates. Cyclic recovered inline types stop

@@ -81,60 +81,17 @@ fn source_component(
     root: AnySymbolId,
 ) -> BindingQueryResult<Option<std::sync::Arc<crate::fact::PublishedUnitResult<Component>>>> {
     let compilation = context.compilation();
-    let mut units = BTreeMap::new();
-    let mut pending = vec![root];
-    let mut edges = BTreeMap::<AnySymbolId, BTreeSet<AnySymbolId>>::new();
-    let mut visited = BTreeSet::new();
 
-    while let Some(owner) = pending.pop() {
-        context.cancellation.check().map_err(binder_error)?;
-
-        if !visited.insert(owner) || context.imported_semantic_address(owner)?.is_some() {
-            continue;
-        }
-
-        let Some(key) = compilation
-            .declared_unit_key(owner, body_kind(owner))
-            .map_err(binder_error)?
-        else {
-            continue;
-        };
-
-        let behavior = compilation
-            .selected_body_behavior_with_cancellation(key.clone(), context.cancellation)
-            .map_err(binder_error)?;
-
-        let prepared = compilation
-            .prepared_body_analysis_with_cancellation(key.clone(), context.cancellation)
-            .map_err(binder_error)?;
-
-        for callee in body_callees(behavior.result().value(), prepared.result().value()) {
-            pending.push(callee);
-            edges.entry(owner).or_default().insert(callee);
-        }
-
-        units.insert(owner, key);
-    }
-
-    if !units.contains_key(&root) {
+    let Some(component) = source_members(context, root)? else {
         return Ok(None);
-    }
-
-    let components = bray_base::strongly_connected_components(units.keys().copied(), |callable| {
-        edges.get(&callable).into_iter().flatten().copied()
-    });
-
-    let component = components
-        .into_iter()
-        .find(|component| component.contains(&root))
-        .expect("a demanded source body belongs to its reachable summary component");
+    };
 
     let owner = component.iter().min().expect("call component is nonempty");
 
-    let key = units
-        .get(owner)
-        .expect("source component owner retains its body")
-        .clone();
+    let key = compilation
+        .declared_unit_key(*owner, body_kind(*owner))
+        .map_err(binder_error)?
+        .expect("source component owner retains its body");
 
     let published = compilation
         .unit_query(
@@ -151,6 +108,120 @@ fn source_component(
         .map_err(binder_error)?;
 
     Ok(Some(published))
+}
+
+fn cached_members(
+    compilation: &crate::Compilation,
+    owner: AnySymbolId,
+) -> Option<std::sync::Arc<[AnySymbolId]>> {
+    compilation
+        .state
+        .result_dependency_membership
+        .lock()
+        .expect("source component membership index must remain available")
+        .get(&owner)
+        .map(std::sync::Arc::clone)
+}
+
+// This index records graph identity only. infer_component still reads every member
+// prerequisite inside its semantic publication, preserving query dependencies.
+fn source_members(
+    context: &CompilationBindingContext<'_>,
+    root: AnySymbolId,
+) -> BindingQueryResult<Option<std::sync::Arc<[AnySymbolId]>>> {
+    let compilation = context.compilation();
+
+    if let Some(members) = cached_members(compilation, root) {
+        return Ok(Some(members));
+    }
+
+    let mut units = BTreeSet::new();
+    let mut pending = vec![root];
+    let mut edges = BTreeMap::<AnySymbolId, BTreeSet<AnySymbolId>>::new();
+    let mut visited = BTreeSet::new();
+
+    while let Some(owner) = pending.pop() {
+        context.cancellation.check().map_err(binder_error)?;
+
+        // A published component already includes its entire outgoing closure. It cannot
+        // return to an undiscovered node in this immutable snapshot.
+        if !visited.insert(owner)
+            || cached_members(compilation, owner).is_some()
+            || context.imported_semantic_address(owner)?.is_some()
+        {
+            continue;
+        }
+
+        let Some(key) = compilation
+            .declared_unit_key(owner, body_kind(owner))
+            .map_err(binder_error)?
+        else {
+            continue;
+        };
+
+        #[cfg(test)]
+        compilation
+            .state
+            .result_dependency_discoveries
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        let behavior = compilation
+            .selected_body_behavior_with_cancellation(key.clone(), context.cancellation)
+            .map_err(binder_error)?;
+
+        let prepared = compilation
+            .prepared_body_analysis_with_cancellation(key, context.cancellation)
+            .map_err(binder_error)?;
+
+        for callee in body_callees(behavior.result().value(), prepared.result().value()) {
+            pending.push(callee);
+            edges.entry(owner).or_default().insert(callee);
+        }
+
+        units.insert(owner);
+    }
+
+    let components = bray_base::strongly_connected_components(units.iter().copied(), |callable| {
+        edges
+            .get(&callable)
+            .into_iter()
+            .flatten()
+            .filter(|callee| units.contains(callee))
+            .copied()
+    });
+
+    // Binding and query waits hold no index lock, so independent discovery stays parallel.
+    let mut membership = compilation
+        .state
+        .result_dependency_membership
+        .lock()
+        .expect("source component membership index must remain available");
+
+    for component in components {
+        if component
+            .iter()
+            .any(|member| membership.contains_key(member))
+        {
+            // Concurrent publication can prune a suffix during this walk. Its complete
+            // component already owns every member of the resulting partial component.
+            assert!(
+                component
+                    .iter()
+                    .all(|member| membership.contains_key(member)),
+                "source component publication must cover its complete outgoing closure"
+            );
+
+            continue;
+        }
+
+        let component = std::sync::Arc::<[AnySymbolId]>::from(component);
+
+        for member in component.iter() {
+            membership.insert(*member, std::sync::Arc::clone(&component));
+        }
+    }
+
+    Ok(membership.get(&root).map(std::sync::Arc::clone))
 }
 
 fn infer_component(

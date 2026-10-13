@@ -2143,3 +2143,68 @@ fn dynamic_element_writes_keep_reference_descriptors_but_revoke_possible_element
         MemoryOperationStatus::UninitializedRawStorage
     );
 }
+
+#[test]
+fn incoming_aliases_can_reach_allocations_under_invocation_owned_headers() {
+    use super::Origin;
+    use bray_bound_tree::StorageRelationship;
+
+    let ([owner, pointer, alias, moved], _) = places();
+
+    let mut state = State {
+        owned_storage: vec![owner.root, moved.root].into(),
+        ..State::default()
+    };
+
+    let header = Target::storage(owner);
+
+    let incoming = Target {
+        origin: Origin::entry(alias),
+        previous: false,
+    };
+
+    state.owned_region(header.clone(), pointer.clone(), error_type());
+
+    let region = state
+        .referenced_regions(&Target::storage(pointer))
+        .unwrap()
+        .pop()
+        .unwrap();
+
+    for (left, right) in [(&header, &incoming), (&incoming, &header)] {
+        assert_eq!(
+            state.target_relationship(left, right),
+            StorageRelationship::Disjoint
+        );
+    }
+
+    for (left, right) in [(&region, &incoming), (&incoming, &region)] {
+        assert_eq!(
+            state.target_relationship(left, right),
+            StorageRelationship::PotentiallyOverlapping
+        );
+    }
+
+    state.contents.entry(incoming.clone()).or_default();
+
+    let incoming_write = state.affected_targets(&super::model::References::one(incoming.clone()));
+
+    assert!(incoming_write.contains(&region));
+    assert!(!incoming_write.contains(&header));
+
+    let payload_write = state.affected_targets(&super::model::References::one(region.clone()));
+
+    assert!(payload_write.contains(&incoming));
+    assert!(!payload_write.contains(&header));
+    state.transfer_value(&header, moved.clone());
+
+    assert_eq!(
+        state.target_relationship(&region, &incoming),
+        StorageRelationship::PotentiallyOverlapping
+    );
+
+    assert_eq!(
+        state.target_relationship(&Target::storage(moved), &incoming),
+        StorageRelationship::Disjoint
+    );
+}

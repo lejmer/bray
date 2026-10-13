@@ -191,9 +191,12 @@ impl State {
             _ => None,
         };
 
-        if slot.is_some_and(|slot| self.owned_storage.binary_search(&slot.root).is_ok()) {
-            // An original input cannot address this invocation's value slots. A
-            // reference subsequently formed to one is an ordinary Storage target.
+        if slot.is_some_and(|slot| {
+            self.owned_storage.binary_search(&slot.root).is_ok()
+                && !slot.projections.contains(&StorageProjection::OwnedTarget)
+        }) {
+            // An original input cannot address this invocation's inline slots. Owned
+            // heap storage can predate the invocation and already have incoming aliases.
             return bray_bound_tree::StorageRelationship::Disjoint;
         }
 

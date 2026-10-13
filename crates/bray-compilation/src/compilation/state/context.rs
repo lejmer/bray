@@ -188,6 +188,11 @@ pub(in crate::compilation) struct CompilationState {
         UnitQueryCache<bray_checker::ExecutionCertification>,
     pub(in crate::compilation) selected_body_behavior:
         UnitQueryCache<bray_bound_tree::BodyBehaviorContributions>,
+    // Membership belongs to this immutable compilation snapshot. Do not reuse it across edits.
+    pub(in crate::compilation) result_dependency_membership:
+        Mutex<BTreeMap<AnySymbolId, Arc<[AnySymbolId]>>>,
+    #[cfg(test)]
+    pub(in crate::compilation) result_dependency_discoveries: std::sync::atomic::AtomicUsize,
     pub(in crate::compilation) result_dependency_components: UnitQueryCache<
         std::collections::BTreeMap<
             bray_symbols::AnySymbolId,
