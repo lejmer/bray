@@ -1,11 +1,16 @@
 # Runtime stack rule coverage and replacement plan
 
-## Semantic proof review, 2026-10-13
+## Agreed semantics and active implementation, 2026-10-13
 
-Implementation is paused at `e3f56424` for the user-requested
-[semantic proof review](runtime-stack-semantic-proof.md). The earlier implementation sequence is not authorization
-to resume while this review is open. The proof distinguishes derived rules from unproved predicate-support,
-finite-analysis, coverage and trusted-protocol obligations. Existing results below remain historical evidence.
+The user accepted the closed observation dependencies and explicit trusted establishment/preservation boundary in the
+[semantic proof](runtime-stack-semantic-proof.md), then authorized completing steps 1 and 2. The normative contract is
+in [contract reasoning](../language/contracts-and-trust/contract-reasoning.md),
+[trusted callers](../language/contracts-and-trust/trusted-caller-obligations.md) and
+[witnesses](../language/contracts-and-trust/trusted-witness-values.md).
+
+Continue on the existing repair branch. The implementation baseline is `e3f56424`, with proof checkpoint `7f300ef2`.
+Step 2 must complete shared authority analysis and remove its superseded mechanisms. Production API migration is step 3
+and is not part of this authorization. Historical test results below remain evidence, not current acceptance.
 
 Prepared on 2026-10-12. The user accepted the groundwork and requested actionable Linear issues.
 See the [Linear execution guide](runtime-stack-linear-execution.md) for the recoverable starting state and publication order.
@@ -452,8 +457,8 @@ behavior. Do not preserve an old path as a fallback when the new path cannot pro
 | [analysis/model.rs](../../crates/bray-checker/src/analysis/model.rs) and [storage plan](../../crates/bray-bound-tree/src/storage/plan/model.rs) | Shared graph, typed exits, occurrence IDs and planned accesses. | Independent rebuilding for property-specific operation discovery. Add only missing semantic stages such as replacement restoration. |
 | [storage_flow/model.rs](../../crates/bray-checker/src/analysis/storage_flow/model.rs) and [guarantee/state.rs](../../crates/bray-checker/src/analysis/guarantee/state.rs) | Initialization, loans, provenance, conditions and correct existing transfer logic. | Parallel live-owner/authority state. Fold correlated facts into the composite owner. Keep distinct resource epoch and carrier identities. |
 | [refinement/check.rs](../../crates/bray-checker/src/analysis/refinement/check.rs) | Structural condition seeds and CheckedRefinements output. | Independent mutation-sensitive availability transfer. Project it from the composite state that owns mutation and alias effects. |
-| [storage/expression/result.rs](../../crates/bray-checker/src/storage/expression/result.rs) | Selected result type and symbolic returned access construction. | Using a single lifetime source as physical referent proof. |
-| [dependency/result/borrows.rs](../../crates/bray-checker/src/dependency/result/borrows.rs) | Portable formal Borrow/Address relationships. | Independent syntax traversal for exact origin and unchanged slots, whole-body exclusions for anonymous callable presence or implicit Error. Project flow results instead. |
+| [storage/expression/access.rs](../../crates/bray-checker/src/storage/expression/access.rs) | Selected result type and symbolic returned access construction. | Using a single lifetime source as physical referent proof. |
+| [checked reference publication](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/references/publication.rs) | Portable formal Borrow/Address relationships. | Independent syntax traversal for exact origin and unchanged slots, whole-body exclusions for anonymous callable presence or implicit Error. Project flow results instead. |
 | [storage_invalidation.rs](../../crates/bray-checker/src/analysis/storage_invalidation.rs), [flow/invalidation.rs](../../crates/bray-checker/src/analysis/guarantee/flow/invalidation.rs), [memory/classification.rs](../../crates/bray-checker/src/memory/classification.rs) | Closed checked memory operation meaning and state-sensitive extents. | Repeated hook lists and downstream restoration after global invalidation. Classify once, apply to actual targets. |
 | [trusted/completion.rs](../../crates/bray-checker/src/analysis/guarantee/trusted/completion.rs) and [trusted/check.rs](../../crates/bray-checker/src/analysis/guarantee/trusted/check.rs) | Trusted producer/caller obligations and structured diagnostics. | Inferring transferable authority merely from observed-field overlap. Fresh-result bypass must not skip witness-separation checks. |
 | [cleanup/transition.rs](../../crates/bray-checker/src/analysis/guarantee/cleanup/transition.rs), [plan.rs](../../crates/bray-checker/src/analysis/guarantee/cleanup/plan.rs), [check.rs](../../crates/bray-checker/src/analysis/guarantee/cleanup/check.rs), [asynchronous/execution.rs](../../crates/bray-checker/src/asynchronous/execution.rs) | Already shared cleanup transition and genuine lifecycle distinctions. | Multiple structural expansions and all-witness erasure followed by re-establishment. Use selected calls and actual effects. |

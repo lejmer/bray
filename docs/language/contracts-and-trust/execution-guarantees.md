@@ -103,7 +103,9 @@ The compiler checks the ordinary body under common requirements and each declare
 branches, matches, calls, returns, and cleanup must satisfy every applicable promise. Acceptance requires sufficient
 evidence for each guarantee, including the contracts of selected operations and implicit lifecycle steps.
 
-All Bray source bodies undergo this verification, including `trusted` bodies. A trusted foreign declaration can
+All Bray source bodies undergo this verification, including `trusted` bodies. Explicit trusted premises follow
+[trusted guarantee establishment](trusted-caller-obligations.md#establishing-trusted-guarantees). Their provenance does
+not turn an ordinary postcondition or an execution-property promise into an unchecked assertion. A trusted foreign declaration can
 assert guarantees across the foreign boundary. Those assertions carry the declaration's trust obligations.
 
 Compiled interfaces retain entry guards, guarded postconditions, execution properties, proof provenance, and proof

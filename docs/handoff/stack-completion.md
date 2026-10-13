@@ -15,7 +15,8 @@ and its [closed operation inventory](runtime-stack-coverage-inventory.md) now su
 transitions, source coverage, removals, protocol design, costs and active issue sequence.
 
 The [earlier proposal](runtime-stack-implementation-plan.md) is superseded. The [assessment](stack-architecture-assessment.md)
-retains historical findings. The implementation order farther below is historical, not permission to resume.
+retains historical findings. The user authorized the agreed specification checkpoint and complete shared authority
+analysis in BRA-620. Production migration and the later stack remain separate steps.
 The user accepted the groundwork and requested actionable issues. Start from BRA-620 using the
 [Linear execution guide](runtime-stack-linear-execution.md), which records the recoverable checkpoint and current order.
 Issue preparation preserves inherited work and publishes the plan. It does not implement the replacements or merge the integration.

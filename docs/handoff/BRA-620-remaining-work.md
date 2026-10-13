@@ -1,11 +1,16 @@
 # BRA-620 remaining work
 
-## Semantic proof review, 2026-10-13
+## Agreed semantics and active implementation, 2026-10-13
 
-Implementation is paused at `e3f56424` for the user-requested
-[semantic proof review](runtime-stack-semantic-proof.md). The earlier implementation sequence is not authorization
-to resume while this review is open. The proof distinguishes derived rules from unproved predicate-support,
-finite-analysis, coverage and trusted-protocol obligations. Existing results below remain historical evidence.
+The user accepted the closed observation dependencies and explicit trusted establishment/preservation boundary in the
+[semantic proof](runtime-stack-semantic-proof.md), then authorized completing steps 1 and 2. The normative contract is
+in [contract reasoning](../language/contracts-and-trust/contract-reasoning.md),
+[trusted callers](../language/contracts-and-trust/trusted-caller-obligations.md) and
+[witnesses](../language/contracts-and-trust/trusted-witness-values.md).
+
+Continue on the existing repair branch. The implementation baseline is `e3f56424`, with proof checkpoint `7f300ef2`.
+Step 2 must complete shared authority analysis and remove its superseded mechanisms. Production API migration is step 3
+and is not part of this authorization. Historical test results below remain evidence, not current acceptance.
 
 Recorded on 2026-10-10. This handoff covers the remaining trusted synchronization authority defect and review requirements.
 
@@ -17,6 +22,38 @@ Use the [Linear execution guide](runtime-stack-linear-execution.md) for the exac
 The [rule coverage and replacement plan](runtime-stack-rule-coverage.md) and [closed inventory](runtime-stack-coverage-inventory.md)
 replace the earlier proposal. The [architectural assessment](stack-architecture-assessment.md) and the instructions below
 retain dated evidence and acceptance requirements. Issue preparation did not begin implementation.
+
+## Step 2 implementation record
+
+Scope: complete shared authority analysis on this branch after the agreed specification checkpoint. Keep production
+synchronization API migration for step 3. Preserve exact resource identities, whole-carrier provenance, observation
+support, initialized ownership, abnormal outcomes and source/import equivalence. No new language syntax is authorized.
+
+Baseline: `e3f56424` compiler, `7f300ef2` proof. Last authority results are 135 pass and 15 fail. They include production
+consumers and historical expectations, so the count alone is not step-2 acceptance.
+
+The implementation hypothesis is one composite storage transition with proof observations as a component, one prepared
+call mapping, and summaries projected from those results. Physical targets remain distinct from lifetime anchors.
+Expected removals are the result-dependency syntax fixed point, cleanup-wide witness erasure, per-hook preservation
+recovery, and repeated authority establishment in downstream consumers. Existing type/termination proof domains remain
+separate where they answer different questions.
+
+Completion matrix:
+
+| Behavior | Required coverage |
+| --- | --- |
+| Trusted introduction | Explicit trusted premises, ordinary promise checking, no authority from recovery or plain construction. |
+| Exact references | Nested borrow fields, aliases, reassignment, protected payloads, address reuse, local escape. |
+| Carrier transfer | Whole move, aggregate/nullable result, projection rejection including divergence, exact resource pairing. |
+| Observation effects | Payload mutation versus marker observation, raw storage state, unknown foreign effects, lifetime retention. |
+| Control flow | Branch correlation, loop convergence, recursive may/must summaries, absent variants, no cyclic proof creation. |
+| Calls and cleanup | Explicit and implicit calls, receiver effects, replacement, normal-only ensures, abnormal preservation. |
+| Interfaces | Source, exported/imported, generic substitution, selected indirect calls and deferred phases. |
+| Structure and cost | Removed superseded mechanisms, prepared inputs reused, no runtime authority machinery, production/test growth reported separately. |
+
+No line-count target justifies weakening behavior. Reconsider any design requiring per-library cases, a new proof
+language, duplicated state transfer or unbounded path/term expansion. Do not mark this step complete while any row lacks
+an owning implementation and meaningful verification.
 
 ## Prepared reference paths, 2026-10-13
 

@@ -9,7 +9,7 @@ supersede the earlier implementation proposal. This assessment retains its dated
 
 Assessment date: 2026-10-12. **Proposal for discussion. Implementation is paused by the user.**
 
-The [earlier implementation proposal](runtime-stack-implementation-plan.md) remains historical evidence. Use the replacement plan linked above for current design and sequencing. Implementation is still paused for discussion.
+The [earlier implementation proposal](runtime-stack-implementation-plan.md) remains historical evidence. Use the replacement plan linked above for current design and sequencing. The agreed semantic clarification and shared-analysis implementation are active under BRA-620.
 
 ## Scope and baseline
 
@@ -113,7 +113,7 @@ framework merely to reduce the number of files.
 retain a returned borrow. Execution proof separately consumes exact `borrows()` relations and reconstructs referent
 observations. Mutation classification then falls back to global invalidation for local borrowed roots.
 
-Evidence: [storage result planning](../../crates/bray-checker/src/storage/expression/result.rs),
+Evidence: [storage result planning](../../crates/bray-checker/src/storage/expression/access.rs),
 [proof preparation](../../crates/bray-checker/src/analysis/guarantee/flow/prepare.rs),
 [returned-reference completion](../../crates/bray-checker/src/analysis/guarantee/trusted/borrows.rs), and
 [mutation classification](../../crates/bray-checker/src/analysis/storage_invalidation.rs).
@@ -130,7 +130,7 @@ requirements and redundant syntax rediscovery once the owning result supplies th
 representations may remain, but must not become another proof algorithm.
 
 The current exact-origin inference also conservatively declines bodies containing anonymous callables and some implicit
-lifecycle cases. [Result inference](../../crates/bray-checker/src/dependency/result/borrows.rs) needs an explicit supported
+lifecycle cases. [Result inference](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/references/publication.rs) needs an explicit supported
 boundary. Do not turn those conservative limits into unconditional promises or silently add unrelated inference features.
 
 ### A2. Mutation semantics are split between broad invalidation and proof-specific exceptions

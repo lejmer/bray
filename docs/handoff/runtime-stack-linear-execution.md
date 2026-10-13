@@ -1,11 +1,16 @@
 # Runtime stack execution from Linear
 
-## Semantic proof review, 2026-10-13
+## Agreed semantics and active implementation, 2026-10-13
 
-Implementation is paused at `e3f56424` for the user-requested
-[semantic proof review](runtime-stack-semantic-proof.md). The earlier implementation sequence is not authorization
-to resume while this review is open. The proof distinguishes derived rules from unproved predicate-support,
-finite-analysis, coverage and trusted-protocol obligations. Existing results below remain historical evidence.
+The user accepted the closed observation dependencies and explicit trusted establishment/preservation boundary in the
+[semantic proof](runtime-stack-semantic-proof.md), then authorized completing steps 1 and 2. The normative contract is
+in [contract reasoning](../language/contracts-and-trust/contract-reasoning.md),
+[trusted callers](../language/contracts-and-trust/trusted-caller-obligations.md) and
+[witnesses](../language/contracts-and-trust/trusted-witness-values.md).
+
+Continue on the existing repair branch. The implementation baseline is `e3f56424`, with proof checkpoint `7f300ef2`.
+Step 2 must complete shared authority analysis and remove its superseded mechanisms. Production API migration is step 3
+and is not part of this authorization. Historical test results below remain evidence, not current acceptance.
 
 Updated 2026-10-12. The user accepted the architectural groundwork and requested executable Linear issues.
 This checkpoint prepares that work. No new compiler, runtime or test behavior was implemented during issue preparation.

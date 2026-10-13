@@ -126,6 +126,25 @@ witness value's dependency contract.
 A public API that exposes a witness value exposes the trusted guarantees and obligations carried by that value as part
 of its public contract.
 
+## External interference and lasting permission
+
+A trusted producer must establish its guarantees at successful introduction. When a witness supplies lasting access
+permission, the producer and the operations of its resource protocol must preserve that permission through every
+permitted concurrent, foreign, callback or device action while its carrier and dependencies remain valid.
+
+A snapshot of changing state is not a protected interval. A device status observation or revocable resource query cannot
+justify an ordinary borrow unless the resource protocol prevents invalidation during that borrow. An API may instead
+provide a fallible operation, retained permission or owned snapshot under its ordinary contract.
+
+The trusted author is responsible for external protocol properties that ordinary checking cannot derive. The compiler
+checks complete-carrier provenance, exact resource relationships, ownership, dependency retention, borrowing and
+lifecycle use. Release cannot retire permission while a dependent borrow remains active. Cancellation request alone
+cannot retire a resource still used by another run or a device. Abnormal paths retain their cleanup obligations and do
+not obtain normal-completion postconditions.
+
+These rules concern actions permitted by the resource contract. A foreign implementation that violates its declared
+retention or synchronization contract is incorrect trusted code, not an additional obligation on ordinary callers.
+
 ## Navigation
 
 - [Language index](../index.md)

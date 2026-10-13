@@ -68,6 +68,24 @@ trusted func copy_bytes_unchecked(
 
 The caller must provide, preserve, or acknowledge those conditions.
 
+## Establishing trusted guarantees
+
+An explicitly trusted postcondition on a trusted declaration can establish a trusted premise that ordinary contract
+reasoning cannot derive. The declaration's author is responsible for that premise. The compiler records its trusted
+origin separately from a checked deduction. A trusted declaration remains subject to ordinary type, ownership,
+borrowing, initialization, lifecycle, effect and execution-property checks.
+
+A trusted implementation capability permits its named operations. It does not by itself establish a predicate.
+A trust boundary acknowledges its operand's caller obligations. It does not turn those obligations into established
+postconditions or hide unresolved obligations from the enclosing declaration's callers.
+
+A trusted premise about raw memory uses the language-defined meaning of the selected memory predicate. It cannot
+replace a required ownership or initialization transition, override a conflicting checked state, create a second owner,
+or end an active dependent borrow. Ordinary postconditions and `pure` or `total` promises remain checked.
+
+A trusted declaration can expose an ordinary API when its implementation establishes the obligations internally.
+Its callers do not require a trust boundary merely because its implementation uses trusted operations.
+
 ## Navigation
 
 - [Language index](../index.md)

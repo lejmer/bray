@@ -1,9 +1,9 @@
 # Runtime ownership and authority proof
 
-Discussion draft, 2026-10-13. Baseline: `e3f56424` on `feature/bra-620-repair-synchronization-authority`.
+Agreed semantic derivation, 2026-10-13. Baseline: `e3f56424` on `feature/bra-620-repair-synchronization-authority`.
 
-Implementation is paused for this review. This argument examines the existing language rules before choosing more
-compiler machinery. It adopts no syntax, language rule, runtime representation, or implementation mandate. The
+The user approved the semantic interpretation and authorized specification and shared-analysis implementation. This argument examines the existing language rules before choosing more
+compiler machinery. It adds no syntax or runtime representation. The normative specification records the agreed semantic rules. The
 earlier [replacement plan](runtime-stack-rule-coverage.md) supplies candidate mechanisms, not proof premises. Its
 implementation sequence remains subject to this review. Historical results stay in [BRA-620 remaining
 work](BRA-620-remaining-work.md).
@@ -19,9 +19,8 @@ The argument now defines shared transition semantics, a finite analysis vocabula
 protocol invariants for acquisition, waiting, Once and retained cleanup storage. The soundness and convergence
 arguments are separate from the required acceptance derivations and from implementation performance.
 
-The acquisition-preservation argument is conditional on the closed-dependency interpretation submitted to the user.
-The systems expressiveness derivation below identifies a related omission at trusted proof introduction and external
-interference. Adoption must settle both. Neither is silently adopted here.
+The user accepted closed observation dependencies together with the trusted proof-introduction and external
+interference boundary derived below. Implementation must satisfy those rules and the stated trusted-protocol premises.
 The first draft correctly separated non-forgery from preservation, but stopped before defining a concrete solution.
 The candidate solution below uses a historical acquisition fact and a live complete carrier.
 
@@ -325,10 +324,9 @@ subsystem. Any stronger required acceptance needs a language-defined derivation,
 default. Source callers use the same published summary as imported callers. They do not recheck a body for extra
 caller-specific precision. This keeps the precision boundary independent of source availability.
 
-## Acquisition under the proposed closed-dependency interpretation
+## Acquisition under closed observation dependencies
 
-This section depends on the interpretation submitted to the user during this review. It is not yet a new normative
-rule or an authorized compiler change.
+This section derives the agreed interpretation recorded in the normative contract chapters.
 
 A predicate's semantic inputs consist of its arguments and the dependency subjects exposed by their contracts.
 Distinguish a dependency on a subject remaining alive from a dependency on that subject's contents remaining
@@ -339,8 +337,7 @@ remains unknown memory, not an empty support set. An undeclared hidden mutable d
 by the caller.
 
 This reading is consistent with observational predicates, explicit dependencies and the complete foreign contract
-rule. The prose specification does not explicitly define this extraction algorithm. Adoption therefore needs the
-user's agreement on this acceptance rule. Purity alone was not an adequate argument in the first draft.
+rule. The prose specification does not explicitly define this extraction algorithm. The user agreed to this acceptance rule and its explicit trusted preservation obligations. Purity alone was not an adequate argument in the first draft.
 
 Let G own an immutable empty marker M and an immutable lock reference L. The producer introduces evidence about M
 carried by the complete G. The semantic meaning of that evidence is historical: this carrier was produced by a
@@ -377,10 +374,10 @@ Raw-memory predicates do not contradict this argument. initialized_as(pointer) e
 storage. A write or move affecting that storage must preserve, re-establish or invalidate that fact according to its
 selected semantics. Calling a relation opaque never removes such an exposed dependency.
 
-## Systems expressiveness and the proposed trust boundary
+## Systems expressiveness and the trusted boundary
 
-This extension answers the practical expressiveness question. It is a proposal for discussion, not an adopted language
-rule. It refines the earlier closed-dependency proposal. Ordinary reachability alone is insufficient to justify a
+This extension derives the agreed answer to the practical expressiveness question and refines the earlier
+closed-dependency proposal. Ordinary reachability alone is insufficient to justify a
 lasting permission in a system with concurrent runs, callbacks or devices.
 
 ### The gap and the smallest proposed resolution
@@ -401,7 +398,7 @@ Atomics returning a success Boolean do not, by themselves, give a user-defined P
 such a derivation must reject every fresh protocol predicate, recognize each protocol specially, or add a general proof
 language. None follows from the intended small trusted core.
 
-Proposed resolution, using existing declaration forms:
+Agreed resolution, using existing declaration forms:
 
 1. Ordinary postconditions and execution properties remain checked, including in trusted source. Opaque trusted
    postconditions explicitly asserted by a trusted declaration are author obligations where ordinary proof does not
@@ -422,7 +419,7 @@ Proposed resolution, using existing declaration forms:
    propagate under the existing rules. A trusted claim cannot convert an ordinary requirement or a `pure`/`total`
    promise into an unchecked assertion.
 
-These are semantic clarifications requiring agreement. They are not claimed to follow uniquely from the current
+The user approved these semantic clarifications. They are not claimed to follow uniquely from the current
 wording. No new keyword, predicate footprint clause, generalized preservation clause, user-written lifetime parameter,
 proof scripting language or per-algorithm compiler recognition is proposed. In particular, this proposal does not
 allow `uses(...)` alone to establish arbitrary facts or an ordinary `trusted expression` to hide caller obligations.
@@ -430,8 +427,7 @@ The asserted premises belong to the specific trusted declaration. They are not i
 
 Adding an observation-footprint clause would not solve the fresh-predicate obstruction: a smaller footprint does not
 establish P or prove its stability under interference. The proposed boundary supplies the missing premise without
-adding a second language for proving concurrent algorithms. This is a material acceptance decision even without new
-syntax and must not be implemented under the label of an ordinary bug fix.
+adding a second language for proving concurrent algorithms. This is an explicit semantic acceptance decision without new syntax, not an incidental bug fix.
 
 ### Preservation across external interference
 
@@ -586,7 +582,7 @@ conditionally on correct trusted implementations. It does not promise acceptance
 current compiler. An implementation requiring a special case for each of these protocols would contradict the proposed
 common rule and must trigger reconsideration, not another exception.
 
-Adoption requires agreement on the trusted assertion boundary as well as closed observation dependencies. If every new
+The accepted interpretation includes the trusted assertion boundary as well as closed observation dependencies. If every new
 opaque protocol fact instead must be compiler-proved from ordinary atomics, the fresh-predicate argument above rules out
 this solution. That stronger goal would require additional proof definitions or recognized primitives and would be a
 materially different language design.
@@ -773,12 +769,11 @@ The derivations now provide an explicit finite analysis strategy, correlated car
 semantics, and protocol invariants. They support the required acceptance families without a separate proof algorithm
 for each runtime consumer. They are not a machine-checked verification of the compiler.
 
-A semantic decision remains pending with the user: closed observation dependencies together with the explicit trusted
-assertion and external-preservation boundary proposed in the systems expressiveness section. The acquisition
-preservation derivation above is conditional on that decision. It cannot be marked complete merely because
-no implementation experiment has contradicted it.
+The semantic decision is settled. The derivation remains conditional on valid trusted implementations, not on
+compiler experiments. Specification and shared-analysis implementation are authorized. Neither the current compiler
+nor the production protocols are declared complete by this agreement.
 
-After that interpretation is settled, remaining work separates as follows:
+Remaining implementation obligations separate as follows:
 
 | Work | What reasoning has established | What implementation must establish |
 | --- | --- | --- |
@@ -788,6 +783,5 @@ After that interpretation is settled, remaining work separates as follows:
 | Protocols | Ownership, publication, overflow, wait-registration, reentry and backing invariants. | Actual atomics, foreign calls, unwind paths and generated storage implement those invariants. |
 | Costs | No runtime witness registry follows from the proof. Bounds and mandatory backing costs are explicit. | Compile time, peak memory, produced layout/code size and native performance meet the numerical targets. |
 
-Do not resume implementation solely because this table distinguishes the remaining tasks. The user paused
-implementation to discuss the argument. No language syntax, specification text, compiler code or test expectation has
-been changed by this review.
+The current authorization covers the specification checkpoint and complete shared authority analysis. Production API
+migration and protocol repairs remain the next step. No new syntax is authorized.
