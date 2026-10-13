@@ -8,7 +8,7 @@ in [contract reasoning](../language/contracts-and-trust/contract-reasoning.md),
 [trusted callers](../language/contracts-and-trust/trusted-caller-obligations.md) and
 [witnesses](../language/contracts-and-trust/trusted-witness-values.md).
 
-Continue on the existing repair branch. The implementation baseline is `e3f56424`, with proof checkpoint `7f300ef2`.
+Continue on `feature/trusted-storage-integration`, the published combined branch. The implementation baseline is `e3f56424`, with proof checkpoint `7f300ef2`.
 Step 2 must complete shared authority analysis and remove its superseded mechanisms. Production API migration is step 3
 and is not part of this authorization. Historical test results below remain evidence, not current acceptance.
 
@@ -57,9 +57,9 @@ an owning implementation and meaningful verification.
 
 ## Current verification checkpoint
 
-Step 2 remains active on `feature/bra-620-repair-synchronization-authority`, after `8dbe2f33`.
+Step 2 implementation is checkpointed at `ffbff1f5ebeac9cc709bfdfaa6443543a515aa94` and undergoing the required published review in [PR #607](https://github.com/lejmer/bray/pull/607). Continue on `feature/trusted-storage-integration`. The repair branch retains the same checkpoint.
 The current worktree is `C:/Users/anton/.codex/worktrees/bra-553-host-bootstrap/bray`. Do not edit the unrelated primary checkout.
-No production API migration has started. No combined draft PR or required fresh published review exists yet.
+No production API migration has started. The combined draft targets `develop` and includes all five original PRs. Review completion is still pending.
 
 The combined branch contains the verified current heads of all five open PRs: #601 (`f244c10c`), #602 (`e3dbc6c5`),
 #604 (`22473ff6`), #605 (`fb69346e`), and #606 (`cca4bd44`). The user explicitly requires the final PR and its description

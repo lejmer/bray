@@ -20,7 +20,15 @@ analysis in BRA-620. Production migration and the later stack remain separate st
 The user accepted the groundwork and requested actionable issues. Start from BRA-620 using the
 [Linear execution guide](runtime-stack-linear-execution.md), which records the recoverable checkpoint and current order.
 Issue preparation preserves inherited work and publishes the plan. It does not implement the replacements or merge the integration.
-## Current baseline
+## Published integration checkpoint, 2026-10-13
+
+[Draft PR #607](https://github.com/lejmer/bray/pull/607) targets `develop` from `feature/trusted-storage-integration`.
+It contains all five original PR heads and the shared-analysis checkpoint `ffbff1f5`. The required published review is
+in progress. Continue on that integration branch, using the current matrix and evidence in
+[BRA-620 remaining work](BRA-620-remaining-work.md). The old repair branch retains the checkpoint. Production Step 3 and
+the remaining stack acceptance are outstanding, so the integration remains draft and BRA-620 remains In Progress.
+
+## Earlier baseline, retained as evidence
 
 The branch chain is BRA-609 / #601, BRA-619 / #602, BRA-620 / #604, BRA-621 / #605, then BRA-553 / #606.
 The implementation and review checkpoint for BRA-553 is `8c789dfa3febea1ec03c120016d44bf6c4b7a98a`.
@@ -31,7 +39,7 @@ remain In Progress with draft PRs. Readiness of an individual issue does not est
 
 ## Active BRA-620 repair
 
-The active implementation branch is `feature/bra-620-repair-synchronization-authority`, based on BRA-553 commit
+The original repair branch was `feature/bra-620-repair-synchronization-authority`, based on BRA-553 commit
 `cca4bd4429d0648cae0493db72045b7d4a7a3e73`. Live remote ancestry was verified on 2026-10-11: original BRA-620 head
 `22473ff6384db081ad3e131e0726e16e7ff9c682` is fully contained in this base, through BRA-621 head
 `fb69346e31b225c39105d095e9f900c9cebad97c`. No original BRA-620 commits were missing.
@@ -44,12 +52,12 @@ original BRA-620 branch.
 ## Integration and publication
 
 The user selected one master feature branch and one final PR into `develop` on 2026-10-11. Finish BRA-620 against the
-combined source first. Then create `feature/trusted-storage-integration` from the repaired tip and reconcile every
+combined source. Continue on the now-published `feature/trusted-storage-integration` branch and reconcile every
 existing stack PR against it. Verify each live PR head is included and review its outstanding requirements and findings.
 Merge additional branch commits only when they are absent. Do not copy already inherited fixes or merge individual stack
 PRs directly into `develop`.
 
-Validate and review the integrated result, then open the integration PR into `develop`. Any deliberately deferred work
+Validate and review the integrated result before making PR #607 ready. Any deliberately deferred work
 must have an explicit issue and updated downstream dependencies. Incomplete issues stay open when their old PRs are
 superseded. Closing a superseded PR does not establish that all of its issue requirements are complete.
 Keep the existing PRs as review history until the

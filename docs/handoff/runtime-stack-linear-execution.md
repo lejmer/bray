@@ -8,7 +8,7 @@ in [contract reasoning](../language/contracts-and-trust/contract-reasoning.md),
 [trusted callers](../language/contracts-and-trust/trusted-caller-obligations.md) and
 [witnesses](../language/contracts-and-trust/trusted-witness-values.md).
 
-Continue on the existing repair branch. The implementation baseline is `e3f56424`, with proof checkpoint `7f300ef2`.
+Continue on `feature/trusted-storage-integration`, the published combined branch. The implementation baseline is `e3f56424`, with proof checkpoint `7f300ef2`.
 Step 2 must complete shared authority analysis and remove its superseded mechanisms. Production API migration is step 3
 and is not part of this authorization. Historical test results below remain evidence, not current acceptance.
 
@@ -17,14 +17,23 @@ This checkpoint prepares that work. No new compiler, runtime or test behavior wa
 Start with [BRA-620](https://linear.app/bray-lang/issue/BRA-620). Follow actual blocking relations and each issue's
 current implementation contract. No chat transcript is needed.
 
-## Recover the exact starting state
+## Current implementation checkpoint
+
+The shared-analysis implementation is published at `ffbff1f5ebeac9cc709bfdfaa6443543a515aa94` on
+`feature/trusted-storage-integration` in [draft PR #607](https://github.com/lejmer/bray/pull/607), targeting `develop`.
+The required published review is in progress. Use [BRA-620 remaining work](BRA-620-remaining-work.md) for the current
+matrix, verification and failure ownership. All five heads below were rechecked on 2026-10-13 and are included.
+The repair branch retains the same checkpoint. Continue on the integration branch and preserve the old PRs as history.
+This draft publication does not complete production Step 3, later stack prerequisites, or authorize a merge.
+
+## Original recovery checkpoint, retained as history
 
 Repository: https://github.com/lejmer/bray
-Active repair branch: `feature/bra-620-repair-synchronization-authority`.
+Original repair branch: `feature/bra-620-repair-synchronization-authority`.
 Implementation recovery commit: `c744f48bc0cb5afee30351d2b91bdfafdcea0583`. This preserves the inherited incomplete repair.
 The documentation commit that first adds this guide is its direct successor and is the preferred starting checkpoint.
 
-Fetch that branch and inspect it before creating the integration branch. Reuse the existing repair worktree if it is
+For recovery of that historical checkpoint, fetch the original repair branch and inspect it. Reuse the existing repair worktree if it is
 available and matches the published checkpoint. Otherwise create a clean checkout from the checkpoint, preserving any
 other local work. Never reset an occupied worktree to follow this guide.
 
@@ -72,11 +81,11 @@ of this plan. If the model cannot express a required rule, discuss that specific
 2. Recheck BRA-621 and BRA-553 against the consolidated production contracts. Preserve their completed migration.
 3. Complete BRA-502 physical backing, BRA-554 entry and BRA-558 typed incident consumption in dependency order.
    Then complete BRA-619's synchronous and asynchronous native scope outcomes.
-4. Use one feature integration branch derived from this combined checkpoint, such as
-   `feature/trusted-storage-integration`. Incorporate only genuinely missing later commits after ancestry inspection.
+4. Continue on the published `feature/trusted-storage-integration` branch. Incorporate only genuinely missing later
+   commits after ancestry inspection.
    Preserve the old PRs as review history. Do not merge the five old PRs into develop individually.
 5. Once all five original contracts and their necessary backing/entry/incident prerequisites are complete, reviewed and
-   verified, open one integration PR to develop. Link every included issue and the old PRs. Reconcile remaining review
+   verified, make integration PR #607 ready for review and the eventual user merge. Link every included issue and the old PRs. Reconcile remaining review
    comments and issue links before retiring superseded PRs. Publication is not permission to merge.
 6. After that integration lands, continue the remaining protocol issues from the landed base. Each complete consumer
    migration switches real callers and removes replaced Rust policy in the same unit.
