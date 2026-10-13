@@ -20,3 +20,5 @@ pub(crate) use returned::{
     call_result_template, opaque_result, resolved_result_template, result_argument, result_inputs,
 };
 pub(crate) use value::ValueInputs;
+
+pub(crate) use call::prepare_reference;

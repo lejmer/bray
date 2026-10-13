@@ -72,10 +72,10 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(super) literals: &'a BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(in crate::analysis::guarantee) storage: &'a bray_bound_tree::StoragePlan,
     pub(super) memory: &'a bray_bound_tree::CheckedMemoryOperations,
-    pub(super) checked_flow: Option<&'a bray_bound_tree::StorageFlow>,
+    pub(in crate::analysis::guarantee) checked_flow: Option<&'a bray_bound_tree::StorageFlow>,
     pub(in crate::analysis::guarantee) contracts:
         &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
-    pub(in crate::analysis::guarantee) disposal: &'a super::super::cleanup::Cleanup<'a>,
+    pub(in crate::analysis) disposal: &'a super::super::cleanup::Cleanup<'a>,
     pub(in crate::analysis::guarantee) refinements: &'a std::collections::BTreeMap<
         bray_bound_tree::BoundExecutionSite,
         bray_bound_tree::StorageInvalidation,

@@ -152,18 +152,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     self.expression(state, expression, invalidation, assignment_place);
                 }
 
-                if !matches!(
-                    operation,
-                    super::super::super::model::AnalysisOperationKind::Call {
-                        phase: super::super::super::model::AnalysisCallPhase::Attempt,
-                        ..
-                    }
-                ) && self
-                    .checked_flow
-                    .and_then(|flow| flow.memory_operation_status(expression))
-                    .is_none_or(|status| status == bray_bound_tree::MemoryOperationStatus::Valid)
-                {
-                    self.complete_call(state, expression);
+                if self.checked_flow.is_some() {
+                    self.complete_operation(state, operation);
                 }
 
                 state.trust_boundaries.remove(&expression);
@@ -182,6 +172,44 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             _ => {}
         }
     }
+    pub(in crate::analysis) fn complete_operation(
+        &self,
+        state: &mut ExecutionState,
+        operation: super::super::super::model::AnalysisOperationKind,
+    ) {
+        if matches!(
+            operation,
+            super::super::super::model::AnalysisOperationKind::Call {
+                phase: super::super::super::model::AnalysisCallPhase::Attempt,
+                ..
+            }
+        ) {
+            return;
+        }
+
+        let Some(expression) = operation.occurrence().expression() else {
+            return;
+        };
+
+        if self
+            .checked_flow
+            .and_then(|flow| flow.memory_operation_status(expression))
+            .is_some_and(|status| status != bray_bound_tree::MemoryOperationStatus::Valid)
+        {
+            return;
+        }
+
+        if let Some(observations) = self.checked_flow.and_then(|flow| {
+            flow.completion_observations(bray_bound_tree::StorageMutation::Operation(
+                operation.occurrence(),
+            ))
+        }) {
+            self.observe_references(state, observations);
+        }
+
+        self.complete_call(state, expression);
+    }
+
     fn expression(
         &self,
         state: &mut ExecutionState,

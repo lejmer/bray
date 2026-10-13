@@ -1040,7 +1040,7 @@ fn imported_cleanup_guarantees_reach_following_calls() {
 
     for (interference, valid) in [
         ("", true),
-        ("{ let other: Interference = { tag = 0 }; }", false),
+        ("{ let other: Interference = { tag = 0 }; }", true),
     ] {
         let source = format!(
             r#"
@@ -1051,6 +1051,64 @@ fn imported_cleanup_guarantees_reach_following_calls() {
                 {{ let value: example.package.api.Producer = {{ tag = 0 }}; }}
                 {interference}
                 example.package.api.observe();
+            }}
+        "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_cleanup_postconditions_follow_the_updated_borrowed_storage() {
+    let provider = compilation(
+        r#"
+        trusted module api;
+        struct Owner { mut epoch: u64; }
+        trusted predicate live(value: &Owner);
+        struct Writer {
+            slot: &mut Owner;
+            trusted destruct() ensures(trusted live(&self.slot)) { self.slot.epoch = 1; }
+        }
+        func observe(pos owner: &Owner) requires(trusted live(owner)) {}
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for (mutation, observed, valid) in [
+        ("", "first", true),
+        ("", "second", false),
+        ("first.epoch = 2;", "first", false),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            using example.package.api;
+            func caller() {{
+                let mut first: example.package.api.Owner = {{ epoch = 0 }};
+                let second: example.package.api.Owner = {{ epoch = 0 }};
+                {{ let writer: example.package.api.Writer = {{ slot = &mut first }}; }}
+                {mutation}
+                example.package.api.observe(&{observed});
             }}
         "#
         );

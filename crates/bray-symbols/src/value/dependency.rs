@@ -1,3 +1,4 @@
+use crate::DependencyStorageEffect;
 use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
@@ -353,6 +354,18 @@ pub struct DependencyContractTemplateData {
 }
 
 impl DependencyContractTemplateData {
+    /// Enumerates formal reference paths required by exact relations and mutation effects.
+    pub fn reference_subjects(&self) -> impl Iterator<Item = &DependencySubject> {
+        self.borrows()
+            .iter()
+            .flat_map(|relation| [relation.entry(), relation.exit()])
+            .chain(self.effects().iter().filter_map(|effect| match effect {
+                DependencyStorageEffect::Unknown => None,
+                DependencyStorageEffect::Direct { subject, .. } => Some(subject),
+                DependencyStorageEffect::Indirect { reference, .. } => Some(reference),
+            }))
+    }
+
     /// Creates a template after deterministic sorting and deduplication.
     pub fn new(requirements: impl IntoIterator<Item = DependencyRequirement>) -> Self {
         Self {

@@ -12,14 +12,7 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
     template: &DependencyContractTemplateData,
 ) -> Result<BoundCallDependencyContracts, CheckerQueryError<C::UpstreamError>> {
     let subjects = template
-        .borrows()
-        .iter()
-        .flat_map(|relation| [relation.entry(), relation.exit()])
-        .chain(template.effects().iter().filter_map(|effect| match effect {
-            bray_symbols::DependencyStorageEffect::Unknown => None,
-            bray_symbols::DependencyStorageEffect::Direct { subject, .. } => Some(subject),
-            bray_symbols::DependencyStorageEffect::Indirect { reference, .. } => Some(reference),
-        }))
+        .reference_subjects()
         .collect::<std::collections::BTreeSet<_>>();
 
     let mut inputs = std::collections::BTreeMap::new();
@@ -38,44 +31,14 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
             continue;
         };
 
-        let ty = *ty;
-        let kind = crate::representation::reference_kind(request, ty);
-
-        let addressed_type = if relation.target_projections().is_empty() {
-            kind.is_none().then_some(ty)
-        } else {
-            let Some(mut target) = crate::representation::reference_target_type(request, ty) else {
-                continue;
-            };
-
-            let mut valid = true;
-
-            for projection in relation.target_projections() {
-                let projected = crate::storage::projected_value_type(request, target, *projection)?;
-
-                let Some(projected) = *projected.value() else {
-                    valid = false;
-                    break;
-                };
-
-                target = projected;
-            }
-
-            if !valid {
-                continue;
-            }
-
-            Some(target)
-        };
-
-        let output = output_argument(request, call, relation.exit());
-
-        references.push(BoundCallReference::new(
-            relation.clone(),
-            kind == Some(relation.kind()) && relation.target_projections().is_empty(),
-            addressed_type,
-            output,
-        ));
+        if let Some(reference) = prepare_reference(
+            request,
+            relation,
+            *ty,
+            output_argument(request, call, relation.exit()),
+        )? {
+            references.push(reference);
+        }
     }
 
     let witness = request
@@ -98,6 +61,43 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
         )
         .with_references(references, retained_inputs)
         .with_effects(template.effects().iter().cloned()))
+}
+
+pub(crate) fn prepare_reference<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    relation: &bray_symbols::DependencyBorrowRelation,
+    ty: bray_symbols::TypeId,
+    output: Option<BoundExpressionId>,
+) -> Result<Option<BoundCallReference>, CheckerQueryError<C::UpstreamError>> {
+    let kind = crate::representation::reference_kind(request, ty);
+
+    let addressed_type = if relation.target_projections().is_empty() {
+        kind.is_none().then_some(ty)
+    } else {
+        let Some(mut target) = crate::representation::reference_target_type(request, ty) else {
+            return Ok(None);
+        };
+
+        for projection in relation.target_projections() {
+            let projected = crate::storage::projected_value_type(request, target, *projection)?;
+
+            let Some(projected) = *projected.value() else {
+                return Ok(None);
+            };
+
+            target = projected;
+        }
+
+        Some(target)
+    };
+
+    // The bound call retains the immutable relation independently of its source template.
+    Ok(Some(BoundCallReference::new(
+        relation.clone(),
+        kind == Some(relation.kind()) && relation.target_projections().is_empty(),
+        addressed_type,
+        output,
+    )))
 }
 
 fn reference_input_type<C: CheckerRequestContext + ?Sized>(

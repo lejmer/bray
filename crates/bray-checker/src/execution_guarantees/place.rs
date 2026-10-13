@@ -95,26 +95,6 @@ impl ExecutionPlace {
         Some(Self::from(root))
     }
 
-    pub(crate) fn cleanup_part(
-        storage: &bray_bound_tree::StoragePlan,
-        access: bray_bound_tree::StorageAccessId,
-        part: &bray_bound_tree::StorageCleanupPart,
-    ) -> Option<Self> {
-        let mut place = Self::storage(storage, access)?;
-
-        for projection in part.projections() {
-            let bray_bound_tree::StorageCleanupProjectionKind::Component(projection) =
-                projection.projection()
-            else {
-                return None;
-            };
-
-            place = place.project(&[projection])?;
-        }
-
-        Some(place)
-    }
-
     pub(crate) fn project(
         mut self,
         projections: &[bray_bound_tree::StorageProjection],

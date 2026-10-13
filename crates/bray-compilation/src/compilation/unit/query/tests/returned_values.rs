@@ -1451,7 +1451,8 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
             .invalidations()
             .values()
             .filter_map(|invalidation| {
-                let bray_bound_tree::StorageInvalidation::Observed(accesses) = invalidation else {
+                let bray_bound_tree::StorageInvalidation::Observed { accesses, .. } = invalidation
+                else {
                     return None;
                 };
 
@@ -1798,10 +1799,10 @@ fn mutation_observations_preserve_sibling_fields_but_invalidate_other_input_alia
     let storage = storage.value();
 
     let mutation = refinements.value().invalidations().values().find(|invalidation| {
-        matches!(invalidation, bray_bound_tree::StorageInvalidation::Observed(accesses) if !accesses.is_empty())
+        matches!(invalidation, bray_bound_tree::StorageInvalidation::Observed { accesses, .. } if !accesses.is_empty())
     }).expect("assignment publishes resolved observations");
 
-    let bray_bound_tree::StorageInvalidation::Observed(accesses) = mutation else {
+    let bray_bound_tree::StorageInvalidation::Observed { accesses, .. } = mutation else {
         unreachable!()
     };
 

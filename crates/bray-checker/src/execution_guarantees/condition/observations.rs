@@ -118,11 +118,12 @@ impl ExecutionCondition {
 
         while let Some(condition) = pending.pop() {
             match condition {
-                Self::Expression(candidate)
-                | Self::ScopedCapability(candidate)
-                | Self::PostState(candidate, _)
+                Self::Expression(candidate) | Self::ScopedCapability(candidate)
                     if *candidate == expression =>
                 {
+                    return true;
+                }
+                Self::PostState(site, _) if site.occurrence().expression() == Some(expression) => {
                     return true;
                 }
                 Self::Constructed(base, fields) => {

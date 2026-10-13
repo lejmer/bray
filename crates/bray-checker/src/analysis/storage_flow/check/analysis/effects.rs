@@ -127,21 +127,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: bray_bound_tree::BoundExecutionSite,
     ) -> Option<Vec<(Target, DependencyMutationKind)>> {
         let contracts = self.dependencies.calls().get(&occurrence)?;
-        let mut resolved = Vec::new();
 
-        for effect in contracts.effects() {
-            let (subject, indirect, projections, kind) = match effect {
-                DependencyStorageEffect::Unknown => return None,
-                DependencyStorageEffect::Direct { subject, kind } => {
-                    (subject, false, &[][..], *kind)
-                }
-                DependencyStorageEffect::Indirect {
-                    reference,
-                    projections,
-                    kind,
-                } => (reference, true, projections.as_ref(), *kind),
-            };
-
+        self.resolve_effects(contracts.effects(), |subject, indirect| {
             let expression = occurrence.expression()?;
 
             let bray_bound_tree::SemanticSelection::Call(call) = self
@@ -155,9 +142,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let argument = crate::dependency::result_argument(call, subject.subject_root())?;
 
-            let targets = if indirect && subject.projections().is_empty() {
+            if indirect && subject.projections().is_empty() {
                 self.expression_reference(state, argument)?
-                    .targets(&state.memory)?
+                    .targets(&state.memory)
             } else {
                 let locations = self.call_reference_locations(
                     state,
@@ -166,21 +153,43 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 )?;
 
                 if indirect {
-                    let mut targets = Vec::new();
-
-                    for location in locations {
-                        targets.extend(state.memory.value_targets(&location)?);
-                    }
-
-                    targets
-                } else {
                     locations
+                        .iter()
+                        .try_fold(Vec::new(), |mut targets, location| {
+                            targets.extend(state.memory.value_targets(location)?);
+
+                            Some(targets)
+                        })
+                } else {
+                    Some(locations)
                 }
+            }
+        })
+    }
+
+    pub(super) fn resolve_effects(
+        &self,
+        effects: &[DependencyStorageEffect],
+        mut resolve: impl FnMut(&DependencySubject, bool) -> Option<Vec<Target>>,
+    ) -> Option<Vec<(Target, DependencyMutationKind)>> {
+        let mut resolved = Vec::new();
+
+        for effect in effects {
+            let (subject, indirect, projections, kind) = match effect {
+                DependencyStorageEffect::Unknown => return None,
+                DependencyStorageEffect::Direct { subject, kind } => {
+                    (subject, false, &[][..], *kind)
+                }
+                DependencyStorageEffect::Indirect {
+                    reference,
+                    projections,
+                    kind,
+                } => (reference, true, projections.as_ref(), *kind),
             };
 
             let suffix = storage_projections(self.request, projections)?;
 
-            for target in targets {
+            for target in resolve(subject, indirect)? {
                 resolved.push((target.project(&suffix), kind));
             }
         }
@@ -188,7 +197,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         Some(resolved)
     }
 
-    fn record_target_effect(&mut self, target: &Target, kind: DependencyMutationKind) {
+    pub(super) fn record_target_effect(&mut self, target: &Target, kind: DependencyMutationKind) {
         if !self.publish || self.effects.contains(&DependencyStorageEffect::Unknown) {
             return;
         }

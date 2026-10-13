@@ -31,6 +31,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         self.aggregate_snapshot(state, expression).unwrap_or(value)
     }
 
+    pub(in crate::analysis::guarantee) fn borrowed_value(
+        &self,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+    ) -> ExecutionCondition {
+        // Borrow checking keeps the evaluated access path valid through this call.
+        // Completion reads its current contents, without the cached entry snapshot.
+        expression_condition(
+            self.request.unit(),
+            self.semantics,
+            self.request.semantic_values(),
+            self.literals,
+            &state.current,
+            &Default::default(),
+            expression,
+            &mut { ExecutionCondition::WORK_LIMIT },
+        )
+    }
+
     fn aggregate_snapshot(
         &self,
         state: &ExecutionState,

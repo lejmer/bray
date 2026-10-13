@@ -290,6 +290,19 @@ pub struct StorageFlow {
     conditions: std::collections::BTreeMap<BoundExpressionId, bool>,
     assignment_targets: std::collections::BTreeMap<BoundExpressionId, crate::StoragePath>,
     dependencies: bray_symbols::DependencyContractTemplateData,
+    cleanup_mutations: std::collections::BTreeMap<
+        (
+            crate::BoundExecutionSite,
+            crate::StorageAccessId,
+            usize,
+            bray_symbols::TypeAssociatedLifecycleSlot,
+        ),
+        crate::StorageInvalidation,
+    >,
+    completion_observations: std::collections::BTreeMap<
+        crate::StorageMutation,
+        std::collections::BTreeMap<crate::StoragePath, crate::StoragePath>,
+    >,
     reachable_exits: Arc<[StorageExitPoint]>,
     exits: Arc<[StorageExitDecision]>,
     memory_operations: Arc<[MemoryOperationDecision]>,
@@ -393,9 +406,62 @@ impl StorageFlow {
             checked_memory_operations: Arc::from([]),
             assignment_targets: std::collections::BTreeMap::new(),
             dependencies: bray_symbols::DependencyContractTemplateData::new([]),
+            cleanup_mutations: Default::default(),
+            completion_observations: Default::default(),
             replacements: Arc::from([]),
             is_recovered,
         })
+    }
+
+    /// Publishes each represented lifecycle invocation's resolved mutation observations.
+    pub fn with_cleanup_mutations(
+        mut self,
+        mutations: std::collections::BTreeMap<
+            (
+                crate::BoundExecutionSite,
+                crate::StorageAccessId,
+                usize,
+                bray_symbols::TypeAssociatedLifecycleSlot,
+            ),
+            crate::StorageInvalidation,
+        >,
+    ) -> Self {
+        self.cleanup_mutations = mutations;
+
+        self
+    }
+
+    /// Returns mutations established by storage analysis for the prepared lifecycle step.
+    pub fn cleanup_mutation(
+        &self,
+        occurrence: crate::BoundExecutionSite,
+        access: crate::StorageAccessId,
+        part: usize,
+        slot: bray_symbols::TypeAssociatedLifecycleSlot,
+    ) -> Option<&crate::StorageInvalidation> {
+        self.cleanup_mutations
+            .get(&(occurrence, access, part, slot))
+    }
+
+    /// Publishes exact current reference observations at normal completion.
+    pub fn with_completion_observations(
+        mut self,
+        observations: std::collections::BTreeMap<
+            crate::StorageMutation,
+            std::collections::BTreeMap<crate::StoragePath, crate::StoragePath>,
+        >,
+    ) -> Self {
+        self.completion_observations = observations;
+
+        self
+    }
+
+    /// Returns exact aliases established by the owning storage transition.
+    pub fn completion_observations(
+        &self,
+        mutation: crate::StorageMutation,
+    ) -> Option<&std::collections::BTreeMap<crate::StoragePath, crate::StoragePath>> {
+        self.completion_observations.get(&mutation)
     }
 
     /// Publishes carried dependencies, exact reference relations and possible mutations from this flow.

@@ -18,4 +18,4 @@ pub(in crate::analysis) use state::ExecutionState;
 pub(in crate::analysis) use trusted::TrustedChecks;
 mod flow;
 
-pub(in crate::analysis) use cleanup::{Lifecycle, Observer};
+pub(in crate::analysis) use cleanup::{Lifecycle, LifecycleInvocation, Observer};

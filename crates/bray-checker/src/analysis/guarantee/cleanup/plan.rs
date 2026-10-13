@@ -11,9 +11,7 @@ use crate::{
 
 pub(crate) struct Cleanup<'a> {
     pub(super) selected: Option<(&'a CheckedAsync, &'a bray_bound_tree::StorageFlow)>,
-    pub(super) plan: &'a Plan,
-    pub(in crate::analysis::guarantee) dependencies:
-        &'a BTreeMap<CallableInstanceData, bray_symbols::DependencyContractTemplateData>,
+    pub(in crate::analysis) plan: &'a Plan,
     pub(in crate::analysis::guarantee) borrowed_inputs: BTreeSet<ExecutionPlace>,
 }
 
@@ -23,7 +21,7 @@ pub(crate) struct Plan {
     pub(super) replacements:
         BTreeMap<StorageAccessId, bray_bound_tree::AsyncStorageCleanupRequirement>,
     pub(super) steps: BTreeMap<StorageAccessId, Vec<Step>>,
-    pub(super) lifecycles: BTreeMap<(TypeId, TypeAssociatedLifecycleSlot), Lifecycle>,
+    pub(in crate::analysis) lifecycles: BTreeMap<(TypeId, TypeAssociatedLifecycleSlot), Lifecycle>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -32,6 +30,7 @@ pub(super) enum Step {
     Lifecycle {
         ty: TypeId,
         place: Option<ExecutionPlace>,
+        path: Option<bray_bound_tree::StoragePath>,
         whole: bool,
         conditional: bool,
     },
@@ -39,7 +38,7 @@ pub(super) enum Step {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in crate::analysis) struct Lifecycle {
-    pub(in crate::analysis::guarantee) callable: CallableInstanceData,
+    pub(in crate::analysis) callable: CallableInstanceData,
     pub(in crate::analysis::guarantee) result: TypeId,
     pub(in crate::analysis::guarantee) receiver: BoundReferenceTarget,
     pub(in crate::analysis::guarantee) synchronous: bool,
@@ -56,7 +55,6 @@ impl<'a> Cleanup<'a> {
 
         Self {
             plan,
-            dependencies: references,
             borrowed_inputs,
             selected: None,
         }
@@ -230,11 +228,13 @@ impl Plan {
                     } else {
                         types.insert(ty);
 
+                        let path = part.as_ref().and_then(|part| part.storage_path(storage, access));
+                        let place = path.as_ref().and_then(|path| ExecutionPlace::storage_path(storage, path));
+
                         Step::Lifecycle {
                             ty,
-                            place: part.as_ref().and_then(|part| {
-                                ExecutionPlace::cleanup_part(storage, access, part)
-                            }),
+                            path,
+                            place,
                             conditional: part.as_ref().is_none_or(|part| part.projections().iter().any(|projection| {
                                 matches!(projection.projection(),
                                     bray_bound_tree::StorageCleanupProjectionKind::Component(

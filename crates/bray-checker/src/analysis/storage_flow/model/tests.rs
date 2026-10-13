@@ -88,6 +88,13 @@ fn raw_expression_indexes_preserve_first_result_and_later_alias_order() {
         )
         .expect("empty test dependencies"),
         &crate::dependency::ValueInputs::default(),
+        &bray_bound_tree::CheckedSemanticSelections::try_new(
+            &unit,
+            &bray_bound_tree::CheckedExpressionTypes::new(unit.unit(), unit.key().kind(), []),
+            [],
+        )
+        .expect("empty test selections"),
+        &crate::analysis::guarantee::CleanupPlan::default(),
     )
     .expect("test storage indexes must build");
 

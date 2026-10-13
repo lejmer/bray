@@ -1,8 +1,6 @@
 use super::model::ExecutionFlowDomain;
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_bound_tree::AnyBoundNodeId;
-
 use crate::CheckerRequestContext;
 use crate::execution_guarantees::ExecutionCondition;
 
@@ -10,97 +8,6 @@ use super::super::state::ExecutionState;
 use bray_bound_tree::StorageInvalidation;
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    fn spare_storage_header(
-        &self,
-        state: &ExecutionState,
-        occurrence: bray_bound_tree::BoundExecutionSite,
-    ) -> Option<crate::ExecutionPlace> {
-        use bray_bound_tree::{SelectedArgument, SemanticSelection};
-        use bray_compiler_known::ImplementationHook;
-
-        let SemanticSelection::Call(call) = self
-            .semantics
-            .selections()
-            .expression(occurrence.expression()?)?
-        else {
-            return None;
-        };
-
-        let destination = match call.implementation_hook()? {
-            ImplementationHook::MemoryCopy | ImplementationHook::MemoryCopyOverlapping => 1,
-            ImplementationHook::RawPointerWrite
-            | ImplementationHook::ByteBufferFill
-            | ImplementationHook::VolatileStore => 0,
-            _ => return None,
-        };
-
-        let argument = |call: &bray_bound_tree::SelectedCall, index| {
-            call.arguments().iter().find_map(|argument| match argument {
-                SelectedArgument::Explicit {
-                    expression,
-                    ordinal,
-                    ..
-                } if *ordinal == index => Some(*expression),
-                _ => None,
-            })
-        };
-
-        let destination_value = self.value(state, argument(call, destination)?);
-
-        let ExecutionCondition::Expression(producer) = destination_value else {
-            return None;
-        };
-
-        let SemanticSelection::Call(producer_call) =
-            self.semantics.selections().expression(producer)?
-        else {
-            return None;
-        };
-
-        if producer_call.implementation_hook() != Some(ImplementationHook::RawBufferSparePointer) {
-            return None;
-        }
-
-        let contract = self.request.trusted_contracts()?.calls.get(&occurrence)?;
-        let entry = state.entries.get(&occurrence)?;
-
-        if !entry.proves(&contract.preconditions)
-            || !self.trusted_requirements_proven(entry, &contract.requirements)
-        {
-            return None;
-        }
-
-        let buffer = argument(producer_call, 0)?;
-        let value = self.value(state, buffer);
-        let producer_entry = state.entries.get(&producer.into())?;
-
-        if producer_entry
-            .arguments
-            .get(&crate::ExecutionPlace::argument(
-                bray_symbols::SymbolOrdinal::new(0),
-            ))
-            != Some(&value)
-        {
-            return None;
-        }
-
-        // This closed accessor names only the live owner's spare allocation. A
-        // checked store there can change payload contents, but cannot reach its header.
-        match value {
-            ExecutionCondition::Input(place) => Some(place),
-            ExecutionCondition::Borrowed(value) => match value.as_ref() {
-                ExecutionCondition::Input(place) => Some(place.clone()),
-                _ => None,
-            },
-            _ => crate::execution_guarantees::expression_place(
-                self.request.unit(),
-                self.semantics,
-                self.request.semantic_values(),
-                buffer,
-            ),
-        }
-    }
-
     pub(super) fn invalidate(
         &self,
         state: &mut ExecutionState,
@@ -138,50 +45,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             {
                 return;
             }
-
-            let preserves_storage = match occurrence {
-                bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(
-                    expression,
-                )) => {
-                    matches!(self.semantics.selections().expression(expression),
-                    Some(bray_bound_tree::SemanticSelection::Call(call)) if matches!(call.implementation_hook(), Some(
-                        bray_compiler_known::ImplementationHook::RawPointerWrite
-                        | bray_compiler_known::ImplementationHook::RawPointerRead
-                        | bray_compiler_known::ImplementationHook::VolatileStore
-                        | bray_compiler_known::ImplementationHook::DeviceVolatileStore)))
-                }
-                _ => false,
-            };
-
-            let spatial = if preserves_storage {
-                state.trusted_assumptions.iter().filter(|(condition, _)| {
-                    let condition = match condition {
-                        ExecutionCondition::Trusted(condition) => condition.as_ref(),
-                        condition => condition,
-                    };
-
-                    matches!(condition, ExecutionCondition::Predicate(predicate, _, _) if self.spatial_predicates.contains(predicate))
-                })
-                    .cloned().collect()
-            } else {
-                BTreeSet::new()
-            };
-
-            let dependencies = if preserves_storage {
-                // Reached addresses keep their owner lifetimes even when their contents change.
-                // Retain the complete dependency chain, including intermediate address views.
-                std::mem::take(&mut state.witness_dependencies)
-            } else {
-                BTreeMap::new()
-            };
-
-            let preserved_header = self.spare_storage_header(state, occurrence);
-
-            state.invalidate_cleanup(preserved_header.as_ref());
-            state.trusted_assumptions = spatial;
-            state.witness_dependencies = dependencies;
-
-            return;
         }
 
         let transfers = !changes_contents
@@ -193,10 +56,79 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 )
             });
 
+        let content_only = occurrence
+            .expression()
+            .and_then(|expression| self.memory.operation(expression))
+            .is_some_and(|operation| {
+                crate::memory::execution::storage_effect(operation.kind())
+                    == crate::memory::execution::StorageEffect::Contents
+            });
+
+        self.invalidate_observations(
+            state,
+            bray_bound_tree::StorageMutation::Operation(occurrence),
+            invalidation,
+            transfers,
+            content_only,
+        );
+    }
+
+    pub(in crate::analysis) fn invalidate_observations(
+        &self,
+        state: &mut ExecutionState,
+        mutation: bray_bound_tree::StorageMutation,
+        invalidation: &StorageInvalidation,
+        transfers: bool,
+        content_only: bool,
+    ) {
+        if matches!(invalidation, StorageInvalidation::All) {
+            state.invalidate_cleanup();
+
+            let roots = self
+                .observed_types
+                .keys()
+                .chain(state.current.keys())
+                .filter(|place| place.projections.is_empty())
+                .cloned()
+                .collect::<BTreeSet<_>>();
+
+            state.current.clear();
+
+            for place in roots {
+                state.assign(
+                    place.clone(),
+                    ExecutionCondition::PostState(mutation, place),
+                );
+            }
+
+            return;
+        }
+
+        if let StorageInvalidation::Observed { referents, .. } = invalidation {
+            let observed = referents
+                .iter()
+                .filter_map(|path| {
+                    crate::ExecutionPlace::storage_path(self.storage, path)?
+                        .value_in(&state.current)
+                })
+                .collect::<Vec<_>>();
+
+            let unstable = BTreeSet::new();
+
+            state.invalidate_referents(
+                &observed,
+                if content_only {
+                    &self.spatial_predicates
+                } else {
+                    &unstable
+                },
+            );
+        }
+
         let mut changed_places = BTreeSet::new();
 
         match invalidation {
-            StorageInvalidation::Observed(accesses) => {
+            StorageInvalidation::Observed { accesses, .. } => {
                 for path in accesses.values().flatten() {
                     if let Some(place) = crate::ExecutionPlace::storage_path(self.storage, path)
                         .or_else(|| {
@@ -265,16 +197,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .collect()
         };
 
-        // Resolve every affected place before changing observations, and index witness
-        // dependencies once for the complete mutation rather than once per destination.
-        let content_only = occurrence
-            .expression()
-            .and_then(|expression| self.memory.operation(expression))
-            .is_some_and(|operation| {
-                crate::memory::execution::storage_effect(operation.kind())
-                    == crate::memory::execution::StorageEffect::Contents
-            });
-
         if content_only {
             state.invalidate_contents(
                 &changed_places,
@@ -282,7 +204,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 &self.spatial_predicates,
             );
         } else {
-            state.invalidate_trusted_places(&changed_places, invalidated_values);
+            state.invalidate_contents(&changed_places, invalidated_values, &BTreeSet::new());
         }
 
         // Preserve observations of disjoint components before retiring the containing snapshot.
@@ -301,6 +223,45 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         for place in changed_places {
             state.assign(place, ExecutionCondition::Unknown);
+        }
+
+        if !transfers && let StorageInvalidation::Observed { snapshots, .. } = invalidation {
+            for (path, _) in snapshots.iter().filter(|(path, target)| path == target) {
+                if let Some(place) = crate::ExecutionPlace::storage_path(self.storage, path) {
+                    state.assign(
+                        place.clone(),
+                        ExecutionCondition::PostState(mutation, place),
+                    );
+                }
+            }
+
+            self.observe_references(state, snapshots);
+        }
+    }
+    pub(in crate::analysis) fn observe_references(
+        &self,
+        state: &mut ExecutionState,
+        observations: &BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StoragePath>,
+    ) {
+        // Read all targets before assigning aliases, so map order cannot change the result.
+        let aliases = observations
+            .iter()
+            .filter(|(path, target)| path != target)
+            .filter_map(|(path, target)| {
+                let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
+                let target = crate::ExecutionPlace::storage_path(self.storage, target)?;
+
+                Some((
+                    place,
+                    target
+                        .value_in(&state.current)
+                        .unwrap_or_else(|| ExecutionCondition::Input(target)),
+                ))
+            })
+            .collect::<Vec<_>>();
+
+        for (place, value) in aliases {
+            state.assign(place, value);
         }
     }
 }

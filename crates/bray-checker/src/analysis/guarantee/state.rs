@@ -140,7 +140,7 @@ impl ExecutionState {
 
         (whole, partial)
     }
-    pub(super) fn invalidate_cleanup(&mut self, preserved_header: Option<&crate::ExecutionPlace>) {
+    pub(super) fn invalidate_cleanup(&mut self) {
         self.assumptions
             .retain(|(condition, _)| !condition.observes_borrowed(None));
 
@@ -161,10 +161,8 @@ impl ExecutionState {
 
         // Opaque cleanup may mutate through capabilities. Whole snapshots contain field
         // observations too, so retaining a root would resurrect its old projected contents.
-        for (place, value) in &mut self.current {
-            if !preserved_header.is_some_and(|header| header.contains(place)) {
-                *value = ExecutionCondition::Unknown;
-            }
+        for value in self.current.values_mut() {
+            *value = ExecutionCondition::Unknown;
         }
     }
 
@@ -277,15 +275,20 @@ impl ExecutionState {
         values: impl IntoIterator<Item = ExecutionCondition>,
         retained: &BTreeSet<ExecutionCondition>,
     ) {
-        self.retire_values(values, [], retained, &BTreeSet::new());
+        self.retire_values(
+            values,
+            retained,
+            &BTreeSet::new(),
+            bray_symbols::DependencyMutationKind::Retire,
+        );
     }
 
     fn retire_values(
         &mut self,
         values: impl IntoIterator<Item = ExecutionCondition>,
-        dependents: impl IntoIterator<Item = ExecutionCondition>,
         retained: &BTreeSet<ExecutionCondition>,
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
+        kind: bray_symbols::DependencyMutationKind,
     ) {
         let mut pending = values.into_iter().collect::<Vec<_>>();
         let mut directly_changed = crate::execution_guarantees::ObservationSet::default();
@@ -298,8 +301,6 @@ impl ExecutionState {
             }
         }
 
-        pending.extend(dependents);
-
         if pending.is_empty() {
             return;
         }
@@ -310,7 +311,11 @@ impl ExecutionState {
             BTreeMap::<crate::ExecutionPlace, BTreeSet<ExecutionCondition>>::new();
 
         // Index current dependencies once, then visit only carriers reached by the worklist.
-        for (carrier, dependencies) in &self.witness_dependencies {
+        for (carrier, dependencies) in self
+            .witness_dependencies
+            .iter()
+            .filter(|_| kind != bray_symbols::DependencyMutationKind::Write)
+        {
             for dependency in dependencies
                 .iter()
                 .filter_map(|place| place.value_in(&self.current))
@@ -449,7 +454,8 @@ impl ExecutionState {
         // A content write may revoke all old facts on an intermediate address.
         // Keep its lifetime edge so newly established facts still expire with the owner.
         self.witness_dependencies.retain(|carrier, _| {
-            !invalidated_observations.contains(carrier)
+            kind == bray_symbols::DependencyMutationKind::Write
+                || !invalidated_observations.contains(carrier)
                 || retained_observations.contains(carrier)
                 || self.witness_carriers.contains_key(carrier)
                 || !stable_predicates.is_empty() && !directly_changed.contains(carrier)
@@ -470,12 +476,62 @@ impl ExecutionState {
         }
     }
 
-    pub(super) fn invalidate_trusted_places(
+    pub(super) fn invalidate_referents(
         &mut self,
-        places: &BTreeSet<crate::ExecutionPlace>,
-        values: impl IntoIterator<Item = ExecutionCondition>,
+        values: &[ExecutionCondition],
+        stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
     ) {
-        self.invalidate_contents(places, values, &BTreeSet::new());
+        if values.is_empty() {
+            return;
+        }
+
+        let revokes = |condition: &ExecutionCondition| {
+            let predicate = match condition {
+                ExecutionCondition::Trusted(predicate) => predicate.as_ref(),
+                condition => condition,
+            };
+
+            !matches!(predicate, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
+                && values.iter().any(|value| condition.observes(value))
+        };
+
+        let revokes_observation = |condition: &ExecutionCondition| {
+            condition.observations().any(|observation| {
+                matches!(
+                    observation,
+                    ExecutionCondition::Borrowed(_) | ExecutionCondition::Predicate(_, _, _)
+                ) && revokes(observation)
+            })
+        };
+
+        self.assumptions
+            .retain(|(condition, _)| !revokes_observation(condition));
+
+        self.trusted_assumptions
+            .retain(|(condition, _)| !revokes(condition));
+
+        self.witness_carriers.retain(|_, conditions| {
+            conditions.retain(|condition| !revokes(condition));
+
+            !conditions.is_empty()
+        });
+
+        self.allocation_owners
+            .retain(|condition, _| !revokes(condition));
+
+        for entry in self
+            .entries
+            .values_mut()
+            .filter(|entry| entry.pending_execution)
+        {
+            entry
+                .assumptions
+                .retain(|(condition, _)| !revokes_observation(condition));
+
+            entry
+                .trusted_assumptions
+                .retain(|(condition, _)| !revokes(condition));
+        }
     }
 
     pub(super) fn invalidate_contents(
@@ -493,14 +549,14 @@ impl ExecutionState {
             })
         });
 
-        let dependent = self
-            .witness_dependencies
-            .iter()
-            .filter(|(_, owners)| owners.iter().any(|owner| owner.overlaps_any(places)))
-            .map(|(carrier, _)| carrier.clone())
-            .collect::<Vec<_>>();
-
-        self.retire_values(values, dependent, &BTreeSet::new(), stable_predicates);
+        // Writes revoke observed contents. A live carrier's lifetime dependencies
+        // are retired only when the physical owner or capability ends.
+        self.retire_values(
+            values,
+            &BTreeSet::new(),
+            stable_predicates,
+            bray_symbols::DependencyMutationKind::Write,
+        );
     }
 
     pub(super) fn invalidate_trusted_roots(
@@ -747,13 +803,23 @@ mod tests {
                     ExecutionPlace::argument(SymbolOrdinal::new(256)).root,
                 ]));
             } else if batch == 2 {
-                state.invalidate_trusted_places(
+                state.invalidate_contents(
                     &BTreeSet::from([
                         ExecutionPlace::argument(SymbolOrdinal::new(1)),
                         ExecutionPlace::argument(SymbolOrdinal::new(256)),
                     ]),
                     [input(1), input(256)],
+                    &BTreeSet::new(),
                 );
+
+                assert!(state.trusted_assumptions.contains(&(input(2), true)));
+                assert!(!state.trusted_assumptions.contains(&(input(256), true)));
+                assert_eq!(state.witness_dependencies.len(), 513);
+
+                state.invalidate_trusted_roots(&BTreeSet::from([ExecutionPlace::argument(
+                    SymbolOrdinal::new(1),
+                )
+                .root]));
             } else {
                 state.invalidate_trusted(&input(1));
             }

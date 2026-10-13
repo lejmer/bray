@@ -124,12 +124,12 @@ pub use storage::{
     StorageAlternative, StorageAlternativeId, StorageBinding, StorageBindingTarget,
     StorageCleanupPart, StorageCleanupProjection, StorageCleanupProjectionKind, StorageCleanupType,
     StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError, StorageIdentity,
-    StorageIdentityId, StorageOperationDecision, StorageOperationStatus, StoragePath, StoragePlan,
-    StoragePlanBuildError, StoragePlanBuilder, StorageProjection, StorageProtocolCall,
-    StorageReferencePath, StorageRelationship, StorageReplacementDecision, StorageReplacementPlan,
-    StorageReplacementState, StorageScopeBuildError, StorageScopeOwners, StorageSuspensionState,
-    storage_expression_republishes_destructor_receiver, storage_identity_is_destructor_receiver,
-    storage_identity_transfers_at_unit_exit,
+    StorageIdentityId, StorageMutation, StorageOperationDecision, StorageOperationStatus,
+    StoragePath, StoragePlan, StoragePlanBuildError, StoragePlanBuilder, StorageProjection,
+    StorageProtocolCall, StorageReferencePath, StorageRelationship, StorageReplacementDecision,
+    StorageReplacementPlan, StorageReplacementState, StorageScopeBuildError, StorageScopeOwners,
+    StorageSuspensionState, storage_expression_republishes_destructor_receiver,
+    storage_identity_is_destructor_receiver, storage_identity_transfers_at_unit_exit,
 };
 pub use template::{
     CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateBuildError, CheckedTemplateBuilder,

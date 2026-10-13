@@ -16,6 +16,18 @@ impl State {
             .take_while(move |(slot, _)| place.contains(slot))
     }
 
+    pub(in crate::analysis::storage_flow) fn observed_references(
+        &self,
+    ) -> impl Iterator<Item = (Place, &BTreeSet<Target>, bool)> {
+        self.values.iter().filter_map(|(location, references)| {
+            Some((
+                location.observation_path()?,
+                &references.targets,
+                references.unknown,
+            ))
+        })
+    }
+
     #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn entry_reference(&mut self, slot: Place) {
         self.entry_reference_at(slot.clone(), Target::storage(slot), None);

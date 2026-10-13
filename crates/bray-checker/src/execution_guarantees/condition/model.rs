@@ -25,10 +25,10 @@ pub enum ExecutionCondition {
         Arc<ExecutionCondition>,
         Arc<[(bray_bound_tree::StorageProjection, ExecutionCondition)]>,
     ),
-    /// A retained receiver observed after one call completes normally.
+    /// Fresh contents observed after a checked mutation. This establishes no guarantee.
     PostState(
-        bray_bound_tree::BoundExpressionId,
-        bray_bound_tree::BoundReferenceTarget,
+        bray_bound_tree::StorageMutation,
+        crate::execution_guarantees::ExecutionPlace,
     ),
     /// The current value of storage where control-flow predecessors meet.
     Joined(

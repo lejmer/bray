@@ -71,17 +71,10 @@ where
                 liveness,
                 dependencies,
                 values,
+                execution.semantics.selections(),
+                execution.disposal.plan,
             )
-            .and_then(|(mut input, cleanup_diagnostics)| {
-                input.prepare_summary_references(
-                    request,
-                    storage,
-                    execution.semantics.selections(),
-                    dependencies,
-                )?;
-
-                Ok(((input, cleanup_diagnostics), diagnostics))
-            })
+            .map(|prepared| (prepared, diagnostics))
         }) {
             Ok(result) => result,
             Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
@@ -261,7 +254,10 @@ where
     .and_then(|analysis| analysis.with_replacements(replacements))
     .and_then(|analysis| analysis.with_assignment_targets(assignments))
     {
-        Ok(analysis) => analysis.with_dependencies(dependencies.with_effects(effects)),
+        Ok(analysis) => analysis
+            .with_dependencies(dependencies.with_effects(effects))
+            .with_cleanup_mutations(collector.cleanup_mutations)
+            .with_completion_observations(collector.completion_observations),
         Err(error) => {
             panic!(
                 "Durable storage-flow construction rejected an exact invariant. in check_storage_flow_with_graph, value0: {:?}",
@@ -343,7 +339,7 @@ where
     pub(super) execution:
         &'analysis crate::analysis::guarantee::ExecutionFlowDomain<'analysis, 'analysis, C>,
     pub(super) dependencies: &'analysis bray_bound_tree::CheckedDependencyContracts,
-    trusted: crate::analysis::guarantee::TrustedChecks,
+    pub(super) trusted: crate::analysis::guarantee::TrustedChecks,
     pub(super) memory_evidence: Option<bool>,
     pub(super) statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
     pub(super) suspensions: BTreeMap<bray_bound_tree::BoundExecutionSite, StorageSuspensionState>,
@@ -353,6 +349,19 @@ where
     assignments: BTreeMap<BoundExpressionId, Option<crate::analysis::storage_flow::memory::Place>>,
     pub(super) effects: BTreeSet<bray_symbols::DependencyStorageEffect>,
     pub(super) references: Option<crate::analysis::storage_flow::memory::ReferenceExit>,
+    pub(super) cleanup_mutations: BTreeMap<
+        (
+            bray_bound_tree::BoundExecutionSite,
+            StorageAccessId,
+            usize,
+            bray_symbols::TypeAssociatedLifecycleSlot,
+        ),
+        bray_bound_tree::StorageInvalidation,
+    >,
+    pub(super) completion_observations: BTreeMap<
+        bray_bound_tree::StorageMutation,
+        BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StoragePath>,
+    >,
     invalidations:
         BTreeMap<bray_bound_tree::BoundExecutionSite, bray_bound_tree::StorageInvalidation>,
     pub(super) memory_decisions: BTreeMap<BoundExpressionId, MemoryOperationStatus>,
@@ -438,6 +447,8 @@ where
             replacements: BTreeMap::new(),
             assignments: BTreeMap::new(),
             invalidations: BTreeMap::new(),
+            cleanup_mutations: BTreeMap::new(),
+            completion_observations: BTreeMap::new(),
             effects: BTreeSet::new(),
             references: None,
             memory_decisions: BTreeMap::new(),
@@ -514,40 +525,7 @@ where
                 .before_operation(self.execution, &execution, kind);
         }
 
-        let mut observe = |_: _,
-                           _: _,
-                           lifecycle: &crate::analysis::guarantee::Lifecycle,
-                           _: bool,
-                           _: &crate::ExecutionCallEvidence,
-                           established: bool| {
-            self.trusted.cleanup(
-                kind.node(),
-                established,
-                !lifecycle.contract.requirements.is_empty(),
-            );
-        };
-
-        let cleanup_changes_storage = self.execution.transition_storage_cleanup(
-            &mut execution,
-            state,
-            self.dependencies,
-            kind,
-            self.publish
-                .then_some(&mut observe as &mut crate::analysis::guarantee::Observer<'_>),
-        );
-
-        if cleanup_changes_storage {
-            self.record_effects(
-                &bray_bound_tree::StorageInvalidation::All,
-                bray_symbols::DependencyMutationKind::Retire,
-            );
-
-            state.memory.invalidate(
-                &bray_bound_tree::StorageInvalidation::All,
-                self.storage,
-                bray_symbols::DependencyMutationKind::Retire,
-            );
-        }
+        self.apply_cleanup(state, &mut execution, kind);
 
         let completing = matches!(
             kind,
@@ -571,16 +549,16 @@ where
         let invalidation = if completing {
             None
         } else {
-            let call_effects = call_effects.as_ref().map(|effects| {
-                self.target_observations(state, effects.iter().map(|(target, _)| target))
-            });
+            let call_effects = call_effects
+                .as_ref()
+                .map(|effects| self.call_observations(state, kind.occurrence(), effects));
 
             call_effects
                 .or_else(|| {
                     // Assignment publication and mutation share one resolved path.
-                    assignment
-                        .as_ref()
-                        .map(|target| self.target_observations(state, std::iter::once(target)))
+                    assignment.as_ref().map(|target| {
+                        self.target_observations(&state.memory, std::iter::once(target))
+                    })
                 })
                 .or_else(|| {
                     self.refinements
@@ -649,19 +627,54 @@ where
             invalidation.as_ref(),
         );
 
+        let observations = if !matches!(
+            kind,
+            AnalysisOperationKind::Call {
+                phase: crate::analysis::model::AnalysisCallPhase::Attempt,
+                ..
+            }
+        ) {
+            self.completed_references(state, kind.occurrence())
+        } else {
+            BTreeMap::new()
+        };
+
         let execution = state
             .execution
             .as_mut()
             .expect("operation retains execution facts");
 
-        if completing && memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid) {
-            self.execution
-                .transfer_operation(execution, kind, None, None);
+        if memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid) {
+            self.execution.observe_references(execution, &observations);
+
+            if completing
+                && matches!(
+                    kind.occurrence(),
+                    bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+                        | bray_bound_tree::BoundExecutionSite::ScopedExit(_)
+                )
+            {
+                self.execution
+                    .transfer_operation(execution, kind, None, None);
+            } else {
+                self.execution.complete_operation(execution, kind);
+            }
         }
 
         if self.publish {
             self.trusted
                 .after_operation(self.execution, execution, kind, self.memory_evidence);
+        }
+
+        if !matches!(
+            kind,
+            AnalysisOperationKind::Call {
+                phase: AnalysisCallPhase::Attempt,
+                ..
+            }
+        ) {
+            self.end_last_use_borrows(state, kind.occurrence());
+            self.end_last_use_storage(state, kind.occurrence());
         }
 
         crate::analysis::refinement::transfer_operation(
@@ -764,9 +777,6 @@ where
                         for plan in self.storage.occurrence_plans(operation.kind().occurrence()) {
                             self.apply_plan(state, plan, refinements.clone());
                         }
-                    } else {
-                        self.end_last_use_borrows(state, invocation);
-                        self.end_last_use_storage(state, invocation);
                     }
 
                     state.memory.finish_value_transfers();
@@ -817,9 +827,6 @@ where
         {
             self.report_escaping_default_storage(state, root);
         }
-
-        self.end_last_use_borrows(state, operation.kind().occurrence());
-        self.end_last_use_storage(state, operation.kind().occurrence());
 
         if let AnalysisOperationKind::ScopeExit {
             block,

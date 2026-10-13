@@ -20,18 +20,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let contract = &lifecycle.contract;
 
-        // Cleanup keeps the receiver's owner, but its fields describe a new initialized state.
-        for value in entry.arguments.values() {
-            state
-                .assumptions
-                .retain(|(condition, _)| !condition.observes(value));
-        }
+        let root = place
+            .value_in(&state.current)
+            .unwrap_or(ExecutionCondition::Unknown);
 
-        let root = ExecutionCondition::Input(place.clone());
-
-        state.assign(place.clone(), root.clone());
-
-        let mut arguments = entry
+        let arguments = entry
             .arguments
             .keys()
             .map(|input| {
@@ -44,8 +37,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 (input.clone(), value)
             })
             .collect::<BTreeMap<_, _>>();
-
-        self.preserve_cleanup_borrows(state, &place, lifecycle, entry, &mut arguments);
 
         for (conditions, trusted) in [
             (&contract.guarantees, true),
@@ -231,7 +222,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         // A resumed body can have executed opaque code and changed owner epochs.
-        state.invalidate_cleanup(None);
+        state.invalidate_cleanup();
 
         for (source, expression) in completions {
             self.complete_trusted_call(
@@ -247,13 +238,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         expression: BoundExpressionId,
         call: &bray_bound_tree::SelectedCall,
-        preserves_inputs: bool,
         arguments: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     ) -> (Vec<ExecutionCondition>, BTreeSet<crate::ExecutionPlace>) {
         let mut carriers = Vec::new();
         let mut owners = BTreeSet::new();
-        let mut replacements = BTreeMap::new();
-        let mut assignments = BTreeMap::new();
 
         // Whole-owner guarantees follow the returned value's dependency contract.
         // Address and field guarantees also depend on the borrowed storage that
@@ -265,50 +253,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .and_then(|dependencies| dependencies.retained_inputs())
                 .is_none_or(|inputs| inputs.contains(&operand))
         };
-
-        let preserves = preserves_inputs
-            || !matches!(
-                self.refinements.get(&expression.into()),
-                Some(bray_bound_tree::StorageInvalidation::All)
-            );
-
-        let mut complete_input =
-            |input: ExecutionCondition, place: &crate::ExecutionPlace, reference| {
-                if preserves {
-                    input
-                } else {
-                    let post = ExecutionCondition::PostState(expression, reference);
-
-                    // The promise describes the same borrowed storage after the call. Keep
-                    // the borrow around the new referent, including through local aliases.
-                    match input {
-                        ExecutionCondition::Borrowed(referent) => {
-                            let post = replacements
-                                .entry(referent.as_ref().clone())
-                                .or_insert(post);
-
-                            if let ExecutionCondition::Input(place) = referent.as_ref() {
-                                assignments.insert(place.clone(), post.clone());
-                            }
-
-                            post.clone().borrowed()
-                        }
-                        ExecutionCondition::Unknown => ExecutionCondition::Unknown,
-                        input => {
-                            let place = match &input {
-                                ExecutionCondition::Input(place) => place.clone(),
-                                _ => place.clone(),
-                            };
-
-                            let post = replacements.entry(input).or_insert(post).clone();
-
-                            assignments.insert(place, post.clone());
-
-                            post
-                        }
-                    }
-                }
-            };
 
         for argument in call.arguments() {
             let bray_bound_tree::SelectedArgument::Explicit {
@@ -355,12 +299,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             };
 
-            let reference = parameter
-                .map(|parameter| bray_bound_tree::BoundReferenceTarget::Surface(parameter.into()))
-                .or_else(|| place.reference())
-                .expect("borrowed call input retains its binding identity");
-
-            let input = self.value(state, *operand);
+            let input = self.borrowed_value(state, *operand);
 
             // A local borrow alias retains the referent, rather than the slot holding
             // the alias. Its returned view can outlive that slot while the input lives.
@@ -368,7 +307,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.retain_trusted_borrow_owners(&mut owners, *operand, &input, &place);
             }
 
-            let value = complete_input(input, &place, reference);
+            let value = input;
 
             carriers.push(value.clone());
 
@@ -404,7 +343,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let reference =
                 bray_bound_tree::BoundReferenceTarget::Surface(receiver.parameter().into());
 
-            let input = self.value(state, receiver.expression());
+            let input = self.borrowed_value(state, receiver.expression());
 
             if returned(receiver.expression()) {
                 self.retain_trusted_borrow_owners(
@@ -415,7 +354,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 );
             }
 
-            let value = complete_input(input, &place, reference);
+            let value = input;
 
             carriers.push(value.clone());
             arguments.insert(reference.into(), value.clone());
@@ -424,32 +363,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)),
                 value,
             );
-        }
-
-        // Update reached owners and aliases together in one pass. Entry evidence and
-        // old facts stay immutable; only the declared completion promises restore authority.
-        if !replacements.is_empty() {
-            for value in state.current.values_mut() {
-                *value = value.with_joined_values(&replacements, &replacements);
-            }
-        }
-
-        // Parameters initially have implicit Input values. Materialize their new
-        // state and retire stale field snapshots beneath each updated place.
-        if !assignments.is_empty() {
-            let changed = assignments.keys().cloned().collect::<BTreeSet<_>>();
-
-            state.current.retain(|place, _| {
-                !(0..=place.projections.len()).any(|length| {
-                    let mut prefix = place.clone();
-
-                    prefix.projections = place.projections[..length].into();
-
-                    changed.contains(&prefix)
-                })
-            });
-
-            state.current.extend(assignments);
         }
 
         (carriers, owners)
@@ -620,13 +533,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.semantics.selections().expression(expression)
         {
             // The entry above already proves the valid domain of this preservation promise.
-            self.prepare_trusted_borrows(
-                state,
-                expression,
-                call,
-                contract.preserves_inputs,
-                &mut arguments,
-            )
+            self.prepare_trusted_borrows(state, expression, call, &mut arguments)
         } else {
             Default::default()
         };

@@ -148,11 +148,12 @@ fn ordinary_observers_supply_extents_to_trusted_memory_operations() {
 
 #[test]
 fn closed_writes_preserve_storage_validity_but_opaque_calls_revoke_it() {
-    for (intervening, valid) in [("", true), ("opaque();", false)] {
+    for (intervening, valid) in [("", true), ("harmless();", true), ("opaque();", false)] {
         let source = format!(
             r#"
             trusted module app;
-            func opaque() {{}}
+            func harmless() {{}}
+            extern func opaque();
             trusted func roundtrip(pos pointer: RawPointer<u8>) -> u8
                 requires(
                     trusted core.memory.valid_read<u8>(pointer = pointer, count = 1),
@@ -2547,8 +2548,8 @@ fn borrowed_completion_preserves_the_reached_owner_for_cleanup() {
             "let alias = &owner; observe(alias); owner.epoch = 2;",
             false,
         ),
-        ("forget(&owner);", false),
-        ("may_fail(&owner);", false),
+        ("forget(&owner);", true),
+        ("may_fail(&owner);", true),
     ] {
         let source = format!(
             r#"
@@ -2672,35 +2673,40 @@ fn recursive_owned_cleanup_does_not_require_infinite_type_expansion() {
 }
 
 #[test]
-fn finalization_revokes_prior_destructor_evidence() {
-    let compilation = compilation(
-        r#"
-        trusted module app;
+fn finalizer_effects_determine_destructor_evidence() {
+    for (body, valid) in [("", true), ("self.epoch = 2;", false)] {
+        let source = format!(
+            r#"
+            trusted module app;
+            trusted predicate live(value: &Owner);
+            struct Owner {{
+                mut epoch: u64;
+                finalize() {{ {body} }}
+                trusted destruct() requires(trusted live(&self)) {{}}
+            }}
+            trusted func owner() -> Owner ensures(trusted live(&result)) {{
+                return {{ epoch = 1 }};
+            }}
+            func caller() {{ let value = owner(); }}
+        "#
+        );
 
-        trusted predicate live(value: &Owner);
+        let compilation = compilation(&source);
 
-        struct Owner {
-            epoch: u64;
+        assert_eq!(
+            !compilation.check_diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            compilation.check_diagnostics()
+        );
 
-            finalize() {}
-
-            trusted destruct() requires(trusted live(&self)) {}
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                compilation.check_diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
         }
-
-        trusted func owner() -> Owner ensures(trusted live(&result)) {
-            return { epoch = 1 };
-        }
-
-        func caller() {
-            let value = owner();
-        }
-    "#,
-    );
-
-    bray_testing::assert_goal_state_diagnostic_kind(
-        compilation.check_diagnostics(),
-        DiagnosticKind::CheckingTrustedObligationNotProven,
-    );
+    }
 }
 
 #[test]

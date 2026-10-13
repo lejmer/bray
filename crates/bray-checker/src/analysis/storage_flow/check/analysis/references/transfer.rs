@@ -314,42 +314,58 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
             for source in sources {
-                if !relation.target_projections().is_empty() {
-                    let Some(targets) = source.targets(&state.memory) else {
-                        continue;
-                    };
-
-                    let Some(projections) =
-                        storage_projections(self.request, relation.target_projections())
-                    else {
-                        continue;
-                    };
-
-                    let ty = reference
-                        .addressed_type()
-                        .expect("projected reference has its checked target type");
-
-                    for target in targets {
-                        state.memory.stage_address(
-                            occurrence,
-                            target.project(&projections),
-                            destination.clone(),
-                            ty,
-                        );
-                    }
-                } else if let Some(ty) = reference.addressed_type() {
-                    let crate::analysis::storage_flow::memory::Source::Value(target) = source
-                    else {
-                        panic!("addressed storage has a location");
-                    };
-
-                    state
-                        .memory
-                        .stage_address(occurrence, target, destination.clone(), ty);
-                } else {
-                    source.stage(&mut state.memory, occurrence, destination.clone());
-                }
+                self.stage_reference(
+                    &mut state.memory,
+                    occurrence,
+                    source,
+                    destination.clone(),
+                    reference,
+                );
             }
+        }
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn stage_reference(
+        &self,
+        memory: &mut crate::analysis::storage_flow::memory::State,
+        occurrence: BoundExecutionSite,
+        source: crate::analysis::storage_flow::memory::Source,
+        destination: Target,
+        reference: &bray_bound_tree::BoundCallReference,
+    ) {
+        let relation = reference.relation();
+
+        if !relation.target_projections().is_empty() {
+            let Some(targets) = source.targets(memory) else {
+                return;
+            };
+
+            let Some(projections) =
+                storage_projections(self.request, relation.target_projections())
+            else {
+                return;
+            };
+
+            let ty = reference
+                .addressed_type()
+                .expect("projected reference has its checked target type");
+
+            for target in targets {
+                memory.stage_address(
+                    occurrence,
+                    target.project(&projections),
+                    destination.clone(),
+                    ty,
+                );
+            }
+        } else if let Some(ty) = reference.addressed_type() {
+            let crate::analysis::storage_flow::memory::Source::Value(target) = source else {
+                panic!("addressed storage has a location");
+            };
+
+            memory.stage_address(occurrence, target, destination.clone(), ty);
+        } else {
+            source.stage(memory, occurrence, destination.clone());
         }
     }
 

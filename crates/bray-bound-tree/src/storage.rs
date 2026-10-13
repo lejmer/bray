@@ -3,6 +3,7 @@ mod cleanup;
 mod flow;
 mod liveness;
 mod model;
+mod observation;
 mod parts;
 mod path;
 pub use path::{StoragePath, StorageReferencePath};
@@ -25,6 +26,7 @@ pub use model::{
     BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot, StorageAlternativeId,
     StorageIdentity, StorageIdentityId, StorageProjection, StorageRelationship,
 };
+pub use observation::StorageMutation;
 pub use parts::{
     StorageCleanupPart, StorageCleanupProjection, StorageCleanupProjectionKind, StorageProtocolCall,
 };

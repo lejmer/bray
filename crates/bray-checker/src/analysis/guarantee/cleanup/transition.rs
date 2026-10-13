@@ -18,6 +18,18 @@ pub(in crate::analysis) type Observer<'a> = dyn FnMut(
         bool,
     ) + 'a;
 
+pub(in crate::analysis) struct LifecycleInvocation<'a> {
+    pub(in crate::analysis) access: StorageAccessId,
+    pub(in crate::analysis) part: usize,
+    pub(in crate::analysis) slot: TypeAssociatedLifecycleSlot,
+    pub(in crate::analysis) lifecycle: &'a Lifecycle,
+    pub(in crate::analysis) completes: bool,
+    pub(in crate::analysis) path: Option<&'a bray_bound_tree::StoragePath>,
+}
+
+pub(in crate::analysis) type Mutation<'a> =
+    dyn FnMut(&mut ExecutionState, Option<LifecycleInvocation<'_>>) + 'a;
+
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis::guarantee) fn transition_cleanup(
         &self,
@@ -37,7 +49,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     match phase {
                         AnalysisScopeExitPhase::TaskCancellationBroadcast => {
                             if !plan.cancellation_broadcast().is_empty() {
-                                state.invalidate_cleanup(None);
+                                state.invalidate_cleanup();
                             }
                         }
                         AnalysisScopeExitPhase::LifecycleResolution => {
@@ -62,6 +74,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                     exit.moved().iter().cloned(),
                                     exit.definitely_absent().iter().cloned(),
                                     &mut observe,
+                                    operation.occurrence(),
+                                    &mut None,
                                 );
                             }
                         }
@@ -92,6 +106,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         decision.moved().iter().cloned(),
                         decision.definitely_absent().iter().cloned(),
                         &mut observe,
+                        operation.occurrence(),
+                        &mut None,
                     );
                 }
             }
@@ -106,9 +122,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
         operation: AnalysisOperationKind,
         mut observe: Option<&mut Observer<'_>>,
-    ) -> bool {
-        let mut changes_storage = false;
-
+        mutate: &mut Mutation<'_>,
+    ) {
         match operation {
             AnalysisOperationKind::ScopeExit { block, phase, .. } => {
                 let mut lifecycle = Vec::new();
@@ -139,8 +154,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             AnalysisScopeExitPhase::TaskCancellationBroadcast
                                 if phases.includes_cancellation() =>
                             {
-                                state.invalidate_cleanup(None);
-                                changes_storage = true;
+                                mutate(state, None);
                                 break;
                             }
                             AnalysisScopeExitPhase::LifecycleResolution
@@ -157,7 +171,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     match dependencies.lifecycle_order(self.storage, &lifecycle) {
                         Ok(ordered) => {
                             for access in ordered {
-                                changes_storage |= self.dispose(
+                                self.dispose(
                                     state,
                                     access,
                                     self.storage.root_identity(access).is_some_and(|identity| {
@@ -166,13 +180,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                     storage_state.moved.keys().cloned(),
                                     storage_state.definitely_absent.keys().cloned(),
                                     &mut observe,
+                                    operation.occurrence(),
+                                    &mut Some(&mut *mutate),
                                 );
                             }
                         }
                         // The owning cleanup analysis publishes the unavailable-order recovery.
                         Err(_) => {
-                            state.invalidate_cleanup(None);
-                            changes_storage = true;
+                            mutate(state, None);
                         }
                     }
 
@@ -200,21 +215,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         && replacement.state(self.storage.root_identity(plan.access()).is_some())
                             != bray_bound_tree::StorageReplacementState::Absent
                     {
-                        changes_storage |= self.dispose(
+                        self.dispose(
                             state,
                             plan.access(),
                             replacement.initialized,
                             replacement.moved.iter().cloned(),
                             replacement.definitely_absent.iter().cloned(),
                             &mut observe,
+                            operation.occurrence(),
+                            &mut Some(&mut *mutate),
                         );
                     }
                 }
             }
             _ => {}
         }
-
-        changes_storage
     }
 
     fn dispose(
@@ -225,9 +240,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         moved: impl Iterator<Item = bray_bound_tree::StoragePath>,
         definitely_absent: impl Iterator<Item = bray_bound_tree::StoragePath>,
         observe: &mut Option<&mut Observer<'_>>,
-    ) -> bool {
-        let mut changes_storage = false;
-
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        mutate: &mut Option<&mut Mutation<'_>>,
+    ) {
         let steps = self
             .disposal
             .plan
@@ -252,18 +267,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .filter_map(|access| ExecutionPlace::storage_path(self.storage, &access))
             .collect::<Vec<_>>();
 
-        for step in steps {
+        for (part, step) in steps.iter().enumerate() {
             let Step::Lifecycle {
                 ty,
                 place,
+                path,
                 whole,
                 conditional,
             } = step
             else {
-                changes_storage = true;
-
                 if !preserves {
-                    state.invalidate_cleanup(None);
+                    if let Some(mutate) = mutate {
+                        mutate(state, None);
+                    } else {
+                        state.invalidate_cleanup();
+                    }
                 }
 
                 continue;
@@ -293,24 +311,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     continue;
                 };
 
-                changes_storage |= !self.disposal.dependencies[&lifecycle.callable]
-                    .effects()
-                    .is_empty();
-
                 let completes = lifecycle.contract.completes
                     || (lifecycle.synchronous
                         && self.request.target_cannot_unwind(
                             bray_bound_tree::BoundCallableTarget::Declaration(lifecycle.callable),
                         ));
-
-                if observe.is_none() && !completes {
-                    // Propagation needs no entry snapshot when this call contributes no facts.
-                    if !preserves {
-                        state.invalidate_cleanup(None);
-                    }
-
-                    continue;
-                }
 
                 let evidence = lifecycle.entry(state, place.as_ref());
 
@@ -322,8 +327,37 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     observe(access, slot, lifecycle, *whole, &evidence, established);
                 }
 
-                if !preserves {
-                    state.invalidate_cleanup(None);
+                if let Some(mutate) = mutate {
+                    mutate(
+                        state,
+                        Some(LifecycleInvocation {
+                            access,
+                            part,
+                            slot,
+                            lifecycle,
+                            completes: always && established && completes,
+                            path: path.as_ref(),
+                        }),
+                    );
+                } else {
+                    let invalidation = self
+                        .checked_flow
+                        .expect("execution cleanup consumes checked storage flow")
+                        .cleanup_mutation(occurrence, access, part, slot)
+                        .expect("selected lifecycle has a published mutation");
+
+                    self.invalidate_observations(
+                        state,
+                        bray_bound_tree::StorageMutation::Lifecycle {
+                            occurrence,
+                            access,
+                            part,
+                            slot,
+                        },
+                        invalidation,
+                        false,
+                        false,
+                    );
                 }
 
                 if always && established && completes {
@@ -331,8 +365,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
             }
         }
-
-        changes_storage
     }
 }
 

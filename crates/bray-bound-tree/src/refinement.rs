@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use bray_base::shared_slice;
@@ -17,7 +17,16 @@ pub enum StorageInvalidation {
     Paths(Vec<crate::StoragePath>),
     /// Flow-resolved accesses and logical component observations changed through them.
     /// Alias resolution is complete. Consumers must not reinterpret these as physical roots.
-    Observed(BTreeMap<StorageAccessId, Vec<crate::StoragePath>>),
+    Observed {
+        /// Logical paths whose contents may change, indexed by their checked access.
+        accesses: BTreeMap<StorageAccessId, Vec<crate::StoragePath>>,
+        /// Exact current observations mapped to their physical representative.
+        /// Self mappings start fresh contents; aliases read that updated snapshot.
+        /// These identities preserve no entry facts and establish no guarantees.
+        snapshots: BTreeMap<crate::StoragePath, crate::StoragePath>,
+        /// References whose reachable contents may change while their address value survives.
+        referents: BTreeSet<crate::StoragePath>,
+    },
 }
 
 impl StorageInvalidation {
@@ -26,7 +35,21 @@ impl StorageInvalidation {
         match (&mut *self, incoming) {
             (_, Self::All) => *self = Self::All,
             (Self::All, _) => {}
-            (Self::Observed(current), Self::Observed(incoming)) => {
+            (
+                Self::Observed {
+                    accesses: current,
+                    snapshots,
+                    referents,
+                },
+                Self::Observed {
+                    accesses: incoming,
+                    snapshots: incoming_snapshots,
+                    referents: incoming_referents,
+                },
+            ) => {
+                snapshots.retain(|path, target| incoming_snapshots.get(path) == Some(target));
+                referents.extend(incoming_referents.iter().cloned());
+
                 for (access, paths) in incoming {
                     let changed = current.entry(*access).or_default();
 
@@ -35,7 +58,7 @@ impl StorageInvalidation {
                     changed.dedup();
                 }
             }
-            (Self::Paths(_), Self::Observed(_)) | (Self::Observed(_), Self::Paths(_)) => {
+            (Self::Paths(_), Self::Observed { .. }) | (Self::Observed { .. }, Self::Paths(_)) => {
                 panic!("one mutation publication must retain its owning analysis representation");
             }
             (Self::Paths(current), Self::Paths(incoming)) => {
@@ -50,7 +73,7 @@ impl StorageInvalidation {
     pub fn invalidates_path(&self, path: &crate::StoragePath, storage: &StoragePlan) -> bool {
         match self {
             Self::All => true,
-            Self::Observed(accesses) => accesses
+            Self::Observed { accesses, .. } => accesses
                 .values()
                 .flatten()
                 .any(|changed| changed.relationship(path) != StorageRelationship::Disjoint),
@@ -64,7 +87,7 @@ impl StorageInvalidation {
     pub fn invalidates(&self, access: StorageAccessId, storage: &StoragePlan) -> bool {
         match self {
             Self::All => true,
-            Self::Observed(accesses) => accesses.contains_key(&access),
+            Self::Observed { accesses, .. } => accesses.contains_key(&access),
             Self::Paths(mutations) => mutations.iter().any(|mutation| {
                 storage.relationship_to_path(access, mutation) != StorageRelationship::Disjoint
             }),
@@ -243,11 +266,17 @@ impl CheckedRefinements {
                     StorageInvalidation::Paths(paths) => {
                         paths.iter().any(|path| !path.is_valid_for(unit))
                     }
-                    StorageInvalidation::Observed(accesses) => {
+                    StorageInvalidation::Observed {
+                        accesses,
+                        snapshots,
+                        referents,
+                    } => {
                         accesses.iter().any(|(access, paths)| {
                             access.unit() != unit
                                 || paths.iter().any(|path| !path.is_valid_for(unit))
-                        })
+                        }) || snapshots.iter().any(|(path, target)| {
+                            !path.is_valid_for(unit) || !target.is_valid_for(unit)
+                        }) || referents.iter().any(|path| !path.is_valid_for(unit))
                     }
                 }
         }) {
@@ -467,6 +496,41 @@ mod tests {
                 false,
             ),
             Err(RefinementSetBuildError::ForeignUnit)
+        );
+    }
+    #[test]
+    fn observation_merges_union_effects_and_intersect_exact_aliases() {
+        let unit = BoundUnitId::new(4);
+        let access = StorageAccessId::from_slot(unit, 0);
+        let first = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 0));
+        let second = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 1));
+        let alias = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 2));
+
+        let mut left = super::StorageInvalidation::Observed {
+            accesses: [(access, vec![first.clone()])].into(),
+            snapshots: [
+                (first.clone(), first.clone()),
+                (alias.clone(), first.clone()),
+            ]
+            .into(),
+            referents: [first.clone()].into(),
+        };
+
+        let right = super::StorageInvalidation::Observed {
+            accesses: [(access, vec![second.clone()])].into(),
+            snapshots: [(first.clone(), first.clone()), (alias, second.clone())].into(),
+            referents: [second.clone()].into(),
+        };
+
+        left.merge(&right);
+
+        assert_eq!(
+            left,
+            super::StorageInvalidation::Observed {
+                accesses: [(access, vec![first.clone(), second.clone()])].into(),
+                snapshots: [(first.clone(), first.clone())].into(),
+                referents: [first, second].into(),
+            }
         );
     }
 }

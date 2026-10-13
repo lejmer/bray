@@ -241,7 +241,7 @@ pub(crate) fn expression_condition(
                             | ExecutionCondition::Unknown
                     ) =>
                 {
-                    // Scalar and unknown contents do not identify the borrowed storage.
+                    // Equal scalar contents do not identify the borrowed storage.
                     expression_place(unit, semantics, values, *operand)
                         .map(ExecutionCondition::Input)
                         .unwrap_or(ExecutionCondition::Expression(*operand))

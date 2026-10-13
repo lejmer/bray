@@ -417,6 +417,214 @@ fn nullable_aggregate_elements_keep_their_outer_discriminant() {
 }
 
 #[test]
+fn cleanup_effects_follow_the_actual_borrowed_receiver() {
+    for (effect, valid) in [("", true), ("self.slot.epoch = 2;", false)] {
+        for cleanup in [
+            "{ let writer: Writer = { slot = &mut owner }; }",
+            "if flag { let writer: Writer = { slot = &mut owner }; } else { let writer: Writer = { slot = &mut owner }; }",
+        ] {
+            let source = format!(
+                r#"
+                trusted module app;
+                trusted predicate live(value: &Owner);
+                struct Owner {{
+                    mut epoch: u64;
+                    trusted destruct() requires(trusted live(&self)) {{}}
+                }}
+                struct Writer {{ slot: &mut Owner; destruct() {{ {effect} }} }}
+                trusted func make() -> Owner ensures(trusted live(&result)) {{
+                    return {{ epoch = 1 }};
+                }}
+                func caller(pos flag: bool) {{
+                    let mut owner = make();
+                    {cleanup}
+                }}
+            "#
+            );
+
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn borrowed_postconditions_name_the_updated_storage_only() {
+    for (action, observed, valid) in [
+        (
+            "{ let mut writer: Writer = { slot = &mut first }; set(&mut writer); observe(&writer.slot); }",
+            "first",
+            true,
+        ),
+        (
+            "{ let writer: Writer = { slot = &mut first }; }",
+            "first",
+            true,
+        ),
+        (
+            "{ let writer: Writer = { slot = &mut first }; }",
+            "second",
+            false,
+        ),
+        (
+            "{ let mut writer: Writer = { slot = &mut first }; set(&mut writer); writer.slot.epoch = 2; observe(&writer.slot); }",
+            "first",
+            false,
+        ),
+        (
+            "{ let writer: Writer = { slot = &mut first }; } first.epoch = 2;",
+            "first",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Owner {{ mut epoch: u64; }}
+            trusted predicate live(value: &Owner);
+            struct Writer {{
+                slot: &mut Owner;
+                trusted destruct() ensures(trusted live(&self.slot)) {{ self.slot.epoch = 1; }}
+            }}
+            trusted func set(pos writer: &mut Writer)
+                ensures(trusted live(&writer.slot)) {{ writer.slot.epoch = 1; }}
+            func observe(pos owner: &Owner) requires(trusted live(owner)) {{}}
+            func caller() {{
+                let mut first: Owner = {{ epoch = 0 }};
+                let second: Owner = {{ epoch = 0 }};
+                {action}
+                observe(&{observed});
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn completion_observes_the_evaluated_borrow_after_its_source_slot_changes() {
+    for (invocation, observed, expected) in [
+        (
+            "redirect(holder.slot, &mut holder);",
+            "first",
+            Some(DiagnosticKind::CheckingConflictingBorrow),
+        ),
+        (
+            "let selected: &Owner = holder.slot; redirect(selected, &mut holder);",
+            "first",
+            None,
+        ),
+        (
+            "let selected: &Owner = holder.slot; redirect(selected, &mut holder);",
+            "second",
+            Some(DiagnosticKind::CheckingTrustedObligationNotProven),
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Owner {{ epoch: u64; }}
+            struct Holder {{ mut slot: &Owner; other: &Owner; }}
+            trusted predicate live(value: &Owner);
+            trusted func redirect(pos original: &Owner, pos holder: &mut Holder)
+                ensures(trusted live(original)) {{ holder.slot = holder.other; }}
+            func observe(pos value: &Owner) requires(trusted live(value)) {{}}
+            func caller() {{
+                let first: Owner = {{ epoch = 0 }};
+                let second: Owner = {{ epoch = 1 }};
+                let mut holder: Holder = {{ slot = &first, other = &second }};
+                {invocation}
+                observe(&{observed});
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            diagnostics.has_errors(),
+            expected.is_some(),
+            "{source}: {diagnostics:#?}"
+        );
+
+        if let Some(expected) = expected {
+            bray_testing::assert_goal_state_diagnostic_kind(diagnostics, expected);
+        }
+    }
+}
+
+#[test]
+fn cleanup_reference_outputs_feed_the_next_lifecycle() {
+    for (observed, valid) in [("first", false), ("second", true)] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Owner {{ mut epoch: u64; }}
+            trusted predicate live(value: &Owner);
+            struct Writer {{
+                mut slot: &Owner;
+                other: &Owner;
+                finalize() executes(total) {{ self.slot = self.other; }}
+                trusted destruct() ensures(trusted live(&self.slot)) {{}}
+            }}
+            func observe(pos owner: &Owner) requires(trusted live(owner)) {{}}
+            func caller() {{
+                let mut first: Owner = {{ epoch = 0 }};
+                let mut second: Owner = {{ epoch = 0 }};
+                {{ let writer: Writer = {{ slot = &first, other = &second }}; }}
+                observe(&{observed});
+            }}
+            "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
 fn memory_evidence_uses_the_same_cleanup_state_as_authority() {
     for (cleanup, valid) in [
         ("{ let writer: Writer = { slot = &mut slot }; }", true),
@@ -512,7 +720,7 @@ fn cleanup_guarantees_reach_following_blocks_and_replacement() {
         (
             "{ let value: Producer = { tag = 0 }; } { let other: Interference = { tag = 0 }; } observe();",
             "executes(total)",
-            false,
+            true,
         ),
     ] {
         let source = format!(
@@ -1310,6 +1518,56 @@ fn input_authority_uses_the_same_complete_carrier_as_the_producer() {
                 diagnostics,
                 DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
             );
+        }
+    }
+}
+
+#[test]
+fn borrowed_payload_writes_preserve_marker_evidence_without_retiring_the_carrier() {
+    for (ty, result, argument, valid) in [
+        ("Marker", "&result.marker", "&guard.marker", true),
+        ("Guard", "&result", "guard", false),
+    ] {
+        for mutation in [
+            "guard.payload.value = true;",
+            "if flag { guard.payload.value = true; } else { guard.payload.value = false; }",
+        ] {
+            let source = format!(
+                r#"
+                trusted module app;
+                struct Marker {{}}
+                struct Payload {{ mut value: bool; }}
+                struct Guard {{ marker: Marker; payload: &mut Payload; }}
+                trusted predicate held(value: &{ty});
+                trusted func acquire(pos payload: &mut Payload) -> Guard
+                    ensures(trusted held({result})) executes(pure, total)
+                {{ return {{ marker = Marker {{}}, payload = payload }}; }}
+                func observe(pos guard: &Guard)
+                    requires(trusted held({argument})) executes(pure, total) {{}}
+                func caller(pos flag: bool) {{
+                    let mut payload: Payload = {{ value = false }};
+                    let mut guard = acquire(&mut payload);
+                    {mutation}
+                    observe(&guard);
+                }}
+            "#
+            );
+
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
         }
     }
 }

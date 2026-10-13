@@ -55,6 +55,67 @@ No line-count target justifies weakening behavior. Reconsider any design requiri
 language, duplicated state transfer or unbounded path/term expansion. Do not mark this step complete while any row lacks
 an owning implementation and meaningful verification.
 
+## Shared observation and cleanup work, 2026-10-13
+
+Step 1 is published as `5c4d3513`. Step 2 is still in progress; this section records the current uncommitted work,
+not completion of the matrix above. No production synchronization API was changed.
+
+Implicit lifecycle calls now resolve effects against the actual physical receiver and apply them in cleanup order.
+The owning storage analysis publishes those mutations for execution-property consumers. Harmless cleanup preserves
+facts. Actual writes revoke affected observations before normal-only completion guarantees are established.
+
+Published observations distinguish changed value paths, exact current aliases and reachable referent contents.
+An alias reads the updated physical snapshot instead of restoring its entry snapshot. This removes the separate
+cleanup borrow-restoration helper. Writes keep lifetime dependency chains; actual owner retirement still revokes
+them. Raw writes preserve the pointer value and spatial validity while revoking contents-dependent predicates.
+
+Entry-reference preparation now uses the declared leaf type from the shared typed path traversal. Borrowing an
+ordinary field does not mean the field stores a reference. Body paths and callee-demanded paths share one seeding
+implementation, including intermediate stored references.
+
+Verified focused cases include Uninit initialization across cleanup, explicit-call and destructor postconditions on
+borrowed storage, cross-owner rejection, revocation after another write, independent marker versus opaque whole-guard
+observations, disjoint borrowed fields, and ordinary facts at branch joins. Imported cleanup has the same positive and
+negative results. `observations-libraries.log` records 120 bound-tree and 300 checker passes;
+`observations-imported.log` records three passes. The intermediate broad run `observations-separated-authority.log`
+was 137 pass / 16 fail; two focused regressions from that run have since been repaired. It is not the final failure set.
+The first formatting/style run passed; subsequent audit simplifications still need final verification.
+
+Still required for step 2: complete implicit reference-output transfers and common call completion, remove the remaining
+hook-specific restoration paths, finish nested reference/demand closure and finite recursive may/must publication,
+replace independent result-dependency propagation with shared-flow publication, and verify every completion-matrix row.
+The remaining production authority failures are acceptance evidence, not permission to migrate APIs in this step.
+
+## Normal call completion continuation, 2026-10-13
+
+Still uncommitted and incomplete. Implicit lifecycle calls now stage reference outputs using the same prepared
+`BoundCallReference` and physical transfer implementation as explicit calls. A finalizer redirecting a reference feeds
+that exact target to the destructor. `cleanup_reference_outputs_feed_the_next_lifecycle` passes for the new target
+and rejects the previous target.
+
+Normal proof completion now runs after physical transfer, before last-use retirement. Split-call attempts do not retire
+inputs. The per-hook spare-header and spatial-fact save/restore path is removed. Unknown mutations create fresh
+observations without carrying prior guarantees. Mutation identity now belongs to checked storage publication.
+
+The first common-completion run found cached argument snapshots and premature retirement. Those were repaired.
+`completion-normalization.log` has 89 general authority passes. The broader preceding run was 137 pass / 17 fail,
+including three scalar-observation regressions subsequently fixed. Do not treat that as current acceptance.
+
+The argument re-evaluation audit also checks reference-slot reassignment. A direct active reborrow prevents that slot
+from changing, as established by borrow analysis. An explicit shared-borrow copy is the legal form. The regression
+`completion_observes_the_evaluated_borrow_after_its_source_slot_changes` covers both forms. The extra physical
+argument-target capture table was removed because it duplicated this owning boundary. Completion reuses existing
+normalization against current contents, including the shared scalar storage-identity rule.
+
+`completion-final-authority.log` records 141 passes and the same 14 outstanding production failures.
+`completion-libraries.log` records 120 bound-tree and 300 checker passes. `completion-imported.log` records
+three passes, and `completion-reborrow.log` records the source-slot regression passing. The mutating style and
+Bray formatting commands passed. The audit removed a redundant validation flag and documented retained map copies.
+
+Remaining work is unchanged: finish and audit shared completion, nested reference identities and demand closure,
+finite recursive may/must publication, replacement of the separate dependency syntax walk, and the entire step-2
+completion matrix. There is no step-2 implementation commit or completion claim yet. No source API migration began.
+
 ## Prepared reference paths, 2026-10-13
 
 This continuation follows `66700ac0`. The user authorized publishing subsequent checkpoints to the existing repair branch.

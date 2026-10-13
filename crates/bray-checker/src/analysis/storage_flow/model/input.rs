@@ -19,6 +19,15 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     storage_last_uses: BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageIdentityId>>,
     pub(super) unused_entry_storage: BTreeSet<StorageIdentityId>,
     pub(super) cleanup_free_storage: BTreeSet<StorageIdentityId>,
+    pub(in crate::analysis::storage_flow) lifecycle_paths: BTreeMap<
+        (
+            bray_symbols::CallableInstanceData,
+            bray_symbols::DependencySubject,
+        ),
+        bray_bound_tree::StorageReferencePath,
+    >,
+    pub(in crate::analysis::storage_flow) lifecycle_references:
+        BTreeMap<bray_symbols::CallableInstanceData, Vec<bray_bound_tree::BoundCallReference>>,
     pub(in crate::analysis::storage_flow) reference_paths:
         BTreeMap<StorageAccessId, bray_bound_tree::StorageReferencePath>,
     pub(in crate::analysis::storage_flow) entry_references: BTreeMap<
@@ -49,6 +58,8 @@ impl StorageFlowInput {
         liveness: &Liveness,
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
         values: &crate::dependency::ValueInputs,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
+        cleanup: &crate::analysis::guarantee::CleanupPlan,
     ) -> crate::CheckerQueryResult<(Self, bray_diagnostics::DiagnosticBag), C::UpstreamError>
     where
         C: CheckerRequestContext + ?Sized,
@@ -110,7 +121,8 @@ impl StorageFlowInput {
 
         input.prepare_reference_constructions(request, storage, values)?;
         input.prepare_reference_paths(request, storage)?;
-        input.prepare_entry_references(request, storage);
+        input.prepare_summary_references(request, storage, selections, dependencies)?;
+        input.prepare_lifecycle_references(request, cleanup, dependencies)?;
 
         input.immutable_field_accesses =
             crate::analysis::storage_flow::authority::immutable_field_accesses(

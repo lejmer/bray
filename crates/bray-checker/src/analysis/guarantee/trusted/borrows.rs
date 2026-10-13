@@ -5,7 +5,7 @@ use bray_symbols::{
     DependencyProjection, DependencyReferenceKind, DependencySubject, DependencySubjectRoot,
 };
 
-use super::super::{flow::ExecutionFlowDomain, state::ExecutionState};
+use super::super::flow::ExecutionFlowDomain;
 use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
@@ -41,43 +41,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // Children establish evaluation and lifetime dependencies. They do not
             // establish that a constructed value or call result reaches their storage.
             _ => None,
-        }
-    }
-
-    pub(super) fn preserve_cleanup_borrows(
-        &self,
-        state: &mut ExecutionState,
-        place: &ExecutionPlace,
-        lifecycle: &super::super::cleanup::Lifecycle,
-        entry: &crate::ExecutionCallEvidence,
-        arguments: &mut BTreeMap<ExecutionPlace, ExecutionCondition>,
-    ) {
-        for relation in self.disposal.dependencies[&lifecycle.callable].borrows() {
-            if !relation.target_projections().is_empty()
-                || relation.entry() != relation.exit()
-                || relation.exit().subject_root() != DependencySubjectRoot::Receiver
-            {
-                continue;
-            }
-
-            let Some(input) = project_place(lifecycle.receiver.into(), relation.entry()) else {
-                continue;
-            };
-
-            let Some(output) = project_place(lifecycle.receiver.into(), relation.exit()) else {
-                continue;
-            };
-
-            let Some(current) = project_place(place.clone(), relation.exit()) else {
-                continue;
-            };
-
-            let Some(value) = input.value_in(&entry.arguments) else {
-                continue;
-            };
-
-            arguments.insert(output, value.clone());
-            state.assign(current, value);
         }
     }
 
