@@ -1,5 +1,12 @@
 # BRA-620 remaining work
 
+## Semantic proof review, 2026-10-13
+
+Implementation is paused at `e3f56424` for the user-requested
+[semantic proof review](runtime-stack-semantic-proof.md). The earlier implementation sequence is not authorization
+to resume while this review is open. The proof distinguishes derived rules from unproved predicate-support,
+finite-analysis, coverage and trusted-protocol obligations. Existing results below remain historical evidence.
+
 Recorded on 2026-10-10. This handoff covers the remaining trusted synchronization authority defect and review requirements.
 
 Updated on 2026-10-11: use the [current stack completion plan](stack-completion.md) for work order and status.

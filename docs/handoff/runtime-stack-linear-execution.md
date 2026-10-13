@@ -1,5 +1,12 @@
 # Runtime stack execution from Linear
 
+## Semantic proof review, 2026-10-13
+
+Implementation is paused at `e3f56424` for the user-requested
+[semantic proof review](runtime-stack-semantic-proof.md). The earlier implementation sequence is not authorization
+to resume while this review is open. The proof distinguishes derived rules from unproved predicate-support,
+finite-analysis, coverage and trusted-protocol obligations. Existing results below remain historical evidence.
+
 Updated 2026-10-12. The user accepted the architectural groundwork and requested executable Linear issues.
 This checkpoint prepares that work. No new compiler, runtime or test behavior was implemented during issue preparation.
 Start with [BRA-620](https://linear.app/bray-lang/issue/BRA-620). Follow actual blocking relations and each issue's

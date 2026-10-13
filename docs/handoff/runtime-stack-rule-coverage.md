@@ -1,5 +1,12 @@
 # Runtime stack rule coverage and replacement plan
 
+## Semantic proof review, 2026-10-13
+
+Implementation is paused at `e3f56424` for the user-requested
+[semantic proof review](runtime-stack-semantic-proof.md). The earlier implementation sequence is not authorization
+to resume while this review is open. The proof distinguishes derived rules from unproved predicate-support,
+finite-analysis, coverage and trusted-protocol obligations. Existing results below remain historical evidence.
+
 Prepared on 2026-10-12. The user accepted the groundwork and requested actionable Linear issues.
 See the [Linear execution guide](runtime-stack-linear-execution.md) for the recoverable starting state and publication order.
 This update prepares the issues and preserves existing code. It does not start implementation.
