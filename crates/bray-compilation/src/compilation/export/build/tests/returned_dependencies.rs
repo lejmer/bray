@@ -858,3 +858,43 @@ fn imported_field_addresses_keep_the_projection_from_the_original_reference() {
         [bray_symbols::DependencyProjection::ProductField(_)]
     ));
 }
+
+#[test]
+fn imported_generic_protected_payload_addresses_retain_their_storage_projection() {
+    let provider = compilation(
+        r#"
+        module api;
+        func pointer<T>(pos storage: &Uninit<T>) -> RawPointer<T> {
+            return core.memory.uninit_pointer<T>(storage);
+        }
+    "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api.pointer;
+        func caller(pos storage: &Uninit<bool>) -> RawPointer<bool> {
+            return example.package.api.pointer<bool>(storage);
+        }
+    "#,
+    );
+
+    let dependencies =
+        crate::compilation::result_dependencies::source_function_dependencies(&consumer, "caller");
+
+    let relations = dependencies.borrows();
+
+    assert_eq!(relations.len(), 1, "{dependencies:#?}");
+
+    assert_eq!(
+        relations[0].kind(),
+        bray_symbols::DependencyReferenceKind::Address
+    );
+
+    assert_eq!(
+        relations[0].target_projections(),
+        &[bray_symbols::DependencyProjection::UninitPayload]
+    );
+}

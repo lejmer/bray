@@ -155,17 +155,21 @@ impl State {
         slot: &Place,
         ty: TypeId,
     ) -> bool {
-        self.values
-            .get(&Target::storage(slot.clone()))
-            .is_some_and(|references| {
-                !references.unknown
-                    && !references.displaced
-                    && !references.targets.is_empty()
-                    && references.targets.iter().all(|target| {
-                        self.contents
-                            .get(target)
-                            .is_some_and(|contents| contents.initialized.contains(&ty))
-                    })
+        self.initialized_targets(&self.references(slot), ty)
+    }
+
+    pub(in crate::analysis::storage_flow::memory) fn initialized_targets(
+        &self,
+        references: &References,
+        ty: TypeId,
+    ) -> bool {
+        !references.unknown
+            && !references.displaced
+            && !references.targets.is_empty()
+            && references.targets.iter().all(|target| {
+                self.contents
+                    .get(target)
+                    .is_some_and(|contents| contents.initialized.contains(&ty))
             })
     }
 
@@ -214,13 +218,20 @@ impl State {
 
                 match &target.origin {
                     // Place clones share the immutable projection path.
-                    Origin::Storage(place) if !target.previous => Some((
-                        place.clone(),
-                        self.contents
-                            .get(target)
-                            .and_then(|contents| contents.storage_type),
-                        definite,
-                    )),
+                    Origin::Storage(place)
+                        if !target.previous
+                            && !place
+                                .projections
+                                .contains(&bray_bound_tree::StorageProjection::UninitPayload) =>
+                    {
+                        Some((
+                            place.clone(),
+                            self.contents
+                                .get(target)
+                                .and_then(|contents| contents.storage_type),
+                            definite,
+                        ))
+                    }
                     _ => None,
                 }
             })

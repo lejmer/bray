@@ -27,17 +27,35 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return self.memory_effects(state, expression);
         }
 
-        let AnalysisOperationKind::Call {
-            invocation,
-            phase: AnalysisCallPhase::Attempt,
-        } = operation
-        else {
-            return None;
-        };
+        let invocation = self.call_attempt(operation)?;
 
         self.prepare_call_references(state, invocation);
 
         self.call_effects(state, invocation)
+    }
+
+    fn call_attempt(
+        &self,
+        operation: AnalysisOperationKind,
+    ) -> Option<bray_bound_tree::BoundExecutionSite> {
+        match operation {
+            AnalysisOperationKind::Call {
+                invocation,
+                phase: AnalysisCallPhase::Attempt,
+            } => Some(invocation),
+            AnalysisOperationKind::Bound(bray_bound_tree::AnyBoundNodeId::Expression(
+                expression,
+            )) => {
+                // Calls without an abnormal edge complete in one graph operation.
+                let occurrence = expression.into();
+
+                self.dependencies
+                    .calls()
+                    .contains_key(&occurrence)
+                    .then_some(occurrence)
+            }
+            _ => None,
+        }
     }
 
     pub(super) fn record_operation_effects(
@@ -57,7 +75,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 self.record_target_effect(target, *kind);
             }
         } else if let Some(effects) = self.refinements.invalidation_at(kind.occurrence()) {
-            let effect_kind = if matches!(kind, AnalysisOperationKind::Call { .. }) {
+            let effect_kind = if self.call_attempt(kind).is_some() {
                 bray_symbols::DependencyMutationKind::Retire
             } else if self.storage.node_plans(kind.node()).any(|plan| {
                 matches!(
@@ -81,16 +99,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         call_effects: Option<&[(Target, DependencyMutationKind)]>,
         invalidation: Option<&StorageInvalidation>,
     ) {
-        if matches!(
-            kind,
-            AnalysisOperationKind::Call {
-                phase: AnalysisCallPhase::Attempt,
-                ..
-            }
-        ) && kind
-            .occurrence()
-            .expression()
-            .is_some_and(|expression| self.memory.operation(expression).is_none())
+        if self.call_attempt(kind).is_some()
+            && kind
+                .occurrence()
+                .expression()
+                .is_some_and(|expression| self.memory.operation(expression).is_none())
         {
             if let Some(effects) = call_effects {
                 for (target, kind) in effects {
@@ -203,7 +216,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
             }
             Origin::Storage(path) => self.formal_effect(path, kind),
-            Origin::Allocation(_) | Origin::Uninit(_) => None,
+            Origin::Allocation(_) => None,
         };
 
         if let Some(effect) = effect {

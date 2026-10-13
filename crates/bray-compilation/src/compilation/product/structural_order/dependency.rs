@@ -155,6 +155,7 @@ impl OrderEncoder<'_, '_> {
                         term("union_payload_field", [self.symbol((*id).into())?])
                     }
                     DependencyProjection::OwnedTarget => term("owned_target", []),
+                    DependencyProjection::UninitPayload => term("uninit_payload", []),
                 })
             })
             .collect::<Result<Vec<_>, CodegenPreparationError>>()?;

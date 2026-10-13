@@ -98,11 +98,19 @@ pub enum DiagnosticStorageProjection {
     TupleElement(u64),
     ElementFromStart(u64),
     ElementFromEnd(u64),
-    ActiveUnionPayloadField { variant: String, field: String },
+    ActiveUnionPayloadField {
+        variant: String,
+        field: String,
+    },
     IndexedElement,
-    SliceRange { has_start: bool, has_end: bool },
+    SliceRange {
+        has_start: bool,
+        has_end: bool,
+    },
     NullableValue,
     OwnedTarget,
+    /// The payload held in protected uninitialized storage.
+    UninitPayload,
 }
 
 impl DiagnosticStorageProjection {
@@ -118,6 +126,7 @@ impl DiagnosticStorageProjection {
             Self::SliceRange { .. } => "slice_range",
             Self::NullableValue => "nullable_value",
             Self::OwnedTarget => "owned_target",
+            Self::UninitPayload => "uninit_payload",
         }
     }
 }

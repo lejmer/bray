@@ -71,15 +71,11 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
 
     let mut template = resolved_result_template(request, instance, template)?;
 
-    if let Some((parameter, kind)) = call
+    if let Some(relation) = call
         .implementation_hook()
-        .and_then(super::implementation::implementation_borrow_source)
+        .and_then(super::implementation::implementation_borrow)
     {
-        template = template.with_borrows([bray_symbols::DependencyBorrowRelation::new(
-            DependencySubject::root(DependencySubjectRoot::Parameter(parameter)),
-            DependencySubject::root(DependencySubjectRoot::Result),
-            kind,
-        )]);
+        template = template.with_borrows([relation]);
     }
 
     super::defaults::expand_result_defaults(request, call, &template)

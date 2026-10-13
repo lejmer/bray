@@ -232,6 +232,9 @@ fn portable_subject_with_projection_count(
             StorageProjection::OwnedTarget => {
                 subject.append_projection(DependencyProjection::OwnedTarget);
             }
+            StorageProjection::UninitPayload => {
+                subject.append_projection(DependencyProjection::UninitPayload);
+            }
             StorageProjection::ElementFromStart(_)
             | StorageProjection::ElementFromEnd(_)
             | StorageProjection::Element(_)

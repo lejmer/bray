@@ -530,6 +530,7 @@ fn decode_dependency_projections(
                 reader, context,
             )?),
             6 => InterfaceDependencyProjection::OwnedTarget,
+            7 => InterfaceDependencyProjection::UninitPayload,
             _ => {
                 return Err(crate::semantic::codec::invalid_discriminant(
                     crate::InterfaceValidationField::Dependency,

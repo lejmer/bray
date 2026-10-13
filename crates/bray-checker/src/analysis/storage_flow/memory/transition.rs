@@ -1,4 +1,5 @@
-use super::model::{Origin, Place, References, State, Target};
+use super::Source;
+use super::model::{Origin, Place, References, State, Target, Transfer};
 use bray_bound_tree::{
     BoundExpressionId, MemoryOperationStatus, MemoryReadKind, StorageIdentityId,
 };
@@ -29,7 +30,7 @@ impl State {
             return;
         }
 
-        self.write_targets(&References::one(target), ty, origin, References::default());
+        self.write_targets(&References::one(target), ty, origin);
     }
 
     #[cfg(test)]
@@ -67,7 +68,7 @@ impl State {
         slot: &Place,
         ty: TypeId,
         origin: BoundExpressionId,
-        value: Option<&Place>,
+        value: Option<Source>,
     ) -> MemoryOperationStatus {
         if self.invalidated(slot) {
             return MemoryOperationStatus::InvalidatedAllocation;
@@ -75,22 +76,77 @@ impl State {
 
         let references = self.references(slot);
 
-        let value = value
-            .map(|value| self.references(value))
-            .unwrap_or_default();
-
-        self.write_targets(&references, ty, origin, value);
+        self.write_transferred(&references, ty, origin, value);
 
         MemoryOperationStatus::Valid
     }
 
-    fn write_targets(
+    fn write_transferred(
         &mut self,
         references: &References,
         ty: TypeId,
         origin: BoundExpressionId,
-        value: References,
+        source: Option<Source>,
     ) {
+        if references.unknown {
+            // An unlocated write can affect any tracked cell. Collapse the source's
+            // possible references instead of inventing a subtree at every possible address.
+            let affected = self.affected_targets(references);
+
+            let mut incoming = References {
+                unknown: true,
+                ..References::default()
+            };
+
+            if let (Some(source), Some(destination)) = (source.as_ref(), affected.first()) {
+                for value in self
+                    .capture_source(source, destination)
+                    .values
+                    .into_values()
+                {
+                    incoming.merge(&value);
+                }
+            }
+
+            self.write_targets(references, ty, origin);
+
+            for target in affected {
+                self.values.entry(target).or_default().merge(&incoming);
+            }
+
+            return;
+        }
+
+        let destinations = &references.targets;
+
+        let transfers = source
+            .as_ref()
+            .into_iter()
+            .flat_map(|source| destinations.iter().map(move |target| (target, source)))
+            .map(|(target, source)| (target.clone(), self.capture_source(source, target)))
+            .collect::<Vec<_>>();
+
+        self.write_targets(references, ty, origin);
+
+        for (target, transfer) in transfers {
+            if references.is_exact() {
+                self.clear_value(&target);
+                self.commit_value(transfer);
+            } else {
+                for (slot, mut value) in transfer.values {
+                    value.unknown = true;
+                    self.values.entry(slot).or_default().merge(&value);
+                }
+
+                for (slot, mut contents) in transfer.payloads {
+                    contents.initialized.clear();
+                    self.contents.entry(slot).or_default().merge(&contents);
+                }
+            }
+        }
+    }
+
+    fn write_targets(&mut self, references: &References, ty: TypeId, origin: BoundExpressionId) {
         let exact = references.is_exact();
 
         for target in self.affected_targets(references) {
@@ -101,26 +157,36 @@ impl State {
             if exact && references.targets.contains(&target) {
                 contents.initialized.insert(ty);
 
-                // Ordinary slots and raw storage share the same stored reference value.
-                if value.targets.is_empty() {
-                    self.values.remove(&target);
-                } else {
-                    self.values.insert(target.clone(), value.clone());
-                }
-            } else {
-                if let Some(stored) = self.values.get_mut(&target) {
-                    stored.merge(&value);
-                    stored.unknown = true;
-                } else if !value.targets.is_empty() {
-                    let mut stored = value.clone();
-
-                    stored.unknown = true;
-                    self.values.insert(target.clone(), stored);
-                }
+                self.values.remove(&target);
+            } else if let Some(stored) = self.values.get_mut(&target) {
+                stored.unknown = true;
             }
 
             contents.pending.entry(ty).or_default().insert(origin);
         }
+    }
+
+    pub(in crate::analysis::storage_flow) fn write_value(
+        &mut self,
+        target: Target,
+        ty: TypeId,
+        origin: BoundExpressionId,
+        source: Option<Source>,
+    ) -> MemoryOperationStatus {
+        self.write_transferred(&References::one(target), ty, origin, source);
+
+        MemoryOperationStatus::Valid
+    }
+
+    pub(in crate::analysis::storage_flow) fn read_value(
+        &mut self,
+        target: Target,
+        ty: TypeId,
+        kind: MemoryReadKind,
+        proven: Option<BoundExpressionId>,
+        result: Option<Place>,
+    ) -> MemoryOperationStatus {
+        self.read_targets(References::one(target), ty, kind, proven, result)
     }
 
     pub(in crate::analysis::storage_flow) fn read(
@@ -135,24 +201,58 @@ impl State {
             return MemoryOperationStatus::InvalidatedAllocation;
         }
 
-        if proven.is_none() && !self.initialized(slot, ty) {
+        self.read_targets(self.references(slot), ty, kind, proven, result)
+    }
+
+    fn read_targets(
+        &mut self,
+        references: References,
+        ty: TypeId,
+        kind: MemoryReadKind,
+        proven: Option<BoundExpressionId>,
+        result: Option<Place>,
+    ) -> MemoryOperationStatus {
+        if proven.is_none() && !self.initialized_targets(&references, ty) {
             return MemoryOperationStatus::UninitializedRawStorage;
         }
 
-        let references = self.references(slot);
+        let transferred = result.as_ref().map(|destination| {
+            let destination = Target::storage(destination.clone());
+            let mut transfer: Option<Transfer> = None;
 
-        let mut value = References {
-            unknown: references.unknown || references.displaced,
-            ..References::default()
-        };
+            for source in &references.targets {
+                let incoming = self.capture_value(source, &destination);
 
-        for target in &references.targets {
-            if let Some(stored) = self.values.get(target) {
-                value.merge(stored);
-            } else {
-                value.unknown = true;
+                match &mut transfer {
+                    Some(transfer) => {
+                        transfer.merge(&incoming);
+                    }
+                    None => transfer = Some(incoming),
+                }
             }
-        }
+
+            let mut transfer = transfer.unwrap_or_default();
+
+            transfer
+                .values
+                .entry(destination)
+                .or_insert_with(|| References {
+                    unknown: true,
+                    ..References::default()
+                });
+
+            if references.unknown || references.displaced {
+                for value in transfer.values.values_mut() {
+                    value.unknown = true;
+                }
+
+                for contents in transfer.payloads.values_mut() {
+                    contents.initialized.clear();
+                }
+            }
+
+            transfer
+        });
 
         if let Some(origin) = proven {
             for target in &self.affected_targets(&references) {
@@ -167,16 +267,18 @@ impl State {
         }
 
         if kind == MemoryReadKind::Move {
-            self.consume(slot, ty);
+            self.consume_targets(&references, ty);
         }
 
-        if let Some(result) = result {
-            self.values.insert(Target::storage(result), value);
+        if let (Some(result), Some(transfer)) = (result, transferred) {
+            self.clear(&result);
+            self.commit_value(transfer);
         }
 
         MemoryOperationStatus::Valid
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn consume(
         &mut self,
         slot: &Place,
@@ -196,13 +298,34 @@ impl State {
 
         for target in &self.affected_targets(references) {
             if let Some(contents) = self.contents.get_mut(target) {
+                if exact
+                    && references.targets.iter().any(|source| {
+                        source.contains(target)
+                            && target.projections()[source.projections().len()..]
+                                .contains(&bray_bound_tree::StorageProjection::UninitPayload)
+                    })
+                {
+                    // The evaluated value owns these facts after its source loses initialization.
+                    self.evaluated.insert(target.clone(), contents.clone());
+                }
+
                 contents.initialized.clear();
 
                 // Consumption ends initialized ownership, not the evaluated value's identity.
                 // Normal value transfer still needs its reference fields before slot retirement.
 
-                if exact && references.targets.contains(target) {
-                    contents.pending.remove(&ty);
+                if exact
+                    && references
+                        .targets
+                        .iter()
+                        .any(|source| source.contains(target))
+                {
+                    if references.targets.contains(target) {
+                        contents.pending.remove(&ty);
+                    } else {
+                        // Whole-value consumption transfers nested protected ownership as well.
+                        contents.pending.clear();
+                    }
                 }
             }
         }

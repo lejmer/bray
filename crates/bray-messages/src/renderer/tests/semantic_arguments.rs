@@ -541,3 +541,28 @@ fn renderer_formats_typed_arguments_for_utf8_diagnostics() {
     assert_eq!(note.rendered_kind(), RenderedDiagnosticNoteKind::Help);
     assert_eq!(note.message(), "source inputs must be valid UTF-8");
 }
+
+#[test]
+fn renderer_identifies_the_protected_payload_in_a_storage_path() {
+    let access = DiagnosticStorageAccess::new(
+        DiagnosticStorageAccessPurpose::MutableBorrow,
+        DiagnosticStorageRoot::Parameter,
+        [
+            DiagnosticStorageProjection::ProductField(String::from("value")),
+            DiagnosticStorageProjection::UninitPayload,
+        ],
+        DiagnosticType::I32,
+    );
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::CheckingMissingMutationAuthority,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::storage_access(access));
+
+    assert_eq!(
+        DiagnosticRenderer::english().render(&diagnostic).message(),
+        "mutable borrow of parameter storage.value.protected payload with type i32 has no mutable access to the reached storage"
+    );
+}

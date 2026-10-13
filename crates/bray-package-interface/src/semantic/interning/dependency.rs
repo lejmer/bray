@@ -273,6 +273,7 @@ impl InternState {
                     DependencyProjection::UnionPayloadField(resolve_exact(symbols, field)?)
                 }
                 InterfaceDependencyProjection::OwnedTarget => DependencyProjection::OwnedTarget,
+                InterfaceDependencyProjection::UninitPayload => DependencyProjection::UninitPayload,
             };
 
             projections.push(projection);

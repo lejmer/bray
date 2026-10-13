@@ -994,7 +994,13 @@ fn production_guard_borrow_origin_reaches_the_protected_payload() {
         bray_symbols::DependencySubjectRoot::Receiver
     );
 
-    assert_eq!(relation.entry().projections().len(), 3, "{relation:#?}");
+    assert_eq!(relation.entry().projections().len(), 1, "{relation:#?}");
+    assert_eq!(relation.target_projections().len(), 3, "{relation:#?}");
+
+    assert_eq!(
+        relation.target_projections()[1],
+        bray_symbols::DependencyProjection::UninitPayload
+    );
 }
 
 #[test]

@@ -338,6 +338,7 @@ fn encode_dependency_projections(
                 write_symbol_reference(encoder, field);
             }
             InterfaceDependencyProjection::OwnedTarget => encoder.write_u32(6),
+            InterfaceDependencyProjection::UninitPayload => encoder.write_u32(7),
         }
     }
 }

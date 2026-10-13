@@ -45,6 +45,8 @@ pub enum DependencyProjection {
     UnionPayloadField(UnionPayloadFieldSymbolId),
     /// The target owned through an indirection layer.
     OwnedTarget,
+    /// Inline protected storage. This projection establishes neither initialization nor access authority.
+    UninitPayload,
 }
 
 /// A formal root plus its ordered source-independent projection path.

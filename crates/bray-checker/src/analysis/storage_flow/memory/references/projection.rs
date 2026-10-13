@@ -13,9 +13,7 @@ impl Target {
                     reference.is_exact()
                         && projections.iter().all(|projection| projection.is_exact())
                 }
-                Origin::Storage(place) | Origin::Allocation(place) | Origin::Uninit(place) => {
-                    place.is_exact()
-                }
+                Origin::Storage(place) | Origin::Allocation(place) => place.is_exact(),
             }
     }
 
@@ -40,9 +38,7 @@ impl Target {
     pub(in crate::analysis::storage_flow) fn projections(&self) -> &[StorageProjection] {
         match &self.origin {
             Origin::Entry { projections, .. } => projections,
-            Origin::Storage(place) | Origin::Allocation(place) | Origin::Uninit(place) => {
-                &place.projections
-            }
+            Origin::Storage(place) | Origin::Allocation(place) => &place.projections,
         }
     }
 
@@ -71,8 +67,7 @@ impl Target {
                 StorageRelationship::PotentiallyOverlapping
             }
             (Origin::Storage(left), Origin::Storage(right))
-            | (Origin::Allocation(left), Origin::Allocation(right))
-            | (Origin::Uninit(left), Origin::Uninit(right)) => left.relationship(right),
+            | (Origin::Allocation(left), Origin::Allocation(right)) => left.relationship(right),
             _ => StorageRelationship::Disjoint,
         }
     }
@@ -94,8 +89,7 @@ impl Target {
                 },
             ) => left == right && projections.starts_with(prefix),
             (Origin::Storage(left), Origin::Storage(right))
-            | (Origin::Allocation(left), Origin::Allocation(right))
-            | (Origin::Uninit(left), Origin::Uninit(right)) => left.contains(right),
+            | (Origin::Allocation(left), Origin::Allocation(right)) => left.contains(right),
             _ => false,
         }
     }
@@ -123,7 +117,6 @@ impl Target {
             },
             Origin::Storage(place) => Origin::Storage(path(place)),
             Origin::Allocation(place) => Origin::Allocation(path(place)),
-            Origin::Uninit(place) => Origin::Uninit(path(place)),
         };
 
         Self {
@@ -222,6 +215,14 @@ impl State {
             .range(target.clone()..)
             .next()
             .is_some_and(|(candidate, _)| target.contains(candidate))
+            || self
+                .contents
+                .range(target.clone()..)
+                .take_while(|(candidate, _)| target.contains(candidate))
+                .any(|(candidate, _)| {
+                    candidate.projections()[target.projections().len()..]
+                        .contains(&StorageProjection::UninitPayload)
+                })
     }
 
     pub(in crate::analysis::storage_flow) fn begin_entry_borrow(

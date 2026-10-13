@@ -89,7 +89,7 @@ fn consuming_and_deallocating_through_an_alias_updates_the_original_target() {
     let mut state = State::default();
     let ty = error_type();
 
-    state.fresh(source.clone(), Some(origins[0]));
+    state.fresh(source.clone(), origins[0]);
     state.transfer(&source, alias.clone());
 
     assert_eq!(
@@ -152,8 +152,8 @@ fn raw_copy_creates_independent_contents_and_preserves_its_source() {
     let mut state = State::default();
     let ty = error_type();
 
-    state.fresh(source.clone(), Some(origins[0]));
-    state.fresh(destination.clone(), Some(origins[1]));
+    state.fresh(source.clone(), origins[0]);
+    state.fresh(destination.clone(), origins[1]);
     state.write(&source, ty, origins[0], None);
 
     assert_eq!(
@@ -181,8 +181,8 @@ fn empty_range_copy_has_no_scalar_effect_and_nonempty_copy_keeps_obligations() {
     let mut state = State::default();
     let ty = error_type();
 
-    state.fresh(source.clone(), Some(origins[0]));
-    state.fresh(destination.clone(), Some(origins[1]));
+    state.fresh(source.clone(), origins[0]);
+    state.fresh(destination.clone(), origins[1]);
 
     assert_eq!(
         state.copy(&source, &destination, ty, origins[1], Some(true)),
@@ -251,11 +251,11 @@ fn retiring_a_pointer_slot_keeps_the_contents_reached_by_surviving_aliases() {
 
     let mut state = State::default();
 
-    state.fresh(source.clone(), Some(origins[0]));
+    state.fresh(source.clone(), origins[0]);
     state.write(&source, error_type(), origins[1], None);
     state.transfer(&source, alias.clone());
     state.forget(source.root);
-    assert!(!state.has_reference(&source));
+    assert!(!state.has_stored_value(&source));
 
     assert_eq!(
         state.read(&alias, error_type(), MemoryReadKind::Copy, None, None),
@@ -268,7 +268,7 @@ fn retiring_a_pointer_slot_keeps_the_contents_reached_by_surviving_aliases() {
     );
 
     state.retain_live(&BTreeSet::new());
-    assert!(!state.has_reference(&alias));
+    assert!(!state.has_stored_value(&alias));
 }
 
 #[test]
@@ -277,11 +277,11 @@ fn reassignment_changes_the_slot_without_mutating_its_previous_target() {
 
     let mut state = State::default();
 
-    state.fresh(source.clone(), Some(origins[0]));
+    state.fresh(source.clone(), origins[0]);
     state.write(&source, error_type(), origins[1], None);
     state.transfer(&source, alias.clone());
     state.transfer(&unknown, source.clone());
-    assert!(!state.has_reference(&source));
+    assert!(!state.has_stored_value(&source));
 
     assert_eq!(
         state.read(&alias, error_type(), MemoryReadKind::Copy, None, None),
@@ -295,7 +295,7 @@ fn join_intersects_initialization_but_preserves_possible_obligations_and_origins
 
     let mut left = State::default();
 
-    left.fresh(source.clone(), Some(origins[0]));
+    left.fresh(source.clone(), origins[0]);
 
     let mut right = left.clone();
 
@@ -333,8 +333,8 @@ fn joined_targets_require_all_possible_contents_and_weak_writes_do_not_initializ
 
     let mut left = State::default();
 
-    left.fresh(first.clone(), Some(origins[0]));
-    left.fresh(second.clone(), Some(origins[1]));
+    left.fresh(first.clone(), origins[0]);
+    left.fresh(second.clone(), origins[1]);
     left.transfer(&first, alias.clone());
 
     let mut right = left.clone();
@@ -380,10 +380,10 @@ fn repeated_creation_separates_old_aliases_and_has_a_finite_summary() {
 
     let mut state = State::default();
 
-    state.fresh(source.clone(), Some(origins[0]));
+    state.fresh(source.clone(), origins[0]);
     state.write(&source, error_type(), origins[1], None);
     state.transfer(&source, alias.clone());
-    state.fresh(source.clone(), Some(origins[0]));
+    state.fresh(source.clone(), origins[0]);
     state.write(&source, error_type(), origins[1], None);
 
     assert_eq!(
@@ -405,7 +405,7 @@ fn repeated_creation_separates_old_aliases_and_has_a_finite_summary() {
 
     let stable = state.clone();
 
-    state.fresh(source.clone(), Some(origins[0]));
+    state.fresh(source.clone(), origins[0]);
     state.write(&source, error_type(), origins[1], None);
     assert_eq!(state, stable);
     assert_eq!(state.contents.len(), 2);
@@ -417,8 +417,8 @@ fn nested_address_observes_the_reference_slot_and_follows_reassignment() {
 
     let mut state = State::default();
 
-    state.fresh(source.clone(), Some(origins[0]));
-    state.fresh(other.clone(), Some(origins[1]));
+    state.fresh(source.clone(), origins[0]);
+    state.fresh(other.clone(), origins[1]);
     state.write(&source, error_type(), origins[0], None);
     state.address(source.clone(), address.clone(), error_type(), origins[2]);
 
@@ -460,7 +460,7 @@ fn origin_join_unions_and_deduplicates_diagnostic_causes() {
 
     let mut left = State::default();
 
-    left.fresh(source.clone(), Some(origins[0]));
+    left.fresh(source.clone(), origins[0]);
 
     let mut right = left.clone();
 
@@ -560,7 +560,7 @@ fn whole_value_transfer_retains_reference_fields_and_replaces_old_fields() {
 
     let mut state = State::default();
 
-    state.fresh(allocation.clone(), Some(origins[0]));
+    state.fresh(allocation.clone(), origins[0]);
     state.transfer(&allocation, field(&aggregate));
     state.transfer(&aggregate, destination.clone());
     state.write(&allocation, error_type(), origins[1], None);
@@ -588,7 +588,7 @@ fn whole_value_transfer_retains_reference_fields_and_replaces_old_fields() {
     );
 
     state.transfer(&unknown, destination.clone());
-    assert!(!state.has_reference(&destination));
+    assert!(!state.has_stored_value(&destination));
 }
 
 #[test]
@@ -618,7 +618,7 @@ fn offset_retains_allocation_identity_without_claiming_base_contents() {
 
     let mut state = State::default();
 
-    state.fresh(allocation.clone(), Some(origins[0]));
+    state.fresh(allocation.clone(), origins[0]);
     state.write(&allocation, error_type(), origins[1], None);
     state.offset(&allocation, interior.clone());
 
@@ -647,7 +647,7 @@ fn checked_read_evidence_retains_cleanup_obligations() {
 
     let mut state = State::default();
 
-    state.fresh(source.clone(), Some(origins[0]));
+    state.fresh(source.clone(), origins[0]);
 
     assert_eq!(
         state.read(
@@ -677,7 +677,7 @@ fn an_unresolved_stored_pointer_cannot_prove_disjointness() {
 
     let mut state = State::default();
 
-    state.fresh(allocation.clone(), Some(origins[0]));
+    state.fresh(allocation.clone(), origins[0]);
     state.write(&allocation, error_type(), origins[1], None);
 
     state.read(
@@ -714,7 +714,7 @@ fn dynamic_selectors_keep_unknown_locations_without_equating_evaluations() {
         MemoryOperationStatus::UninitializedRawStorage
     );
 
-    state.fresh(replacement.clone(), Some(origins[2]));
+    state.fresh(replacement.clone(), origins[2]);
     state.transfer(&replacement, element.clone());
     state.transfer(&element, loaded.clone());
     assert!(state.references(&loaded).unknown);
@@ -840,7 +840,7 @@ fn opaque_mutation_forgets_stored_references_without_retargeting_live_borrows() 
         bray_symbols::DependencyMutationKind::Retire,
     );
 
-    assert!(!state.has_reference(&slot));
+    assert!(!state.has_stored_value(&slot));
     state.retain_borrow(capability, alias.clone());
     assert_eq!(state.referent(&alias, error_type()), Some(source));
     assert!(!state.initialized(&alias, error_type()));
@@ -953,12 +953,12 @@ fn original_entry_references_survive_slot_reassignment_without_proving_disjointn
     state.write(&first, error_type(), origins[0], None);
 
     assert!(
-        state.has_reference(&second),
+        state.has_stored_value(&second),
         "writing through an input does not rebind another by-value parameter slot"
     );
 
     assert!(
-        state.has_reference(&captured),
+        state.has_stored_value(&captured),
         "overwriting an input slot does not rewrite a copied reference value"
     );
 
@@ -1168,7 +1168,7 @@ fn previous_epoch_cells_do_not_interrupt_current_subtree_transfers() {
     state.transfer(&destination, pointer.clone());
     assert_eq!(state.exact_references(&pointer).count(), 2);
     state.clear(&source);
-    assert!(!state.has_reference(&field));
+    assert!(!state.has_stored_value(&field));
 }
 
 #[test]
@@ -1207,7 +1207,7 @@ fn aggregate_mutation_revokes_reference_fields_without_address_metadata() {
 
     state.entry_reference(source.clone());
     state.transfer(&source, field.clone());
-    assert!(state.has_reference(&field));
+    assert!(state.has_stored_value(&field));
 
     assert!(
         !state
@@ -1220,6 +1220,344 @@ fn aggregate_mutation_revokes_reference_fields_without_address_metadata() {
         bray_symbols::DependencyMutationKind::Write,
     );
 
-    assert!(!state.has_reference(&field));
-    assert!(state.has_reference(&source));
+    assert!(!state.has_stored_value(&field));
+    assert!(state.has_stored_value(&source));
+}
+
+#[test]
+fn protected_payload_address_does_not_prove_initialization() {
+    let ([owner, pointer, _, _], _) = places();
+
+    let mut state = State::default();
+    let payload = super::Target::storage(owner).project(&[StorageProjection::UninitPayload]);
+
+    state.uninit(payload.clone(), error_type());
+    state.point_at(payload, pointer.clone(), error_type());
+
+    assert_eq!(
+        state.read(&pointer, error_type(), MemoryReadKind::Copy, None, None),
+        MemoryOperationStatus::UninitializedRawStorage
+    );
+}
+
+#[test]
+fn whole_value_transfer_moves_inline_payload_facts_without_retargeting_pointers() {
+    let ([owner, destination, old_pointer, new_pointer], origins) = places();
+
+    let mut state = State::default();
+    let field = StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
+    let source = super::Target::storage(owner.clone());
+    let payload = source.project(&[field, StorageProjection::UninitPayload]);
+
+    state.uninit(payload.clone(), error_type());
+    state.write_value(payload.clone(), error_type(), origins[0], None);
+    state.point_at(payload.clone(), old_pointer.clone(), error_type());
+
+    let occurrence = origins[1].into();
+
+    state.begin_transition(occurrence);
+
+    state.stage_value(
+        occurrence,
+        &source,
+        super::Target::storage(destination.clone()),
+    );
+
+    state.consume_target(source, error_type());
+    assert!(!state.initialized(&old_pointer, error_type()));
+    state.complete_transition(occurrence);
+    state.finish_value_transfers();
+
+    let moved =
+        super::Target::storage(destination).project(&[field, StorageProjection::UninitPayload]);
+
+    state.point_at(moved, new_pointer.clone(), error_type());
+    assert!(state.initialized(&new_pointer, error_type()));
+    assert!(!state.initialized(&old_pointer, error_type()));
+    assert!(state.contents[&payload].pending.is_empty());
+
+    assert_eq!(
+        state.read(&new_pointer, error_type(), MemoryReadKind::Move, None, None),
+        MemoryOperationStatus::Valid
+    );
+
+    assert!(!state.initialized(&new_pointer, error_type()));
+}
+
+#[test]
+fn reusing_inline_storage_does_not_revive_old_payload_pointers() {
+    let ([owner, old_pointer, new_pointer, _], origins) = places();
+
+    let mut state = State::default();
+
+    let payload =
+        super::Target::storage(owner.clone()).project(&[StorageProjection::UninitPayload]);
+
+    state.uninit(payload.clone(), error_type());
+    state.write_value(payload.clone(), error_type(), origins[0], None);
+    state.point_at(payload.clone(), old_pointer.clone(), error_type());
+    state.begin(owner.root);
+    state.uninit(payload.clone(), error_type());
+    state.write_value(payload.clone(), error_type(), origins[1], None);
+    state.point_at(payload, new_pointer.clone(), error_type());
+    assert!(state.initialized(&new_pointer, error_type()));
+    assert!(!state.initialized(&old_pointer, error_type()));
+}
+
+#[test]
+fn constructed_aggregate_and_return_transfer_the_evaluated_payload() {
+    let ([owner, aggregate, result, pointer], origins) = places();
+
+    let mut state = State::default();
+
+    let payload =
+        super::Target::storage(owner.clone()).project(&[StorageProjection::UninitPayload]);
+
+    state.uninit(payload.clone(), error_type());
+    state.write_value(payload, error_type(), origins[0], None);
+
+    let field = StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
+    let occurrence = origins[1].into();
+
+    state.stage_value(
+        occurrence,
+        &super::Target::storage(owner.clone()),
+        super::Target::storage(aggregate.clone()).project(&[field]),
+    );
+
+    state.complete_transition(occurrence);
+
+    state.stage_value(
+        occurrence,
+        &super::Target::storage(aggregate),
+        super::Target::storage(result.clone()),
+    );
+
+    state.consume_target(super::Target::storage(owner), error_type());
+    state.complete_transition(occurrence);
+
+    state.point_at(
+        super::Target::storage(result).project(&[field, StorageProjection::UninitPayload]),
+        pointer.clone(),
+        error_type(),
+    );
+
+    assert!(state.initialized(&pointer, error_type()));
+}
+
+#[test]
+fn consumed_inline_value_transfers_after_borrow_plan_completion() {
+    let ([owner, destination, pointer, _], origins) = places();
+
+    let mut state = State::default();
+
+    let payload =
+        super::Target::storage(owner.clone()).project(&[StorageProjection::UninitPayload]);
+
+    state.uninit(payload.clone(), error_type());
+    state.write_value(payload, error_type(), origins[0], None);
+    state.consume_target(super::Target::storage(owner.clone()), error_type());
+    state.transfer(&owner, destination.clone());
+    state.finish_value_transfers();
+
+    state.point_at(
+        super::Target::storage(destination).project(&[StorageProjection::UninitPayload]),
+        pointer.clone(),
+        error_type(),
+    );
+
+    assert!(state.initialized(&pointer, error_type()));
+    assert!(state.evaluated.is_empty());
+}
+
+#[test]
+fn alternative_payload_sources_require_initialization_on_every_path() {
+    let ([first, second, result, pointer], origins) = places();
+
+    let mut state = State::default();
+
+    let first_payload =
+        super::Target::storage(first.clone()).project(&[StorageProjection::UninitPayload]);
+
+    let second_payload =
+        super::Target::storage(second.clone()).project(&[StorageProjection::UninitPayload]);
+
+    state.uninit(first_payload.clone(), error_type());
+    state.uninit(second_payload, error_type());
+    state.write_value(first_payload, error_type(), origins[0], None);
+
+    let occurrence = origins[1].into();
+
+    state.stage_value(
+        occurrence,
+        &super::Target::storage(first),
+        super::Target::storage(result.clone()),
+    );
+
+    state.stage_value(
+        occurrence,
+        &super::Target::storage(second),
+        super::Target::storage(result.clone()),
+    );
+
+    state.complete_transition(occurrence);
+
+    state.point_at(
+        super::Target::storage(result).project(&[StorageProjection::UninitPayload]),
+        pointer.clone(),
+        error_type(),
+    );
+
+    assert!(!state.initialized(&pointer, error_type()));
+}
+
+#[test]
+fn allocation_reuse_retires_addresses_into_nested_inline_payloads() {
+    let ([allocation, pointer, new_pointer, _], origins) = places();
+
+    let mut state = State::default();
+
+    state.fresh(allocation.clone(), origins[0]);
+
+    let target = state
+        .value_targets(&super::Target::storage(allocation.clone()))
+        .unwrap()
+        .pop()
+        .unwrap();
+
+    let payload = target.project(&[StorageProjection::UninitPayload]);
+
+    state.uninit(payload.clone(), error_type());
+    state.write_value(payload.clone(), error_type(), origins[1], None);
+    state.point_at(payload.clone(), pointer.clone(), error_type());
+    state.fresh(allocation, origins[0]);
+    state.uninit(payload.clone(), error_type());
+    state.write_value(payload.clone(), error_type(), origins[2], None);
+    state.point_at(payload, new_pointer.clone(), error_type());
+    assert!(!state.initialized(&pointer, error_type()));
+    assert!(state.initialized(&new_pointer, error_type()));
+}
+
+#[test]
+fn replacing_inline_storage_does_not_revalidate_a_pointer_to_its_old_contents() {
+    let ([first, replacement, pointer, new_pointer], origins) = places();
+
+    let mut state = State::default();
+
+    let payload =
+        super::Target::storage(first.clone()).project(&[StorageProjection::UninitPayload]);
+
+    state.uninit(payload.clone(), error_type());
+    state.write_value(payload.clone(), error_type(), origins[0], None);
+    state.point_at(payload.clone(), pointer.clone(), error_type());
+
+    let replacement_payload =
+        super::Target::storage(replacement.clone()).project(&[StorageProjection::UninitPayload]);
+
+    state.uninit(replacement_payload.clone(), error_type());
+    state.write_value(replacement_payload, error_type(), origins[1], None);
+    state.transfer(&replacement, first);
+    state.point_at(payload, new_pointer.clone(), error_type());
+    assert!(!state.initialized(&pointer, error_type()));
+    assert!(state.initialized(&new_pointer, error_type()));
+}
+
+#[test]
+fn memory_writes_capture_formed_borrows_and_reads_transfer_the_whole_value() {
+    let ([referent, owner, pointer, result], origins, capability) = borrowed_places();
+
+    let mut state = State::default();
+    let payload = super::Target::storage(owner).project(&[StorageProjection::UninitPayload]);
+
+    state.begin_borrow(capability, referent.clone(), error_type());
+    state.uninit(payload.clone(), error_type());
+
+    state.write_value(
+        payload.clone(),
+        error_type(),
+        origins[0],
+        Some(super::Source::Borrow(capability)),
+    );
+
+    state.point_at(payload, pointer.clone(), error_type());
+
+    state.read(
+        &pointer,
+        error_type(),
+        MemoryReadKind::Move,
+        None,
+        Some(result.clone()),
+    );
+
+    assert_eq!(state.referent(&result, error_type()), Some(referent));
+}
+
+#[test]
+fn ending_inline_storage_lifetime_expires_its_exposed_payload_address() {
+    let ([owner, pointer, _, _], origins) = places();
+
+    let mut state = State::default();
+
+    let payload =
+        super::Target::storage(owner.clone()).project(&[StorageProjection::UninitPayload]);
+
+    state.uninit(payload.clone(), error_type());
+    state.write_value(payload.clone(), error_type(), origins[0], None);
+    state.point_at(payload, pointer.clone(), error_type());
+    state.forget(owner.root);
+    assert!(state.initialized(&pointer, error_type()));
+    state.end_storage(|identity| identity == owner.root);
+    assert!(!state.initialized(&pointer, error_type()));
+}
+
+#[test]
+fn unlocated_aggregate_writes_keep_possible_origins_without_growing_paths() {
+    let ([source, referent, destination, pointer], origins) = places();
+
+    let mut state = State::default();
+    let field = StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
+
+    state.entry_reference(referent.clone());
+
+    state.transfer_value(
+        &super::Target::storage(referent),
+        Place {
+            root: source.root,
+            projections: [field].into(),
+        },
+    );
+
+    state.uninit(super::Target::storage(destination), error_type());
+
+    for _ in 0..4 {
+        state.write(
+            &pointer,
+            error_type(),
+            origins[0],
+            Some(super::Source::Value(super::Target::storage(source.clone()))),
+        );
+    }
+
+    assert!(
+        state
+            .values
+            .keys()
+            .all(|target| target.projections().len() <= 1)
+    );
+
+    assert!(state.values.values().all(|references| references.unknown));
+
+    assert!(
+        state
+            .values
+            .values()
+            .all(|references| !references.targets.is_empty())
+    );
+
+    assert!(
+        state
+            .contents
+            .values()
+            .all(|contents| contents.initialized.is_empty())
+    );
 }

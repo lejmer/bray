@@ -11,6 +11,42 @@ The [rule coverage and replacement plan](runtime-stack-rule-coverage.md) and [cl
 replace the earlier proposal. The [architectural assessment](stack-architecture-assessment.md) and the instructions below
 retain dated evidence and acceptance requirements. Issue preparation did not begin implementation.
 
+## Protected payload checkpoint, 2026-10-13
+
+This continuation follows `d541b0dd` on the same repair branch. BRA-620 remains incomplete.
+
+Protected contents now occupy an inline payload path beneath their physical owner. Taking that address proves neither
+initialization nor authority. Whole-value transfers carry the payload's contents and obligations through the shared memory
+state. Raw reads and writes use the same transfer operation. Old pointers keep their original storage incarnation when
+an owner moves or its storage is reused. Last-use pruning removes value facts, while the owning scope ends physical storage.
+The separate protected pseudo-allocation identity is removed.
+
+The production guard's returned borrow now has the exact protected payload origin. Receiver calls use their selected input
+types. Calls that have no abnormal edge prepare their reference transfers and effects through the same transition as split
+calls. Entry reference fields demanded only by checked callee summaries are seeded before flow analysis. Mutations still
+revoke those facts. Unconditional replacement updates the returned origin, and conditional replacement cannot claim an
+exact origin. This is an internal representation of existing Uninit semantics, with no new syntax or runtime representation.
+
+Evidence in the shared primary checkout's `target/bra-620-authority/` directory:
+
+- `payload-summary-seeds.log`: all four source, imported and production protected-payload origin checks pass.
+- `payload-seeded-checker.log`: all 300 checker tests pass, including whole-value transfer, storage reuse, physical lifetime,
+  must-joins, and bounded unlocated writes.
+- `payload-seeded-returned_values.log` and `payload-seeded-memory_operations.log`: 24 returned-value and 15 memory tests pass.
+- `payload-seeded-storage_flow.log`, `payload-seeded-publication.log` and `payload-seeded-default.log`: 15 storage-flow,
+  35 publication and 44 default checks pass. The refinement cache test now checks prerequisites through their owning
+  callable component, consistent with the established publication contract.
+- `payload-final-libraries.log`: 119 bound-tree, 300 checker, 69 messages, 189 package-interface and 202 symbol tests pass.
+- `payload-seeded-trusted_contracts.log`: 135 pass and 15 fail. The failure set is the preceding checkpoint's set minus
+  `production_guard_borrow_origin_reaches_the_protected_payload`. No previously passing authority case regressed.
+
+After the audit, `payload-audited-tooling.log` and `payload-audited-protected.log` pass the JSON projection test and all four origin checks. `payload-split-checker.log` passes all 300 checker tests after separating input preparation, state and solver into cohesive modules. `cargo fmt --all`, mutating `cargo xtask style`, `cargo xtask format` and `git diff --check` pass. The change adds approximately 650 production lines and 630 test lines. The production growth implements inline contents transfer and its physical lifetime, prepares missing call inputs, and transports the protected projection across interfaces and diagnostics. It replaces the protected pseudo-allocation model and shared transfer duplication. Performance acceptance remains outstanding.
+
+The remaining authority failures are still acceptance work. Entry reference demand currently covers direct formal roots.
+Nested reference identities, alias demand closure, finite recursive paths and must candidates, specialization demand closure,
+deferred effects, and the production acquisition carrier remain unfinished. The broader std.memory initialized-prefix
+failure also remains active. Passing the protected origin proof does not prove witness preservation or complete BRA-620.
+
 ## Default component checkpoint, 2026-10-13
 
 This continuation follows `5a13b1eb` on the same repair branch. Runtime-default providers now participate in the same

@@ -1853,3 +1853,201 @@ fn mutation_observations_preserve_sibling_fields_but_invalidate_other_input_alia
 
     assert!(checked_left && checked_right);
 }
+
+#[test]
+fn protected_payload_addresses_preserve_their_storage_origin() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Cell<T> {
+            storage: Uninit<T>;
+            func pointer() -> RawPointer<T> executes(pure, total) {
+                return core.memory.uninit_pointer<T>(&self.storage);
+            }
+            func forwarded() -> RawPointer<T> executes(pure, total) {
+                return self.pointer();
+            }
+        }
+        struct Holder<T> {
+            cell: &Cell<T>;
+            func storage() -> &Uninit<T> executes(pure, total) {
+                return &self.cell.storage;
+            }
+            func pointer() -> RawPointer<T> executes(pure, total) {
+                return direct<T>(self.storage());
+            }
+        }
+        func holder_method<T>(pos holder: &Holder<T>) -> RawPointer<T> {
+            return holder.pointer();
+        }
+        func direct<T>(pos storage: &Uninit<T>) -> RawPointer<T> {
+            return core.memory.uninit_pointer<T>(storage);
+        }
+        func method<T>(pos cell: &Cell<T>) -> RawPointer<T> {
+            return cell.forwarded();
+        }
+        func forwarded<T>(pos storage: &Uninit<T>) -> RawPointer<T> {
+            return direct<T>(storage);
+        }
+        func field<T>(pos holder: &Holder<T>) -> RawPointer<T> {
+            return forwarded<T>(&holder.cell.storage);
+        }
+    "#,
+    );
+
+    for (name, entry_length, target_length) in [
+        ("direct", 0, 1),
+        ("forwarded", 0, 1),
+        ("field", 1, 2),
+        ("method", 0, 2),
+        ("holder_method", 1, 2),
+    ] {
+        let dependencies = crate::compilation::result_dependencies::source_function_dependencies(
+            &application,
+            name,
+        );
+
+        let relations = dependencies
+            .borrows()
+            .iter()
+            .filter(|relation| {
+                relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(relations.len(), 1, "{name}: {dependencies:#?}");
+
+        let relation = relations[0];
+
+        assert_eq!(
+            relation.kind(),
+            bray_symbols::DependencyReferenceKind::Address
+        );
+
+        assert_eq!(
+            relation.entry().projections().len(),
+            entry_length,
+            "{name}: {relation:#?}"
+        );
+
+        assert_eq!(
+            relation.target_projections().len(),
+            target_length,
+            "{name}: {relation:#?}"
+        );
+
+        assert_eq!(
+            relation.target_projections().last(),
+            Some(&bray_symbols::DependencyProjection::UninitPayload)
+        );
+    }
+}
+
+#[test]
+fn protected_payload_values_preserve_reference_origins_and_reject_local_escape() {
+    let application = compilation(
+        r#"
+        trusted module app;
+        trusted func identity(pos value: &bool) -> &bool uses(unchecked_init) {
+            let storage = core.memory.uninit_from<(&bool)>(value);
+            return trusted core.memory.assume_initialized<(&bool)>(storage);
+        }
+        trusted func bad() -> &bool uses(unchecked_init) {
+            let value = true;
+            let storage = core.memory.uninit_from<(&bool)>(&value);
+            return trusted core.memory.assume_initialized<(&bool)>(storage);
+        }
+    "#,
+    );
+
+    let checked = application
+        .storage_flow(source_function_body_key(&application, "identity"))
+        .unwrap();
+
+    assert!(checked.diagnostics().is_empty(), "{checked:#?}");
+
+    let dependencies = crate::compilation::result_dependencies::source_function_dependencies(
+        &application,
+        "identity",
+    );
+
+    assert!(
+        dependencies.borrows().iter().any(|relation| {
+            relation.entry().subject_root()
+                == bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(
+                    0,
+                ))
+                && relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+                && relation.kind() == bray_symbols::DependencyReferenceKind::Borrow
+        }),
+        "{dependencies:#?}"
+    );
+
+    let flow = application
+        .storage_flow(source_function_body_key(&application, "bad"))
+        .unwrap();
+
+    assert_goal_state_diagnostic_kind(
+        flow.diagnostics(),
+        DiagnosticKind::CheckingEscapingStorageDependency,
+    );
+}
+
+#[test]
+fn call_summary_reference_fields_follow_replacement_and_require_path_agreement() {
+    for (body, exact) in [
+        ("self.value = next;", true),
+        ("if change { self.value = next; }", false),
+    ] {
+        let application = compilation(&format!(
+            r#"
+            module app;
+            struct Slot {{
+                mut value: &bool;
+                func get() -> &bool executes(pure, total) {{
+                    return self.value;
+                }}
+                mut func replace(pos next: &bool, pos change: bool) executes(total) {{
+                    {body}
+                }}
+            }}
+            func caller(pos slot: &mut Slot, pos next: &bool, pos change: bool) -> &bool {{
+                slot.replace(next, change);
+                return slot.get();
+            }}
+        "#
+        ));
+
+        let flow = application
+            .storage_flow(source_function_body_key(&application, "caller"))
+            .unwrap();
+
+        assert!(flow.diagnostics().is_empty(), "{body}: {flow:#?}");
+
+        let dependencies = crate::compilation::result_dependencies::source_function_dependencies(
+            &application,
+            "caller",
+        );
+
+        let origins = dependencies
+            .borrows()
+            .iter()
+            .filter(|relation| {
+                relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            origins.len(),
+            usize::from(exact),
+            "{body}: {dependencies:#?}"
+        );
+
+        if let Some(origin) = origins.first() {
+            assert_eq!(
+                origin.entry().subject_root(),
+                bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(1))
+            );
+        }
+    }
+}

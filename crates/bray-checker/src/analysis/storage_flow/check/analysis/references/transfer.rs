@@ -311,7 +311,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 targets
                     .into_iter()
-                    .map(super::super::memory::ReferenceSource::Value)
+                    .map(crate::analysis::storage_flow::memory::Source::Value)
                     .collect()
             };
 
@@ -340,7 +340,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         );
                     }
                 } else if let Some(ty) = reference.addressed_type() {
-                    let super::super::memory::ReferenceSource::Value(target) = source else {
+                    let crate::analysis::storage_flow::memory::Source::Value(target) = source
+                    else {
                         panic!("addressed storage has a location");
                     };
 
@@ -362,7 +363,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         borrows: &[(usize, bray_symbols::TypeId)],
     ) -> Option<Vec<Target>> {
         let projections = storage_projections(self.request, projections)?;
-        let mut targets = vec![Target::storage(self.argument_storage(argument)?)];
+        let mut targets = vec![self.expression_target(state, argument)?];
         let mut copied = 0;
 
         for (step, (index, ty)) in borrows.iter().enumerate() {
@@ -390,7 +391,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         .targets(&state.memory)?;
                 }
 
-                // An implicit shared or mutable argument conversion borrows the actual value slot.
+                // An implicit borrow uses the resolved place, including an already dereferenced receiver.
             } else {
                 targets = targets
                     .iter()

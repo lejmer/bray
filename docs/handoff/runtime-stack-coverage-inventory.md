@@ -76,13 +76,14 @@ ImplementationHook and runtime_role_catalog. The main plan links their source ow
 | Selected borrow/capability/alternative | R06, R07, R08, R19 | `CustomIndexBorrow`, `ScopedCapability`, `Alternative` |
 | Earlier-error recovery | R30 | `Error` |
 
-## Projections (9)
+## Projections (10)
 
 | Behavior owner | Rules | Complete variant list |
 | --- | --- | --- |
 | Initialized represented components | R01, R04, R06 | `ProductField`, `TupleElement`, `ElementFromStart`, `ElementFromEnd`, `ActiveUnionPayloadField`, `NullableValue` |
 | Indexed or bounded range | R01, R07, R08, R10 | `Element`, `SliceRange` |
 | Storage-policy target and retained owner | R07, R16, R24 | `OwnedTarget` |
+| Inline protected payload | R02, R07, R09 | `UninitPayload` |
 
 ## Accesses (12)
 

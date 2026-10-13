@@ -14,7 +14,6 @@ pub(in crate::analysis::storage_flow) enum Origin {
     },
     Storage(Place),
     Allocation(Place),
-    Uninit(Place),
 }
 
 /// `previous` summarizes older executions of one creation site. It is never a must-alias.
@@ -79,6 +78,24 @@ impl References {
         self.targets.len() != count || self.unknown != unknown || self.displaced != displaced
     }
 
+    pub(super) fn retire(&mut self, current: &Target) {
+        let targets = self
+            .targets
+            .range(current.clone()..)
+            .take_while(|target| current.contains(target))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for target in targets {
+            self.targets.remove(&target);
+
+            self.targets.insert(Target {
+                previous: true,
+                ..target
+            });
+        }
+    }
+
     pub(super) fn is_exact(&self) -> bool {
         !self.unknown
             && !self.displaced
@@ -137,14 +154,32 @@ fn merge_origins(target: &mut Origins, incoming: &Origins) -> bool {
     target.len() != count
 }
 
+/// A value captured before consumption, with inline protected payload state at its destination.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(super) struct Transfer {
+    pub(super) values: BTreeMap<Target, References>,
+    pub(super) payloads: BTreeMap<Target, Contents>,
+}
+
+impl Transfer {
+    pub(super) fn merge(&mut self, incoming: &Self) -> bool {
+        let changed = merge_references(&mut self.values, &incoming.values, |_| false, |_| false);
+
+        merge_contents(&mut self.payloads, &incoming.payloads) || changed
+    }
+}
+
 /// Reference values are copied between slots. Contents and obligations belong to targets once.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::analysis::storage_flow) struct State {
     pub(super) owned_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
     pub(super) values: BTreeMap<Target, References>,
     pub(super) borrows: BTreeMap<BorrowCapabilityId, References>,
-    pub(super) pending: BTreeMap<BoundExecutionSite, BTreeMap<Target, References>>,
+    pub(super) pending: BTreeMap<BoundExecutionSite, Transfer>,
     pub(super) contents: BTreeMap<Target, Contents>,
+    // Consumed inline values remain available to the current operation's value transfers.
+    // Proof queries read physical contents only. This snapshot never crosses an operation edge.
+    pub(super) evaluated: BTreeMap<Target, Contents>,
 }
 
 impl State {
@@ -154,6 +189,11 @@ impl State {
         absent: &BTreeMap<Place, StorageAbsence>,
         incoming_absent: &BTreeMap<Place, StorageAbsence>,
     ) -> bool {
+        assert!(
+            self.evaluated.is_empty() && incoming.evaluated.is_empty(),
+            "evaluated values must be transferred before joining control flow"
+        );
+
         let mut changed = merge_references(
             &mut self.values,
             &incoming.values,
@@ -175,51 +215,55 @@ impl State {
 
         changed |= merge_references(&mut self.borrows, &incoming.borrows, |_| false, |_| false);
 
-        let absent = BTreeMap::new();
+        let absent = Transfer::default();
 
-        for (call, references) in &mut self.pending {
-            changed |= merge_references(
-                references,
-                incoming.pending.get(call).unwrap_or(&absent),
-                |_| false,
-                |_| false,
-            );
+        for (call, transfer) in &mut self.pending {
+            changed |= transfer.merge(incoming.pending.get(call).unwrap_or(&absent));
         }
 
-        for (call, references) in &incoming.pending {
+        for (call, transfer) in &incoming.pending {
             if !self.pending.contains_key(call) {
-                let mut joined = BTreeMap::new();
+                let mut joined = Transfer::default();
 
-                changed |= merge_references(&mut joined, references, |_| false, |_| false);
+                changed |= joined.merge(transfer);
                 self.pending.insert(*call, joined);
             }
         }
 
-        for (target, contents) in &mut self.contents {
-            match incoming.contents.get(target) {
-                Some(incoming) => {
-                    changed |= contents.merge(incoming);
-                }
-                None => {
-                    changed |= !contents.initialized.is_empty();
-                    contents.initialized.clear();
-                }
-            }
-        }
-
-        for (target, contents) in &incoming.contents {
-            if !self.contents.contains_key(target) {
-                // Each block owns its merged contents. Origins and obligations may survive one path.
-                let mut contents = contents.clone();
-
-                contents.initialized.clear();
-                self.contents.insert(target.clone(), contents);
-                changed = true;
-            }
-        }
+        changed |= merge_contents(&mut self.contents, &incoming.contents);
 
         changed
     }
+}
+
+fn merge_contents(
+    target: &mut BTreeMap<Target, Contents>,
+    incoming: &BTreeMap<Target, Contents>,
+) -> bool {
+    let mut changed = false;
+
+    for (key, contents) in target.iter_mut() {
+        match incoming.get(key) {
+            Some(incoming) => changed |= contents.merge(incoming),
+            None => {
+                changed |= !contents.initialized.is_empty();
+                contents.initialized.clear();
+            }
+        }
+    }
+
+    for (key, contents) in incoming {
+        if !target.contains_key(key) {
+            // Joined contents retain possible obligations, but no one-sided initialization proof.
+            let mut contents = contents.clone();
+
+            contents.initialized.clear();
+            target.insert(key.clone(), contents);
+            changed = true;
+        }
+    }
+
+    changed
 }
 
 fn merge_references<K: Clone + Ord>(

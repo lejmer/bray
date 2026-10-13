@@ -551,6 +551,7 @@ pub(super) fn format_english_storage_access(access: &DiagnosticStorageAccess) ->
             }
             DiagnosticStorageProjection::NullableValue => path.push_str(".present value"),
             DiagnosticStorageProjection::OwnedTarget => path.push_str(".owned target"),
+            DiagnosticStorageProjection::UninitPayload => path.push_str(".protected payload"),
         }
     }
 

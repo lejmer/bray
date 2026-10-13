@@ -11,6 +11,19 @@ pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(
 ) -> Result<DiagnosticResult<Option<TypeId>>, CheckerQueryError<C::UpstreamError>> {
     let owner = request.semantic_values().unborrowed_type(owner);
 
+    if projection == DependencyProjection::UninitPayload {
+        return Ok(DiagnosticResult::new(
+            request
+                .available_compiler_known_symbols()
+                .unary_representation_argument(
+                    request.semantic_values(),
+                    bray_compiler_known::RepresentationRole::Uninit,
+                    owner,
+                ),
+            DiagnosticBag::new(),
+        ));
+    }
+
     let data = request.semantic_values().type_data(owner);
 
     let mut diagnostics = DiagnosticBag::new();
@@ -130,6 +143,7 @@ pub(crate) fn storage_projections<C: CheckerRequestContext + ?Sized>(
             }
             DependencyProjection::NullableValue => Some(StorageProjection::NullableValue),
             DependencyProjection::OwnedTarget => Some(StorageProjection::OwnedTarget),
+            DependencyProjection::UninitPayload => Some(StorageProjection::UninitPayload),
             DependencyProjection::UnionPayloadField(field) => {
                 let field = request
                     .symbols()
@@ -156,6 +170,7 @@ fn projected_storage_type<C: CheckerRequestContext + ?Sized>(
         StorageProjection::TupleElement(index) => DependencyProjection::TupleElement(index),
         StorageProjection::NullableValue => DependencyProjection::NullableValue,
         StorageProjection::OwnedTarget => DependencyProjection::OwnedTarget,
+        StorageProjection::UninitPayload => DependencyProjection::UninitPayload,
         StorageProjection::ActiveUnionPayloadField { field, .. } => {
             DependencyProjection::UnionPayloadField(field)
         }

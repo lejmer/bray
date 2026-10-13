@@ -290,7 +290,7 @@ mod tests {
 
         left.memory.fresh(
             crate::analysis::storage_flow::memory::Place::root(identity),
-            Some(expressions[0]),
+            expressions[0],
         );
 
         let mut snapshot = ExitState::new(&left);

@@ -60,7 +60,8 @@ pub(super) fn static_projection_kind(projection: StorageProjection) -> Option<Mi
             Some(MirProjectionKind::ActiveUnionPayloadField { variant, field })
         }
         StorageProjection::NullableValue => Some(MirProjectionKind::NullableValue),
-        StorageProjection::OwnedTarget
+        StorageProjection::UninitPayload
+        | StorageProjection::OwnedTarget
         | StorageProjection::Element(_)
         | StorageProjection::SliceRange { .. } => None,
     }

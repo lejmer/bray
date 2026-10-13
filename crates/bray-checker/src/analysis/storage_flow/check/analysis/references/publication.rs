@@ -145,7 +145,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 reference: path, ..
             } => (path, true),
             Origin::Storage(path) => (path, false),
-            Origin::Allocation(_) | Origin::Uninit(_) => return Ok(None),
+            Origin::Allocation(_) => return Ok(None),
         };
 
         let Some(root) = self.formal_root(target.root) else {
@@ -247,6 +247,7 @@ pub(in crate::analysis::storage_flow::check::analysis) fn dependency_projections
                 Some(DependencyProjection::UnionPayloadField(*field))
             }
             StorageProjection::OwnedTarget => Some(DependencyProjection::OwnedTarget),
+            StorageProjection::UninitPayload => Some(DependencyProjection::UninitPayload),
             _ => None,
         })
         .collect()

@@ -136,6 +136,11 @@ impl BoundCallDependencyContracts {
         self
     }
 
+    /// Returns the input subjects whose reference paths were prepared by call analysis.
+    pub fn reference_subjects(&self) -> impl Iterator<Item = &bray_symbols::DependencySubject> {
+        self.borrow_paths.keys()
+    }
+
     /// Returns the prepared dereferences before each field projection of a selected input path.
     pub fn borrow_path(
         &self,

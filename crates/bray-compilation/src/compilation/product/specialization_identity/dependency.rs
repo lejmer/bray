@@ -276,6 +276,7 @@ impl StructuralValueEncoder<'_, '_> {
                     self.symbol((*field).into())?;
                 }
                 DependencyProjection::OwnedTarget => self.tag(5),
+                DependencyProjection::UninitPayload => self.tag(6),
             }
         }
 

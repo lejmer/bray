@@ -6,3 +6,5 @@ mod transition;
 mod tests;
 
 pub(super) use model::{Origin, Place, ReferenceExit, State, Target};
+
+pub(super) use references::Source;

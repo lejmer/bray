@@ -42,6 +42,8 @@ pub enum InterfaceDependencyProjection {
     UnionPayloadField(InterfaceSymbolReference),
     /// Target reached through owned indirection.
     OwnedTarget,
+    /// Inline protected storage. This projection establishes neither initialization nor access authority.
+    UninitPayload,
 }
 
 /// One formal dependency subject and its ordered projections.

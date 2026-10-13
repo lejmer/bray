@@ -1218,6 +1218,7 @@ fn json_output_preserves_exact_storage_access_path() {
         [
             DiagnosticStorageProjection::ProductField(String::from("items")),
             DiagnosticStorageProjection::IndexedElement,
+            DiagnosticStorageProjection::UninitPayload,
         ],
         DiagnosticType::Boolean,
     );
@@ -1252,6 +1253,13 @@ fn json_output_preserves_exact_storage_access_path() {
     assert_eq!(
         value["value"]["projections"][1]["reason"],
         "indexed_element"
+    );
+
+    assert_eq!(value["value"]["projections"][2]["reason"], "uninit_payload");
+
+    assert_eq!(
+        value["value"]["projections"][2]["context"],
+        serde_json::json!([])
     );
 
     assert_eq!(value["value"]["reached_type"]["kind"], "boolean");

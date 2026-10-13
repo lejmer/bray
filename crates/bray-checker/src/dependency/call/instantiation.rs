@@ -1,7 +1,7 @@
 use bray_bound_tree::{
     BoundDependencyGuard, BoundDependencySubject, BoundExpressionId,
     DependencyContractInstantiationContext, SelectedArgument, SelectedCall, StorageAccessId,
-    StorageIdentity, StoragePlan, StorageProjection,
+    StorageIdentity, StoragePlan,
 };
 use bray_symbols::{
     DependencyGuard, DependencyProjection, DependencyRequirementKind, DependencySubject,
@@ -336,24 +336,9 @@ fn projected_access<C: CheckerRequestContext + ?Sized>(
     base: StorageAccessId,
     projections: &[DependencyProjection],
 ) -> CheckerQueryResult<Option<StorageAccessId>, C::UpstreamError> {
-    let mut projected = Vec::with_capacity(projections.len());
-
-    for projection in projections {
-        projected.push(match *projection {
-            DependencyProjection::ProductField(field) => StorageProjection::ProductField(field),
-            DependencyProjection::TupleElement(index) => StorageProjection::TupleElement(index),
-            DependencyProjection::UnionPayloadField(field) => {
-                let variant = request.union_payload_field(field)?
-                    .unwrap_or_else(|| panic!("dependency projection requires union payload field {field:?}, base: {base:?}, unit: {:?}", request.unit().unit()))
-                    .variant();
-
-                StorageProjection::ActiveUnionPayloadField { variant, field }
-            }
-            DependencyProjection::NullableValue => StorageProjection::NullableValue,
-            DependencyProjection::OwnedTarget => StorageProjection::OwnedTarget,
-            DependencyProjection::Element(_) => return Ok(None),
-        });
-    }
+    let Some(projected) = crate::storage::storage_projections(request, projections) else {
+        return Ok(None);
+    };
 
     Ok(storage.projected_access(base, &projected))
 }

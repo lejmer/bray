@@ -187,7 +187,8 @@ fn projection(projection: DependencyProjection) -> Option<StorageProjection> {
         DependencyProjection::NullableValue => Some(StorageProjection::NullableValue),
         DependencyProjection::UnionPayloadField(_)
         | DependencyProjection::Element(_)
-        | DependencyProjection::OwnedTarget => None,
+        | DependencyProjection::OwnedTarget
+        | DependencyProjection::UninitPayload => None,
     }
 }
 

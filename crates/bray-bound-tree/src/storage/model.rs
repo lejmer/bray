@@ -306,6 +306,8 @@ pub enum StorageProjection {
     NullableValue,
     /// The storage owned through an indirection layer.
     OwnedTarget,
+    /// Inline protected storage. This projection establishes neither initialization nor access authority.
+    UninitPayload,
 }
 
 impl StorageProjection {
@@ -327,7 +329,8 @@ impl StorageProjection {
             | Self::ElementFromEnd(_)
             | Self::ActiveUnionPayloadField { .. }
             | Self::NullableValue
-            | Self::OwnedTarget => true,
+            | Self::OwnedTarget
+            | Self::UninitPayload => true,
         }
     }
 }

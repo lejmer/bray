@@ -9,7 +9,7 @@ use bray_diagnostics::{
 
 use super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
-use crate::analysis::storage_flow::memory::{Place, Target};
+use crate::analysis::storage_flow::memory::{Place, Source, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 
 const fn operation_requires_trust(kind: CheckedMemoryOperationKind) -> bool {
@@ -120,6 +120,17 @@ where
             let targets =
                 self.memory_mutation(operation)
                     .and_then(|(argument, element, purpose)| {
+                        if matches!(
+                            operation.kind(),
+                            CheckedMemoryOperationKind::UninitWrite { .. }
+                                | CheckedMemoryOperationKind::UninitMove { .. }
+                                | CheckedMemoryOperationKind::UninitAssumeInitialized { .. }
+                        ) {
+                            // These operations change protected contents, not the validity
+                            // of their Uninit owner. The memory state owns that transition.
+                            return None;
+                        }
+
                         self.argument_storage(argument)
                             .map(|place| (state.memory.reached_storage(&place), element, purpose))
                     });
@@ -183,69 +194,13 @@ where
         let result = || self.expression_result_storage(operation.expression());
 
         match operation.kind() {
-            CheckedMemoryOperationKind::UninitNew { .. } => {
-                if let Some(result) = result() {
-                    state.memory.fresh(result, None);
-                }
-            }
-            CheckedMemoryOperationKind::UninitFrom { element } => {
-                let Some(result) = result() else {
-                    return MemoryOperationStatus::Recovered;
-                };
-
-                state.memory.fresh(result.clone(), None);
-
-                return state.memory.write(
-                    &result,
-                    element,
-                    operation.expression(),
-                    argument(0).as_ref(),
-                );
-            }
-            CheckedMemoryOperationKind::UninitPointer { .. } => {
-                let Some(source) = argument(0) else {
-                    return MemoryOperationStatus::Recovered;
-                };
-
-                let Some(result) = result() else {
-                    return MemoryOperationStatus::Recovered;
-                };
-
-                state.memory.transfer(&source, result);
-            }
-            CheckedMemoryOperationKind::UninitWrite { element } => {
-                let Some(storage) = argument(0) else {
-                    return MemoryOperationStatus::Recovered;
-                };
-
-                let status = state.memory.write(
-                    &storage,
-                    element,
-                    operation.expression(),
-                    argument(1).as_ref(),
-                );
-
-                if status != MemoryOperationStatus::Valid {
-                    return status;
-                }
-
-                if let Some(result) = result() {
-                    state.memory.transfer(&storage, result);
-                }
-            }
-            CheckedMemoryOperationKind::UninitAssumeInitialized { element }
-            | CheckedMemoryOperationKind::UninitMove { element } => {
-                let Some(storage) = argument(0) else {
-                    return MemoryOperationStatus::Recovered;
-                };
-
-                return state.memory.read(
-                    &storage,
-                    element,
-                    bray_bound_tree::MemoryReadKind::Move,
-                    Some(operation.expression()),
-                    result(),
-                );
+            CheckedMemoryOperationKind::UninitNew { .. }
+            | CheckedMemoryOperationKind::UninitFrom { .. }
+            | CheckedMemoryOperationKind::UninitPointer { .. }
+            | CheckedMemoryOperationKind::UninitWrite { .. }
+            | CheckedMemoryOperationKind::UninitAssumeInitialized { .. }
+            | CheckedMemoryOperationKind::UninitMove { .. } => {
+                return self.apply_uninit_operation(state, operation);
             }
             CheckedMemoryOperationKind::BorrowFrom { .. } => {
                 let [_, pointer, ..] = arguments else {
@@ -316,12 +271,11 @@ where
                     return MemoryOperationStatus::Recovered;
                 };
 
-                return state.memory.write(
-                    &pointer,
-                    pointee,
-                    operation.expression(),
-                    argument(1).as_ref(),
-                );
+                let value = self.expression_reference(state, arguments[1]);
+
+                return state
+                    .memory
+                    .write(&pointer, pointee, operation.expression(), value);
             }
             CheckedMemoryOperationKind::Copy { pointee, .. } => {
                 let [source, destination, ..] = arguments else {
@@ -351,7 +305,7 @@ where
                     return MemoryOperationStatus::Recovered;
                 };
 
-                state.memory.fresh(result, Some(operation.expression()));
+                state.memory.fresh(result, operation.expression());
             }
             CheckedMemoryOperationKind::RawDeallocate | CheckedMemoryOperationKind::Deallocate => {
                 let Some(pointer) = argument(0) else {
@@ -394,6 +348,91 @@ where
             | CheckedMemoryOperationKind::InlineAssembly { .. } => {}
             CheckedMemoryOperationKind::RawBufferReplace { .. }
             | CheckedMemoryOperationKind::RawBufferRelocate { .. } => {}
+        }
+
+        MemoryOperationStatus::Valid
+    }
+
+    fn apply_uninit_operation(
+        &self,
+        state: &mut StorageFlowState,
+        operation: &bray_bound_tree::CheckedMemoryOperation,
+    ) -> MemoryOperationStatus {
+        let arguments = operation.arguments();
+        let result = || self.expression_result_storage(operation.expression());
+
+        match operation.kind() {
+            CheckedMemoryOperationKind::UninitNew { element } => {
+                if let Some(result) = result() {
+                    state.memory.uninit(
+                        Target::storage(result)
+                            .project(&[bray_bound_tree::StorageProjection::UninitPayload]),
+                        element,
+                    );
+                }
+            }
+            CheckedMemoryOperationKind::UninitFrom { element } => {
+                let Some(result) = result() else {
+                    return MemoryOperationStatus::Recovered;
+                };
+
+                let payload = Target::storage(result)
+                    .project(&[bray_bound_tree::StorageProjection::UninitPayload]);
+
+                state.memory.uninit(payload.clone(), element);
+
+                let value = self.expression_reference(state, arguments[0]);
+
+                return state
+                    .memory
+                    .write_value(payload, element, operation.expression(), value);
+            }
+            CheckedMemoryOperationKind::UninitPointer { element, .. } => {
+                let Some(payload) = self.uninit_target(state, arguments[0]) else {
+                    return MemoryOperationStatus::Recovered;
+                };
+
+                if let Some(result) = result() {
+                    state.memory.point_at(payload, result, element);
+                }
+            }
+            CheckedMemoryOperationKind::UninitWrite { element } => {
+                let Some(payload) = self.uninit_target(state, arguments[0]) else {
+                    return MemoryOperationStatus::Recovered;
+                };
+
+                let value = self.expression_reference(state, arguments[1]);
+
+                let status = state.memory.write_value(
+                    payload.clone(),
+                    element,
+                    operation.expression(),
+                    value,
+                );
+
+                if status == MemoryOperationStatus::Valid
+                    && let Some(result) = result()
+                {
+                    state.memory.point_at(payload, result, element);
+                }
+
+                return status;
+            }
+            CheckedMemoryOperationKind::UninitAssumeInitialized { element }
+            | CheckedMemoryOperationKind::UninitMove { element } => {
+                let Some(payload) = self.uninit_target(state, arguments[0]) else {
+                    return MemoryOperationStatus::Recovered;
+                };
+
+                return state.memory.read_value(
+                    payload,
+                    element,
+                    bray_bound_tree::MemoryReadKind::Move,
+                    Some(operation.expression()),
+                    result(),
+                );
+            }
+            _ => unreachable!("protected storage operation was selected by the caller"),
         }
 
         MemoryOperationStatus::Valid
@@ -467,8 +506,18 @@ where
 
         let (argument, _, purpose) = self.memory_mutation(operation)?;
 
-        let slot = self.argument_storage(argument)?;
-        let targets = state.memory.value_targets(&Target::storage(slot))?;
+        let targets = if matches!(
+            operation.kind(),
+            CheckedMemoryOperationKind::UninitMove { .. }
+                | CheckedMemoryOperationKind::UninitAssumeInitialized { .. }
+                | CheckedMemoryOperationKind::UninitWrite { .. }
+        ) {
+            vec![self.uninit_target(state, argument)?]
+        } else {
+            let slot = self.argument_storage(argument)?;
+
+            state.memory.value_targets(&Target::storage(slot))?
+        };
 
         let kind = if purpose == StorageAccessPurpose::Move {
             bray_symbols::DependencyMutationKind::Consume
@@ -477,6 +526,59 @@ where
         };
 
         Some(targets.into_iter().map(|target| (target, kind)).collect())
+    }
+
+    pub(super) fn uninit_target(
+        &self,
+        state: &StorageFlowState,
+        expression: BoundExpressionId,
+    ) -> Option<Target> {
+        let borrowed = self
+            .execution
+            .semantics
+            .types()
+            .expression(expression)
+            .is_some_and(|ty| {
+                matches!(
+                    self.request.semantic_values().type_data(ty.ty()).as_ref(),
+                    bray_symbols::TypeData::Borrow { .. }
+                )
+            });
+
+        let storage = if borrowed {
+            let targets = self
+                .expression_reference(state, expression)?
+                .targets(&state.memory)?;
+
+            if targets.len() != 1 {
+                return None;
+            }
+
+            targets
+                .into_iter()
+                .next()
+                .expect("one protected storage target")
+        } else {
+            self.expression_target(state, expression)?
+        };
+
+        Some(storage.project(&[bray_bound_tree::StorageProjection::UninitPayload]))
+    }
+
+    pub(super) fn expression_target(
+        &self,
+        state: &StorageFlowState,
+        expression: BoundExpressionId,
+    ) -> Option<Target> {
+        self.expression_result_storage(expression)
+            .map(Target::storage)
+            .or_else(|| {
+                self.storage.node_plans(expression.into()).find_map(|plan| {
+                    self.input
+                        .reference_target(&state.memory, self.storage, plan.access())
+                })
+            })
+            .or_else(|| self.argument_storage(expression).map(Target::storage))
     }
 
     pub(super) fn argument_storage(&self, expression: BoundExpressionId) -> Option<Place> {
@@ -497,12 +599,12 @@ where
         &self,
         state: &StorageFlowState,
         expression: BoundExpressionId,
-    ) -> Option<ReferenceSource> {
+    ) -> Option<Source> {
         if let Some(slot) = self
             .expression_result_storage(expression)
-            .filter(|storage| state.memory.has_reference(storage))
+            .filter(|storage| state.memory.has_stored_value(storage))
         {
-            return Some(ReferenceSource::Value(Target::storage(slot)));
+            return Some(Source::Value(Target::storage(slot)));
         }
 
         let borrowed = self
@@ -525,7 +627,7 @@ where
                 .find(|capability| state.memory.has_borrow(*capability))
         {
             // A newly formed borrow names the aggregate, not a reference stored inside it.
-            return Some(ReferenceSource::Borrow(capability));
+            return Some(Source::Borrow(capability));
         }
 
         if let Some(target) = self.storage.node_plans(expression.into()).find_map(|plan| {
@@ -535,14 +637,14 @@ where
 
             state.memory.has_value(&target).then_some(target)
         }) {
-            return Some(ReferenceSource::Value(target));
+            return Some(Source::Value(target));
         }
 
         if let Some(slot) = self
             .argument_storage(expression)
-            .filter(|storage| state.memory.has_reference(storage))
+            .filter(|storage| state.memory.has_stored_value(storage))
         {
-            return Some(ReferenceSource::Value(Target::storage(slot)));
+            return Some(Source::Value(Target::storage(slot)));
         }
 
         if !borrowed {
@@ -558,7 +660,7 @@ where
                     .borrow_capability()
             })
             .find(|capability| state.memory.has_borrow(*capability))
-            .map(ReferenceSource::Borrow)
+            .map(Source::Borrow)
     }
 
     fn memory_failure_origins(
@@ -670,45 +772,5 @@ where
         self.memory_decisions
             .iter()
             .map(|(expression, status)| MemoryOperationDecision::new(*expression, *status))
-    }
-}
-
-pub(super) enum ReferenceSource {
-    Value(crate::analysis::storage_flow::memory::Target),
-    Borrow(bray_bound_tree::BorrowCapabilityId),
-}
-
-impl ReferenceSource {
-    pub(super) fn stage(
-        self,
-        state: &mut crate::analysis::storage_flow::memory::State,
-        call: bray_bound_tree::BoundExecutionSite,
-        destination: Target,
-    ) {
-        match self {
-            Self::Value(source) => state.stage_value(call, &source, destination),
-            Self::Borrow(capability) => state.stage_borrow(call, capability, destination),
-        }
-    }
-
-    pub(super) fn targets(
-        &self,
-        state: &crate::analysis::storage_flow::memory::State,
-    ) -> Option<Vec<Target>> {
-        match self {
-            Self::Value(source) => state.value_targets(source),
-            Self::Borrow(capability) => state.borrow_targets(*capability),
-        }
-    }
-
-    pub(super) fn transfer(
-        self,
-        state: &mut crate::analysis::storage_flow::memory::State,
-        destination: Place,
-    ) {
-        match self {
-            Self::Value(source) => state.transfer_value(&source, destination),
-            Self::Borrow(capability) => state.retain_borrow(capability, destination),
-        }
     }
 }

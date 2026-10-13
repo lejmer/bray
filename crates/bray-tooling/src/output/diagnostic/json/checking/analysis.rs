@@ -101,9 +101,10 @@ fn storage_projection_json(
             problem_text("start", if *has_start { "present" } else { "omitted" }),
             problem_text("end", if *has_end { "present" } else { "omitted" }),
         ],
-        Projection::IndexedElement | Projection::NullableValue | Projection::OwnedTarget => {
-            Vec::new()
-        }
+        Projection::IndexedElement
+        | Projection::NullableValue
+        | Projection::OwnedTarget
+        | Projection::UninitPayload => Vec::new(),
     };
 
     DiagnosticProblemJson {

@@ -503,23 +503,26 @@ fn checked_nonempty_ranges_supply_one_element_obligations() {
 
 #[test]
 fn borrowed_addresses_establish_live_access_conditions() {
-    let compilation = compilation(
-        r#"
-        trusted module app;
-        trusted func caller() -> u8 uses(raw_memory, unchecked_init) {
-            let mut value: u8 = 1;
-            let pointer = core.memory.address_of_mut<u8>(&mut value);
-            trusted core.memory.write<u8>(pointer, 2);
-            return trusted core.memory.read<u8>(pointer);
-        }
-    "#,
-    );
+    for nested in ["", "{ let scratch: u8 = 0; let _ = scratch; };"] {
+        let compilation = compilation(&format!(
+            r#"
+            trusted module app;
+            trusted func caller() -> u8 uses(raw_memory, unchecked_init) {{
+                let mut value: u8 = 1;
+                let pointer = core.memory.address_of_mut<u8>(&mut value);
+                {nested}
+                trusted core.memory.write<u8>(pointer, 2);
+                return trusted core.memory.read<u8>(pointer);
+            }}
+            "#,
+        ));
 
-    assert!(
-        !compilation.check_diagnostics().has_errors(),
-        "{:?}",
-        compilation.check_diagnostics()
-    );
+        assert!(
+            !compilation.check_diagnostics().has_errors(),
+            "{nested}: {:?}",
+            compilation.check_diagnostics()
+        );
+    }
 }
 
 #[test]

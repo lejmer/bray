@@ -1,4 +1,6 @@
-use super::super::model::{Contents, Origin, Place, ReferenceExit, References, State, Target};
+use super::super::model::{
+    Contents, Origin, Place, ReferenceExit, References, State, Target, Transfer,
+};
 use bray_bound_tree::StorageIdentityId;
 use std::collections::BTreeSet;
 
@@ -88,8 +90,8 @@ impl State {
         })
     }
 
-    pub(in crate::analysis::storage_flow) fn has_reference(&self, slot: &Place) -> bool {
-        slot.is_exact() && self.slots_in(slot).next().is_some()
+    pub(in crate::analysis::storage_flow) fn has_stored_value(&self, slot: &Place) -> bool {
+        slot.is_exact() && self.has_value(&Target::storage(slot.clone()))
     }
 
     pub(super) fn transferred_slots<'a>(
@@ -136,12 +138,92 @@ impl State {
         }
 
         // Snapshot the source subtree before replacing overlapping destination storage.
-        let values = self
-            .transferred_slots(source, &Target::storage(destination.clone()))
-            .collect::<Vec<_>>();
+        let transfer = self.capture_value(source, &Target::storage(destination.clone()));
 
         self.clear(&destination);
-        self.values.extend(values);
+        self.commit_value(transfer);
+    }
+
+    pub(in crate::analysis::storage_flow::memory) fn capture_source(
+        &self,
+        source: &super::Source,
+        destination: &Target,
+    ) -> Transfer {
+        match source {
+            super::Source::Value(source) => self.capture_value(source, destination),
+            super::Source::Borrow(capability) => Transfer {
+                // The evaluated value owns the formed reference after its capability ends.
+                values: self
+                    .borrows
+                    .get(capability)
+                    .map(|references| {
+                        [(destination.clone(), references.clone())]
+                            .into_iter()
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                payloads: Default::default(),
+            },
+        }
+    }
+
+    pub(in crate::analysis::storage_flow::memory) fn capture_value(
+        &self,
+        source: &Target,
+        destination: &Target,
+    ) -> Transfer {
+        let mut transfer = Transfer {
+            values: self.transferred_slots(source, destination).collect(),
+            payloads: Default::default(),
+        };
+
+        for (target, contents) in self
+            .contents
+            .range(source.clone()..)
+            .take_while(|(target, _)| source.contains(target))
+        {
+            let suffix = &target.projections()[source.projections().len()..];
+
+            if suffix.contains(&bray_bound_tree::StorageProjection::UninitPayload) {
+                // Evaluated inline storage owns its contents after the source is consumed.
+                transfer.payloads.insert(
+                    destination.project(suffix),
+                    self.evaluated.get(target).unwrap_or(contents).clone(),
+                );
+            }
+        }
+
+        transfer
+    }
+
+    pub(in crate::analysis::storage_flow) fn finish_value_transfers(&mut self) {
+        self.evaluated.clear();
+    }
+
+    pub(in crate::analysis::storage_flow::memory) fn commit_value(
+        &mut self,
+        mut transfer: Transfer,
+    ) {
+        let mut enclosing: Option<&Target> = None;
+
+        for target in transfer.payloads.keys() {
+            if enclosing.is_some_and(|enclosing| enclosing.contains(target)) {
+                continue;
+            }
+
+            // Installing an inline owner starts a new storage incarnation. Incoming
+            // raw pointers can still name the destination's previous contents.
+            self.retire(target);
+
+            for references in transfer.values.values_mut() {
+                references.retire(target);
+            }
+
+            enclosing = Some(target);
+        }
+
+        self.values.extend(transfer.values);
+        self.contents.extend(transfer.payloads);
     }
 
     pub(in crate::analysis::storage_flow) fn clear(&mut self, place: &Place) {
@@ -150,16 +232,7 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn clear_value(&mut self, target: &Target) {
         // Only the replaced subtree is visited, even when the function has many live values.
-        let removed = self
-            .values
-            .range(target.clone()..)
-            .take_while(|(candidate, _)| target.contains(candidate))
-            .map(|(target, _)| target.clone())
-            .collect::<Vec<_>>();
-
-        for target in removed {
-            self.values.remove(&target);
-        }
+        take_subtree(&mut self.values, target).for_each(drop);
     }
 
     pub(in crate::analysis::storage_flow) fn offset(&mut self, source: &Place, destination: Place) {
@@ -183,6 +256,24 @@ impl State {
         }
     }
 
+    pub(in crate::analysis::storage_flow) fn end_storage(
+        &mut self,
+        mut ended: impl FnMut(StorageIdentityId) -> bool,
+    ) {
+        // Last-use pruning drops local value facts, not the addressed storage's lifetime.
+        // Physical storage ends at its owning boundary, including locals pruned earlier.
+        let expired = self
+            .contents
+            .keys()
+            .filter_map(|target| target.storage_path())
+            .map(|place| place.root)
+            .collect::<BTreeSet<_>>();
+
+        for identity in expired.into_iter().filter(|identity| ended(*identity)) {
+            self.retire(&Target::storage(Place::root(identity)));
+        }
+    }
+
     pub(in crate::analysis::storage_flow) fn retain_live(
         &mut self,
         live: &BTreeSet<StorageIdentityId>,
@@ -201,5 +292,25 @@ fn is_entry_slot(contents: &std::collections::BTreeMap<Target, Contents>, slot: 
     contents.contains_key(&Target {
         origin: Origin::entry(slot.clone()),
         previous: false,
+    })
+}
+
+pub(super) fn take_subtree<'a, V>(
+    values: &'a mut std::collections::BTreeMap<Target, V>,
+    root: &Target,
+) -> impl Iterator<Item = (Target, V)> + 'a {
+    // Only the selected subtree is visited. Keys share their immutable projection paths.
+    let keys = values
+        .range(root.clone()..)
+        .take_while(|(key, _)| root.contains(key))
+        .map(|(key, _)| key.clone())
+        .collect::<Vec<_>>();
+
+    keys.into_iter().map(|key| {
+        let value = values
+            .remove(&key)
+            .expect("captured subtree key is present");
+
+        (key, value)
     })
 }

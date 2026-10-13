@@ -99,7 +99,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 changed.push(StoragePath {
                     root: logical.root,
-                    projections: logical.projections.iter().chain(suffix).copied().collect(),
+                    // Protected bytes have no source-level field access. Their enclosing
+                    // Uninit value is the narrowest observable storage affected by this write.
+                    projections: logical
+                        .projections
+                        .iter()
+                        .chain(suffix)
+                        .copied()
+                        .take_while(|projection| {
+                            *projection != bray_bound_tree::StorageProjection::UninitPayload
+                        })
+                        .collect(),
                 });
             }
 

@@ -109,9 +109,11 @@ fn reference_input_type<C: CheckerRequestContext + ?Sized>(
     CheckerQueryError<C::UpstreamError>,
 > {
     let ty = match subject.subject_root() {
-        bray_symbols::DependencySubjectRoot::Receiver => {
-            call.receiver().map(|receiver| receiver.target_type())
-        }
+        bray_symbols::DependencySubjectRoot::Receiver => call.receiver().map(|receiver| {
+            receiver
+                .input_type(request.semantic_values())
+                .expect("selected receiver has a valid passed value type")
+        }),
         bray_symbols::DependencySubjectRoot::Parameter(parameter) => {
             call.arguments().iter().find_map(|argument| match argument {
                 bray_bound_tree::SelectedArgument::Explicit {

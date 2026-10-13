@@ -23,19 +23,33 @@ pub(crate) const fn implementation_dependency_source(
 }
 
 /// Exact address origin, independent of the input that supplies a returned lifetime.
-pub(super) const fn implementation_borrow_source(
+pub(super) fn implementation_borrow(
     implementation: ImplementationHook,
-) -> Option<(SymbolOrdinal, DependencyReferenceKind)> {
-    match implementation {
-        ImplementationHook::AddressOf
-        | ImplementationHook::AddressOfMut
-        | ImplementationHook::UninitPointer
-        | ImplementationHook::UninitPointerMut => {
-            Some((SymbolOrdinal::new(0), DependencyReferenceKind::Address))
-        }
-        ImplementationHook::BorrowFrom | ImplementationHook::BorrowMutFrom => {
-            Some((SymbolOrdinal::new(1), DependencyReferenceKind::Borrow))
-        }
-        _ => None,
-    }
+) -> Option<bray_symbols::DependencyBorrowRelation> {
+    let (parameter, kind, projections): (_, _, &[bray_symbols::DependencyProjection]) =
+        match implementation {
+            ImplementationHook::AddressOf | ImplementationHook::AddressOfMut => {
+                (0, DependencyReferenceKind::Address, &[])
+            }
+            ImplementationHook::UninitPointer | ImplementationHook::UninitPointerMut => (
+                0,
+                DependencyReferenceKind::Address,
+                &[bray_symbols::DependencyProjection::UninitPayload],
+            ),
+            ImplementationHook::BorrowFrom | ImplementationHook::BorrowMutFrom => {
+                (1, DependencyReferenceKind::Borrow, &[])
+            }
+            _ => return None,
+        };
+
+    Some(
+        bray_symbols::DependencyBorrowRelation::new(
+            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Parameter(
+                SymbolOrdinal::new(parameter),
+            )),
+            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result),
+            kind,
+        )
+        .with_target_projections(projections.iter().copied()),
+    )
 }

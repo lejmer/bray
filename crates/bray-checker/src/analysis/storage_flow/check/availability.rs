@@ -67,5 +67,6 @@ pub(super) fn projection_is_available<'refinements>(
         | StorageProjection::Element(_)
         | StorageProjection::SliceRange { .. }
         | StorageProjection::OwnedTarget => true,
+        StorageProjection::UninitPayload => false,
     }
 }

@@ -72,7 +72,16 @@ where
                 dependencies,
                 values,
             )
-            .map(|input| (input, diagnostics))
+            .and_then(|(mut input, cleanup_diagnostics)| {
+                input.prepare_summary_references(
+                    request,
+                    storage,
+                    execution.semantics.selections(),
+                    dependencies,
+                )?;
+
+                Ok(((input, cleanup_diagnostics), diagnostics))
+            })
         }) {
             Ok(result) => result,
             Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
@@ -760,6 +769,8 @@ where
                         self.end_last_use_storage(state, invocation);
                     }
 
+                    state.memory.finish_value_transfers();
+
                     return None;
                 }
                 bray_bound_tree::BoundExecutionSite::Node(_) => {}
@@ -784,6 +795,8 @@ where
 
             self.transfer_memory_result_state(state, operation.kind().node());
         }
+
+        state.memory.finish_value_transfers();
 
         if let AnalysisOperationKind::ScopeExit {
             block,
@@ -1242,10 +1255,13 @@ where
         block: bray_bound_tree::BoundBlockId,
         exit: AnyBoundNodeId,
     ) {
-        state.live.retain(|storage| {
-            bray_bound_tree::storage_identity_transfers_at_unit_exit(self.storage, *storage)
-                || self.owners.identity_scope(self.storage, *storage) != Some(block)
-        });
+        let leaves_scope = |identity| {
+            !bray_bound_tree::storage_identity_transfers_at_unit_exit(self.storage, identity)
+                && self.owners.identity_scope(self.storage, identity) == Some(block)
+        };
+
+        state.memory.end_storage(leaves_scope);
+        state.live.retain(|identity| !leaves_scope(*identity));
 
         state.retain_live_storage();
 
@@ -1538,6 +1554,7 @@ where
             }
             StorageProjection::NullableValue => DiagnosticStorageProjection::NullableValue,
             StorageProjection::OwnedTarget => DiagnosticStorageProjection::OwnedTarget,
+            StorageProjection::UninitPayload => DiagnosticStorageProjection::UninitPayload,
         };
 
         Ok(projection)

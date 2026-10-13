@@ -93,7 +93,8 @@ fn guard_projected_requirements(
                 | StorageProjection::ElementFromEnd(_)
                 | StorageProjection::Element(_)
                 | StorageProjection::SliceRange { .. }
-                | StorageProjection::OwnedTarget => None,
+                | StorageProjection::OwnedTarget
+                | StorageProjection::UninitPayload => None,
             }
         })
         .collect::<Vec<_>>();
