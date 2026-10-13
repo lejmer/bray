@@ -1,13 +1,12 @@
 # Runtime ownership and authority proof
 
-Discussion draft, 2026-10-13. Baseline: `e3f56424` on
-`feature/bra-620-repair-synchronization-authority`.
+Discussion draft, 2026-10-13. Baseline: `e3f56424` on `feature/bra-620-repair-synchronization-authority`.
 
 Implementation is paused for this review. This argument examines the existing language rules before choosing more
-compiler machinery. It introduces no syntax, language rule, runtime representation, or implementation mandate.
-The earlier [replacement plan](runtime-stack-rule-coverage.md) supplies candidate mechanisms, not proof premises.
-Its implementation sequence remains subject to this review. Historical results stay in
-[BRA-620 remaining work](BRA-620-remaining-work.md).
+compiler machinery. It introduces no syntax, language rule, runtime representation, or implementation mandate. The
+earlier [replacement plan](runtime-stack-rule-coverage.md) supplies candidate mechanisms, not proof premises. Its
+implementation sequence remains subject to this review. Historical results stay in [BRA-620 remaining
+work](BRA-620-remaining-work.md).
 
 The design hypothesis is that ownership, dependency validity and contract evidence admit one compositional transition
 semantics. The expected simplification is removal of competing interpretations of those transitions, not removal of
@@ -16,22 +15,22 @@ if a required operation needs hidden semantic state, an unsupported preservation
 
 ## Result and limits
 
-The specification supports a common ownership and evidence model. Whole moves, ordinary borrows, calls and cleanup
-can be described using the same identities and validity rules. The derivations below explain why.
+The argument now defines shared transition semantics, a finite analysis vocabulary, correlated carrier summaries, and
+protocol invariants for acquisition, waiting, Once and retained cleanup storage. The soundness and convergence
+arguments are separate from the required acceptance derivations and from implementation performance.
 
-The previous plan did not finish two essential arguments:
+The acquisition-preservation argument is conditional on the closed-dependency interpretation submitted to the user.
+That interpretation fixes an acceptance rule omitted from the prose specification. It is not silently adopted here.
+The first draft correctly separated non-forgery from preservation, but stopped before defining a concrete solution.
+The candidate solution below uses a historical acquisition fact and a live complete carrier.
 
-- A complete carrier prevents authority forgery, but this alone does not prove that an opaque acquisition predicate
-  survives mutation of the protected payload. An unchanged empty marker is insufficient evidence by itself.
-- Finite conservative analysis can be sound and terminate while rejecting required programs. Finite paths, widening
-  and may/must joins are not a proof of the required acceptance behavior.
+Some existing negative expectations also need correction or a contrary specification rule. Shared observation with no
+relevant effects need not revoke evidence, and a possible panic does not by itself invalidate existing evidence.
+Normal postconditions still cannot be imported onto an abnormal path.
 
-There is also a concrete disagreement with a current test expectation. Harmless shared observation is explicitly
-allowed to preserve guarantees. Absence of a preserving postcondition alone does not require revocation.
-
-These findings do not establish that new language features are necessary. They prevent treating the previous
-implementation choices as already proved. This is a written, conditional proof argument, not a machine-checked
-formalization or a proof of the current compiler.
+This is a written proof of the described model under its stated assumptions, not a machine-checked formalization or
+verification of the current compiler. No claim of accepting every semantically safe Bray program is made. Existing
+bounded contract and termination reasoning still defines what can be proved.
 
 ## Premises and source authority
 
@@ -71,14 +70,14 @@ allocations or acquisitions at the same source site. They need not exist as runt
 - An evidence record identifies a proposition, its authority source where required, its carrier where present,
   and its validity dependencies. Its observation dependencies describe changes that can affect truth.
 
-These are semantic distinctions, not a request for five new compiler types or maps. Initialization, active variant
-and partial ownership belong to the relevant ownership/storage occurrences. Existing compiler types may represent them.
+These are semantic distinctions, not a request for five new compiler types or maps. Initialization, active variant and
+partial ownership belong to the relevant ownership/storage occurrences. Existing compiler types may represent them.
 
-Each distinction has a separating example. A moved guard retains acquisition authority but an old pointer to physically
-relocated inline storage does not become valid at its new location. Two guards with equal fields need not have equal
-authority. A borrow can point inside a lock while depending on a different guard. Replacing a reference slot changes
-which object it reaches without modifying the former referent. A completed finalizer can leave destruction pending.
-Removing any of these distinctions conflates behaviors required by P2–P9.
+Each distinction has a separating example. A moved guard retains acquisition authority but an old pointer to
+physically relocated inline storage does not become valid at its new location. Two guards with equal fields need not
+have equal authority. A borrow can point inside a lock while depending on a different guard. Replacing a reference
+slot changes which object it reaches without modifying the former referent. A completed finalizer can leave
+destruction pending. Removing any of these distinctions conflates behaviors required by P2–P9.
 
 This establishes necessary distinctions, not global minimality of a compiler representation.
 
@@ -98,9 +97,9 @@ assumption or a completion fact rather than an owned returned witness. Do not ma
 
 ## The transition proof
 
-Write T(o, S, k) for the possible successor states of operation o with outcome k.
-Outcomes distinguish normal return, panic and cancellation. Result.Error is a normal returned value.
-Divergence has no completed successor and must still be considered when proving total execution.
+Write T(o, S, k) for the possible successor states of operation o with outcome k. Outcomes distinguish normal return,
+panic and cancellation. Result.Error is a normal returned value. Divergence has no completed successor and must still
+be considered when proving total execution.
 
 Let I(S) mean:
 
@@ -114,17 +113,17 @@ The desired theorem is conditional on valid trusted implementations:
 > Starting from a state satisfying I, every accepted operation produces only successors satisfying I.
 > Therefore every finite accepted execution prefix preserves I.
 
-The second sentence follows by induction on execution length once the first is proved for each selected operation.
-It does not prove termination, concurrency correctness or absence of application deadlock.
+The second sentence follows by induction on execution length once the first is proved for each selected operation. It
+does not prove termination, concurrency correctness or absence of application deadlock.
 
 ### Evidence can survive by framing
 
-Let Changed(o, S, k) cover every state component that the operation may change on that outcome.
-Let Support(e) cover every component whose change can invalidate the evidence, including carrier validity,
-resource epochs and observation dependencies.
+Let Changed(o, S, k) cover every state component that the operation may change on that outcome. Let Support(e) cover
+every component whose change can invalidate the evidence, including carrier validity, resource epochs and observation
+dependencies.
 
-If e is usable before the operation and Changed is disjoint from Support, e remains usable afterward.
-Every conjunct in Usable has the same value, so their conjunction remains true. This is the frame argument.
+If e is usable before the operation and Changed is disjoint from Support, e remains usable afterward. Every conjunct
+in Usable has the same value, so their conjunction remains true. This is the frame argument.
 
 Disjointness is sufficient, not necessary. A verified transition can change a component and re-establish the same
 proposition. For example, replacing an initialized T with another T changes its contents but restores initialization.
@@ -140,8 +139,8 @@ A legal whole move transfers the initialized value, its carried evidence, and ob
 The destination must preserve every dependency by P3. The source becomes moved-from and cannot supply a second owner.
 
 This is a change of ownership names for the transferred value, not permission to rename every physical referent.
-External storage remains external. Borrows into relocated storage must satisfy the movement restrictions.
-A heap-owning value can move while its allocation stays in place.
+External storage remains external. Borrows into relocated storage must satisfy the movement restrictions. A
+heap-owning value can move while its allocation stays in place.
 
 Partial transfer uses the same rule on the selected part, but is rejected if it separates a whole carrier from its
 guarantee. Checking this only at eventual destruction is insufficient. A path can diverge after extraction.
@@ -152,13 +151,13 @@ Assume no trusted source has established an acquisition for a fabricated guard. 
 to make that guard authoritative.
 
 Construction of equal fields establishes representation, not trusted provenance. Projection establishes no owner.
-Copying ordinary fields carries no witness authority. Whole movement can only transfer existing authority.
-A separating partial move is prohibited. Branch joins cannot create a source missing on an incoming alternative.
-A safe call can introduce authority only through an authorized producer whose requirements hold.
+Copying ordinary fields carries no witness authority. Whole movement can only transfer existing authority. A
+separating partial move is prohibited. Branch joins cannot create a source missing on an incoming alternative. A safe
+call can introduce authority only through an authorized producer whose requirements hold.
 
-These cases exhaust the ways value construction, transfer and calls could introduce that authority in this model.
-None supplies it under the assumption, a contradiction. Explicit trust assertions and incorrect trusted implementations
-are outside this safe-code conclusion. Wrapper checking must still obey P10.
+These cases exhaust the ways value construction, transfer and calls could introduce that authority in this model. None
+supplies it under the assumption, a contradiction. Explicit trust assertions and incorrect trusted implementations are
+outside this safe-code conclusion. Wrapper checking must still obey P10.
 
 Cross-lock pairing adds a further premise: the producer and accessor contracts bind the complete carrier to the exact
 lock, and that relationship cannot be changed independently while authority survives. The witness rules prevent
@@ -167,8 +166,8 @@ fabrication. They do not prove that a particular producer API states the correct
 ### Borrowing preserves ownership and restricts interference
 
 Borrow creation retains the existing owner and establishes only the selected capability. Reborrowing cannot increase
-authority. Mutation, relocation and retirement that conflict with a live borrow are rejected by P2.
-A reference to a reference first reaches the reference slot. Updating that slot is distinct from mutating its old target.
+authority. Mutation, relocation and retirement that conflict with a live borrow are rejected by P2. A reference to a
+reference first reaches the reference slot. Updating that slot is distinct from mutating its old target.
 
 An ordinary mutable T borrow does not grant ownership to move out an arbitrary T. Replacement is legal under P8's
 restoration rule. Consequently safe payload operations can preserve the proposition "this slot contains a T" while
@@ -176,111 +175,217 @@ changing its contents. This does not preserve the old T's identity, old interior
 about its value. Raw trusted operations must establish their own poststate rather than inherit that conclusion.
 
 For Uninit, a checked write adds initialized ownership only after commit. Move-out removes it. Ending the protected
-storage with an owned T still inside violates P7. No new initialized-storage language type is required to state this rule.
+storage with an owned T still inside violates P7. No new initialized-storage language type is required to state this
+rule.
 
 ### Calls and cleanup compose the same rules
 
-A call checks requirements in entry state, performs argument ownership transfer, and applies the callee's effects.
-It adds only postconditions established on the reached normal outcome. Guard eligibility uses the captured entry state.
+A call checks requirements in entry state, performs argument ownership transfer, and applies the callee's effects. It
+adds only postconditions established on the reached normal outcome. Guard eligibility uses the captured entry state.
 Unchanged evidence can survive through the frame lemma without a redundant ensures clause.
 
-A destructor is this call transition with a consuming receiver, followed by cleanup of remaining initialized parts.
-A finalizer uses a mutable receiver and leaves an initialized owner. Its postcondition decides completion separately
+A destructor is this call transition with a consuming receiver, followed by cleanup of remaining initialized parts. A
+finalizer uses a mutable receiver and leaves an initialized owner. Its postcondition decides completion separately
 from the returned error. with exit retains its capability during the call and handles the pending outcome under P9.
 Replacement adds the P8 ordering requirement around old cleanup and installation.
 
-Thus the same precondition/effect/completion rules apply at explicit and implicit calls. Different ordering and receiver
-modes remain real semantics. "Shared cleanup" cannot mean erasing those distinctions.
+Thus the same precondition/effect/completion rules apply at explicit and implicit calls. Different ordering and
+receiver modes remain real semantics. "Shared cleanup" cannot mean erasing those distinctions.
 
 For example, a Writer destructor that initializes a borrowed slot establishes a fact about that external slot on
 normal completion. Destroying Writer does not destroy the slot. A fact tied instead to Writer's own destroyed storage
 cannot escape. Exact referent identity decides which case applies.
 
-Cleanup conservation is an induction over the selected cleanup sequence. Each step consumes, transfers or retains
-its obligation, and records resulting owned outcomes. Remaining represented parts retain their own obligations.
-By P11, backing cannot be released while a transferred incident or activation owns it.
-This proves no duplicate or lost duty only if the selected sequence covers every live obligation on each outcome.
+Cleanup conservation is an induction over the selected cleanup sequence. Each step consumes, transfers or retains its
+obligation, and records resulting owned outcomes. Remaining represented parts retain their own obligations. By P11,
+backing cannot be released while a transferred incident or activation owns it. This proves no duplicate or lost duty
+only if the selected sequence covers every live obligation on each outcome.
 
-## Joins and function boundaries
+## Finite analysis and function boundaries
 
-An abstract state A denotes a set of possible concrete states, written gamma(A).
-A sound transfer must satisfy:
+The proof target is a terminating analysis of the required rule families, not discovery of every mathematical truth
+about an arbitrary Bray program. The language already distinguishes proven from unknown and requires bounded
+implication and supported termination reasoning. Unknown cannot satisfy a trusted requirement.
+
+Use one selected generic body or a mutually recursive component of selected bodies as the analysis boundary. Do not
+recursively instantiate runtime call depth or concrete executions. External summaries are finite inputs. Type
+selection and concrete specialization retain their own existing termination/resource contracts.
+
+### Fix the vocabulary before solving
+
+The following finite vocabulary is derived from selected operations and imported contracts:
+
+- R contains formal inputs, named storage, results, selected temporaries, allocation sites, and provider/thread roots.
+- P contains the finite paths explicitly distinguished by those operations and contracts, including every prefix.
+  Dereference is an edge between slots and referents, not a field appended indefinitely.
+- D contains demanded initialized/variant/capability/lifecycle distinctions and contract proposition templates.
+  Templates refer to current subjects or saved entry subjects. Substitution renames subjects and does not repeatedly
+  expand arithmetic expressions or recursively inline callees.
+- G contains the discriminant and entry-guard alternatives needed by those templates. An arbitrary execution history
+  does not become another guard.
+- B contains bounded relative binders for carriers and their fields/dependencies in each value-contract schema.
+  An existential binder describes the actual current value, not a global acquisition identifier.
+
+Recursive reference/type structure uses a finite graph. A traversal beyond a distinguished path reaches a summary
+region. It does not become equal to a previously visited concrete object. A summary region means any compatible
+descendant, including aliases, not a uniquely identified object. Effects on it are weak updates. Explicitly demanded
+successive references, such as a reference slot and its referent, remain distinct.
+
+This is a precision boundary based on the selected operations, not a machine-dependent retry count. A recursive path
+whose exact relation is not expressible retains a conservative dependency and cannot satisfy an exact-identity
+requirement. The language's rule that unknown overlap conflicts still applies. Do not claim acceptance of arbitrary
+recursive alias relationships.
+
+### State and join
+
+A body state contains finite sets of possible targets, dependencies and pending obligations, together with definite
+initialization, capability and evidence facts over this vocabulary. Facts about alternatives retain their guard. A
+carrier fact is one relationship, for example:
+
+```text
+there exists c:
+    current value owns c
+    and c carries acquisition evidence
+    and c.resource = current value.lock
+```
+
+The three clauses are not three unrelated sets. The binder's scope preserves their correlation. A guard and lock
+selected together therefore remain paired after a join. Two independent selections do not inherit that pairing. For an
+array of guards, an element-relative schema describes each initialized element's own carrier. It does not assign one
+global carrier to every element. A nonconforming write invalidates the uniform schema.
+
+Whole transfers rename the current owner and relative binders consistently. Wrapping and unwrapping change the
+projection to that owner without changing its binder. At a join, alpha-equivalent relative facts survive under the
+same discriminant. Facts whose relationships disagree are forgotten. Possible effects and dependencies accumulate.
+Retain a concrete equality only when every represented alternative supplies it.
+
+At a new iteration or allocation, a site denotes a fresh dynamic occurrence. Existing live occurrences summarized at
+that site cannot be identified with the new occurrence. Recency/singleton information permits strong updates only
+where uniqueness is established. Unknown or summarized aliases require weak updates and cannot revive stale epochs.
+
+Let gamma(A) be the concrete states represented by A. Each primitive abstract operation must satisfy:
 
 ```text
 { S' | S in gamma(A), S' in T(o, S, k) } subset gamma(transfer(o, A, k))
 gamma(A) union gamma(B) subset gamma(join(A, B))
 ```
 
-A check may authorize an operation only when its preconditions hold for every represented state.
-Possible targets, conflicts and pending duties therefore accumulate. Unconditional evidence must hold on every
-represented alternative. Nullable evidence is conditional on the present alternative.
+These inclusions follow componentwise: possible alternatives are retained, unsupported definite facts are removed, and
+a complete carrier relation is either transported intact or unavailable. Authorization uses only definite facts.
+Treating an unknown referent as unchanged would violate the first inclusion.
 
-Correlations are essential. If one branch returns the valid pair (guard1, lock1) and another returns (guard2, lock2),
-the join cannot assert every pairing between {guard1, guard2} and {lock1, lock2}. It may retain their relationship through
-the returned carrier. If it forgets the relationship, it must reject uses needing it. Forgetting can be sound and still
-violate required acceptance. Separate may/must sets alone do not settle this problem.
+### Calls and recursive components
 
-A function summary is a relation between formal input state, outcomes and output/dependency state.
-It must overapproximate actual effects and underclaim available guarantees, with carrier correlations retained.
-Substitution maps formal identities to actual identities consistently, including aliasing between actual arguments.
-A write cannot use a strong single-target update unless uniqueness is proved.
+A summary records guarded input-to-output relationships, possible effects for each outcome, and retained dependencies.
+It uses the same finite relative subjects as body analysis. At a call, substitute actual subjects consistently. If
+actual arguments alias, overlapping effects combine. Formal parameter inequality never proves actual disjointness.
 
-If the body satisfies that relation, replacing its execution with the summary preserves the local proof.
-Source, imported, generic and indirect calls then need adapters for identity and substitution, not different semantics.
-Interface decoding validates external representations once. Lowering consumes the established decisions.
+Compute possible behavior by least fixed point from no discovered behavior. Verify definite summary candidates against
+all discovered behavior and retain only candidates justified on every relevant return. Candidate dependencies inside a
+recursive component form simultaneous equations, not independently published provisional promises.
+Reachability/effects and candidates must stabilize together before any result is externally usable. An unproved
+requirement must not make a possible execution disappear. Recovery never publishes authority from a rejected
+operation. Emit deciding diagnostics from the stabilized state.
 
-Recursive summaries require a separate convergence argument. A finite-height domain and monotone worklist terminate,
-but only after identifying the actual finite subjects, projections, guards and relations and proving closure under
-substitution and transfer. An arbitrary depth cutoff is not a language acceptance argument.
-Recursive proof of total execution is separately restricted by P6. A fixed point cannot certify termination merely
-because its own provisional summary says total.
+Partial correctness of recursive contracts follows induction on finite execution derivations. A finite derivation has
+a last returning callee and ultimately a base return. Every base return must establish its claimed evidence. A
+recursive cycle without a returning execution cannot manufacture a runtime result. It also cannot prove total. Total
+certification separately needs the specified well-founded execution argument, including implicit cleanup.
 
-## Apply the argument to acquisition
+With fixed finite R, P, D, G and B, the possible bit relations and normalized candidate schemas are finite. Order
+abstract states by increasing represented executions. Joins and transfers must be monotone in that order. A worklist
+reaches a fixed point because every strict update moves upward in a finite lattice. New selected dependencies must
+enter the component before solving, or restart that private component with the enlarged finite vocabulary. Neither
+partial results nor an arbitrary iteration limit are publishable semantic evidence.
 
-Let G be a complete guard, L its retained lock, M its owned immutable marker and V the protected payload.
-These are mathematical names, not proposed Bray syntax. A producer must establish the complete G's authority and
-its relationship to L for one acquisition. A returned payload borrow reaches V and depends on G's live capability.
+This proves a termination strategy and a sound representation. It does not establish a cheap worst-case bound: guard
+alternatives and relation arity can make the finite domain large. Use demanded schemas and shared relative subjects,
+not the powerset of complete execution histories.
 
-The intended sequence is acquire G, borrow V, mutate V, end the borrow, release G, and eventually destroy L.
-Non-forgery follows from the earlier induction if the producer binds G to L.
-Release conflicts with a still-live dependent payload borrow. Whole movement preserves G's relationship.
-Reacquisition creates a new ownership occurrence and cannot revive an earlier guard.
+### Required precision
 
-The unproved step is preservation through payload mutation. The frame lemma needs:
+The acceptance argument is structural over the operation families used by the runtime:
 
-```text
-Changed(payload operation) disjoint Support(acquisition evidence)
-```
+| Required fact | Why the representation retains it |
+| --- | --- |
+| Whole guard move and wrapper transfer | One carrier schema undergoes consistent renaming, including its resource relationship. |
+| Present nullable acquisition | The present alternative owns the whole carrier. The absent alternative has no carrier or release duty. |
+| Payload address versus guard lifetime | The reference graph records the physical target while a distinct edge retains the capability. |
+| Nested references | The reference slot and its target are distinguished nodes whenever the selected operation uses both. |
+| Uninit commit and destructor completion | Initialization is a fact about the resolved external slot. Retiring a different carrier does not erase it. |
+| Safe typed replacement | The replacement transition establishes an initialized destination on every propagated exit after cleanup begins. |
+| Bounds on the selected sequence | The proposition template refers to that sequence, index and their observation versions. A different sequence cannot substitute. |
+| Generic/source/imported calls | Formal subjects and relative carrier binders retain the same meaning under substitution. |
+| Recursive forwarding of a guard | The finite candidate is the input carrier relationship transported to the result. Base returns and recursive transitions preserve the same schema. |
 
-An unchanged M establishes only that M's own state did not change. A trusted predicate has no body.
-[Predicate declarations](../language/declarations/predicate-declarations.md) call it an opaque relation.
-[Predicate expressions](../language/contracts-and-trust/predicates-and-predicate-expressions.md) restrict observations,
-but do not provide an explicit dependency-extraction rule for every opaque relation.
+These derivations do not establish acceptance of every valid program. In particular, arbitrary nonlinear arithmetic,
+unbounded recursive alias equalities and arbitrary path correlations are not smuggled in as obligations of this
+subsystem. Any stronger required acceptance needs a language-defined derivation, not a more expensive solver by
+default. Source callers use the same published summary as imported callers. They do not recheck a body for extra
+caller-specific precision. This keeps the precision boundary independent of source availability.
 
-The compiler-known predicate initialized_as(pointer) already illustrates why unchanged arguments are insufficient:
-the pointer value can be unchanged while the predicate's truth changes. Its
-[defined semantics](../language/targets-layout-abi-and-raw-memory/raw-memory-predicates-and-capabilities.md) supply the
-missing dependency on pointed storage.
+## Acquisition under the proposed closed-dependency interpretation
 
-The marker proposal needs an equally justified account of the custom acquisition relation's support.
-It cannot assume that all carrier dependencies are observed state, because that needlessly revokes acquisition on
-payload writes. It cannot assume that only the marker's bytes matter, because that is not established by opacity.
-The earlier plan's unconditional claim that the marker solves preservation is therefore not proved.
+This section depends on the interpretation submitted to the user during this review. It is not yet a new normative
+rule or an authorized compiler change.
 
-This is not a proof that the marker design is impossible. Resolve the interpretation of existing opaque-predicate and
-dependency rules, or derive preservation from an existing checked contract, before choosing its implementation.
-No runtime identity registry, field privacy assumption, or new preservation syntax is authorized here.
+A predicate's semantic inputs consist of its arguments and the dependency subjects exposed by their contracts.
+Distinguish a dependency on a subject remaining alive from a dependency on that subject's contents remaining
+unchanged. For a body-defined predicate, the selected observations determine support. For a compiler-known predicate,
+its specified meaning supplies additional support. For a user-defined opaque predicate, conservatively retain all
+state reachable through its semantic inputs that the contract permits it to observe. Unknown raw-pointer reachability
+remains unknown memory, not an empty support set. An undeclared hidden mutable dependency cannot be silently supplied
+by the caller.
+
+This reading is consistent with observational predicates, explicit dependencies and the complete foreign contract
+rule. The prose specification does not explicitly define this extraction algorithm. Adoption therefore needs the
+user's agreement on this acceptance rule. Purity alone was not an adequate argument in the first draft.
+
+Let G own an immutable empty marker M and an immutable lock reference L. The producer introduces evidence about M
+carried by the complete G. The semantic meaning of that evidence is historical: this carrier was produced by a
+successful acquisition. It need not be a live observation of a changing lock bit or payload. G's live ownership and
+dependencies separately determine whether that evidence is usable for an operation.
+
+M has semantic occurrence identity, not a numerical address identity. Equal empty representations do not equate two
+occurrences. Its observational borrow reaches M, not every field of its containing G. G's dependency on L keeps the
+resource alive. That dependency does not say every byte in L must remain unchanged.
+
+A payload write changes V, not M, G's complete ownership, or L's retained lifetime. Provided it is a legal typed
+operation that preserves initialized storage, each conjunct required for G's acquisition evidence remains valid. The
+frame lemma therefore preserves the evidence. A predicate that explicitly observes V does not receive this proof.
+
+Release consumes G. Its historical proposition need not become false: there is no longer a live carrier from which
+safe code may use it. Reacquisition produces a new carrier occurrence. It cannot revive the consumed occurrence. This
+separates mathematical truth from currently available authority without adding a runtime epoch field.
+
+The complete carrier prevents cross-lock substitution. L is immutable while G survives, and partial extraction cannot
+transfer the guarantee to a reconstructed carrier. Whole movement transfers G, M and L's relationship together. A
+copied marker, an equal constant, or a borrowed marker placed beside a different L supplies no producer provenance. An
+internal helper receives no exemption from these requirements.
+
+Try-acquisition attaches the complete G to the present result alternative. Absence introduces no owner. An accessor
+used by the contract returns the marker view under the same presence guard. Its checked projection relationship
+suffices. Evaluating arbitrary const bodies again at every call is unnecessary.
+
+Once illustrates why authority and protocol eligibility must remain separate. Its attempt marker can prove that this
+is the unique admitted attempt, including the right to roll back. A reentry flag can make publication illegal without
+destroying that cleanup right. Publication must check the actual attempt state before the commit interval. An opaque
+immutable-marker fact must not be used to assert that reentry has not occurred.
+
+Raw-memory predicates do not contradict this argument. initialized_as(pointer) explicitly observes the pointed
+storage. A write or move affecting that storage must preserve, re-establish or invalidate that fact according to its
+selected semantics. Calling a relation opaque never removes such an exposed dependency.
 
 ## Acceptance obligations and existing evidence
 
-Sound rejection of unsafe programs and required acceptance of valid programs are separate obligations.
-The following cases derive from P1–P11, rather than from the current failure count.
+Sound rejection of unsafe programs and required acceptance of valid programs are separate obligations. The following
+cases derive from P1–P11, rather than from the current failure count.
 
 | Family | Required derivation |
 | --- | --- |
 | Initialized payload | A checked commit followed by a valid ordinary payload borrow leaves an initialized T after legal replacement and borrow completion. Move-out removes that ownership once. No arbitrary payload predicate is preserved. |
 | Destructor effects | Writer's normally completed write establishes initialization on the original external slot. One initialized branch and one uninitialized branch do not establish unconditional initialization. |
-| Guard lifecycle | Whole transfer, nullable unwrapping and wrappers preserve a complete carrier. Reconstruction and separating extraction do not. Payload mutation requires the unresolved support argument above. |
+| Guard lifecycle | Whole transfer, nullable unwrapping and wrappers preserve a complete carrier. Reconstruction and separating extraction do not. Payload mutation uses the conditional support argument above. |
 | Nested references | Rebinding the intermediate reference and mutating its referent produce different effects. Unknown aliases cannot justify disjointness. |
 | Bounds | index < length of the selected sequence authorizes indexing only while that sequence/index observation remains valid. A different sequence or replacement breaks the argument. This alone proves neither loop termination nor total cleanup. |
 | Outcomes | No normal ensures on panic/cancellation. Result.Error follows the stated normal postconditions. Deferred invocation produces no premature completion evidence. |
@@ -289,52 +394,184 @@ The following cases derive from P1–P11, rather than from the current failure c
 
 The test
 [borrowed_completion_preserves_the_reached_owner_for_cleanup](../../crates/bray-compilation/src/compilation/trusted_contracts/tests.rs)
-expects rejection of a call to an empty source function forget taking a shared reference to Owner, whose only field is u64.
-That expectation does not follow merely from the absence of ensures. P5 expressly preserves harmless shared observation.
-If the established call effects are empty and no capability/dependency is lost, the frame lemma permits preservation.
-Before changing the compiler to reject this case, establish a contrary rule or correct the expectation.
-The earlier status report treated this failure as evidence of missing revocation too confidently.
+expects rejection of a call to an empty source function forget taking a shared reference to Owner, whose only field is
+u64. That expectation does not follow merely from the absence of ensures. P5 expressly preserves harmless shared
+observation. If the established call effects are empty and no capability/dependency is lost, the frame lemma permits
+preservation. Before changing the compiler to reject this case, establish a contrary rule or correct the expectation.
+The same test also expects may_fail(&owner) to fail. A possible panic alone does not prove mutation or loss of
+authority. Existing evidence survives on the panic path until its dependencies are actually invalidated. Only the
+normal ensures must be withheld. The earlier status report treated this failure as evidence of missing revocation too
+confidently.
 
-The 15 failures are observations at one checkpoint, not 15 proved defects or a complete acceptance specification.
-No tests were changed or run for this argument.
+The 15 failures are observations at one checkpoint, not 15 proved defects or a complete acceptance specification. No
+compiler tests were changed or run. A temporary Python enumeration checked the packed-ticket invariant for moduli 2, 4
+and 8, covering 4, 16 and 64 states. It also illustrated the cross-pairing and generation-wrap counterexamples. These
+finite examples check the reasoning but do not replace the general arguments.
+
+## Coverage by composition
+
+A new compiler-wide IR is unnecessary. Each selected operation needs one semantic description composed from the
+existing storage, call and outcome transitions. The [closed inventory](runtime-stack-coverage-inventory.md) supplies
+the source variants, hooks and roles to map.
+
+| Selected operation family | Composition and preservation argument |
+| --- | --- |
+| Literal, name, projection, pattern and presence observation | Observe an initialized permitted path. Preserve ownership. Add only the selected ordinary fact. Borrowed observation retains its dependencies. |
+| Construction, copies, argument/result/field transfer | Check input modes, admit new local obligations, then commit initialized parts. A copy uses its selected copy contract. Failure cleans committed parts and retains untransferred owners. |
+| Borrow, reborrow, address, cast and view | Check reached storage and capability. Borrow retains a loan, address retains provenance without a loan, and a cast cannot invent missing provenance. |
+| Typed replacement, raw read/write, Uninit and buffer operations | Use their selected copy/move and commit semantics. Update only resolved targets. Prefix ownership advances after successful element commit and retreats before that element becomes reusable. |
+| Unary/binary operations, conversion, indexer, iterator, defaults and lifecycle declarations | Use the same selected-call rule, including implicit argument conversions and cleanup. A name or syntax category grants no exemption. |
+| Branch, match, short circuit, loop and propagation | Restrict to the selected edge, join using the finite domain, and perform the ownership exits that edge crosses. Result.Error and panic remain different outcomes. |
+| Async invocation, suspension, start, await and terminal observation | Invocation transfers captures into an inactive owner. Execution effects start only when driven. Terminal observation transfers the result once. Suspension retains all dependencies and stable-storage requirements. |
+| Ordinary/abnormal/with/static cleanup | Compose selected calls in specified order, keeping pending outcomes and owned incidents. Abandonment is permitted only on its specified abnormal path. |
+| Atomics, volatile access, assembly and foreign calls | Apply the validated operation or foreign contract, including changing-memory effects, target availability and explicit trusted assumptions. No generic harmless fallback is valid. |
+| Recovery and catastrophic termination | Recovery establishes no authority. Catastrophic termination has no source cleanup promise. Neither proves a normal postcondition or total execution. |
+
+Every row preserves I by the earlier local lemmas and by its selected operation's contract. A sequence preserves I by
+induction. A branch preserves I because each successor does. A loop preserves I for every finite prefix by induction,
+without a claim that the loop terminates. Calls use the recursive-summary argument. This covers semantic composition.
+Mechanical implementation conformance still has to show that no selected operation or outcome is omitted by its
+adapter. That is an implementation obligation, not permission to discover new semantics one failed consumer at a time.
+
+## Trusted protocol realization
+
+The compiler proof ends at explicitly trusted operations. Each protocol must then supply an inductive invariant and a
+publication point. The following are requirements on the intended implementation, not claims that the current code
+already satisfies them.
+
+### Acquisition and synchronization
+
+For an exclusive lock, maintain a one-to-one correspondence between each admitted acquisition and either a pending
+position or the current exclusive permit. Only the current permit can produce a guard. Release consumes that permit
+once and makes its successor eligible. A failed try-acquire produces no permit. For a reader-writer lock, each reader
+guard accounts for one reader contribution. A writer permit excludes all readers. Pending-writer registration blocks
+new readers and must itself be released on any path that abandons acquisition.
+
+The linearization points are the atomic transitions that reserve, acquire and release these rights. Atomic
+acquire/release edges must carry the protected payload's visibility, as required by [atomic
+contracts](../language/async-and-concurrency/atomic-operation-contracts.md). An address or a fabricated counter value does not grant the corresponding right.
+
+The trusted API must expose only authorized protocol transitions and payload views. Returning a pointer plus
+permissions sufficient to borrow the entire control state is as unsafe as returning that state directly. A safe
+caller could then mutate control atomics without consuming its guard. Internal-access acknowledgement is not a
+trust boundary. Address-calculation helpers must not publish those broad permissions, and release helpers must
+consume the acquisition rather than expose an independently callable counter update.
+
+Finite counters need an invariant preventing overlapping live identities, not an assumption that wrap is unlikely. For
+this proof, use a packed ticket representation with next and serving in one supported atomic word. Reserve by CAS only
+while the modular distance is below the number of distinct tickets minus one. Release advances serving modulo that
+range. The atomic pair prevents a stale separate-counter snapshot from approving an overfull reservation. Waiting for
+admission at capacity creates no ticket. Already admitted tickets remain ordered and distinct. Release must wake the
+eligible successor or all competing native waiters. Waking an arbitrary non-successor alone could strand the only
+acquisition allowed to proceed. Progress remains conditional on scheduling and preceding owners releasing their locks,
+so ordinary lock acquisition is not certified total. Use explicit modular operations, not potentially panicking
+ordinary addition in a release path. Use acquire-release CAS for the shared packed state and acquire loads for
+permission observation, so intervening reservations carry the preceding release visibility. A 32-bit word with two
+16-bit counters uses the atomic width already required by these locks. At most 65,535 tickets can be outstanding.
+Additional callers wait before admission, so this is not a bound on the number of calls or a new failure result. This
+selects a concrete correct protocol for the proof. Changing the implementation still requires resuming implementation
+work.
+
+### Waiting without lost ownership or notifications
+
+Condition wait consumes the old guard and retains the mutex owner dependency. After release there is no old
+acquisition left to release again. Only successful reacquisition establishes the new guard. Abnormal failure in
+between therefore does not require restoration of the consumed guard.
+
+A finite generation word alone needs a wrap argument. An arbitrarily delayed waiter can observe the same word after a
+complete wrap despite intervening notifications. For this proof, use a registered wait occurrence with a monotone
+pending-to-signalled state that is not reused during that wait. Register while still protected, then release the
+mutex, then park only if still pending. A notification racing parking changes the observed state or wakes the waiter.
+Spurious wakes only cause rechecking.
+
+The registration remains alive until every notifier that can touch it has finished. Removal and wake completion are
+serialized by the queue lock. Use a stack registration owned by the synchronous wait call. Its storage cannot move
+while registered. A short internal queue lock serializes registration, signal selection, native wake completion and
+removal. The notifier marks a selected pending record signalled and performs the infallible native wake before
+dropping that lock. The waiter removes its record under the same lock before returning, so no notifier can retain its
+address. No allocation or application callback occurs under the queue lock. Notify-one selects one pending
+registration. Notify-all marks and wakes all pending registrations. Already signalled records are skipped until their
+waiter removes them. A spurious return removes its registration by the same rule before reacquiring the mutex. The
+logical notification generation advances through those signal transitions. Correctness does not depend on an unbounded
+physical integer. Reuse the existing registration machinery only if it has this same lifetime contract. A notification
+is not itself an acquire edge for the protected payload. Reacquiring the mutex supplies that edge.
+
+### Once, host ownership and cleanup storage
+
+For Once, the abstract states are Empty, Running(attempt, exact attachment), Failed(attempt), and Ready(value). Only a
+successful Empty-to-Running transition creates the attempt. Reentry changes Running to Failed before propagating
+panic. That transition is irreversible for that attempt, including when user code catches the panic. Commit requires
+the same still-valid attempt and a fully initialized T. Publish Ready with release ordering only after the write
+commits. Ready readers acquire before accessing T. Error or panic resolves any local T and returns the cell to Empty
+without publishing it. Exclusive destruction resolves Ready's T once and resolves no T in Empty. Generic payload
+lifecycle remains subject to admissibility. A synchronous destructor cannot hide an unresolved fallible or
+asynchronous finalizer merely because T lives in Uninit. The owner's selected lifecycle or an explicit ownership
+transfer must resolve it. If no admissible path exists, the use is rejected under the existing lifecycle rules, as it
+would be for an ordinary owned field. Do not infer unlimited T support from the absence of a source bound. This
+supplies the abstract ownership transitions for the [specified Once
+behavior](../language/async-and-concurrency/standard-library-concurrency.md#one-time-initialization).
+
+For host/attachment/provider state, storage retention, admission and access permission are different rights. A lease
+requires the correct live instance and acquisition. Closing rejects new admission while existing disposal rights
+remain valid. Quiescence precedes backing release. A TLS or OS thread number cannot substitute for an exact attachment
+identity. Foreign callbacks retain code, storage and context until their final return to resident code. Reentry
+observes an explicit forming/active/closing state and cannot reacquire a partially committed transition.
+
+For cleanup backing, each region has one storage owner and zero or more live users represented by retained ownership
+or dependencies. Admission failure publishes no new obligation. Transfer changes that owner without releasing storage.
+The last user, including an incident or activation, must finish before release. Induction on these transfers proves
+that source discharge cannot free a still-used region and that two outcomes cannot both own its final release.
+Concrete sizes, alignments and placement follow realization. Scalar accounting alone is not physical backing.
+
+These invariants make the producer assumptions auditable. They do not prove an unchanged implementation correct merely
+because it has corresponding flags. Verification of the actual atomic operations, unwind edges and emitted lifetimes
+belongs to implementation conformance. Neither a new compiler analysis nor a new language feature follows from a
+protocol implementation failing one of these invariants.
 
 ## Cost and compiler ownership
 
 The semantic state above is proof notation. It does not require a runtime object graph or separate compiler subsystem.
 Reuse the existing selected operations, graph, storage identities, dependency terms and immutable results.
 
-A finite analysis with E edges, domain height H and maximum transfer/join cost C has a basic worklist bound proportional
-to E times H times C, assuming changed dependencies are scheduled without redundant full rescans.
-This is useful only after bounding H and C. Unrestricted relational alternatives can grow exponentially.
-"One shared pass" does not establish competitive compilation speed, and this argument supplies no benchmark claim.
+A finite analysis with E edges, domain height H and maximum transfer/join cost C has a basic worklist bound
+proportional to E times H times C, assuming changed dependencies are scheduled without redundant full rescans. This is
+useful only after bounding H and C. Unrestricted relational alternatives can grow exponentially. "One shared pass"
+does not establish competitive compilation speed, and this argument supplies no benchmark claim.
 
 Required compiler obligations are a finite demanded vocabulary closed under summaries, a deterministic join preserving
 required correlations, and reuse of prepared selection and summary components. Backward liveness and termination
 certification answer different questions and need not be flattened into one analysis.
 
-Semantic acquisition identities and provenance can erase if they affect only static judgments.
-A zero-sized marker alone does not prove unchanged guard layout or emitted instructions.
-Actual locks, reader counts, wakeups, rollback and retained cleanup backing remain runtime work.
-Concurrency correctness requires a separate proof of each trusted protocol's state transitions and memory ordering.
-No authority proof implies that acquire/release synchronization was implemented correctly.
+Semantic acquisition identities and provenance can erase if they affect only static judgments. A zero-sized marker
+alone does not prove unchanged guard layout or emitted instructions. Actual locks, reader counts, wakeups, rollback
+and retained cleanup backing remain runtime work. Concurrency correctness requires a separate proof of each trusted
+protocol's state transitions and memory ordering. No authority proof implies that acquire/release synchronization was
+implemented correctly.
 
 P11 also prevents claiming zero cost for arbitrary fallible/asynchronous cleanup. Its backing must physically exist
 before the obligation is admitted. The cost review must compare equivalent behavior and account for retained storage,
 generated cleanup code, LLVM work and linked runtime demand.
 
-## What remains to prove before implementation resumes
+## Proof status and implementation boundary
 
-| Obligation | Exact missing argument | What would close it |
+The derivations now provide an explicit finite analysis strategy, correlated carrier transport, common operation
+semantics, and protocol invariants. They support the required acceptance families without a separate proof algorithm
+for each runtime consumer. They are not a machine-checked verification of the compiler.
+
+One semantic decision remains pending with the user: the closed-dependency interpretation for opaque predicates. The
+acquisition preservation derivation above is conditional on that decision. It cannot be marked complete merely because
+no implementation experiment has contradicted it.
+
+After that interpretation is settled, remaining work separates as follows:
+
+| Work | What reasoning has established | What implementation must establish |
 | --- | --- | --- |
-| O1. Predicate support | How the existing rules determine observation/invalidation dependencies for an opaque acquisition predicate, independently of its whole carrier. | A specification-grounded derivation of preservation and revocation, including payload mutation, release, replacement and cross-lock pairing. If the specification is insufficient, present the precise ambiguity for discussion. |
-| O2. Finite abstraction with required precision | A concrete finite representation closed under nested references, recursive calls, substitution and guarded carrier relationships. | Define abstraction, join and transfer for that representation. Prove soundness and convergence, and derive the acceptance families above without arbitrary precision cutoffs. |
-| O3. Operation coverage and summary adequacy | Every selected source, implicit, deferred and lifecycle operation refines the shared transitions with correct outcomes. | Discharge each transition class against the existing operation inventory, including actual alias substitution and external summary transport. Do not equate an inventory entry with a completed proof. |
-| O4. Trusted implementation and realization | Producer contracts match actual lock/host transitions, cleanup ownership and physical backing. | Protocol invariants and outcome arguments for the required consumers, then implementation verification. Source authority and protocol correctness remain distinct. |
+| Evidence support and authority | Conditional framing and carrier argument, with exact resource pairing and invalidation. | Every selected operation uses the agreed support rules, including imports and opaque foreign effects. |
+| Analysis | Finite vocabulary, sound conservative transfer/join, recursive partial-correctness argument, required carrier correlations. | Concrete data structures implement those relations and reach the same result independent of query order. |
+| Semantic coverage | Every operation family decomposes into the shared transitions with its actual outcomes. | Exhaustive adapters cover the concrete selected variants and preserve diagnostics. |
+| Protocols | Ownership, publication, overflow, wait-registration, reentry and backing invariants. | Actual atomics, foreign calls, unwind paths and generated storage implement those invariants. |
+| Costs | No runtime witness registry follows from the proof. Bounds and mandatory backing costs are explicit. | Compile time, peak memory, produced layout/code size and native performance meet the numerical targets. |
 
-O1 decides whether the proposed acquisition API has a valid preservation argument. O2 decides whether the compiler
-proposal is both bounded and sufficiently precise. These are prerequisites to approving more analysis machinery.
-O3 and O4 expose the assumptions of the compositional theorem and prevent mistaking a local lemma for stack completion.
-
-The next discussion should settle O1 and the precision contract needed by O2. It should not authorize another general
-framework on the strength of these conditional lemmas. Once those arguments close, map the necessary state and
-transitions to existing owners and remove competing mechanisms. Only then revise implementation issues.
+Do not resume implementation solely because this table distinguishes the remaining tasks. The user paused
+implementation to discuss the argument. No language syntax, specification text, compiler code or test expectation has
+been changed by this review.
