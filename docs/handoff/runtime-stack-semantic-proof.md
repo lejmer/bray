@@ -3,7 +3,7 @@
 Discussion draft, 2026-10-13. Baseline: `e3f56424` on `feature/bra-620-repair-synchronization-authority`.
 
 Implementation is paused for this review. This argument examines the existing language rules before choosing more
-compiler machinery. It introduces no syntax, language rule, runtime representation, or implementation mandate. The
+compiler machinery. It adopts no syntax, language rule, runtime representation, or implementation mandate. The
 earlier [replacement plan](runtime-stack-rule-coverage.md) supplies candidate mechanisms, not proof premises. Its
 implementation sequence remains subject to this review. Historical results stay in [BRA-620 remaining
 work](BRA-620-remaining-work.md).
@@ -20,7 +20,8 @@ protocol invariants for acquisition, waiting, Once and retained cleanup storage.
 arguments are separate from the required acceptance derivations and from implementation performance.
 
 The acquisition-preservation argument is conditional on the closed-dependency interpretation submitted to the user.
-That interpretation fixes an acceptance rule omitted from the prose specification. It is not silently adopted here.
+The systems expressiveness derivation below identifies a related omission at trusted proof introduction and external
+interference. Adoption must settle both. Neither is silently adopted here.
 The first draft correctly separated non-forgery from preservation, but stopped before defining a concrete solution.
 The candidate solution below uses a historical acquisition fact and a live complete carrier.
 
@@ -376,6 +377,220 @@ Raw-memory predicates do not contradict this argument. initialized_as(pointer) e
 storage. A write or move affecting that storage must preserve, re-establish or invalidate that fact according to its
 selected semantics. Calling a relation opaque never removes such an exposed dependency.
 
+## Systems expressiveness and the proposed trust boundary
+
+This extension answers the practical expressiveness question. It is a proposal for discussion, not an adopted language
+rule. It refines the earlier closed-dependency proposal. Ordinary reachability alone is insufficient to justify a
+lasting permission in a system with concurrent runs, callbacks or devices.
+
+### The gap and the smallest proposed resolution
+
+The specification already supplies raw operations, atomic and synchronization contracts, explicit foreign boundaries,
+owned witnesses and dependency-anchored borrows. It does not precisely specify the observation support of a user-defined
+opaque predicate, or how its establishment and preservation obligations are divided between the compiler and a trusted
+source author. [Witnesses](../language/contracts-and-trust/trusted-witness-values.md) and
+[flow reasoning](../language/expressions/flow-sensitive-contract-reasoning.md) allow trusted declarations to establish
+facts. [Execution guarantees](../language/contracts-and-trust/execution-guarantees.md#checking-and-interfaces) require
+source promises to have sufficient evidence, including in trusted bodies. These rules need an explicit distinction
+between a checked consequence and the trusted premise on which that consequence relies.
+
+There is a simple obstruction to inferring that premise. Consider a fresh opaque predicate P with no body, no incoming
+P fact, and no primitive whose contract establishes P. Interpret P as always false, then as always true. Both
+interpretations satisfy the same ordinary body semantics. Therefore ordinary checking cannot derive P from that body.
+Atomics returning a success Boolean do not, by themselves, give a user-defined P any meaning. A system that requires
+such a derivation must reject every fresh protocol predicate, recognize each protocol specially, or add a general proof
+language. None follows from the intended small trusted core.
+
+Proposed resolution, using existing declaration forms:
+
+1. Ordinary postconditions and execution properties remain checked, including in trusted source. Opaque trusted
+   postconditions explicitly asserted by a trusted declaration are author obligations where ordinary proof does not
+   establish them. Their provenance must distinguish that assertion from a checked deduction. This gives precise
+   meaning to the existing authorized trusted source, not permission for an ordinary function to invent a fact.
+2. A trusted assertion must be true at introduction. If it supplies lasting authority, its author must establish why
+   every permitted intervening action preserves that authority until its carrier or declared dependency ends. A result
+   postcondition alone promises a normal result, not successful cleanup on abnormal execution.
+3. Use semantic arguments to bound observations. A predicate over a payload observes that payload conservatively. A
+   predicate over an immutable acquisition marker can describe producer provenance. It cannot secretly mean that some
+   unrelated register, flag or registry currently has a particular value. Raw predicates retain their defined storage,
+   allocation, epoch and synchronization dependencies. Keeping an owner alive does not freeze all reachable bytes.
+4. Lifetime-stable permissions are represented by existing complete owned witnesses and anchored borrows. A trusted
+   bridge may derive raw access conditions from such a witness only when its protocol actually supplies them. It cannot
+   override checked ownership, initialized ownership, active borrows, or a conflicting known state. A trust assertion
+   is not an alternate storage transition. A bridge's explicitly trusted raw-memory postcondition is an author claim
+   under the fixed primitive semantics, not a redefinition of those semantics. Unresolved caller obligations still
+   propagate under the existing rules. A trusted claim cannot convert an ordinary requirement or a `pure`/`total`
+   promise into an unchecked assertion.
+
+These are semantic clarifications requiring agreement. They are not claimed to follow uniquely from the current
+wording. No new keyword, predicate footprint clause, generalized preservation clause, user-written lifetime parameter,
+proof scripting language or per-algorithm compiler recognition is proposed. In particular, this proposal does not
+allow `uses(...)` alone to establish arbitrary facts or an ordinary `trusted expression` to hide caller obligations.
+The asserted premises belong to the specific trusted declaration. They are not inferred authority for its callers.
+
+Adding an observation-footprint clause would not solve the fresh-predicate obstruction: a smaller footprint does not
+establish P or prove its stability under interference. The proposed boundary supplies the missing premise without
+adding a second language for proving concurrent algorithms. This is a material acceptance decision even without new
+syntax and must not be implemented under the label of an ordinary bug fix.
+
+### Preservation across external interference
+
+Let R be the environment steps admitted by a resource protocol, and J its invariant. R includes other threads,
+callbacks and device actions where relevant, not only explicit calls in the current body. For a witness w and exact
+resource r, the author must establish:
+
+```text
+introduction: successful acquisition establishes J and binds w to r
+stability:   J and an allowed environment step imply J afterward
+access:      J and live(w) and retained_dependencies(w) imply the operation's permission
+release:     release ends that permission only after dependent uses have ended
+```
+
+The compiler checks carrier completeness, dependency retention, argument matching, borrowing, transfer and cleanup.
+The trusted protocol author supplies the part of J involving behavior the language checker cannot derive. Induction
+on any finite interleaving of checked client steps and permitted environment steps then preserves access validity.
+This is conditional soundness at the existing trust boundary, not compiler verification of arbitrary algorithms.
+
+The earlier disjoint-support lemma remains useful for client operations. It is not a replacement for the stability
+premise. A malicious or incorrect trusted producer can violate that premise, just as an incorrect foreign contract can.
+No bounded compiler can discover an arbitrary hidden external invariant from a bodyless predicate declaration.
+
+This model distinguishes a historical introduction fact from a present access permission. A marker can keep the former
+while the latter requires the live complete owner and the protocol invariant. No accessor may derive present access
+from the historical fact alone. Nor may a borrowed marker be freely paired with a different resource. A bridge must
+receive the complete carrier, or a checked projection that retains its exact complete carrier and resource relation.
+
+### Devices and DMA
+
+A register read returns an immutable snapshot. A condition on that snapshot stays true after the device changes, but
+does not establish a condition on the next register value. The mapping owner proves permission to perform supported
+volatile operations, not constancy of device contents. Device side effects and synchronization follow the selected
+[target operation](../language/targets-layout-abi-and-raw-memory/target-control-and-inline-assembly.md) contract. Volatile
+access alone does not create synchronization.
+
+A DMA submission transfers a buffer owner or retains an exclusive buffer capability in an ordinary in-flight owner.
+The device may write the buffer while that owner is active. The client cannot obtain a conflicting ordinary borrow.
+Completion observes the platform's required synchronization and returns host access. Cancellation request alone cannot
+return the buffer. Cancellation must reach quiescence or leave a live owner responsible for eventual completion.
+Failure before submission returns the original owner. Failure after acceptance retains the in-flight obligation.
+
+The invariant is exclusive host/device access ownership and retained storage, not unchanged buffer bytes. An
+initialization guarantee is introduced only for bytes actually completed. Turning arbitrary device bytes into T also
+requires T's representation and initialization conditions. A completion bit by itself does not prove them.
+
+The existing [device contracts](../language/targets-layout-abi-and-raw-memory/device-memory.md), ownership, dependencies
+and cleanup rules provide these forms. No automatic pinning, heap allocation, runtime witness registry or extra fence
+is implied. Stable-address requirements and fences must still match the real device protocol. Hardware revocation
+that permits ongoing access to fail is represented as failure or a platform-specific access operation, not a false
+promise of an indefinitely valid ordinary memory borrow.
+
+### Hazard protection and lock-free reclamation
+
+A reclamation domain owns retired nodes until they can be reclaimed. A protection guard retains the domain and a
+particular node incarnation without becoming a second owner of that node. Other runs can update list links and retire
+nodes while this guard lives. The invariant prevents reclamation of the protected node. It does not freeze the whole
+list and does not authorize ordinary reads of concurrently mutated non-atomic fields.
+
+A concrete construction uses sequentially consistent pointer publication and validation, with retirement before a
+reclamation scan. A reader loads a candidate address, publishes it in its hazard slot, then reloads the shared source.
+It dereferences nothing until validation succeeds. If a remover unlinks that same incarnation before validation and a
+scan misses the publication, the total order places the scan before publication and validation after unlinking.
+Validation cannot confirm the removed incarnation. If validation precedes unlinking, publication precedes the later
+scan, which must observe protection while the slot remains set. This argument assumes a correctly coordinated scan
+and retirement protocol, atomic source and hazard slots, and no unmodelled freeing or reinsertion of retired objects.
+
+Address reuse does not validate the old incarnation. If the source now names a new allocation at the same address,
+protection and access concern that currently validated incarnation, using the validated reload's pointer. The
+implementation cannot simply resurrect the first load's old provenance. Pointer equality does not preserve any earlier
+contents, identity or logical ABA-sensitive algorithm step. Such an algorithm needs its own existing protocol against
+ABA. No pre-validation reference, initialization fact or ownership claim can be reused merely because addresses match.
+
+Only successful validation produces the complete guard and its trusted introduction fact. Its immutable target field
+and marker stay paired. An accessor establishes the needed raw conditions from the guard and returns a borrow anchored
+to that exact guard. Reclamation bookkeeping changes do not mutate the marker. Ending the guard requires dependent
+borrows to have ended, then clears protection. Retry or failure before validation produces no usable guard. Unwinding
+must clear a published slot without freeing a node still borrowed by the unwinding run.
+
+This provides a representative nonblocking protection protocol using existing atomics and witnesses. It does not prove
+all reclamation algorithms or an optimized weaker-memory variant. Sequential consistency is one sufficient
+construction, not a proposed language requirement. The compiler need not discover the concurrent protocol proof, store
+an event history, allocate a guard, or insert a lock. Epoch schemes can use the same carrier shape, but their own
+publication, grace-period and counter-reuse proofs remain the trusted author's obligation.
+
+### Operating-system handles, revocation and callbacks
+
+A handle owner retains the exact resource incarnation through its lifetime. Operations take a borrow of that owner and
+return normal errors for failures the operating system permits. The owned handle's validity is distinct from mutable
+file contents, network connection state, device availability or access rights that may be revoked. A status query
+returns a snapshot. Where necessary, the operating-system operation checks state at use rather than relying on an
+outdated query.
+
+If another actor can revoke memory access at any instant, an indefinitely valid ordinary borrow cannot truthfully be
+returned. A real retention mechanism must prevent revocation during the borrow, or the API must use an operation whose
+contract accounts for revocation and failure. This is a property of the underlying resource, not a restriction invented
+by the proposed predicate rule. A revocable object can remain usable as a fallible handle without promising a borrow.
+
+A retained callback registration owns or retains its context and provider. Deregistration first closes new admission,
+then waits for admitted callbacks before retiring context or code. A callback may change synchronized application
+state without invalidating the separate lifetime obligation. Reentrant callbacks must not obtain conflicting ordinary
+borrows. Synchronous self-deregistration cannot wait for its own completion. It needs deferred retirement retained by
+an outer owner, or an API restriction against that particular operation. This does not require dropping cleanup work.
+These obligations are already stated in [foreign callbacks](../language/targets-layout-abi-and-raw-memory/extern-declarations-and-ffi.md#foreign-callbacks).
+
+An unknown foreign effect cannot be assumed harmless to observed memory. Only a valid contract or a real retained
+permission justifies preservation. Retention is not inferred from a numeric handle, a raw pointer, an `internal` member
+or a trusted function's name. No new source annotation is needed for clients of a properly contracted owner.
+
+### Custom allocators, arenas and intrusive structures
+
+An allocation owner binds its complete carrier to an exact allocation and region. Allocation, free-list and accounting
+operations may change allocator metadata without changing that allocation's identity or access rights. The owner
+retains the backing allocator/resource lifetime. It need not hold an exclusive borrow of the entire allocator.
+Metadata mutation uses the existing synchronization or exclusive-access rules rather than violating a shared borrow.
+
+Deallocation consumes the exact allocation authority only after dependent uses end. A bulk arena reset needs exclusive
+reset authority incompatible with every retained allocation/view, or must wait until those users retire. Reusing an
+address creates a new incarnation and does not revive old conditions. Splitting a region transfers authority into
+disjoint subregions under a checked or trusted splitting contract. Copying pointer/length fields cannot perform that
+transfer. No private fields are assumed.
+
+An intrusive structure can store raw links and expose scoped borrows tied to its owner or active guard. Membership,
+node lifetime, payload mutation and link mutation are distinct dependencies. A node's removal cannot retire storage
+still borrowed by a reader. A mutable raw link by itself grants neither ownership nor permission to access its target.
+Trusted implementation code retains these obligations when performing pointer updates. This uses the existing
+[allocation](../language/targets-layout-abi-and-raw-memory/raw-allocation-and-buffers.md) and
+[anchored-borrow](../language/targets-layout-abi-and-raw-memory/uninitialized-storage-and-anchored-borrows.md) forms.
+
+### Adversarial cases, cost and conclusion
+
+All four families use one construction: introduce a complete owner or guard, retain exact dependencies, expose only the
+access the protocol maintains, and consume or transition that owner when the permission ends. Hostile safe clients
+may inspect every ordinary field. They still cannot manufacture producer provenance, separate a marker from its
+carrier, retarget immutable authority, release a borrowed owner, revive an old incarnation, or turn a status snapshot
+into a protected interval. Any safe helper that permits one of these actions breaks the contract, even if internal.
+
+No general program-logic solver is proposed. The compiler checks ordinary body transitions and finite dependency
+summaries once in their owning analysis. It exports both trusted provenance and checked relationships. Callers consume
+that summary equally for source and imported code. Backend stages rely on the established result. The trusted
+protocol proof is an author obligation, not a new compiler analysis repeated at call sites.
+
+Witness provenance and semantic occurrence identity require no runtime generation counter. Actual algorithms may need
+counters, hazard slots, registrations, reference counts or waits for their own correctness. We must not delete these
+costs or conflate them with compiler bookkeeping. An empty marker has no required runtime identity, but its final
+physical layout and code elimination must be verified under the chosen layout/ABI rules. No exact compile-time or
+binary-size bound follows from this argument.
+
+For these representative patterns, the obstruction is an underspecified trust-and-preservation boundary, not a missing
+low-level operation or a demonstrated need for new syntax. The proposed clarification resolves the obstruction
+conditionally on correct trusted implementations. It does not promise acceptance of all correct programs or verify the
+current compiler. An implementation requiring a special case for each of these protocols would contradict the proposed
+common rule and must trigger reconsideration, not another exception.
+
+Adoption requires agreement on the trusted assertion boundary as well as closed observation dependencies. If every new
+opaque protocol fact instead must be compiler-proved from ordinary atomics, the fresh-predicate argument above rules out
+this solution. That stronger goal would require additional proof definitions or recognized primitives and would be a
+materially different language design.
+
 ## Acceptance obligations and existing evidence
 
 Sound rejection of unsafe programs and required acceptance of valid programs are separate obligations. The following
@@ -558,8 +773,9 @@ The derivations now provide an explicit finite analysis strategy, correlated car
 semantics, and protocol invariants. They support the required acceptance families without a separate proof algorithm
 for each runtime consumer. They are not a machine-checked verification of the compiler.
 
-One semantic decision remains pending with the user: the closed-dependency interpretation for opaque predicates. The
-acquisition preservation derivation above is conditional on that decision. It cannot be marked complete merely because
+A semantic decision remains pending with the user: closed observation dependencies together with the explicit trusted
+assertion and external-preservation boundary proposed in the systems expressiveness section. The acquisition
+preservation derivation above is conditional on that decision. It cannot be marked complete merely because
 no implementation experiment has contradicted it.
 
 After that interpretation is settled, remaining work separates as follows:
