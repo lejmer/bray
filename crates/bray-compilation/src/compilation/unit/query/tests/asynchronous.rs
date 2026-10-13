@@ -1,4 +1,4 @@
-use super::support::representation::{assert_expression_representation, type_representation};
+use super::support::representation::assert_expression_representation;
 use crate::test_support::{compilation, only_call_selection, source_callable_body_key};
 use bray_bound_tree::{BoundCallResult, SemanticSelection};
 use bray_compiler_known::RepresentationRole;
@@ -179,11 +179,6 @@ fn async_analysis_follows_deferred_calls_through_local_future_bindings() {
         Err(error) => panic!("async analysis must publish: {error:?}"),
     };
 
-    let storage = match compilation.storage_plan(key.clone()) {
-        Ok(storage) => storage,
-        Err(error) => panic!("storage plan must publish: {error:?}"),
-    };
-
     let [suspension] = analysis.value().suspensions() else {
         panic!("the direct await must publish one suspension point");
     };
@@ -216,29 +211,13 @@ fn async_analysis_follows_deferred_calls_through_local_future_bindings() {
             .all(|exit| exit.cancellation_broadcast() == exit.lifecycle_resolution())
     );
 
+    // Await consumes the frame. The caller must not schedule it for cleanup again.
     assert!(
         analysis
             .value()
             .scope_exits()
             .iter()
-            .any(|exit| !exit.cancellation_broadcast().is_empty())
-    );
-
-    let cleanup_roles = analysis
-        .value()
-        .scope_exits()
-        .iter()
-        .flat_map(|exit| exit.cancellation_broadcast())
-        .filter_map(|access| storage.value().access(*access))
-        .filter_map(|access| type_representation(&compilation, access.reached_type()))
-        .collect::<Vec<_>>();
-
-    assert!(cleanup_roles.contains(&RepresentationRole::Future));
-
-    assert!(
-        cleanup_roles
-            .iter()
-            .all(|role| *role == RepresentationRole::Future)
+            .all(|exit| exit.cancellation_broadcast().is_empty())
     );
 
     let repeated = match compilation.async_analysis(key) {

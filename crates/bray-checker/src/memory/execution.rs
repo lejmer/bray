@@ -1,6 +1,37 @@
 use bray_bound_tree::{CheckedMemoryOperationKind as Operation, MemoryReadKind};
 use bray_symbols::ExecutionProperty;
 
+/// Closed operations whose checked storage domain requires trusted caller evidence.
+pub(crate) const fn requires_trust(kind: Operation) -> bool {
+    matches!(
+        kind,
+        Operation::UninitAssumeInitialized { .. }
+            | Operation::UninitMove { .. }
+            | Operation::BorrowFrom { .. }
+            | Operation::Reinterpret { .. }
+            | Operation::Read { .. }
+            | Operation::Write { .. }
+            | Operation::Copy { .. }
+            | Operation::RawAllocate
+            | Operation::RawDeallocate
+            | Operation::RawBufferAllocate
+            | Operation::Allocate
+            | Operation::Deallocate
+            | Operation::RawBufferSparePointer { .. }
+            | Operation::RawBufferPush { .. }
+            | Operation::RawBufferPop { .. }
+            | Operation::RawBufferSetInitializedCount
+            | Operation::RawBufferRelease { .. }
+            | Operation::RawBufferReplace { .. }
+            | Operation::RawBufferRelocate { .. }
+            | Operation::ByteBufferFill
+            | Operation::ByteBufferRead
+            | Operation::CallbackState { .. }
+            | Operation::VolatileRead { .. }
+            | Operation::VolatileWrite { .. }
+    )
+}
+
 /// Intrinsic execution properties on the operation's checked storage domain.
 /// Argument evaluation, requirements, conversions and cleanup remain separate obligations.
 pub(crate) fn guarantees(operation: Operation, property: ExecutionProperty) -> bool {
@@ -108,6 +139,10 @@ pub(crate) fn storage_effect(operation: Operation) -> StorageEffect {
             kind: MemoryReadKind::Copy,
             ..
         }
+        | Operation::VolatileRead {
+            kind: MemoryReadKind::Copy,
+            ..
+        }
         | Operation::LayoutQuery { .. }
         | Operation::RawAllocate
         | Operation::Allocate
@@ -135,6 +170,11 @@ pub(crate) fn storage_effect(operation: Operation) -> StorageEffect {
             ..
         }
         | Operation::Write { .. }
+        | Operation::VolatileRead {
+            kind: MemoryReadKind::Move,
+            ..
+        }
+        | Operation::VolatileWrite { .. }
         | Operation::Copy { .. } => StorageEffect::Contents,
         Operation::RawDeallocate
         | Operation::Deallocate
@@ -145,8 +185,6 @@ pub(crate) fn storage_effect(operation: Operation) -> StorageEffect {
         | Operation::RawBufferReplace { .. }
         | Operation::RawBufferRelocate { .. }
         | Operation::ByteBufferFill
-        | Operation::VolatileRead { .. }
-        | Operation::VolatileWrite { .. }
         | Operation::Fence { .. }
         | Operation::CatastrophicAbort
         | Operation::DebuggerTrap
@@ -224,6 +262,23 @@ mod tests {
             storage_effect(Operation::UninitMove { element }),
             StorageEffect::Contents
         );
+
+        for (kind, effect) in [
+            (bray_bound_tree::MemoryReadKind::Copy, StorageEffect::None),
+            (
+                bray_bound_tree::MemoryReadKind::Move,
+                StorageEffect::Contents,
+            ),
+        ] {
+            let operation = Operation::VolatileRead {
+                pointee: element,
+                kind,
+                address_space: bray_bound_tree::VolatileAddressSpace::Device,
+            };
+
+            assert_eq!(storage_effect(operation), effect);
+            assert!(!guarantees(operation, ExecutionProperty::Pure));
+        }
 
         assert_eq!(storage_effect(Operation::RawAllocate), StorageEffect::None);
 

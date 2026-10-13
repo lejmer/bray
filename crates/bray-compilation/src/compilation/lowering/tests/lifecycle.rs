@@ -245,23 +245,22 @@ fn borrowed_scoped_capability_retains_its_entry_receiver_through_exit() {
     let key = source_function_body_key(&compilation, "caller");
     let storage = compilation.storage_plan(key.clone()).unwrap();
 
-    let capability = storage
+    let dependencies = compilation.dependency_contracts(key.clone()).unwrap();
+
+    let (entry, _) = dependencies
         .value()
-        .access_entries()
-        .find_map(|(_, access)| match access.root() {
-            bray_bound_tree::StorageAccessRoot::BorrowedStorage {
-                capability,
-                storage: identity,
-            } if matches!(
-                storage.value().identity(identity),
-                Some(bray_bound_tree::StorageIdentity::ScopedCapability { .. })
-            ) =>
-            {
-                Some(storage.value().borrow_capability(capability).unwrap())
-            }
-            _ => None,
-        })
-        .expect("borrowed scoped result retains both its loan and its physical capability storage");
+        .calls()
+        .iter()
+        .find(|(site, _)| matches!(site, bray_bound_tree::BoundExecutionSite::ScopedEnter(_)))
+        .unwrap();
+
+    let expression = entry.expression().unwrap();
+
+    let (loan, capability) = storage
+        .value()
+        .borrow_capability_entries()
+        .find(|(_, loan)| loan.expression() == Some(expression))
+        .expect("entry creates its receiver loan");
 
     let receiver = storage.value().root_identity(capability.access()).unwrap();
 
@@ -269,6 +268,17 @@ fn borrowed_scoped_capability_retains_its_entry_receiver_through_exit() {
         storage.value().identity(receiver),
         Some(bray_bound_tree::StorageIdentity::Parameter(_))
     ));
+
+    let liveness = compilation.liveness(key.clone()).unwrap();
+
+    assert!(
+        liveness.value().is_last_use(
+            bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
+            bray_bound_tree::BoundDependencySubject::BorrowCapability(loan)
+        ),
+        "{:#?}",
+        liveness.value()
+    );
 
     let result = compilation.lowered_unit(key).unwrap();
 

@@ -563,12 +563,20 @@ fn add_transfer_value<C>(
 ) where
     C: CheckerRequestContext + ?Sized,
 {
-    let nullable_expectation = inference.unique_expectation(target).filter(|expected| {
+    let is_nullable = |expected| {
         matches!(
-            request.semantic_values().type_data(*expected).as_ref(),
+            request.semantic_values().type_data(expected).as_ref(),
             TypeData::Nullable(_)
         )
-    });
+    };
+
+    let nullable_expectation = inference
+        .unique_matching_expectation(target, is_nullable)
+        .or_else(|| {
+            inference
+                .evidence(target)
+                .filter(|expected| is_nullable(*expected))
+        });
 
     if let (Some(expected), Some(operand)) = (nullable_expectation, operand) {
         add_expectations(

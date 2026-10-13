@@ -254,7 +254,7 @@ where
         Ok(analysis) => analysis
             .with_dependencies(dependencies.with_effects(effects))
             .with_cleanup_mutations(collector.cleanup_mutations)
-            .with_completion_observations(collector.completion_observations),
+            .with_completions(collector.completions),
         Err(error) => {
             panic!(
                 "Durable storage-flow construction rejected an exact invariant. in check_storage_flow_with_graph, value0: {:?}",
@@ -358,10 +358,8 @@ where
         ),
         bray_bound_tree::StorageInvalidation,
     >,
-    pub(super) completion_observations: BTreeMap<
-        bray_bound_tree::StorageMutation,
-        BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StoragePath>,
-    >,
+    pub(super) completions:
+        BTreeMap<bray_bound_tree::StorageMutation, bray_bound_tree::StorageCompletion>,
     invalidations:
         BTreeMap<bray_bound_tree::BoundExecutionSite, bray_bound_tree::StorageInvalidation>,
     pub(super) memory_decisions: BTreeMap<BoundExpressionId, MemoryOperationStatus>,
@@ -453,7 +451,7 @@ where
             assignments: BTreeMap::new(),
             invalidations: BTreeMap::new(),
             cleanup_mutations: BTreeMap::new(),
-            completion_observations: BTreeMap::new(),
+            completions: BTreeMap::new(),
             effects: BTreeSet::new(),
             references: None,
             memory_decisions: BTreeMap::new(),
@@ -566,7 +564,23 @@ where
             .then(|| self.assignment_target(state, kind.node()))
             .flatten();
 
-        let call_effects = self.begin_transition(state, kind, assignment.as_ref());
+        if matches!(
+            kind,
+            AnalysisOperationKind::Call {
+                invocation: bray_bound_tree::BoundExecutionSite::ScopedEnter(_),
+                phase: AnalysisCallPhase::Attempt
+            }
+        ) {
+            for plan in self
+                .storage
+                .occurrence_plans(kind.occurrence())
+                .filter(|plan| matches!(plan.purpose(), StorageAccessPurpose::Borrow(_)))
+            {
+                self.apply_plan(state, plan, universe.active_refinements(&refinements));
+            }
+        }
+
+        let call_effects = self.begin_transition(state, kind, assignment.as_ref(), &execution);
 
         let assignment_path = assignment
             .as_ref()
@@ -591,6 +605,16 @@ where
                     self.refinements
                         .invalidation_at(kind.occurrence())
                         .map(|planned| self.planned_observations(state, planned))
+                        .or_else(|| {
+                            matches!(
+                                kind,
+                                AnalysisOperationKind::Suspension {
+                                    kind: crate::analysis::model::AnalysisSuspensionKind::Await,
+                                    ..
+                                }
+                            )
+                            .then(|| self.opaque_observations(&state.memory))
+                        })
                 })
         };
 
@@ -661,9 +685,9 @@ where
                 ..
             }
         ) {
-            self.completed_references(state, kind.occurrence())
+            self.completed_references(state, kind)
         } else {
-            BTreeMap::new()
+            bray_bound_tree::StorageCompletion::default()
         };
 
         let execution = state
@@ -672,20 +696,8 @@ where
             .expect("operation retains execution facts");
 
         if memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid) {
-            self.execution.observe_references(execution, &observations);
-
-            if completing
-                && matches!(
-                    kind.occurrence(),
-                    bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
-                        | bray_bound_tree::BoundExecutionSite::ScopedExit(_)
-                )
-            {
-                self.execution
-                    .transfer_operation(execution, kind, None, None);
-            } else {
-                self.execution.complete_operation(execution, kind);
-            }
+            self.execution
+                .complete_operation(execution, kind, Some(&observations));
         }
 
         if self.publish {
@@ -697,6 +709,9 @@ where
             kind,
             AnalysisOperationKind::Call {
                 phase: AnalysisCallPhase::Attempt,
+                ..
+            } | AnalysisOperationKind::Suspension {
+                kind: crate::analysis::model::AnalysisSuspensionKind::Await,
                 ..
             }
         ) {
@@ -801,9 +816,21 @@ where
                 bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
                 | bray_bound_tree::BoundExecutionSite::ScopedExit(_) => {
                     if phase == AnalysisCallPhase::Attempt {
-                        for plan in self.storage.occurrence_plans(operation.kind().occurrence()) {
+                        for plan in self
+                            .storage
+                            .occurrence_plans(operation.kind().occurrence())
+                            .filter(|plan| {
+                                !matches!(plan.purpose(), StorageAccessPurpose::Borrow(_))
+                            })
+                        {
                             self.apply_plan(state, plan, refinements.clone());
                         }
+                    } else {
+                        if let Some(result) = self.invocation_result(invocation) {
+                            state.initialize_path(&result);
+                        }
+
+                        state.memory.complete_transition(invocation);
                     }
 
                     state.memory.finish_value_transfers();
@@ -812,6 +839,26 @@ where
                 }
                 bray_bound_tree::BoundExecutionSite::Node(_) => {}
             }
+        }
+
+        let expression = operation.kind().occurrence().expression();
+
+        let awaited = expression.filter(|expression| {
+            matches!(
+                self.request.view().expression(*expression),
+                Some(bray_bound_tree::BoundExpression::Await(_))
+            )
+        });
+
+        let deferred = self
+            .dependencies
+            .calls()
+            .get(&operation.kind().occurrence())
+            .is_some_and(|call| call.deferred_effects().is_some());
+
+        if awaited.is_some() && matches!(operation.kind(), AnalysisOperationKind::Suspension { .. })
+        {
+            return None;
         }
 
         self.initialize_operation_storage(state, operation.kind().node());
@@ -826,9 +873,27 @@ where
         if memory_status
             .is_none_or(|status| status == bray_bound_tree::MemoryOperationStatus::Valid)
         {
-            state
-                .memory
-                .complete_transition(operation.kind().occurrence());
+            if let Some(expression) = awaited {
+                if let Some(source) = state
+                    .execution
+                    .as_ref()
+                    .and_then(|execution| self.execution.awaited_invocation(execution, expression))
+                {
+                    state.memory.complete_transition(source);
+
+                    if let Some(source) = source
+                        .expression()
+                        .and_then(|id| self.expression_result_storage(id))
+                        && let Some(result) = self.expression_result_storage(expression)
+                    {
+                        state.memory.transfer(&source, result);
+                    }
+                }
+            } else if !deferred {
+                state
+                    .memory
+                    .complete_transition(operation.kind().occurrence());
+            }
 
             self.transfer_memory_result_state(state, operation.kind().node());
         }
@@ -889,7 +954,7 @@ where
                 | StorageOperationStatus::NotCopyable
         ) {
             panic!(
-                "Storage-flow analysis produced a state forbidden for one exact planned source operation. in apply_plan, unit: {:?}, origin: {:?}, expression: {:?}, access: {:?}, purpose: {:?}, status: {:?}",
+                "Storage-flow analysis produced a state forbidden for one exact planned source operation. in apply_plan, unit: {:?}, origin: {:?}, expression: {:?}, access: {:?}, purpose: {:?}, status: {:?}, root: {:?}, initialized: {:?}",
                 self.request.unit().key(),
                 self.request
                     .view()
@@ -898,7 +963,11 @@ where
                 plan.expression(),
                 plan.access(),
                 purpose,
-                status
+                status,
+                self.storage
+                    .root_identity(plan.access())
+                    .and_then(|identity| self.storage.identity(identity)),
+                state.initialized
             );
         }
 
@@ -1074,7 +1143,7 @@ where
                 } else {
                     // A lifetime anchor cannot stand in for an unresolved physical target.
                     state.memory.invalidate(
-                        &bray_bound_tree::StorageInvalidation::All,
+                        &bray_bound_tree::StorageInvalidation::All(Default::default()),
                         self.storage,
                         if purpose == StorageAccessPurpose::Move {
                             bray_symbols::DependencyMutationKind::Consume
@@ -1108,12 +1177,10 @@ where
                                 .reached_type();
 
                             let result = self
-                                .execution
-                                .semantics
-                                .types()
-                                .expression(plan.expression())
-                                .expect("borrow expression has its checked type")
-                                .ty();
+                                .storage
+                                .access(plan.access())
+                                .expect("planned loan has its passed value type")
+                                .reached_type();
 
                             let values = self.request.semantic_values();
 

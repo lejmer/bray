@@ -50,22 +50,27 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         result: ExecutionCondition,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
     ) -> ExecutionCondition {
-        let ExecutionCondition::Expression(expression) = result else {
-            return result;
-        };
-
-        if invocation != expression.into() {
+        if !matches!(
+            result,
+            ExecutionCondition::Expression(_) | ExecutionCondition::ScopedCapability(_)
+        ) {
             return result;
         }
 
-        let Some(dependencies) = self.dependencies.calls().get(&expression.into()) else {
+        let Some(source) = invocation.expression() else {
             return result;
         };
 
-        let Some(bray_bound_tree::SemanticSelection::Call(call)) =
-            self.semantics.selections().expression(expression)
-        else {
+        let Some(dependencies) = self.dependencies.calls().get(&invocation) else {
             return result;
+        };
+
+        let has_receiver = match self.semantics.selections().expression(source) {
+            Some(bray_bound_tree::SemanticSelection::Call(call)) => call.receiver().is_some(),
+            Some(bray_bound_tree::SemanticSelection::ScopedUse(scoped)) => {
+                scoped.invocation(invocation).1.receiver().is_some()
+            }
+            _ => return result,
         };
 
         let mut fields = BTreeMap::new();
@@ -83,7 +88,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let ordinal = match relation.entry().subject_root() {
                 DependencySubjectRoot::Receiver => 0,
                 DependencySubjectRoot::Parameter(ordinal) => {
-                    ordinal.raw() + u32::from(call.receiver().is_some())
+                    ordinal.raw() + u32::from(has_receiver)
                 }
                 _ => continue,
             };

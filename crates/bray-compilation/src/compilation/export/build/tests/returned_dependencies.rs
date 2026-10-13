@@ -942,3 +942,53 @@ fn imported_nested_reference_layers_survive_generic_specialization() {
         "{dependencies:#?}"
     );
 }
+
+#[test]
+fn imported_recursive_results_preserve_normal_completion_and_exact_origin() {
+    let provider = compilation(
+        r#"
+        module api;
+        func forward<T>(pos value: &T, pos again: bool) -> &T {
+            if again { return forward<T>(value, false); }
+            return value;
+        }
+        func forever<T>(pos value: &T) -> &T { return forever<T>(value); }
+    "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api.forward;
+        using example.package.api.forever;
+        func good(pos value: &bool) -> &bool { return example.package.api.forward<bool>(value, true); }
+        func diverging(pos value: &bool) -> &bool { return example.package.api.forever<bool>(value); }
+    "#,
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    let good =
+        crate::compilation::result_dependencies::source_function_dependencies(&consumer, "good");
+
+    assert!(good.normal_completion());
+    assert_eq!(good.borrows().len(), 1, "{good:#?}");
+
+    assert_eq!(
+        good.borrows()[0].entry().subject_root(),
+        bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
+    );
+
+    let diverging = crate::compilation::result_dependencies::source_function_dependencies(
+        &consumer,
+        "diverging",
+    );
+
+    assert!(!diverging.normal_completion());
+    assert!(diverging.borrows().is_empty());
+}

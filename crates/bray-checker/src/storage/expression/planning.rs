@@ -1,10 +1,10 @@
 use bray_bound_tree::{
-    BoundCallableTarget, BoundControlTransferKind, BoundExpression, BoundExpressionId,
-    BoundPatternMode, BoundReferenceTarget, BoundStructuredExpressionKind, IndexTarget,
-    OperatorTarget, SelectedOperation, SemanticSelection, StorageAccessId, StorageAccessPurpose,
-    StorageIdentity, StorageProjection,
+    BoundControlTransferKind, BoundExpression, BoundExpressionId, BoundPatternMode,
+    BoundReferenceTarget, BoundStructuredExpressionKind, IndexTarget, OperatorTarget,
+    SelectedOperation, SemanticSelection, StorageAccessId, StorageAccessPurpose, StorageIdentity,
+    StorageProjection,
 };
-use bray_symbols::{BorrowKind, ReceiverMode, TypeData};
+use bray_symbols::{BorrowKind, TypeData};
 
 use super::super::plan::{PlanError, Planner, iteration_purpose, missing_node};
 use crate::CheckerRequestContext;
@@ -132,6 +132,14 @@ where
                     .iter()
                     .map(bray_bound_tree::BoundArgument::expression),
             )?,
+            BoundExpression::Await(expression) => {
+                self.plan_expression(
+                    expression.operand(),
+                    Some(StorageAccessPurpose::ValueTransfer),
+                )?;
+
+                self.temporary_access(id)?
+            }
             BoundExpression::For(expression) => {
                 let source = self.plan_expression(expression.source(), None)?;
 
@@ -265,77 +273,6 @@ where
             expression,
             BoundExpression::Name(name) if name.target().is_compile_time_qualifier()
         ))
-    }
-
-    fn plan_call(
-        &mut self,
-        id: BoundExpressionId,
-        callee: BoundExpressionId,
-        arguments: impl IntoIterator<Item = BoundExpressionId>,
-    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
-        let semantic_selection = self.selections.expression(id);
-
-        let selection = semantic_selection.and_then(|selection| {
-            let SemanticSelection::Call(call) = selection else {
-                return None;
-            };
-
-            Some(call)
-        });
-
-        let direct = selection
-            .is_some_and(|call| matches!(call.target(), BoundCallableTarget::Declaration(_)))
-            || matches!(
-                semantic_selection,
-                Some(SemanticSelection::Operation(
-                    SelectedOperation::Construction(_)
-                ))
-            );
-
-        if !direct {
-            self.plan_expression(callee, Some(StorageAccessPurpose::Read))?;
-        }
-
-        if let Some(receiver) = selection.and_then(bray_bound_tree::SelectedCall::receiver) {
-            self.plan_expression(
-                receiver.expression(),
-                Some(Self::call_receiver_purpose(receiver.mode())),
-            )?;
-        }
-
-        let mut reborrows = selection
-            .into_iter()
-            .flat_map(|call| call.arguments())
-            .filter_map(|argument| match argument {
-                bray_bound_tree::SelectedArgument::Explicit { reborrow, .. } => Some(*reborrow),
-                bray_bound_tree::SelectedArgument::Default { .. } => None,
-            });
-
-        let observational = matches!(semantic_selection, Some(SemanticSelection::Predicate(_)))
-            || selection
-                .is_some_and(|call| matches!(call.target(), BoundCallableTarget::Predicate(_)));
-
-        for argument in arguments {
-            if observational {
-                self.plan_expression(argument, Some(StorageAccessPurpose::Read))?;
-            } else if let Some(kind) = reborrows.next().flatten() {
-                self.plan_call_reborrow(argument, kind)?;
-            } else {
-                self.plan_expression(argument, Some(StorageAccessPurpose::ValueTransfer))?;
-            }
-        }
-
-        self.temporary_access(id)
-    }
-
-    const fn call_receiver_purpose(mode: ReceiverMode) -> StorageAccessPurpose {
-        match mode {
-            ReceiverMode::Shared => StorageAccessPurpose::Borrow(BorrowKind::Shared),
-            ReceiverMode::Mutable => StorageAccessPurpose::Borrow(BorrowKind::Mutable),
-            ReceiverMode::Consuming | ReceiverMode::ConsumingMutable => {
-                StorageAccessPurpose::ValueTransfer
-            }
-        }
     }
 
     fn plan_operator(
@@ -574,23 +511,19 @@ where
             return self.recovery_access(id);
         };
 
-        let mode = scoped
+        let receiver = scoped
             .enter()
             .1
             .receiver()
-            .expect("selected enter has a receiver")
-            .mode();
+            .expect("selected enter has a receiver");
 
         let capability_type = scoped.capability_type();
-        let source = self.plan_expression(*initializer, None)?;
 
-        self.builder_mut()
-            .plan_occurrence_access(
-                bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
-                *initializer,
-                Self::call_receiver_purpose(mode),
-                source,
-            ).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in plan_scoped_use: {error:?}"));
+        self.plan_receiver(
+            bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+            *initializer,
+            receiver.mode(),
+        )?;
 
         let capability = self.protocol_access(
             id,

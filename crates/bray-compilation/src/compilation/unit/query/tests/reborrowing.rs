@@ -514,3 +514,45 @@ fn mutable_trait_fulfillment_receivers_authorize_field_assignment() {
         "{flow:?}"
     );
 }
+
+#[test]
+fn explicit_receiver_loans_are_reused_and_still_cover_argument_evaluation() {
+    for (argument, valid) in [("1", true), ("touch(&mut counter)", false)] {
+        let source = format!(
+            r#"
+            module app;
+            trait Writer {{ mut func write(pos value: i32); }}
+            struct Counter {{ mut value: i32; }}
+            impl Counter(Writer) {{ mut func write(pos value: i32) {{ self.value = value; }} }}
+            func touch(pos counter: &mut Counter) -> i32 {{ counter.value = 3; return 2; }}
+            func caller() {{
+                let mut counter = Counter {{ value = 0 }};
+                (&mut counter)(Writer).write({argument});
+                (&mut counter)(Writer).write(4);
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if valid {
+            let lowered = application
+                .lowered_unit(source_function_body_key(&application, "caller"))
+                .unwrap();
+
+            assert!(lowered.value().is_some(), "{lowered:#?}");
+        } else {
+            assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingConflictingBorrow,
+            );
+        }
+    }
+}

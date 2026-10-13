@@ -11,6 +11,25 @@ impl State {
         self.pending.insert(call, Default::default());
     }
 
+    pub(in crate::analysis::storage_flow) fn defer_effects(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        effects: Option<Vec<(Target, bray_symbols::DependencyMutationKind)>>,
+    ) {
+        self.deferred_effects
+            .insert(call, effects.map(|effects| effects.into_iter().collect()));
+    }
+
+    pub(in crate::analysis::storage_flow) fn deferred_effects(
+        &self,
+        call: bray_bound_tree::BoundExecutionSite,
+    ) -> Option<Vec<(Target, bray_symbols::DependencyMutationKind)>> {
+        self.deferred_effects
+            .get(&call)?
+            .as_ref()
+            .map(|effects| effects.iter().cloned().collect())
+    }
+
     #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn stage_slot(
         &mut self,
@@ -121,6 +140,8 @@ impl State {
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
     ) {
+        self.deferred_effects.remove(&call);
+
         if let Some(transfer) = self.pending.remove(&call) {
             for slot in transfer.values.keys() {
                 self.clear_value(slot);
@@ -156,15 +177,16 @@ impl State {
         kind: bray_symbols::DependencyMutationKind,
     ) {
         self.values.retain(|target, _| match target.storage_path() {
-            Some(slot) => !invalidation.invalidates_path(slot, storage),
-            None => !matches!(invalidation, bray_bound_tree::StorageInvalidation::All),
+            Some(slot) => matches!(invalidation, bray_bound_tree::StorageInvalidation::All(descriptors) if descriptors.contains(slot))
+                || !invalidation.invalidates_path(slot, storage),
+            None => !matches!(invalidation, bray_bound_tree::StorageInvalidation::All(_)),
         });
 
         for (target, contents) in &mut self.contents {
             let affected = match &target.origin {
                 Origin::Storage(path) => invalidation.invalidates_path(path, storage),
                 Origin::Entry { .. } | Origin::Allocation(_) => {
-                    matches!(invalidation, bray_bound_tree::StorageInvalidation::All)
+                    matches!(invalidation, bray_bound_tree::StorageInvalidation::All(_))
                 }
             };
 
@@ -215,6 +237,33 @@ impl State {
         );
     }
 
+    pub(in crate::analysis::storage_flow) fn owned_region(
+        &mut self,
+        owner: Target,
+        destination: Place,
+        ty: TypeId,
+    ) {
+        let region = owner.project(&[bray_bound_tree::StorageProjection::OwnedTarget]);
+
+        // Owner moves carry the same region independently of the header's later address.
+        // This identifies storage without claiming an initialized value or extent.
+        let references = self
+            .values
+            .entry(owner)
+            .or_insert_with(|| References::one(region))
+            .clone();
+
+        for target in &references.targets {
+            self.contents
+                .entry(target.clone())
+                .or_default()
+                .storage_type
+                .get_or_insert(ty);
+        }
+
+        self.values.insert(Target::storage(destination), references);
+    }
+
     pub(in crate::analysis::storage_flow) fn point_at(
         &mut self,
         target: Target,
@@ -248,6 +297,19 @@ impl State {
             )
         {
             references.retire(current);
+        }
+
+        for effects in self.deferred_effects.values_mut().flatten() {
+            *effects = std::mem::take(effects)
+                .into_iter()
+                .map(|(mut target, kind)| {
+                    if current.contains(&target) {
+                        target.previous = true;
+                    }
+
+                    (target, kind)
+                })
+                .collect();
         }
 
         let values = take_subtree(&mut self.values, current).collect::<Vec<_>>();

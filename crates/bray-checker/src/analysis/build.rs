@@ -438,27 +438,7 @@ where
             return current;
         }
 
-        self.push_propagating_call(expression, current)
-    }
-
-    pub(super) fn push_propagating_call(
-        &mut self,
-        expression: BoundExpressionId,
-        current: AnalysisBlockId,
-    ) -> AnalysisBlockId {
-        let continuation = self.push_block();
-
-        self.push_call(current, expression.into(), AnalysisCallPhase::Attempt);
-        self.push_edge(current, continuation, AnalysisEdgeKind::Sequential, None);
-        self.push_dependency_failures(current, expression.into());
-
-        self.push_call(
-            continuation,
-            expression.into(),
-            AnalysisCallPhase::Completion,
-        );
-
-        continuation
+        self.push_invocation(expression, current, true)
     }
 
     fn source_operation_may_propagate_panic(&self, expression: BoundExpressionId) -> bool {

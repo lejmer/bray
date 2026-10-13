@@ -19,7 +19,7 @@ impl Target {
     }
 
     pub(in crate::analysis::storage_flow) fn observation_path(&self) -> Option<Place> {
-        if self.previous {
+        if self.previous || self.projections().contains(&StorageProjection::OwnedTarget) {
             return None;
         }
 
@@ -42,6 +42,29 @@ impl Target {
             Origin::Entry { projections, .. } => projections,
             Origin::Storage(place) | Origin::Allocation(place) => &place.projections,
         }
+    }
+
+    fn allocation_region(&self) -> Option<Self> {
+        let projections = self.projections();
+
+        let boundary = projections
+            .iter()
+            .rposition(|projection| *projection == StorageProjection::OwnedTarget)
+            .map(|index| index + 1);
+
+        let mut region = self.clone();
+
+        match &mut region.origin {
+            Origin::Allocation(place) => {
+                place.projections = projections[..boundary.unwrap_or(0)].into()
+            }
+            Origin::Entry {
+                projections: path, ..
+            } => *path = projections[..boundary?].into(),
+            Origin::Storage(place) => place.projections = projections[..boundary?].into(),
+        }
+
+        Some(region)
     }
 
     pub(in crate::analysis::storage_flow) fn relationship(
@@ -67,13 +90,19 @@ impl Target {
                     projections: right_path,
                 },
             ) if left == right && left_layer == right_layer => {
-                StorageProjection::relationship(left_path, right_path)
+                region_relationship(left_path, right_path)
             }
             (Origin::Entry { .. }, _) | (_, Origin::Entry { .. }) => {
                 StorageRelationship::PotentiallyOverlapping
             }
             (Origin::Storage(left), Origin::Storage(right))
-            | (Origin::Allocation(left), Origin::Allocation(right)) => left.relationship(right),
+            | (Origin::Allocation(left), Origin::Allocation(right)) => {
+                if left.root != right.root {
+                    StorageRelationship::Disjoint
+                } else {
+                    region_relationship(&left.projections, &right.projections)
+                }
+            }
             _ => StorageRelationship::Disjoint,
         }
     }
@@ -203,14 +232,23 @@ impl State {
         Some(target.project(&path.projections()[copied..]))
     }
 
+    pub(in crate::analysis::storage_flow) fn referenced_regions(
+        &self,
+        location: &Target,
+    ) -> Option<Vec<Target>> {
+        self.values.get(location)?.regions()
+    }
+
     pub(in crate::analysis::storage_flow) fn value_targets(
         &self,
         location: &Target,
     ) -> Option<Vec<Target>> {
         let references = self.values.get(location)?;
 
-        (!references.unknown && !references.displaced)
-            .then(|| references.targets.iter().cloned().collect())
+        (!references.unknown
+            && !references.displaced
+            && references.targets.iter().all(Target::is_exact))
+        .then(|| references.targets.iter().cloned().collect())
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_targets(
@@ -219,8 +257,10 @@ impl State {
     ) -> Option<Vec<Target>> {
         let references = self.borrows.get(&capability)?;
 
-        (!references.unknown && !references.displaced)
-            .then(|| references.targets.iter().cloned().collect())
+        (!references.unknown
+            && !references.displaced
+            && references.targets.iter().all(Target::is_exact))
+        .then(|| references.targets.iter().cloned().collect())
     }
 
     pub(in crate::analysis::storage_flow) fn entry_reference_at(
@@ -326,5 +366,43 @@ impl State {
             .get_or_insert(ty);
 
         self.borrows.insert(capability, References::one(target));
+    }
+}
+
+fn region_relationship(
+    left: &[StorageProjection],
+    right: &[StorageProjection],
+) -> bray_bound_tree::StorageRelationship {
+    // An owned target is another allocation. Its bytes do not overlap the owner header.
+    let boundary = |path: &[StorageProjection]| {
+        path.iter()
+            .rposition(|projection| *projection == StorageProjection::OwnedTarget)
+    };
+
+    if boundary(left) != boundary(right) {
+        return bray_bound_tree::StorageRelationship::Disjoint;
+    }
+
+    StorageProjection::relationship(left, right)
+}
+
+impl References {
+    pub(super) fn regions(&self) -> Option<Vec<Target>> {
+        if self.unknown {
+            return None;
+        }
+
+        self.targets
+            .iter()
+            .map(|target| {
+                // Closed allocations bound displaced pointers. Ordinary address arithmetic
+                // has no such region proof and cannot narrow an unknown mutation.
+                if self.displaced {
+                    target.allocation_region()
+                } else {
+                    Some(target.clone())
+                }
+            })
+            .collect()
     }
 }

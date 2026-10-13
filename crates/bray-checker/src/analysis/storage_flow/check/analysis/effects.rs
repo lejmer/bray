@@ -18,6 +18,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &mut StorageFlowState,
         operation: AnalysisOperationKind,
         assignment: Option<&Target>,
+        execution: &crate::analysis::guarantee::ExecutionState,
     ) -> Option<Vec<(Target, DependencyMutationKind)>> {
         self.prepare_assignment_reference(state, operation, assignment);
 
@@ -29,9 +30,28 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let invocation = self.call_attempt(operation)?;
 
+        if let Some(expression) = invocation.expression()
+            && matches!(
+                self.request.view().expression(expression),
+                Some(bray_bound_tree::BoundExpression::Await(_))
+            )
+        {
+            let source = self.execution.awaited_invocation(execution, expression)?;
+
+            return state.memory.deferred_effects(source);
+        }
+
         self.prepare_call_references(state, invocation);
 
-        self.call_effects(state, invocation)
+        let contracts = self.dependencies.calls().get(&invocation)?;
+
+        if let Some(effects) = contracts.deferred_effects() {
+            let effects = self.call_effects(state, invocation, effects);
+
+            state.memory.defer_effects(invocation, effects);
+        }
+
+        self.call_effects(state, invocation, contracts.effects())
     }
 
     fn call_attempt(
@@ -39,6 +59,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         operation: AnalysisOperationKind,
     ) -> Option<bray_bound_tree::BoundExecutionSite> {
         match operation {
+            AnalysisOperationKind::Suspension {
+                occurrence,
+                kind: crate::analysis::model::AnalysisSuspensionKind::Await,
+            } => Some(occurrence),
             AnalysisOperationKind::Call {
                 invocation,
                 phase: AnalysisCallPhase::Attempt,
@@ -74,6 +98,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             for (target, kind) in effects {
                 self.record_target_effect(target, *kind);
             }
+        } else if matches!(
+            kind,
+            AnalysisOperationKind::Suspension {
+                kind: crate::analysis::model::AnalysisSuspensionKind::Await,
+                ..
+            }
+        ) {
+            self.record_effects(&StorageInvalidation::All(Default::default()), DependencyMutationKind::Retire);
         } else if let Some(effects) = self.refinements.invalidation_at(kind.occurrence()) {
             let effect_kind = if self.call_attempt(kind).is_some() {
                 bray_symbols::DependencyMutationKind::Retire
@@ -125,38 +157,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         state: &crate::analysis::storage_flow::model::StorageFlowState,
         occurrence: bray_bound_tree::BoundExecutionSite,
+        effects: &[DependencyStorageEffect],
     ) -> Option<Vec<(Target, DependencyMutationKind)>> {
-        let contracts = self.dependencies.calls().get(&occurrence)?;
-
-        self.resolve_effects(contracts.effects(), |subject, indirect| {
-            let expression = occurrence.expression()?;
-
-            let bray_bound_tree::SemanticSelection::Call(call) = self
-                .execution
-                .semantics
-                .selections()
-                .expression(expression)?
-            else {
-                return None;
-            };
-
-            let argument = crate::dependency::result_argument(call, subject.subject_root())?;
-
+        self.resolve_effects(effects, |subject, indirect| {
             if indirect && subject.projections().is_empty() {
-                self.expression_reference(state, argument)?
-                    .targets(&state.memory)
+                self.invocation_reference(state, occurrence, subject.subject_root())?
+                    .regions(&state.memory)
             } else {
-                let locations = self.call_reference_locations(
-                    state,
-                    argument,
-                    contracts.reference_path(subject)?,
-                )?;
+                let locations = self.invocation_locations(state, occurrence, subject)?;
 
                 if indirect {
                     locations
                         .iter()
                         .try_fold(Vec::new(), |mut targets, location| {
-                            targets.extend(state.memory.value_targets(location)?);
+                            targets.extend(state.memory.referenced_regions(location)?);
 
                             Some(targets)
                         })
@@ -309,19 +323,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             | StorageIdentity::Error(_)
             | StorageIdentity::CustomIndexBorrow(_)
             | StorageIdentity::Alternative { .. } => return Some(DependencyStorageEffect::Unknown),
-            _ => {
-                // An unresolved local borrow may still reach a caller. Local value slots do not.
-                return self
-                    .storage
-                    .identity_type(path.root)
-                    .is_some_and(|ty| {
-                        matches!(
-                            self.request.semantic_values().type_data(ty).as_ref(),
-                            TypeData::Borrow { .. }
-                        )
-                    })
-                    .then_some(DependencyStorageEffect::Unknown);
-            }
+            // Resolved referent writes use physical targets. Initializing or retiring a local
+            // reference slot does not mutate the storage reached by its contents.
+            _ => return None,
         };
 
         let projections = super::references::dependency_projections(&path.projections);

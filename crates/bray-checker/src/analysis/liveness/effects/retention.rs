@@ -16,7 +16,7 @@ impl OperationEffects {
     ) where
         C: CheckerRequestContext + ?Sized,
     {
-        let (accesses_by_root, _) = index_storage_roots(storage);
+        let accesses_by_root = index_storage_roots(storage);
 
         let borrowed_reads = storage
             .access_plans()
@@ -90,25 +90,34 @@ impl OperationEffects {
                         continue;
                     };
 
-                    for expression in accesses_by_root.get(&root).into_iter().flatten() {
+                    for occurrence in accesses_by_root.get(&root).into_iter().flatten() {
+                        let expression = occurrence.expression();
+
                         // Dereferencing needs the pointer's loans during evaluation even when
                         // its copied result carries none. An unrelated owned field does not.
-                        if borrowed_reads.contains(expression) {
-                            self.extend_uses(*expression, retained.iter().copied());
+                        if expression.is_some_and(|expression| borrowed_reads.contains(&expression))
+                            || matches!(
+                                occurrence,
+                                bray_bound_tree::BoundExecutionSite::ScopedExit(_)
+                            )
+                        {
+                            self.extend_uses(*occurrence, retained.iter().copied());
                         }
 
-                        if self.value_inputs.is_independent(*expression)
-                            || self
-                                .value_inputs
-                                .projected_initializer(*expression)
-                                .is_some()
+                        if matches!(occurrence, bray_bound_tree::BoundExecutionSite::Node(_))
+                            && expression.is_some_and(|expression| {
+                                self.value_inputs.is_independent(expression)
+                                    || self
+                                        .value_inputs
+                                        .projected_initializer(expression)
+                                        .is_some()
+                            })
                         {
                             continue;
                         }
 
-                        let expression_retention = retained_by_expression
-                            .entry((*expression).into())
-                            .or_default();
+                        let expression_retention =
+                            retained_by_expression.entry(*occurrence).or_default();
 
                         let previous = expression_retention.len();
 

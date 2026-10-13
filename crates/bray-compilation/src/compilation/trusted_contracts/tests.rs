@@ -2886,3 +2886,436 @@ fn address_formation_keeps_the_value_owner_distinct_from_the_address_witness() {
         compilation.check_diagnostics()
     );
 }
+
+#[test]
+fn deferred_body_effects_apply_when_driven_and_harmless_await_preserves_evidence() {
+    for (body, observation, valid) in [
+        ("", "await future; observe(&value);", true),
+        ("opaque();", "observe(&value); await future;", true),
+        ("opaque();", "await future; observe(&value);", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Owner {{ epoch: u64; }}
+            trusted predicate live(value: &Owner);
+            trusted func owner() -> Owner ensures(trusted live(&result)) {{ return {{ epoch = 1 }}; }}
+            func observe(pos value: &Owner) requires(trusted live(value)) {{}}
+            extern func opaque();
+            async func work() {{ {body} }}
+            async func caller() {{
+                let value = owner();
+                let future = work();
+                {observation}
+            }}
+        "#
+        );
+
+        let compilation = compilation(&source);
+
+        assert_eq!(
+            !compilation.check_diagnostics().has_errors(),
+            valid,
+            "{source}\n{:?}",
+            compilation.check_diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                compilation.check_diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn deferred_completion_guarantees_do_not_escape_a_caught_panic() {
+    for (body, valid) in [
+        ("await produce(&value);", true),
+        ("let _ = catch { await produce(&value); };", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Owner {{ tag: bool; }}
+            trusted predicate live(value: &Owner);
+            extern func opaque();
+            trusted async func produce(pos value: &Owner) ensures(trusted live(value)) {{ opaque(); }}
+            func observe(pos value: &Owner) requires(trusted live(value)) {{}}
+            async func caller() {{
+                let value = Owner {{ tag = true }};
+                {body}
+                observe(&value);
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn failing_cleanup_does_not_publish_normal_completion_guarantees_to_a_catch() {
+    for (body, valid) in [
+        ("{ let value = Producer {}; };", true),
+        ("let _ = catch { let value = Producer {}; };", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            trusted predicate ready();
+            extern func opaque();
+            struct Producer {{ trusted destruct() ensures(trusted ready()) {{ opaque(); }} }}
+            func observe() requires(trusted ready()) {{}}
+            func caller() {{ {body} observe(); }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn failing_scoped_exit_does_not_publish_guarantees_to_a_catch() {
+    for (body, valid) in [
+        ("with lease = resource {};", true),
+        ("let _ = catch { with lease = resource {}; };", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            trusted predicate ready();
+            extern func opaque();
+            struct Resource {{}}
+            struct Lease {{}}
+            impl Resource {{
+                enter() -> Lease {{ return Lease {{}}; }}
+                trusted exit(pos lease: Lease) ensures(trusted ready()) {{ opaque(); }}
+            }}
+            func observe() requires(trusted ready()) {{}}
+            func caller(pos resource: &Resource) {{ {body} observe(); }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn returned_borrow_alias_keeps_address_authority_tied_to_physical_storage() {
+    for (body, valid) in [
+        (
+            "let value: u8 = 1; let pointer = locate(&value); return core.memory.read<u8>(pointer);",
+            true,
+        ),
+        (
+            "let mut pointer = core.memory.null<u8>(); { let value: u8 = 1; pointer = locate(&value); }; return core.memory.read<u8>(pointer);",
+            false,
+        ),
+        (
+            "let original: u8 = 1; let mut pointer = core.memory.null<u8>(); { let copy: u8 = original; pointer = locate(&copy); }; return core.memory.read<u8>(pointer);",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            func identity(pos value: &u8) -> &u8 {{ return value; }}
+            func locate(pos value: &u8) -> RawPointer<u8>
+                ensures(
+                    trusted core.memory.valid_read<u8>(pointer = result, count = 1),
+                    trusted core.memory.initialized_as<u8>(pointer = result),
+                    trusted core.memory.aligned_for<u8>(pointer = result),
+                )
+            {{
+                let alias: &u8 = identity(value);
+                return core.memory.address_of<u8>(alias);
+            }}
+            trusted func caller() -> u8 uses(raw_memory) {{ {body} }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn slice_descriptor_preservation_does_not_preserve_element_authority() {
+    for (operation, valid) in [
+        ("", true),
+        ("if slice.length() > 0 { slice[0] = 1; }", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            trusted predicate marked(slice: &[u8]);
+            trusted func establish(pos slice: &mut [u8]) ensures(trusted marked(slice = &slice)) {{}}
+            func observe(pos slice: &[u8]) requires(trusted marked(slice = &slice)) {{}}
+            func caller(pos slice: &mut [u8]) {{
+                establish(slice);
+                {operation}
+                observe(&slice);
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+
+        assert_eq!(
+            !application.check_diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            application.check_diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                application.check_diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn slice_bounds_follow_descriptor_identity_through_element_writes_and_replacement() {
+    for (body, valid) in [
+        (
+            "let count = slice.length(); let mut index: usize = 0; while index < count { slice[index] = 1; let _ = slice[index]; index += 1; }",
+            true,
+        ),
+        (
+            "let mut selected = slice; let count = selected.length(); selected = other; if count > 0 { selected[0] = 1; }",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            func caller(pos slice: &mut [u8], pos other: &mut [u8]) executes(total) {{ {body} }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let key = crate::test_support::source_function_body_key(&application, "caller");
+        let checked = application.execution_properties(key).unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {checked:?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn slice_contents_calls_are_not_reused_after_element_mutation() {
+    for (operation, valid) in [("", true), ("slice[0] = 1;", false)] {
+        let source = format!(
+            r#"
+            module app;
+            const func first(pos slice: &[u8]) -> u8 executes(pure, total) {{
+                if slice.length() > 0 {{ return slice[0]; }}
+                return 0;
+            }}
+            func observe(pos slice: &[u8]) requires(first(slice) == 0) executes(total) {{}}
+            func caller(pos slice: &mut [u8]) executes(total) {{
+                if slice.length() > 0 && first(&slice) == 0 {{
+                    {operation}
+                    observe(&slice);
+                }}
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let key = crate::test_support::source_function_body_key(&application, "caller");
+        let checked = application.execution_properties(key).unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {checked:?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn nested_slice_bounds_require_descriptor_storage_separation() {
+    for (parameter, prepare, valid) in [
+        ("incoming: Envelope", "let mut holder = incoming;", true),
+        (
+            "outer: Outer",
+            "let middle = outer.inner; let mut holder = middle;",
+            true,
+        ),
+        ("holder: &mut Envelope", "", false),
+    ] {
+        // Owned local descriptors cannot be reached by incoming references. Two distinct
+        // incoming reference paths do not establish that separation on their own.
+        let source = format!(
+            r#"
+            module app;
+            struct Envelope {{ values: &mut [u8]; unrelated: usize; }}
+            struct Outer {{ inner: Envelope; }}
+            func caller(pos {parameter}) executes(total) {{
+                {prepare}
+                let count = holder.values.length();
+                let mut index: usize = 0;
+                while index < count {{
+                    holder.values[index] = 1;
+                    let _ = holder.values[index];
+                    index += 1;
+                }}
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let key = crate::test_support::source_function_body_key(&application, "caller");
+        let checked = application.execution_properties(key).unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {checked:?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn opaque_effects_preserve_unexposed_pointer_identity_without_preserving_authority() {
+    for (exposure, preserve, valid) in [
+        ("", true, true),
+        ("", false, false),
+        ("let escaped = core.memory.address_of_mut<RawPointer<u8>>(&mut pointer);", true, false),
+    ] {
+        let postcondition = if preserve {
+            "ensures(trusted core.memory.valid_read<u8>(pointer = value, count = 1), trusted core.memory.valid_write<u8>(pointer = value, count = 1), trusted core.memory.aligned_for<u8>(pointer = value), trusted core.memory.initialized_as<u8>(pointer = value))"
+        } else { "" };
+
+        let source = format!(r#"
+            trusted module app;
+            trusted extern func renew(pos value: RawPointer<u8>) {postcondition};
+            trusted func run(pos input: RawPointer<u8>) uses(raw_memory, unchecked_init)
+            {{
+                let mut pointer = input;
+                {exposure}
+                trusted renew(pointer);
+                let contents = core.memory.read<u8>(pointer);
+                core.memory.write<u8>(pointer, contents);
+            }}
+        "#);
+
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:?}");
+    }
+}
+
+#[test]
+fn content_writes_keep_spatial_facts_about_copied_pointer_values() {
+    for (write, valid) in [("core.memory.write<RawPointer<u8>>(slot, replacement);", true), ("opaque();", false)] {
+        let source = format!(r#"
+            trusted module app;
+            extern func opaque();
+            struct Pointer {{ value: RawPointer<u8>; }}
+            trusted func run(pos owner: &Pointer, pos slot: RawPointer<RawPointer<u8>>, pos replacement: RawPointer<u8>)
+                requires(
+                    trusted core.memory.valid_write<u8>(pointer = owner.value, count = 1),
+                    trusted core.memory.aligned_for<u8>(pointer = owner.value),
+                    trusted core.memory.valid_write<RawPointer<u8>>(pointer = slot, count = 1),
+                    trusted core.memory.aligned_for<RawPointer<u8>>(pointer = slot),
+                ) uses(raw_memory, unchecked_init)
+            {{
+                let captured = owner.value;
+                {write}
+                core.memory.write<u8>(captured, 1);
+            }}
+        "#);
+
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:?}");
+    }
+}

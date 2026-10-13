@@ -299,10 +299,7 @@ pub struct StorageFlow {
         ),
         crate::StorageInvalidation,
     >,
-    completion_observations: std::collections::BTreeMap<
-        crate::StorageMutation,
-        std::collections::BTreeMap<crate::StoragePath, crate::StoragePath>,
-    >,
+    completions: std::collections::BTreeMap<crate::StorageMutation, crate::StorageCompletion>,
     reachable_exits: Arc<[StorageExitPoint]>,
     exits: Arc<[StorageExitDecision]>,
     memory_operations: Arc<[MemoryOperationDecision]>,
@@ -407,7 +404,7 @@ impl StorageFlow {
             assignment_targets: std::collections::BTreeMap::new(),
             dependencies: bray_symbols::DependencyContractTemplateData::new([]),
             cleanup_mutations: Default::default(),
-            completion_observations: Default::default(),
+            completions: Default::default(),
             replacements: Arc::from([]),
             is_recovered,
         })
@@ -443,25 +440,23 @@ impl StorageFlow {
             .get(&(occurrence, access, part, slot))
     }
 
-    /// Publishes exact current reference observations at normal completion.
-    pub fn with_completion_observations(
+    /// Publishes checked reference observations and retained origins at normal completion.
+    pub fn with_completions(
         mut self,
-        observations: std::collections::BTreeMap<
-            crate::StorageMutation,
-            std::collections::BTreeMap<crate::StoragePath, crate::StoragePath>,
-        >,
+        observations: std::collections::BTreeMap<crate::StorageMutation, crate::StorageCompletion>,
     ) -> Self {
-        self.completion_observations = observations;
+        self.completions = observations;
 
         self
     }
 
-    /// Returns exact aliases established by the owning storage transition.
-    pub fn completion_observations(
+    /// Returns facts established at a reachable normal completion.
+    /// Absence means there is no normal completion.
+    pub fn completion(
         &self,
         mutation: crate::StorageMutation,
-    ) -> Option<&std::collections::BTreeMap<crate::StoragePath, crate::StoragePath>> {
-        self.completion_observations.get(&mutation)
+    ) -> Option<&crate::StorageCompletion> {
+        self.completions.get(&mutation)
     }
 
     /// Publishes carried dependencies, exact reference relations and possible mutations from this flow.

@@ -413,7 +413,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut evidence = crate::ExecutionCallEvidence {
             trusted_boundary: !state.trust_boundaries.is_empty(),
-            pending_execution: false,
+            pending_execution: matches!(
+                call.resolution().result(),
+                bray_bound_tree::BoundCallResult::LazyFuture(_)
+            ),
             arguments,
             assumptions: state.assumptions.clone(),
             trusted_assumptions,
@@ -482,12 +485,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         Some(evidence)
     }
 
-    pub(super) fn complete_call(&self, state: &mut ExecutionState, expression: BoundExpressionId) {
-        self.complete_trusted_call(
-            state,
-            expression.into(),
-            ExecutionCondition::Expression(expression),
-        );
+    pub(super) fn complete_call(
+        &self,
+        state: &mut ExecutionState,
+        expression: BoundExpressionId,
+        observations: &BTreeMap<
+            bray_bound_tree::StoragePath,
+            BTreeSet<bray_bound_tree::StoragePath>,
+        >,
+    ) {
+        let result = self.invocation_value(state, expression.into());
+
+        self.complete_trusted_call(state, expression.into(), result, observations);
 
         let Some(entry) = state.entries.get(&expression.into()) else {
             return;

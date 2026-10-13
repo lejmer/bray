@@ -41,7 +41,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
             if let Some(path) = storage.logical_path(plan.access()) {
                 changed.push(path.clone());
             } else {
-                *invalidation = StorageInvalidation::All;
+                *invalidation = StorageInvalidation::All(Default::default());
             }
         }
     }
@@ -68,7 +68,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
                     .execution_properties()
                     .contains(&ExecutionProperty::Pure)
                 {
-                    accesses.insert(occurrence, StorageInvalidation::All);
+                    accesses.insert(occurrence, StorageInvalidation::All(Default::default()));
                 }
             }
 
@@ -102,7 +102,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
 
         // Opaque calls may carry mutation authority inside aggregates or raw pointers.
         // Without a purity certificate or a mutation summary, require fresh observations.
-        accesses.insert(expression.into(), StorageInvalidation::All);
+        accesses.insert(expression.into(), StorageInvalidation::All(Default::default()));
     }
 
     for invalidation in accesses.values_mut() {
@@ -125,7 +125,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
         if aliases_storage {
             // Local borrows can be reassigned or returned by calls. Until their referent
             // sets are available here, a write through one may affect any observation.
-            *invalidation = StorageInvalidation::All;
+            *invalidation = StorageInvalidation::All(Default::default());
 
             continue;
         }
@@ -153,7 +153,8 @@ fn call_preserves_storage(
         || matches!(
             call.implementation_hook(),
             Some(
-                bray_compiler_known::ImplementationHook::SequenceIsEmpty
+                bray_compiler_known::ImplementationHook::SequenceLength
+                    | bray_compiler_known::ImplementationHook::SequenceIsEmpty
                     | bray_compiler_known::ImplementationHook::NumericTruncate
             )
         )

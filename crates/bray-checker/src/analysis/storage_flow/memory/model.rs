@@ -62,7 +62,8 @@ pub(super) struct References {
 impl References {
     pub(super) fn one(target: Target) -> Self {
         Self {
-            unknown: !target.is_exact(),
+            // A dynamic selector is bounded by this region even without one exact cell.
+            unknown: false,
             targets: BTreeSet::from([target]),
             displaced: false,
         }
@@ -103,7 +104,11 @@ impl References {
         !self.unknown
             && !self.displaced
             && self.targets.len() == 1
-            && !self.targets.first().expect("one reference target").previous
+            && self
+                .targets
+                .first()
+                .expect("one reference target")
+                .is_exact()
     }
 }
 
@@ -179,6 +184,10 @@ pub(in crate::analysis::storage_flow) struct State {
     pub(super) values: BTreeMap<Target, References>,
     pub(super) borrows: BTreeMap<BorrowCapabilityId, References>,
     pub(super) pending: BTreeMap<BoundExecutionSite, Transfer>,
+    pub(super) deferred_effects: BTreeMap<
+        BoundExecutionSite,
+        Option<BTreeSet<(Target, bray_symbols::DependencyMutationKind)>>,
+    >,
     pub(super) contents: BTreeMap<Target, Contents>,
     // Consumed inline values remain available to the current operation's value transfers.
     // Proof queries read physical contents only. This snapshot never crosses an operation edge.
@@ -230,6 +239,32 @@ impl State {
 
                 changed |= joined.merge(transfer);
                 self.pending.insert(*call, joined);
+            }
+        }
+
+        for (call, effects) in &mut self.deferred_effects {
+            match (
+                effects.as_mut(),
+                incoming.deferred_effects.get(call).and_then(Option::as_ref),
+            ) {
+                (Some(effects), Some(incoming)) => {
+                    let before = effects.len();
+
+                    effects.extend(incoming.iter().cloned());
+                    changed |= effects.len() != before;
+                }
+                (Some(_), None) => {
+                    *effects = None;
+                    changed = true;
+                }
+                _ => {}
+            }
+        }
+
+        for call in incoming.deferred_effects.keys() {
+            if !self.deferred_effects.contains_key(call) {
+                self.deferred_effects.insert(*call, None);
+                changed = true;
             }
         }
 

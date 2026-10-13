@@ -52,6 +52,10 @@ pub(in crate::analysis) fn merge(
                 value.clone()
             } else if value == ExecutionCondition::Unknown || other == ExecutionCondition::Unknown {
                 ExecutionCondition::Unknown
+            } else if value.owner_identity() == other.owner_identity()
+                && value.owner_identity() != &ExecutionCondition::Unknown
+            {
+                join_components(&value, &other)
             } else {
                 ExecutionCondition::Joined(
                     block.unit(),
@@ -88,6 +92,7 @@ pub(in crate::analysis) fn merge(
                 // Literal payloads are shared by unrelated places and contract constants.
                 // Joining their slots must not rename the constant itself.
                 if *value == joined
+                    || value == joined.owner_identity()
                     || matches!(
                         value,
                         ExecutionCondition::Literal(_)
@@ -102,8 +107,8 @@ pub(in crate::analysis) fn merge(
                 insert_replacement(map, value, &joined);
 
                 for identity in [value, value.owner_identity()] {
-                    if *identity != joined {
-                        insert_replacement(identities, identity, &joined);
+                    if identity != joined.owner_identity() {
+                        insert_replacement(identities, identity, joined.owner_identity());
                     }
                 }
             }
@@ -264,4 +269,21 @@ fn insert_replacement(
             }
         })
         .or_insert_with(|| joined.clone());
+}
+
+fn join_components(left: &ExecutionCondition, right: &ExecutionCondition) -> ExecutionCondition {
+    let fields = |value: &ExecutionCondition| match value {
+        // Each predecessor's components become an independently owned join map.
+        ExecutionCondition::Constructed(_, fields) => fields.iter().cloned().collect(),
+        _ => BTreeMap::new(),
+    };
+
+    let mut joined = fields(left);
+
+    merge_values(&mut joined, &fields(right));
+
+    ExecutionCondition::Constructed(
+        std::sync::Arc::new(left.owner_identity().clone()),
+        joined.into_iter().collect(),
+    )
 }

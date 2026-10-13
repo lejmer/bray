@@ -28,6 +28,20 @@ impl State {
         })
     }
 
+    pub(in crate::analysis::storage_flow) fn unexposed_storage<'a>(
+        &'a self,
+        candidates: &'a [StorageIdentityId],
+    ) -> impl Iterator<Item = StorageIdentityId> + 'a {
+        // Address formation records the physical slot even after its reference dies.
+        // An incoming unknown address cannot name an unexposed invocation-owned slot.
+        let exposed = self.contents.keys().filter_map(|target| match &target.origin {
+            Origin::Storage(path) => Some(path.root),
+            _ => None,
+        }).collect::<BTreeSet<_>>();
+
+        candidates.iter().copied().filter(move |root| !exposed.contains(root))
+    }
+
     #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn entry_reference(&mut self, slot: Place) {
         self.entry_reference_at(slot.clone(), 1, Target::storage(slot), None);
@@ -247,7 +261,11 @@ impl State {
         take_subtree(&mut self.values, target).for_each(drop);
     }
 
-    pub(in crate::analysis::storage_flow) fn offset(&mut self, source: &Place, destination: Place) {
+    pub(in crate::analysis::storage_flow) fn offset(
+        &mut self,
+        source: &Target,
+        destination: Place,
+    ) {
         let mut references = self.references(source);
 
         references.displaced = true;

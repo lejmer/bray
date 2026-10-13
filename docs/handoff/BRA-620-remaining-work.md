@@ -38,22 +38,92 @@ Expected removals are the result-dependency syntax fixed point, cleanup-wide wit
 recovery, and repeated authority establishment in downstream consumers. Existing type/termination proof domains remain
 separate where they answer different questions.
 
-Completion matrix:
+Completion matrix, also used for the published review:
 
-| Behavior | Required coverage |
-| --- | --- |
-| Trusted introduction | Explicit trusted premises, ordinary promise checking, no authority from recovery or plain construction. |
-| Exact references | Nested borrow fields, aliases, reassignment, protected payloads, address reuse, local escape. |
-| Carrier transfer | Whole move, aggregate/nullable result, projection rejection including divergence, exact resource pairing. |
-| Observation effects | Payload mutation versus marker observation, raw storage state, unknown foreign effects, lifetime retention. |
-| Control flow | Branch correlation, loop convergence, recursive may/must summaries, absent variants, no cyclic proof creation. |
-| Calls and cleanup | Explicit and implicit calls, receiver effects, replacement, normal-only ensures, abnormal preservation. |
-| Interfaces | Source, exported/imported, generic substitution, selected indirect calls and deferred phases. |
-| Structure and cost | Removed superseded mechanisms, prepared inputs reused, no runtime authority machinery, production/test growth reported separately. |
+| Behavior | Owning implementation | Verification |
+| --- | --- | --- |
+| Trusted introduction | `analysis/guarantee/trusted` checks premises and establishes only declared completion guarantees. | Trusted caller, safe guarantee fabrication, recovery, equal-scalar and field-copy rejection tests. |
+| Exact references | `analysis/storage_flow/memory/references` resolves physical targets, separate from lifetime anchors. Entry demands use the shared typed traversal. | Nested source/imported references, callee-only demands after aggregate moves, reassignment, address formation, local escape and invalid recursive type recovery. |
+| Carrier transfer | Shared storage completion publishes exact observations and borrow origins. `trusted/transfers` consumes whole-carrier transfers. | Whole moves, nullable/aggregate returns, projected carrier rejection, copied pointers and wrong-owner rejection. |
+| Observation effects | `storage_flow/check/analysis/observations` publishes writes and descriptor preservation. Execution facts consume that publication. | Independent marker versus opaque carrier, raw read/write, exposed versus unexposed descriptor, initialization, nested slice bounds and hash-table ownership. |
+| Control flow | Existing fixed-point solver and source summary SCC compute may effects and productive normal exits. `liveness/domain` supplies the shared finite set equation. | Branch correlation, loops, recursive no-base/base/conflicting-target cases and unreachable lowering. |
+| Calls and cleanup | Attempt/completion edges and the common storage transition handle explicit, scoped, deferred and cleanup calls. | Uninit cleanup, finalizer/destructor order, replacement, harmless await, consumed futures and caught abnormal outcomes. |
+| Interfaces | Checked dependency summaries retain effects, exact origins and normal completion through substitution, export, interning and hashing. | Imported recursive results, imported cleanup, generic/selected calls, codec round trips and summary-preserving requirement replacement. |
+| Structure and cost | Removed the result-dependency syntax fixed point, cleanup borrow restoration and duplicate liveness equation. Prepared call paths and descriptor candidates are reused. | Changed-file/duplicate-behavior audit, style checks and separate production/test growth accounting below. No runtime authority representation was introduced. |
 
 No line-count target justifies weakening behavior. Reconsider any design requiring per-library cases, a new proof
 language, duplicated state transfer or unbounded path/term expansion. Do not mark this step complete while any row lacks
 an owning implementation and meaningful verification.
+
+## Current verification checkpoint
+
+Step 2 remains active on `feature/bra-620-repair-synchronization-authority`, after `8dbe2f33`.
+The current worktree is `C:/Users/anton/.codex/worktrees/bra-553-host-bootstrap/bray`. Do not edit the unrelated primary checkout.
+No production API migration has started. No combined draft PR or required fresh published review exists yet.
+
+The combined branch contains the verified current heads of all five open PRs: #601 (`f244c10c`), #602 (`e3dbc6c5`),
+#604 (`22473ff6`), #605 (`fb69346e`), and #606 (`cca4bd44`). The user explicitly requires the final PR and its description
+to cover all five, not only the current step. Checkpoints may be committed and pushed under the standing authorization.
+
+Latest verification evidence, in the shared target's `bra-620-authority/` directory:
+
+- `step2-final-broad.log`: 1570 passes and 18 failures out of 1588 compilation tests, 449.11 seconds.
+  This includes the finite entry-demand recovery test and the pointer/slice fixes. The failures remain visible.
+- `step2-libraries-current.log`: bound-tree 122, checker 307, lowering 39, package-interface 189 and symbols 202 passes.
+  Subsequent library checks increase bound-tree to 123 and symbols to 203 with the descriptor merge and summary tests.
+- `step2-audit-libraries.log`: bound-tree 123 and checker 307 passes after the prepared descriptor-candidate optimization.
+- `step2-audit-pointers.log`: 18 passes after that optimization and completion-helper extraction.
+- `step2-summary-preservation.log`: 203 symbol tests pass, including requirement replacement retaining the checked summary.
+- `step2-summary-recursion.log`: 12 passes after all summary-preserving call-site changes.
+- `step2-authority-complete.log`: 156 passes and 10 production-contract failures, including explicit initialization preservation.
+- `step2-slices-complete.log`: 10 slice observation tests pass. Owned nested descriptors retain bounds across element
+  mutation and moves. Unresolved incoming aliases do not acquire a disjointness proof.
+- `step2-descriptor7.log`: production attachment scan/growth passes. `step2-regions.log`: 51 memory tests pass.
+
+The final source/import check (`step2-final-imported.log`) passes all 15 tests. Both `step2-publication-style.log` and `step2-publication-format.log` completed successfully. Style reports only module-size warnings, including the already oversized planning module reduced by this change. The broad run predates only the
+metadata-preservation audit, prepared-candidate optimization and structural helper moves, each covered by focused checks.
+
+All 18 broad failures have an active owner. Seventeen belong to BRA-620's Step 3 production API migration: seven
+synchronization/acquisition tests, eight host lease/cleanup tests, native thread allocation formation and the native
+environment provider carrier. The remaining `scoped_selected_calls_emit_native_artifacts` failure belongs to BRA-619's
+existing `CleanupIncidentTransfer` transport work. The integrated PR remains draft, and neither issue is complete.
+Step 2 must not make opaque whole-carrier predicates stable or reconstruct projected authority to hide these failures.
+
+The mechanical audit searches covered summary construction/substitution/export, reference preparation and transfer,
+physical writes and observation invalidation, normal/abnormal invocation completion, lifetime retirement, intrinsic
+trust policy, set liveness, and wire boolean decoding. Requirement replacement now retains all checked metadata in one
+symbols operation. The intrinsic trust classifier lives with intrinsic execution policy, set liveness shares one domain,
+and wire booleans share one decoder. Type/termination analysis and physical targets versus lifetime anchors remain
+separate because they establish different facts. No post-analysis validation pass was added.
+
+Relative to the Step 1 specification checkpoint `5c4d3513`, the Step 2 Rust diff spans 134 files. The measured changes
+are production +4,989/-2,136 lines and tests +2,459/-353 lines. This classifies dedicated test files and text after inline
+`#[cfg(test)]` boundaries as tests. These are textual change counts, including moves and formatting, not a claim of
+semantic simplification by line deletion. The necessary added capabilities are exact physical reference publication,
+finite productive summary inference, explicit deferred execution phases and dependency-aware observation retention.
+No runtime witness storage, allocation, lookup or helper call was introduced. Comparable compiler-speed and generated
+product benchmarks remain separate acceptance work, and wall times from differently cached test runs are not benchmarks.
+
+The owning analysis now separates slice descriptor identity from payload observations, bounds dynamic indices by their
+known region, and closes entry-reference demands through moved inline aggregates. Cyclic recovered inline types stop
+at the existing type SCC rather than expanding paths. Unknown effects publish only proven unexposed raw descriptor
+identities. Their contents and authority still expire. Explicit calls, deferred calls and cleanup consume this same
+publication. Spatial predicates observe the descriptor, while initialization and opaque predicates observe current
+contents. Ordinary construction does not recreate an acquisition or ownership witness.
+
+Two traced production causes must not be conflated. `allocate_thread_value` establishes spatial facts before forming
+its `RawAllocation` owner. That formation consumes the old authority without promising those facts on the new owner.
+Its ordering/representation belongs to the Step 3 API migration. The platform TLS load had lost an unexposed descriptor
+across a foreign call despite explicit preservation, and attachment exit had lost spatial facts on a copied pointer
+across a contents read. Those shared-analysis defects were repaired here. Host lease predicates still observe the
+whole mutable carrier, including the payload, and therefore require the planned acquisition-marker migration.
+
+The temporary authority tracing was removed. The earlier automatic rejection concerning initialized-slice trust gates
+was resolved with the actual specification and production declarations: these trusted extern operations declare no
+trusted caller requirements. Only newly added gates were removed, and the existing caller contract remains enforced.
+
+The following dated sections retain evidence from earlier checkpoints. They do not replace this current status or the
+completion matrix above.
 
 ## Shared observation and cleanup work, 2026-10-13
 
@@ -115,6 +185,74 @@ Bray formatting commands passed. The audit removed a redundant validation flag a
 Remaining work is unchanged: finish and audit shared completion, nested reference identities and demand closure,
 finite recursive may/must publication, replacement of the separate dependency syntax walk, and the entire step-2
 completion matrix. The `c784e040` checkpoint preserves this work. It is not a step-2 completion claim. No source API migration began.
+
+## Scoped and deferred transition audit, 2026-10-13
+
+The uncommitted continuation now shares physical reference staging and mutation resolution across explicit calls and
+scoped enter/exit calls. Scoped receiver loans are retained through exit. Yield/break results capture their references
+before cleanup and apply nullable wrapping at the destination. Await consumes its future, preserves the deferred
+invocation's entry evidence during its own effects, and has distinct normal, panic and cancellation continuations.
+
+Read-only sequence length queries preserve observations. Bounds proofs use the evaluated call value instead of expired
+call-entry evidence. Device pointers participate in the same address-reference model as host pointers, with their own
+types and predicates. Volatile content changes preserve spatial conditions and retire contents-dependent conditions.
+The call-completion path also retains already-normalized constant call values.
+
+`read-effects2.log` records bounded-indexing, device volatile and exact scoped field-origin tests passing. Its remaining
+failure is the ordinary result/capacity postcondition of `copy_spare_raw_bytes` in the production memory fixture.
+The unknown raw destination currently invalidates the buffer header. This remains under investigation, not a waived
+failure. `phases-audit.log` records 32 passes and the known native scoped fixture failure for missing
+`CleanupIncidentTransfer`. The first mutating style run passed with existing size warnings. Later edits still need
+formatting and verification. Step 2 is incomplete and no checkpoint or review has been published for this continuation.
+
+Remaining audits include implicit cleanup outcomes, scoped demand closure, deferred result lowering, source/import
+coverage, closed intrinsic effects, the full completion matrix, final maintainability review and checkpoint publication.
+The interface stays at revision 1 under the greenfield repository rule. Disposable artifacts must be regenerated.
+
+## Deferred phases and receiver retention continuation, 2026-10-13
+
+The work after `8dbe2f33` remains uncommitted. Step 2 is still incomplete. The finite recursive summaries and SCC
+scheduling are retained. The attempted local-state pruning was removed because last-use of a local does not retire
+all scope-supported witness evidence. Expression caches and completed invocation evidence use the shared backwards
+liveness solver. `scheduler-checker.log` records 303 checker tests passing.
+
+`preserved-broad.log` records a completed compilation run before deferred/receiver changes, with 1515 passing and
+53 failing tests in 331.53 seconds, including the scalar stress cases. This supersedes the stopped old stress runs.
+Two historical expectations concern harmless known-body effects and recursive exact references and are being updated
+with corresponding negative cases retained. Production fixture failures still require classification or repair.
+
+Deferred invocation summaries now distinguish default evaluation from body execution. Await has an attempt and normal
+completion in the shared CFG. Captured body targets and returned references survive until the frame is driven. The
+blanket observation invalidation on resume is removed. `deferred-tests5.log` records 11 deferred tests passing,
+including ordinary evidence before execution, harmless await preservation and opaque execution revocation.
+
+Receiver planning now creates loans through the ordinary borrow factory for explicit methods and scoped entry.
+The returned-subslice regression exposed missing returned active-loan requirements for compiler-provided borrow
+producers. The repair retains that requirement separately from copied stored-reference dependencies. A trial that
+retained the whole receiver for every projected value was removed because it rejected valid copied-reference escape.
+This receiver work is still under verification. No production synchronization API was changed.
+
+Remaining work includes scoped call reference/effect transfer, complete cleanup and deferred outcomes, remaining
+compiler failures, the full acceptance matrix, maintainability audit, formatting, checkpoint and review. Do not mark
+step 2 complete from the focused results above.
+
+## Recursive summary continuation, 2026-10-13
+
+After `8dbe2f33`, source summary components distinguish no discovered normal outcome from an unknown returned
+reference. The first normal outcome seeds exact relations. Subsequent outcomes intersect them, while possible
+effects and normal completion grow. Required result dependencies retain their symbolic recursive equations.
+Normal invocation continuations use that checked result. Attempts and abnormal continuations still execute.
+Package metadata carries the result, including generic substitution and specialization identity, with the current revision-1 format.
+Lowering terminates the normal continuation after an invocation known never to return.
+
+Direct and mutual forwarding, swapped recursive inputs, and recursion without a base return are covered. Imported
+generic forwarding and no-return summaries also pass. The 25 recursive compilation tests and 20 conditional guarantee
+tests pass. A historical postcondition-cycle test now checks the accepted partial-correctness rule: no returning
+execution supplies no runtime result, while termination still requires its separate well-founded proof.
+
+This work is not yet checkpointed. The interface raw-wire fixtures needed revision after the format change.
+Scalar-state retention, deferred execution effects, cleanup outcome completeness and the remaining acceptance matrix
+are still open. Step 2 remains incomplete.
 
 ## Shared result flow and nested references, 2026-10-13
 
@@ -580,3 +718,41 @@ Only after the authority defect, sibling audit, validation, and current-head rev
 In Review. Do not mark it Done. Keep old PRs available until the integration lands, then reconcile their superseded status
 without closing incomplete issues. BRA-619's missing native scoped-incident transfer remains documented in
 [its handoff](BRA-619-remaining-work.md).
+
+
+## Physical reference and completion audit, 2026-10-13
+
+Still uncommitted after `8dbe2f33`. Step 2 remains incomplete pending the remaining audit, broad verification and
+published review. Production API migration remains step 3.
+
+Raw memory operations now read pointer values through resolved physical locations, including fields behind entry
+borrows. Pointer reinterpretation uses the shared value transfer. An owned allocation is disjoint from its owner
+header. Displaced pointers retain a known allocation region without claiming an exact element or initialized contents.
+Ordinary address arithmetic without a region proof remains conservative. Direct operations and call effects share this
+region interpretation. The temporary diagnostic traces were removed.
+
+`StorageCompletion` replaces the old completion alias map. It holds exact value observations separately from possible
+borrowed storage origins. The latter retain witness lifetimes through returned borrow aliases without treating equal
+scalar values as storage identity. Exact aliases intersect at joins, possible required origins accumulate, and unknown
+origins remain unknown. Normal completion is published by the owning shared flow and consumed by lowering. Ordinary,
+scoped and awaited completion now share the same proof completion entry point. Scoped expression completion also comes
+from the existing CFG, so a non-returning exit does not manufacture a with-result during lowering.
+
+Ordinary and scoped calls share typed reference-input preparation. Receiver planning reuses an explicit fresh loan
+without releasing it before argument evaluation. The three fresh-borrow queries now share one helper. Scalar copies
+from a witness remain ordinary copies even through conversion temporaries. Whole-witness copying and partial moves
+retain their authority checks.
+
+Recent evidence: `completion-record2.log` has four passes covering the full raw-byte fixture, ordinary field-copy
+lifetime escape rejection, pointer witness-copy rejection and scoped nested-reference demand. Runtime text and the
+formatting source/interface fixture now pass. `scoped-no-return-exit3.log` has three passes including lowering of
+non-returning ordinary/deferred/scoped-enter/scoped-exit calls and nullable scoped results. The explicit receiver
+regression passes both repeated calls and conflicting argument evaluation. The new borrowed-address lifetime regression
+is awaiting its final run after correcting a reserved-word fixture name. New memory and completion-merge unit tests
+also need the full library run.
+
+The latest completed broad run before these repairs was `step2-current-broad.log`: 1551 pass, 26 fail, 446.47 seconds.
+Four failures have since passed in focused runs: raw reads after opaque calls, formatting specialization, runtime text,
+and raw-byte extent/witness transfer. The native scoped artifact failure remains owned by active BRA-619. The native
+thread payload fixture and the host/synchronization/environment failures still need their final phase classification.
+Do not report that broad run as current acceptance. Final style/formatting and code-growth accounting remain required.

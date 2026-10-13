@@ -176,7 +176,30 @@ impl ExecutionState {
             .chain(self.pending_results.values_mut())
             .chain(std::iter::once(&mut self.result))
         {
-            if stale(value) {
+            if !stale(value) {
+                continue;
+            }
+
+            if let ExecutionCondition::Constructed(identity, fields) = value
+                && !stale(identity)
+            {
+                // A repeated payload mutation does not recreate the descriptor or its siblings.
+                let fields = fields
+                    .iter()
+                    .map(|(projection, component)| {
+                        (
+                            *projection,
+                            if stale(component) {
+                                ExecutionCondition::Unknown
+                            } else {
+                                component.clone()
+                            },
+                        )
+                    })
+                    .collect();
+
+                *value = ExecutionCondition::Constructed(std::sync::Arc::clone(identity), fields);
+            } else {
                 *value = ExecutionCondition::Unknown;
             }
         }
@@ -444,10 +467,10 @@ impl ExecutionState {
                 value => value,
             };
 
+            // Spatial facts describe the captured pointer value and its allocation, not
+            // the slot that supplied that value. Contents writes neither free nor resize
+            // allocations. A changed slot receives a new observation below its caller.
             matches!(predicate, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
-                && !condition
-                    .observations()
-                    .any(|value| directly_changed.overlaps(value))
         };
 
         let revokes = |condition: &ExecutionCondition| observes(condition) && !stable(condition);

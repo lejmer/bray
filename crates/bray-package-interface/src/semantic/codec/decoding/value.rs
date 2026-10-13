@@ -642,8 +642,12 @@ mod tests {
             },
         ];
 
-        semantics.dependency_contracts =
-            vec![InterfaceDependencyContract::new([]).with_effects(effects)].into();
+        semantics.dependency_contracts = vec![
+            InterfaceDependencyContract::new([])
+                .with_effects(effects)
+                .with_normal_completion(false),
+        ]
+        .into();
 
         let limits = InterfaceValidationLimits::default();
         let sections = encode_semantics(&semantics, &surface, limits).unwrap();
@@ -658,6 +662,7 @@ mod tests {
         let template = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
 
         assert_eq!(template.effects().len(), 3);
+        assert!(!template.normal_completion());
 
         assert!(
             matches!(&template.effects()[2], DependencyStorageEffect::Indirect { projections, kind: DependencyMutationKind::Retire, .. }

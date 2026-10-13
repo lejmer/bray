@@ -165,7 +165,9 @@ fn infer_component(
     let empty = context
         .semantic_values()
         .intern_dependency_contract_template(
-            bray_symbols::DependencyContractTemplateData::new([]).with_effects([]),
+            bray_symbols::DependencyContractTemplateData::new([])
+                .with_effects([])
+                .with_normal_completion(false),
         )
         .expect("empty result dependency template satisfies the semantic store contract");
 
@@ -243,7 +245,7 @@ fn infer_component(
             let dependencies = values
                 .intern_dependency_contract_template(body_result_dependencies(
                     body.value().storage_flow().dependencies(),
-                    previous.effects(),
+                    &previous,
                 ))
                 .expect("checked component summary has established semantic identities");
 
@@ -286,7 +288,9 @@ pub(in crate::compilation) fn expression_result_dependencies(
     let result = values
         .intern_dependency_contract_template(body_result_dependencies(
             body.result().value().storage_flow().dependencies(),
-            &[],
+            &bray_symbols::DependencyContractTemplateData::new([])
+                .with_effects([])
+                .with_normal_completion(false),
         ))
         .expect("checked default summary retains its semantic identities");
 
@@ -295,11 +299,35 @@ pub(in crate::compilation) fn expression_result_dependencies(
 
 fn body_result_dependencies(
     checked: &bray_symbols::DependencyContractTemplateData,
-    previous_effects: &[bray_symbols::DependencyStorageEffect],
+    previous: &bray_symbols::DependencyContractTemplateData,
 ) -> bray_symbols::DependencyContractTemplateData {
-    bray_symbols::DependencyContractTemplateData::new(checked.requirements().iter().cloned())
-        .with_borrows(checked.borrows().iter().cloned())
-        .with_effects(previous_effects.iter().chain(checked.effects()).cloned())
+    // Normal outcomes and mutations grow. Once a normal outcome exists, exact
+    // relations can only survive intersection with every subsequently discovered outcome.
+    let borrows = if !previous.normal_completion() {
+        checked.borrows()
+    } else {
+        previous.borrows()
+    };
+
+    bray_symbols::DependencyContractTemplateData::new(
+        previous
+            .requirements()
+            .iter()
+            .chain(checked.requirements())
+            .cloned(),
+    )
+    .with_borrows(
+        borrows
+            .iter()
+            .filter(|relation| {
+                !previous.normal_completion()
+                    || !checked.normal_completion()
+                    || checked.borrows().binary_search(relation).is_ok()
+            })
+            .cloned(),
+    )
+    .with_effects(previous.effects().iter().chain(checked.effects()).cloned())
+    .with_normal_completion(previous.normal_completion() || checked.normal_completion())
 }
 
 fn body_kind(owner: AnySymbolId) -> BoundUnitKind {

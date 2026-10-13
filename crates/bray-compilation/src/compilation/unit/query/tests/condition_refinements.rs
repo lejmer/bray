@@ -231,12 +231,15 @@ fn boolean_condition_refinements_respect_later_operand_mutation() {
 #[test]
 fn opaque_calls_invalidate_storage_refinements_while_pure_calls_preserve_them() {
     for (call, expected) in [
-        ("touch();", None),
+        ("touch();", Some(PatternPredicate::NullablePresent)),
+        ("opaque();", None),
         ("stable();", Some(PatternPredicate::NullablePresent)),
     ] {
         let source = format!(
             r#"
                 module app;
+
+                extern func opaque();
 
                 func touch()
                 {{

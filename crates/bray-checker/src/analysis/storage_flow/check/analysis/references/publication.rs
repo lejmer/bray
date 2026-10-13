@@ -69,7 +69,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        Ok(bray_symbols::DependencyContractTemplateData::new(requirements).with_borrows(relations))
+        Ok(
+            bray_symbols::DependencyContractTemplateData::new(requirements)
+                .with_borrows(relations)
+                .with_normal_completion(self.references.is_some()),
+        )
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn result_type(

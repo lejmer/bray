@@ -393,9 +393,28 @@ where
         kind: bray_symbols::BorrowKind,
         result: TypeId,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
+        let capability = self.plan_borrow(expression, access, kind)?;
+
+        self.push_expression_access(
+            expression,
+            StorageAccessRoot::Borrow(capability),
+            [],
+            bray_bound_tree::ExpressionTypeResult::new(
+                result,
+                self.expression_type(expression).status(),
+            ),
+        )
+    }
+
+    pub(super) fn plan_borrow(
+        &mut self,
+        expression: BoundExpressionId,
+        access: StorageAccessId,
+        kind: bray_symbols::BorrowKind,
+    ) -> Result<bray_bound_tree::BorrowCapabilityId, PlanError<C::UpstreamError>> {
         let borrowed = self
             .builder()
-            .access(access).unwrap_or_else(|| panic!("borrow_access requires planned storage access, expression: {expression:?}, access: {access:?}, result: {result:?}"));
+            .access(access).unwrap_or_else(|| panic!("borrow_access requires planned storage access, expression: {expression:?}, access: {access:?}"));
 
         let parent = borrowed.root().borrow_capability();
 
@@ -418,15 +437,7 @@ where
             .builder_mut()
             .push_borrow_capability(capability).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in borrow_access: {error:?}"));
 
-        self.push_expression_access(
-            expression,
-            StorageAccessRoot::Borrow(capability),
-            [],
-            bray_bound_tree::ExpressionTypeResult::new(
-                result,
-                self.expression_type(expression).status(),
-            ),
-        )
+        Ok(capability)
     }
 
     pub(super) fn conservative_subject_access(
@@ -693,6 +704,20 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         Ok(())
     }
 
+    pub(super) fn has_fresh_borrow(
+        &self,
+        expression: BoundExpressionId,
+        access: StorageAccessId,
+    ) -> bool {
+        self.builder()
+            .access(access)
+            .expect("planned borrow has an access")
+            .root()
+            .borrow_capability()
+            .and_then(|id| self.builder().borrow_capability(id))
+            .is_some_and(|borrow| borrow.expression() == Some(expression))
+    }
+
     pub(in crate::storage) fn materialization_purpose(
         &self,
         expression: BoundExpressionId,
@@ -708,11 +733,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         let record = builder
             .access(access).unwrap_or_else(|| panic!("materialization_purpose requires planned storage access, expression: {expression:?}, access: {access:?}"));
 
-        let fresh = record
-            .root()
-            .borrow_capability()
-            .and_then(|id| builder.borrow_capability(id))
-            .is_some_and(|borrow| borrow.expression() == Some(expression))
+        let fresh = self.has_fresh_borrow(expression, access)
             || matches!(
                 self.request.view().expression(expression),
                 Some(bray_bound_tree::BoundExpression::Call(_))

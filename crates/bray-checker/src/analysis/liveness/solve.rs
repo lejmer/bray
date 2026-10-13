@@ -6,16 +6,17 @@ use bray_bound_tree::{
 use bray_symbols::CallableSignatureQuery;
 
 use crate::analysis::fixed_point::{
-    FixedPointDomain, FixedPointOutcome, FixedPointResult, FlowDirection, solve_fixed_point,
+    FixedPointDomain, FixedPointOutcome, FixedPointResult, solve_fixed_point,
 };
 use crate::analysis::id::AnalysisEdgeId;
 use crate::analysis::model::{
-    AnalysisBlock, AnalysisCallPhase, AnalysisEdge, AnalysisEdgeKind, AnalysisOperation,
-    AnalysisOperationKind, AnalysisScopeExitPhase, ControlFlowGraph,
+    AnalysisBlock, AnalysisCallPhase, AnalysisEdgeKind, AnalysisOperation, AnalysisOperationKind,
+    AnalysisScopeExitPhase, ControlFlowGraph,
 };
 use crate::analysis::reachability::ReachabilityResult;
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView};
 
+use super::domain::{SetLiveness, SetTransfer};
 use super::effects::OperationEffects;
 
 pub(crate) fn analyze_storage_liveness_with_graph<C>(
@@ -34,7 +35,7 @@ pub(crate) fn analyze_storage_liveness_with_graph<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    let domain = LivenessDomain::new(&graph, &reachability, effects);
+    let domain = storage_domain(&graph, &reachability, effects);
 
     let result = match solve_fixed_point(&graph, &domain, &request) {
         FixedPointOutcome::Complete(result) => result,
@@ -70,127 +71,29 @@ where
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct BlockTransfer {
-    generated: BTreeSet<BoundDependencySubject>,
-    killed: BTreeSet<BoundDependencySubject>,
-}
-
-struct LivenessDomain<'analysis> {
-    reachability: &'analysis ReachabilityResult,
-    effects: &'analysis OperationEffects,
-    transfers: Box<[BlockTransfer]>,
-}
-
-impl<'analysis> LivenessDomain<'analysis> {
-    fn new(
-        graph: &'analysis ControlFlowGraph,
-        reachability: &'analysis ReachabilityResult,
-        effects: &'analysis OperationEffects,
-    ) -> Self {
-        let transfers = graph
+fn storage_domain<'a>(
+    graph: &ControlFlowGraph,
+    reachability: &'a ReachabilityResult,
+    effects: &OperationEffects,
+) -> SetLiveness<'a, BoundDependencySubject> {
+    SetLiveness::new(
+        Some(reachability),
+        graph
             .blocks()
             .iter()
             .map(|block| block_transfer(graph, block, effects))
-            .collect();
-
-        Self {
-            reachability,
-            effects,
-            transfers,
-        }
-    }
-
-    fn universe(&self) -> &BTreeSet<BoundDependencySubject> {
-        &self.effects.universe
-    }
-
-    fn transfer(&self, block: &AnalysisBlock) -> Option<&BlockTransfer> {
-        block
-            .id()
-            .to_index()
-            .and_then(|index| self.transfers.get(index))
-    }
-}
-
-impl FixedPointDomain for LivenessDomain<'_> {
-    type State = BTreeSet<BoundDependencySubject>;
-
-    fn direction(&self) -> FlowDirection {
-        FlowDirection::Backward
-    }
-
-    fn bottom(&self) -> Self::State {
-        BTreeSet::new()
-    }
-
-    fn should_seed(&self, block: &AnalysisBlock) -> bool {
-        self.reachability.is_block_reachable(block.id())
-            && self
-                .transfer(block)
-                .is_some_and(|transfer| !transfer.generated.is_empty())
-    }
-
-    fn boundary(&self) -> Self::State {
-        BTreeSet::new()
-    }
-
-    fn merge_boundary(&self, _: &mut Self::State, _: &Self::State) -> bool {
-        false
-    }
-
-    fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
-        if !self.reachability.is_block_reachable(block.id()) {
-            return BTreeSet::new();
-        }
-
-        let Some(transfer) = self.transfer(block) else {
-            return BTreeSet::new();
-        };
-
-        let mut output = transfer.generated.clone();
-
-        output.extend(
-            source
-                .iter()
-                .filter(|subject| !transfer.killed.contains(subject))
-                .copied(),
-        );
-
-        output
-    }
-
-    fn propagate(
-        &self,
-        source: &Self::State,
-        edge: &AnalysisEdge,
-        target: &mut Self::State,
-    ) -> bool {
-        if !self.reachability.is_edge_reachable(edge.id()) {
-            return false;
-        }
-
-        if edge.kind() == AnalysisEdgeKind::Recovery {
-            return merge_state(target, self.universe());
-        }
-
-        merge_state(target, source)
-    }
-
-    fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {
-        graph
-            .blocks()
-            .len()
-            .saturating_mul(self.universe().len().saturating_add(1))
-    }
+            .collect(),
+        // Recovery needs the full immutable subject universe independently of effect preparation.
+        effects.universe.clone(),
+    )
 }
 
 fn block_transfer(
     graph: &ControlFlowGraph,
     block: &AnalysisBlock,
     effects: &OperationEffects,
-) -> BlockTransfer {
-    let mut transfer = BlockTransfer::default();
+) -> SetTransfer<BoundDependencySubject> {
+    let mut transfer = SetTransfer::default();
 
     for operation in block.operations().iter().rev() {
         let Some(operation) = graph.operation(*operation) else {
@@ -269,24 +172,13 @@ fn transfer_operation(
     state.extend(effect.uses().copied());
 }
 
-fn merge_state(
-    target: &mut BTreeSet<BoundDependencySubject>,
-    incoming: &BTreeSet<BoundDependencySubject>,
-) -> bool {
-    let previous_len = target.len();
-
-    target.extend(incoming.iter().copied());
-
-    target.len() != previous_len
-}
-
 fn collect_liveness(
     graph: &ControlFlowGraph,
     reachability: &ReachabilityResult,
     effects: &OperationEffects,
     universe: &BTreeSet<BoundDependencySubject>,
     result: &FixedPointResult<BTreeSet<BoundDependencySubject>>,
-    domain: &LivenessDomain<'_>,
+    domain: &SetLiveness<'_, BoundDependencySubject>,
     kind: bray_bound_tree::BoundUnitKind,
 ) -> Result<Liveness, bray_bound_tree::LivenessBuildError> {
     let mut last_uses = Vec::new();
@@ -422,7 +314,7 @@ fn collect_edge_lifetime_ends(
     graph: &ControlFlowGraph,
     reachability: &ReachabilityResult,
     effects: &OperationEffects,
-    domain: &LivenessDomain<'_>,
+    domain: &SetLiveness<'_, BoundDependencySubject>,
     result: &FixedPointResult<BTreeSet<BoundDependencySubject>>,
 ) -> BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>> {
     let mut ends = BTreeMap::new();
@@ -732,7 +624,7 @@ mod tests {
             let reachability =
                 analyze_reachability(&graph, request).expect("test graph must be reachable");
 
-            let domain = super::LivenessDomain::new(&graph, &reachability, &effects);
+            let domain = super::storage_domain(&graph, &reachability, &effects);
 
             let FixedPointOutcome::Complete(result) = solve_fixed_point(&graph, &domain, &request)
             else {

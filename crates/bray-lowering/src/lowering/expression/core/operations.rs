@@ -200,7 +200,15 @@ impl Lowerer<'_> {
         }?;
 
         if let Some(current) = lowered.block
-            && self.type_representation(self.expression_type(id)) == Some(RepresentationRole::Never)
+            && (self.type_representation(self.expression_type(id))
+                == Some(RepresentationRole::Never)
+                || (self
+                    .input
+                    .dependency_contracts()
+                    .calls()
+                    .contains_key(&id.into())
+                    || matches!(expression, BoundExpression::Await(_)))
+                    && !self.invocation_completes(id.into()))
         {
             self.set_terminator(
                 current,
@@ -212,6 +220,16 @@ impl Lowerer<'_> {
         }
 
         self.materialize_temporary(id, lowered)
+    }
+
+    pub(in crate::lowering) fn invocation_completes(
+        &self,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+    ) -> bool {
+        self.input
+            .storage_flow()
+            .completion(bray_bound_tree::StorageMutation::Operation(occurrence))
+            .is_some()
     }
 
     fn declared_callable_reference(

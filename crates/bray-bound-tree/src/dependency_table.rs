@@ -56,7 +56,6 @@ pub struct BoundCallReference {
     relation: bray_symbols::DependencyBorrowRelation,
     preserves_value: bool,
     addressed_type: Option<bray_symbols::TypeId>,
-    output_argument: Option<BoundExpressionId>,
 }
 
 impl BoundCallReference {
@@ -65,19 +64,12 @@ impl BoundCallReference {
         relation: bray_symbols::DependencyBorrowRelation,
         preserves_value: bool,
         addressed_type: Option<bray_symbols::TypeId>,
-        output_argument: Option<BoundExpressionId>,
     ) -> Self {
         Self {
             relation,
             preserves_value,
             addressed_type,
-            output_argument,
         }
-    }
-
-    /// The caller-visible borrowed input whose field receives the output reference.
-    pub const fn output_argument(&self) -> Option<BoundExpressionId> {
-        self.output_argument
     }
 
     /// Returns the checked formal reference relation.
@@ -106,6 +98,9 @@ pub struct BoundCallDependencyContracts {
     effects: Arc<[bray_symbols::DependencyStorageEffect]>,
     retained_inputs: Option<BTreeSet<BoundExpressionId>>,
     reference_paths: BTreeMap<bray_symbols::DependencySubject, crate::StorageReferencePath>,
+    normal_completion: bool,
+    deferred_effects: Option<Arc<[bray_symbols::DependencyStorageEffect]>>,
+    deferred_completion: bool,
 }
 
 impl BoundCallDependencyContracts {
@@ -123,7 +118,44 @@ impl BoundCallDependencyContracts {
             effects: Arc::new([bray_symbols::DependencyStorageEffect::Unknown]),
             retained_inputs: None,
             reference_paths: BTreeMap::new(),
+            normal_completion: true,
+            deferred_effects: None,
+            deferred_completion: true,
         }
+    }
+
+    /// Records whether this invocation phase can produce a normal result.
+    pub fn with_normal_completion(mut self, possible: bool) -> Self {
+        self.normal_completion = possible;
+
+        self
+    }
+
+    /// Whether normal completion is possible for this selected invocation phase.
+    pub const fn normal_completion(&self) -> bool {
+        self.normal_completion
+    }
+
+    /// Records the body effects and outcome separately from lazy frame creation.
+    pub fn with_deferred_execution(
+        mut self,
+        effects: impl IntoIterator<Item = bray_symbols::DependencyStorageEffect>,
+        normal_completion: bool,
+    ) -> Self {
+        self.deferred_effects = Some(bray_symbols::DependencyStorageEffect::normalize(effects));
+        self.deferred_completion = normal_completion;
+
+        self
+    }
+
+    /// Body effects applied when this lazy invocation is driven.
+    pub fn deferred_effects(&self) -> Option<&[bray_symbols::DependencyStorageEffect]> {
+        self.deferred_effects.as_deref()
+    }
+
+    /// Whether driving this invocation can return normally.
+    pub const fn deferred_completion(&self) -> bool {
+        self.deferred_completion
     }
 
     /// Shares checked access paths between reference transfers and mutation effects.
@@ -341,12 +373,6 @@ impl CheckedDependencyContracts {
                     .iter()
                     .flatten()
                     .copied()
-                    .chain(
-                        contract
-                            .references
-                            .iter()
-                            .filter_map(BoundCallReference::output_argument),
-                    )
                     .any(|input| self.expression(input).is_none())
             {
                 return Err(DependencyContractsBuildError::InvalidExpression);
@@ -796,12 +822,7 @@ mod tests {
             bray_symbols::DependencyReferenceKind::Borrow,
         );
 
-        let references = vec![super::BoundCallReference::new(
-            relation.clone(),
-            true,
-            None,
-            None,
-        )];
+        let references = vec![super::BoundCallReference::new(relation, true, None)];
 
         let retained = Some(std::collections::BTreeSet::from([expression]));
         let phases = phases.with_references(references.clone(), retained.clone());
@@ -832,25 +853,6 @@ mod tests {
                 .into()
             ),
             Err(DependencyContractsBuildError::InvalidExpression)
-        );
-
-        assert_eq!(
-            table().try_with_calls(
-                [(
-                    expression.into(),
-                    phases.clone().with_references(
-                        vec![super::BoundCallReference::new(
-                            relation,
-                            true,
-                            None,
-                            Some(missing)
-                        )],
-                        None,
-                    )
-                )]
-                .into()
-            ),
-            Err(DependencyContractsBuildError::InvalidExpression),
         );
 
         for occurrence in [

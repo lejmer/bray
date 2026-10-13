@@ -77,6 +77,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         observed_types: &prepared.observed_types,
         borrowed_inputs: &prepared.borrowed_inputs,
         assigned_places: &prepared.assigned_places,
+        values: &prepared.values,
         scope_places: &prepared.scope_places,
         yield_targets: &prepared.yield_targets,
         graph: &prepared.graph,

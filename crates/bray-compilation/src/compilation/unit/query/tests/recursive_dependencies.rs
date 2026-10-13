@@ -581,3 +581,215 @@ fn recursive_witness_parameters_follow_the_selected_implementation() {
         DiagnosticKind::CheckingEscapingStorageDependency,
     );
 }
+
+#[test]
+fn recursive_reference_summaries_require_a_normal_base_and_agreeing_targets() {
+    let application = compilation(
+        r#"
+        module app;
+        func direct(pos value: &bool, pos repeat: bool) -> &bool {
+            if repeat { return direct(value, false); }
+            return value;
+        }
+        func first(pos value: &bool, pos repeat: bool) -> &bool {
+            if repeat { return second(value, false); }
+            return value;
+        }
+        func second(pos value: &bool, pos repeat: bool) -> &bool {
+            return first(value, repeat);
+        }
+        func different(pos value: &bool, pos other: &bool, pos repeat: bool) -> &bool {
+            if repeat { return different(other, value, false); }
+            return value;
+        }
+        func forever(pos value: &bool) -> &bool { return forever(value); }
+        "#,
+    );
+
+    for name in ["direct", "first", "second", "different", "forever"] {
+        let dependencies = crate::compilation::result_dependencies::source_function_dependencies(
+            &application,
+            name,
+        );
+
+        assert_eq!(
+            dependencies.normal_completion(),
+            name != "forever",
+            "{name}: {dependencies:#?}"
+        );
+
+        let origins = dependencies
+            .borrows()
+            .iter()
+            .filter(|relation| {
+                relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+            })
+            .collect::<Vec<_>>();
+
+        if matches!(name, "direct" | "first" | "second") {
+            assert_eq!(origins.len(), 1, "{name}: {dependencies:#?}");
+
+            assert_eq!(
+                origins[0].entry().subject_root(),
+                bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
+            );
+        } else {
+            assert!(origins.is_empty(), "{name}: {dependencies:#?}");
+        }
+    }
+}
+
+#[test]
+fn deferred_results_keep_exact_borrow_origins_and_defaults_execute_at_creation() {
+    let application = compilation(
+        r#"
+        module app;
+        async func forward(pos value: &bool) -> &bool { return value; }
+        async func wrapper(pos value: &bool) -> &bool {
+            let future = forward(value);
+            return await future;
+        }
+        func forever() -> i32 { return forever(); }
+        async func work(value: i32 = forever()) {}
+        func create() { let future = work(); }
+    "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let result = crate::compilation::result_dependencies::source_function_dependencies(
+        &application,
+        "wrapper",
+    );
+
+    let origins = result
+        .borrows()
+        .iter()
+        .filter(|relation| {
+            relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(origins.len(), 1, "{result:#?}");
+
+    assert_eq!(
+        origins[0].entry().subject_root(),
+        bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
+    );
+
+    let creation = crate::compilation::result_dependencies::source_function_dependencies(
+        &application,
+        "create",
+    );
+
+    assert!(!creation.normal_completion(), "{creation:#?}");
+}
+
+#[test]
+fn awaiting_a_future_consumes_it_and_unawaited_frames_remain_owned() {
+    let invalid = compilation(
+        r#"
+        module app;
+        async func child() {}
+        async func caller() { let pending = child(); await pending; await pending; }
+    "#,
+    );
+
+    let diagnostics = invalid.check_diagnostics();
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        diagnostics,
+        bray_diagnostics::DiagnosticKind::CheckingUseOfMovedStorage,
+    );
+
+    let valid = compilation(
+        r#"
+        module app;
+        async func child() {}
+        func caller() { let pending = child(); }
+    "#,
+    );
+
+    assert!(
+        !valid.check_diagnostics().has_errors(),
+        "{:?}",
+        valid.check_diagnostics()
+    );
+
+    let key = crate::test_support::source_function_body_key(&valid, "caller");
+    let analysis = valid.async_analysis(key).unwrap();
+
+    assert!(
+        analysis
+            .value()
+            .scope_exits()
+            .iter()
+            .any(|exit| !exit.lifecycle_resolution().is_empty())
+    );
+}
+
+#[test]
+fn deferred_and_scoped_calls_without_normal_returns_do_not_create_result_origins() {
+    let application = compilation(
+        r#"
+        module app;
+        func forever(pos value: &bool) -> &bool { return forever(value); }
+        async func delayed(pos value: &bool) -> &bool { return forever(value); }
+        async func awaiting(pos value: &bool) -> &bool { return await delayed(value); }
+        struct Resource { value: bool; }
+        impl Resource {
+            enter() -> &bool { return forever(&self.value); }
+            exit(pos lease: &bool) {}
+        }
+        func entering(pos resource: &Resource) -> &bool {
+            return with lease = resource { yield lease; };
+        }
+        struct Leaving { value: bool; }
+        impl Leaving {
+            enter() -> &bool { return &self.value; }
+            exit(pos lease: &bool) { let _: &bool = forever(lease); }
+        }
+        func exiting(pos resource: &Leaving) -> &bool {
+            return with lease = resource { yield lease; };
+        }
+    "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    for name in ["delayed", "awaiting", "entering", "exiting"] {
+        let result = crate::compilation::result_dependencies::source_function_dependencies(
+            &application,
+            name,
+        );
+
+        assert!(!result.normal_completion(), "{name}: {result:#?}");
+        assert!(result.borrows().is_empty(), "{name}: {result:#?}");
+
+        let lowered = application
+            .lowered_unit(source_function_body_key(&application, name))
+            .unwrap();
+
+        assert!(lowered.value().is_some(), "{name}: {lowered:#?}");
+    }
+}
+
+#[test]
+fn recovered_inline_type_cycles_do_not_expand_reference_demands() {
+    let compilation = compilation(r#"
+        module app;
+        struct Recursive { next: Recursive; pointer: &u8; }
+        func select(pos value: Recursive) -> &u8 {
+            let child = value.next;
+            return child.pointer;
+        }
+    "#);
+
+    let diagnostics = compilation.check_diagnostics();
+
+    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind() == bray_diagnostics::DiagnosticKind::CheckingRecursiveTypeRepresentation), "{diagnostics:?}");
+}

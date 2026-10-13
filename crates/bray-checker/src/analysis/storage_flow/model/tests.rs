@@ -247,7 +247,7 @@ fn absence_provenance_survives_mutation_and_joins_conservatively() {
         (observed, StorageAbsence::NoPayload),
     ]);
 
-    state.invalidate_observed_absence(&StorageInvalidation::All, &storage);
+    state.invalidate_observed_absence(&StorageInvalidation::All(Default::default()), &storage);
 
     assert_eq!(
         state.definitely_absent.keys().cloned().collect::<Vec<_>>(),
@@ -262,7 +262,7 @@ fn absence_provenance_survives_mutation_and_joins_conservatively() {
 
     assert!(state.merge(&incoming, None));
     assert!(!state.merge(&incoming, None));
-    state.invalidate_observed_absence(&StorageInvalidation::All, &storage);
+    state.invalidate_observed_absence(&StorageInvalidation::All(Default::default()), &storage);
     assert!(state.definitely_absent.is_empty());
 }
 

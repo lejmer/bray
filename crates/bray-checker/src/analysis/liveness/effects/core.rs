@@ -40,7 +40,7 @@ impl OperationEffects {
 
     pub(crate) fn from_checked_inputs<C>(
         request: CheckerUnitView<'_, C>,
-        selections: &CheckedSemanticSelections,
+        semantics: &bray_bound_tree::CheckedExpressionSemantics,
         value_inputs: ValueInputs,
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
         storage: &StoragePlan,
@@ -50,6 +50,7 @@ impl OperationEffects {
         C: CheckerRequestContext + ?Sized,
     {
         let mut effects = Self::from_storage_plan(request.unit(), storage, memory);
+        let selections = semantics.selections();
 
         effects.value_inputs = value_inputs;
         effects.retain_call_input_dependencies(request.unit());
@@ -73,7 +74,9 @@ impl OperationEffects {
                 {
                     Some(bray_bound_tree::StorageIdentity::ScopedCapability {
                         expression, ..
-                    }) => bray_bound_tree::BoundExecutionSite::ScopedEnter(expression),
+                    }) if expression == plan.expression() => {
+                        bray_bound_tree::BoundExecutionSite::ScopedEnter(expression)
+                    }
                     _ => plan.expression().into(),
                 };
 
@@ -86,7 +89,14 @@ impl OperationEffects {
         }
 
         for (borrow, capability) in storage.borrow_capability_entries() {
-            if let Some(expression) = capability.expression() {
+            if let Some(expression) = capability.expression()
+                && semantics.types().expression(expression).is_some_and(|ty| {
+                    matches!(
+                        request.semantic_values().type_data(ty.ty()).as_ref(),
+                        bray_symbols::TypeData::Borrow { .. }
+                    )
+                })
+            {
                 let owner = if matches!(
                     selections.expression(expression),
                     Some(SemanticSelection::ScopedUse(_))
@@ -444,6 +454,16 @@ impl OperationEffects {
         let effect = self.by_occurrence.get(&operation.kind().occurrence())?;
 
         let (phase, result_definitions) = match operation.kind() {
+            AnalysisOperationKind::Suspension {
+                occurrence:
+                    bray_bound_tree::BoundExecutionSite::Node(
+                        bray_bound_tree::AnyBoundNodeId::Expression(expression),
+                    ),
+                kind: crate::analysis::model::AnalysisSuspensionKind::Await,
+            } => (
+                Some(AnalysisCallPhase::Attempt),
+                self.operation_result_definitions.get(&expression),
+            ),
             AnalysisOperationKind::Call {
                 invocation:
                     bray_bound_tree::BoundExecutionSite::Node(

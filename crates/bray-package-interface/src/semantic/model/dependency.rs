@@ -240,6 +240,7 @@ pub enum InterfaceDependencyRequirementKind {
 /// One normalized portable dependency contract.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceDependencyContract {
+    pub(crate) normal_completion: bool,
     pub(crate) requirements: Arc<[InterfaceDependencyRequirement]>,
     pub(crate) effects: Arc<
         [bray_symbols::DependencyStorageEffect<
@@ -260,9 +261,17 @@ impl InterfaceDependencyContract {
     pub fn new(requirements: impl IntoIterator<Item = InterfaceDependencyRequirement>) -> Self {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
+            normal_completion: true,
             borrows: Arc::new([]),
             effects: Arc::new([bray_symbols::DependencyStorageEffect::Unknown]),
         }
+    }
+
+    /// Records whether execution can complete normally.
+    pub fn with_normal_completion(mut self, possible: bool) -> Self {
+        self.normal_completion = possible;
+
+        self
     }
 
     /// Attaches the complete checked mutation summary.

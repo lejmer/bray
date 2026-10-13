@@ -155,85 +155,33 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state.current.extend(completed_inputs);
     }
 
-    pub(in crate::analysis::guarantee) fn complete_trusted_await(
+    pub(in crate::analysis) fn awaited_invocation(
         &self,
-        state: &mut ExecutionState,
-        edge: &super::super::super::model::AnalysisEdge,
-    ) {
-        use super::super::super::model::{
-            AnalysisEdgeKind, AnalysisOperationKind, AnalysisSuspensionKind,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+    ) -> Option<bray_bound_tree::BoundExecutionSite> {
+        let bray_bound_tree::BoundExpression::Await(awaited) =
+            self.request.view().expression(expression)?
+        else {
+            return None;
         };
 
-        use bray_bound_tree::BoundExpression;
+        let observed = self.value(state, awaited.operand());
 
-        if edge.kind() != AnalysisEdgeKind::Resume {
-            return;
-        }
+        let ExecutionCondition::Expression(source) = observed else {
+            return None;
+        };
 
-        let suspended = self
-            .graph
-            .block(edge.source())
-            .expect("resume edge has a suspended source block");
+        let site = source.into();
 
-        let suspended_from = suspended
-            .predecessors()
-            .iter()
-            .filter_map(|id| self.graph.edge(*id))
-            .find(|incoming| incoming.kind() == AnalysisEdgeKind::Suspension);
-
-        let mut completions = Vec::new();
-
-        if let Some(block) = suspended_from.and_then(|edge| self.graph.block(edge.source())) {
-            for operation in block
-                .operations()
-                .iter()
-                .filter_map(|id| self.graph.operation(*id))
-            {
-                if let AnalysisOperationKind::Suspension {
-                    occurrence,
-                    kind: AnalysisSuspensionKind::ScopedCall,
-                } = operation.kind()
-                    && let Some(entry) = state.entries.get_mut(&occurrence)
-                {
-                    // The resumed invocation keeps only evidence that survived deferred creation.
-                    entry.pending_execution = false;
-                }
-
-                if let AnalysisOperationKind::Suspension {
-                    occurrence:
-                        bray_bound_tree::BoundExecutionSite::Node(
-                            bray_bound_tree::AnyBoundNodeId::Expression(expression),
-                        ),
-                    kind: AnalysisSuspensionKind::Await,
-                } = operation.kind()
-                    && let Some(BoundExpression::Await(awaited)) =
-                        self.request.view().expression(expression)
-                    && let ExecutionCondition::Expression(source) =
-                        self.value(state, awaited.operand())
-                {
-                    if let Some(entry) = state.entries.get_mut(&source.into()) {
-                        // Only evidence still valid when execution begins can justify this completion.
-                        entry.pending_execution = false;
-                    }
-
-                    completions.push((source, expression));
-                }
-            }
-        }
-
-        // A resumed body can have executed opaque code and changed owner epochs.
-        state.invalidate_cleanup();
-
-        for (source, expression) in completions {
-            self.complete_trusted_call(
-                state,
-                source.into(),
-                ExecutionCondition::Expression(expression),
-            );
-        }
+        self.dependencies
+            .calls()
+            .get(&site)?
+            .deferred_effects()
+            .map(|_| site)
     }
 
-    fn prepare_trusted_borrows(
+    fn prepare_trusted_observations(
         &self,
         state: &mut ExecutionState,
         expression: BoundExpressionId,
@@ -266,13 +214,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             };
 
-            if !matches!(
-                self.request
-                    .semantic_values()
-                    .type_data(conversion.target_type())
-                    .as_ref(),
-                bray_symbols::TypeData::Borrow { .. }
-            ) {
+            let reference = crate::representation::reference_kind(self.request, conversion.target_type());
+
+            if reference.is_none() {
                 continue;
             }
 
@@ -298,6 +242,26 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 continue;
             };
+
+            if reference == Some(bray_symbols::DependencyReferenceKind::Address) {
+                let ordinal = ordinal.checked_add(u32::from(call.receiver().is_some())).expect("selected argument order must fit");
+                let ordinal = crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal));
+
+                if let Some(current) = place.value_in(&state.current)
+                    && current.owner_identity() != &ExecutionCondition::Unknown
+                    && arguments.get(&ordinal).is_some_and(|entry| entry.owner_identity() == current.owner_identity())
+                {
+                    // Completion clauses observe current contents of the evaluated address.
+                    // A reassigned or exposed pointer slot cannot establish this identity.
+                    if let Some(parameter) = parameter {
+                        arguments.insert(bray_bound_tree::BoundReferenceTarget::Surface((*parameter).into()).into(), current.clone());
+                    }
+
+                    arguments.insert(ordinal, current);
+                }
+
+                continue;
+            }
 
             let input = self.borrowed_value(state, *operand);
 
@@ -414,6 +378,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
         result: ExecutionCondition,
+        observations: &BTreeMap<
+            bray_bound_tree::StoragePath,
+            BTreeSet<bray_bound_tree::StoragePath>,
+        >,
     ) {
         // Calls without trusted clauses still establish checked result identities.
         // An empty contract contributes no authority or preservation guarantees.
@@ -442,8 +410,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         };
 
-        if !contract.completes
-            && matches!(result, ExecutionCondition::Expression(expression) if invocation == expression.into())
+        if entry.pending_execution
+            || !contract.completes
+                && matches!(result, ExecutionCondition::Expression(expression) if invocation == expression.into())
         {
             return;
         }
@@ -533,7 +502,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.semantics.selections().expression(expression)
         {
             // The entry above already proves the valid domain of this preservation promise.
-            self.prepare_trusted_borrows(state, expression, call, &mut arguments)
+            self.prepare_trusted_observations(state, expression, call, &mut arguments)
         } else {
             Default::default()
         };
@@ -579,28 +548,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             if subject.observes_completion_result() {
-                state.carry_guarantee(condition.clone(), guarantee.clone());
-
-                let mut pending = vec![&guarantee];
-
-                while let Some(predicate) = pending.pop() {
-                    match predicate {
-                        ExecutionCondition::Trusted(predicate) => pending.push(predicate),
-                        ExecutionCondition::Operation(_, operands) => {
-                            pending.extend(operands.iter())
-                        }
-                        ExecutionCondition::Predicate(symbol, _, _)
-                            if Some(*symbol) == self.owned_allocation
-                                && (predicate.observes(&condition)
-                                    || !contract.transferred_inputs.is_empty()) =>
-                        {
-                            state
-                                .allocation_owners
-                                .insert(predicate.clone(), condition.clone());
-                        }
-                        _ => {}
-                    }
-                }
+                self.carry_result_guarantee(state, &condition, &guarantee, !contract.transferred_inputs.is_empty());
             }
 
             for carrier in &carriers {
@@ -624,7 +572,28 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             // The ordinary dependency checker validates the reached storage and borrow capability.
             // Keep those same input owners attached to the trusted conditions on the returned view.
-            dependencies.extend(owners);
+            // Resolve borrow aliases using the physical locations established by storage flow.
+            // Value equality alone cannot identify storage or extend its lifetime.
+            let aliases = observations
+                .iter()
+                .filter_map(|(path, targets)| {
+                    Some((
+                        crate::ExecutionPlace::storage_path(self.storage, path)?,
+                        targets
+                            .iter()
+                            .map(|target| crate::ExecutionPlace::storage_path(self.storage, target))
+                            .collect::<Option<Vec<_>>>()?,
+                    ))
+                })
+                .collect::<BTreeMap<_, _>>();
+
+            for owner in owners {
+                if let Some(targets) = aliases.get(&owner) {
+                    dependencies.extend(targets.iter().cloned());
+                } else {
+                    dependencies.insert(owner);
+                }
+            }
         }
 
         for postcondition in &postconditions {
@@ -637,4 +606,35 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             state.expressions.insert(expression, result);
         }
     }
+    fn carry_result_guarantee(
+        &self,
+        state: &mut ExecutionState,
+        carrier: &ExecutionCondition,
+        guarantee: &ExecutionCondition,
+        transferred: bool,
+    ) {
+                state.carry_guarantee(carrier.clone(), guarantee.clone());
+
+                let mut pending = vec![guarantee];
+
+                while let Some(predicate) = pending.pop() {
+                    match predicate {
+                        ExecutionCondition::Trusted(predicate) => pending.push(predicate),
+                        ExecutionCondition::Operation(_, operands) => {
+                            pending.extend(operands.iter())
+                        }
+                        ExecutionCondition::Predicate(symbol, _, _)
+                            if Some(*symbol) == self.owned_allocation
+                                && (predicate.observes(carrier)
+                                    || transferred) =>
+                        {
+                            state
+                                .allocation_owners
+                                .insert(predicate.clone(), carrier.clone());
+                        }
+                        _ => {}
+                    }
+                }
+    }
+
 }

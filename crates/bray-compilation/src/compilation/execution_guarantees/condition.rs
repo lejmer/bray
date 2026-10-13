@@ -665,7 +665,7 @@ mod tests {
     }
 
     #[test]
-    fn recursive_completion_claims_cannot_certify_each_other() {
+    fn nonreturning_recursion_cannot_supply_a_runtime_completion_witness() {
         let compilation = compilation(
             r#"
             module app;
@@ -690,10 +690,23 @@ mod tests {
         "#,
         );
 
-        bray_testing::assert_goal_state_diagnostic_kind(
-            compilation.check_diagnostics(),
-            DiagnosticKind::CheckingCircularExecutionGuarantee,
+        // Partial correctness applies only to normal outcomes. This cycle has none,
+        // so its completion claims supply no result to a caller and prove no termination.
+        assert!(
+            !compilation.check_diagnostics().has_errors(),
+            "{:?}",
+            compilation.check_diagnostics()
         );
+
+        for name in ["first", "second"] {
+            let dependencies =
+                crate::compilation::result_dependencies::source_function_dependencies(
+                    &compilation,
+                    name,
+                );
+
+            assert!(!dependencies.normal_completion());
+        }
     }
 
     #[test]

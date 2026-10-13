@@ -78,6 +78,9 @@ pub(super) fn decode_dependency_contract(
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceDependencyContract, InterfaceValidationError> {
+    let normal_completion =
+        super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)?;
+
     let requirement_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
     let mut requirements = context.allocate_items(reader, requirement_count)?;
 
@@ -130,7 +133,8 @@ pub(super) fn decode_dependency_contract(
 
     Ok(InterfaceDependencyContract::new(requirements)
         .with_borrows(borrows)
-        .with_effects(effects))
+        .with_effects(effects)
+        .with_normal_completion(normal_completion))
 }
 
 pub(super) fn decode_constraint(
@@ -301,16 +305,8 @@ pub(super) fn decode_callable_behavior(
     let dependency_contract = InterfaceDependencyContractId::new(read_u32(reader)?);
     let current_run_cancellation = decode_tag(read_u32(reader)?)?;
 
-    let may_unwind = match read_u32(reader)? {
-        0 => false,
-        1 => true,
-        raw => {
-            return Err(crate::semantic::codec::invalid_discriminant(
-                crate::InterfaceValidationField::Dependency,
-                raw,
-            ));
-        }
-    };
+    let may_unwind =
+        super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)?;
 
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
     let mut execution_properties = context.allocate_items(reader, count)?;
@@ -622,6 +618,7 @@ mod tests {
     #[test]
     fn witness_dependencies_decode_separate_value_and_storage_inputs() {
         let words = [
+            1, // Normal completion is possible.
             1, // One result requirement.
             3, 2, 3, 4, 1, // Witness call and one input.
             1, 0, // Receiver input with no projection.
@@ -676,7 +673,7 @@ mod tests {
     fn witness_dependencies_reject_projected_inputs_and_unbounded_counts() {
         assert_eq!(
             decode_words(
-                &[1, 3, 2, 3, 4, 1, 1, 1, 4, 0, 0],
+                &[1, 1, 3, 2, 3, 4, 1, 1, 1, 4, 0, 0],
                 InterfaceValidationLimits::default()
             ),
             Err(crate::semantic::codec::invalid_value(
@@ -686,7 +683,7 @@ mod tests {
 
         assert!(matches!(
             decode_words(
-                &[1, 3, 2, 3, 4, u32::MAX],
+                &[1, 1, 3, 2, 3, 4, u32::MAX],
                 InterfaceValidationLimits::default()
             ),
             Err(InterfaceValidationError::ResourceLimitExceeded {
@@ -697,7 +694,7 @@ mod tests {
     }
     #[test]
     fn dependency_equations_decode_with_bounded_nesting() {
-        let words = [1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 1, 0];
+        let words = [1, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 1, 0];
         let variable = InterfaceDependencyRequirement::variable(0, SymbolOrdinal::new(0));
 
         let expected =
@@ -723,7 +720,7 @@ mod tests {
         ));
 
         assert!(matches!(
-            decode_words(&[1, 6, u32::MAX], InterfaceValidationLimits::default()),
+            decode_words(&[1, 1, 6, u32::MAX], InterfaceValidationLimits::default()),
             Err(InterfaceValidationError::ResourceLimitExceeded {
                 limit: InterfaceLimit::RecordCount,
                 ..
@@ -737,18 +734,9 @@ fn decode_predicate_summary(
 ) -> Result<InterfacePredicateSummary, InterfaceValidationError> {
     let dependency = InterfaceDependencyContractId::new(read_u32(reader)?);
     let condition = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
-    let raw = read_u32(reader)?;
 
-    let is_trusted = match raw {
-        0 => false,
-        1 => true,
-        _ => {
-            return Err(crate::semantic::codec::invalid_discriminant(
-                crate::InterfaceValidationField::Reference,
-                raw,
-            ));
-        }
-    };
+    let is_trusted =
+        super::common::decode_bool(reader, crate::InterfaceValidationField::Reference)?;
 
     Ok(InterfacePredicateSummary::new(dependency).with_condition(condition, is_trusted))
 }

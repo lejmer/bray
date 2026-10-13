@@ -100,27 +100,48 @@ impl ExecutionPlace {
         projections: &[bray_bound_tree::StorageProjection],
     ) -> Option<Self> {
         for projection in projections {
-            match projection {
-                bray_bound_tree::StorageProjection::ProductField(field) => {
-                    self = self.field((*field).into());
-                }
-                bray_bound_tree::StorageProjection::ActiveUnionPayloadField { field, .. } => {
-                    self = self.field((*field).into());
-                }
-                bray_bound_tree::StorageProjection::NullableValue => {
-                    self = self.component(ConstantProjectionKind::NullableValue);
-                }
-                bray_bound_tree::StorageProjection::TupleElement(index) => {
-                    self = self.component(ConstantProjectionKind::TupleElement(*index));
-                }
-                bray_bound_tree::StorageProjection::ElementFromStart(index) => {
-                    self = self.component(ConstantProjectionKind::ArrayElementOrdinal(*index));
-                }
-                _ => return None,
-            }
+            self = self.component(Self::projection_kind(*projection)?);
         }
 
         Some(self)
+    }
+
+    pub(crate) fn storage_observation(
+        storage: &bray_bound_tree::StoragePlan,
+        path: &bray_bound_tree::StoragePath,
+    ) -> Option<Self> {
+        let mut place = Self::storage_identity(storage, path.root)?;
+
+        for projection in path.projections.iter() {
+            let Some(projection) = Self::projection_kind(*projection) else {
+                break;
+            };
+
+            place = place.component(projection);
+        }
+
+        Some(place)
+    }
+
+    fn projection_kind(
+        projection: bray_bound_tree::StorageProjection,
+    ) -> Option<ConstantProjectionKind> {
+        use bray_bound_tree::StorageProjection;
+
+        let projection = match projection {
+            StorageProjection::ProductField(field) => ConstantProjectionKind::ProductField(field),
+            StorageProjection::ActiveUnionPayloadField { field, .. } => {
+                ConstantProjectionKind::UnionPayloadField(field)
+            }
+            StorageProjection::NullableValue => ConstantProjectionKind::NullableValue,
+            StorageProjection::TupleElement(index) => ConstantProjectionKind::TupleElement(index),
+            StorageProjection::ElementFromStart(index) => {
+                ConstantProjectionKind::ArrayElementOrdinal(index)
+            }
+            _ => return None,
+        };
+
+        Some(projection)
     }
 
     pub(crate) fn value_in(
@@ -146,20 +167,6 @@ impl ExecutionPlace {
         }
 
         None
-    }
-
-    pub(crate) fn field(self, field: AnySymbolId) -> Self {
-        let projection = match field {
-            AnySymbolId::StructField(field) => ConstantProjectionKind::ProductField(field),
-            AnySymbolId::UnionPayloadField(field) => {
-                ConstantProjectionKind::UnionPayloadField(field)
-            }
-            _ => panic!(
-                "checked execution field must identify a product or union payload field: {field:?}"
-            ),
-        };
-
-        self.component(projection)
     }
 
     pub(crate) fn component(mut self, projection: ConstantProjectionKind) -> Self {

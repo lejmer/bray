@@ -1,5 +1,5 @@
 use super::super::{
-    CallableDependencyContracts, ConstantTermData, DependencyContractTemplateData, DependencyGuard,
+    CallableDependencyContracts, ConstantTermData, DependencyGuard,
     DependencyProjection, DependencyRequirement, DependencySubject, DependencySubjectRoot,
     GenericArgument, GenericSubstitutionData, GenericSubstitutionId, SemanticValueStore,
     SemanticValueStoreError, TypeData,
@@ -129,7 +129,7 @@ impl SemanticValueStore {
             .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
 
         self.intern_dependency_contract_template(
-            DependencyContractTemplateData::new(requirements)
+            template.with_requirements(requirements)
                 .with_borrows(borrows)
                 .with_effects(effects),
         )

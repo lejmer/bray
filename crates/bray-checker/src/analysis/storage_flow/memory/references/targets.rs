@@ -100,7 +100,7 @@ impl State {
         ty: TypeId,
         origin: BoundExpressionId,
     ) {
-        let references = self.references(slot);
+        let references = self.references(&Target::storage(slot.clone()));
         let exact = references.is_exact();
 
         for target in &references.targets {
@@ -122,13 +122,13 @@ impl State {
             contents.pending.entry(ty).or_default().insert(origin);
         }
     }
-    pub(in crate::analysis::storage_flow::memory) fn references(&self, slot: &Place) -> References {
+    pub(in crate::analysis::storage_flow::memory) fn references(
+        &self,
+        slot: &Target,
+    ) -> References {
         // Transfers and mutations need an owned snapshot while changing their reached targets.
         let mut references = if slot.is_exact() {
-            self.values
-                .get(&Target::storage(slot.clone()))
-                .cloned()
-                .unwrap_or_default()
+            self.values.get(slot).cloned().unwrap_or_default()
         } else {
             References::default()
         };
@@ -138,21 +138,19 @@ impl State {
         references
     }
 
-    pub(in crate::analysis::storage_flow) fn invalidated(&self, slot: &Place) -> bool {
-        self.values
-            .get(&Target::storage(slot.clone()))
-            .is_some_and(|references| {
-                references.targets.iter().any(|target| {
-                    self.contents
-                        .get(target)
-                        .is_some_and(|contents| !contents.invalidations.is_empty())
-                })
+    pub(in crate::analysis::storage_flow) fn invalidated(&self, slot: &Target) -> bool {
+        self.values.get(slot).is_some_and(|references| {
+            references.targets.iter().any(|target| {
+                self.contents
+                    .get(target)
+                    .is_some_and(|contents| !contents.invalidations.is_empty())
             })
+        })
     }
 
     pub(in crate::analysis::storage_flow::memory) fn initialized(
         &self,
-        slot: &Place,
+        slot: &Target,
         ty: TypeId,
     ) -> bool {
         self.initialized_targets(&self.references(slot), ty)
@@ -167,9 +165,11 @@ impl State {
             && !references.displaced
             && !references.targets.is_empty()
             && references.targets.iter().all(|target| {
-                self.contents
-                    .get(target)
-                    .is_some_and(|contents| contents.initialized.contains(&ty))
+                target.is_exact()
+                    && self
+                        .contents
+                        .get(target)
+                        .is_some_and(|contents| contents.initialized.contains(&ty))
             })
     }
 
@@ -177,16 +177,19 @@ impl State {
         &self,
         references: &References,
     ) -> BTreeSet<Target> {
+        let regions = references.regions();
+
         self.contents
             .keys()
             .chain(self.values.keys())
             .chain(references.targets.iter())
             .filter(|candidate| {
-                references.unknown
-                    || references.targets.iter().any(|target| {
+                regions.as_ref().is_none_or(|regions| {
+                    regions.iter().any(|target| {
                         self.target_relationship(target, candidate)
                             != bray_bound_tree::StorageRelationship::Disjoint
                     })
+                })
             })
             // Targets share immutable paths while each transition owns its affected set.
             .cloned()
@@ -196,20 +199,23 @@ impl State {
     /// Current ordinary storage reached by this pointer. The boolean identifies a must-target.
     pub(in crate::analysis::storage_flow) fn reached_storage(
         &self,
-        slot: &Place,
+        slot: &Target,
     ) -> Vec<(Place, Option<TypeId>, bool)> {
         let references = self.references(slot);
         let exact = references.is_exact();
 
-        // Ownership paths already compare overlap. Only unknown pointers need the full set.
-        let targets = if references.unknown {
-            self.contents
-                .keys()
-                .chain(references.targets.iter())
-                .collect::<BTreeSet<_>>()
-        } else {
-            references.targets.iter().collect()
-        };
+        // Exact paths already compare overlap. Unknown regions may reach any exposed storage.
+        let regions = references.regions();
+
+        let targets = regions.as_ref().map_or_else(
+            || {
+                self.contents
+                    .keys()
+                    .chain(references.targets.iter())
+                    .collect::<BTreeSet<_>>()
+            },
+            |regions| regions.iter().collect(),
+        );
 
         targets
             .into_iter()
@@ -220,9 +226,13 @@ impl State {
                     // Place clones share the immutable projection path.
                     Origin::Storage(place)
                         if !target.previous
-                            && !place
-                                .projections
-                                .contains(&bray_bound_tree::StorageProjection::UninitPayload) =>
+                            && !place.projections.iter().any(|projection| {
+                                matches!(
+                                    projection,
+                                    bray_bound_tree::StorageProjection::UninitPayload
+                                        | bray_bound_tree::StorageProjection::OwnedTarget
+                                )
+                            }) =>
                     {
                         Some((
                             place.clone(),
@@ -242,7 +252,7 @@ impl State {
     #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn located_storage(
         &self,
-        slot: &Place,
+        slot: &Target,
     ) -> Option<Vec<Place>> {
         let references = self.references(slot);
 
@@ -259,7 +269,7 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn allocation_origins(
         &self,
-        slot: &Place,
+        slot: &Target,
     ) -> impl Iterator<Item = BoundExpressionId> + '_ {
         self.references(slot)
             .targets
@@ -274,7 +284,7 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn invalidation_origins(
         &self,
-        slot: &Place,
+        slot: &Target,
     ) -> impl Iterator<Item = BoundExpressionId> + '_ {
         self.references(slot)
             .targets
@@ -289,7 +299,7 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn initialization_origins(
         &self,
-        slot: &Place,
+        slot: &Target,
     ) -> impl Iterator<Item = BoundExpressionId> + '_ {
         self.references(slot)
             .targets

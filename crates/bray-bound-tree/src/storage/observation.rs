@@ -24,3 +24,100 @@ impl StorageMutation {
         }
     }
 }
+
+/// Checked facts at a reachable normal completion.
+/// Value observations and required storage lifetimes are distinct relationships.
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub struct StorageCompletion {
+    references: std::collections::BTreeMap<crate::StoragePath, crate::StoragePath>,
+    borrow_origins: std::collections::BTreeMap<
+        crate::StoragePath,
+        std::collections::BTreeSet<crate::StoragePath>,
+    >,
+}
+
+impl StorageCompletion {
+    /// Creates a completion from exact value observations and all possible borrowed origins.
+    pub fn new(
+        references: std::collections::BTreeMap<crate::StoragePath, crate::StoragePath>,
+        borrow_origins: std::collections::BTreeMap<
+            crate::StoragePath,
+            std::collections::BTreeSet<crate::StoragePath>,
+        >,
+    ) -> Self {
+        Self {
+            references,
+            borrow_origins,
+        }
+    }
+
+    /// Returns exact current aliases used to observe mutated referents.
+    pub fn references(
+        &self,
+    ) -> &std::collections::BTreeMap<crate::StoragePath, crate::StoragePath> {
+        &self.references
+    }
+
+    /// Returns the possible storage origins retained through each borrowed input.
+    pub fn borrow_origins(
+        &self,
+    ) -> &std::collections::BTreeMap<
+        crate::StoragePath,
+        std::collections::BTreeSet<crate::StoragePath>,
+    > {
+        &self.borrow_origins
+    }
+
+    /// Merges alternative normal completions. Exact aliases must agree, and lifetimes accumulate.
+    /// A missing origin mapping remains unknown, never an empty lifetime requirement.
+    pub fn merge(&mut self, incoming: &Self) {
+        self.references
+            .retain(|path, target| incoming.references.get(path) == Some(target));
+
+        self.borrow_origins.retain(|path, targets| {
+            let Some(other) = incoming.borrow_origins.get(path) else {
+                return false;
+            };
+
+            // Each completion retains its own finite set of shared immutable storage paths.
+            targets.extend(other.iter().cloned());
+
+            true
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StorageCompletion;
+    use std::collections::{BTreeMap, BTreeSet};
+    #[test]
+    fn completion_merge_intersects_exact_aliases_and_unions_required_origins() {
+        let unit = crate::BoundUnitId::new(3);
+
+        let path = |slot| {
+            crate::StoragePath::root(crate::StorageIdentityId::from_storage_slot(unit, slot))
+        };
+
+        let mut left = StorageCompletion::new(
+            BTreeMap::from([(path(0), path(1))]),
+            BTreeMap::from([(path(0), BTreeSet::from([path(1)]))]),
+        );
+
+        let right = StorageCompletion::new(
+            BTreeMap::from([(path(0), path(2))]),
+            BTreeMap::from([(path(0), BTreeSet::from([path(2)]))]),
+        );
+
+        left.merge(&right);
+        assert!(left.references().is_empty());
+
+        assert_eq!(
+            left.borrow_origins()[&path(0)],
+            BTreeSet::from([path(1), path(2)])
+        );
+
+        left.merge(&StorageCompletion::default());
+        assert!(!left.borrow_origins().contains_key(&path(0)));
+    }
+}

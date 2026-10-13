@@ -26,14 +26,18 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
 ) -> Result<super::defaults::CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
     let store = request.semantic_values();
 
-    let template = if let Some((parameter, _)) = call
+    let template = if let Some((parameter, authority)) = call
         .implementation_hook()
         .and_then(super::implementation_dependency_source)
     {
         store
-            .intern_dependency_contract_template(DependencyContractTemplateData::new([
-                value_requirement(DependencySubjectRoot::Parameter(parameter)),
-            ])).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in call_result_template: {error:?}"))
+            .intern_dependency_contract_template(DependencyContractTemplateData::new(
+                std::iter::once(value_requirement(DependencySubjectRoot::Parameter(parameter)))
+                    .chain(authority.map(|kind| DependencyRequirement::direct(
+                        DependencySubject::root(DependencySubjectRoot::Parameter(parameter)),
+                        DependencyRequirementKind::BorrowCapabilityActive(kind),
+                    )))
+            )).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in call_result_template: {error:?}"))
     } else if let Some(dispatch) = call.resolution().trait_dispatch() {
         let requirement = request.context().result_dispatch_requirement(dispatch)?;
         let template = super::witness::deferred_result(request, call, Some(requirement))?;
@@ -96,12 +100,10 @@ pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
 
     let template = store.dependency_contract_template_data(template);
 
-    Ok(DependencyContractTemplateData::new(super::witness::resolve(
+    Ok(template.with_requirements(super::witness::resolve(
         request,
         template.requirements(),
-    )?)
-    .with_borrows(template.borrows().iter().cloned())
-    .with_effects(template.effects().iter().cloned()))
+    )?))
 }
 
 fn value_requirement(root: DependencySubjectRoot) -> DependencyRequirement {

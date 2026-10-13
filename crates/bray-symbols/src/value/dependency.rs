@@ -365,6 +365,7 @@ pub struct DependencyContractTemplateData {
     requirements: Arc<[DependencyRequirement]>,
     borrows: Arc<[DependencyBorrowRelation]>,
     effects: Arc<[super::DependencyStorageEffect]>,
+    normal_completion: bool,
 }
 
 impl DependencyContractTemplateData {
@@ -386,7 +387,34 @@ impl DependencyContractTemplateData {
             requirements: sorted_unique_shared_slice(requirements),
             borrows: Arc::new([]),
             effects: Arc::new([super::DependencyStorageEffect::Unknown]),
+            normal_completion: true,
         }
+    }
+
+    /// Replaces requirements while retaining the checked reference, effect and completion summary.
+    pub fn with_requirements(
+        &self,
+        requirements: impl IntoIterator<Item = DependencyRequirement>,
+    ) -> Self {
+        Self {
+            requirements: sorted_unique_shared_slice(requirements),
+            // Transformations own a new contract while retaining the immutable checked summary.
+            borrows: Arc::clone(&self.borrows),
+            effects: Arc::clone(&self.effects),
+            normal_completion: self.normal_completion,
+        }
+    }
+
+    /// Records whether the checked body can produce a normal result.
+    pub fn with_normal_completion(mut self, possible: bool) -> Self {
+        self.normal_completion = possible;
+
+        self
+    }
+
+    /// False proves that execution has no normal result. Unknown callees default to true.
+    pub const fn normal_completion(&self) -> bool {
+        self.normal_completion
     }
 
     /// Attaches checked entry-to-exit borrow identities in deterministic order.
@@ -447,4 +475,30 @@ mod tests {
 
         assert_eq!(template.requirements(), &[requirement]);
     }
+    #[test]
+    fn replacing_requirements_retains_the_checked_summary() {
+        let subject = DependencySubject::root(DependencySubjectRoot::Receiver);
+
+        let relation = crate::DependencyBorrowRelation::new(
+            subject.clone(), DependencySubject::root(DependencySubjectRoot::Result),
+            crate::DependencyReferenceKind::Borrow,
+        );
+
+        let template = DependencyContractTemplateData::new([])
+            .with_borrows([relation])
+            .with_effects([crate::DependencyStorageEffect::Direct {
+                subject: subject.clone(), kind: crate::DependencyMutationKind::Write,
+            }])
+            .with_normal_completion(false);
+
+        let requirement = DependencyRequirement::direct(subject, DependencyRequirementKind::StorageAlive);
+        let changed = template.with_requirements([requirement.clone(), requirement.clone()]);
+
+        assert_eq!(changed.requirements(), &[requirement]);
+        assert_eq!(changed.borrows(), template.borrows());
+        assert_eq!(changed.effects(), template.effects());
+        assert!(!changed.normal_completion());
+        assert!(template.requirements().is_empty());
+    }
+
 }

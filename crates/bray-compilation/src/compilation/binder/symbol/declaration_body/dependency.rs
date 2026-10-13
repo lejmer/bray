@@ -37,7 +37,7 @@ pub(in crate::compilation::binder::symbol) fn extend_dependency_contract_with_st
 
     Ok(context
         .semantic_values()
-        .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements).with_borrows(template.borrows().iter().cloned()).with_effects(template.effects().iter().cloned())).unwrap_or_else(|error| panic!("extend_dependency_contract_with_statics must satisfy its checked construction contract: {error:?}")))
+        .intern_dependency_contract_template(template.with_requirements(requirements)).unwrap_or_else(|error| panic!("extend_dependency_contract_with_statics must satisfy its checked construction contract: {error:?}")))
 }
 
 pub(in crate::compilation::binder::symbol) fn portable_dependency_contract(

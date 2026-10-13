@@ -47,7 +47,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let mut invalidation = effects
                 .as_ref()
-                .map_or(StorageInvalidation::All, |effects| {
+                .map_or_else(|| self.opaque_observations(&memory), |effects| {
                     self.target_observations(&memory, effects.iter().map(|(target, _)| target))
                 });
 
@@ -73,10 +73,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     memory.invalidate_target(target, *kind);
                 }
             } else {
-                self.record_effects(&StorageInvalidation::All, DependencyMutationKind::Retire);
+                self.record_effects(&StorageInvalidation::All(Default::default()), DependencyMutationKind::Retire);
 
                 memory.invalidate(
-                    &StorageInvalidation::All,
+                    &invalidation,
                     self.storage,
                     DependencyMutationKind::Retire,
                 );
@@ -265,7 +265,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let location = memory.reference_location(receiver, prepared, None)?;
 
             if indirect {
-                memory.value_targets(&location)
+                memory.referenced_regions(&location)
             } else {
                 Some(vec![location])
             }

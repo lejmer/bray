@@ -65,7 +65,7 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn write(
         &mut self,
-        slot: &Place,
+        slot: &Target,
         ty: TypeId,
         origin: BoundExpressionId,
         value: Option<Source>,
@@ -191,7 +191,7 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn read(
         &mut self,
-        slot: &Place,
+        slot: &Target,
         ty: TypeId,
         kind: MemoryReadKind,
         proven: Option<BoundExpressionId>,
@@ -241,7 +241,10 @@ impl State {
                     ..References::default()
                 });
 
-            if references.unknown || references.displaced {
+            if references.unknown
+                || references.displaced
+                || references.targets.iter().any(|target| !target.is_exact())
+            {
                 for value in transfer.values.values_mut() {
                     value.unknown = true;
                 }
@@ -281,7 +284,7 @@ impl State {
     #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn consume(
         &mut self,
-        slot: &Place,
+        slot: &Target,
         ty: TypeId,
     ) -> MemoryOperationStatus {
         if self.invalidated(slot) {
@@ -333,8 +336,8 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn copy(
         &mut self,
-        source: &Place,
-        destination: &Place,
+        source: &Target,
+        destination: &Target,
         ty: TypeId,
         origin: BoundExpressionId,
         proven: Option<bool>,
@@ -357,7 +360,7 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn deallocate(
         &mut self,
-        slot: &Place,
+        slot: &Target,
         origin: BoundExpressionId,
     ) -> MemoryOperationStatus {
         if self.invalidated(slot) {

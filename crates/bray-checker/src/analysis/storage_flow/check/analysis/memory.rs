@@ -12,36 +12,6 @@ use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Place, Source, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 
-const fn operation_requires_trust(kind: CheckedMemoryOperationKind) -> bool {
-    matches!(
-        kind,
-        CheckedMemoryOperationKind::UninitAssumeInitialized { .. }
-            | CheckedMemoryOperationKind::UninitMove { .. }
-            | CheckedMemoryOperationKind::BorrowFrom { .. }
-            | CheckedMemoryOperationKind::Reinterpret { .. }
-            | CheckedMemoryOperationKind::Read { .. }
-            | CheckedMemoryOperationKind::Write { .. }
-            | CheckedMemoryOperationKind::Copy { .. }
-            | CheckedMemoryOperationKind::RawAllocate
-            | CheckedMemoryOperationKind::RawDeallocate
-            | CheckedMemoryOperationKind::RawBufferAllocate
-            | CheckedMemoryOperationKind::Allocate
-            | CheckedMemoryOperationKind::Deallocate
-            | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
-            | CheckedMemoryOperationKind::RawBufferPush { .. }
-            | CheckedMemoryOperationKind::RawBufferPop { .. }
-            | CheckedMemoryOperationKind::RawBufferSetInitializedCount
-            | CheckedMemoryOperationKind::RawBufferRelease { .. }
-            | CheckedMemoryOperationKind::RawBufferReplace { .. }
-            | CheckedMemoryOperationKind::RawBufferRelocate { .. }
-            | CheckedMemoryOperationKind::ByteBufferFill
-            | CheckedMemoryOperationKind::ByteBufferRead
-            | CheckedMemoryOperationKind::CallbackState { .. }
-            | CheckedMemoryOperationKind::VolatileRead { .. }
-            | CheckedMemoryOperationKind::VolatileWrite { .. }
-    )
-}
-
 const fn conservative_memory_status(
     current: MemoryOperationStatus,
     candidate: MemoryOperationStatus,
@@ -109,7 +79,7 @@ where
             MemoryOperationStatus::Unreachable
         } else if state.recovered {
             MemoryOperationStatus::Recovered
-        } else if operation_requires_trust(operation.kind())
+        } else if crate::memory::execution::requires_trust(operation.kind())
             && proven.is_none()
             && !refinements
                 .clone()
@@ -131,7 +101,7 @@ where
                             return None;
                         }
 
-                        self.argument_storage(argument)
+                        self.expression_target(state, argument)
                             .map(|place| (state.memory.reached_storage(&place), element, purpose))
                     });
 
@@ -188,7 +158,7 @@ where
         let argument = |index| {
             arguments
                 .get(index)
-                .and_then(|argument| self.argument_storage(*argument))
+                .and_then(|argument| self.expression_target(state, *argument))
         };
 
         let result = || self.expression_result_storage(operation.expression());
@@ -207,12 +177,12 @@ where
                     return MemoryOperationStatus::Recovered;
                 };
 
-                let Some(source) = self.argument_storage(*pointer) else {
+                let Some(source) = self.expression_reference(state, *pointer) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
                 if let Some(result) = result() {
-                    state.memory.transfer(&source, result);
+                    source.transfer(&mut state.memory, result);
                 }
             }
             CheckedMemoryOperationKind::Address { pointee, .. } => {
@@ -241,15 +211,13 @@ where
             CheckedMemoryOperationKind::Reinterpret { .. }
             | CheckedMemoryOperationKind::CallableFromPointer { .. }
             | CheckedMemoryOperationKind::PointerFromCallable { .. } => {
-                let Some(source) = argument(0) else {
-                    return MemoryOperationStatus::Recovered;
-                };
-
-                let Some(result) = result() else {
-                    return MemoryOperationStatus::Recovered;
-                };
-
-                state.memory.transfer(&source, result);
+                if let Some(result) = result() {
+                    if let Some(source) = self.expression_reference(state, arguments[0]) {
+                        source.transfer(&mut state.memory, result);
+                    } else {
+                        state.memory.clear(&result);
+                    }
+                }
             }
             CheckedMemoryOperationKind::Read { pointee, kind }
             | CheckedMemoryOperationKind::VolatileRead { pointee, kind, .. } => {
@@ -282,11 +250,11 @@ where
                     return MemoryOperationStatus::Recovered;
                 };
 
-                let Some(source) = self.argument_storage(*source) else {
+                let Some(source) = self.expression_target(state, *source) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                let Some(destination) = self.argument_storage(*destination) else {
+                let Some(destination) = self.expression_target(state, *destination) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
@@ -314,15 +282,53 @@ where
 
                 return state.memory.deallocate(&pointer, operation.expression());
             }
+            CheckedMemoryOperationKind::RawBufferSparePointer { .. }
+            | CheckedMemoryOperationKind::RawBufferInitializedSlice
+            | CheckedMemoryOperationKind::RawBufferInitializedSliceMut => {
+                let Some(source) = self
+                    .expression_reference(state, arguments[0])
+                    .and_then(|source| source.targets(&state.memory))
+                else {
+                    return MemoryOperationStatus::Recovered;
+                };
+
+                if let ([owner], Some(result)) = (source.as_slice(), result()) {
+                    // This closed intrinsic exposes the owned allocation, not the owner's bytes.
+                    let ty = match operation.kind() {
+                        CheckedMemoryOperationKind::RawBufferSparePointer { element } => self
+                            .request
+                            .semantic_values()
+                            .intern_type(bray_symbols::TypeData::Slice(element))
+                            .expect("checked buffer element has a slice type"),
+                        _ => self.request.semantic_values().unborrowed_type(
+                            self.execution
+                                .semantics
+                                .types()
+                                .expression(operation.expression())
+                                .expect("checked buffer view has its result type")
+                                .ty(),
+                        ),
+                    };
+
+                    state.memory.owned_region(owner.clone(), result.clone(), ty);
+
+                    if matches!(
+                        operation.kind(),
+                        CheckedMemoryOperationKind::RawBufferSparePointer { .. }
+                    ) {
+                        // Its initialized prefix has an unknown offset into this allocation.
+                        state
+                            .memory
+                            .offset(&Target::storage(result.clone()), result);
+                    }
+                }
+            }
             CheckedMemoryOperationKind::ByteBufferFill
             | CheckedMemoryOperationKind::ByteBufferRead
             | CheckedMemoryOperationKind::SequenceLength
             | CheckedMemoryOperationKind::RawBufferCapacity
             | CheckedMemoryOperationKind::RawBufferInitializedCount
             | CheckedMemoryOperationKind::RawBufferPointer
-            | CheckedMemoryOperationKind::RawBufferInitializedSlice
-            | CheckedMemoryOperationKind::RawBufferInitializedSliceMut
-            | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
             | CheckedMemoryOperationKind::RawBufferPush { .. }
             | CheckedMemoryOperationKind::RawBufferPop { .. }
             | CheckedMemoryOperationKind::RawBufferSetInitializedCount
@@ -516,7 +522,7 @@ where
         } else {
             let slot = self.argument_storage(argument)?;
 
-            state.memory.value_targets(&Target::storage(slot))?
+            state.memory.referenced_regions(&Target::storage(slot))?
         };
 
         let kind = if purpose == StorageAccessPurpose::Move {
@@ -672,7 +678,7 @@ where
         let storages = operation
             .arguments()
             .iter()
-            .filter_map(|argument| self.argument_storage(*argument))
+            .filter_map(|argument| self.expression_target(state, *argument))
             .collect::<Vec<_>>();
 
         match status {

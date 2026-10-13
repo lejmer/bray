@@ -1496,14 +1496,15 @@ fn raw_reads_retire_initialization_after_moves_and_opaque_calls() {
 
             struct Token {{ value: i32; }}
 
-            func interfere(pos pointer: RawPointer<i32>) {{}}
+            extern func interfere(pos pointer: RawPointer<i32>);
 
-            func invalid(pos pointer: RawPointer<{value_type}>)
+            trusted func invalid(pos pointer: RawPointer<{value_type}>)
                 requires(
                     trusted core.memory.valid_read<{value_type}>(pointer = pointer, count = 1),
                     trusted core.memory.aligned_for<{value_type}>(pointer = pointer),
                     trusted core.memory.initialized_as<{value_type}>(pointer = pointer),
                 )
+                uses(raw_memory)
             {{
                 {interruption}
                 let second: {value_type} = trusted std.memory.read<{value_type}>(pointer);

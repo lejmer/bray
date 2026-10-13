@@ -1267,7 +1267,7 @@ fn nullable_borrow_origins_preserve_payload_paths() {
         (
             "&bool",
             "if condition { return first; } return test(first, second, condition);",
-            false,
+            true,
             0,
         ),
     ] {
@@ -2109,4 +2109,137 @@ fn different_reference_layers_do_not_supply_a_common_exact_origin() {
 
     assert!(dependencies.borrows().is_empty(), "{dependencies:#?}");
     assert!(!dependencies.requirements().is_empty(), "{dependencies:#?}");
+}
+
+#[test]
+fn scoped_returned_references_retain_the_exact_receiver_field() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Resource { value: bool; }
+        impl Resource {
+            enter() -> &bool { return &self.value; }
+            exit(pos lease: &bool) {}
+        }
+        func caller(pos resource: &Resource) -> &bool {
+            return with lease = resource { yield lease; };
+        }
+    "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let result = crate::compilation::result_dependencies::source_function_dependencies(
+        &application,
+        "caller",
+    );
+
+    assert!(
+        result
+            .borrows()
+            .iter()
+            .any(|relation| relation.exit().subject_root()
+                == bray_symbols::DependencySubjectRoot::Result
+                && !relation.target_projections().is_empty()),
+        "{result:#?}"
+    );
+}
+
+#[test]
+fn scoped_nullable_yields_keep_the_present_reference_origin() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Resource { value: bool; }
+        impl Resource {
+            enter() -> &bool { return &self.value; }
+            exit(pos lease: &bool) {}
+        }
+        func caller(pos resource: &Resource, pos present: bool) -> (&bool)? {
+            if !present { return none; }
+            let result: (&bool)? = with lease = resource { yield lease; };
+            return result;
+        }
+    "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let result = crate::compilation::result_dependencies::source_function_dependencies(
+        &application,
+        "caller",
+    );
+
+    assert!(
+        result
+            .borrows()
+            .iter()
+            .any(|relation| relation.exit().subject_root()
+                == bray_symbols::DependencySubjectRoot::Result
+                && relation.exit().projections()
+                    == [bray_symbols::DependencyProjection::NullableValue]
+                && !relation.target_projections().is_empty()),
+        "{result:#?}"
+    );
+}
+
+#[test]
+fn scoped_entry_demands_nested_references_not_otherwise_read_by_the_caller() {
+    for (parameter, body) in [
+        ("resource: &Resource", "return with lease = resource { yield lease; };"),
+        ("incoming: Resource", "let moved = incoming; return with lease = moved { yield lease; };"),
+    ] {
+    let source = r#"
+        module app;
+        struct Resource { value: &bool; }
+        impl Resource {
+            enter() -> &bool { return self.value; }
+            exit(pos lease: &bool) {}
+        }
+        func caller(pos PARAMETER) -> &bool { BODY }
+    "#.replace("PARAMETER", parameter).replace("BODY", body);
+
+    let application = compilation(&source);
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let result = crate::compilation::result_dependencies::source_function_dependencies(
+        &application,
+        "caller",
+    );
+
+    assert!(
+        result
+            .borrows()
+            .iter()
+            .any(|relation| relation.exit().subject_root()
+                == bray_symbols::DependencySubjectRoot::Result
+                && !relation.entry().projections().is_empty()),
+        "{result:#?}"
+    );
+}
+}
+
+#[test]
+fn nullable_yield_context_does_not_adapt_an_incompatible_borrow() {
+    let application = compilation(
+        r#"
+        module app;
+        func caller(pos value: &i32) -> (&bool)? {
+            let result: (&bool)? = { yield value; };
+            return result;
+        }
+    "#,
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        application.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingIncompatibleExpressionType,
+    );
 }

@@ -113,9 +113,23 @@ impl ControlFlowGraphAssembler {
                 self.push_edge(entered, suspended, AnalysisEdgeKind::Suspension, None);
 
                 // Cleanup is shielded, so cancellation waits until exit completes.
-                self.push_edge(suspended, completed, AnalysisEdgeKind::Resume, None);
+                self.push_edge(
+                    suspended,
+                    completed,
+                    AnalysisEdgeKind::Resume,
+                    Some(super::model::AnalysisRefinement::InvocationCompletion(
+                        bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
+                    )),
+                );
             } else {
-                self.push_edge(entered, completed, AnalysisEdgeKind::Sequential, None);
+                self.push_edge(
+                    entered,
+                    completed,
+                    AnalysisEdgeKind::Sequential,
+                    Some(super::model::AnalysisRefinement::InvocationCompletion(
+                        bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
+                    )),
+                );
             }
 
             self.push_call(
@@ -129,10 +143,22 @@ impl ControlFlowGraphAssembler {
             entered
         };
 
-        let cancellation = if scoped.is_some() {
+        let cancellation = if let Some((expression, _)) = scoped {
             let cancellation = self.push_block();
 
             self.push_edge(completed, cancellation, AnalysisEdgeKind::Sequential, None);
+
+            if !preserves_exit_value {
+                // A failing exit still resolves the remaining cleanup, without its normal guarantees.
+                self.push_edge(
+                    entered,
+                    cancellation,
+                    AnalysisEdgeKind::Sequential,
+                    Some(AnalysisRefinement::InvocationFailure(
+                        bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
+                    )),
+                );
+            }
 
             cancellation
         } else {
@@ -327,57 +353,94 @@ mod tests {
                 assembler.push_exit(end, AnalysisExitKind::Return);
 
                 let graph = assembler.finish(entry);
-                let mut cursor = graph.entry();
-                let mut events = Vec::new();
 
-                loop {
-                    let block = graph.block(cursor).unwrap();
+                for failed in [false, true]
+                    .into_iter()
+                    .filter(|failed| !*failed || !preserves_exit_value)
+                {
+                    let mut cursor = graph.entry();
+                    let mut events = Vec::new();
 
-                    for operation in block.operations() {
-                        match graph.operation(*operation).unwrap().kind() {
-                            AnalysisOperationKind::Call { phase, .. } => events.push(match phase {
-                                AnalysisCallPhase::Attempt => "exit attempt",
-                                AnalysisCallPhase::Completion => "exit complete",
-                            }),
-                            AnalysisOperationKind::ScopeExit { phase, .. } => {
-                                events.push(match phase {
-                                    AnalysisScopeExitPhase::TaskCancellationBroadcast => {
-                                        "cancel tasks"
-                                    }
-                                    AnalysisScopeExitPhase::LifecycleResolution => "destroy locals",
-                                })
+                    loop {
+                        let block = graph.block(cursor).unwrap();
+
+                        for operation in block.operations() {
+                            match graph.operation(*operation).unwrap().kind() {
+                                AnalysisOperationKind::Call { phase, .. } => {
+                                    events.push(match phase {
+                                        AnalysisCallPhase::Attempt => "exit attempt",
+                                        AnalysisCallPhase::Completion => "exit complete",
+                                    })
+                                }
+                                AnalysisOperationKind::ScopeExit { phase, .. } => {
+                                    events.push(match phase {
+                                        AnalysisScopeExitPhase::TaskCancellationBroadcast => {
+                                            "cancel tasks"
+                                        }
+                                        AnalysisScopeExitPhase::LifecycleResolution => {
+                                            "destroy locals"
+                                        }
+                                    })
+                                }
+                                AnalysisOperationKind::Suspension { .. } => {
+                                    events.push("await exit")
+                                }
+                                operation => panic!("unexpected cleanup operation: {operation:?}"),
                             }
-                            AnalysisOperationKind::Suspension { .. } => events.push("await exit"),
-                            operation => panic!("unexpected cleanup operation: {operation:?}"),
                         }
+
+                        let successors = block
+                            .successors()
+                            .iter()
+                            .map(|id| graph.edge(*id).unwrap())
+                            .collect::<Vec<_>>();
+
+                        let failure = successors.iter().find(|edge| {
+                            matches!(
+                                edge.refinement(),
+                                Some(
+                                    crate::analysis::model::AnalysisRefinement::InvocationFailure(
+                                        _
+                                    )
+                                )
+                            )
+                        });
+
+                        if failure.is_some() {
+                            assert!(!preserves_exit_value);
+                            assert_eq!(successors.len(), 2);
+                        } else {
+                            assert!(successors.len() <= 1);
+                        }
+
+                        let Some(edge) = failure.filter(|_| failed).copied().or_else(|| successors.iter().copied().find(|edge| !matches!(edge.refinement(), Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(_))))) else { break; };
+
+                        cursor = edge.target();
                     }
 
-                    let Some(edge) = block.successors().first() else {
-                        break;
+                    let mut expected = if matches!(result, BoundCallResult::LazyFuture(_)) {
+                        vec![
+                            "exit attempt",
+                            "await exit",
+                            "exit complete",
+                            "cancel tasks",
+                            "destroy locals",
+                        ]
+                    } else {
+                        vec![
+                            "exit attempt",
+                            "exit complete",
+                            "cancel tasks",
+                            "destroy locals",
+                        ]
                     };
 
-                    assert_eq!(block.successors().len(), 1);
-                    cursor = graph.edge(*edge).unwrap().target();
+                    if failed {
+                        expected.retain(|event| *event != "exit complete");
+                    }
+
+                    assert_eq!(events, expected);
                 }
-
-                let expected = if matches!(result, BoundCallResult::LazyFuture(_)) {
-                    vec![
-                        "exit attempt",
-                        "await exit",
-                        "exit complete",
-                        "cancel tasks",
-                        "destroy locals",
-                    ]
-                } else {
-                    vec![
-                        "exit attempt",
-                        "exit complete",
-                        "cancel tasks",
-                        "destroy locals",
-                    ]
-                };
-
-                assert_eq!(events, expected);
             }
         }
     }

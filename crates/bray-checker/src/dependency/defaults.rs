@@ -8,6 +8,8 @@ use bray_symbols::{
 /// Dependencies retained by a selected call, including inputs whose call-owned storage would escape.
 pub(crate) struct CallResultDependencies {
     pub(crate) template: DependencyContractTemplateData,
+    pub(crate) evaluation_effects: std::sync::Arc<[bray_symbols::DependencyStorageEffect]>,
+    pub(crate) evaluation_completes: bool,
     pub(crate) escaping_evaluation_inputs: Vec<DependencySubjectRoot>,
 }
 
@@ -172,16 +174,21 @@ fn expand<C: CheckerRequestContext + ?Sized>(
         );
     }
 
-    // All selected providers run, including those whose values are absent from the result.
-    let effects = template
-        .effects()
-        .iter()
-        .chain(defaults.values().flat_map(|provider| provider.effects()))
-        .cloned();
+    // Default providers execute when arguments are evaluated, even for a lazy call.
+    let evaluation_effects = bray_symbols::DependencyStorageEffect::normalize(
+        defaults
+            .values()
+            .flat_map(|provider| provider.effects())
+            .cloned(),
+    );
+
+    let evaluation_completes = defaults
+        .values()
+        .all(DependencyContractTemplateData::normal_completion);
 
     Ok(CallResultDependencies {
         // Default arguments have no caller expression to anchor an exact entry identity.
-        template: DependencyContractTemplateData::new(result)
+        template: template.with_requirements(result)
             .with_borrows(
                 template
                     .borrows()
@@ -190,8 +197,9 @@ fn expand<C: CheckerRequestContext + ?Sized>(
                         super::result_argument(call, relation.entry().subject_root()).is_some()
                     })
                     .cloned(),
-            )
-            .with_effects(effects),
+            ),
+        evaluation_effects,
+        evaluation_completes,
         escaping_evaluation_inputs: escaping_evaluation_inputs.into_iter().collect(),
     })
 }

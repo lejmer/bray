@@ -17,6 +17,7 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     mutable_storage: BTreeSet<StorageIdentityId>,
     immutable_field_accesses: BTreeSet<StorageAccessId>,
     storage_last_uses: BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageIdentityId>>,
+    pub(in crate::analysis::storage_flow) address_descriptors: Vec<StorageIdentityId>,
     pub(super) unused_entry_storage: BTreeSet<StorageIdentityId>,
     pub(super) cleanup_free_storage: BTreeSet<StorageIdentityId>,
     pub(in crate::analysis::storage_flow) lifecycle_paths: BTreeMap<
@@ -73,6 +74,14 @@ impl StorageFlowInput {
         }
 
         let mut input = Self {
+            address_descriptors: storage.identity_entries().filter_map(|(root, identity)| {
+                let ty = storage.identity_type(root)?;
+
+                (identity.is_invocation_owned(storage.kind())
+                    && crate::representation::reference_kind(request, ty)
+                        == Some(bray_symbols::DependencyReferenceKind::Address))
+                    .then_some(root)
+            }).collect(),
             retained_storage,
             initialization_destinations,
             mutable_storage,
@@ -121,7 +130,7 @@ impl StorageFlowInput {
 
         input.prepare_reference_constructions(request, storage, values)?;
         input.prepare_reference_paths(request, storage)?;
-        input.prepare_summary_references(request, storage, selections, dependencies)?;
+        input.prepare_entry_references(request, storage, selections, dependencies)?;
         input.prepare_lifecycle_references(request, cleanup, dependencies)?;
 
         input.immutable_field_accesses =

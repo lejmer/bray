@@ -55,10 +55,9 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
             continue;
         }
 
-        let copies = !fresh
-            && storage.effective_purpose(plan) == bray_bound_tree::StorageAccessPurpose::Copy;
+        let copies = storage.effective_purpose(plan) == bray_bound_tree::StorageAccessPurpose::Copy;
 
-        if (is_witness && copies) || (partial_witness && !copies) {
+        if (is_witness && copies && !fresh) || (partial_witness && !copies) {
             transfers.insert(plan.expression());
         }
     }

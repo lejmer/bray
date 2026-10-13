@@ -126,7 +126,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let normalize = |conditions: &BTreeSet<(ExecutionCondition, bool)>| {
             conditions
                 .iter()
-                .map(|(condition, value)| (condition.with_equalities(&equalities), *value))
+                .map(|(condition, value)| (condition.with_equalities(&equalities).spatial_observations(&self.spatial_predicates), *value))
                 .collect::<BTreeSet<_>>()
         };
 
@@ -153,6 +153,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         &mut { ExecutionCondition::WORK_LIMIT },
                     )
                     .with_equalities(&equalities)
+                    .spatial_observations(&self.spatial_predicates)
             })
             .collect::<Vec<_>>();
 

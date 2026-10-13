@@ -14,7 +14,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         invalidation: &StorageInvalidation,
     ) -> StorageInvalidation {
         let paths = match invalidation {
-            StorageInvalidation::All => return StorageInvalidation::All,
+            StorageInvalidation::All(_) => return self.opaque_observations(&state.memory),
             StorageInvalidation::Paths(paths) => paths,
             StorageInvalidation::Observed { .. } => {
                 panic!("structural preparation cannot publish flow observations")
@@ -44,8 +44,22 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         match targets {
             Some(targets) => self.target_observations(&state.memory, targets.iter()),
-            None => StorageInvalidation::All,
+            None => self.opaque_observations(&state.memory),
         }
+    }
+
+    pub(super) fn opaque_observations(
+        &self,
+        memory: &crate::analysis::storage_flow::memory::State,
+    ) -> StorageInvalidation {
+        if self.input.address_descriptors.is_empty() {
+            return StorageInvalidation::All(Default::default());
+        }
+
+        let descriptors = memory.unexposed_storage(&self.input.address_descriptors)
+            .map(StoragePath::root).collect();
+
+        StorageInvalidation::All(descriptors)
     }
 
     pub(super) fn reference_observation(
@@ -109,13 +123,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return invalidation;
         };
 
-        let Some(bray_bound_tree::SemanticSelection::Call(call)) = occurrence
-            .expression()
-            .and_then(|expression| self.execution.semantics.selections().expression(expression))
-        else {
-            return invalidation;
-        };
-
         for reference in contracts.references() {
             let relation = reference.relation();
 
@@ -127,17 +134,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             }
 
-            let Some(argument) =
-                crate::dependency::result_argument(call, relation.entry().subject_root())
-            else {
-                continue;
-            };
-
             let Some(prepared) = contracts.reference_path(relation.entry()) else {
                 continue;
             };
 
-            let Some(locations) = self.call_reference_locations(state, argument, prepared) else {
+            let Some(locations) = self.invocation_locations(state, occurrence, relation.entry())
+            else {
                 continue;
             };
 
@@ -145,7 +147,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let Some(base) = self.input.expression_places(argument).first() else {
+            let Some(base) = self.invocation_place(occurrence, relation.entry().subject_root())
+            else {
                 continue;
             };
 
@@ -180,43 +183,55 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn completed_references(
         &mut self,
         state: &StorageFlowState,
-        occurrence: bray_bound_tree::BoundExecutionSite,
-    ) -> BTreeMap<StoragePath, StoragePath> {
+        operation: crate::analysis::model::AnalysisOperationKind,
+    ) -> bray_bound_tree::StorageCompletion {
+        use crate::analysis::model::{AnalysisCallPhase, AnalysisOperationKind};
+
+        let occurrence = operation.occurrence();
         let mut observations = BTreeMap::new();
+        let contracts = self.dependencies.calls().get(&occurrence);
 
-        let Some(contracts) = self.dependencies.calls().get(&occurrence) else {
-            return observations;
-        };
+        if !matches!(
+            operation,
+            AnalysisOperationKind::Call {
+                phase: AnalysisCallPhase::Completion,
+                ..
+            }
+        ) && !(matches!(operation, AnalysisOperationKind::Bound(_))
+            && (contracts.is_some()
+                || occurrence.expression().is_some_and(|expression| {
+                    matches!(
+                        self.execution.semantics.selections().expression(expression),
+                        Some(bray_bound_tree::SemanticSelection::ScopedUse(_))
+                    )
+                })))
+        {
+            return bray_bound_tree::StorageCompletion::default();
+        }
 
-        let Some(bray_bound_tree::SemanticSelection::Call(call)) = occurrence
-            .expression()
-            .and_then(|expression| self.execution.semantics.selections().expression(expression))
-        else {
-            return observations;
-        };
-
-        for reference in contracts.references() {
+        for (contracts, reference) in contracts.into_iter().flat_map(|contracts| {
+            contracts
+                .references()
+                .iter()
+                .map(move |reference| (contracts, reference))
+        }) {
             let relation = reference.relation();
 
             if relation.kind() != bray_symbols::DependencyReferenceKind::Borrow {
                 continue;
             }
 
-            let Some(argument) =
-                crate::dependency::result_argument(call, relation.exit().subject_root())
-            else {
-                continue;
-            };
-
             let Some(prepared) = contracts.reference_path(relation.exit()) else {
                 continue;
             };
 
-            let Some(base) = self.input.expression_places(argument).first() else {
+            let Some(base) = self.invocation_place(occurrence, relation.exit().subject_root())
+            else {
                 continue;
             };
 
-            let Some(locations) = self.call_reference_locations(state, argument, prepared) else {
+            let Some(locations) = self.invocation_locations(state, occurrence, relation.exit())
+            else {
                 continue;
             };
 
@@ -250,17 +265,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             );
         }
 
+        let completion = bray_bound_tree::StorageCompletion::new(
+            observations,
+            self.invocation_borrow_origins(state, occurrence),
+        );
+
         if self.publish {
-            self.completion_observations
+            self.completions
                 .entry(bray_bound_tree::StorageMutation::Operation(occurrence))
-                .and_modify(|previous| {
-                    previous.retain(|path, target| observations.get(path) == Some(target))
-                })
+                .and_modify(|previous| previous.merge(&completion))
                 // Publication and the current transition retain independent maps of shared paths.
-                .or_insert_with(|| observations.clone());
+                .or_insert_with(|| completion.clone());
         }
 
-        observations
+        completion
     }
 
     pub(super) fn target_observations<'target>(
@@ -271,12 +289,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut observations = BTreeMap::new();
         let mut snapshots = BTreeMap::new();
         let mut referents = std::collections::BTreeSet::new();
+        let mut stable_descriptors = std::collections::BTreeSet::new();
 
         if mutations.clone().next().is_none() {
             return StorageInvalidation::Observed {
                 accesses: observations,
                 snapshots,
                 referents,
+                stable_descriptors,
             };
         }
 
@@ -323,6 +343,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
             let observed = self.input.reference_target(memory, self.storage, access);
+
+            self.stable_descriptors(
+                memory,
+                access,
+                logical.root,
+                mutations.clone(),
+                &mut stable_descriptors,
+            );
 
             if let Some(observed) = &observed {
                 unrepresented.retain(|mutation| !observed.contains(mutation));
@@ -375,9 +403,56 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 accesses: observations,
                 snapshots,
                 referents,
+                stable_descriptors,
             }
         } else {
-            StorageInvalidation::All
+            self.opaque_observations(memory)
+        }
+    }
+    fn stable_descriptors<'target>(
+        &self,
+        memory: &crate::analysis::storage_flow::memory::State,
+        access: bray_bound_tree::StorageAccessId,
+        root: bray_bound_tree::StorageIdentityId,
+        mutations: impl Iterator<Item = &'target Target> + Clone,
+        descriptors: &mut std::collections::BTreeSet<StoragePath>,
+    ) {
+        let Some(path) = self.input.reference_paths.get(&access) else {
+            return;
+        };
+
+        for (step, (index, ty)) in path.borrows().iter().enumerate() {
+            if !matches!(
+                self.request.semantic_values().type_data(*ty).as_ref(),
+                bray_symbols::TypeData::Slice(_)
+            ) {
+                continue;
+            }
+
+            let descriptor = bray_bound_tree::StorageReferencePath::new(
+                path.projections()[..*index].into(),
+                path.borrows()[..step].into(),
+            );
+
+            let Some(location) =
+                crate::analysis::storage_flow::model::StorageFlowInput::reference_location(
+                    memory,
+                    root,
+                    &descriptor,
+                    None,
+                )
+            else {
+                continue;
+            };
+
+            if mutations.clone().all(|mutation| {
+                memory.target_relationship(&location, mutation) == StorageRelationship::Disjoint
+            }) {
+                descriptors.insert(StoragePath {
+                    root,
+                    projections: path.projections()[..*index].into(),
+                });
+            }
         }
     }
 }

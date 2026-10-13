@@ -1,6 +1,24 @@
 use super::ExecutionCondition;
 
 impl ExecutionCondition {
+    /// Closed spatial predicates observe pointer descriptors, not their payload snapshots.
+    pub(crate) fn spatial_observations(
+        &self,
+        predicates: &std::collections::BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
+    ) -> Self {
+        match self {
+            Self::Trusted(value) => Self::Trusted(std::sync::Arc::new(value.spatial_observations(predicates))),
+            Self::Operation(operator, operands) => Self::Operation(
+                *operator,
+                operands.iter().map(|value| value.spatial_observations(predicates)).collect(),
+            ),
+            Self::Predicate(predicate, substitution, arguments) if predicates.contains(predicate) => {
+                Self::predicate(*predicate, *substitution, arguments.iter().enumerate().map(|(index, argument)| if index == 0 { argument.owner_identity().clone() } else { argument.clone() }).collect())
+            }
+            _ => self.clone(),
+        }
+    }
+
     /// The carrier's identity survives changes to the component snapshot.
     pub(crate) fn owner_identity(&self) -> &Self {
         let mut value = self;

@@ -117,7 +117,7 @@ where
 
     let effects = crate::analysis::liveness::OperationEffects::from_checked_inputs(
         request,
-        expressions.selections(),
+        expressions,
         value_inputs,
         &dependencies,
         storage,

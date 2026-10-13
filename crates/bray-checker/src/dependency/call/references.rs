@@ -2,44 +2,30 @@ use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{
     BoundCallDependencyContracts, BoundCallReference, BoundExpressionId, SelectedCall,
 };
-use bray_symbols::{DependencyContractTemplateData, DependencySubjectRoot};
+use bray_symbols::DependencySubjectRoot;
 
 pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
     call: &SelectedCall,
     contracts: BoundCallDependencyContracts,
-    template: &DependencyContractTemplateData,
+    dependencies: &crate::dependency::defaults::CallResultDependencies,
 ) -> Result<BoundCallDependencyContracts, CheckerQueryError<C::UpstreamError>> {
-    let subjects = template
-        .reference_subjects()
-        .collect::<std::collections::BTreeSet<_>>();
+    let template = &dependencies.template;
 
-    let mut inputs = std::collections::BTreeMap::new();
+    let deferred = matches!(
+        call.resolution().result(),
+        bray_bound_tree::BoundCallResult::LazyFuture(_)
+    );
 
-    for subject in subjects {
-        if let Some(prepared) = reference_input_type(request, call, subject)? {
-            // Each selected input owns one path. Relations share its immutable formal subject.
-            inputs.insert(subject.clone(), prepared);
-        }
-    }
-
-    let mut references = Vec::with_capacity(template.borrows().len());
-
-    for relation in template.borrows() {
-        let Some((ty, _)) = inputs.get(relation.entry()) else {
-            continue;
-        };
-
-        if let Some(reference) = prepare_reference(
-            request,
-            relation,
-            *ty,
-            output_argument(request, call, relation.exit()),
-        )? {
-            references.push(reference);
-        }
-    }
+    let contracts = if deferred {
+        contracts.with_deferred_execution(
+            template.effects().iter().cloned(),
+            template.normal_completion(),
+        )
+    } else {
+        contracts
+    };
 
     let witness = request
         .trusted_contracts()
@@ -47,10 +33,110 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
         .is_some_and(crate::TrustedCallContract::result_guarantees_name_whole_owner);
 
     let retained_inputs = (witness
-        || references.iter().any(|reference| {
-            reference.relation().exit().subject_root() == DependencySubjectRoot::Result
-        }))
+        || template
+            .borrows()
+            .iter()
+            .any(|relation| relation.exit().subject_root() == DependencySubjectRoot::Result))
     .then(|| crate::dependency::result_inputs(call, template));
+
+    Ok(
+        with_reference_inputs(request, contracts, template, retained_inputs, |subject| {
+            reference_input_type(request, call, subject)
+        })?
+        .with_effects(
+            dependencies
+                .evaluation_effects
+                .iter()
+                .chain(template.effects().iter().filter(|_| !deferred))
+                .cloned(),
+        )
+        .with_normal_completion(
+            dependencies.evaluation_completes && (deferred || template.normal_completion()),
+        ),
+    )
+}
+
+pub(super) fn with_scoped_references<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    scoped: &bray_bound_tree::SelectedScopedUse,
+    occurrence: bray_bound_tree::BoundExecutionSite,
+    contracts: BoundCallDependencyContracts,
+    template: &bray_symbols::DependencyContractTemplateData,
+) -> Result<BoundCallDependencyContracts, CheckerQueryError<C::UpstreamError>> {
+    let (_, signature, _) = scoped.invocation(occurrence);
+
+    let (root, ty) = if let Some(receiver) = signature.receiver() {
+        let selected = bray_bound_tree::SelectedReceiver::new(
+            scoped.initializer(),
+            receiver.parameter(),
+            receiver.mode(),
+            scoped.source_type(),
+            receiver.ty(),
+        );
+
+        (
+            DependencySubjectRoot::Receiver,
+            selected
+                .input_type(request.semantic_values())
+                .expect("checked scoped receiver has a passed value type"),
+        )
+    } else {
+        (
+            DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
+            signature.parameters()[0].ty(),
+        )
+    };
+
+    let contracts = with_reference_inputs(request, contracts, template, None, |subject| {
+        if subject.subject_root() != root {
+            return Ok(None);
+        }
+
+        let Some(projections) = crate::storage::storage_projections(request, subject.projections())
+        else {
+            return Ok(None);
+        };
+
+        crate::storage::reference_path(request, ty, projections.into(), None)
+    })?;
+
+    Ok(contracts
+        .with_normal_completion(template.normal_completion())
+        .with_effects(template.effects().iter().cloned()))
+}
+
+fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    contracts: BoundCallDependencyContracts,
+    template: &bray_symbols::DependencyContractTemplateData,
+    retained_inputs: Option<std::collections::BTreeSet<BoundExpressionId>>,
+    mut input_type: impl FnMut(
+        &bray_symbols::DependencySubject,
+    ) -> Result<
+        Option<(bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)>,
+        CheckerQueryError<C::UpstreamError>,
+    >,
+) -> Result<BoundCallDependencyContracts, CheckerQueryError<C::UpstreamError>> {
+    let mut inputs = std::collections::BTreeMap::new();
+
+    for subject in template
+        .reference_subjects()
+        .collect::<std::collections::BTreeSet<_>>()
+    {
+        if let Some(prepared) = input_type(subject)? {
+            inputs.insert(subject.clone(), prepared);
+        }
+    }
+
+    let mut references = Vec::with_capacity(template.borrows().len());
+
+    for relation in template.borrows() {
+        if let Some((ty, _)) = inputs.get(relation.entry())
+            && let Some(reference) = prepare_reference(request, relation, *ty)?
+        {
+            references.push(reference);
+        }
+    }
 
     Ok(contracts
         .with_reference_paths(
@@ -59,15 +145,13 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
                 .map(|(subject, (_, path))| (subject, path))
                 .collect(),
         )
-        .with_references(references, retained_inputs)
-        .with_effects(template.effects().iter().cloned()))
+        .with_references(references, retained_inputs))
 }
 
 pub(crate) fn prepare_reference<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     relation: &bray_symbols::DependencyBorrowRelation,
     mut ty: bray_symbols::TypeId,
-    output: Option<BoundExpressionId>,
 ) -> Result<Option<BoundCallReference>, CheckerQueryError<C::UpstreamError>> {
     for _ in 0..relation.dereferences() {
         let bray_symbols::TypeData::Borrow { target, .. } =
@@ -106,7 +190,6 @@ pub(crate) fn prepare_reference<C: CheckerRequestContext + ?Sized>(
         relation.clone(),
         kind == Some(relation.kind()) && relation.target_projections().is_empty(),
         addressed_type,
-        output,
     )))
 }
 
@@ -147,49 +230,4 @@ fn reference_input_type<C: CheckerRequestContext + ?Sized>(
     };
 
     crate::storage::reference_path(request, ty, projections.into(), None)
-}
-
-fn output_argument<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
-    call: &SelectedCall,
-    output: &bray_symbols::DependencySubject,
-) -> Option<BoundExpressionId> {
-    // Rebinding the formal reference itself changes only the callee's local slot.
-    if output.projections().is_empty() {
-        return None;
-    }
-
-    match output.subject_root() {
-        DependencySubjectRoot::Receiver => call.receiver().and_then(|receiver| {
-            matches!(
-                receiver.mode(),
-                bray_symbols::ReceiverMode::Shared | bray_symbols::ReceiverMode::Mutable
-            )
-            .then_some(receiver.expression())
-        }),
-        DependencySubjectRoot::Parameter(parameter) => {
-            call.arguments().iter().find_map(|argument| {
-                let bray_bound_tree::SelectedArgument::Explicit {
-                    ordinal,
-                    expression,
-                    conversion,
-                    ..
-                } = argument
-                else {
-                    return None;
-                };
-
-                (*ordinal == parameter.raw()
-                    && matches!(
-                        request
-                            .semantic_values()
-                            .type_data(conversion.target_type())
-                            .as_ref(),
-                        bray_symbols::TypeData::Borrow { .. }
-                    ))
-                .then_some(*expression)
-            })
-        }
-        _ => None,
-    }
 }

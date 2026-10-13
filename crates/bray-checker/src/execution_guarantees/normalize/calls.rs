@@ -55,6 +55,21 @@ pub(super) fn selected_condition(
                 call, unit, semantics, values, literals, current, evaluated, budget,
             );
 
+            let arguments = if matches!(
+                call.implementation_hook(),
+                Some(
+                    bray_compiler_known::ImplementationHook::SequenceLength
+                        | bray_compiler_known::ImplementationHook::SequenceIsEmpty
+                )
+            ) {
+                arguments
+                    .into_iter()
+                    .map(|argument| argument.owner_identity().clone())
+                    .collect()
+            } else {
+                arguments
+            };
+
             return Some(ExecutionCondition::call(callable, arguments));
         }
 

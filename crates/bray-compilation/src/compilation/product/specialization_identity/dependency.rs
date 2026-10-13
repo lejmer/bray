@@ -14,6 +14,7 @@ impl StructuralValueEncoder<'_, '_> {
     ) -> Result<(), FactQueryError> {
         let data = self.values.dependency_contract_template_data(id);
 
+        self.digest.write_u8(u8::from(data.normal_completion()));
         self.dependency_requirements(data.requirements())?;
 
         let mut identities = Vec::with_capacity(data.borrows().len());

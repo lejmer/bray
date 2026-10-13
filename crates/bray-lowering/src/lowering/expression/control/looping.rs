@@ -182,6 +182,8 @@ impl Lowerer<'_> {
         let initializer = self.lower_scope_enter(id, current, join, result_type)?;
 
         let Some(current) = initializer.block else {
+            self.finish_unreachable_blocks(&[join], &initializer.source)?;
+
             return Ok(initializer);
         };
 
@@ -220,6 +222,14 @@ impl Lowerer<'_> {
         )?;
 
         self.finish_result_edge(body, join, result_type)?;
+
+        if !self.invocation_completes(id.into()) {
+            let source = self.source(expression.origin());
+
+            self.finish_unreachable_blocks(&[join], &source)?;
+
+            return Ok(LoweredExpression::terminated(source));
+        }
 
         self.finish_result_join(entry, join, result, self.source(expression.origin()))
     }

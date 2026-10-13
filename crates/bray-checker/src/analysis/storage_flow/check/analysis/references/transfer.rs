@@ -3,7 +3,7 @@ use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Place, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::storage::storage_projections;
-use bray_bound_tree::{BoundExecutionSite, SemanticSelection};
+use bray_bound_tree::BoundExecutionSite;
 use bray_symbols::{DependencySubjectRoot, TypeData};
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
@@ -29,6 +29,30 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             && let Some(source) = self.expression_reference(state, source)
         {
             source.transfer(&mut state.memory, result);
+        }
+
+        if let Some(bray_bound_tree::BoundExpression::ControlTransfer(transfer)) =
+            self.request.view().expression(expression)
+            && let Some(target) = self.execution.yield_targets.get(&expression)
+            && let Some(operand) = transfer.operand()
+            && let Some(result) = self.expression_result_storage(*target)
+            && let Some(projections) = self.reference_wrapping(
+                operand,
+                self.execution
+                    .semantics
+                    .types()
+                    .expression(*target)
+                    .expect("yield target has a checked type")
+                    .ty(),
+            )
+            && let Some(source) = self.expression_reference(state, operand)
+        {
+            // The result is evaluated before scope cleanup and published only at its join.
+            source.stage(
+                &mut state.memory,
+                (*target).into(),
+                Target::storage(result).project(&projections),
+            );
         }
 
         if let Some(bray_bound_tree::BoundExpression::ControlTransfer(transfer)) =
@@ -190,7 +214,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let Some(destination) = destination else {
             state.memory.invalidate(
-                &bray_bound_tree::StorageInvalidation::All,
+                &bray_bound_tree::StorageInvalidation::All(Default::default()),
                 self.storage,
                 bray_symbols::DependencyMutationKind::Write,
             );
@@ -235,21 +259,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &mut StorageFlowState,
         occurrence: BoundExecutionSite,
     ) {
-        let Some(expression) = occurrence.expression() else {
-            return;
-        };
-
-        if self.memory.operation(expression).is_some() {
+        if occurrence
+            .expression()
+            .is_some_and(|expression| self.memory.operation(expression).is_some())
+        {
             return;
         }
 
         let Some(contracts) = self.dependencies.calls().get(&occurrence) else {
-            return;
-        };
-
-        let Some(SemanticSelection::Call(call)) =
-            self.execution.semantics.selections().expression(expression)
-        else {
             return;
         };
 
@@ -259,7 +276,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let relation = reference.relation();
 
             let output = if relation.exit().subject_root() == DependencySubjectRoot::Result {
-                self.expression_result_storage(expression)
+                self.invocation_result(occurrence)
                     .map(Target::storage)
                     .and_then(|target| {
                         Some(target.project(&storage_projections(
@@ -267,25 +284,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             relation.exit().projections(),
                         )?))
                     })
+            } else if contracts
+                .reference_path(relation.exit())
+                .is_some_and(|path| !path.borrows().is_empty())
+            {
+                self.invocation_locations(state, occurrence, relation.exit())
+                    .and_then(|mut targets| {
+                        (targets.len() == 1).then(|| targets.pop().expect("one output target"))
+                    })
             } else {
-                reference.output_argument().and_then(|argument| {
-                    let mut targets = self.call_reference_locations(
-                        state,
-                        argument,
-                        contracts.reference_path(relation.exit())?,
-                    )?;
-
-                    (targets.len() == 1).then(|| targets.pop().expect("one output target"))
-                })
+                None
             };
 
             let Some(destination) = output else {
-                continue;
-            };
-
-            let Some(argument) =
-                crate::dependency::result_argument(call, relation.entry().subject_root())
-            else {
                 continue;
             };
 
@@ -293,17 +304,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 && (reference.addressed_type().is_none()
                     || !relation.target_projections().is_empty())
             {
-                self.expression_reference(state, argument)
+                self.invocation_reference(state, occurrence, relation.entry().subject_root())
                     .into_iter()
                     .collect::<Vec<_>>()
             } else {
-                let Some(targets) = self.call_reference_locations(
-                    state,
-                    argument,
-                    contracts
-                        .reference_path(relation.entry())
-                        .expect("prepared reference input has a checked path"),
-                ) else {
+                let Some(targets) = self.invocation_locations(state, occurrence, relation.entry())
+                else {
                     continue;
                 };
 
@@ -314,6 +320,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
             for source in sources {
+                // Each alternative owns its output path while sharing immutable projections.
                 self.stage_reference(
                     &mut state.memory,
                     occurrence,

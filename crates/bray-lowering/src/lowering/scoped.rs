@@ -138,6 +138,16 @@ impl Lowerer<'_> {
                         (current, value)
                     };
 
+                if !lowerer.invocation_completes(BoundExecutionSite::ScopedEnter(expression)) {
+                    lowerer.set_terminator(
+                        current,
+                        Self::retained_source(&source),
+                        bray_ir::MirTerminatorKind::Unreachable,
+                    )?;
+
+                    return Ok(LoweredExpression::terminated(source));
+                }
+
                 let (current, value) = if result != capability_type {
                     let (success, capability, error, failure) =
                         lowerer.branch_result_value(expression, current, &source, value, result)?;

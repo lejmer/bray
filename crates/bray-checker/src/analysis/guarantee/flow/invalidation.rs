@@ -31,7 +31,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        if matches!(invalidation, StorageInvalidation::All) {
+        if matches!(invalidation, StorageInvalidation::All(_)) {
             if let Some(contract) = self
                 .request
                 .trusted_contracts()
@@ -85,7 +85,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             state.retire_evaluation(mutation);
         }
 
-        if matches!(invalidation, StorageInvalidation::All) {
+        if let StorageInvalidation::All(descriptors) = invalidation {
+            let descriptors = descriptors.iter().filter_map(|path| {
+                let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
+                let value = place.value_in(&state.current)?;
+
+                Some((place, value.owner_identity().clone()))
+            }).collect::<BTreeMap<_, _>>();
+
             state.invalidate_cleanup();
 
             let roots = self
@@ -99,10 +106,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             state.current.clear();
 
             for place in roots {
-                state.assign(
-                    place.clone(),
-                    ExecutionCondition::PostState(mutation, place),
+                let contents = ExecutionCondition::PostState(mutation, place.clone());
+
+                let value = descriptors.get(&place).map_or_else(
+                    || contents.clone(),
+                    |identity| ExecutionCondition::Constructed(
+                        std::sync::Arc::new(identity.clone()),
+                        [(bray_bound_tree::StorageProjection::OwnedTarget, contents.clone())].into(),
+                    ),
                 );
+
+                state.assign(place, value);
             }
 
             return;
@@ -134,10 +148,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         match invalidation {
             StorageInvalidation::Observed { accesses, .. } => {
                 for path in accesses.values().flatten() {
-                    if let Some(place) = crate::ExecutionPlace::storage_path(self.storage, path)
-                        .or_else(|| {
-                            crate::ExecutionPlace::storage_identity(self.storage, path.root)
-                        })
+                    if let Some(place) =
+                        crate::ExecutionPlace::storage_observation(self.storage, path)
                     {
                         // An unresolved selector invalidates its observable enclosing value.
                         changed_places.insert(place);
@@ -182,14 +194,33 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 }
             }
-            StorageInvalidation::All => unreachable!("global invalidation handled above"),
+            StorageInvalidation::All(_) => unreachable!("global invalidation handled above"),
         }
+
+        // Storage flow distinguishes the descriptor slot from its reached elements.
+        // Keep only descriptor identity. A fresh payload snapshot prevents opaque calls
+        // and predicates from equating the old contents with the new contents.
+        let descriptors = match invalidation {
+            StorageInvalidation::Observed {
+                stable_descriptors, ..
+            } => stable_descriptors
+                .iter()
+                .filter_map(|path| {
+                    let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
+                    let value = place.value_in(&state.current)?;
+
+                    Some((place, value.owner_identity().clone()))
+                })
+                .collect::<BTreeMap<_, _>>(),
+            _ => BTreeMap::new(),
+        };
 
         let invalidated_values = if transfers {
             Vec::new()
         } else {
             changed_places
                 .iter()
+                .filter(|place| !descriptors.contains_key(*place))
                 .flat_map(|place| {
                     [
                         place
@@ -226,7 +257,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state.current.extend(retained);
 
         for place in changed_places {
-            state.assign(place, ExecutionCondition::Unknown);
+            let value = descriptors
+                .get(&place)
+                .map(|identity| {
+                    ExecutionCondition::Constructed(
+                        std::sync::Arc::new(identity.clone()),
+                        [(
+                            bray_bound_tree::StorageProjection::OwnedTarget,
+                            ExecutionCondition::PostState(mutation, place.clone()),
+                        )]
+                        .into(),
+                    )
+                })
+                .unwrap_or(ExecutionCondition::Unknown);
+
+            state.assign(place, value);
         }
 
         if !transfers && let StorageInvalidation::Observed { snapshots, .. } = invalidation {

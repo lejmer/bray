@@ -53,6 +53,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
 }
 
 pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Sized> {
+    pub(super) values: &'a crate::analysis::liveness::ValueRetention,
     pub(in crate::analysis::guarantee) dependencies:
         &'a bray_bound_tree::CheckedDependencyContracts,
     pub(in crate::analysis::guarantee) sequence_lengths: &'a [BoundExpressionId],
@@ -124,6 +125,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> bool {
         if self.excluded_edges.contains(&edge.id()) {
             return false;
+        }
+
+        if let Some(AnalysisRefinement::InvocationCompletion(invocation)) = edge.refinement() {
+            let possible = match invocation
+                .expression()
+                .and_then(|expression| self.awaited_invocation(state, expression))
+            {
+                Some(source) => self.dependencies.calls()[&source].deferred_completion(),
+                None => self
+                    .dependencies
+                    .calls()
+                    .get(&invocation)
+                    .is_none_or(|contract| contract.normal_completion()),
+            };
+
+            if !possible {
+                return false;
+            }
         }
 
         if let Some(AnalysisRefinement::TrustBoundary(expression)) = edge.refinement() {
@@ -200,7 +219,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             condition.assume(value, &mut state.assumptions);
         }
 
-        self.complete_trusted_await(state, edge);
+        self.retain_successor_values(state, edge);
 
         true
     }

@@ -85,7 +85,7 @@ where
             expression,
             call,
             instantiated.with_result(result),
-            &template.template,
+            &template,
         )
         .map_err(DependencyContractInstantiationError::Resolution)?,
         template.escaping_evaluation_inputs,
@@ -263,18 +263,17 @@ where
     let mut instantiated =
         instantiate_hidden_call(request, storage, callable, (root, input), result)?;
 
-    if result.is_some() {
-        let template = request
-            .callable_result_dependencies(callable.definition().callable_symbol())
-            .map_err(DependencyContractInstantiationError::Resolution)?;
-
-        let template = crate::dependency::returned::resolved_result_template(
-            request,
-            Some(callable),
-            template,
-        )
+    let template = request
+        .callable_result_dependencies(callable.definition().callable_symbol())
         .map_err(DependencyContractInstantiationError::Resolution)?;
 
+    let template =
+        crate::dependency::returned::resolved_result_template(request, Some(callable), template)
+            .map_err(DependencyContractInstantiationError::Resolution)?;
+
+    instantiated = instantiated.with_normal_completion(template.normal_completion());
+
+    if result.is_some() {
         let mut context = CallInstantiationContext::hidden(request, storage, (root, input), result);
 
         let concrete = DependencyContractTemplateData::new(
@@ -298,7 +297,8 @@ where
         )?);
     }
 
-    Ok(instantiated)
+    super::references::with_scoped_references(request, scoped, occurrence, instantiated, &template)
+        .map_err(DependencyContractInstantiationError::Resolution)
 }
 
 fn instantiate_hidden_call<C>(

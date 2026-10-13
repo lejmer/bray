@@ -90,7 +90,8 @@ impl<'a> SemanticExporter<'a> {
         self.dependency_contracts.push(
             InterfaceDependencyContract::new(requirements)
                 .with_borrows(borrows)
-                .with_effects(effects),
+                .with_effects(effects)
+                .with_normal_completion(data.normal_completion()),
         );
 
         self.dependency_contract_ids.insert(id, exported);

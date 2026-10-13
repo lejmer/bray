@@ -74,7 +74,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                     exit.moved().iter().cloned(),
                                     exit.definitely_absent().iter().cloned(),
                                     &mut observe,
-                                    operation.occurrence(),
+                                    operation,
                                     &mut None,
                                 );
                             }
@@ -106,7 +106,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         decision.moved().iter().cloned(),
                         decision.definitely_absent().iter().cloned(),
                         &mut observe,
-                        operation.occurrence(),
+                        operation,
                         &mut None,
                     );
                 }
@@ -180,7 +180,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                     storage_state.moved.keys().cloned(),
                                     storage_state.definitely_absent.keys().cloned(),
                                     &mut observe,
-                                    operation.occurrence(),
+                                    operation,
                                     &mut Some(&mut *mutate),
                                 );
                             }
@@ -222,7 +222,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             replacement.moved.iter().cloned(),
                             replacement.definitely_absent.iter().cloned(),
                             &mut observe,
-                            operation.occurrence(),
+                            operation,
                             &mut Some(&mut *mutate),
                         );
                     }
@@ -240,9 +240,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         moved: impl Iterator<Item = bray_bound_tree::StoragePath>,
         definitely_absent: impl Iterator<Item = bray_bound_tree::StoragePath>,
         observe: &mut Option<&mut Observer<'_>>,
-        occurrence: bray_bound_tree::BoundExecutionSite,
+        operation: AnalysisOperationKind,
         mutate: &mut Option<&mut Mutation<'_>>,
     ) {
+        let occurrence = operation.occurrence();
+
+        let normal = matches!(
+            operation,
+            AnalysisOperationKind::ScopeExit {
+                preserves_exit_value: true,
+                ..
+            } | AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(_))
+        );
+
         let steps = self
             .disposal
             .plan
@@ -311,7 +321,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     continue;
                 };
 
-                let completes = lifecycle.contract.completes
+                let completes = normal
+                    || lifecycle.contract.completes
                     || (lifecycle.synchronous
                         && self.request.target_cannot_unwind(
                             bray_bound_tree::BoundCallableTarget::Declaration(lifecycle.callable),

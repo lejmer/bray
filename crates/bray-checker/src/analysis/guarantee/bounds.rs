@@ -60,21 +60,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .collect();
 
         self.sequence_lengths.iter().any(|length| {
-            let Some(observed) = state.entries.get(&(*length).into()).and_then(|entry| {
-                entry.arguments.get(&crate::ExecutionPlace::argument(
-                    bray_symbols::SymbolOrdinal::new(0),
-                ))
-            }) else {
+            let length = self.value(state, *length);
+
+            let ExecutionCondition::Call(_, arguments) = &length else {
+                return false;
+            };
+
+            let [observed] = arguments.as_ref() else {
                 return false;
             };
 
             if referent(&receiver) != referent(observed) {
-                return false;
-            }
-
-            let length = self.value(state, *length);
-
-            if length == ExecutionCondition::Unknown {
                 return false;
             }
 
@@ -92,5 +88,5 @@ fn referent(mut condition: &ExecutionCondition) -> &ExecutionCondition {
         condition = value;
     }
 
-    condition
+    condition.owner_identity()
 }

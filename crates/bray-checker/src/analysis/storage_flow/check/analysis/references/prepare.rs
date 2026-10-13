@@ -51,7 +51,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             for relation in dependencies.lifecycle_dependencies()[&lifecycle.callable].borrows() {
                 if let Some(ty) = types.get(relation.entry())
                     && let Some(reference) =
-                        crate::dependency::prepare_reference(request, relation, *ty, None)?
+                        crate::dependency::prepare_reference(request, relation, *ty)?
                 {
                     references.push(reference);
                 }
@@ -136,147 +136,17 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 continue;
             };
 
-            if let Some((ty, prepared)) = crate::storage::reference_path(
+            if let Some((_, prepared)) = crate::storage::reference_path(
                 request,
                 ty,
                 path.projections.clone(),
                 Some(reached.reached_type()),
             )? {
-                self.prepare_entry_reference_path(request, storage, path.clone(), ty, &prepared);
                 self.reference_paths.insert(access, prepared);
             }
         }
 
         Ok(())
-    }
-
-    pub(in crate::analysis::storage_flow) fn prepare_summary_references<
-        C: CheckerRequestContext + ?Sized,
-    >(
-        &mut self,
-        request: crate::CheckerUnitView<'_, C>,
-        storage: &bray_bound_tree::StoragePlan,
-        selections: &bray_bound_tree::CheckedSemanticSelections,
-        dependencies: &bray_bound_tree::CheckedDependencyContracts,
-    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
-        let mut paths = std::collections::BTreeSet::new();
-
-        for (site, contracts) in dependencies.calls() {
-            let Some(bray_bound_tree::SemanticSelection::Call(call)) = site
-                .expression()
-                .and_then(|expression| selections.expression(expression))
-            else {
-                continue;
-            };
-
-            for subject in contracts.reference_subjects() {
-                let Some(argument) =
-                    crate::dependency::result_argument(call, subject.subject_root())
-                else {
-                    continue;
-                };
-
-                let Some(base) = self.expression_places(argument).first() else {
-                    continue;
-                };
-
-                if !matches!(
-                    storage.identity(base.root),
-                    Some(
-                        bray_bound_tree::StorageIdentity::Parameter(_)
-                            | bray_bound_tree::StorageIdentity::Receiver(_)
-                    )
-                ) {
-                    continue;
-                }
-
-                if let Some(path) = project(request, base.clone(), subject.projections()) {
-                    paths.insert(path);
-                }
-            }
-        }
-
-        for path in paths {
-            let ty = storage
-                .identity_type(path.root)
-                .expect("entry storage has its declared type");
-
-            let Some((ty, prepared)) =
-                crate::storage::reference_path(request, ty, path.projections.clone(), None)?
-            else {
-                continue;
-            };
-
-            self.prepare_entry_reference_path(request, storage, path, ty, &prepared);
-        }
-
-        Ok(())
-    }
-
-    fn prepare_entry_reference_path<C: CheckerRequestContext + ?Sized>(
-        &mut self,
-        request: crate::CheckerUnitView<'_, C>,
-        storage: &bray_bound_tree::StoragePlan,
-        path: Place,
-        ty: bray_symbols::TypeId,
-        prepared: &bray_bound_tree::StorageReferencePath,
-    ) {
-        if !matches!(
-            storage.identity(path.root),
-            Some(
-                bray_bound_tree::StorageIdentity::Parameter(_)
-                    | bray_bound_tree::StorageIdentity::Receiver(_)
-            )
-        ) {
-            return;
-        }
-
-        for (step, (index, target)) in prepared
-            .borrows()
-            .iter()
-            .enumerate()
-            .filter(|(step, (index, _))| *step != 0 || *index != 0)
-        {
-            let prefix = Place {
-                root: path.root,
-                projections: path.projections[..*index].into(),
-            };
-
-            self.entry_references
-                .entry((
-                    prefix.clone(),
-                    1 + prepared.borrows()[..step]
-                        .iter()
-                        .rev()
-                        .take_while(|(previous, _)| previous == index)
-                        .count(),
-                ))
-                .or_insert_with(|| {
-                    (
-                        bray_bound_tree::StorageReferencePath::new(
-                            prefix.projections,
-                            prepared.borrows()[..step].into(),
-                        ),
-                        Some(*target),
-                    )
-                });
-        }
-
-        let layer = 1 + prepared
-            .borrows()
-            .iter()
-            .rev()
-            .take_while(|(index, _)| *index == path.projections.len())
-            .count();
-
-        if is_entry_reference(request, ty, &path)
-            || layer > 1 && crate::representation::reference_kind(request, ty).is_some()
-        {
-            let target = crate::representation::reference_target_type(request, ty);
-
-            self.entry_references
-                .insert((path, layer), (prepared.clone(), target));
-        }
     }
 
     pub(in crate::analysis::storage_flow) fn prepare_reference_constructions<
@@ -315,18 +185,5 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         }
 
         Ok(())
-    }
-}
-
-fn is_entry_reference<C: CheckerRequestContext + ?Sized>(
-    request: crate::CheckerUnitView<'_, C>,
-    ty: bray_symbols::TypeId,
-    path: &Place,
-) -> bool {
-    // Root borrow inputs already have their own entry capabilities.
-    match crate::representation::reference_kind(request, ty) {
-        Some(bray_symbols::DependencyReferenceKind::Address) => true,
-        Some(bray_symbols::DependencyReferenceKind::Borrow) => !path.projections.is_empty(),
-        None => false,
     }
 }

@@ -65,7 +65,8 @@ impl InternState {
                 store.intern_dependency_contract_template(
                     DependencyContractTemplateData::new(requirements)
                         .with_borrows(borrows)
-                        .with_effects(effects),
+                        .with_effects(effects)
+                        .with_normal_completion(input.normal_completion),
                 )?,
             );
         }

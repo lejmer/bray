@@ -1,4 +1,4 @@
-use super::{Place, State};
+use super::{Place, State, Target};
 use crate::test_support::{error_type, expression_unit, push_expression};
 use bray_bound_tree::{
     BoundErrorExpression, BoundExpression, BoundUnitId, BoundUnitKind, StorageIdentity,
@@ -93,52 +93,76 @@ fn consuming_and_deallocating_through_an_alias_updates_the_original_target() {
     state.transfer(&source, alias.clone());
 
     assert_eq!(
-        state.write(&source, ty, origins[1], None),
+        state.write(&Target::storage(source.clone()), ty, origins[1], None),
         MemoryOperationStatus::Valid
     );
 
     assert_eq!(
-        state.read(&alias, ty, MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(alias.clone()),
+            ty,
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::Valid
     );
 
     assert_eq!(
-        state.deallocate(&alias, origins[2]),
+        state.deallocate(&Target::storage(alias.clone()), origins[2]),
         MemoryOperationStatus::OutstandingObligations
     );
 
     assert_eq!(
-        state.initialization_origins(&alias).collect::<Vec<_>>(),
+        state
+            .initialization_origins(&Target::storage(alias.clone()))
+            .collect::<Vec<_>>(),
         vec![origins[1]]
     );
 
     assert_eq!(
-        state.read(&alias, ty, MemoryReadKind::Move, None, None),
+        state.read(
+            &Target::storage(alias.clone()),
+            ty,
+            MemoryReadKind::Move,
+            None,
+            None
+        ),
         MemoryOperationStatus::Valid
     );
 
     assert_eq!(
-        state.read(&source, ty, MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(source.clone()),
+            ty,
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::UninitializedRawStorage
     );
 
     assert_eq!(
-        state.deallocate(&source, origins[2]),
+        state.deallocate(&Target::storage(source.clone()), origins[2]),
         MemoryOperationStatus::Valid
     );
 
     assert_eq!(
-        state.write(&alias, ty, origins[3], None),
+        state.write(&Target::storage(alias.clone()), ty, origins[3], None),
         MemoryOperationStatus::InvalidatedAllocation
     );
 
     assert_eq!(
-        state.allocation_origins(&alias).collect::<Vec<_>>(),
+        state
+            .allocation_origins(&Target::storage(alias.clone()))
+            .collect::<Vec<_>>(),
         vec![origins[0]]
     );
 
     assert_eq!(
-        state.invalidation_origins(&alias).collect::<Vec<_>>(),
+        state
+            .invalidation_origins(&Target::storage(alias.clone()))
+            .collect::<Vec<_>>(),
         vec![origins[2]]
     );
 
@@ -154,22 +178,40 @@ fn raw_copy_creates_independent_contents_and_preserves_its_source() {
 
     state.fresh(source.clone(), origins[0]);
     state.fresh(destination.clone(), origins[1]);
-    state.write(&source, ty, origins[0], None);
+    state.write(&Target::storage(source.clone()), ty, origins[0], None);
 
     assert_eq!(
-        state.copy(&source, &destination, ty, origins[1], None),
+        state.copy(
+            &Target::storage(source.clone()),
+            &Target::storage(destination.clone()),
+            ty,
+            origins[1],
+            None
+        ),
         MemoryOperationStatus::Valid
     );
 
-    state.consume(&source, ty);
+    state.consume(&Target::storage(source.clone()), ty);
 
     assert_eq!(
-        state.read(&destination, ty, MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(destination.clone()),
+            ty,
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::Valid
     );
 
     assert_eq!(
-        state.read(&source, ty, MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(source.clone()),
+            ty,
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::UninitializedRawStorage
     );
 }
@@ -185,34 +227,64 @@ fn empty_range_copy_has_no_scalar_effect_and_nonempty_copy_keeps_obligations() {
     state.fresh(destination.clone(), origins[1]);
 
     assert_eq!(
-        state.copy(&source, &destination, ty, origins[1], Some(true)),
+        state.copy(
+            &Target::storage(source.clone()),
+            &Target::storage(destination.clone()),
+            ty,
+            origins[1],
+            Some(true)
+        ),
         MemoryOperationStatus::Valid
     );
 
     assert_eq!(
-        state.read(&destination, ty, MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(destination.clone()),
+            ty,
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::UninitializedRawStorage
     );
 
     assert_eq!(
-        state.copy(&source, &destination, ty, origins[1], Some(false)),
+        state.copy(
+            &Target::storage(source.clone()),
+            &Target::storage(destination.clone()),
+            ty,
+            origins[1],
+            Some(false)
+        ),
         MemoryOperationStatus::Valid
     );
 
     assert_eq!(
-        state.copy(&source, &destination, ty, origins[1], Some(true)),
+        state.copy(
+            &Target::storage(source.clone()),
+            &Target::storage(destination.clone()),
+            ty,
+            origins[1],
+            Some(true)
+        ),
         MemoryOperationStatus::Valid
     );
 
     assert_eq!(
-        state.deallocate(&destination, origins[2]),
+        state.deallocate(&Target::storage(destination.clone()), origins[2]),
         MemoryOperationStatus::OutstandingObligations
     );
 
-    state.deallocate(&source, origins[2]);
+    state.deallocate(&Target::storage(source.clone()), origins[2]);
 
     assert_eq!(
-        state.copy(&source, &destination, ty, origins[1], Some(true)),
+        state.copy(
+            &Target::storage(source.clone()),
+            &Target::storage(destination.clone()),
+            ty,
+            origins[1],
+            Some(true)
+        ),
         MemoryOperationStatus::InvalidatedAllocation
     );
 }
@@ -224,13 +296,13 @@ fn trusted_consumption_uses_checked_authority_without_inventing_initialized_stat
     let mut state = State::default();
 
     assert_eq!(
-        state.consume(&source, error_type()),
+        state.consume(&Target::storage(source.clone()), error_type()),
         MemoryOperationStatus::Valid
     );
 
     assert_eq!(
         state.read(
-            &source,
+            &Target::storage(source.clone()),
             error_type(),
             MemoryReadKind::Copy,
             Some(origins[0]),
@@ -240,7 +312,13 @@ fn trusted_consumption_uses_checked_authority_without_inventing_initialized_stat
     );
 
     assert_eq!(
-        state.read(&source, error_type(), MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(source.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::UninitializedRawStorage
     );
 }
@@ -252,18 +330,33 @@ fn retiring_a_pointer_slot_keeps_the_contents_reached_by_surviving_aliases() {
     let mut state = State::default();
 
     state.fresh(source.clone(), origins[0]);
-    state.write(&source, error_type(), origins[1], None);
+
+    state.write(
+        &Target::storage(source.clone()),
+        error_type(),
+        origins[1],
+        None,
+    );
+
     state.transfer(&source, alias.clone());
     state.forget(source.root);
     assert!(!state.has_stored_value(&source));
 
     assert_eq!(
-        state.read(&alias, error_type(), MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(alias.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::Valid
     );
 
     assert_eq!(
-        state.allocation_origins(&alias).collect::<Vec<_>>(),
+        state
+            .allocation_origins(&Target::storage(alias.clone()))
+            .collect::<Vec<_>>(),
         vec![origins[0]]
     );
 
@@ -278,13 +371,26 @@ fn reassignment_changes_the_slot_without_mutating_its_previous_target() {
     let mut state = State::default();
 
     state.fresh(source.clone(), origins[0]);
-    state.write(&source, error_type(), origins[1], None);
+
+    state.write(
+        &Target::storage(source.clone()),
+        error_type(),
+        origins[1],
+        None,
+    );
+
     state.transfer(&source, alias.clone());
     state.transfer(&unknown, source.clone());
     assert!(!state.has_stored_value(&source));
 
     assert_eq!(
-        state.read(&alias, error_type(), MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(alias.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::Valid
     );
 }
@@ -299,30 +405,49 @@ fn join_intersects_initialization_but_preserves_possible_obligations_and_origins
 
     let mut right = left.clone();
 
-    left.write(&source, error_type(), origins[1], None);
+    left.write(
+        &Target::storage(source.clone()),
+        error_type(),
+        origins[1],
+        None,
+    );
+
     assert!(left.merge(&right, &Default::default(), &Default::default()));
     assert!(!left.merge(&right, &Default::default(), &Default::default()));
 
     assert_eq!(
-        left.read(&source, error_type(), MemoryReadKind::Copy, None, None),
+        left.read(
+            &Target::storage(source.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::UninitializedRawStorage
     );
 
     assert_eq!(
-        left.deallocate(&source, origins[2]),
+        left.deallocate(&Target::storage(source.clone()), origins[2]),
         MemoryOperationStatus::OutstandingObligations
     );
 
-    right.deallocate(&source, origins[2]);
+    right.deallocate(&Target::storage(source.clone()), origins[2]);
     assert!(left.merge(&right, &Default::default(), &Default::default()));
 
     assert_eq!(
-        left.read(&source, error_type(), MemoryReadKind::Copy, None, None),
+        left.read(
+            &Target::storage(source.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::InvalidatedAllocation
     );
 
     assert_eq!(
-        left.invalidation_origins(&source).collect::<Vec<_>>(),
+        left.invalidation_origins(&Target::storage(source.clone()))
+            .collect::<Vec<_>>(),
         vec![origins[2]]
     );
 }
@@ -341,35 +466,70 @@ fn joined_targets_require_all_possible_contents_and_weak_writes_do_not_initializ
 
     right.transfer(&second, alias.clone());
     assert!(left.merge(&right, &Default::default(), &Default::default()));
-    left.write(&alias, error_type(), origins[2], None);
+
+    left.write(
+        &Target::storage(alias.clone()),
+        error_type(),
+        origins[2],
+        None,
+    );
 
     for target in [&first, &second, &alias] {
         assert_eq!(
-            left.read(target, error_type(), MemoryReadKind::Copy, None, None),
+            left.read(
+                &Target::storage(target.clone()),
+                error_type(),
+                MemoryReadKind::Copy,
+                None,
+                None
+            ),
             MemoryOperationStatus::UninitializedRawStorage
         );
 
         assert_eq!(
-            left.deallocate(target, origins[3]),
+            left.deallocate(&Target::storage(target.clone()), origins[3]),
             MemoryOperationStatus::OutstandingObligations
         );
     }
 
-    left.write(&first, error_type(), origins[2], None);
-    left.write(&second, error_type(), origins[2], None);
+    left.write(
+        &Target::storage(first.clone()),
+        error_type(),
+        origins[2],
+        None,
+    );
+
+    left.write(
+        &Target::storage(second.clone()),
+        error_type(),
+        origins[2],
+        None,
+    );
 
     assert_eq!(
-        left.read(&alias, error_type(), MemoryReadKind::Move, None, None),
+        left.read(
+            &Target::storage(alias.clone()),
+            error_type(),
+            MemoryReadKind::Move,
+            None,
+            None
+        ),
         MemoryOperationStatus::Valid
     );
 
     assert_eq!(
-        left.read(&first, error_type(), MemoryReadKind::Copy, None, None),
+        left.read(
+            &Target::storage(first.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::UninitializedRawStorage
     );
 
     assert_eq!(
-        left.deallocate(&first, origins[3]),
+        left.deallocate(&Target::storage(first.clone()), origins[3]),
         MemoryOperationStatus::OutstandingObligations
     );
 }
@@ -381,32 +541,64 @@ fn repeated_creation_separates_old_aliases_and_has_a_finite_summary() {
     let mut state = State::default();
 
     state.fresh(source.clone(), origins[0]);
-    state.write(&source, error_type(), origins[1], None);
+
+    state.write(
+        &Target::storage(source.clone()),
+        error_type(),
+        origins[1],
+        None,
+    );
+
     state.transfer(&source, alias.clone());
     state.fresh(source.clone(), origins[0]);
-    state.write(&source, error_type(), origins[1], None);
+
+    state.write(
+        &Target::storage(source.clone()),
+        error_type(),
+        origins[1],
+        None,
+    );
 
     assert_eq!(
-        state.read(&alias, error_type(), MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(alias.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::UninitializedRawStorage
     );
 
-    state.consume(&alias, error_type());
+    state.consume(&Target::storage(alias.clone()), error_type());
 
     assert_eq!(
-        state.deallocate(&alias, origins[2]),
+        state.deallocate(&Target::storage(alias.clone()), origins[2]),
         MemoryOperationStatus::OutstandingObligations
     );
 
     assert_eq!(
-        state.read(&source, error_type(), MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(source.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::Valid
     );
 
     let stable = state.clone();
 
     state.fresh(source.clone(), origins[0]);
-    state.write(&source, error_type(), origins[1], None);
+
+    state.write(
+        &Target::storage(source.clone()),
+        error_type(),
+        origins[1],
+        None,
+    );
+
     assert_eq!(state, stable);
     assert_eq!(state.contents.len(), 2);
 }
@@ -419,12 +611,19 @@ fn nested_address_observes_the_reference_slot_and_follows_reassignment() {
 
     state.fresh(source.clone(), origins[0]);
     state.fresh(other.clone(), origins[1]);
-    state.write(&source, error_type(), origins[0], None);
+
+    state.write(
+        &Target::storage(source.clone()),
+        error_type(),
+        origins[0],
+        None,
+    );
+
     state.address(source.clone(), address.clone(), error_type(), origins[2]);
 
     assert_eq!(
         state.read(
-            &address,
+            &Target::storage(address.clone()),
             error_type(),
             MemoryReadKind::Copy,
             None,
@@ -434,14 +633,20 @@ fn nested_address_observes_the_reference_slot_and_follows_reassignment() {
     );
 
     assert_eq!(
-        state.read(&result, error_type(), MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(result.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::Valid
     );
 
     state.transfer(&other, source.clone());
 
     state.read(
-        &address,
+        &Target::storage(address.clone()),
         error_type(),
         MemoryReadKind::Copy,
         None,
@@ -449,7 +654,13 @@ fn nested_address_observes_the_reference_slot_and_follows_reassignment() {
     );
 
     assert_eq!(
-        state.read(&result, error_type(), MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(result.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::UninitializedRawStorage
     );
 }
@@ -464,17 +675,36 @@ fn origin_join_unions_and_deduplicates_diagnostic_causes() {
 
     let mut right = left.clone();
 
-    left.write(&source, error_type(), origins[1], None);
-    right.write(&source, error_type(), origins[2], None);
+    left.write(
+        &Target::storage(source.clone()),
+        error_type(),
+        origins[1],
+        None,
+    );
+
+    right.write(
+        &Target::storage(source.clone()),
+        error_type(),
+        origins[2],
+        None,
+    );
+
     left.merge(&right, &Default::default(), &Default::default());
 
     assert_eq!(
-        left.initialization_origins(&source).collect::<Vec<_>>(),
+        left.initialization_origins(&Target::storage(source.clone()))
+            .collect::<Vec<_>>(),
         vec![origins[1], origins[2]]
     );
 
     assert_eq!(
-        left.read(&source, error_type(), MemoryReadKind::Copy, None, None),
+        left.read(
+            &Target::storage(source.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::Valid
     );
 
@@ -504,16 +734,28 @@ fn field_writes_invalidate_the_parent_but_preserve_siblings() {
     state.address(aggregate, parent.clone(), error_type(), origins[0]);
     state.address(left, left_pointer.clone(), error_type(), origins[1]);
     state.address(right, right_pointer.clone(), error_type(), origins[2]);
-    state.write(&left_pointer, error_type(), origins[3], None);
+
+    state.write(
+        &Target::storage(left_pointer.clone()),
+        error_type(),
+        origins[3],
+        None,
+    );
 
     assert_eq!(
-        state.read(&parent, error_type(), MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(parent.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::UninitializedRawStorage
     );
 
     assert_eq!(
         state.read(
-            &left_pointer,
+            &Target::storage(left_pointer.clone()),
             error_type(),
             MemoryReadKind::Copy,
             None,
@@ -524,7 +766,7 @@ fn field_writes_invalidate_the_parent_but_preserve_siblings() {
 
     assert_eq!(
         state.read(
-            &right_pointer,
+            &Target::storage(right_pointer.clone()),
             error_type(),
             MemoryReadKind::Copy,
             None,
@@ -533,11 +775,11 @@ fn field_writes_invalidate_the_parent_but_preserve_siblings() {
         MemoryOperationStatus::Valid
     );
 
-    state.consume(&left_pointer, error_type());
+    state.consume(&Target::storage(left_pointer.clone()), error_type());
 
     assert_eq!(
         state.read(
-            &right_pointer,
+            &Target::storage(right_pointer.clone()),
             error_type(),
             MemoryReadKind::Copy,
             None,
@@ -563,11 +805,17 @@ fn whole_value_transfer_retains_reference_fields_and_replaces_old_fields() {
     state.fresh(allocation.clone(), origins[0]);
     state.transfer(&allocation, field(&aggregate));
     state.transfer(&aggregate, destination.clone());
-    state.write(&allocation, error_type(), origins[1], None);
+
+    state.write(
+        &Target::storage(allocation.clone()),
+        error_type(),
+        origins[1],
+        None,
+    );
 
     assert_eq!(
         state.read(
-            &field(&destination),
+            &Target::storage(field(&destination)),
             error_type(),
             MemoryReadKind::Move,
             None,
@@ -578,7 +826,7 @@ fn whole_value_transfer_retains_reference_fields_and_replaces_old_fields() {
 
     assert_eq!(
         state.read(
-            &field(&aggregate),
+            &Target::storage(field(&aggregate)),
             error_type(),
             MemoryReadKind::Copy,
             None,
@@ -602,12 +850,24 @@ fn recreated_local_does_not_revive_a_pointer_to_its_previous_incarnation() {
     state.address(local, current.clone(), error_type(), origins[1]);
 
     assert_eq!(
-        state.read(&old, error_type(), MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(old.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::UninitializedRawStorage
     );
 
     assert_eq!(
-        state.read(&current, error_type(), MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(current.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::Valid
     );
 }
@@ -619,24 +879,42 @@ fn offset_retains_allocation_identity_without_claiming_base_contents() {
     let mut state = State::default();
 
     state.fresh(allocation.clone(), origins[0]);
-    state.write(&allocation, error_type(), origins[1], None);
-    state.offset(&allocation, interior.clone());
+
+    state.write(
+        &Target::storage(allocation.clone()),
+        error_type(),
+        origins[1],
+        None,
+    );
+
+    state.offset(&Target::storage(allocation.clone()), interior.clone());
 
     assert_eq!(
-        state.read(&interior, error_type(), MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(interior.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::UninitializedRawStorage
     );
 
     assert_eq!(
-        state.deallocate(&interior, origins[2]),
+        state.deallocate(&Target::storage(interior.clone()), origins[2]),
         MemoryOperationStatus::OutstandingObligations
     );
 
-    state.consume(&allocation, error_type());
-    state.deallocate(&allocation, origins[2]);
+    state.consume(&Target::storage(allocation.clone()), error_type());
+    state.deallocate(&Target::storage(allocation.clone()), origins[2]);
 
     assert_eq!(
-        state.write(&interior, error_type(), origins[3], None),
+        state.write(
+            &Target::storage(interior.clone()),
+            error_type(),
+            origins[3],
+            None
+        ),
         MemoryOperationStatus::InvalidatedAllocation
     );
 }
@@ -651,7 +929,7 @@ fn checked_read_evidence_retains_cleanup_obligations() {
 
     assert_eq!(
         state.read(
-            &source,
+            &Target::storage(source.clone()),
             error_type(),
             MemoryReadKind::Copy,
             Some(origins[1]),
@@ -661,12 +939,14 @@ fn checked_read_evidence_retains_cleanup_obligations() {
     );
 
     assert_eq!(
-        state.deallocate(&source, origins[2]),
+        state.deallocate(&Target::storage(source.clone()), origins[2]),
         MemoryOperationStatus::OutstandingObligations
     );
 
     assert_eq!(
-        state.initialization_origins(&source).collect::<Vec<_>>(),
+        state
+            .initialization_origins(&Target::storage(source.clone()))
+            .collect::<Vec<_>>(),
         vec![origins[1]]
     );
 }
@@ -678,20 +958,37 @@ fn an_unresolved_stored_pointer_cannot_prove_disjointness() {
     let mut state = State::default();
 
     state.fresh(allocation.clone(), origins[0]);
-    state.write(&allocation, error_type(), origins[1], None);
+
+    state.write(
+        &Target::storage(allocation.clone()),
+        error_type(),
+        origins[1],
+        None,
+    );
 
     state.read(
-        &allocation,
+        &Target::storage(allocation.clone()),
         error_type(),
         MemoryReadKind::Copy,
         None,
         Some(loaded.clone()),
     );
 
-    state.write(&loaded, error_type(), origins[2], None);
+    state.write(
+        &Target::storage(loaded.clone()),
+        error_type(),
+        origins[2],
+        None,
+    );
 
     assert_eq!(
-        state.read(&allocation, error_type(), MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(allocation.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::UninitializedRawStorage
     );
 }
@@ -710,14 +1007,20 @@ fn dynamic_selectors_keep_unknown_locations_without_equating_evaluations() {
     state.address(element.clone(), pointer.clone(), error_type(), origins[1]);
 
     assert_eq!(
-        state.read(&pointer, error_type(), MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(pointer.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::UninitializedRawStorage
     );
 
     state.fresh(replacement.clone(), origins[2]);
     state.transfer(&replacement, element.clone());
     state.transfer(&element, loaded.clone());
-    assert!(state.references(&loaded).unknown);
+    assert!(state.references(&Target::storage(loaded.clone())).unknown);
 }
 #[test]
 fn direct_moves_and_reinitialization_change_existing_pointer_targets() {
@@ -731,14 +1034,26 @@ fn direct_moves_and_reinitialization_change_existing_pointer_targets() {
     state.consume_place(owner.clone(), ty);
 
     assert_eq!(
-        state.read(&alias, ty, MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(alias.clone()),
+            ty,
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::UninitializedRawStorage
     );
 
     state.write_place(owner.clone(), ty, origins[1]);
 
     assert_eq!(
-        state.read(&alias, ty, MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(alias.clone()),
+            ty,
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::Valid
     );
 
@@ -746,7 +1061,13 @@ fn direct_moves_and_reinitialization_change_existing_pointer_targets() {
     state.write_place(owner, ty, origins[2]);
 
     assert_eq!(
-        state.read(&alias, ty, MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(alias.clone()),
+            ty,
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::UninitializedRawStorage
     );
 }
@@ -769,11 +1090,20 @@ fn reinterpreted_views_do_not_relabel_the_original_typed_storage() {
     state.transfer(&pointer, alias.clone());
     assert_eq!(state.referent(&alias, ty), Some(owner));
     assert_eq!(state.referent(&alias, other), None);
-    assert_eq!(state.reached_storage(&alias)[0].1, Some(ty));
+
+    assert_eq!(
+        state.reached_storage(&Target::storage(alias.clone()))[0].1,
+        Some(ty)
+    );
+
     state.begin_borrow(capability, state.referent(&alias, ty).unwrap(), other);
     state.retain_borrow(capability, alias.clone());
     assert_eq!(state.referent(&alias, other), None);
-    assert_eq!(state.reached_storage(&alias)[0].1, Some(ty));
+
+    assert_eq!(
+        state.reached_storage(&Target::storage(alias.clone()))[0].1,
+        Some(ty)
+    );
 }
 
 #[test]
@@ -788,7 +1118,7 @@ fn retained_borrow_values_share_targets_and_outlive_expression_capabilities() {
 
     assert!(!state.has_borrow(capability));
     assert_eq!(state.referent(&alias, error_type()), Some(source.clone()));
-    assert!(!state.initialized(&alias, error_type()));
+    assert!(!state.initialized(&Target::storage(alias.clone()), error_type()));
 
     state.begin(source.root);
     assert_eq!(state.referent(&alias, error_type()), None);
@@ -835,7 +1165,7 @@ fn opaque_mutation_forgets_stored_references_without_retargeting_live_borrows() 
         StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish();
 
     state.invalidate(
-        &bray_bound_tree::StorageInvalidation::All,
+        &bray_bound_tree::StorageInvalidation::All(Default::default()),
         &storage,
         bray_symbols::DependencyMutationKind::Retire,
     );
@@ -843,7 +1173,7 @@ fn opaque_mutation_forgets_stored_references_without_retargeting_live_borrows() 
     assert!(!state.has_stored_value(&slot));
     state.retain_borrow(capability, alias.clone());
     assert_eq!(state.referent(&alias, error_type()), Some(source));
-    assert!(!state.initialized(&alias, error_type()));
+    assert!(!state.initialized(&Target::storage(alias.clone()), error_type()));
 }
 
 #[test]
@@ -893,7 +1223,7 @@ fn call_entry_snapshots_do_not_restore_consumed_or_retired_contents() {
     state.stage_slot(call, &argument, result.clone());
 
     state.read(
-        &argument,
+        &Target::storage(argument.clone()),
         error_type(),
         MemoryReadKind::Move,
         Some(expressions[1]),
@@ -902,7 +1232,7 @@ fn call_entry_snapshots_do_not_restore_consumed_or_retired_contents() {
 
     state.complete_transition(call);
     assert_eq!(state.referent(&result, error_type()), Some(owner.clone()));
-    assert!(!state.initialized(&result, error_type()));
+    assert!(!state.initialized(&Target::storage(result.clone()), error_type()));
     state.begin_transition(call);
     state.stage_slot(call, &argument, result.clone());
     state.begin(owner.root);
@@ -950,7 +1280,12 @@ fn original_entry_references_survive_slot_reassignment_without_proving_disjointn
         vec![(&captured, &super::model::Origin::entry(first.clone()))]
     );
 
-    state.write(&first, error_type(), origins[0], None);
+    state.write(
+        &Target::storage(first.clone()),
+        error_type(),
+        origins[0],
+        None,
+    );
 
     assert!(
         state.has_stored_value(&second),
@@ -963,7 +1298,9 @@ fn original_entry_references_survive_slot_reassignment_without_proving_disjointn
     );
 
     assert!(
-        state.located_storage(&captured).is_none(),
+        state
+            .located_storage(&Target::storage(captured.clone()))
+            .is_none(),
         "original value identity does not locate its target"
     );
 }
@@ -1030,10 +1367,20 @@ fn exposed_entry_reference_keeps_its_origin_without_claiming_a_physical_place() 
         vec![(&pointer, &super::model::Origin::entry(source))]
     );
 
-    assert!(state.located_storage(&pointer).is_none());
+    assert!(
+        state
+            .located_storage(&Target::storage(pointer.clone()))
+            .is_none()
+    );
 
     assert_eq!(
-        state.read(&pointer, error_type(), MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(pointer.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::Valid
     );
 }
@@ -1047,7 +1394,7 @@ fn entry_borrow_targets_are_not_parameter_slots() {
     state.retain_borrow(capability, copy.clone());
     assert_eq!(state.referent(&copy, error_type()), None);
     assert!(state.borrowed_storage(capability).is_none());
-    assert!(!state.initialized(&copy, error_type()));
+    assert!(!state.initialized(&Target::storage(copy.clone()), error_type()));
     state.begin(parameter.root);
 
     assert!(
@@ -1096,7 +1443,12 @@ fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
 
     state.clear(&parameter);
     assert_eq!(state.exact_references(&copied).count(), 1);
-    assert!(state.located_storage(&copied).is_none());
+
+    assert!(
+        state
+            .located_storage(&Target::storage(copied.clone()))
+            .is_none()
+    );
 }
 
 #[test]
@@ -1188,7 +1540,7 @@ fn projected_entry_selectors_do_not_establish_exact_initialization() {
     state.retain_borrow(capability, pointer.clone());
     state.expose_address(&pointer, error_type(), origins[1]);
     assert_eq!(state.exact_references(&pointer).count(), 0);
-    assert!(!state.initialized(&pointer, error_type()));
+    assert!(!state.initialized(&Target::storage(pointer.clone()), error_type()));
 }
 
 #[test]
@@ -1235,7 +1587,13 @@ fn protected_payload_address_does_not_prove_initialization() {
     state.point_at(payload, pointer.clone(), error_type());
 
     assert_eq!(
-        state.read(&pointer, error_type(), MemoryReadKind::Copy, None, None),
+        state.read(
+            &Target::storage(pointer.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
         MemoryOperationStatus::UninitializedRawStorage
     );
 }
@@ -1264,7 +1622,7 @@ fn whole_value_transfer_moves_inline_payload_facts_without_retargeting_pointers(
     );
 
     state.consume_target(source, error_type());
-    assert!(!state.initialized(&old_pointer, error_type()));
+    assert!(!state.initialized(&Target::storage(old_pointer.clone()), error_type()));
     state.complete_transition(occurrence);
     state.finish_value_transfers();
 
@@ -1272,16 +1630,22 @@ fn whole_value_transfer_moves_inline_payload_facts_without_retargeting_pointers(
         super::Target::storage(destination).project(&[field, StorageProjection::UninitPayload]);
 
     state.point_at(moved, new_pointer.clone(), error_type());
-    assert!(state.initialized(&new_pointer, error_type()));
-    assert!(!state.initialized(&old_pointer, error_type()));
+    assert!(state.initialized(&Target::storage(new_pointer.clone()), error_type()));
+    assert!(!state.initialized(&Target::storage(old_pointer.clone()), error_type()));
     assert!(state.contents[&payload].pending.is_empty());
 
     assert_eq!(
-        state.read(&new_pointer, error_type(), MemoryReadKind::Move, None, None),
+        state.read(
+            &Target::storage(new_pointer.clone()),
+            error_type(),
+            MemoryReadKind::Move,
+            None,
+            None
+        ),
         MemoryOperationStatus::Valid
     );
 
-    assert!(!state.initialized(&new_pointer, error_type()));
+    assert!(!state.initialized(&Target::storage(new_pointer.clone()), error_type()));
 }
 
 #[test]
@@ -1300,8 +1664,8 @@ fn reusing_inline_storage_does_not_revive_old_payload_pointers() {
     state.uninit(payload.clone(), error_type());
     state.write_value(payload.clone(), error_type(), origins[1], None);
     state.point_at(payload, new_pointer.clone(), error_type());
-    assert!(state.initialized(&new_pointer, error_type()));
-    assert!(!state.initialized(&old_pointer, error_type()));
+    assert!(state.initialized(&Target::storage(new_pointer.clone()), error_type()));
+    assert!(!state.initialized(&Target::storage(old_pointer.clone()), error_type()));
 }
 
 #[test]
@@ -1342,7 +1706,7 @@ fn constructed_aggregate_and_return_transfer_the_evaluated_payload() {
         error_type(),
     );
 
-    assert!(state.initialized(&pointer, error_type()));
+    assert!(state.initialized(&Target::storage(pointer.clone()), error_type()));
 }
 
 #[test]
@@ -1366,7 +1730,7 @@ fn consumed_inline_value_transfers_after_borrow_plan_completion() {
         error_type(),
     );
 
-    assert!(state.initialized(&pointer, error_type()));
+    assert!(state.initialized(&Target::storage(pointer.clone()), error_type()));
     assert!(state.evaluated.is_empty());
 }
 
@@ -1408,7 +1772,7 @@ fn alternative_payload_sources_require_initialization_on_every_path() {
         error_type(),
     );
 
-    assert!(!state.initialized(&pointer, error_type()));
+    assert!(!state.initialized(&Target::storage(pointer.clone()), error_type()));
 }
 
 #[test]
@@ -1434,8 +1798,8 @@ fn allocation_reuse_retires_addresses_into_nested_inline_payloads() {
     state.uninit(payload.clone(), error_type());
     state.write_value(payload.clone(), error_type(), origins[2], None);
     state.point_at(payload, new_pointer.clone(), error_type());
-    assert!(!state.initialized(&pointer, error_type()));
-    assert!(state.initialized(&new_pointer, error_type()));
+    assert!(!state.initialized(&Target::storage(pointer.clone()), error_type()));
+    assert!(state.initialized(&Target::storage(new_pointer.clone()), error_type()));
 }
 
 #[test]
@@ -1458,8 +1822,8 @@ fn replacing_inline_storage_does_not_revalidate_a_pointer_to_its_old_contents() 
     state.write_value(replacement_payload, error_type(), origins[1], None);
     state.transfer(&replacement, first);
     state.point_at(payload, new_pointer.clone(), error_type());
-    assert!(!state.initialized(&pointer, error_type()));
-    assert!(state.initialized(&new_pointer, error_type()));
+    assert!(!state.initialized(&Target::storage(pointer.clone()), error_type()));
+    assert!(state.initialized(&Target::storage(new_pointer.clone()), error_type()));
 }
 
 #[test]
@@ -1482,7 +1846,7 @@ fn memory_writes_capture_formed_borrows_and_reads_transfer_the_whole_value() {
     state.point_at(payload, pointer.clone(), error_type());
 
     state.read(
-        &pointer,
+        &Target::storage(pointer.clone()),
         error_type(),
         MemoryReadKind::Move,
         None,
@@ -1505,9 +1869,9 @@ fn ending_inline_storage_lifetime_expires_its_exposed_payload_address() {
     state.write_value(payload.clone(), error_type(), origins[0], None);
     state.point_at(payload, pointer.clone(), error_type());
     state.forget(owner.root);
-    assert!(state.initialized(&pointer, error_type()));
+    assert!(state.initialized(&Target::storage(pointer.clone()), error_type()));
     state.end_storage(|identity| identity == owner.root);
-    assert!(!state.initialized(&pointer, error_type()));
+    assert!(!state.initialized(&Target::storage(pointer.clone()), error_type()));
 }
 
 #[test]
@@ -1531,7 +1895,7 @@ fn unlocated_aggregate_writes_keep_possible_origins_without_growing_paths() {
 
     for _ in 0..4 {
         state.write(
-            &pointer,
+            &Target::storage(pointer.clone()),
             error_type(),
             origins[0],
             Some(super::Source::Value(super::Target::storage(source.clone()))),
@@ -1586,4 +1950,196 @@ fn repeated_dereferences_have_distinct_entry_snapshots() {
     let path = bray_bound_tree::StorageReferencePath::new([].into(), [(0, ty), (0, ty)].into());
 
     assert_eq!(state.reference_location(slot, &path, None), Some(second));
+}
+
+#[test]
+fn owned_regions_keep_headers_disjoint_and_survive_owner_moves_without_exact_offsets() {
+    use super::{Origin, Target};
+
+    let ([owner, pointer, moved, other], _) = places();
+
+    let mut state = State::default();
+
+    let header = Target {
+        origin: Origin::entry(owner.clone()),
+        previous: false,
+    };
+
+    state.owned_region(header.clone(), pointer.clone(), error_type());
+    state.offset(&Target::storage(pointer.clone()), pointer.clone());
+
+    let regions = state
+        .referenced_regions(&Target::storage(pointer.clone()))
+        .unwrap();
+
+    assert_eq!(regions.len(), 1);
+
+    assert_eq!(
+        state.target_relationship(&header, &regions[0]),
+        bray_bound_tree::StorageRelationship::Disjoint
+    );
+
+    assert!(
+        state
+            .value_targets(&Target::storage(pointer.clone()))
+            .is_none()
+    );
+
+    assert_eq!(
+        state.read(
+            &Target::storage(pointer.clone()),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
+        MemoryOperationStatus::UninitializedRawStorage
+    );
+
+    state.transfer_value(&header, moved.clone());
+    state.owned_region(Target::storage(moved), other.clone(), error_type());
+    state.offset(&Target::storage(other.clone()), other.clone());
+
+    assert_eq!(
+        state.referenced_regions(&Target::storage(other)),
+        Some(regions.clone())
+    );
+
+    assert!(regions[0].observation_path().is_none());
+
+    let unrelated = Target {
+        origin: Origin::entry(Place::root(pointer.root)),
+        previous: false,
+    };
+
+    assert_eq!(
+        state.target_relationship(&unrelated, &regions[0]),
+        bray_bound_tree::StorageRelationship::PotentiallyOverlapping
+    );
+}
+
+#[test]
+fn displaced_regions_require_a_known_allocation_boundary() {
+    let ([storage, pointer, displaced, allocation], origins) = places();
+
+    let mut state = State::default();
+
+    state.address(storage.clone(), pointer.clone(), error_type(), origins[0]);
+    state.offset(&Target::storage(pointer.clone()), displaced.clone());
+
+    assert!(
+        state
+            .referenced_regions(&Target::storage(displaced.clone()))
+            .is_none()
+    );
+
+    state.fresh(allocation.clone(), origins[1]);
+    state.offset(&Target::storage(allocation.clone()), displaced.clone());
+
+    assert_eq!(
+        state.referenced_regions(&Target::storage(displaced.clone())),
+        state.value_targets(&Target::storage(allocation))
+    );
+
+    let owner = Target::storage(storage);
+
+    state.owned_region(owner.clone(), pointer.clone(), error_type());
+    state.offset(&Target::storage(pointer), displaced.clone());
+
+    assert_eq!(
+        state.referenced_regions(&Target::storage(displaced)),
+        Some(vec![owner.project(&[StorageProjection::OwnedTarget])])
+    );
+}
+
+#[test]
+fn raw_memory_reads_pointer_values_held_behind_an_entry_borrow() {
+    let ([storage, pointer, destination, result], origins) = places();
+
+    let mut state = State {
+        owned_storage: vec![storage.root].into(),
+        ..State::default()
+    };
+
+    state.address(storage.clone(), pointer.clone(), error_type(), origins[0]);
+
+    let indirect = Target {
+        origin: super::Origin::entry(destination),
+        previous: false,
+    };
+
+    state.begin_transition(origins[1].into());
+
+    state.stage_value(
+        origins[1].into(),
+        &Target::storage(pointer),
+        indirect.clone(),
+    );
+
+    state.complete_transition(origins[1].into());
+
+    assert_eq!(
+        state.write(&indirect, error_type(), origins[2], None),
+        MemoryOperationStatus::Valid
+    );
+
+    assert_eq!(
+        state.read(
+            &indirect,
+            error_type(),
+            MemoryReadKind::Move,
+            None,
+            Some(result)
+        ),
+        MemoryOperationStatus::Valid
+    );
+
+    assert_eq!(
+        state.read(&indirect, error_type(), MemoryReadKind::Copy, None, None),
+        MemoryOperationStatus::UninitializedRawStorage
+    );
+}
+
+#[test]
+fn dynamic_element_writes_keep_reference_descriptors_but_revoke_possible_elements() {
+    let ([array, pointer, element_pointer, _], origins) = places();
+
+    let mut state = State::default();
+
+    state.address(array.clone(), pointer.clone(), error_type(), origins[0]);
+
+    let fixed = Place {
+        root: array.root,
+        projections: [StorageProjection::ElementFromStart(
+            bray_symbols::SymbolOrdinal::new(0),
+        )]
+        .into(),
+    };
+
+    state.address(
+        fixed.clone(),
+        element_pointer.clone(),
+        error_type(),
+        origins[1],
+    );
+
+    let dynamic = Target::storage(Place {
+        root: array.root,
+        projections: [StorageProjection::Element(origins[2])].into(),
+    });
+
+    assert!(!super::model::References::one(dynamic.clone()).is_exact());
+    state.write_target(dynamic, error_type(), origins[2]);
+    assert_eq!(state.referent(&pointer, error_type()), Some(array));
+
+    assert_eq!(
+        state.read(
+            &Target::storage(element_pointer),
+            error_type(),
+            MemoryReadKind::Copy,
+            None,
+            None
+        ),
+        MemoryOperationStatus::UninitializedRawStorage
+    );
 }

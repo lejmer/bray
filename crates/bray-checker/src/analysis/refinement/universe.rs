@@ -131,7 +131,8 @@ impl RefinementUniverse {
     ) -> Result<Vec<Refinement>, RefinementUniverseError> {
         Ok(match refinement {
             AnalysisRefinement::CleanupRequired { .. }
-            | AnalysisRefinement::InvocationFailure(_) => Vec::new(),
+            | AnalysisRefinement::InvocationFailure(_)
+            | AnalysisRefinement::InvocationCompletion(_) => Vec::new(),
             AnalysisRefinement::Condition { expression, value } => {
                 condition_refinements(view, patterns, storage, dependencies, expression, value)
             }

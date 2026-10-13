@@ -75,15 +75,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 }
                 super::super::super::model::AnalysisCallPhase::Completion => {
-                    let result = self.invocation_value(state, invocation);
-
-                    self.complete_trusted_call(state, invocation, result);
-
-                    if let bray_bound_tree::BoundExecutionSite::ScopedExit(expression) = invocation
-                    {
-                        // Only guarantees rewritten to surviving values can outlive the consumed capability.
-                        state.invalidate_trusted(&ExecutionCondition::ScopedCapability(expression));
-                    }
+                    self.complete_operation(state, operation, None);
                 }
             }
 
@@ -101,6 +93,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
+        let awaited = operation
+            .occurrence()
+            .expression()
+            .filter(|_| {
+                matches!(
+                    operation,
+                    crate::analysis::model::AnalysisOperationKind::Suspension {
+                        kind: crate::analysis::model::AnalysisSuspensionKind::Await,
+                        ..
+                    }
+                )
+            })
+            .and_then(|expression| self.awaited_invocation(state, expression));
+
+        if let Some(entry) = awaited.and_then(|source| state.entries.get_mut(&source)) {
+            // Execution owns this entry evidence now. Its own effects must not erase it.
+            entry.pending_execution = false;
+        }
+
         match operation.node() {
             AnyBoundNodeId::Expression(expression) => {
                 if !matches!(
@@ -110,9 +121,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         ..
                     }
                 ) {
-                    // Only a repeated evaluation can retire an earlier incarnation of this
-                    // occurrence. Every evaluated expression retains a cache key at joins.
-                    if state.expressions.remove(&expression).is_some() {
+                    // Only a cyclic occurrence can have an earlier incarnation. Its cache
+                    // may already have expired, while values copied from it still survive.
+                    if self.values.can_repeat(expression) {
                         state.retire_evaluation(bray_bound_tree::StorageMutation::Operation(
                             expression.into(),
                         ));
@@ -128,7 +139,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
 
                 if self.checked_flow.is_some() {
-                    self.complete_operation(state, operation);
+                    self.complete_operation(state, operation, None);
                 }
 
                 state.trust_boundaries.remove(&expression);
@@ -146,16 +157,81 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             AnyBoundNodeId::Pattern(pattern) => self.pattern(state, pattern),
             _ => {}
         }
+
+        if let Some(entry) = awaited.and_then(|source| state.entries.get_mut(&source)) {
+            // Keep the captured invocation until its normal or abnormal continuation.
+            entry.pending_execution = true;
+        }
     }
+    pub(super) fn retain_successor_values(
+        &self,
+        state: &mut ExecutionState,
+        edge: &crate::analysis::model::AnalysisEdge,
+    ) {
+        let retained = self.values.incoming(edge.target());
+
+        state
+            .expressions
+            .retain(|expression, _| retained.contains(expression));
+
+        // Completed call evidence is consumed during block publication. Only an
+        // in-flight invocation or deferred execution needs it in the successor.
+        for operation in self
+            .graph
+            .block(edge.source())
+            .expect("edge source exists")
+            .operations()
+            .iter()
+            .filter_map(|id| self.graph.operation(*id))
+        {
+            let kind = operation.kind();
+
+            if !matches!(
+                kind,
+                crate::analysis::model::AnalysisOperationKind::Call {
+                    phase: crate::analysis::model::AnalysisCallPhase::Attempt,
+                    ..
+                } | crate::analysis::model::AnalysisOperationKind::Suspension { .. }
+            ) {
+                let occurrence = kind.occurrence();
+
+                if state
+                    .entries
+                    .get(&occurrence)
+                    .is_some_and(|entry| !entry.pending_execution)
+                {
+                    state.entries.remove(&occurrence);
+                }
+            }
+        }
+
+        if let Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(invocation)) =
+            edge.refinement()
+        {
+            if let Some(source) = invocation
+                .expression()
+                .and_then(|expression| self.awaited_invocation(state, expression))
+            {
+                state.entries.remove(&source);
+            }
+
+            state.entries.remove(&invocation);
+        }
+    }
+
     pub(in crate::analysis) fn complete_operation(
         &self,
         state: &mut ExecutionState,
         operation: super::super::super::model::AnalysisOperationKind,
+        observations: Option<&bray_bound_tree::StorageCompletion>,
     ) {
         if matches!(
             operation,
             super::super::super::model::AnalysisOperationKind::Call {
                 phase: super::super::super::model::AnalysisCallPhase::Attempt,
+                ..
+            } | super::super::super::model::AnalysisOperationKind::Suspension {
+                kind: super::super::super::model::AnalysisSuspensionKind::Await,
                 ..
             }
         ) {
@@ -174,15 +250,56 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        if let Some(observations) = self.checked_flow.and_then(|flow| {
-            flow.completion_observations(bray_bound_tree::StorageMutation::Operation(
-                operation.occurrence(),
-            ))
-        }) {
-            self.observe_references(state, observations);
+        let empty = Default::default();
+
+        let observations = observations
+            .or_else(|| {
+                self.checked_flow.and_then(|flow| {
+                    flow.completion(bray_bound_tree::StorageMutation::Operation(
+                        operation.occurrence(),
+                    ))
+                })
+            })
+            .unwrap_or(&empty);
+
+        self.observe_references(state, observations.references());
+
+        if matches!(
+            operation.occurrence(),
+            bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+                | bray_bound_tree::BoundExecutionSite::ScopedExit(_)
+        ) {
+            let invocation = operation.occurrence();
+
+            if let Some(entry) = state.entries.get_mut(&invocation) {
+                entry.pending_execution = false;
+            }
+
+            let result = self.invocation_value(state, invocation);
+
+            self.complete_trusted_call(state, invocation, result, observations.borrow_origins());
+
+            if let bray_bound_tree::BoundExecutionSite::ScopedExit(expression) = invocation {
+                state.invalidate_trusted(&ExecutionCondition::ScopedCapability(expression));
+            }
+
+            return;
         }
 
-        self.complete_call(state, expression);
+        if let Some(source) = self.awaited_invocation(state, expression) {
+            if let Some(entry) = state.entries.get_mut(&source) {
+                entry.pending_execution = false;
+            }
+
+            self.complete_trusted_call(
+                state,
+                source,
+                ExecutionCondition::Expression(expression),
+                observations.borrow_origins(),
+            );
+        } else {
+            self.complete_call(state, expression, observations.borrow_origins());
+        }
     }
 
     fn expression(

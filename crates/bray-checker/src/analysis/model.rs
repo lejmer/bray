@@ -178,6 +178,7 @@ pub(crate) enum AnalysisRefinement {
     },
     TrustBoundary(BoundExpressionId),
     InvocationFailure(bray_bound_tree::BoundExecutionSite),
+    InvocationCompletion(bray_bound_tree::BoundExecutionSite),
     CleanupRequired {
         scope: bray_bound_tree::BoundBlockId,
         exit: AnyBoundNodeId,
@@ -321,6 +322,7 @@ pub(crate) struct ControlFlowGraph {
     edges: Box<[AnalysisEdge]>,
     operations: Box<[AnalysisOperation]>,
     exits: Box<[AnalysisExit]>,
+    component_order: Box<[usize]>,
 }
 
 impl ControlFlowGraph {
@@ -332,13 +334,14 @@ impl ControlFlowGraph {
         operations: impl Into<Box<[AnalysisOperation]>>,
         exits: impl Into<Box<[AnalysisExit]>>,
     ) -> Self {
-        let graph = Self {
+        let mut graph = Self {
             unit,
             entry,
             blocks: blocks.into(),
             edges: edges.into(),
             operations: operations.into(),
             exits: exits.into(),
+            component_order: Box::new([]),
         };
 
         assert!(
@@ -346,7 +349,35 @@ impl ControlFlowGraph {
             "control-flow graph construction violated its invariants for {unit:?}"
         );
 
+        let components = bray_base::strongly_connected_components(
+            graph.blocks.iter().map(|block| block.id()),
+            |id| {
+                graph
+                    .block(id)
+                    .expect("graph member exists")
+                    .successors()
+                    .iter()
+                    .map(|edge| graph.edge(*edge).expect("successor exists").target())
+                    .collect::<Vec<_>>()
+            },
+        );
+
+        let mut order = vec![0; graph.blocks.len()];
+
+        for (rank, component) in components.into_iter().enumerate() {
+            for block in component {
+                order[block.to_index().expect("component block has an index")] = rank;
+            }
+        }
+
+        graph.component_order = order.into();
+
         graph
+    }
+
+    /// Components precede every successor outside their own cycle.
+    pub(crate) fn component_order(&self, block: AnalysisBlockId) -> usize {
+        self.component_order[block.to_index().expect("graph block has an index")]
     }
 
     pub(crate) const fn unit(&self) -> BoundUnitId {
@@ -438,9 +469,10 @@ impl ControlFlowGraph {
         });
 
         let refinements_are_valid = self.edges().iter().all(|edge| match edge.refinement() {
-            Some(AnalysisRefinement::InvocationFailure(invocation)) => {
-                invocation.node().unit() == self.unit
-            }
+            Some(
+                AnalysisRefinement::InvocationFailure(invocation)
+                | AnalysisRefinement::InvocationCompletion(invocation),
+            ) => invocation.node().unit() == self.unit,
             Some(AnalysisRefinement::CleanupRequired { scope, exit }) => {
                 scope.unit() == self.unit && exit.unit() == self.unit
             }

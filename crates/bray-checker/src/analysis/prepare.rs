@@ -16,6 +16,7 @@ use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PreparedBodyAnalysis {
     pub(crate) graph: ControlFlowGraph,
+    pub(crate) values: super::liveness::ValueRetention,
     pub(crate) cleanup: super::guarantee::CleanupPlan,
     pub(crate) sequence_lengths: Vec<BoundExpressionId>,
     pub(crate) observed_types: BTreeMap<crate::ExecutionPlace, Option<TypeId>>,
@@ -104,7 +105,14 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
             }
         };
 
+    let Some(values) =
+        super::liveness::ValueRetention::prepare(&graph, request.unit(), storage, &request)
+    else {
+        return CheckerOutcome::Cancelled;
+    };
+
     let mut prepared = PreparedBodyAnalysis {
+        values,
         graph,
         cleanup,
         kind: request.unit().key().kind(),

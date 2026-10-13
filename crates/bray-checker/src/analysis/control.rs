@@ -179,7 +179,15 @@ where
                 let cancellation = self.push_block();
 
                 self.push_edge(current, suspended, AnalysisEdgeKind::Suspension, None);
-                self.push_edge(suspended, completed, AnalysisEdgeKind::Resume, None);
+
+                self.push_edge(
+                    suspended,
+                    completed,
+                    AnalysisEdgeKind::Resume,
+                    Some(super::model::AnalysisRefinement::InvocationCompletion(
+                        bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+                    )),
+                );
 
                 self.push_edge(
                     suspended,
@@ -190,7 +198,14 @@ where
 
                 self.push_exit(cancellation, AnalysisExitKind::Cancellation, id.into());
             } else {
-                self.push_edge(current, completed, AnalysisEdgeKind::Sequential, None);
+                self.push_edge(
+                    current,
+                    completed,
+                    AnalysisEdgeKind::Sequential,
+                    Some(super::model::AnalysisRefinement::InvocationCompletion(
+                        bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+                    )),
+                );
             }
 
             self.push_dependency_failures(

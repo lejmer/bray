@@ -12,7 +12,9 @@ use crate::{
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum StorageInvalidation {
     /// An opaque operation can reach storage through untracked aliases.
-    All,
+    /// The listed descriptors have unexposed invocation-owned storage. Their identity
+    /// survives, but no contents, lifetime, or authority guarantee is preserved.
+    All(BTreeSet<crate::StoragePath>),
     /// Only the listed paths and overlapping storage may change.
     Paths(Vec<crate::StoragePath>),
     /// Flow-resolved accesses and logical component observations changed through them.
@@ -26,6 +28,8 @@ pub enum StorageInvalidation {
         snapshots: BTreeMap<crate::StoragePath, crate::StoragePath>,
         /// References whose reachable contents may change while their address value survives.
         referents: BTreeSet<crate::StoragePath>,
+        /// Slice descriptors proven disjoint from all writes to their reachable elements.
+        stable_descriptors: BTreeSet<crate::StoragePath>,
     },
 }
 
@@ -33,20 +37,25 @@ impl StorageInvalidation {
     /// Retains every target that either incoming execution can mutate.
     pub fn merge(&mut self, incoming: &Self) {
         match (&mut *self, incoming) {
-            (_, Self::All) => *self = Self::All,
-            (Self::All, _) => {}
+            (Self::All(current), Self::All(incoming)) => {
+                current.retain(|path| incoming.contains(path));
+            }
+            (_, Self::All(_)) | (Self::All(_), _) => *self = Self::All(BTreeSet::new()),
             (
                 Self::Observed {
                     accesses: current,
                     snapshots,
                     referents,
+                    stable_descriptors,
                 },
                 Self::Observed {
                     accesses: incoming,
                     snapshots: incoming_snapshots,
                     referents: incoming_referents,
+                    stable_descriptors: incoming_descriptors,
                 },
             ) => {
+                stable_descriptors.retain(|path| incoming_descriptors.contains(path));
                 snapshots.retain(|path, target| incoming_snapshots.get(path) == Some(target));
                 referents.extend(incoming_referents.iter().cloned());
 
@@ -72,7 +81,7 @@ impl StorageInvalidation {
     /// Returns whether this operation can change the independently resolved path.
     pub fn invalidates_path(&self, path: &crate::StoragePath, storage: &StoragePlan) -> bool {
         match self {
-            Self::All => true,
+            Self::All(_) => true,
             Self::Observed { accesses, .. } => accesses
                 .values()
                 .flatten()
@@ -86,7 +95,7 @@ impl StorageInvalidation {
     /// Returns whether this operation invalidates facts about the given access.
     pub fn invalidates(&self, access: StorageAccessId, storage: &StoragePlan) -> bool {
         match self {
-            Self::All => true,
+            Self::All(_) => true,
             Self::Observed { accesses, .. } => accesses.contains_key(&access),
             Self::Paths(mutations) => mutations.iter().any(|mutation| {
                 storage.relationship_to_path(access, mutation) != StorageRelationship::Disjoint
@@ -262,7 +271,7 @@ impl CheckedRefinements {
         if invalidations.iter().any(|(site, invalidation)| {
             site.node().unit() != unit
                 || match invalidation {
-                    StorageInvalidation::All => false,
+                    StorageInvalidation::All(paths) => paths.iter().any(|path| !path.is_valid_for(unit)),
                     StorageInvalidation::Paths(paths) => {
                         paths.iter().any(|path| !path.is_valid_for(unit))
                     }
@@ -270,13 +279,17 @@ impl CheckedRefinements {
                         accesses,
                         snapshots,
                         referents,
+                        stable_descriptors,
                     } => {
                         accesses.iter().any(|(access, paths)| {
                             access.unit() != unit
                                 || paths.iter().any(|path| !path.is_valid_for(unit))
                         }) || snapshots.iter().any(|(path, target)| {
                             !path.is_valid_for(unit) || !target.is_valid_for(unit)
-                        }) || referents.iter().any(|path| !path.is_valid_for(unit))
+                        }) || referents
+                            .iter()
+                            .chain(stable_descriptors)
+                            .any(|path| !path.is_valid_for(unit))
                     }
                 }
         }) {
@@ -514,12 +527,14 @@ mod tests {
             ]
             .into(),
             referents: [first.clone()].into(),
+            stable_descriptors: [first.clone(), second.clone()].into(),
         };
 
         let right = super::StorageInvalidation::Observed {
             accesses: [(access, vec![second.clone()])].into(),
             snapshots: [(first.clone(), first.clone()), (alias, second.clone())].into(),
             referents: [second.clone()].into(),
+            stable_descriptors: [first.clone()].into(),
         };
 
         left.merge(&right);
@@ -529,8 +544,22 @@ mod tests {
             super::StorageInvalidation::Observed {
                 accesses: [(access, vec![first.clone(), second.clone()])].into(),
                 snapshots: [(first.clone(), first.clone())].into(),
+                stable_descriptors: [first.clone()].into(),
                 referents: [first, second].into(),
             }
         );
     }
+    #[test]
+    fn opaque_effects_intersect_descriptor_preservation() {
+        let unit = BoundUnitId::new(4);
+        let first = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 0));
+        let second = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 1));
+        let mut effects = super::StorageInvalidation::All([first.clone(), second].into());
+
+        effects.merge(&super::StorageInvalidation::All([first.clone()].into()));
+        assert_eq!(effects, super::StorageInvalidation::All([first.clone()].into()));
+        effects.merge(&super::StorageInvalidation::Paths(vec![first]));
+        assert_eq!(effects, super::StorageInvalidation::All(Default::default()));
+    }
+
 }

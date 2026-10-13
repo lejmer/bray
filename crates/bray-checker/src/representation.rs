@@ -15,13 +15,16 @@ pub(crate) fn reference_target_type<C: CheckerRequestContext + ?Sized>(
 ) -> Option<TypeId> {
     match request.semantic_values().type_data(ty).as_ref() {
         TypeData::Borrow { target, .. } => Some(*target),
-        _ => request
-            .available_compiler_known_symbols()
-            .unary_representation_argument(
-                request.semantic_values(),
-                RepresentationRole::RawPointer,
-                ty,
-            ),
+        _ => [
+            RepresentationRole::RawPointer,
+            RepresentationRole::DevicePointer,
+        ]
+        .into_iter()
+        .find_map(|role| {
+            request
+                .available_compiler_known_symbols()
+                .unary_representation_argument(request.semantic_values(), role, ty)
+        }),
     }
 }
 
@@ -34,7 +37,10 @@ pub(crate) fn reference_kind<C: CheckerRequestContext + ?Sized>(
         TypeData::Borrow { .. }
     ) {
         Some(bray_symbols::DependencyReferenceKind::Borrow)
-    } else if type_representation(request, ty) == Some(RepresentationRole::RawPointer) {
+    } else if matches!(
+        type_representation(request, ty),
+        Some(RepresentationRole::RawPointer | RepresentationRole::DevicePointer)
+    ) {
         Some(bray_symbols::DependencyReferenceKind::Address)
     } else {
         None
