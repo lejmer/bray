@@ -98,9 +98,12 @@ pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(
 pub(crate) fn reference_path<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     mut ty: TypeId,
-    projections: &[bray_bound_tree::StorageProjection],
+    projections: std::sync::Arc<[bray_bound_tree::StorageProjection]>,
     reached: Option<TypeId>,
-) -> Result<Option<(TypeId, Vec<(usize, TypeId)>)>, CheckerQueryError<C::UpstreamError>> {
+) -> Result<
+    Option<(TypeId, bray_bound_tree::StorageReferencePath)>,
+    CheckerQueryError<C::UpstreamError>,
+> {
     let mut borrows = Vec::new();
 
     for index in 0..=projections.len() {
@@ -125,7 +128,10 @@ pub(crate) fn reference_path<C: CheckerRequestContext + ?Sized>(
         }
     }
 
-    Ok(Some((ty, borrows)))
+    Ok(Some((
+        ty,
+        bray_bound_tree::StorageReferencePath::new(projections, borrows.into()),
+    )))
 }
 
 pub(crate) fn storage_projections<C: CheckerRequestContext + ?Sized>(

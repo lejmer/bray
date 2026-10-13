@@ -186,8 +186,9 @@ impl StorageFlowState {
             }
         }
 
-        for (slot, (borrows, ty)) in &input.entry_references {
-            if let Some(target) = StorageFlowInput::reference_location(&memory, slot, borrows, None)
+        for (slot, (path, ty)) in &input.entry_references {
+            if let Some(target) =
+                StorageFlowInput::reference_location(&memory, slot.root, path, None)
             {
                 memory.entry_reference_at(slot.clone(), target, *ty);
             }

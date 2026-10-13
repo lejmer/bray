@@ -171,6 +171,28 @@ impl State {
         References::one(target)
     }
 
+    pub(in crate::analysis::storage_flow) fn reference_location(
+        &self,
+        mut target: Target,
+        path: &bray_bound_tree::StorageReferencePath,
+        mut root_borrow: Option<Target>,
+    ) -> Option<Target> {
+        let mut copied = 0;
+
+        for (step, (index, ty)) in path.borrows().iter().enumerate() {
+            target = target.project(&path.projections()[copied..*index]);
+
+            target = match root_borrow.take().filter(|_| step == 0 && *index == 0) {
+                Some(root) => root,
+                None => self.value_target(&target, *ty)?,
+            };
+
+            copied = *index;
+        }
+
+        Some(target.project(&path.projections()[copied..]))
+    }
+
     pub(in crate::analysis::storage_flow) fn value_targets(
         &self,
         location: &Target,

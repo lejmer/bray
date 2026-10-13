@@ -272,8 +272,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     let mut targets = self.call_reference_locations(
                         state,
                         argument,
-                        relation.exit().projections(),
-                        contracts.borrow_path(relation.exit())?,
+                        contracts.reference_path(relation.exit())?,
                     )?;
 
                     (targets.len() == 1).then(|| targets.pop().expect("one output target"))
@@ -301,9 +300,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let Some(targets) = self.call_reference_locations(
                     state,
                     argument,
-                    relation.entry().projections(),
                     contracts
-                        .borrow_path(relation.entry())
+                        .reference_path(relation.entry())
                         .expect("prepared reference input has a checked path"),
                 ) else {
                     continue;
@@ -359,54 +357,45 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         state: &StorageFlowState,
         argument: bray_bound_tree::BoundExpressionId,
-        projections: &[bray_symbols::DependencyProjection],
-        borrows: &[(usize, bray_symbols::TypeId)],
+        path: &bray_bound_tree::StorageReferencePath,
     ) -> Option<Vec<Target>> {
-        let projections = storage_projections(self.request, projections)?;
-        let mut targets = vec![self.expression_target(state, argument)?];
-        let mut copied = 0;
+        let start = self.expression_target(state, argument)?;
 
-        for (step, (index, ty)) in borrows.iter().enumerate() {
-            targets = targets
-                .into_iter()
-                .map(|target| target.project(&projections[copied..*index]))
-                .collect();
+        let root_borrow = if path.borrows().first().is_some_and(|(index, _)| *index == 0) {
+            let borrowed = self
+                .execution
+                .semantics
+                .types()
+                .expression(argument)
+                .is_some_and(|ty| {
+                    matches!(
+                        self.request.semantic_values().type_data(ty.ty()).as_ref(),
+                        TypeData::Borrow { .. }
+                    )
+                });
 
-            if step == 0 && *index == 0 {
-                let borrowed = self
-                    .execution
-                    .semantics
-                    .types()
-                    .expression(argument)
-                    .is_some_and(|ty| {
-                        matches!(
-                            self.request.semantic_values().type_data(ty.ty()).as_ref(),
-                            TypeData::Borrow { .. }
-                        )
-                    });
-
-                if borrowed {
-                    targets = self
-                        .expression_reference(state, argument)?
-                        .targets(&state.memory)?;
-                }
-
-                // An implicit borrow uses the resolved place, including an already dereferenced receiver.
+            Some(if borrowed {
+                self.expression_reference(state, argument)?
+                    .targets(&state.memory)?
             } else {
-                targets = targets
-                    .iter()
-                    .map(|target| state.memory.value_target(target, *ty))
-                    .collect::<Option<Vec<_>>>()?;
-            }
+                // An implicit argument borrow starts at the already resolved value location.
+                vec![start.clone()]
+            })
+        } else {
+            None
+        };
 
-            copied = *index;
-        }
-
-        Some(
-            targets
+        match root_borrow {
+            Some(targets) => targets
                 .into_iter()
-                .map(|target| target.project(&projections[copied..]))
+                .map(|target| {
+                    // Candidate roots share the prepared starting path's immutable projections.
+                    state
+                        .memory
+                        .reference_location(start.clone(), path, Some(target))
+                })
                 .collect(),
-        )
+            None => Some(vec![state.memory.reference_location(start, path, None)?]),
+        }
     }
 }

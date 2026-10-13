@@ -10,7 +10,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         access: bray_bound_tree::StorageAccessId,
     ) -> Option<crate::analysis::storage_flow::memory::Target> {
         let logical = storage.logical_path(access)?;
-        let borrows = self.borrowed_projections.get(&access)?;
+        let path = self.reference_paths.get(&access)?;
 
         let entry = storage
             .access(access)?
@@ -22,35 +22,28 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     .is_some_and(|borrow| borrow.entry_binding().is_some())
             });
 
-        Self::reference_location(memory, logical, borrows, entry)
+        Self::reference_location(memory, logical.root, path, entry)
     }
 
     pub(in crate::analysis::storage_flow) fn reference_location(
         memory: &crate::analysis::storage_flow::memory::State,
-        logical: &Place,
-        borrows: &[(usize, bray_symbols::TypeId)],
+        root: bray_bound_tree::StorageIdentityId,
+        path: &bray_bound_tree::StorageReferencePath,
         entry: Option<bray_bound_tree::BorrowCapabilityId>,
     ) -> Option<crate::analysis::storage_flow::memory::Target> {
-        let mut target =
-            crate::analysis::storage_flow::memory::Target::storage(Place::root(logical.root));
+        let root_borrow = match (entry, path.borrows().first()) {
+            (Some(capability), Some((0, ty))) => Some(memory.borrow_target(capability, *ty)?),
+            _ => None,
+        };
 
-        let mut copied = 0;
-
-        for (step, (index, ty)) in borrows.iter().enumerate() {
-            target = target.project(&logical.projections[copied..*index]);
-
-            target = match entry.filter(|_| step == 0 && *index == 0) {
-                Some(capability) => memory.borrow_target(capability, *ty)?,
-                None => memory.value_target(&target, *ty)?,
-            };
-
-            copied = *index;
-        }
-
-        Some(target.project(&logical.projections[copied..]))
+        memory.reference_location(
+            crate::analysis::storage_flow::memory::Target::storage(Place::root(root)),
+            path,
+            root_borrow,
+        )
     }
 
-    pub(in crate::analysis::storage_flow) fn prepare_borrowed_projections<
+    pub(in crate::analysis::storage_flow) fn prepare_reference_paths<
         C: CheckerRequestContext + ?Sized,
     >(
         &mut self,
@@ -70,19 +63,25 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                         bray_bound_tree::StorageAccessRoot::Storage(_)
                     )
                 {
-                    self.borrowed_projections.insert(access, Vec::new());
+                    self.reference_paths.insert(
+                        access,
+                        bray_bound_tree::StorageReferencePath::new(
+                            path.projections.clone(),
+                            std::sync::Arc::from([]),
+                        ),
+                    );
                 }
 
                 continue;
             };
 
-            if let Some((_, borrows)) = crate::storage::reference_path(
+            if let Some((_, prepared)) = crate::storage::reference_path(
                 request,
                 ty,
-                &path.projections,
+                path.projections.clone(),
                 Some(reached.reached_type()),
             )? {
-                self.borrowed_projections.insert(access, borrows);
+                self.reference_paths.insert(access, prepared);
             }
         }
 
@@ -116,10 +115,10 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             if is_entry_reference(request, ty, path) {
                 let target = crate::representation::reference_target_type(request, ty);
 
-                if let Some(borrows) = self.borrowed_projections.get(&access) {
+                if let Some(prepared) = self.reference_paths.get(&access) {
                     // Entry seeds own the prepared path independently of access occurrences.
                     self.entry_references
-                        .insert(path.clone(), (borrows.clone(), target));
+                        .insert(path.clone(), (prepared.clone(), target));
                 }
             }
         }
@@ -180,13 +179,14 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 .identity_type(path.root)
                 .expect("entry storage has its declared type");
 
-            let Some((ty, borrows)) =
-                crate::storage::reference_path(request, ty, &path.projections, None)?
+            let Some((ty, prepared)) =
+                crate::storage::reference_path(request, ty, path.projections.clone(), None)?
             else {
                 continue;
             };
 
-            for (step, (index, target)) in borrows
+            for (step, (index, target)) in prepared
+                .borrows()
                 .iter()
                 .enumerate()
                 .filter(|(_, (index, _))| *index != 0)
@@ -196,15 +196,22 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     projections: path.projections[..*index].into(),
                 };
 
-                self.entry_references
-                    .entry(prefix)
-                    .or_insert_with(|| (borrows[..step].to_vec(), Some(*target)));
+                if let std::collections::btree_map::Entry::Vacant(entry) =
+                    self.entry_references.entry(prefix)
+                {
+                    let path = bray_bound_tree::StorageReferencePath::new(
+                        entry.key().projections.clone(),
+                        prepared.borrows()[..step].into(),
+                    );
+
+                    entry.insert((path, Some(*target)));
+                }
             }
 
             if is_entry_reference(request, ty, &path) {
                 let target = crate::representation::reference_target_type(request, ty);
 
-                self.entry_references.insert(path, (borrows, target));
+                self.entry_references.insert(path, (prepared, target));
             }
         }
 

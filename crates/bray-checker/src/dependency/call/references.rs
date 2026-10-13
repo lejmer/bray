@@ -90,10 +90,10 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
     .then(|| crate::dependency::result_inputs(call, template));
 
     Ok(contracts
-        .with_borrow_paths(
+        .with_reference_paths(
             inputs
                 .into_iter()
-                .map(|(subject, (_, borrows))| (subject, borrows))
+                .map(|(subject, (_, path))| (subject, path))
                 .collect(),
         )
         .with_references(references, retained_inputs)
@@ -105,7 +105,7 @@ fn reference_input_type<C: CheckerRequestContext + ?Sized>(
     call: &bray_bound_tree::SelectedCall,
     subject: &bray_symbols::DependencySubject,
 ) -> Result<
-    Option<(bray_symbols::TypeId, Vec<(usize, bray_symbols::TypeId)>)>,
+    Option<(bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)>,
     CheckerQueryError<C::UpstreamError>,
 > {
     let ty = match subject.subject_root() {
@@ -136,7 +136,7 @@ fn reference_input_type<C: CheckerRequestContext + ?Sized>(
         return Ok(None);
     };
 
-    crate::storage::reference_path(request, ty, &projections, None)
+    crate::storage::reference_path(request, ty, projections.into(), None)
 }
 
 fn output_argument<C: CheckerRequestContext + ?Sized>(

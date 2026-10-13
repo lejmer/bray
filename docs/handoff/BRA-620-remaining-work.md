@@ -11,6 +11,27 @@ The [rule coverage and replacement plan](runtime-stack-rule-coverage.md) and [cl
 replace the earlier proposal. The [architectural assessment](stack-architecture-assessment.md) and the instructions below
 retain dated evidence and acceptance requirements. Issue preparation did not begin implementation.
 
+## Prepared reference paths, 2026-10-13
+
+This continuation follows `66700ac0`. The user authorized publishing subsequent checkpoints to the existing repair branch.
+The protected-payload checkpoint and its preceding local checkpoints are now pushed.
+
+Body accesses and call contracts now retain the same checked reference-path representation. It pairs physical component
+projections with typed dereference positions. Entry seeds share those immutable paths. Selected call inputs no longer
+convert portable projections during every flow visit, and one memory-state resolver replaces the two path walkers.
+Ordinary body accesses remain scalar. Calls collect the possible roots supplied by the actual argument.
+
+This removes duplicated preparation and traversal without changing authority, witness preservation or generated code.
+The type belongs to checked bound-tree storage and grants no access by itself. The remaining nested-reference identity,
+finite-summary, carrier and production protocol work described below is still required.
+
+Verification after the scalar resolver change: `prepared-path-final-libraries.log` has 119 bound-tree and 300 checker passes.
+The final returned-value, protected-payload, reborrow and storage-flow logs have 24, four, 13 and 15 passes respectively.
+`cargo fmt --all`, mutating `cargo xtask style`, `cargo xtask format` and `git diff --check` pass. The audit finds one
+reference-path walker and no old tuple-path tables. About 60 production lines retain the complete checked paths and
+share their resolution. There are no new test-only implementations or generated-code operations in this consolidation.
+The broader authority suite remains at its preceding 135 passes and 15 outstanding acceptance failures.
+
 ## Protected payload checkpoint, 2026-10-13
 
 This continuation follows `d541b0dd` on the same repair branch. BRA-620 remains incomplete.
@@ -40,7 +61,13 @@ Evidence in the shared primary checkout's `target/bra-620-authority/` directory:
 - `payload-seeded-trusted_contracts.log`: 135 pass and 15 fail. The failure set is the preceding checkpoint's set minus
   `production_guard_borrow_origin_reaches_the_protected_payload`. No previously passing authority case regressed.
 
-After the audit, `payload-audited-tooling.log` and `payload-audited-protected.log` pass the JSON projection test and all four origin checks. `payload-split-checker.log` passes all 300 checker tests after separating input preparation, state and solver into cohesive modules. `cargo fmt --all`, mutating `cargo xtask style`, `cargo xtask format` and `git diff --check` pass. The change adds approximately 650 production lines and 630 test lines. The production growth implements inline contents transfer and its physical lifetime, prepares missing call inputs, and transports the protected projection across interfaces and diagnostics. It replaces the protected pseudo-allocation model and shared transfer duplication. Performance acceptance remains outstanding.
+After the audit, `payload-audited-tooling.log` and `payload-audited-protected.log` pass the JSON projection test and
+all four origin checks. `payload-split-checker.log` passes all 300 checker tests after separating input preparation,
+state and solver into cohesive modules. `cargo fmt --all`, mutating `cargo xtask style`, `cargo xtask format` and `git
+diff --check` pass. The change adds approximately 650 production lines and 630 test lines. The production growth
+implements inline contents transfer and its physical lifetime, prepares missing call inputs, and transports the
+protected projection across interfaces and diagnostics. It replaces the protected pseudo-allocation model and shared
+transfer duplication. Performance acceptance remains outstanding.
 
 The remaining authority failures are still acceptance work. Entry reference demand currently covers direct formal roots.
 Nested reference identities, alias demand closure, finite recursive paths and must candidates, specialization demand closure,

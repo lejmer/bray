@@ -56,3 +56,36 @@ impl StoragePath {
             .all(|projection| projection.is_exact())
     }
 }
+
+/// A checked reference access, retaining projections and the typed dereferences between them.
+/// It identifies an access route, not a physical storage identity or an authority grant.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct StorageReferencePath {
+    projections: Arc<[StorageProjection]>,
+    borrows: Arc<[(usize, bray_symbols::TypeId)]>,
+}
+
+impl StorageReferencePath {
+    /// Retains a path prepared by type analysis. Each dereference index precedes that
+    /// projection, or follows the final projection when equal to the projection count.
+    /// Indices are ordered and may repeat for nested borrow layers.
+    pub fn new(
+        projections: Arc<[StorageProjection]>,
+        borrows: Arc<[(usize, bray_symbols::TypeId)]>,
+    ) -> Self {
+        Self {
+            projections,
+            borrows,
+        }
+    }
+
+    /// The checked component selections between reference dereferences.
+    pub fn projections(&self) -> &[StorageProjection] {
+        &self.projections
+    }
+
+    /// Ordered dereference positions and the type reached by each borrow layer.
+    pub fn borrows(&self) -> &[(usize, bray_symbols::TypeId)] {
+        &self.borrows
+    }
+}

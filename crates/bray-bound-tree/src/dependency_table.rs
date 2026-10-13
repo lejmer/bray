@@ -105,7 +105,7 @@ pub struct BoundCallDependencyContracts {
     references: Vec<BoundCallReference>,
     effects: Arc<[bray_symbols::DependencyStorageEffect]>,
     retained_inputs: Option<BTreeSet<BoundExpressionId>>,
-    borrow_paths: BTreeMap<bray_symbols::DependencySubject, Vec<(usize, bray_symbols::TypeId)>>,
+    reference_paths: BTreeMap<bray_symbols::DependencySubject, crate::StorageReferencePath>,
 }
 
 impl BoundCallDependencyContracts {
@@ -122,31 +122,31 @@ impl BoundCallDependencyContracts {
             references: Vec::new(),
             effects: Arc::new([bray_symbols::DependencyStorageEffect::Unknown]),
             retained_inputs: None,
-            borrow_paths: BTreeMap::new(),
+            reference_paths: BTreeMap::new(),
         }
     }
 
-    /// Shares checked dereference steps between reference transfers and mutation effects.
-    pub fn with_borrow_paths(
+    /// Shares checked access paths between reference transfers and mutation effects.
+    pub fn with_reference_paths(
         mut self,
-        paths: BTreeMap<bray_symbols::DependencySubject, Vec<(usize, bray_symbols::TypeId)>>,
+        paths: BTreeMap<bray_symbols::DependencySubject, crate::StorageReferencePath>,
     ) -> Self {
-        self.borrow_paths = paths;
+        self.reference_paths = paths;
 
         self
     }
 
     /// Returns the input subjects whose reference paths were prepared by call analysis.
     pub fn reference_subjects(&self) -> impl Iterator<Item = &bray_symbols::DependencySubject> {
-        self.borrow_paths.keys()
+        self.reference_paths.keys()
     }
 
-    /// Returns the prepared dereferences before each field projection of a selected input path.
-    pub fn borrow_path(
+    /// Returns the selected input path prepared by type analysis.
+    pub fn reference_path(
         &self,
         subject: &bray_symbols::DependencySubject,
-    ) -> Option<&[(usize, bray_symbols::TypeId)]> {
-        self.borrow_paths.get(subject).map(Vec::as_slice)
+    ) -> Option<&crate::StorageReferencePath> {
+        self.reference_paths.get(subject)
     }
 
     /// Records the dependencies carried by the returned value.

@@ -126,7 +126,7 @@ pub use storage::{
     StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError, StorageIdentity,
     StorageIdentityId, StorageOperationDecision, StorageOperationStatus, StoragePath, StoragePlan,
     StoragePlanBuildError, StoragePlanBuilder, StorageProjection, StorageProtocolCall,
-    StorageRelationship, StorageReplacementDecision, StorageReplacementPlan,
+    StorageReferencePath, StorageRelationship, StorageReplacementDecision, StorageReplacementPlan,
     StorageReplacementState, StorageScopeBuildError, StorageScopeOwners, StorageSuspensionState,
     storage_expression_republishes_destructor_receiver, storage_identity_is_destructor_receiver,
     storage_identity_transfers_at_unit_exit,

@@ -162,8 +162,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let locations = self.call_reference_locations(
                     state,
                     argument,
-                    subject.projections(),
-                    contracts.borrow_path(subject)?,
+                    contracts.reference_path(subject)?,
                 )?;
 
                 if indirect {

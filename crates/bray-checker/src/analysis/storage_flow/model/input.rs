@@ -19,12 +19,12 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     storage_last_uses: BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageIdentityId>>,
     pub(super) unused_entry_storage: BTreeSet<StorageIdentityId>,
     pub(super) cleanup_free_storage: BTreeSet<StorageIdentityId>,
-    pub(in crate::analysis::storage_flow) borrowed_projections:
-        BTreeMap<StorageAccessId, Vec<(usize, bray_symbols::TypeId)>>,
+    pub(in crate::analysis::storage_flow) reference_paths:
+        BTreeMap<StorageAccessId, bray_bound_tree::StorageReferencePath>,
     pub(in crate::analysis::storage_flow) entry_references: BTreeMap<
         crate::analysis::storage_flow::memory::Place,
         (
-            Vec<(usize, bray_symbols::TypeId)>,
+            bray_bound_tree::StorageReferencePath,
             Option<bray_symbols::TypeId>,
         ),
     >,
@@ -109,7 +109,7 @@ impl StorageFlowInput {
         }
 
         input.prepare_reference_constructions(request, storage, values)?;
-        input.prepare_borrowed_projections(request, storage)?;
+        input.prepare_reference_paths(request, storage)?;
         input.prepare_entry_references(request, storage);
 
         input.immutable_field_accesses =

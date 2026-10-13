@@ -5,7 +5,7 @@ mod liveness;
 mod model;
 mod parts;
 mod path;
-pub use path::StoragePath;
+pub use path::{StoragePath, StorageReferencePath};
 mod plan;
 mod query;
 mod replacement;
