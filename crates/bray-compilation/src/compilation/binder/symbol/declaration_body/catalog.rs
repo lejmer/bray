@@ -96,7 +96,7 @@ pub(in crate::compilation::binder::symbol) fn checked_catalog_predicates(
         Some(signature.value().result().clone()),
     );
 
-    let (semantics, mut diagnostics) =
+    let ((semantics, patterns), mut diagnostics) =
         super::shared::checked_bound_contract(context, bound, &declared, Some(clause))?
             .into_parts();
 
@@ -107,8 +107,10 @@ pub(in crate::compilation::binder::symbol) fn checked_catalog_predicates(
     let normalized = bray_checker::predicate_conditions_with_inputs(
         bound,
         &semantics,
+        &patterns,
         context.semantic_values(),
         &constants,
+        None,
     )
     .map_err(BindingQueryError::SemanticValue)?;
 

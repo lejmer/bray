@@ -293,7 +293,7 @@ fn static_initializer_behavior(
 
         let dependency_contract = extend_dependency_contract_with_statics(
             context,
-            checked.dependency_contract,
+            with_initializer_carriers(context, checked.dependency_contract, checked.result_dependencies),
             behavior.result().value().static_dependencies(),
         )?;
 
@@ -372,7 +372,7 @@ fn static_initializer_behavior(
 
     Ok((
         duration,
-        template.behavior().dependency_contract(),
+        with_initializer_carriers(context, template.behavior().dependency_contract(), template.behavior().result_dependencies()),
         template.behavior().lifecycle_obligations().to_vec(),
         template
             .behavior()
@@ -567,6 +567,20 @@ fn static_source_diagnostic(key: &BoundUnitKey, kind: DiagnosticKind) -> Diagnos
         DiagnosticLabelKind::InvalidConstantExpression,
         span,
     ))
+}
+
+fn with_initializer_carriers(
+    context: &CompilationBindingContext<'_>,
+    dependency: bray_symbols::DependencyContractTemplateId,
+    result: bray_symbols::DependencyContractTemplateId,
+) -> bray_symbols::DependencyContractTemplateId {
+    let values = context.semantic_values();
+    let dependency = values.dependency_contract_template_data(dependency);
+    let result = values.dependency_contract_template_data(result);
+
+    // The static template owns the initialization requirements and returned authority together.
+    values.intern_dependency_contract_template(dependency.as_ref().clone().with_carriers(result.carriers().iter().cloned()))
+        .expect("checked static initializer summaries belong to the same semantic store")
 }
 
 #[cfg(test)]

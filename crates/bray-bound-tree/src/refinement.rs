@@ -4,7 +4,7 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 
 use crate::{
-    AnyBoundNodeId, BoundExecutionSite, BoundExpressionId, BoundPatternId, BoundUnitId,
+    AnyBoundNodeId, BoundExecutionSite, BoundExpressionId, BoundUnitId,
     BoundUnitKind, PatternPredicate, StorageAccessId, StoragePlan, StorageRelationship,
 };
 
@@ -12,9 +12,12 @@ use crate::{
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum StorageInvalidation {
     /// An opaque operation can reach storage through untracked aliases.
-    /// The listed descriptors have unexposed invocation-owned storage. Their identity
-    /// survives, but no contents, lifetime, or authority guarantee is preserved.
-    All(BTreeSet<crate::StoragePath>),
+    All {
+        /// Unexposed descriptor slots retain identity, without retaining their reachable contents.
+        stable_descriptors: BTreeSet<crate::StoragePath>,
+        /// Unexposed owned observations with no mutable or reachable payload retain their value.
+        stable_values: BTreeSet<crate::StoragePath>,
+    },
     /// Only the listed paths and overlapping storage may change.
     Paths(Vec<crate::StoragePath>),
     /// Flow-resolved accesses and logical component observations changed through them.
@@ -34,13 +37,19 @@ pub enum StorageInvalidation {
 }
 
 impl StorageInvalidation {
+    /// Creates an opaque effect without any established preservation.
+    pub fn unknown() -> Self {
+        Self::All { stable_descriptors: BTreeSet::new(), stable_values: BTreeSet::new() }
+    }
+
     /// Retains every target that either incoming execution can mutate.
     pub fn merge(&mut self, incoming: &Self) {
         match (&mut *self, incoming) {
-            (Self::All(current), Self::All(incoming)) => {
-                current.retain(|path| incoming.contains(path));
+            (Self::All { stable_descriptors, stable_values }, Self::All { stable_descriptors: descriptors, stable_values: values }) => {
+                stable_descriptors.retain(|path| descriptors.contains(path));
+                stable_values.retain(|path| values.contains(path));
             }
-            (_, Self::All(_)) | (Self::All(_), _) => *self = Self::All(BTreeSet::new()),
+            (_, Self::All { .. }) | (Self::All { .. }, _) => *self = Self::unknown(),
             (
                 Self::Observed {
                     accesses: current,
@@ -81,7 +90,7 @@ impl StorageInvalidation {
     /// Returns whether this operation can change the independently resolved path.
     pub fn invalidates_path(&self, path: &crate::StoragePath, storage: &StoragePlan) -> bool {
         match self {
-            Self::All(_) => true,
+            Self::All { .. } => true,
             Self::Observed { accesses, .. } => accesses
                 .values()
                 .flatten()
@@ -95,7 +104,7 @@ impl StorageInvalidation {
     /// Returns whether this operation invalidates facts about the given access.
     pub fn invalidates(&self, access: StorageAccessId, storage: &StoragePlan) -> bool {
         match self {
-            Self::All(_) => true,
+            Self::All { .. } => true,
             Self::Observed { accesses, .. } => accesses.contains_key(&access),
             Self::Paths(mutations) => mutations.iter().any(|mutation| {
                 storage.relationship_to_path(access, mutation) != StorageRelationship::Disjoint
@@ -125,8 +134,6 @@ pub enum RefinementKind {
     Pattern {
         /// The matched subject expression.
         subject: BoundExpressionId,
-        /// The successful pattern occurrence.
-        pattern: BoundPatternId,
         /// The structural refinement established by that pattern.
         predicate: PatternPredicate,
         /// The evaluated storage reached by this pattern, including any field projections.
@@ -146,12 +153,10 @@ impl RefinementKind {
             | Self::TrustBoundary(expression) => expression.unit().raw() == unit.raw(),
             Self::Pattern {
                 subject,
-                pattern,
                 access,
                 ..
             } => {
                 subject.unit().raw() == unit.raw()
-                    && pattern.unit().raw() == unit.raw()
                     && access.unit().raw() == unit.raw()
             }
         }
@@ -271,7 +276,7 @@ impl CheckedRefinements {
         if invalidations.iter().any(|(site, invalidation)| {
             site.node().unit() != unit
                 || match invalidation {
-                    StorageInvalidation::All(paths) => paths.iter().any(|path| !path.is_valid_for(unit)),
+                    StorageInvalidation::All { stable_descriptors, stable_values } => stable_descriptors.iter().chain(stable_values).any(|path| !path.is_valid_for(unit)),
                     StorageInvalidation::Paths(paths) => {
                         paths.iter().any(|path| !path.is_valid_for(unit))
                     }
@@ -356,12 +361,13 @@ impl CheckedRefinements {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use super::{
         CheckedRefinements, Refinement, RefinementKind, RefinementOccurrence,
         RefinementSetBuildError,
     };
     use crate::{
-        AnyBoundNodeId, BoundExpressionId, BoundPatternId, BoundUnitId, BoundUnitKind,
+        AnyBoundNodeId, BoundExpressionId, BoundUnitId, BoundUnitKind,
         PatternPredicate, StorageAccessId,
     };
 
@@ -420,7 +426,7 @@ mod tests {
         let unit = BoundUnitId::new(4);
         let expression = BoundExpressionId::from_slot(unit, 0);
         let foreign = BoundExpressionId::from_slot(BoundUnitId::new(5), 0);
-        let foreign_pattern = BoundPatternId::from_slot(BoundUnitId::new(5), 0);
+        let foreign_access = StorageAccessId::from_slot(BoundUnitId::new(5), 0);
 
         let foreign_refinement = Refinement::new(
             RefinementKind::Condition {
@@ -433,9 +439,8 @@ mod tests {
         let foreign_pattern_refinement = Refinement::new(
             RefinementKind::Pattern {
                 subject: expression,
-                pattern: foreign_pattern,
                 predicate: PatternPredicate::NullablePresent,
-                access: StorageAccessId::from_slot(unit, 0),
+                access: foreign_access,
                 value: true,
             },
             [],
@@ -554,12 +559,12 @@ mod tests {
         let unit = BoundUnitId::new(4);
         let first = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 0));
         let second = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 1));
-        let mut effects = super::StorageInvalidation::All([first.clone(), second].into());
+        let mut effects = super::StorageInvalidation::All { stable_descriptors: [first.clone(), second].into(), stable_values: BTreeSet::new() };
 
-        effects.merge(&super::StorageInvalidation::All([first.clone()].into()));
-        assert_eq!(effects, super::StorageInvalidation::All([first.clone()].into()));
+        effects.merge(&super::StorageInvalidation::All { stable_descriptors: [first.clone()].into(), stable_values: BTreeSet::new() });
+        assert_eq!(effects, super::StorageInvalidation::All { stable_descriptors: [first.clone()].into(), stable_values: BTreeSet::new() });
         effects.merge(&super::StorageInvalidation::Paths(vec![first]));
-        assert_eq!(effects, super::StorageInvalidation::All(Default::default()));
+        assert_eq!(effects, super::StorageInvalidation::unknown());
     }
 
 }

@@ -5,7 +5,11 @@ using std.memory;
 using internal bray.runtime.bootstrap;
 using internal std.thread;
 
-trusted internal predicate host_access_live(owner: &HostLease);
+internal struct Acquisition
+{
+}
+
+trusted internal predicate host_access_live(owner: &Acquisition);
 
 trusted internal predicate host_access_idle(owner: &HostLease);
 
@@ -21,9 +25,9 @@ internal struct HostAnchor
 }
 
 trusted internal func host_anchor(pos lease: &HostLease) -> HostAnchor
-    requires(trusted host_access_live(owner = lease))
+    requires(trusted host_access_live(owner = &lease.acquisition))
     ensures(
-        trusted host_access_live(owner = lease),
+        trusted host_access_live(owner = &lease.acquisition),
         trusted resident_host_anchor(anchor = &result),
         trusted host_anchor_matches(anchor = &result, lease = lease),
     )
@@ -39,11 +43,11 @@ trusted internal func host_value(pos lease: &HostLease, pos anchor: &mut HostAnc
     requires(
         lease.active,
         trusted host_access_idle(owner = lease),
-        trusted host_access_live(owner = lease),
+        trusted host_access_live(owner = &lease.acquisition),
         trusted host_anchor_matches(anchor = &anchor, lease = lease),
     )
     ensures(
-        trusted host_access_live(owner = lease),
+        trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = lease),
         trusted attachment_cleanup_completed(owner = lease)
     )
@@ -59,14 +63,22 @@ trusted internal func host_value(pos lease: &HostLease, pos anchor: &mut HostAnc
 // through the separate anchor cannot manufacture, copy, or mutate this lease.
 internal struct HostLease
 {
+    acquisition: Acquisition;
     synchronization: &Uninit<Synchronization>;
     owner: &Uninit<HostOwner>;
     active: bool;
     mut retirement: AttachmentRetirement;
 
     trusted destruct()
-        requires(trusted host_access_live(owner = &self), trusted attachment_cleanup_completed(owner = &self))
+        requires(
+            trusted host_access_live(owner = &self.acquisition),
+            !self.active || trusted attachment_cleanup_completed(owner = &self),
+        )
         executes(total)
+        when(!self.active)
+        {
+            executes(pure)
+        }
         uses(raw_memory, unchecked_alias)
     {
         if self.active
@@ -90,7 +102,7 @@ internal struct HostLease
 
 trusted internal func host_access() -> HostLease
     ensures(
-        trusted host_access_live(owner = &result),
+        trusted host_access_live(owner = &result.acquisition),
         trusted host_access_idle(owner = &result),
         trusted attachment_cleanup_completed(owner = &result)
     )
@@ -107,6 +119,9 @@ trusted internal func host_access() -> HostLease
     {
         return
         {
+            acquisition = Acquisition
+            {
+            },
             synchronization = &SYNCHRONIZATION,
             owner = &HOST_OWNER,
             active = false,
@@ -134,6 +149,9 @@ trusted internal func host_access() -> HostLease
         {
             return
             {
+                acquisition = Acquisition
+                {
+                },
                 synchronization = &SYNCHRONIZATION,
                 owner = &HOST_OWNER,
                 active = true,
@@ -155,6 +173,9 @@ trusted internal func host_access() -> HostLease
         {
             return
             {
+                acquisition = Acquisition
+                {
+                },
                 synchronization = &SYNCHRONIZATION,
                 owner = &HOST_OWNER,
                 active = false,
@@ -181,7 +202,7 @@ trusted internal func access_prepared_host(pos storage: &(HostStorage?)) -> Host
     ensures(
         result.active,
         trusted prepared_host_storage(owner = storage),
-        trusted host_access_live(owner = &result),
+        trusted host_access_live(owner = &result.acquisition),
         trusted host_access_idle(owner = &result),
         trusted attachment_cleanup_completed(owner = &result)
     )
@@ -200,9 +221,13 @@ trusted internal func access_prepared_host(pos storage: &(HostStorage?)) -> Host
 trusted internal func host_access_pointer(pos guard: &HostLease) -> RawPointer<HostOwner>
     uses(intrinsic)
     executes(pure, total)
-    requires(guard.active, trusted host_access_idle(owner = &guard), trusted host_access_live(owner = &guard))
+    requires(
+        guard.active,
+        trusted host_access_idle(owner = &guard),
+        trusted host_access_live(owner = &guard.acquisition)
+    )
     ensures(
-        trusted host_access_live(owner = &guard),
+        trusted host_access_live(owner = &guard.acquisition),
         trusted core.memory.valid_read<HostOwner>(pointer = result, count = 1),
         trusted core.memory.valid_write<HostOwner>(pointer = result, count = 1),
         trusted core.memory.aligned_for<HostOwner>(pointer = result),

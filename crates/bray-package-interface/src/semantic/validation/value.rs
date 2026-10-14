@@ -78,6 +78,8 @@ impl InterfaceSemantics {
                 ));
             }
 
+            for carrier in &*contract.carriers { validate_index(carrier.guarantee().to_index(), self.constant_terms.len())?; self.validate_dependency_projections(carrier.path(), symbol_count, dependency_count)?; }
+
             for relation in &*contract.borrows {
                 self.validate_dependency_subject(relation.entry(), symbol_count, dependency_count)?;
                 self.validate_dependency_subject(relation.exit(), symbol_count, dependency_count)?;
@@ -93,7 +95,8 @@ impl InterfaceSemantics {
                 use bray_symbols::DependencyStorageEffect;
 
                 match effect {
-                    DependencyStorageEffect::Unknown => {}
+                    DependencyStorageEffect::Atomic | DependencyStorageEffect::Unknown => {}
+                    DependencyStorageEffect::Cleanup(ty) => validate_index(ty.to_index(), self.types.len())?,
                     DependencyStorageEffect::Direct { subject, .. } => {
                         self.validate_dependency_subject(subject, symbol_count, dependency_count)?
                     }
@@ -308,6 +311,10 @@ impl InterfaceSemantics {
             InterfaceConstantTerm::Conversion { operand, target } => {
                 validate_index(operand.to_index(), self.constant_terms.len())?;
                 validate_index(target.to_index(), self.types.len())?;
+            }
+            InterfaceConstantTerm::VariantTest { subject, variant } => {
+                validate_index(subject.to_index(), self.constant_terms.len())?;
+                validate_symbol(variant, symbol_count, dependency_count)?;
             }
             InterfaceConstantTerm::NullablePresent(value) => {
                 validate_index(value.to_index(), self.constant_terms.len())?;

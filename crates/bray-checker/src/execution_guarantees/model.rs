@@ -188,6 +188,7 @@ pub struct ExecutionDomain {
 /// Values captured at a selected call's entry, before callee mutation can occur.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ExecutionCallEvidence {
+    pub(crate) anonymous_target: Option<bray_bound_tree::BoundUnitKey>,
     pub(crate) trusted_boundary: bool,
     pub(crate) pending_execution: bool,
     pub(crate) arguments:
@@ -197,14 +198,24 @@ pub struct ExecutionCallEvidence {
 }
 
 impl ExecutionCallEvidence {
+    /// Exact local callable body established by the entry value flow, if known.
+    pub fn anonymous_target(&self) -> Option<&bray_bound_tree::BoundUnitKey> {
+        self.anonymous_target.as_ref()
+    }
+
     pub(crate) fn intersect(&mut self, other: &Self) -> bool {
         let before = (
+            self.anonymous_target.is_some(),
             self.trusted_boundary,
             self.pending_execution,
             self.assumptions.len(),
             self.trusted_assumptions.len(),
             self.arguments.len(),
         );
+
+        if self.anonymous_target != other.anonymous_target {
+            self.anonymous_target = None;
+        }
 
         self.trusted_boundary &= other.trusted_boundary;
         self.pending_execution |= other.pending_execution;
@@ -220,7 +231,8 @@ impl ExecutionCallEvidence {
 
         before
             != (
-                self.trusted_boundary,
+                self.anonymous_target.is_some(),
+            self.trusted_boundary,
                 self.pending_execution,
                 self.assumptions.len(),
                 self.trusted_assumptions.len(),

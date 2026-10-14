@@ -50,6 +50,7 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
                 .chain(template.effects().iter().filter(|_| !deferred))
                 .cloned(),
         )
+        .with_carriers(template.carriers().iter().cloned())
         .with_normal_completion(
             dependencies.evaluation_completes && (deferred || template.normal_completion()),
         ),
@@ -92,7 +93,7 @@ pub(super) fn with_scoped_references<C: CheckerRequestContext + ?Sized>(
             return Ok(None);
         }
 
-        let Some(projections) = crate::storage::storage_projections(request, subject.projections())
+        let Some(projections) = crate::storage::resolve_storage_projections(request, subject.projections())?
         else {
             return Ok(None);
         };
@@ -195,19 +196,19 @@ pub(crate) fn prepare_reference<C: CheckerRequestContext + ?Sized>(
 
 fn reference_input_type<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    call: &bray_bound_tree::SelectedCall,
+    call: &SelectedCall,
     subject: &bray_symbols::DependencySubject,
 ) -> Result<
     Option<(bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)>,
     CheckerQueryError<C::UpstreamError>,
 > {
     let ty = match subject.subject_root() {
-        bray_symbols::DependencySubjectRoot::Receiver => call.receiver().map(|receiver| {
+        DependencySubjectRoot::Receiver => call.receiver().map(|receiver| {
             receiver
                 .input_type(request.semantic_values())
                 .expect("selected receiver has a valid passed value type")
         }),
-        bray_symbols::DependencySubjectRoot::Parameter(parameter) => {
+        DependencySubjectRoot::Parameter(parameter) => {
             call.arguments().iter().find_map(|argument| match argument {
                 bray_bound_tree::SelectedArgument::Explicit {
                     ordinal,
@@ -217,6 +218,10 @@ fn reference_input_type<C: CheckerRequestContext + ?Sized>(
                 _ => None,
             })
         }
+        bray_symbols::DependencySubjectRoot::Result => match call.resolution().result() {
+            bray_bound_tree::BoundCallResult::Immediate(ty) => Some(ty),
+            bray_bound_tree::BoundCallResult::LazyFuture(_) => None,
+        },
         _ => None,
     };
 
@@ -224,7 +229,7 @@ fn reference_input_type<C: CheckerRequestContext + ?Sized>(
         return Ok(None);
     };
 
-    let Some(projections) = crate::storage::storage_projections(request, subject.projections())
+    let Some(projections) = crate::storage::resolve_storage_projections(request, subject.projections())?
     else {
         return Ok(None);
     };

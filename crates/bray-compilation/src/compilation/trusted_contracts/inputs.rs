@@ -1,3 +1,4 @@
+use bray_binder::BindingQueryContext;
 use bray_bound_tree::{
     BoundCallableTarget, BoundUnit, BoundUnitKey, CheckedExpressionSemantics, SemanticSelection,
 };
@@ -22,13 +23,23 @@ impl Compilation {
             key.kind(),
             bray_bound_tree::BoundUnitKind::CallableBody
                 | bray_bound_tree::BoundUnitKind::AnonymousCallable
+                | bray_bound_tree::BoundUnitKind::ConstantTemplate
         ) {
             return Ok(DiagnosticResult::new(inputs, diagnostics));
         }
 
         let trusted = self.trusted_predicate_producer(key)?;
 
-        {
+        inputs.infer_result_witnesses = !trusted;
+
+        if key.kind() != bray_bound_tree::BoundUnitKind::ConstantTemplate {
+            let context = self.binding_context(cancellation)?;
+
+            let owner = context.symbols().symbol_for_key(key.declared_owner())
+                .expect("checked callable body retains its owner");
+
+            inputs.inputs = self.execution_callable_inputs(owner, cancellation)?;
+
             let declared = self.execution_declaration(key.source().syntax())?;
 
             let requirements = self.predicate_condition_inputs(
@@ -214,8 +225,7 @@ impl Compilation {
             inputs.constants =
                 self.execution_constant_inputs(bound, semantics, cancellation, &mut diagnostics)?;
 
-            inputs.pattern_values =
-                self.trusted_pattern_values(key, cancellation, &mut diagnostics)?;
+            self.trusted_static_inputs(semantics, &mut inputs, &mut diagnostics)?;
         }
 
         let witnesses = self.trusted_required_witnesses(&inputs.requirements, cancellation)?;
@@ -224,6 +234,38 @@ impl Compilation {
         inputs.required_witnesses = witnesses.into_parts().0;
 
         Ok(DiagnosticResult::new(inputs, diagnostics))
+    }
+
+    fn trusted_static_inputs(
+        &self,
+        semantics: &CheckedExpressionSemantics,
+        inputs: &mut TrustedContractInputs,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<(), FactQueryError> {
+        // Static initialization is demanded only by bodies that reason about authority.
+        // Ordinary dependency discovery must not recursively check initializer bodies.
+        for entry in semantics.selections().entries() {
+            if let SemanticSelection::StaticReference(selection) = entry.selection() {
+                let place = bray_checker::ExecutionPlace::static_instance(selection.clone());
+
+                if !inputs.statics.contains_key(&place) {
+                    let template = self.static_instance_template(selection.template().declaration())?;
+
+                    diagnostics.add_range(template.diagnostics().iter().cloned());
+
+                    let values = self.semantic_value_store()?;
+
+                    let contract = values.substitute_dependency_contract(template.value().dependency_contract(), selection.substitution())
+                        .expect("selected static substitution belongs to the same semantic store");
+
+                    let contract = values.dependency_contract_template_data(contract);
+
+                    inputs.statics.insert(place, contract.carriers().to_vec());
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn trusted_call_input_count(
@@ -269,54 +311,6 @@ impl Compilation {
         };
 
         Ok(Some(count))
-    }
-
-    fn trusted_pattern_values(
-        &self,
-        key: &BoundUnitKey,
-        cancellation: &CancellationToken,
-        diagnostics: &mut DiagnosticBag,
-    ) -> Result<
-        std::collections::BTreeMap<bray_bound_tree::BoundPatternId, ExecutionCondition>,
-        FactQueryError,
-    > {
-        let mut values = std::collections::BTreeMap::new();
-        let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
-
-        diagnostics.add_range(patterns.result().diagnostics().iter().cloned());
-
-        for pattern in patterns.result().value().patterns() {
-            if pattern.is_recovered() {
-                continue;
-            }
-
-            let value = match pattern.test() {
-                Some(bray_bound_tree::PatternPredicate::Literal(literal)) => literal.value(),
-                Some(bray_bound_tree::PatternPredicate::Constant(term)) => {
-                    let term = self.semantic_value_store()?.constant_term_data(term);
-
-                    let bray_symbols::ConstantTermData::Value(value) = term.as_ref() else {
-                        continue;
-                    };
-
-                    *value
-                }
-                _ => continue,
-            };
-
-            let value = self.semantic_value_store()?.constant_value_data(value);
-
-            let condition = match value.kind() {
-                bray_symbols::ConstantValueKind::Boolean(value) => {
-                    ExecutionCondition::Boolean(*value)
-                }
-                _ => ExecutionCondition::Literal(value),
-            };
-
-            values.insert(pattern.pattern(), condition);
-        }
-
-        Ok(values)
     }
 
     pub(in crate::compilation) fn trusted_predicate_producer(

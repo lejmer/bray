@@ -1,4 +1,3 @@
-use super::super::effects::project;
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::Place;
 
@@ -10,7 +9,9 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         request: crate::CheckerUnitView<'_, C>,
         cleanup: &crate::analysis::guarantee::CleanupPlan,
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
-    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
+    ) -> crate::CheckerQueryResult<super::entry::Demands, C::UpstreamError> {
+        let mut demands = super::entry::Demands::new();
+
         for ((ty, _), lifecycle) in &cleanup.lifecycles {
             if self.lifecycle_references.contains_key(&lifecycle.callable) {
                 continue;
@@ -30,17 +31,20 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 }
 
                 let Some(projections) =
-                    crate::storage::storage_projections(request, subject.projections())
+                    crate::storage::resolve_storage_projections(request, subject.projections())?
                 else {
                     continue;
                 };
 
                 // The actual cleanup receiver already denotes its physical storage.
-                let ty = *ty;
+                let owner = *ty;
 
                 if let Some((ty, path)) =
-                    crate::storage::reference_path(request, ty, projections.into(), None)?
+                    crate::storage::reference_path(request, owner, projections.into(), None)?
                 {
+                    demands.entry(owner)
+                        .or_default().insert((std::sync::Arc::from(path.projections()), ty));
+
                     types.insert(subject.clone(), ty);
                     self.lifecycle_paths.insert(key, path);
                 }
@@ -61,7 +65,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 .insert(lifecycle.callable, references);
         }
 
-        Ok(())
+        Ok(demands)
     }
 
     pub(in crate::analysis::storage_flow) fn reference_target(
@@ -167,7 +171,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             };
 
             for (projection, operand) in values.constructed_fields(expression) {
-                let Some(path) = project(request, Place::root(identity), &[projection]) else {
+                let Some(path) = project(request, Place::root(identity), &[projection])? else {
                     continue;
                 };
 
@@ -186,4 +190,10 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
         Ok(())
     }
+}
+
+pub(super) fn project<C: CheckerRequestContext + ?Sized>(request: crate::CheckerUnitView<'_, C>, mut path: Place, projections: &[bray_symbols::DependencyProjection]) -> crate::CheckerQueryResult<Option<Place>, C::UpstreamError> {
+    let Some(suffix) = crate::storage::resolve_storage_projections(request, projections)? else { return Ok(None); };
+    path.projections = path.projections.iter().copied().chain(suffix).collect();
+    Ok(Some(path))
 }

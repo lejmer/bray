@@ -135,3 +135,38 @@ where
         })
         .collect()
 }
+
+pub(crate) fn pattern_binding_sources<'a>(
+    view: BoundUnitView<'a>,
+    storage: &'a StoragePlan,
+    pattern: BoundPatternId,
+) -> impl Iterator<Item = (
+    bray_symbols::LocalBindingSymbolId,
+    BoundExpressionId,
+    bray_bound_tree::StorageAccessId,
+)> + 'a {
+    let bound = view.pattern(pattern).expect("checked pattern must exist");
+    let expression = storage.node_plans(pattern.into()).next().map(|plan| plan.expression());
+
+    let mut plans = storage.node_plans(pattern.into()).filter(|plan| {
+        !matches!(plan.purpose(),
+            bray_bound_tree::StorageAccessPurpose::Projection
+                | bray_bound_tree::StorageAccessPurpose::Initialize)
+    });
+
+    bound.bindings().iter().copied()
+        .chain(bound.entries().iter().filter_map(|entry| entry.binding()))
+        .filter_map(move |binding| {
+            let (expression, access) = match storage.binding(StorageBindingTarget::Local(binding)) {
+                Some(StorageBinding::Access(access)) => (expression?, access),
+                Some(StorageBinding::Identity(_)) => {
+                    let plan = plans.next()?;
+
+                    (plan.expression(), plan.access())
+                }
+                None => return None,
+            };
+
+            Some((binding, expression, access))
+        })
+}

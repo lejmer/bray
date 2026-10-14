@@ -1,7 +1,10 @@
 trusted module std.channel;
 
+using internal std.collection.ring;
+
 internal struct ChannelState<T>
 {
+    instance: std.channel.owner.Marker;
     mut storage: std.memory.RawBuffer<Uninit<T>>;
     capacity: usize;
     mut head: usize;
@@ -11,12 +14,100 @@ internal struct ChannelState<T>
     mut send_waiters: WaitQueue;
     mut receive_waiters: WaitQueue;
 
-    trusted destruct()
+    // Transfer the complete live ring to ordinary buffer cleanup before invoking user code.
+    trusted mut func take_storage() -> std.memory.RawBuffer<T>
+        requires(trusted std.channel.owner.valid(&self.instance))
+        ensures(trusted std.channel.owner.valid(&self.instance))
+        uses(raw_memory, unchecked_init, layout_reinterpret)
     {
-        while self.length > 0
+        let storage = trusted internal std.memory.take_buffer<Uninit<T>>(&mut self.storage);
+
+        let mut values: std.collection.List<Uninit<T>> =
         {
-            let _: T = trusted self.take_message();
+            storage = storage
+        };
+
+        let length = self.length;
+        let head = self.head;
+        let capacity = std.memory.capacity<Uninit<T>>(&values.storage);
+
+        self.length = 0;
+        self.head = 0;
+
+        if length > 0
+        {
+            let suffix = capacity - head;
+
+            if length <= suffix
+            {
+                let mut index: usize = 0;
+
+                while index < length
+                {
+                    trusted internal std.collection.swap_at<Uninit<T>>(&mut values, left = index, right = head + index);
+                    index += 1;
+                }
+            }
+            else
+            {
+                let prefix = length - suffix;
+
+                if capacity - length >= suffix
+                {
+                    let mut index: usize = 0;
+
+                    while index < suffix
+                    {
+                        trusted internal std.collection.swap_at<Uninit<T>>(
+                            &mut values,
+                            left = prefix + index,
+                            right = head + index
+                        );
+
+                        index += 1;
+                    }
+
+                    trusted internal std.collection.reverse_values<Uninit<T>>(&mut values, count = prefix);
+                    trusted internal std.collection.reverse_values<Uninit<T>>(&mut values, count = length);
+                    trusted internal std.collection.reverse_values<Uninit<T>>(&mut values, count = suffix);
+                }
+                else
+                {
+                    // The gap is smaller than the live suffix, so capacity < 2 * length.
+                    trusted internal std.collection.reverse_values<Uninit<T>>(&mut values, count = head);
+
+                    trusted internal std.collection.reverse_values<Uninit<T>>(&mut values, count = capacity);
+                    trusted internal std.collection.reverse_values<Uninit<T>>(&mut values, count = suffix);
+                }
+            }
         }
+
+        let authorize_prefix = trusted lambda(pos buffer: &std.memory.RawBuffer<Uninit<T>>, pos count: usize)
+            requires(count <= buffer.capacity)
+            ensures(trusted core.memory.initialized_range_as<Uninit<T>>(pointer = buffer.pointer, count = count))
+            executes(pure, total) {};
+
+        authorize_prefix(&values.storage, length);
+        trusted std.memory.set_initialized_count<Uninit<T>>(&mut values.storage, count = length);
+
+        let transferred = std.memory.uninit_from<std.memory.RawBuffer<Uninit<T>>>(values.storage);
+
+        let pointer = trusted std.memory.reinterpret<std.memory.RawBuffer<T>, std.memory.RawBuffer<Uninit<T>>>(
+            std.memory.uninit_pointer<std.memory.RawBuffer<Uninit<T>>>(&transferred),
+        );
+
+        // RawBuffer's pointer/count representation is identical, and Uninit<T> has T's layout.
+        // The live prefix and its allocation move together. The old wrapper has no cleanup.
+        let authorize = trusted lambda(pos pointer: RawPointer<std.memory.RawBuffer<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.memory.RawBuffer<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.memory.RawBuffer<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.memory.RawBuffer<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+        return trusted std.memory.read<std.memory.RawBuffer<T>>(pointer);
     }
 
     func send_can_commit() -> bool
@@ -39,19 +130,24 @@ internal struct ChannelState<T>
     }
 
     trusted mut func take_committed_rendezvous(pos ticket: usize) -> T
+        requires(trusted std.channel.owner.valid(&self.instance))
+        ensures(trusted std.channel.owner.valid(&self.instance))
     {
         if !self.rendezvous_belongs_to(ticket)
         {
             panic("channel rendezvous ticket is not committed");
         }
 
+        let message = trusted self.take_message();
+
         self.rendezvous_ticket = none;
         self.send_waiters.pop_head();
-
-        return trusted self.take_message();
+        return message;
     }
 
     trusted mut func store_message(pos value: T)
+        requires(trusted std.channel.owner.valid(&self.instance))
+        ensures(trusted std.channel.owner.valid(&self.instance))
         uses(raw_memory)
     {
         let storage_capacity: usize = std.memory.capacity<Uninit<T>>(&self.storage);
@@ -61,12 +157,11 @@ internal struct ChannelState<T>
             panic("channel message storage is full");
         }
 
-        let mut index: usize = self.head + self.length;
-
-        if index >= storage_capacity
-        {
-            index -= storage_capacity;
-        }
+        let index = internal std.collection.ring.index(
+            head = self.head,
+            storage_capacity = storage_capacity,
+            logical_index = self.length,
+        );
 
         let slots: &mut [Uninit<T>] = trusted std.memory.initialized_slice_mut<Uninit<T>>(&mut self.storage);
         let _: &mut T = std.memory.uninit_write<T>(&mut slots[index], value);
@@ -75,6 +170,8 @@ internal struct ChannelState<T>
     }
 
     trusted mut func take_message() -> T
+        requires(trusted std.channel.owner.valid(&self.instance))
+        ensures(trusted std.channel.owner.valid(&self.instance))
         uses(unchecked_init)
     {
         let storage_capacity: usize = std.memory.capacity<Uninit<T>>(&self.storage);
@@ -93,6 +190,8 @@ internal struct ChannelState<T>
     }
 
     trusted mut func take_received_message() -> T
+        requires(trusted std.channel.owner.valid(&self.instance))
+        ensures(trusted std.channel.owner.valid(&self.instance))
     {
         let message: T = trusted self.take_message();
 
@@ -111,6 +210,7 @@ internal struct ChannelState<T>
 }
 
 trusted internal func channel_initialized_head<T>(pos state: &mut ChannelState<T>) -> &mut Uninit<T>
+    requires(trusted std.channel.owner.valid(&state.instance))
     ensures(trusted core.memory.uninit_initialized<T>(storage = &result))
     uses(raw_memory)
 {
@@ -126,6 +226,7 @@ trusted internal func channel_initialized_head<T>(pos state: &mut ChannelState<T
 
 internal struct ChannelCore<T>
 {
+    instance: std.channel.owner.Marker;
     owners: core.atomic.Atomic<usize>;
     senders: core.atomic.Atomic<usize>;
     generation: core.atomic.Atomic<u32>;

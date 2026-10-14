@@ -15,6 +15,18 @@ impl super::ValueInputs {
         let targets = super::value::transfer_targets(request.unit());
 
         for entry in selections.entries() {
+            let SemanticSelection::Propagation(selection) = entry.selection() else { continue; };
+
+            let Some(BoundExpression::Structured(expression)) = request.unit().tree().expression(entry.expression()) else {
+                unreachable!("checked propagation retains its structured expression");
+            };
+
+            let operand = *expression.operands().first().expect("checked propagation retains its operand");
+            let projection = selection.success().map_or(DependencyProjection::NullableValue, |(_, field)| DependencyProjection::UnionPayloadField(field));
+
+            self.expressions.remove(&entry.expression());
+            self.projected.entry(entry.expression()).or_default().push((operand, vec![projection]));
+
             let SemanticSelection::Propagation(SelectedPropagation::Result {
                 boundary,
                 error_conversion,
@@ -27,20 +39,6 @@ impl super::ValueInputs {
             if super::value::independent_value_type(request, error_conversion.target_type())? {
                 continue;
             }
-
-            let Some(BoundExpression::Structured(expression)) =
-                request.unit().tree().expression(entry.expression())
-            else {
-                panic!(
-                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in collect_propagation"
-                );
-            };
-
-            let Some(operand) = expression.operands().first().copied() else {
-                panic!(
-                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in collect_propagation"
-                );
-            };
 
             let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(
                 "ResultVariant1ErrorError",

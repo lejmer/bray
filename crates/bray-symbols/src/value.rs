@@ -21,7 +21,7 @@ pub use constant::{
     ConstantValueKind, IntegerConstant, IntegerSign, RealConstantBits, TargetSizedIntegerType,
 };
 pub use dependency::{
-    DependencyBorrowRelation, DependencyCallInput, DependencyContractTemplateData, DependencyGuard,
+    DependencyBorrowRelation, DependencyWitnessCarrier, DependencyCallInput, DependencyContractTemplateData, DependencyGuard,
     DependencyProjection, DependencyReferenceKind, DependencyRequirement,
     DependencyRequirementKind, DependencySubject, DependencySubjectRoot,
     GuardedDependencyRequirement, LifecycleObligationKind,

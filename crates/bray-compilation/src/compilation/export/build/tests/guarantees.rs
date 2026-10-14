@@ -989,13 +989,15 @@ fn imported_mixed_predicate_conditions_preserve_trusted_occurrences() {
 }
 
 #[test]
-fn nullable_absence_contract_survives_interface_transport() {
-    let provider = compilation(
+fn nullable_pattern_contracts_survive_interface_transport() {
+    for (parameter, argument) in [("u32?", "value"), ("&(u32?)", "&value")] {
+    for pattern in ["none", "?_"] {
+    let provider = compilation(&format!(
         r#"
         module api;
-        func absent(pos value: u32?) requires(value matches none) executes(total) {}
+        func selected(pos value: {parameter}) requires(value matches {pattern}) executes(total) {{}}
     "#,
-    );
+    ));
 
     assert!(
         !provider.check_diagnostics().has_errors(),
@@ -1003,9 +1005,9 @@ fn nullable_absence_contract_survives_interface_transport() {
         provider.check_diagnostics()
     );
 
-    for (argument, valid) in [("none", true), ("1", false)] {
+    for (value, valid) in [("none", pattern == "none"), ("1", pattern == "?_")] {
         let source = format!(
-            "module app; using example.package.api; func root() executes(total) {{ example.package.api.absent({argument}); }}"
+            "module app; using example.package.api; func root() executes(total) {{ let value: u32? = {value}; example.package.api.selected({argument}); }}"
         );
 
         let consumer = execution_consumer(&provider, &source);
@@ -1018,6 +1020,9 @@ fn nullable_absence_contract_survives_interface_transport() {
         );
     }
 }
+}
+}
+
 #[test]
 fn imported_cleanup_guarantees_reach_following_calls() {
     let provider = compilation(
@@ -1128,5 +1133,91 @@ fn imported_cleanup_postconditions_follow_the_updated_borrowed_storage() {
                 bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
             );
         }
+    }
+}
+
+#[test]
+fn imported_union_variant_contracts_preserve_checked_tags() {
+    let provider = compilation(r#"
+        module api;
+        func create() -> Result<u32, u32> ensures(result matches Ok(_)) executes(total) { return Ok(7); }
+        const func observe(pos value: &Result<u32, u32>) -> u32
+            requires(value matches Ok(_)) executes(pure, total)
+        {
+            match value {
+                case Ok(_) { return 7; }
+                case Error(_) { panic("unreachable"); }
+            }
+        }
+    "#);
+
+    for (body, valid) in [
+        ("let value = example.package.api.create(); let _ = example.package.api.observe(&value);", true),
+        ("let value: Result<u32, u32> = Error(7); let _ = example.package.api.observe(&value);", false),
+    ] {
+        let source = format!("module app; using example.package.api; func root() executes(total) {{ {body} }}");
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(!consumer.check_diagnostics().has_errors(), valid, "{body}: {:?}", consumer.check_diagnostics());
+    }
+}
+
+#[test]
+fn imported_forwarded_carrier_preserves_its_original_boundary() {
+    let provider = compilation(r#"
+        trusted module api;
+        struct Marker {}
+        struct Guard { marker: Marker; }
+        struct Wrapper { guard: Guard; }
+        trusted predicate held(marker: &Marker);
+        trusted func acquire() -> Guard
+            ensures(trusted held(&result.marker)) executes(pure, total)
+        { return { marker = Marker {} }; }
+        func wrap() -> Wrapper
+            ensures(trusted held(&result.guard.marker)) executes(pure, total)
+        { return { guard = acquire() }; }
+        func observe(pos guard: &Guard)
+            requires(trusted held(&guard.marker)) executes(pure, total) {}
+    "#);
+
+    for (body, valid) in [
+        ("let wrapper = example.package.api.wrap(); let guard = wrapper.guard; example.package.api.observe(&guard);", true),
+        ("let marker = example.package.api.wrap().guard.marker;", false),
+    ] {
+        let source = format!(r#"
+            module app;
+            using example.package.api;
+            func root() {{ {body} }}
+        "#);
+
+        let application = execution_consumer(&provider, &source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:?}");
+    }
+}
+
+#[test]
+fn imported_static_owner_retains_initializer_authority() {
+    let provider = compilation(r#"
+        trusted module api;
+        struct Marker {}
+        struct Owner { marker: Marker; }
+        trusted predicate held(marker: &Marker);
+        trusted const func create() -> Owner
+            ensures(trusted held(&result.marker)) executes(pure, total)
+        { return { marker = Marker {} }; }
+        static OWNER: Owner = create();
+        func observe(pos owner: &Owner) requires(trusted held(&owner.marker)) {}
+    "#);
+
+    for (body, valid) in [
+        ("example.package.api.observe(&example.package.api.OWNER);", true),
+        ("let owner = example.package.api.Owner { marker = example.package.api.Marker {} }; example.package.api.observe(&owner);", false),
+    ] {
+        let source = format!("module app; using example.package.api; func root() {{ {body} }}");
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(!consumer.check_diagnostics().has_errors(), valid, "{body}: {:?}", consumer.check_diagnostics());
     }
 }

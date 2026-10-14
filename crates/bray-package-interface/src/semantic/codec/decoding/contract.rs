@@ -104,6 +104,16 @@ pub(super) fn decode_dependency_contract(
     }
 
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut carriers = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        carriers.push(bray_symbols::DependencyWitnessCarrier::new(
+            crate::InterfaceConstantTermId::new(read_u32(reader)?),
+            decode_dependency_projections(reader, limits, context)?,
+        ));
+    }
+
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
     let mut effects = context.allocate_items(reader, count)?;
 
     for _ in 0..count {
@@ -113,6 +123,8 @@ pub(super) fn decode_dependency_contract(
 
         effects.push(match raw {
             0 => DependencyStorageEffect::Unknown,
+            4 => DependencyStorageEffect::Atomic,
+            3 => DependencyStorageEffect::Cleanup(crate::InterfaceTypeId::new(read_u32(reader)?)),
             1 => DependencyStorageEffect::Direct {
                 subject: decode_dependency_subject(reader, limits, context)?,
                 kind: decode_tag(read_u32(reader)?)?,
@@ -133,6 +145,7 @@ pub(super) fn decode_dependency_contract(
 
     Ok(InterfaceDependencyContract::new(requirements)
         .with_borrows(borrows)
+        .with_carriers(carriers)
         .with_effects(effects)
         .with_normal_completion(normal_completion))
 }

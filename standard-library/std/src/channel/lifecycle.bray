@@ -6,7 +6,7 @@ internal struct PendingValue<T>
 {
     mut storage: T?;
 
-    trusted construct(pos value: T) -> Self
+    construct(pos value: T) -> Self
     {
         let mut storage: T? = none;
 
@@ -19,6 +19,7 @@ internal struct PendingValue<T>
     }
 
     mut func take() -> T
+        ensures(self.storage matches none)
     {
         let stored: T? = std.memory.replace_value(&mut self.storage, none);
 
@@ -32,12 +33,22 @@ internal struct PendingValue<T>
 
 internal struct WaitRegistration<T>
 {
+    instance: std.channel.owner.Marker;
     shared: &ChannelCore<T>;
     ticket: usize;
     kind: WaiterKind;
     mut active: bool;
 
     trusted destruct()
+        requires(
+            !self.active || (trusted std.channel.owner.valid(&self.instance) && trusted std.sync.spin_lock.valid(
+                &self.shared.state.instance
+            ) && trusted std.channel.owner.valid(&self.shared.instance))
+        )
+        when(!self.active)
+        {
+            executes(pure, total)
+        }
     {
         if self.active
         {
@@ -45,14 +56,10 @@ internal struct WaitRegistration<T>
         }
     }
 
-    trusted consume mut func complete()
+    consume mut func complete()
+        executes(total)
     {
         self.active = false;
-    }
-
-    trusted consume mut func withdraw()
-    {
-        trusted internal withdraw_waiter<T>(&mut self);
     }
 }
 
@@ -71,6 +78,10 @@ internal struct ChannelWaitWake<T>
     }
 
     trusted destruct()
+        when(!self.active)
+        {
+            executes(pure, total)
+        }
     {
         if self.active
         {
@@ -79,27 +90,31 @@ internal struct ChannelWaitWake<T>
     }
 
     trusted consume mut func disarm()
+        executes(total)
     {
         self.active = false;
     }
 }
 
-internal struct ChannelOwner<T>
-{
-    core: RawPointer<ChannelCore<T>>;
-
-    trusted destruct()
-    {
-        let shared: &ChannelCore<T> = trusted internal channel_core<T>(&self);
-
-        trusted internal release_core<T>(&self, shared);
-    }
-}
-
 trusted internal func register_waiter<T>(pos shared: &ChannelCore<T>, pos kind: WaiterKind) -> WaitRegistration<T>
+    requires(
+        trusted std.sync.spin_lock.valid(&shared.state.instance),
+        trusted std.channel.owner.valid(&shared.instance)
+    )
+    ensures(
+        trusted std.channel.owner.valid(&result.instance),
+        trusted std.sync.spin_lock.valid(&result.shared.state.instance),
+        trusted std.channel.owner.valid(&result.shared.instance)
+    )
 {
     let mut state = shared.state.lock();
     let channel: &mut ChannelState<T> = state.get();
+
+    let authorize_state = trusted lambda(pos marker: &std.channel.owner.Marker)
+        ensures(trusted std.channel.owner.valid(marker))
+        executes(pure, total) {};
+
+    authorize_state(&channel.instance);
 
     let ticket: usize = match kind
     {
@@ -112,6 +127,9 @@ trusted internal func register_waiter<T>(pos shared: &ChannelCore<T>, pos kind: 
     return
     {
         shared = shared,
+        instance = std.channel.owner.Marker
+        {
+        },
         ticket = ticket,
         kind = kind,
         active = true,
@@ -119,37 +137,70 @@ trusted internal func register_waiter<T>(pos shared: &ChannelCore<T>, pos kind: 
 }
 
 trusted internal func withdraw_waiter<T>(pos registration: &mut WaitRegistration<T>)
+    requires(
+        trusted std.channel.owner.valid(&registration.instance),
+        trusted std.sync.spin_lock.valid(&registration.shared.state.instance),
+        trusted std.channel.owner.valid(&registration.shared.instance)
+    )
+    ensures(
+        trusted std.channel.owner.valid(&registration.instance),
+        trusted std.sync.spin_lock.valid(&registration.shared.state.instance),
+        trusted std.channel.owner.valid(&registration.shared.instance)
+    )
 {
-    let mut state = registration.shared.state.lock();
-    let channel: &mut ChannelState<T> = state.get();
-
-    match registration.kind
+    let discarded: T? =
     {
-        case WaiterKind.Sender
+        let mut state = registration.shared.state.lock();
+        let channel: &mut ChannelState<T> = state.get();
+
+        let authorize_state = trusted lambda(pos marker: &std.channel.owner.Marker)
+            ensures(trusted std.channel.owner.valid(marker))
+            executes(pure, total) {};
+
+        authorize_state(&channel.instance);
+
+        yield match registration.kind
         {
-            if channel.rendezvous_belongs_to(registration.ticket)
+            case WaiterKind.Sender
             {
-                let _: T = trusted channel.take_committed_rendezvous(registration.ticket);
+                yield if channel.rendezvous_belongs_to(registration.ticket)
+                {
+                    let mut result: T? = none;
+
+                    result = trusted channel.take_committed_rendezvous(registration.ticket);
+                    yield result;
+                }
+                else
+                {
+                    let _: bool = channel.send_waiters.remove(registration.ticket);
+                    let result: T? = none;
+
+                    yield result;
+                };
             }
-            else
+            case WaiterKind.Receiver
             {
-                let _: bool = channel.send_waiters.remove(registration.ticket);
+                let _: bool = channel.receive_waiters.remove(registration.ticket);
+                let result: T? = none;
+
+                yield result;
             }
-        }
-        case WaiterKind.Receiver
-        {
-            let _: bool = channel.receive_waiters.remove(registration.ticket);
-        }
-    }
+        };
+    };
 
     registration.active = false;
-
     trusted internal notify_channel<T>(registration.shared);
 }
 
-internal async func wait_for_channel_change<T>(pos owner: ChannelOwner<T>, pos generation: u32)
-    requires(blocking_execution())
+trusted internal async func wait_for_channel_change<T>(pos owner: std.channel.owner.Owner<T>, pos generation: u32)
+    requires(blocking_execution(), trusted std.channel.owner.live(&owner.instance))
 {
+    let authorize = trusted lambda(pos marker: &std.channel.owner.Marker)
+        ensures(trusted std.channel.owner.access(marker))
+        executes(pure, total) {};
+
+    authorize(&owner.instance);
+
     let shared: &ChannelCore<T> = trusted internal channel_core<T>(&owner);
 
     if core.atomic.load<u32, 0>(&shared.generation) == generation
@@ -170,12 +221,12 @@ trusted internal func notify_channel<T>(pos shared: &ChannelCore<T>)
 {
     let _: u32 = core.atomic.fetch_add<u32, 2>(&shared.generation, 1);
 
-    trusted internal std.atomic.platform_wake_all_words(&shared.generation);
+    core.atomic.notify_all<u32>(&shared.generation);
 }
 
-// Each token retains one reference to the shared core. Its private construction sites
-// are the initial channel pair and reference-count increments for endpoints and waits.
-trusted internal func channel_owner_pointer<T>(pos owner: &ChannelOwner<T>) -> RawPointer<ChannelCore<T>>
+// Access requires protocol authority, which endpoint operations never return to callers.
+trusted internal func channel_owner_pointer<T>(pos owner: &std.channel.owner.Owner<T>) -> RawPointer<ChannelCore<T>>
+    requires(trusted std.channel.owner.access(&owner.instance))
     ensures(
         trusted core.memory.valid_read<ChannelCore<T>>(pointer = result, count = 1),
         trusted core.memory.aligned_for<ChannelCore<T>>(pointer = result),
@@ -190,12 +241,14 @@ trusted internal func channel_owner_pointer<T>(pos owner: &ChannelOwner<T>) -> R
     return owner.core;
 }
 
-trusted internal func channel_core<T>(pos owner: &ChannelOwner<T>) -> &ChannelCore<T>
+trusted internal func channel_core<T>(pos owner: &std.channel.owner.Owner<T>) -> &ChannelCore<T>
+    requires(trusted std.channel.owner.access(&owner.instance))
+    ensures(trusted std.sync.spin_lock.valid(&result.state.instance), trusted std.channel.owner.valid(&result.instance))
     uses(raw_memory, unchecked_alias)
 {
     let pointer: RawPointer<ChannelCore<T>> = trusted internal channel_owner_pointer<T>(owner);
 
-    return trusted std.memory.borrow_from<ChannelCore<T>, ChannelOwner<T>>(owner, pointer);
+    return trusted std.memory.borrow_from<ChannelCore<T>, std.channel.owner.Owner<T>>(owner, pointer);
 }
 
 trusted internal func retain_counter(pos counter: &core.atomic.Atomic<usize>)
@@ -229,77 +282,40 @@ trusted internal func all_senders_closed<T>(pos shared: &ChannelCore<T>) -> bool
     return core.atomic.load<usize, 1>(&shared.senders) == 0;
 }
 
-trusted internal func release_sender<T>(pos owner: &ChannelOwner<T>)
+trusted internal func release_sender<T>(pos shared: &ChannelCore<T>)
 {
-    let shared: &ChannelCore<T> = trusted internal channel_core<T>(owner);
     let _: usize = core.atomic.fetch_sub<usize, 3>(&shared.senders, 1);
 
     trusted internal notify_channel<T>(shared);
 }
 
-trusted internal func release_receiver<T>(pos owner: &ChannelOwner<T>)
+trusted internal func release_receiver<T>(pos shared: &ChannelCore<T>)
+    requires(
+        trusted std.sync.spin_lock.valid(&shared.state.instance),
+        trusted std.channel.owner.valid(&shared.instance)
+    )
 {
-    let shared: &ChannelCore<T> = trusted internal channel_core<T>(owner);
-
+    let messages: (std.memory.RawBuffer<T>)? =
     {
         let mut state = shared.state.lock();
         let channel: &mut ChannelState<T> = state.get();
 
+        let authorize_state = trusted lambda(pos marker: &std.channel.owner.Marker)
+            ensures(trusted std.channel.owner.valid(marker))
+            executes(pure, total) {};
+
+        authorize_state(&channel.instance);
         channel.receiver_open = false;
 
-        let preserve_rendezvous: bool = channel.rendezvous_ticket.is_present();
+        let mut result: (std.memory.RawBuffer<T>)? = none;
 
-        while channel.length > 0 && !preserve_rendezvous
+        if !channel.rendezvous_ticket.is_present()
         {
-            let _: T = trusted channel.take_message();
+            result = trusted channel.take_storage();
         }
-    }
+
+        yield result;
+    };
 
     trusted internal notify_channel<T>(shared);
-}
-
-trusted internal func release_core<T>(pos owner: &ChannelOwner<T>, pos shared: &ChannelCore<T>)
-    uses(manual_alloc)
-{
-    let owners: usize = core.atomic.fetch_sub<usize, 3>(&shared.owners, 1);
-
-    if owners == 1
-    {
-        {
-            let mut state = shared.state.lock();
-            let channel: &mut ChannelState<T> = state.get();
-
-            while channel.length > 0
-            {
-                let _: T = trusted channel.take_message();
-            }
-
-            channel.send_waiters.release_storage();
-            channel.receive_waiters.release_storage();
-
-            trusted std.memory.raw_buffer_release<Uninit<T>>(&mut channel.storage);
-        }
-
-        let pointer: RawPointer<ChannelCore<T>> = trusted internal final_channel_allocation<T>(owner);
-
-        trusted internal std.memory.deallocate_value<ChannelCore<T>>(pointer);
-    }
-}
-
-// The final decrement is an acquire-release operation. Once it observes the last
-// reference, no endpoint or suspended waiter can still own or borrow this allocation.
-trusted internal func final_channel_allocation<T>(pos owner: &ChannelOwner<T>) -> RawPointer<ChannelCore<T>>
-    ensures(
-        trusted core.memory.owned_allocation(
-            pointer = trusted std.memory.reinterpret<u8, ChannelCore<T>>(result),
-            bytes = internal std.memory.value_allocation_bytes<ChannelCore<T>>(),
-            align = std.memory.align_of<ChannelCore<T>>(),
-        ),
-    )
-{
-    let shared: &ChannelCore<T> = trusted internal channel_core<T>(owner);
-
-    assert(core.atomic.load<usize, 1>(&shared.owners) == 0, "channel allocation still has live owners");
-
-    return owner.core;
 }

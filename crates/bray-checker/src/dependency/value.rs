@@ -30,7 +30,7 @@ pub(crate) struct ValueInputs {
     pub(super) error_exits:
         BTreeMap<BoundExpressionId, (BoundExpressionId, bray_symbols::DependencyProjection)>,
     pub(super) returned_errors: std::collections::BTreeSet<BoundExpressionId>,
-    expressions: BTreeMap<BoundExpressionId, Vec<BoundExpressionId>>,
+    pub(super) expressions: BTreeMap<BoundExpressionId, Vec<BoundExpressionId>>,
     pub(super) projected_initializers: BTreeMap<BoundExpressionId, BoundExpressionId>,
 }
 
@@ -106,7 +106,7 @@ impl ValueInputs {
             returned_errors: Default::default(),
             expressions,
             projected_initializers: BTreeMap::new(),
-            pattern_subjects: super::projection::binding_subjects(unit)
+            pattern_subjects: crate::pattern::binding_subjects(unit)
                 .into_iter()
                 .collect(),
             independent: Default::default(),

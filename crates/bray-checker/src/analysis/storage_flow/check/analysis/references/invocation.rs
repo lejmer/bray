@@ -8,14 +8,56 @@ use bray_bound_tree::{BoundExecutionSite, BoundExpressionId, SemanticSelection};
 use bray_symbols::DependencySubjectRoot;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
-    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_borrow_origins(
+    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_roots(
         &self,
         state: &StorageFlowState,
         occurrence: BoundExecutionSite,
-    ) -> std::collections::BTreeMap<Place, std::collections::BTreeSet<Place>> {
+    ) -> Vec<Target> {
+        let mut roots = Vec::new();
+
+        if let Some(expression) = occurrence.expression().and_then(|id| self.request.view().expression(id)) {
+            // An awaited task retains inputs even though its invocation is deferred.
+            let receiver = invocation_argument(self.execution.semantics.selections(), occurrence, DependencySubjectRoot::Receiver);
+
+            for argument in expression.child_expressions().chain(receiver) {
+                if let Some(place) = self.argument_storage(argument) {
+                    roots.extend(state.memory.contained_regions(&Target::storage(place)).cloned());
+                }
+
+                let regions = self.expression_reference(state, argument)
+                    .and_then(|source| source.regions(&state.memory));
+
+                if let Some(regions) = regions {
+                    // The physical target is authoritative. Its lifetime anchor need
+                    // not be reachable through the reference, as with a lock guard.
+                    roots.extend(regions);
+                } else {
+                    // Opaque task representations can retain a loan without
+                    // publishing a physical field. Its possible targets bound effects,
+                    // but never establish exact reference equality.
+                    for dependency in self.liveness.retained_by(argument) {
+                        if let bray_bound_tree::BoundDependencySubject::BorrowCapability(capability) = dependency {
+                            roots.extend(state.memory.borrow_targets(capability).into_iter().flatten());
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(source) = self.invocation_reference(state, occurrence, DependencySubjectRoot::Receiver) {
+            roots.extend(source.regions(&state.memory).into_iter().flatten());
+        }
+
+        roots
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_borrow_origins(
+        &self,
+        occurrence: BoundExecutionSite,
+    ) -> BTreeMap<BoundExpressionId, std::collections::BTreeSet<Place>> {
         let mut borrow_origins = BTreeMap::new();
 
-        if let Some(bray_bound_tree::SemanticSelection::Call(call)) = occurrence
+        if let Some(SemanticSelection::Call(call)) = occurrence
             .expression()
             .and_then(|expression| self.execution.semantics.selections().expression(expression))
         {
@@ -35,7 +77,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         bray_symbols::TypeData::Borrow { .. }
                     ) =>
                     {
-                        Some(bray_symbols::DependencySubjectRoot::Parameter(
+                        Some(DependencySubjectRoot::Parameter(
                             bray_symbols::SymbolOrdinal::new(*ordinal),
                         ))
                     }
@@ -50,28 +92,36 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                                     | bray_symbols::ReceiverMode::Mutable
                             )
                         })
-                        .map(|_| bray_symbols::DependencySubjectRoot::Receiver),
+                        .map(|_| DependencySubjectRoot::Receiver),
                 );
 
             for root in arguments {
-                let Some(base) = self.invocation_place(occurrence, root) else {
-                    continue;
-                };
+                let argument = invocation_argument(self.execution.semantics.selections(), occurrence, root)
+                    .expect("selected borrow input retains its argument");
 
-                let Some(targets) = self
-                    .invocation_reference(state, occurrence, root)
-                    .and_then(|source| source.targets(&state.memory))
-                else {
-                    continue;
-                };
+                let owners = self.liveness.retained_by(argument).filter_map(|subject| {
+                    let access = match subject {
+                        bray_bound_tree::BoundDependencySubject::BorrowCapability(borrow) => {
+                            let capability = self.storage.borrow_capability(borrow)
+                                .expect("checked lifetime dependency retains its loan");
 
-                if let Some(targets) = targets
-                    .iter()
-                    .map(Target::observation_path)
-                    .collect::<Option<std::collections::BTreeSet<_>>>()
-                {
-                    borrow_origins.insert(base, targets);
-                }
+                            if capability.entry_binding().is_some() { return None; }
+
+                            capability.access()
+                        }
+                        bray_bound_tree::BoundDependencySubject::StorageAccess(access)
+                            if self.input.retained_storage.contains(&access) => access,
+                        _ => return None,
+                    };
+
+                    if self.borrow_reaches_external_storage(access) { return None; }
+
+                    self.storage.logical_path(access).cloned()
+                }).collect();
+
+                // Physical provenance can differ from the lifetime anchor of a trusted borrow.
+                // Consume the ordinary dependency analysis instead of reconstructing ownership.
+                borrow_origins.insert(argument, owners);
             }
         }
 
@@ -83,6 +133,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: BoundExecutionSite,
         root: DependencySubjectRoot,
     ) -> Option<Place> {
+        if root == DependencySubjectRoot::Result {
+            return self.invocation_result(occurrence);
+        }
+
         if let Some(argument) =
             invocation_argument(self.execution.semantics.selections(), occurrence, root)
         {

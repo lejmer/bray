@@ -1,3 +1,4 @@
+use crate::analysis::storage_flow::memory::Effect;
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpressionId, CheckedMemoryOperationKind, MemoryOperationDecision,
     MemoryOperationStatus, Refinement, RefinementKind, StorageAccessPurpose, StorageIdentity,
@@ -172,19 +173,6 @@ where
             | CheckedMemoryOperationKind::UninitMove { .. } => {
                 return self.apply_uninit_operation(state, operation);
             }
-            CheckedMemoryOperationKind::BorrowFrom { .. } => {
-                let [_, pointer, ..] = arguments else {
-                    return MemoryOperationStatus::Recovered;
-                };
-
-                let Some(source) = self.expression_reference(state, *pointer) else {
-                    return MemoryOperationStatus::Recovered;
-                };
-
-                if let Some(result) = result() {
-                    source.transfer(&mut state.memory, result);
-                }
-            }
             CheckedMemoryOperationKind::Address { pointee, .. } => {
                 let Some(result) = result() else {
                     return MemoryOperationStatus::Recovered;
@@ -200,7 +188,11 @@ where
                     state.memory.clear(&result);
                 }
             }
-            CheckedMemoryOperationKind::Null { .. } => {}
+            CheckedMemoryOperationKind::Null { .. } => {
+                if let Some(result) = result() {
+                    state.memory.null(result);
+                }
+            }
             CheckedMemoryOperationKind::IsNull { .. }
             | CheckedMemoryOperationKind::LayoutQuery { .. } => {}
             CheckedMemoryOperationKind::Offset { .. } => {
@@ -208,11 +200,16 @@ where
                     state.memory.offset(&source, result);
                 }
             }
-            CheckedMemoryOperationKind::Reinterpret { .. }
+            CheckedMemoryOperationKind::BorrowFrom { .. }
+            | CheckedMemoryOperationKind::Reinterpret { .. }
             | CheckedMemoryOperationKind::CallableFromPointer { .. }
             | CheckedMemoryOperationKind::PointerFromCallable { .. } => {
+                let pointer = usize::from(matches!(operation.kind(), CheckedMemoryOperationKind::BorrowFrom { .. }));
+
                 if let Some(result) = result() {
-                    if let Some(source) = self.expression_reference(state, arguments[0]) {
+                    // Unknown physical provenance remains unknown after a checked conversion.
+                    // It is not syntax recovery and does not erase the body's other facts.
+                    if let Some(source) = self.expression_reference(state, arguments[pointer]) {
                         source.transfer(&mut state.memory, result);
                     } else {
                         state.memory.clear(&result);
@@ -399,7 +396,7 @@ where
                 };
 
                 if let Some(result) = result() {
-                    state.memory.point_at(payload, result, element);
+                    state.memory.point_at(payload, result, element, bray_symbols::DependencyReferenceKind::Address);
                 }
             }
             CheckedMemoryOperationKind::UninitWrite { element } => {
@@ -419,7 +416,7 @@ where
                 if status == MemoryOperationStatus::Valid
                     && let Some(result) = result()
                 {
-                    state.memory.point_at(payload, result, element);
+                    state.memory.point_at(payload, result, element, bray_symbols::DependencyReferenceKind::Borrow);
                 }
 
                 return status;
@@ -507,8 +504,32 @@ where
         &self,
         state: &StorageFlowState,
         expression: BoundExpressionId,
-    ) -> Option<Vec<(Target, bray_symbols::DependencyMutationKind)>> {
+    ) -> Option<Vec<Effect>> {
         let operation = self.memory.operation(expression)?;
+
+        if crate::memory::execution::storage_effect(operation.kind())
+            == crate::memory::execution::StorageEffect::None
+        {
+            return Some(Vec::new());
+        }
+
+        if matches!(
+            operation.kind(),
+            CheckedMemoryOperationKind::AtomicStore { .. }
+                | CheckedMemoryOperationKind::AtomicExchange { .. }
+                | CheckedMemoryOperationKind::AtomicCompareExchange { .. }
+                | CheckedMemoryOperationKind::AtomicFetch { .. }
+        ) {
+            // Atomics update their protected word, never retire its owner or unrelated storage.
+            let targets = self.expression_reference(state, operation.arguments()[0])
+                .and_then(|source| source.targets(&state.memory));
+
+            let Some(targets) = targets else { return Some(vec![Effect::Atomic]); };
+
+            return Some(targets.into_iter()
+                .map(|target| Effect::Mutation(target, bray_symbols::DependencyMutationKind::Atomic))
+                .collect());
+        }
 
         let (argument, _, purpose) = self.memory_mutation(operation)?;
 
@@ -531,7 +552,19 @@ where
             bray_symbols::DependencyMutationKind::Write
         };
 
-        Some(targets.into_iter().map(|target| (target, kind)).collect())
+        Some(targets.into_iter().map(|target| Effect::Mutation(target, kind)).collect())
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn expression_is_borrowed(
+        &self,
+        expression: BoundExpressionId,
+    ) -> bool {
+        self.execution.semantics.types().expression(expression).is_some_and(|ty| {
+            matches!(
+                self.request.semantic_values().type_data(ty.ty()).as_ref(),
+                bray_symbols::TypeData::Borrow { .. }
+            )
+        })
     }
 
     pub(super) fn uninit_target(
@@ -539,17 +572,7 @@ where
         state: &StorageFlowState,
         expression: BoundExpressionId,
     ) -> Option<Target> {
-        let borrowed = self
-            .execution
-            .semantics
-            .types()
-            .expression(expression)
-            .is_some_and(|ty| {
-                matches!(
-                    self.request.semantic_values().type_data(ty.ty()).as_ref(),
-                    bray_symbols::TypeData::Borrow { .. }
-                )
-            });
+        let borrowed = self.expression_is_borrowed(expression);
 
         let storage = if borrowed {
             let targets = self
@@ -613,17 +636,7 @@ where
             return Some(Source::Value(Target::storage(slot)));
         }
 
-        let borrowed = self
-            .execution
-            .semantics
-            .types()
-            .expression(expression)
-            .is_some_and(|ty| {
-                matches!(
-                    self.request.semantic_values().type_data(ty.ty()).as_ref(),
-                    bray_symbols::TypeData::Borrow { .. }
-                )
-            });
+        let borrowed = self.expression_is_borrowed(expression);
 
         if borrowed
             && let Some(capability) = self

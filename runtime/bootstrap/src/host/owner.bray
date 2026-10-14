@@ -57,11 +57,11 @@ trusted internal func initialize_host() -> u32
         requires(
             lease.active,
             trusted host_access_idle(owner = lease),
-            trusted host_access_live(owner = lease),
+            trusted host_access_live(owner = &lease.acquisition),
             trusted host_anchor_matches(anchor = &anchor, lease = lease)
         )
         ensures(
-            trusted host_access_live(owner = lease),
+            trusted host_access_live(owner = &lease.acquisition),
             trusted host_access_idle(owner = lease),
             trusted attachment_cleanup_completed(owner = lease)
         )
@@ -146,11 +146,11 @@ trusted internal func initialize_host() -> u32
                 trusted prepared_host_storage(owner = &prepared),
                 lease.active,
                 trusted host_access_idle(owner = lease),
-                trusted host_access_live(owner = lease),
+                trusted host_access_live(owner = &lease.acquisition),
                 trusted host_anchor_matches(anchor = &anchor, lease = lease)
             )
             ensures(
-                trusted host_access_live(owner = lease),
+                trusted host_access_live(owner = &lease.acquisition),
                 trusted host_access_idle(owner = lease),
                 trusted attachment_cleanup_completed(owner = lease)
             )
@@ -249,9 +249,13 @@ trusted internal func current_native_thread_identity() -> u64
 }
 
 trusted internal func current_attachment_locked(pos lease: &HostLease) -> u64
-    requires(lease.active, trusted host_access_idle(owner = lease), trusted host_access_live(owner = lease))
+    requires(
+        lease.active,
+        trusted host_access_idle(owner = lease),
+        trusted host_access_live(owner = &lease.acquisition)
+    )
     ensures(
-        trusted host_access_live(owner = lease),
+        trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = lease),
         trusted attachment_cleanup_completed(owner = lease)
     )
@@ -443,12 +447,12 @@ trusted internal func shutdown_host() -> u32
                 trusted prepared_host_storage(owner = &retired),
                 lease.active,
                 trusted host_access_idle(owner = lease),
-                trusted host_access_live(owner = lease),
+                trusted host_access_live(owner = &lease.acquisition),
                 trusted host_anchor_matches(anchor = &anchor, lease = lease)
             )
             ensures(
                 trusted prepared_host_storage(owner = &retired),
-                trusted host_access_live(owner = lease),
+                trusted host_access_live(owner = &lease.acquisition),
                 trusted host_access_idle(owner = lease),
                 trusted attachment_cleanup_completed(owner = lease)
             )
@@ -548,11 +552,11 @@ trusted internal func shutdown_host() -> u32
             trusted prepared_host_storage(owner = &retired),
             lease.active,
             trusted host_access_idle(owner = lease),
-            trusted host_access_live(owner = lease),
+            trusted host_access_live(owner = &lease.acquisition),
             trusted host_anchor_matches(anchor = &anchor, lease = lease)
         )
         ensures(
-            trusted host_access_live(owner = lease),
+            trusted host_access_live(owner = &lease.acquisition),
             trusted host_access_idle(owner = lease),
             trusted attachment_cleanup_completed(owner = lease)
         )

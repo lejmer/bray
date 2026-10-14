@@ -28,7 +28,7 @@ pub(crate) fn selected_call_contracts<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    let contracts = callable_dependency_contracts(request, call.target())
+    let (contracts, input_count) = callable_dependency_contracts(request, call.target())
         .map_err(DependencyContractInstantiationError::Resolution)?;
 
     let contracts =
@@ -84,7 +84,7 @@ where
             request,
             expression,
             call,
-            instantiated.with_result(result),
+            instantiated.with_result(result).with_input_count(input_count),
             &template,
         )
         .map_err(DependencyContractInstantiationError::Resolution)?,
@@ -314,13 +314,13 @@ fn instantiate_hidden_call<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    let contracts =
+    let (contracts, input_count) =
         callable_dependency_contracts(request, BoundCallableTarget::Declaration(callable))
             .map_err(DependencyContractInstantiationError::Resolution)?;
 
     let mut context = CallInstantiationContext::hidden(request, storage, input, result);
 
-    instantiate_callable_contracts(request, contracts, &mut context)
+    Ok(instantiate_callable_contracts(request, contracts, &mut context)?.with_input_count(input_count))
 }
 
 fn instantiate_callable_contracts<C>(
@@ -363,7 +363,7 @@ where
 fn callable_dependency_contracts<C>(
     request: CheckerUnitView<'_, C>,
     target: BoundCallableTarget,
-) -> Result<CallableDependencyContracts, CheckerQueryError<C::UpstreamError>>
+) -> Result<(CallableDependencyContracts, usize), CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -390,10 +390,10 @@ where
                 })
                 .transpose().unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in callable_dependency_contracts: {error:?}"));
 
-            Ok(match deferred {
+            Ok((match deferred {
                 Some(deferred) => CallableDependencyContracts::asynchronous(invocation, deferred),
                 None => CallableDependencyContracts::synchronous(invocation),
-            })
+            }, signature.value().parameters().len() + usize::from(signature.value().receiver().is_some())))
         }
         BoundCallableTarget::Indirect(ty) => {
             let data = request.semantic_values().type_data(ty);
@@ -402,12 +402,12 @@ where
                 panic!("Semantic-selection inputs do not describe the requested bound unit or operation category. in callable_dependency_contracts");
             };
 
-            Ok(callable.dependency_contracts())
+            Ok((callable.dependency_contracts(), callable.parameters().len()))
         }
-        BoundCallableTarget::Predicate(_) | BoundCallableTarget::Anonymous(_) => Ok(request
+        BoundCallableTarget::Predicate(_) | BoundCallableTarget::Anonymous(_) => Ok((request
             .semantic_values()
             .empty_dependency_contract_template()
-            .map(CallableDependencyContracts::synchronous).unwrap_or_else(|error| panic!("callable_dependency_contracts must satisfy its checked construction contract: {error:?}"))),
+            .map(CallableDependencyContracts::synchronous).unwrap_or_else(|error| panic!("callable_dependency_contracts must satisfy its checked construction contract: {error:?}")), 0)),
     }
 }
 

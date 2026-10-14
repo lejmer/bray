@@ -24,11 +24,11 @@ const LIBRARY_PRODUCT: &str = "library";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 159;
+const API_TEST_COUNT: usize = 160;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const CONCURRENCY_MODEL_TEST_COUNT: usize = 7;
 const CONCURRENCY_STRESS_TEST_COUNT: usize = 5;
-const OUTCOME_CASES: [OutcomeCase; 24] = [
+const OUTCOME_CASES: [OutcomeCase; 25] = [
     OutcomeCase::new(
         "assertion-failure",
         "assertion_failure",
@@ -164,6 +164,15 @@ const OUTCOME_CASES: [OutcomeCase; 24] = [
         OutcomeExpectation::Panic {
             cause: "message",
             message: "raw buffer cleanup progress checked",
+            source_available: true,
+        },
+    ),
+    OutcomeCase::new(
+        "channel-cleanup-progress",
+        "channel_close_finishes_each_panicking_element_once",
+        OutcomeExpectation::Panic {
+            cause: "message",
+            message: "channel cleanup progress checked",
             source_available: true,
         },
     ),

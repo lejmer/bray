@@ -185,7 +185,9 @@ where
     let representation = type_representation(request, operand_type.ty());
 
     match representation {
-        Some(RepresentationRole::RunResult) => Ok(Some(Ok(SelectedPropagation::CurrentRun))),
+        Some(RepresentationRole::RunResult) => Ok(Some(Ok(SelectedPropagation::CurrentRun {
+            success: success_payload(request, "RunResultVariant0Completed", "RunResultVariant0CompletedValue"),
+        }))),
         Some(RepresentationRole::Result) => {
             let Some(error_type) = named_type_arguments(request, operand_type.ty())
                 .get(1)
@@ -200,6 +202,7 @@ where
                         boundary: boundary.target,
                         result_type: boundary.ty,
                         error_conversion: conversion,
+                        success: success_payload(request, "ResultVariant0Ok", "ResultVariant0OkValue"),
                     }),
                     Err(available_errors) => {
                         Err(DiagnosticPropagationProblem::ResultBoundaryUnavailable {
@@ -399,4 +402,23 @@ where
     .with_note(DiagnosticNote::new(
         DiagnosticNoteKind::PropagationBoundaryMustMatch,
     )))
+}
+
+fn success_payload<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    variant: &str,
+    field: &str,
+) -> (bray_symbols::UnionVariantSymbolId, bray_symbols::UnionPayloadFieldSymbolId) {
+    let symbols = request.available_compiler_known_symbols();
+
+    let variant = bray_compiler_known::CompilerKnownDeclarationKey::try_new(variant)
+        .expect("propagation success uses a compiler-known variant");
+
+    let field = bray_compiler_known::CompilerKnownDeclarationKey::try_new(field)
+        .expect("propagation success uses a compiler-known payload");
+
+    (
+        symbols.declaration_symbol(&variant).expect("checked propagation retains its success variant"),
+        symbols.declaration_symbol(&field).expect("checked propagation retains its success payload"),
+    )
 }

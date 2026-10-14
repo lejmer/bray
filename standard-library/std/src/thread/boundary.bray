@@ -78,28 +78,36 @@ internal func thread_name_contains_nul(pos name: &string) -> bool
 }
 
 trusted internal func allocate_thread_value<T>(pos value: T) -> RawPointer<TransferredThreadValue<T>>
-    uses(manual_alloc, raw_memory, unchecked_init)
+    uses(manual_alloc, raw_memory, unchecked_init, layout_reinterpret)
 {
     let bytes: usize = internal std.memory.value_allocation_bytes<TransferredThreadValue<T>>();
     let align: usize = std.memory.align_of<TransferredThreadValue<T>>();
-    let allocation: RawPointer<u8> = trusted core.memory.allocate(bytes = bytes, align = align);
 
-    let pointer: RawPointer<TransferredThreadValue<T>> = trusted internal std.memory.value_allocation_pointer<
-        TransferredThreadValue<T>
-    >(allocation);
-
-    trusted std.memory.write<TransferredThreadValue<T>>(
-        pointer,
-        {
-            value = value,
-            allocation =
+    let owner: TransferredThreadValue<T> =
+    {
+        value = value,
+        allocation = trusted std.memory.allocate(
             {
-                pointer = allocation,
                 bytes = bytes,
                 align = align
             }
-        }
+        ),
+    };
+
+    let pointer: RawPointer<TransferredThreadValue<T>> = trusted std.memory.reinterpret<TransferredThreadValue<T>, u8>(
+        owner.allocation.pointer
     );
+
+    let authorize = trusted lambda(pos destination: RawPointer<TransferredThreadValue<T>>)
+        ensures(
+            trusted core.memory.valid_write<TransferredThreadValue<T>>(pointer = destination, count = 1),
+            trusted core.memory.aligned_for<TransferredThreadValue<T>>(pointer = destination),
+        )
+        executes(pure, total) {};
+
+    trusted authorize(pointer);
+
+    trusted std.memory.write<TransferredThreadValue<T>>(pointer, owner);
 
     return pointer;
 }

@@ -346,6 +346,10 @@ impl SemanticValueStore {
                 operand: self.substitute_constant_term_data(*operand, substitution)?,
                 target: self.substitute_type_data(*target, substitution)?,
             },
+            ConstantTermData::VariantTest { subject, variant } => ConstantTermData::VariantTest {
+                subject: self.substitute_constant_term_data(*subject, substitution)?,
+                variant: *variant,
+            },
             ConstantTermData::NullablePresent(value) => ConstantTermData::NullablePresent(
                 self.substitute_constant_term_data(*value, substitution)?,
             ),

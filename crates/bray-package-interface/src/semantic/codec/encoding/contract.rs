@@ -41,6 +41,13 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                 encode_dependency_projections(encoder, relation.target_projections());
             }
 
+            write_count(encoder, contract.carriers.len());
+
+            for carrier in &*contract.carriers {
+                encoder.write_u32(carrier.guarantee().raw());
+                encode_dependency_projections(encoder, carrier.path());
+            }
+
             write_count(encoder, contract.effects.len());
 
             for effect in &*contract.effects {
@@ -48,6 +55,8 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
 
                 match effect {
                     DependencyStorageEffect::Unknown => encoder.write_u32(0),
+                    DependencyStorageEffect::Atomic => encoder.write_u32(4),
+                    DependencyStorageEffect::Cleanup(ty) => { encoder.write_u32(3); encoder.write_u32(ty.raw()); }
                     DependencyStorageEffect::Direct { subject, kind } => {
                         encoder.write_u32(1);
                         encode_dependency_subject(encoder, subject);

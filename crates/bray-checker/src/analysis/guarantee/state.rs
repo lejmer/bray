@@ -205,27 +205,45 @@ impl ExecutionState {
         }
     }
 
-    pub(super) fn invalidate_cleanup(&mut self) {
-        self.assumptions
-            .retain(|(condition, _)| !condition.observes_borrowed(None));
+    pub(super) fn invalidate_cleanup(
+        &mut self,
+        stable_values: &BTreeSet<ExecutionCondition>,
+        stable_owners: &BTreeSet<ExecutionCondition>,
+    ) {
+        self.refine_witnesses();
 
-        self.witness_carriers.clear();
-        self.witness_dependencies.clear();
-        self.trusted_assumptions.clear();
+        self.assumptions.retain(|(condition, _)| {
+            !condition.observes_borrowed(None) || condition.observes_only(stable_values)
+        });
+
+        let mut retained = BTreeSet::new();
+
+        self.witness_carriers.retain(|carrier, conditions| {
+            if !stable_owners.iter().any(|owner| carrier.is_owned_projection_of(owner)) {
+                return false;
+            }
+
+            conditions.retain(|condition| condition.observes_only(stable_values));
+
+            for condition in conditions.iter() {
+                condition.clone().assume(true, &mut retained);
+            }
+
+            !conditions.is_empty()
+        });
+
+        self.witness_dependencies.retain(|carrier, _| self.witness_carriers.contains_key(carrier));
+        self.trusted_assumptions.retain(|fact| retained.contains(fact));
         self.allocation_owners.clear();
 
-        for entry in self
-            .entries
-            .values_mut()
-            .filter(|entry| entry.pending_execution)
-        {
-            entry.assumptions.clear();
-            entry.trusted_assumptions.clear();
+        for entry in self.entries.values_mut().filter(|entry| entry.pending_execution) {
+            entry.assumptions.retain(|(condition, _)| condition.observes_only(stable_values));
+            entry.trusted_assumptions.retain(|fact| retained.contains(fact));
             entry.trusted_boundary = false;
         }
 
-        // Opaque cleanup may mutate through capabilities. Whole snapshots contain field
-        // observations too, so retaining a root would resurrect its old projected contents.
+        // Opaque execution can reach every payload. The caller restores only observations
+        // whose storage analysis established preservation, never the containing snapshot.
         for value in self.current.values_mut() {
             *value = ExecutionCondition::Unknown;
         }
@@ -247,11 +265,13 @@ impl ExecutionState {
             |value: &ExecutionCondition| value.with_joined_values(identities, identities);
 
         for facts in [&mut self.assumptions, &mut self.trusted_assumptions] {
-            *facts = facts
-                .iter()
-                .map(|(condition, value)| (rename(condition), *value))
-                .filter(|(condition, _)| *condition != ExecutionCondition::Unknown)
-                .collect();
+            let mut renamed = BTreeSet::new();
+
+            for (condition, value) in facts.iter() {
+                rename(condition).assume(*value, &mut renamed);
+            }
+
+            *facts = renamed;
         }
 
         let mut carriers = BTreeMap::<ExecutionCondition, BTreeSet<ExecutionCondition>>::new();
@@ -421,6 +441,14 @@ impl ExecutionState {
         let mut invalidated_observations = crate::execution_guarantees::ObservationSet::default();
 
         while let Some(value) = pending.pop() {
+            // A write changes a storage observation, never the meaning of a constant
+            // also held by an unrelated slot. Borrowed scalars retain their place identity.
+            if kind == bray_symbols::DependencyMutationKind::Write
+                && matches!(value, ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_) | ExecutionCondition::Variant(_))
+            {
+                continue;
+            }
+
             if retained_observations.contains(&value) || !invalidated.insert(value.clone()) {
                 continue;
             }
@@ -658,6 +686,34 @@ mod tests {
     }
 
     #[test]
+    fn discharging_a_guard_never_borrows_authority_from_another_carrier() {
+        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+        let substitution = crate::test_support::empty_substitution(symbol.into());
+
+        let predicate = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Predicate(
+            symbol.into(), substitution, [input(2).borrowed(), ExecutionCondition::Boolean(true)].into(),
+        )));
+
+        let guard = input(3);
+        let conditional = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr, vec![guard.clone(), predicate.clone()]);
+        let mut state = ExecutionState::default();
+
+        state.carry_guarantee(input(0), conditional.clone());
+        state.carry_guarantee(input(1), predicate.clone());
+        conditional.assume(true, &mut state.trusted_assumptions);
+        predicate.clone().assume(true, &mut state.trusted_assumptions);
+        state.assumptions.insert((guard.clone(), true));
+
+        state.refine_witnesses();
+        assert!(!state.witness_carriers[&input(0)].contains(&predicate));
+        assert!(state.witness_carriers[&input(1)].contains(&predicate));
+
+        state.assumptions = [(guard, false)].into();
+        state.refine_witnesses();
+        assert!(state.witness_carriers[&input(0)].contains(&predicate));
+    }
+
+    #[test]
     fn repeated_cleanup_does_not_revive_old_evidence_or_retire_its_sibling() {
         use crate::test_support::{error_type, expression_unit, push_block, push_expression};
 
@@ -730,6 +786,7 @@ mod tests {
         state.entries.insert(
             occurrence,
             crate::ExecutionCallEvidence {
+                anonymous_target: None,
                 trusted_boundary: true,
                 pending_execution: true,
                 arguments: [(place.clone(), old.clone())].into(),
@@ -911,7 +968,7 @@ mod tests {
             .witness_dependencies
             .insert(child, BTreeSet::from([root.clone()]));
 
-        state.invalidate_trusted_roots(&BTreeSet::from([root.root]));
+        state.invalidate_trusted_roots(&BTreeSet::from([root.root.clone()]));
         state.retire_trusted_values([ExecutionCondition::Input(root)], &retained);
 
         assert!(state.witness_carriers.is_empty());

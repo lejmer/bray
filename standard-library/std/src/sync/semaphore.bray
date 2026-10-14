@@ -44,7 +44,7 @@ struct Semaphore
 
             if core.atomic.load<usize, 0>(&self.permits) == 0
             {
-                trusted internal std.atomic.platform_wait_word(&self.generation, expected = generation);
+                core.atomic.wait<u32, 1>(&self.generation, expected = generation);
             }
         }
     }
@@ -100,11 +100,11 @@ struct Semaphore
 
                 if count == 1
                 {
-                    trusted internal std.atomic.platform_wake_word(&self.generation);
+                    core.atomic.notify_one<u32>(&self.generation);
                 }
                 else
                 {
-                    trusted internal std.atomic.platform_wake_all_words(&self.generation);
+                    core.atomic.notify_all<u32>(&self.generation);
                 }
 
                 return Ok(unit);

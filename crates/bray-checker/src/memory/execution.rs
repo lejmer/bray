@@ -82,7 +82,8 @@ pub(crate) fn guarantees(operation: Operation, property: ExecutionProperty) -> b
         | Operation::AtomicStore { .. }
         | Operation::AtomicExchange { .. }
         | Operation::AtomicCompareExchange { .. }
-        | Operation::AtomicFetch { .. } => property == ExecutionProperty::Total,
+        | Operation::AtomicFetch { .. }
+        | Operation::AtomicNotify { .. } => property == ExecutionProperty::Total,
         // Allocation, selected disposal, waiting and target-controlled execution need
         // their own checked completion contract; this table supplies no blanket proof.
         Operation::RawAllocate
@@ -104,8 +105,7 @@ pub(crate) fn guarantees(operation: Operation, property: ExecutionProperty) -> b
         | Operation::UnreachableTermination
         | Operation::TargetFeatureEnabled { .. }
         | Operation::InlineAssembly { .. }
-        | Operation::AtomicWait { .. }
-        | Operation::AtomicNotify { .. } => false,
+        | Operation::AtomicWait { .. } => false,
     }
 }
 
@@ -162,7 +162,10 @@ pub(crate) fn storage_effect(operation: Operation) -> StorageEffect {
         | Operation::SpinLoopHint
         | Operation::TargetFeatureEnabled { .. }
         | Operation::AtomicInitialize { .. }
-        | Operation::AtomicLoad { .. } => StorageEffect::None,
+        | Operation::AtomicLoad { .. }
+        | Operation::AtomicWait { .. }
+        | Operation::AtomicNotify { .. }
+        | Operation::Fence { .. } => StorageEffect::None,
         Operation::UninitWrite { .. }
         | Operation::UninitMove { .. }
         | Operation::Read {
@@ -175,7 +178,11 @@ pub(crate) fn storage_effect(operation: Operation) -> StorageEffect {
             ..
         }
         | Operation::VolatileWrite { .. }
-        | Operation::Copy { .. } => StorageEffect::Contents,
+        | Operation::Copy { .. }
+        | Operation::AtomicStore { .. }
+        | Operation::AtomicExchange { .. }
+        | Operation::AtomicCompareExchange { .. }
+        | Operation::AtomicFetch { .. } => StorageEffect::Contents,
         Operation::RawDeallocate
         | Operation::Deallocate
         | Operation::RawBufferPush { .. }
@@ -185,17 +192,11 @@ pub(crate) fn storage_effect(operation: Operation) -> StorageEffect {
         | Operation::RawBufferReplace { .. }
         | Operation::RawBufferRelocate { .. }
         | Operation::ByteBufferFill
-        | Operation::Fence { .. }
         | Operation::CatastrophicAbort
         | Operation::DebuggerTrap
         | Operation::UnreachableTermination
         | Operation::InlineAssembly { .. }
-        | Operation::AtomicStore { .. }
-        | Operation::AtomicExchange { .. }
-        | Operation::AtomicCompareExchange { .. }
-        | Operation::AtomicFetch { .. }
-        | Operation::AtomicWait { .. }
-        | Operation::AtomicNotify { .. } => StorageEffect::Unknown,
+        => StorageEffect::Unknown,
     }
 }
 

@@ -15,7 +15,7 @@ trusted func acquire_blocking_word_lock(pos lock: &core.atomic.Atomic<u32>)
 
     while observed != 0
     {
-        trusted internal std.atomic.platform_wait_word(lock, expected = 2);
+        core.atomic.wait<u32, 1>(lock, expected = 2);
 
         observed = core.atomic.exchange<u32, 1>(lock, value = 2);
     }
@@ -28,6 +28,6 @@ trusted func release_blocking_word_lock(pos lock: &core.atomic.Atomic<u32>)
 
     if previous == 2
     {
-        trusted internal std.atomic.platform_wake_word(lock);
+        core.atomic.notify_one<u32>(lock);
     }
 }

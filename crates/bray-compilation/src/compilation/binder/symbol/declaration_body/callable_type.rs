@@ -144,7 +144,7 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
             postcondition.then_some(TypeExpressionTemplate::Resolved(callable.result())),
         );
 
-        let (semantics, checked_diagnostics) =
+        let ((semantics, patterns), checked_diagnostics) =
             super::shared::checked_bound_contract(context, bound, &declared, None)?.into_parts();
 
         let inputs = references
@@ -162,8 +162,10 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
         let conditions = bray_checker::predicate_conditions_with_inputs(
             bound,
             &semantics,
+            &patterns,
             context.semantic_values(),
             &inputs,
+            None,
         )
         .map_err(BindingQueryError::SemanticValue)?;
 

@@ -9,13 +9,14 @@ use bray_symbols::{AnyLocalSymbolId, AnySymbolId, ConstantValueKind, SemanticVal
 use crate::ExecutionCondition;
 
 use super::calls::selected_condition;
-use super::values::{constructed_condition, conversion_condition, nullable_condition};
+use super::values::{constructed_condition, conversion_condition, pattern_condition};
 
 pub(crate) fn expression_condition(
     unit: &BoundUnit,
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
     literals: &BTreeMap<BoundExpressionId, ExecutionCondition>,
+    patterns: &BTreeMap<bray_bound_tree::BoundPatternId, (bray_bound_tree::BoundOperator, ExecutionCondition)>,
     current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     expression: BoundExpressionId,
@@ -44,7 +45,7 @@ pub(crate) fn expression_condition(
     }
 
     if let Some(condition) = selected_condition(
-        unit, semantics, values, literals, current, evaluated, expression, budget,
+        unit, semantics, values, literals, patterns, current, evaluated, expression, budget,
     ) {
         return condition;
     }
@@ -52,16 +53,16 @@ pub(crate) fn expression_condition(
     if let Some(constructed) =
         constructed_condition(expression, bound, semantics, values, &mut |source| {
             expression_condition(
-                unit, semantics, values, literals, current, evaluated, source, budget,
+                unit, semantics, values, literals, patterns, current, evaluated, source, budget,
             )
         })
     {
         return constructed;
     }
 
-    if let Some(condition) = nullable_condition(unit, semantics, expression, bound, &mut |source| {
+    if let Some(condition) = pattern_condition(patterns, semantics, values, expression, bound, &mut |source| {
         expression_condition(
-            unit, semantics, values, literals, current, evaluated, source, budget,
+            unit, semantics, values, literals, patterns, current, evaluated, source, budget,
         )
     }) {
         return condition;
@@ -69,15 +70,21 @@ pub(crate) fn expression_condition(
 
     if let Some(condition) = conversion_condition(expression, bound, semantics, &mut |source| {
         expression_condition(
-            unit, semantics, values, literals, current, evaluated, source, budget,
+            unit, semantics, values, literals, patterns, current, evaluated, source, budget,
         )
     }) {
         return condition;
     }
 
     match bound {
+        BoundExpression::AnonymousCallable(_) => ExecutionCondition::Expression(expression),
         BoundExpression::Name(name) => {
-            if let Some(value) = current.get(&name.target().into()) {
+            let place = match semantics.selections().expression(expression) {
+                Some(SemanticSelection::StaticReference(selection)) => crate::ExecutionPlace::static_instance(selection.clone()),
+                _ => name.target().into(),
+            };
+
+            if let Some(value) = current.get(&place) {
                 // The current state and expression retain the same immutable term independently.
                 return value.clone();
             }
@@ -108,6 +115,7 @@ pub(crate) fn expression_condition(
                     semantics,
                     values,
                     literals,
+                    patterns,
                     current,
                     evaluated,
                     member.receiver(),
@@ -142,6 +150,7 @@ pub(crate) fn expression_condition(
                 semantics,
                 values,
                 literals,
+                patterns,
                 current,
                 evaluated,
                 member.receiver(),
@@ -169,7 +178,7 @@ pub(crate) fn expression_condition(
                 .iter()
                 .map(|operand| {
                     expression_condition(
-                        unit, semantics, values, literals, current, evaluated, *operand, budget,
+                        unit, semantics, values, literals, patterns, current, evaluated, *operand, budget,
                     )
                 })
                 .collect();
@@ -191,7 +200,7 @@ pub(crate) fn expression_condition(
             };
 
             let index = expression_condition(
-                unit, semantics, values, literals, current, evaluated, *index, budget,
+                unit, semantics, values, literals, patterns, current, evaluated, *index, budget,
             );
 
             let ExecutionCondition::Literal(index) = index else {
@@ -207,7 +216,7 @@ pub(crate) fn expression_condition(
             };
 
             expression_condition(
-                unit, semantics, values, literals, current, evaluated, *receiver, budget,
+                unit, semantics, values, literals, patterns, current, evaluated, *receiver, budget,
             )
             .project(bray_bound_tree::StorageProjection::ElementFromStart(
                 bray_symbols::SymbolOrdinal::new(index),
@@ -226,25 +235,15 @@ pub(crate) fn expression_condition(
             };
 
             let value = expression_condition(
-                unit, semantics, values, literals, current, evaluated, *operand, budget,
+                unit, semantics, values, literals, patterns, current, evaluated, *operand, budget,
             );
 
             match operation.kind() {
                 bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary => {
                     value.requiring_trusted_predicates()
                 }
-                bray_bound_tree::BoundStructuredExpressionKind::Borrow
-                    if matches!(
-                        value,
-                        ExecutionCondition::Literal(_)
-                            | ExecutionCondition::Boolean(_)
-                            | ExecutionCondition::Unknown
-                    ) =>
-                {
-                    // Equal scalar contents do not identify the borrowed storage.
-                    expression_place(unit, semantics, values, *operand)
-                        .map(ExecutionCondition::Input)
-                        .unwrap_or(ExecutionCondition::Expression(*operand))
+                bray_bound_tree::BoundStructuredExpressionKind::Borrow => {
+                    super::values::borrowed_condition(unit, semantics, values, *operand, value)
                 }
                 _ => value,
             }
@@ -266,7 +265,10 @@ pub(crate) fn expression_place(
     for _ in 0..ExecutionCondition::WORK_LIMIT {
         match unit.view().expression(expression)? {
             BoundExpression::Name(name) => {
-                let mut place = crate::ExecutionPlace::from(name.target());
+                let mut place = match semantics.selections().expression(expression) {
+                    Some(SemanticSelection::StaticReference(selection)) => crate::ExecutionPlace::static_instance(selection.clone()),
+                    _ => crate::ExecutionPlace::from(name.target()),
+                };
 
                 for projection in projections.into_iter().rev() {
                     place = place.component(projection);

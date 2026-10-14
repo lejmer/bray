@@ -91,6 +91,8 @@ impl BoundCallReference {
 /// The distinct invocation, returned-value and deferred requirements of one selected call.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundCallDependencyContracts {
+    input_count: usize,
+    carriers: Arc<[bray_symbols::DependencyWitnessCarrier]>,
     invocation: BoundDependencyContract,
     result: BoundDependencyContract,
     deferred: Option<BoundDependencyContract>,
@@ -113,6 +115,8 @@ impl BoundCallDependencyContracts {
         Self {
             invocation,
             result,
+            carriers: Arc::new([]),
+            input_count: 0,
             deferred,
             references: Vec::new(),
             effects: Arc::new([bray_symbols::DependencyStorageEffect::Unknown]),
@@ -123,6 +127,26 @@ impl BoundCallDependencyContracts {
             deferred_completion: true,
         }
     }
+
+    /// Retains receiver-first formal arity for portable completion conditions.
+    pub const fn with_input_count(mut self, count: usize) -> Self {
+        self.input_count = count;
+
+        self
+    }
+
+    /// Returns the ordinal reserved for the completion result.
+    pub const fn input_count(&self) -> usize { self.input_count }
+
+    /// Retains the returned carrier paths established by the selected callable.
+    pub fn with_carriers(mut self, carriers: impl IntoIterator<Item = bray_symbols::DependencyWitnessCarrier>) -> Self {
+        self.carriers = carriers.into_iter().collect();
+
+        self
+    }
+
+    /// Returns complete owners supporting the callable's trusted completion clauses.
+    pub fn carriers(&self) -> &[bray_symbols::DependencyWitnessCarrier] { &self.carriers }
 
     /// Records whether this invocation phase can produce a normal result.
     pub fn with_normal_completion(mut self, possible: bool) -> Self {
@@ -260,6 +284,7 @@ impl BoundCallDependencyContracts {
 /// Durable dependency contracts for values, accesses, and borrows in one checked unit.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CheckedDependencyContracts {
+    projection_variants: BTreeMap<bray_symbols::UnionPayloadFieldSymbolId, bray_symbols::UnionVariantSymbolId>,
     unit: BoundUnitId,
     kind: BoundUnitKind,
     contracts: Arc<[BoundDependencyContract]>,
@@ -277,6 +302,17 @@ pub struct CheckedDependencyContracts {
 }
 
 impl CheckedDependencyContracts {
+    /// Retains declaration relationships resolved before dependency flow.
+    pub fn with_projection_variants(mut self, variants: BTreeMap<bray_symbols::UnionPayloadFieldSymbolId, bray_symbols::UnionVariantSymbolId>) -> Self {
+        self.projection_variants = variants;
+        self
+    }
+
+    /// Returns the checked variant owning a projected payload field.
+    pub fn projection_variant(&self, field: bray_symbols::UnionPayloadFieldSymbolId) -> bray_symbols::UnionVariantSymbolId {
+        *self.projection_variants.get(&field).expect("dependency preparation retains every projected union field")
+    }
+
     /// Validates and creates one normalized per-unit dependency table.
     pub fn try_new(
         unit: &BoundUnit,
@@ -343,6 +379,7 @@ impl CheckedDependencyContracts {
         )?;
 
         let mut result = Self {
+            projection_variants: BTreeMap::new(),
             unit: unit.unit(),
             kind: unit.key().kind(),
             contracts: contracts.into(),

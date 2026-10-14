@@ -94,6 +94,11 @@ fn encode(
 
             ConstantTermData::CallableArgument(SymbolOrdinal::new(ordinal))
         }
+        ExecutionCondition::VariantTest(variant, subject) => {
+            let Some(subject) = encode(values, subject, inputs, boolean_type, budget)? else { return Ok(None); };
+
+            ConstantTermData::VariantTest { subject, variant: *variant }
+        }
         ExecutionCondition::Present(value) => {
             let Some(value) = encode(values, value, inputs, boolean_type, budget)? else {
                 return Ok(None);
@@ -208,6 +213,8 @@ fn encode(
                 .map(Some);
         }
         ExecutionCondition::Unknown
+        | ExecutionCondition::Tagged(_, _)
+        | ExecutionCondition::Variant(_)
         | ExecutionCondition::Constructed(_, _)
         | ExecutionCondition::Expression(_)
         | ExecutionCondition::ScopedCapability(_)
@@ -277,6 +284,9 @@ fn decode(
                 ConstantValueKind::Error => ExecutionCondition::Unknown,
                 _ => ExecutionCondition::Literal(value),
             }
+        }
+        ConstantTermData::VariantTest { subject, variant } => {
+            decode(values, *subject, inputs, budget)?.matches_variant(*variant)
         }
         ConstantTermData::NullablePresent(value) => {
             decode(values, *value, inputs, budget)?.present()

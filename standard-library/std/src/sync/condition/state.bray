@@ -1,0 +1,19 @@
+trusted module std.sync.condition;
+
+struct Marker
+{
+}
+
+trusted predicate valid(marker: &Marker);
+
+struct Queue
+{
+    head: core.atomic.Atomic<RawPointer<Waiter>>;
+}
+
+struct Waiter
+{
+    previous: core.atomic.Atomic<RawPointer<Waiter>>;
+    next: core.atomic.Atomic<RawPointer<Waiter>>;
+    signalled: core.atomic.Atomic<u32>;
+}

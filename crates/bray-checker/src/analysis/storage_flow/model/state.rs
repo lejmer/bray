@@ -149,10 +149,27 @@ impl StorageFlowState {
         &mut self,
         invalidation: &bray_bound_tree::StorageInvalidation,
         storage: &StoragePlan,
+        discriminants: &BTreeMap<StorageIdentityId, Vec<bray_bound_tree::StoragePath>>,
     ) {
         self.definitely_absent.retain(|access, reason| {
-            // Opaque mutation can change an observed nullable value, but cannot restore moved ownership.
-            *reason == StorageAbsence::Moved || !invalidation.invalidates_path(access, storage)
+            if *reason == StorageAbsence::Moved {
+                return true;
+            }
+
+            // Writing a payload cannot select a different union variant or make an absent
+            // nullable present. Those operations must replace its enclosing value.
+            match invalidation {
+                bray_bound_tree::StorageInvalidation::All { stable_descriptors, .. }
+                    if stable_descriptors.contains(&bray_bound_tree::StoragePath::root(access.root))
+                        && discriminants.get(&access.root).is_some_and(|paths| paths.iter().any(|path| {
+                            path.projections.len() + 1 == access.projections.len() && path.contains(access)
+                        })) => true,
+                bray_bound_tree::StorageInvalidation::Observed { accesses, .. } => !accesses.values().flatten().any(|changed| {
+                    changed.projections.len() < access.projections.len()
+                        && changed.relationship(access) != bray_bound_tree::StorageRelationship::Disjoint
+                }),
+                _ => !invalidation.invalidates_path(access, storage),
+            }
         });
     }
 

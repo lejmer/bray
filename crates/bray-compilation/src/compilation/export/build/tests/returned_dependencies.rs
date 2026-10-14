@@ -992,3 +992,29 @@ fn imported_recursive_results_preserve_normal_completion_and_exact_origin() {
     assert!(!diverging.normal_completion());
     assert!(diverging.borrows().is_empty());
 }
+
+#[test]
+fn imported_union_payload_dependencies_resolve_at_the_owning_boundary() {
+    let provider = compilation(r#"
+        module api;
+        union Choice { Value(pos item: &bool); }
+        func get(pos choice: Choice) -> &bool {
+            match choice { case .Value(item) { return item; } }
+        }
+    "#);
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    for (body, valid) in [
+        ("func caller(pos value: &bool) -> &bool { return example.package.api.get(example.package.api.Choice.Value(value)); }", true),
+        ("func caller() -> &bool { let value = true; return example.package.api.get(example.package.api.Choice.Value(&value)); }", false),
+    ] {
+        let source = format!("module app; using example.package.api.Choice; using example.package.api.get; {body}");
+        let consumer = execution_consumer(&provider, &source);
+        let diagnostics = consumer.check_diagnostics();
+        if valid {
+            assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(diagnostics, bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency);
+        }
+    }
+}

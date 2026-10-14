@@ -88,6 +88,7 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
 
         let mut release = None;
         let mut requires_whole_value = false;
+        let mut destructor_owns_parts = false;
 
         let children = match data.as_ref() {
             TypeData::OwnedIndirection { storage, target } => {
@@ -152,6 +153,14 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
                 requires_whole_value = *lifecycle.value();
 
                 if expansion == CleanupExpansion::FullDisposal && requires_whole_value {
+                    let destructor = self.request.context().lifecycle_callable(
+                        ty, bray_symbols::TypeAssociatedLifecycleSlot::Destructor,
+                    )?;
+
+                    self.diagnostics.add_range(destructor.diagnostics().clone());
+                    if destructor.diagnostics().has_errors() { return Ok(false); }
+                    destructor_owns_parts = destructor.value().is_some();
+
                     parts.push(StorageCleanupPart::new(
                         path.iter().copied(),
                         bray_bound_tree::AsyncCleanupPhases::Lifecycle,
@@ -164,6 +173,15 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
                 };
 
                 children
+            }
+            _ if expansion == CleanupExpansion::FullDisposal => {
+                if let AsyncStorageCleanupRequirement::Cleanup(phases) = cleanup {
+                    parts.push(StorageCleanupPart::new(path.iter().copied(), phases));
+
+                    return Ok(true);
+                }
+
+                return Ok(false);
             }
             _ => return Ok(false),
         };
@@ -178,6 +196,11 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
                 requires_whole_value,
             ),
         );
+
+        // A declared consuming destructor includes its represented-part cleanup.
+        // Its checked summary already covers those transitions on every outcome.
+        // Expand children only when this invocation owns their cleanup itself.
+        if destructor_owns_parts { return Ok(true); }
 
         if moved
             .iter()

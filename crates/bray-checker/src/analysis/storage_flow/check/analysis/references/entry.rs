@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use super::super::effects::project;
+use super::prepare::project;
 use crate::CheckerRequestContext;
 
 use crate::analysis::storage_flow::memory::Place;
 
-type Demands = BTreeMap<
+pub(super) type Demands = BTreeMap<
     bray_symbols::TypeId,
     BTreeSet<(Arc<[bray_bound_tree::StorageProjection]>, bray_symbols::TypeId)>,
 >;
@@ -20,8 +20,8 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         storage: &bray_bound_tree::StoragePlan,
         selections: &bray_bound_tree::CheckedSemanticSelections,
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
+        mut demands: Demands,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
-        let mut demands = BTreeMap::<_, BTreeSet<_>>::new();
         let mut parents = BTreeMap::<_, BTreeSet<_>>::new();
 
         for (access, prepared) in &self.reference_paths {
@@ -59,7 +59,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         self.prepare_summary_demands(request, storage, selections, dependencies, &mut demands)?;
         Self::close_entry_demands(request, &mut demands, parents)?;
 
-        self.install_entry_references(request, storage, &demands)
+        self.install_entry_references(request, storage, selections, &demands)
     }
 
     fn close_entry_demands<C: CheckerRequestContext + ?Sized>(
@@ -108,10 +108,14 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         &mut self,
         request: crate::CheckerUnitView<'_, C>,
         storage: &bray_bound_tree::StoragePlan,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
         demands: &Demands,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
         for (identity, source) in storage.identity_entries() {
-            if !matches!(
+            let temporary = matches!(source, bray_bound_tree::StorageIdentity::Temporary(expression)
+                if matches!(selections.expression(expression), Some(bray_bound_tree::SemanticSelection::Call(_))));
+
+            if !temporary && !matches!(
                 source,
                 bray_bound_tree::StorageIdentity::Parameter(_)
                     | bray_bound_tree::StorageIdentity::Receiver(_)
@@ -136,6 +140,19 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 else {
                     continue;
                 };
+
+                if temporary {
+                    let reference = prepared.borrows().first().map(|(index, target)|
+                        (Place { root: identity, projections: projections[..*index].into() }, *target))
+                        .or_else(|| crate::representation::reference_target_type(request, reached)
+                            .map(|target| (Place { root: identity, projections: Arc::clone(projections) }, target)));
+
+                    if let Some((path, target)) = reference {
+                        self.returned_references.entry(identity).or_default().insert(path, target);
+                    }
+
+                    continue;
+                }
 
                 self.prepare_entry_reference_path(
                     request,
@@ -179,7 +196,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     continue;
                 };
 
-                if let Some(path) = project(request, base.clone(), subject.projections()) {
+                if let Some(path) = project(request, base.clone(), subject.projections())? {
                     paths.insert(path);
                 }
             }

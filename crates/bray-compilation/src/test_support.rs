@@ -857,3 +857,37 @@ fn valid_key(key: Option<BoundUnitKey>) -> BoundUnitKey {
         None => panic!("test owner must support the requested unit category"),
     }
 }
+
+/// Loads the production standard-library source for focused body checks.
+pub(crate) fn production_standard_library_compilation(target: crate::SelectedTarget, caller: &str) -> Compilation {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../standard-library/std/src");
+    let mut pending = vec![root];
+    let mut paths = Vec::new();
+
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(directory).expect("standard-library source directory exists") {
+            let entry = entry.expect("standard-library source entry is readable");
+            let path = entry.path();
+
+            if entry.file_type().expect("source entry has a type").is_dir() { pending.push(path); }
+            else if path.extension().is_some_and(|extension| extension == "bray") { paths.push(path); }
+        }
+    }
+
+    paths.sort();
+
+    let mut sources: Vec<_> = paths.iter().enumerate().map(|(index, path)| {
+        source_input(&std::fs::read_to_string(path).expect("production source is readable"), u32::try_from(index).expect("source count fits"))
+    }).collect();
+
+    sources.push(source_input(caller, u32::try_from(paths.len()).expect("source count fits")));
+
+    let options = crate::CompilationOptions::new(crate::WorkerBudget::serial(), bray_symbols::ProductKind::Library, target)
+        .with_native_link_inputs(["c", "pthread", "dl", "Kernel32"].map(|name| {
+            bray_symbols::NativeLinkRequirement::new(bray_base::NonEmptySharedStr::try_new(name).unwrap(),
+                if name == "dl" { bray_symbols::NativeLinkKind::Dynamic } else { bray_symbols::NativeLinkKind::System })
+        }));
+
+    Compilation::load(CompilationRequest::with_options(PackageIdentity::try_new("std").unwrap(), sources, options)
+        .with_standard_library_source_authority()).expect("production standard-library sources load")
+}

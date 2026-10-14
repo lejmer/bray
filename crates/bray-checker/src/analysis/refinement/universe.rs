@@ -86,6 +86,7 @@ impl RefinementUniverse {
                 refinement,
                 request.view(),
                 patterns,
+                expressions,
                 storage,
                 &direct_dependencies,
             )?;
@@ -126,6 +127,7 @@ impl RefinementUniverse {
         refinement: AnalysisRefinement,
         view: bray_bound_tree::BoundUnitView<'_>,
         patterns: &CheckedPatterns,
+        expressions: &bray_bound_tree::CheckedExpressionSemantics,
         storage: &StoragePlan,
         dependencies: &BTreeMap<BoundExpressionId, BTreeSet<StorageAccessId>>,
     ) -> Result<Vec<Refinement>, RefinementUniverseError> {
@@ -133,6 +135,25 @@ impl RefinementUniverse {
             AnalysisRefinement::CleanupRequired { .. }
             | AnalysisRefinement::InvocationFailure(_)
             | AnalysisRefinement::InvocationCompletion(_) => Vec::new(),
+            AnalysisRefinement::PropagationOutcome { expression, succeeded } => {
+                let Some(bray_bound_tree::SemanticSelection::Propagation(selection)) = expressions.selections().expression(expression) else {
+                    unreachable!("checked propagation edge retains its selection");
+                };
+
+                let (variant, _) = selection.success().expect("union propagation retains its success case");
+
+                let Some(bray_bound_tree::BoundExpression::Structured(operation)) = view.expression(expression) else {
+                    unreachable!("checked propagation retains its structured expression");
+                };
+
+                let subject = *operation.operands().first().expect("propagation retains its operand");
+                let ty = expressions.types().expression(subject).expect("propagation operand retains its type").ty();
+
+                storage.expression_plans(subject).filter(|plan| storage.access(plan.access()).is_some_and(|access| access.reached_type() == ty))
+                    .map(|plan| Refinement::new(RefinementKind::Pattern {
+                        subject, access: plan.access(), predicate: PatternPredicate::ActiveUnionVariant(variant), value: succeeded,
+                    }, [plan.access()])).collect()
+            }
             AnalysisRefinement::Condition { expression, value } => {
                 condition_refinements(view, patterns, storage, dependencies, expression, value)
             }
@@ -168,7 +189,6 @@ impl RefinementUniverse {
     fn intern(&mut self, mut refinement: Refinement) -> Result<usize, RefinementUniverseError> {
         let pattern_key = if let RefinementKind::Pattern {
             subject,
-            pattern,
             predicate,
             access,
             value,
@@ -189,7 +209,6 @@ impl RefinementUniverse {
             refinement = Refinement::new(
                 RefinementKind::Pattern {
                     subject,
-                    pattern,
                     predicate,
                     access,
                     value,
@@ -243,6 +262,14 @@ impl RefinementUniverse {
                 .get(index)
                 .expect("active refinement index belongs to the prepared universe")
         })
+    }
+
+    pub(crate) fn edge_facts(
+        &self,
+        refinement: AnalysisRefinement,
+    ) -> impl Iterator<Item = &Refinement> {
+        self.edge_refinements.get(&refinement).into_iter().flatten()
+            .map(|index| &self.refinements[*index])
     }
 
     pub(crate) fn insert_refinement(

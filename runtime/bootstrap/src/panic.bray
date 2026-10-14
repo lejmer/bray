@@ -4,6 +4,7 @@ trusted internal module bray.runtime.bootstrap;
 using std.memory;
 using internal std.memory;
 using internal std.sync;
+using internal std.sync.spin_lock;
 
 internal callable PanicMessageCopy = @abi(c) trusted func(
     pos address: usize,
@@ -202,13 +203,16 @@ trusted internal func message_copy_lock(
     pos count: usize
 ) -> std.sync.SpinLockGuard<ReportPool>
     requires(trusted core.memory.valid_write<u8>(pointer = destination, count = count))
-    ensures(trusted core.memory.valid_write<u8>(pointer = destination, count = count))
+    ensures(
+        trusted core.memory.valid_write<u8>(pointer = destination, count = count),
+        trusted std.sync.spin_lock.acquired(&result.acquisition),
+    )
 {
     return RECORD_POOL.lock();
 }
 
 trusted internal func message_storage(
-    pos guard: &mut std.sync.SpinLockGuard<ReportPool>,
+    pos pool: &mut ReportPool,
     pos handle: usize,
     pos destination: RawPointer<u8>,
     pos count: usize,
@@ -217,7 +221,6 @@ trusted internal func message_storage(
     ensures(trusted core.memory.valid_write<u8>(pointer = destination, count = count))
     uses(intrinsic)
 {
-    let pool: &mut ReportPool = guard.get();
     let entry: &mut ReportRecord = trusted record(pool, handle);
 
     if let ?storage = entry.message
@@ -242,7 +245,7 @@ trusted internal func panic_message_copy(
     uses(raw_memory, unchecked_init)
 {
     let mut guard = trusted message_copy_lock(destination, length);
-    let storage: &std.memory.RawBuffer<u8> = trusted message_storage(&mut guard, address, destination, length);
+    let storage: &std.memory.RawBuffer<u8> = trusted message_storage(guard.get(), address, destination, length);
     let bytes: &[u8] = trusted std.memory.initialized_slice<u8>(storage);
 
     if offset > bytes.length() || length > bytes.length() - offset

@@ -22,31 +22,21 @@ trusted internal func platform_child_spawn(
     pos executable: (&[u8]),
     pos arguments: &[(&[u8])],
     pos environment: &[PlatformEnvironmentEntry],
-    pos child: RawPointer<u64>,
-    pos standard_input: RawPointer<u64>,
-    pos standard_output: RawPointer<u64>,
-    pos standard_error: RawPointer<u64>,
+    pos child: &mut u64,
+    pos standard_input: &mut u64,
+    pos standard_output: &mut u64,
+    pos standard_error: &mut u64,
     working_directory: (&[u8]),
     standard_input_policy: u32,
     standard_output_policy: u32,
     standard_error_policy: u32,
 ) -> std.platform.PlatformStatus
-    requires(
-        trusted core.memory.valid_write<u64>(pointer = child, count = 1),
-        trusted core.memory.aligned_for<u64>(pointer = child),
-        trusted core.memory.valid_write<u64>(pointer = standard_input, count = 1),
-        trusted core.memory.aligned_for<u64>(pointer = standard_input),
-        trusted core.memory.valid_write<u64>(pointer = standard_output, count = 1),
-        trusted core.memory.aligned_for<u64>(pointer = standard_output),
-        trusted core.memory.valid_write<u64>(pointer = standard_error, count = 1),
-        trusted core.memory.aligned_for<u64>(pointer = standard_error),
-    )
     uses(layout_reinterpret, raw_memory, unchecked_init)
 {
-    trusted std.memory.write<u64>(child, value = 0);
-    trusted std.memory.write<u64>(standard_input, value = 0);
-    trusted std.memory.write<u64>(standard_output, value = 0);
-    trusted std.memory.write<u64>(standard_error, value = 0);
+    trusted std.memory.write<u64>(std.memory.address_of_mut<u64>(child), value = 0);
+    trusted std.memory.write<u64>(std.memory.address_of_mut<u64>(standard_input), value = 0);
+    trusted std.memory.write<u64>(std.memory.address_of_mut<u64>(standard_output), value = 0);
+    trusted std.memory.write<u64>(std.memory.address_of_mut<u64>(standard_error), value = 0);
 
     let storage: SpawnStorage = match trusted internal spawn_storage(
         executable,
@@ -183,10 +173,23 @@ trusted internal func platform_child_spawn(
         return internal std.platform.other_status();
     }
 
-    trusted std.memory.write<u64>(child, value = std.truncate_to<u64>(process));
-    trusted std.memory.write<u64>(standard_input, value = trusted internal descriptor_handle(input.parent));
-    trusted std.memory.write<u64>(standard_output, value = trusted internal descriptor_handle(output.parent));
-    trusted std.memory.write<u64>(standard_error, value = trusted internal descriptor_handle(error.parent));
+    trusted std.memory.write<u64>(std.memory.address_of_mut<u64>(child), value = std.truncate_to<u64>(process));
+
+    trusted std.memory.write<u64>(
+        std.memory.address_of_mut<u64>(standard_input),
+        value = trusted internal descriptor_handle(input.parent)
+    );
+
+    trusted std.memory.write<u64>(
+        std.memory.address_of_mut<u64>(standard_output),
+        value = trusted internal descriptor_handle(output.parent)
+    );
+
+    trusted std.memory.write<u64>(
+        std.memory.address_of_mut<u64>(standard_error),
+        value = trusted internal descriptor_handle(error.parent)
+    );
+
     return internal std.platform.success_status();
 }
 

@@ -139,6 +139,7 @@ wire_tags!(DependencyMutationKind {
     1 => DependencyMutationKind::Write,
     2 => DependencyMutationKind::Consume,
     3 => DependencyMutationKind::Retire,
+    4 => DependencyMutationKind::Atomic,
 });
 
 wire_tags!(DependencyReferenceKind {

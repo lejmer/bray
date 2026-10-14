@@ -228,6 +228,17 @@ where
 
                 Ok(self.intern_value(ty, ConstantValueKind::product(values)))
             }
+            CheckedTemplateOperation::VariantTest { subject, variant } => {
+                let subject = self.evaluate_node(*subject)?;
+                let subject = self.context.semantic_values().constant_value_data(subject);
+                let variant = self.resolver.symbol(variant).expect("checked variant declaration resolves");
+
+                let bray_symbols::AnySymbolId::UnionVariant(variant) = variant else { panic!("checked variant test retains its union variant"); };
+
+                let ConstantValueKind::Union { variant: active, .. } = subject.kind() else { panic!("checked variant test observes a union value"); };
+
+                Ok(self.intern_value(ty, ConstantValueKind::Boolean(*active == variant)))
+            }
             CheckedTemplateOperation::TupleElement { subject, index } => {
                 let subject = self.evaluate_node(*subject)?;
                 let subject = self.context.semantic_values().constant_value_data(subject);

@@ -181,6 +181,60 @@ fn closed_writes_preserve_storage_validity_but_opaque_calls_revoke_it() {
 }
 
 #[test]
+fn native_pointer_types_do_not_bound_unknown_effects() {
+    for body in [
+        "trusted touch_word(core.memory.address_of<u32>(&owner.value));",
+        "trusted touch_marker(core.memory.address_of<Marker>(&owner.marker));",
+        "let address = core.memory.address_of<Marker>(&owner.marker); trusted opaque();",
+    ] {
+        let source = format!(r#"
+            trusted module app;
+            struct Marker {{}}
+            struct Owner {{ marker: Marker; value: u32; }}
+            trusted predicate live(marker: &Marker);
+            trusted func create() -> Owner
+                ensures(trusted live(marker = &result.marker))
+            {{
+                return {{ marker = Marker {{}}, value = 1 }};
+            }}
+            func accept(pos owner: Owner)
+                requires(trusted live(marker = &owner.marker)) {{}}
+            @abi(c)
+            @link(name = "native")
+            @symbol(name = "touch_word")
+            extern trusted func touch_word(pos pointer: RawPointer<u32>) uses(foreign_call);
+            @abi(c)
+            @link(name = "native")
+            @symbol(name = "touch_marker")
+            extern trusted func touch_marker(pos pointer: RawPointer<Marker>) uses(foreign_call);
+            @abi(c)
+            @link(name = "native")
+            @symbol(name = "opaque")
+            extern trusted func opaque() uses(foreign_call);
+            trusted func caller() uses(foreign_call) {{
+                let owner = create();
+                {body}
+                accept(owner);
+            }}
+        "#);
+
+        let options = crate::CompilationOptions::default().with_native_link_inputs([
+            bray_symbols::NativeLinkRequirement::new(
+                bray_base::NonEmptySharedStr::try_new("native").unwrap(),
+                bray_symbols::NativeLinkKind::Dynamic,
+            ),
+        ]);
+
+        let compilation = crate::test_support::compilation_with_options(&source, options);
+        let diagnostics = compilation.check_diagnostics();
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &diagnostics, DiagnosticKind::CheckingTrustedObligationNotProven,
+        );
+    }
+}
+
+#[test]
 fn returned_terminal_storage_keeps_initialization_with_its_owner() {
     for (producer, intervening, valid) in [
         ("produce()", "", true),
@@ -1632,6 +1686,14 @@ fn scalar_component_mutation_revokes_only_overlapping_authority() {
             false,
         ),
         (
+            "let mut values = Indexed { value = 0 }; establish(&values.value); values[index] = 1; observe(&values.value);",
+            false,
+        ),
+        (
+            "let mut values = Indexed { value = 0 }; establish(&values.value); let other = &mut values; other.value = 1; observe(&values.value);",
+            false,
+        ),
+        (
             "let mut value = (false, false); establish_bool(&value.0); value.1 = true; observe_bool(&value.0);",
             true,
         ),
@@ -1653,6 +1715,11 @@ fn scalar_component_mutation_revokes_only_overlapping_authority() {
             trusted module app;
             trusted predicate live(value: &u8);
             trusted predicate live_bool(value: &bool);
+            struct Indexed {{ mut value: u8; }}
+            impl Indexed(MutableElementIndex<usize>) {{
+                type Output = u8;
+                mut func index(pos selector: &usize) -> &mut u8 {{ return &mut self.value; }}
+            }}
             trusted func establish(pos value: &u8) executes(pure, total) ensures(trusted live(value)) {{}}
             trusted func establish_bool(pos value: &bool) executes(pure, total) ensures(trusted live_bool(value)) {{}}
             func observe(pos value: &u8) requires(trusted live(value)) {{}}

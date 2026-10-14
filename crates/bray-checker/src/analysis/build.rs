@@ -1439,6 +1439,7 @@ mod tests {
                 SemanticSelection::Propagation(SelectedPropagation::Result {
                     boundary: SelectedPropagationBoundary::Callable,
                     result_type: error_type(),
+                    success: (crate::test_support::compiler_known_symbol("ResultVariant0Ok"), crate::test_support::compiler_known_symbol("ResultVariant0OkValue")),
                     error_conversion: SelectedConversion::new(
                         error_type(),
                         error_type(),

@@ -5,28 +5,36 @@ using internal std.sync.spin_lock;
 struct SpinLockGuard<T>
 {
     lock: &SpinLock<T>;
-
-    internal trusted func storage() -> &Uninit<std.sync.spin_lock.State<T>>
-        requires(trusted std.sync.spin_lock.acquired<T>(self))
-        ensures(trusted core.memory.uninit_initialized<std.sync.spin_lock.State<T>>(storage = result))
-        executes(pure, total)
-    {
-        return &self.lock.storage;
-    }
+    acquisition: std.sync.spin_lock.Marker;
 
     trusted destruct()
-        requires(trusted std.sync.spin_lock.acquired<T>(self))
-        ensures(trusted core.memory.uninit_initialized<std.sync.spin_lock.State<T>>(storage = &self.lock.storage))
+        requires(trusted std.sync.spin_lock.acquired(&self.acquisition))
         executes(total)
         uses(raw_memory, unchecked_alias)
     {
-        let pointer = trusted std.sync.spin_lock.pointer<T>(self.storage());
+        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.lock.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.spin_lock.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.spin_lock.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.spin_lock.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
         let state = trusted std.memory.borrow_from<std.sync.spin_lock.State<T>, SpinLock<T>>(self.lock, pointer);
-        let _: u32 = core.atomic.fetch_add<u32, 2>(&state.serving_ticket, 1);
+        let _: u32 = core.atomic.fetch_add<u32, 3>(&state.tickets, 65536);
     }
 
     internal trusted func pointer() -> RawPointer<T>
-        requires(trusted std.sync.spin_lock.acquired<T>(self))
+        requires(trusted std.sync.spin_lock.acquired(&self.acquisition))
         ensures(
             trusted core.memory.valid_write<T>(pointer = result, count = 1),
             trusted core.memory.aligned_for<T>(pointer = result),
@@ -40,7 +48,23 @@ struct SpinLockGuard<T>
         executes(pure, total)
         uses(raw_memory, unchecked_alias)
     {
-        let pointer = trusted std.sync.spin_lock.pointer<T>(self.storage());
+        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.lock.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.spin_lock.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.spin_lock.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.spin_lock.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
         let state = trusted std.memory.borrow_from<std.sync.spin_lock.State<T>, SpinLock<T>>(self.lock, pointer);
         let value = std.memory.address_of<T>(&state.value);
 
@@ -48,8 +72,8 @@ struct SpinLockGuard<T>
     }
 
     trusted mut func get() -> &mut T
-        requires(trusted std.sync.spin_lock.acquired<T>(self))
-        ensures(trusted std.sync.spin_lock.acquired<T>(self))
+        requires(trusted std.sync.spin_lock.acquired(&self.acquisition))
+        ensures(trusted std.sync.spin_lock.acquired(&self.acquisition))
         executes(pure, total)
         uses(raw_memory, unchecked_alias)
     {
@@ -59,6 +83,5 @@ struct SpinLockGuard<T>
     }
 
     consume func unlock()
-        requires(trusted std.sync.spin_lock.acquired<T>(self))
-        ensures(trusted core.memory.uninit_initialized<std.sync.spin_lock.State<T>>(storage = &self.lock.storage)) {}
+        requires(trusted std.sync.spin_lock.acquired(&self.acquisition)) {}
 }

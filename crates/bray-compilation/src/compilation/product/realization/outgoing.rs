@@ -274,20 +274,28 @@ mod tests {
             r#"
             trusted internal module bray.runtime.bootstrap.host;
             struct StoredExit { mut value: AttachmentExit; }
-            func retain(pos selected: AttachmentExit) -> StoredExit
-                requires(!selected.ready, trusted attachment_exit_inactive(owner = &selected))
-                ensures(!result.value.ready, trusted attachment_exit_inactive(owner = &result.value))
-            { return { value = selected }; }
-            func take(pos stored: StoredExit) -> AttachmentExit
+            func extract_nominal_witness(pos stored: StoredExit) -> AttachmentExit
                 requires(!stored.value.ready, trusted attachment_exit_inactive(owner = &stored.value))
                 ensures(!result.ready, trusted attachment_exit_inactive(owner = &result))
             { return stored.value; }
-            func mutate_then_take(pos mut stored: StoredExit) -> AttachmentExit
-                requires(!stored.value.ready, trusted attachment_exit_inactive(owner = &stored.value))
+            func retain(pos selected: AttachmentExit) -> (AttachmentExit, unit)
+                requires(!selected.ready, trusted attachment_exit_inactive(owner = &selected))
+                ensures(!result.0.ready, trusted attachment_exit_inactive(owner = &result.0))
+            { return (selected, unit); }
+            func take(pos stored: (AttachmentExit, unit)) -> AttachmentExit
+                requires(!stored.0.ready, trusted attachment_exit_inactive(owner = &stored.0))
                 ensures(!result.ready, trusted attachment_exit_inactive(owner = &result))
-            { stored.value.cleanup = none; return stored.value; }
+            { return stored.0; }
+            func mutate_then_take(pos mut stored: (AttachmentExit, unit)) -> AttachmentExit
+                requires(!stored.0.ready, trusted attachment_exit_inactive(owner = &stored.0))
+                ensures(!result.ready, trusted attachment_exit_inactive(owner = &result))
+            { stored.0.cleanup = none; return stored.0; }
         "#,
         );
+
+        let nominal = compilation.lowered_unit(crate::test_support::source_function_body_key(&compilation, "extract_nominal_witness")).unwrap();
+
+        bray_testing::assert_goal_state_diagnostic_kind(nominal.diagnostics(), bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven);
 
         for (name, capacity) in [("retain", 1), ("take", 0)] {
             let lowered = compilation
@@ -451,9 +459,9 @@ mod tests {
                 r#"
                 func probe(pos lease: &HostLease, pos other: &HostLease, pos slot: &AttachmentSlot, pos incidents: &mut u32)
                     requires(
-                        trusted host_access_live(owner = lease),
+                        trusted host_access_live(owner = &lease.acquisition),
                         trusted host_access_idle(owner = lease),
-                        trusted host_access_live(owner = other),
+                        trusted host_access_live(owner = &other.acquisition),
                         trusted host_access_idle(owner = other),
                         trusted retained_attachment_exit(slot = slot, lease = lease),
                         trusted core.memory.valid_read<AttachmentExit>(pointer = slot.value, count = 1),
@@ -534,7 +542,7 @@ mod tests {
             r#"
             trusted internal module bray.runtime.bootstrap.host;
             func probe(pos lease: HostLease)
-                requires(trusted host_access_live(owner = &lease), trusted attachment_cleanup_completed(owner = &lease))
+                requires(trusted host_access_live(owner = &lease.acquisition), trusted attachment_cleanup_completed(owner = &lease))
             {}
         "#,
         );

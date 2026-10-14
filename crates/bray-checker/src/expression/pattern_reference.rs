@@ -162,6 +162,7 @@ pub(super) fn resolved_pattern_binding_evidence<C>(
     request: CheckerUnitView<'_, C>,
     patterns: &CheckedPatterns,
     expressions: &BTreeSet<bray_bound_tree::BoundExpressionId>,
+    dependencies: &std::collections::BTreeMap<bray_symbols::LocalBindingSymbolId, std::sync::Arc<[bray_bound_tree::BoundExpressionId]>>,
 ) -> Vec<ExpressionTypeEvidence>
 where
     C: CheckerRequestContext + ?Sized,
@@ -182,7 +183,13 @@ where
             continue;
         };
 
-        if !binding_type.is_recovered() {
+        // Default literal types are provisional while an initializer still depends
+        // on unresolved bindings. Commit evidence only after those inputs settle.
+        if !binding_type.is_recovered()
+            && dependencies.get(&binding).is_none_or(|inputs| {
+                inputs.iter().all(|input| !expressions.contains(input))
+            })
+        {
             evidence.push(ExpressionTypeEvidence::new(*expression, binding_type.ty()));
         }
     }
@@ -246,4 +253,45 @@ const fn diagnostic_kind(
         BoundUnresolvedReferenceKind::Malformed if has_no_candidates => None,
         BoundUnresolvedReferenceKind::Malformed => Some(DiagnosticKind::BindingMalformedName),
     }
+}
+
+pub(super) fn binding_type_dependencies<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    pending: &BTreeSet<bray_bound_tree::BoundExpressionId>,
+) -> std::collections::BTreeMap<bray_symbols::LocalBindingSymbolId, std::sync::Arc<[bray_bound_tree::BoundExpressionId]>> {
+    let mut dependencies = std::collections::BTreeMap::new();
+
+    for (pattern, subject) in crate::pattern::binding_subjects(request.unit()) {
+        let mut inputs = Vec::new();
+
+        walk_bound_unit_view(request.view(), subject, |event| {
+            if let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) = event
+                && pending.contains(&expression)
+            {
+                inputs.push(expression);
+            }
+
+            BoundWalkControl::Continue
+        });
+
+        if inputs.is_empty() { continue; }
+
+        let inputs: std::sync::Arc<[_]> = inputs.into();
+        let mut patterns = vec![pattern];
+
+        while let Some(pattern) = patterns.pop() {
+            let bound = request.view().pattern(pattern).expect("committed pattern exists");
+
+            for binding in bound.bindings().iter().copied()
+                .chain(bound.entries().iter().filter_map(|entry| entry.binding()))
+            {
+                // Destructured bindings share their initializer's immutable dependency list.
+                dependencies.insert(binding, inputs.clone());
+            }
+
+            patterns.extend(bound.children().iter().copied());
+        }
+    }
+
+    dependencies
 }

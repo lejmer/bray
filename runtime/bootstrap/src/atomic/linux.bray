@@ -1,0 +1,72 @@
+@target(target.identity.NAME == "x86_64-unknown-linux-gnu" || target.identity.NAME == "aarch64-unknown-linux-gnu")
+trusted internal module bray.runtime.bootstrap.atomic;
+
+@abi(c)
+trusted internal func wait(pos address: RawPointer<u32>, pos expected: u32)
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = address, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = address),
+        trusted core.memory.epoch_current<u32>(pointer = address),
+        trusted core.memory.movement_stable<u32>(pointer = address),
+        trusted core.memory.finalization_pending<u32>(pointer = address),
+    )
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+
+    let _: isize = trusted std.os.linux.syscall(
+        std.os.linux.SYS_FUTEX,
+        address,
+        std.os.linux.FUTEX_WAIT_PRIVATE,
+        expected,
+        core.memory.null<u8>(),
+        core.memory.null<u8>(),
+        0,
+    );
+}
+
+@abi(c)
+trusted internal func notify_one(pos address: RawPointer<u32>)
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = address, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = address),
+        trusted core.memory.epoch_current<u32>(pointer = address),
+        trusted core.memory.movement_stable<u32>(pointer = address),
+        trusted core.memory.finalization_pending<u32>(pointer = address),
+    )
+    uses(foreign_call)
+{
+
+    let _: isize = trusted std.os.linux.syscall(
+        std.os.linux.SYS_FUTEX,
+        address,
+        std.os.linux.FUTEX_WAKE_PRIVATE,
+        1,
+        core.memory.null<u8>(),
+        core.memory.null<u8>(),
+        0,
+    );
+}
+
+@abi(c)
+trusted internal func notify_all(pos address: RawPointer<u32>)
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = address, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = address),
+        trusted core.memory.epoch_current<u32>(pointer = address),
+        trusted core.memory.movement_stable<u32>(pointer = address),
+        trusted core.memory.finalization_pending<u32>(pointer = address),
+    )
+    uses(foreign_call)
+{
+
+    let _: isize = trusted std.os.linux.syscall(
+        std.os.linux.SYS_FUTEX,
+        address,
+        std.os.linux.FUTEX_WAKE_PRIVATE,
+        2_147_483_647,
+        core.memory.null<u8>(),
+        core.memory.null<u8>(),
+        0,
+    );
+}

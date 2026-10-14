@@ -27,6 +27,10 @@ pub(crate) struct Plan {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(super) enum Step {
     Invalidate,
+    Opaque {
+        ty: TypeId,
+        path: Option<bray_bound_tree::StoragePath>,
+    },
     Lifecycle {
         ty: TypeId,
         place: Option<ExecutionPlace>,
@@ -72,6 +76,13 @@ impl<'a> Cleanup<'a> {
 }
 
 impl Plan {
+    pub(in crate::analysis) fn represented_paths(&self) -> impl Iterator<Item = &bray_bound_tree::StoragePath> {
+        self.steps.values().flatten().filter_map(|step| match step {
+            Step::Opaque { path, .. } | Step::Lifecycle { path, .. } => path.as_ref(),
+            Step::Invalidate => None,
+        })
+    }
+
     pub(in crate::analysis) fn callees(
         &self,
     ) -> impl Iterator<Item = bray_symbols::CallableSymbolId> + '_ {
@@ -170,38 +181,34 @@ impl Plan {
 
         prepared.requirements = cleanup_shapes.storage_requirements(storage)?;
 
-        let accesses = storage
-            .identity_entries()
-            .filter_map(|(identity, _)| {
-                (!bray_bound_tree::storage_identity_transfers_at_unit_exit(storage, identity))
-                    .then(|| storage.root_access(identity))
-                    .flatten()
-            })
-            .chain(
-                storage
-                    .access_plans()
-                    .iter()
-                    .filter(|plan| {
-                        plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment
-                    })
-                    .map(|plan| plan.access()),
-            )
-            .collect::<BTreeSet<_>>();
+        let mut accesses = storage.identity_entries().filter_map(|(identity, _)| {
+            if bray_bound_tree::storage_identity_transfers_at_unit_exit(storage, identity) { return None; }
+
+            Some((storage.root_access(identity)?, storage.storage_type(identity)?))
+        }).collect::<BTreeMap<_, _>>();
+
+        for plan in storage.access_plans().iter().filter(|plan| {
+            plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment
+        }) {
+            let access = storage.access(plan.access()).expect("replacement retains its checked access");
+
+            accesses.insert(plan.access(), access.reached_type());
+        }
 
         let mut types = BTreeSet::new();
 
-        for access in accesses {
+        for (access, ty) in accesses {
             let reached = storage
                 .access(access)
                 .expect("checked cleanup retains its storage access");
 
             prepared
                 .replacements
-                .insert(access, cleanup_shapes.requirement(reached.reached_type())?);
+                .insert(access, cleanup_shapes.requirement(ty)?);
 
             let expanded = crate::asynchronous::full_cleanup_parts(
                 cleanup_shapes,
-                reached.reached_type(),
+                ty,
                 reached.source(),
                 storage.root_identity(access).is_some_and(|identity| {
                     bray_bound_tree::storage_identity_is_destructor_receiver(
@@ -219,17 +226,17 @@ impl Plan {
             let mut steps: Vec<_> = parts
                 .into_iter()
                 .map(|(ty, part)| {
+                    let path = part.as_ref().and_then(|part| part.storage_path(storage, access));
+
                     if part.as_ref().is_some_and(|part| {
                         part.release().is_some() || !part.phases().includes_lifecycle()
-                    }) || !matches!(
-                        request.semantic_values().type_data(ty).as_ref(),
-                        TypeData::Named { .. }
-                    ) {
+                    }) {
                         Step::Invalidate
+                    } else if !matches!(request.semantic_values().type_data(ty).as_ref(), TypeData::Named { .. }) {
+                        Step::Opaque { ty, path }
                     } else {
                         types.insert(ty);
 
-                        let path = part.as_ref().and_then(|part| part.storage_path(storage, access));
                         let place = path.as_ref().and_then(|path| ExecutionPlace::storage_path(storage, path));
 
                         Step::Lifecycle {

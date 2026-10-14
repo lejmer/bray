@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    BoundBlockItem, BoundExpression, BoundExpressionId, BoundReferenceTarget,
+    BoundExpression, BoundExpressionId, BoundReferenceTarget,
     BoundStructuredExpressionKind, BoundUnit, CheckedPatterns, CheckedSemanticSelections,
     ConstructionInputId, SelectedConstructionInput, SelectedOperation, SemanticSelection,
 };
@@ -293,45 +293,6 @@ pub(super) fn pattern_projection(
     }
 }
 
-pub(super) fn binding_subjects(
-    unit: &BoundUnit,
-) -> Vec<(bray_bound_tree::BoundPatternId, BoundExpressionId)> {
-    let mut subjects = Vec::new();
-
-    for (_, block) in unit.tree().blocks() {
-        for item in block.items() {
-            if let BoundBlockItem::LocalBinding(binding) = item {
-                subjects.push((binding.pattern(), binding.initializer()));
-            }
-        }
-    }
-
-    for (_, expression) in unit.tree().expressions() {
-        match expression {
-            BoundExpression::Structured(value)
-                if value.kind() == BoundStructuredExpressionKind::PatternBinding =>
-            {
-                if let Some(subject) = value.operands().first() {
-                    subjects.extend(value.patterns().iter().map(|pattern| (*pattern, *subject)));
-                }
-            }
-            BoundExpression::For(value) => subjects.push((value.pattern(), value.source())),
-            BoundExpression::Generator(value) => subjects.push((value.pattern(), value.source())),
-            BoundExpression::Match(value) => {
-                subjects.extend(
-                    value
-                        .arms()
-                        .iter()
-                        .map(|arm| (arm.pattern(), value.subject())),
-                );
-            }
-            _ => {}
-        }
-    }
-
-    subjects
-}
-
 /// Direct bindings already use the pattern projection; shorthand entries add their own.
 pub(super) fn binding_projection(
     pattern: &bray_bound_tree::BoundPattern,
@@ -342,4 +303,62 @@ pub(super) fn binding_projection(
     } else {
         binding.projection()
     }
+}
+
+/// Resolve source and imported declaration relationships once, before fixed-point flow.
+pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
+    request: crate::CheckerUnitView<'_, C>,
+    contracts: &bray_bound_tree::CheckedDependencyContracts,
+    storage: &bray_bound_tree::StoragePlan,
+    values: &ValueInputs,
+) -> crate::CheckerQueryResult<BTreeMap<bray_symbols::UnionPayloadFieldSymbolId, bray_symbols::UnionVariantSymbolId>, C::UpstreamError> {
+    let mut fields = BTreeSet::new();
+    let mut retain = |projections: &[DependencyProjection]| {
+        fields.extend(projections.iter().filter_map(|projection| match projection {
+            DependencyProjection::UnionPayloadField(field) => Some(*field),
+            _ => None,
+        }));
+    };
+
+    for call in contracts.calls().values() {
+        for subject in call.reference_subjects() { retain(subject.projections()); }
+        for reference in call.references() {
+            let relation = reference.relation();
+            retain(relation.entry().projections());
+            retain(relation.exit().projections());
+            retain(relation.target_projections());
+        }
+        for carrier in call.carriers() { retain(carrier.path()); }
+        for effect in call.effects().iter().chain(call.deferred_effects().into_iter().flatten()) {
+            if let bray_symbols::DependencyStorageEffect::Indirect { projections, .. } = effect { retain(projections); }
+        }
+    }
+    for contract in contracts.lifecycle_dependencies().values() {
+        for subject in contract.reference_subjects() { retain(subject.projections()); }
+        for relation in contract.borrows() { retain(relation.target_projections()); }
+        for effect in contract.effects() {
+            if let bray_symbols::DependencyStorageEffect::Indirect { projections, .. } = effect { retain(projections); }
+        }
+    }
+    if let Some(trusted) = request.trusted_contracts() {
+        for carrier in trusted.statics.values().flatten() { retain(carrier.path()); }
+    }
+    for projections in values.projections.values() {
+        for projection in projections.keys() { retain(std::slice::from_ref(projection)); }
+    }
+
+    let mut variants = BTreeMap::new();
+    for (access, _) in storage.access_entries() {
+        for projection in storage.resolved_projections(access).into_iter().flatten() {
+            if let bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, field } = projection {
+                variants.insert(*field, *variant);
+            }
+        }
+    }
+    for field in fields {
+        if let std::collections::btree_map::Entry::Vacant(entry) = variants.entry(field) {
+            entry.insert(request.union_payload_field(field)?.expect("checked dependency field retains its declaration").variant());
+        }
+    }
+    Ok(variants)
 }

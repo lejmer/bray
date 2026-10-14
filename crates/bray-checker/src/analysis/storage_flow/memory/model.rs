@@ -14,6 +14,8 @@ pub(in crate::analysis::storage_flow) enum Origin {
         layer: usize,
         projections: std::sync::Arc<[bray_bound_tree::StorageProjection]>,
     },
+    // One returned referent has stable identity without equating it with a lifetime anchor.
+    Returned { reference: Place, projections: std::sync::Arc<[bray_bound_tree::StorageProjection]> },
     Storage(Place),
     Allocation(Place),
 }
@@ -48,6 +50,22 @@ impl Target {
         match &self.origin {
             Origin::Storage(place) if !self.previous => Some(place),
             _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(in crate::analysis::storage_flow) enum Effect {
+    Atomic,
+    Mutation(Target, bray_symbols::DependencyMutationKind),
+    Cleanup(TypeId),
+}
+
+impl Effect {
+    pub(in crate::analysis::storage_flow) fn mutation(&self) -> Option<(&Target, bray_symbols::DependencyMutationKind)> {
+        match self {
+            Self::Mutation(target, kind) => Some((target, *kind)),
+            Self::Atomic | Self::Cleanup(_) => None,
         }
     }
 }
@@ -116,6 +134,7 @@ type Origins = BTreeSet<BoundExpressionId>;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct Contents {
+    pub(super) exposed: bool,
     pub(super) storage_type: Option<TypeId>,
     pub(super) initialized: BTreeSet<TypeId>,
     pub(super) pending: BTreeMap<TypeId, Origins>,
@@ -125,6 +144,10 @@ pub(super) struct Contents {
 
 impl Contents {
     pub(super) fn merge(&mut self, incoming: &Self) -> bool {
+        let previous_exposure = self.exposed;
+
+        self.exposed |= incoming.exposed;
+
         let previous_type = self.storage_type;
 
         match (self.storage_type, incoming.storage_type) {
@@ -141,7 +164,7 @@ impl Contents {
         self.initialized
             .retain(|ty| incoming.initialized.contains(ty));
 
-        let mut changed = self.initialized.len() != count || self.storage_type != previous_type;
+        let mut changed = self.initialized.len() != count || self.storage_type != previous_type || self.exposed != previous_exposure;
 
         for (&ty, origins) in &incoming.pending {
             changed |= merge_origins(self.pending.entry(ty).or_default(), origins);
@@ -181,12 +204,13 @@ impl Transfer {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::analysis::storage_flow) struct State {
     pub(super) owned_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
+    pub(super) returned_roots: BTreeMap<Place, BTreeSet<bray_bound_tree::StorageIdentityId>>,
     pub(super) values: BTreeMap<Target, References>,
     pub(super) borrows: BTreeMap<BorrowCapabilityId, References>,
     pub(super) pending: BTreeMap<BoundExecutionSite, Transfer>,
     pub(super) deferred_effects: BTreeMap<
         BoundExecutionSite,
-        Option<BTreeSet<(Target, bray_symbols::DependencyMutationKind)>>,
+        Option<BTreeSet<Effect>>,
     >,
     pub(super) contents: BTreeMap<Target, Contents>,
     // Consumed inline values remain available to the current operation's value transfers.
@@ -224,6 +248,14 @@ impl State {
                 })
             },
         );
+
+        for (reference, roots) in &incoming.returned_roots {
+            let previous = self.returned_roots.entry(reference.clone()).or_default();
+            let count = previous.len();
+
+            previous.extend(roots);
+            changed |= previous.len() != count;
+        }
 
         changed |= merge_references(&mut self.borrows, &incoming.borrows, |_| false, |_| false);
 

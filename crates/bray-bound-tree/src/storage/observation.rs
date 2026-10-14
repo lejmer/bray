@@ -31,17 +31,17 @@ impl StorageMutation {
 pub struct StorageCompletion {
     references: std::collections::BTreeMap<crate::StoragePath, crate::StoragePath>,
     borrow_origins: std::collections::BTreeMap<
-        crate::StoragePath,
+        crate::BoundExpressionId,
         std::collections::BTreeSet<crate::StoragePath>,
     >,
 }
 
 impl StorageCompletion {
-    /// Creates a completion from exact value observations and all possible borrowed origins.
+    /// Creates a completion from exact value observations and all possible local borrowed owners.
     pub fn new(
         references: std::collections::BTreeMap<crate::StoragePath, crate::StoragePath>,
         borrow_origins: std::collections::BTreeMap<
-            crate::StoragePath,
+            crate::BoundExpressionId,
             std::collections::BTreeSet<crate::StoragePath>,
         >,
     ) -> Self {
@@ -58,11 +58,13 @@ impl StorageCompletion {
         &self.references
     }
 
-    /// Returns the possible storage origins retained through each borrowed input.
+    /// Returns the possible invocation-local owners retained through each borrowed input.
+    /// An empty set records that checked incoming borrows need no local owner. Their
+    /// ordinary dependency contract still retains every caller-owned lifetime.
     pub fn borrow_origins(
         &self,
     ) -> &std::collections::BTreeMap<
-        crate::StoragePath,
+        crate::BoundExpressionId,
         std::collections::BTreeSet<crate::StoragePath>,
     > {
         &self.borrow_origins
@@ -99,25 +101,27 @@ mod tests {
             crate::StoragePath::root(crate::StorageIdentityId::from_storage_slot(unit, slot))
         };
 
+        let argument = crate::BoundExpressionId::from_slot(unit, 0);
+
         let mut left = StorageCompletion::new(
             BTreeMap::from([(path(0), path(1))]),
-            BTreeMap::from([(path(0), BTreeSet::from([path(1)]))]),
+            BTreeMap::from([(argument, BTreeSet::from([path(1)]))]),
         );
 
         let right = StorageCompletion::new(
             BTreeMap::from([(path(0), path(2))]),
-            BTreeMap::from([(path(0), BTreeSet::from([path(2)]))]),
+            BTreeMap::from([(argument, BTreeSet::from([path(2)]))]),
         );
 
         left.merge(&right);
         assert!(left.references().is_empty());
 
         assert_eq!(
-            left.borrow_origins()[&path(0)],
+            left.borrow_origins()[&argument],
             BTreeSet::from([path(1), path(2)])
         );
 
         left.merge(&StorageCompletion::default());
-        assert!(!left.borrow_origins().contains_key(&path(0)));
+        assert!(!left.borrow_origins().contains_key(&argument));
     }
 }

@@ -41,7 +41,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
             if let Some(path) = storage.logical_path(plan.access()) {
                 changed.push(path.clone());
             } else {
-                *invalidation = StorageInvalidation::All(Default::default());
+                *invalidation = StorageInvalidation::unknown();
             }
         }
     }
@@ -68,7 +68,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
                     .execution_properties()
                     .contains(&ExecutionProperty::Pure)
                 {
-                    accesses.insert(occurrence, StorageInvalidation::All(Default::default()));
+                    accesses.insert(occurrence, StorageInvalidation::unknown());
                 }
             }
 
@@ -102,7 +102,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
 
         // Opaque calls may carry mutation authority inside aggregates or raw pointers.
         // Without a purity certificate or a mutation summary, require fresh observations.
-        accesses.insert(expression.into(), StorageInvalidation::All(Default::default()));
+        accesses.insert(expression.into(), StorageInvalidation::unknown());
     }
 
     for invalidation in accesses.values_mut() {
@@ -125,7 +125,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
         if aliases_storage {
             // Local borrows can be reassigned or returned by calls. Until their referent
             // sets are available here, a write through one may affect any observation.
-            *invalidation = StorageInvalidation::All(Default::default());
+            *invalidation = StorageInvalidation::unknown();
 
             continue;
         }
@@ -137,7 +137,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
     accesses
 }
 
-fn call_preserves_storage(
+pub(in crate::analysis) fn call_preserves_storage(
     call: &SelectedCall,
     operation: Option<bray_bound_tree::CheckedMemoryOperationKind>,
 ) -> bool {

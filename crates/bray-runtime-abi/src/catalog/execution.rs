@@ -3,6 +3,33 @@
 macro_rules! runtime_role_catalog {
     ($projection:ident) => {
         $projection! {
+            AtomicWordWait {
+                "Wait on one native atomic word; return may be spurious.", "atomic_word_wait",
+                native: (ATOMIC_WORD_WAIT_SYMBOL = "bray_runtime_atomic_word_wait", [Pointer, U32] -> Void),
+                call_hook: (),
+                compiler: C [Pointer, U32] -> Void,
+                owner: Bootstrap, availability: All, bootstrap: ("atomic.wait"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            AtomicWordNotifyOne {
+                "Notify waiters on one native atomic word without changing its contents.", "atomic_word_notify_one",
+                native: (ATOMIC_WORD_NOTIFY_ONE_SYMBOL = "bray_runtime_atomic_word_notify_one", [Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Bootstrap, availability: All, bootstrap: ("atomic.notify_one"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            AtomicWordNotifyAll {
+                "Notify waiters on one native atomic word without changing its contents.", "atomic_word_notify_all",
+                native: (ATOMIC_WORD_NOTIFY_ALL_SYMBOL = "bray_runtime_atomic_word_notify_all", [Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Bootstrap, availability: All, bootstrap: ("atomic.notify_all"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
             ReportRecordAdmission {
                 "Reserve records before a Rust producer accepts ownership.", "report_records_admit",
                 native: (REPORT_RECORDS_ADMIT_SYMBOL = "bray_runtime_report_records_admit", [Usize, Pointer] -> U32),

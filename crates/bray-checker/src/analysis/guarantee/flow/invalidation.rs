@@ -31,7 +31,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        if matches!(invalidation, StorageInvalidation::All(_)) {
+        if matches!(invalidation, StorageInvalidation::All { .. }) {
             if let Some(contract) = self
                 .request
                 .trusted_contracts()
@@ -52,7 +52,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 matches!(
                     plan.purpose(),
                     bray_bound_tree::StorageAccessPurpose::Assignment
-                        | bray_bound_tree::StorageAccessPurpose::Initialize
                 )
             });
 
@@ -85,7 +84,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             state.retire_evaluation(mutation);
         }
 
-        if let StorageInvalidation::All(descriptors) = invalidation {
+        if let StorageInvalidation::All { stable_descriptors: descriptors, stable_values } = invalidation {
             let descriptors = descriptors.iter().filter_map(|path| {
                 let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
                 let value = place.value_in(&state.current)?;
@@ -93,15 +92,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 Some((place, value.owner_identity().clone()))
             }).collect::<BTreeMap<_, _>>();
 
-            state.invalidate_cleanup();
+            let retained = stable_values.iter().filter_map(|path| {
+                let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
+                let value = place.value_in(&state.current)?;
 
-            let roots = self
-                .observed_types
-                .keys()
-                .chain(state.current.keys())
-                .filter(|place| place.projections.is_empty())
-                .cloned()
-                .collect::<BTreeSet<_>>();
+                Some((place, value))
+            }).collect::<BTreeMap<_, _>>();
+
+            let owners = stable_values.iter().filter_map(|path| {
+                let place = crate::ExecutionPlace::storage_path(self.storage, &bray_bound_tree::StoragePath::root(path.root))?;
+
+                Some(place.value_in(&state.current)?)
+            }).flat_map(|value| value.owned_values().map(|value| value.owner_identity().clone()).collect::<Vec<_>>()).collect();
+
+            state.invalidate_cleanup(&retained.values().cloned().collect(), &owners);
+
+            let observed = self.observed_types.keys().chain(state.current.keys()).cloned().collect::<BTreeSet<_>>();
+            let roots = observed.iter().filter(|place| place.projections.is_empty()).cloned();
 
             state.current.clear();
 
@@ -119,10 +126,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 state.assign(place, value);
             }
 
+            for (place, value) in retained {
+                state.assign(place, value);
+            }
+
             return;
         }
 
-        if let StorageInvalidation::Observed { referents, .. } = invalidation {
+        if !transfers && let StorageInvalidation::Observed { referents, .. } = invalidation {
             let observed = referents
                 .iter()
                 .filter_map(|path| {
@@ -194,7 +205,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 }
             }
-            StorageInvalidation::All(_) => unreachable!("global invalidation handled above"),
+            StorageInvalidation::All { .. } => unreachable!("global invalidation handled above"),
+        }
+
+        // Storage aliasing conservatively groups specializations by declaration. Revoke
+        // each selected instance affected by that storage path, without merging identities.
+        let mut changed_static = |path: &bray_bound_tree::StoragePath| {
+            let Some(bray_bound_tree::StorageIdentity::Static(declaration)) = self.storage.identity(path.root) else { return; };
+
+            for place in state.current.keys().filter(|place| place.projections.is_empty() && place.selected_static() == Some(declaration)) {
+                changed_places.insert(place.clone().project(&path.projections).unwrap_or_else(|| place.clone()));
+            }
+        };
+
+        match invalidation {
+            StorageInvalidation::Observed { accesses, referents, .. } => {
+                accesses.values().flatten().chain(referents).for_each(&mut changed_static);
+            }
+            StorageInvalidation::Paths(paths) => paths.iter().for_each(&mut changed_static),
+            StorageInvalidation::All { .. } => unreachable!("global invalidation handled above"),
         }
 
         // Storage flow distinguishes the descriptor slot from its reached elements.
@@ -269,21 +298,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .into(),
                     )
                 })
-                .unwrap_or(ExecutionCondition::Unknown);
+                .unwrap_or_else(|| if transfers {
+                    ExecutionCondition::Unknown
+                } else {
+                    // A possible write retires the old contents, not this live place's
+                    // identity. Distinct post-state terms assert no equality between aliases.
+                    ExecutionCondition::PostState(mutation, place.clone())
+                });
 
             state.assign(place, value);
         }
 
         if !transfers && let StorageInvalidation::Observed { snapshots, .. } = invalidation {
-            for (path, _) in snapshots.iter().filter(|(path, target)| path == target) {
-                if let Some(place) = crate::ExecutionPlace::storage_path(self.storage, path) {
-                    state.assign(
-                        place.clone(),
-                        ExecutionCondition::PostState(mutation, place),
-                    );
-                }
-            }
-
             self.observe_references(state, snapshots);
         }
     }
@@ -300,12 +326,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
                 let target = crate::ExecutionPlace::storage_path(self.storage, target)?;
 
-                Some((
-                    place,
-                    target
-                        .value_in(&state.current)
-                        .unwrap_or_else(|| ExecutionCondition::Input(target)),
-                ))
+                let value = target
+                    .value_in(&state.current)
+                    .unwrap_or_else(|| ExecutionCondition::Input(target));
+
+                let value = if matches!(
+                    place.value_in(&state.current),
+                    Some(ExecutionCondition::Borrowed(_))
+                ) {
+                    // Refresh the referent without turning a borrowed field into an owned field.
+                    value.borrowed()
+                } else {
+                    value
+                };
+
+                Some((place, value))
             })
             .collect::<Vec<_>>();
 

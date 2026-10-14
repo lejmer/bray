@@ -479,6 +479,13 @@ pub enum ConstantTermData {
         /// Exact conversion target type.
         target: TypeId,
     },
+    /// Tests the active variant without observing its payload.
+    VariantTest {
+        /// Union value being tested.
+        subject: ConstantTermId,
+        /// Checked variant identity.
+        variant: UnionVariantSymbolId,
+    },
     /// Nullable presence around an open or closed child term.
     NullablePresent(ConstantTermId),
     /// An ordered tuple whose elements may remain open.

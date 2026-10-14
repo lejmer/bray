@@ -85,16 +85,27 @@ pub(super) fn scoped_invocation_preserves_inputs(
         .contains(&ExecutionProperty::Pure)
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum ExecutionGoal {
+    Property(ExecutionProperty),
+    NoUnwind,
+}
+
 pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
-    property: ExecutionProperty,
+    goal: ExecutionGoal,
     selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
     memory: &CheckedMemoryOperations,
     index_in_bounds: bool,
     dependencies: &mut Vec<ExecutionDependency>,
 ) -> bool {
+    let property = match goal {
+        ExecutionGoal::Property(property) => property,
+        ExecutionGoal::NoUnwind => ExecutionProperty::Total,
+    };
+
     let Some(bound) = request.view().expression(expression) else {
         return false;
     };
@@ -123,6 +134,23 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
     }
 
     if let Some(operation) = memory.operation(expression) {
+        if goal == ExecutionGoal::NoUnwind
+            && matches!(operation.kind(), bray_bound_tree::CheckedMemoryOperationKind::AtomicWait { .. })
+        {
+            let Some(SemanticSelection::Call(call)) = selections.expression(expression) else {
+                panic!("checked atomic wait retains its selected call");
+            };
+
+            // Waiting need not terminate, but only its execution requirement can unwind.
+            dependencies.push(ExecutionDependency {
+                target: call.target(),
+                property,
+                occurrence: expression.into(),
+            });
+
+            return true;
+        }
+
         return crate::memory::execution::guarantees(operation.kind(), property);
     }
 

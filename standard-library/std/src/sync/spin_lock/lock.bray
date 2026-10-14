@@ -4,74 +4,145 @@ using internal std.sync.spin_lock;
 
 struct SpinLock<T>
 {
-    mut storage: Uninit<std.sync.spin_lock.State<T>>;
+    instance: std.sync.spin_lock.Marker;
+    storage: Uninit<std.sync.spin_lock.State<T>>;
 
     trusted construct(pos value: T) -> Self
-        ensures(trusted core.memory.uninit_initialized<std.sync.spin_lock.State<T>>(storage = &result.storage))
+        ensures(trusted std.sync.spin_lock.valid(&result.instance))
     {
-        return
-        {
-            storage = std.memory.uninit_from<std.sync.spin_lock.State<T>>(
-                {
-                    next_ticket = core.atomic.initialize<u32>(0),
-                    serving_ticket = core.atomic.initialize<u32>(0),
-                    value = value,
-                }
-            ),
-        };
+        return std.sync.spin_lock.initialize<T>(value);
     }
 
     trusted destruct()
-        requires(trusted core.memory.uninit_initialized<std.sync.spin_lock.State<T>>(storage = &self.storage))
+        requires(trusted std.sync.spin_lock.valid(&self.instance))
+        uses(raw_memory)
     {
-        trusted std.memory.destroy_initialized<std.sync.spin_lock.State<T>>(&mut self.storage);
+        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.spin_lock.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.spin_lock.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.spin_lock.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
+        let _: std.sync.spin_lock.State<T> = trusted std.memory.read<std.sync.spin_lock.State<T>>(pointer);
     }
 
     trusted func lock() -> SpinLockGuard<T>
-        requires(trusted core.memory.uninit_initialized<std.sync.spin_lock.State<T>>(storage = &self.storage))
+        requires(trusted std.sync.spin_lock.valid(&self.instance))
         ensures(
-            trusted core.memory.uninit_initialized<std.sync.spin_lock.State<T>>(storage = &self.storage),
-            trusted std.sync.spin_lock.acquired<T>(result),
+            trusted std.sync.spin_lock.valid(&self.instance),
+            trusted std.sync.spin_lock.acquired(&result.acquisition),
         )
         uses(raw_memory, unchecked_alias)
     {
-        let pointer = trusted std.sync.spin_lock.pointer<T>(&self.storage);
-        let state = trusted std.memory.borrow_from<std.sync.spin_lock.State<T>, Self>(&self, pointer);
-        let ticket: u32 = core.atomic.fetch_add<u32, 0>(&state.next_ticket, 1);
+        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.storage);
 
-        while core.atomic.load<u32, 1>(&state.serving_ticket) != ticket
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.spin_lock.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.spin_lock.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.spin_lock.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
+        let state = trusted std.memory.borrow_from<std.sync.spin_lock.State<T>, Self>(&self, pointer);
+        let mut observed = core.atomic.load<u32, 1>(&state.tickets);
+        let mut ticket: u32 = 0;
+
+        while true
+        {
+            let next = observed & 65535;
+            let serving = observed >> 16;
+
+            if((next + 65536 - serving) & 65535) == 65535
+            {
+                trusted internal spin_loop();
+                observed = core.atomic.load<u32, 1>(&state.tickets);
+                continue;
+            }
+
+            let desired = (observed & 4294901760) | ((next + 1) & 65535);
+
+            let (current, admitted) = core.atomic.compare_exchange<u32, 3, 1>(
+                &state.tickets,
+                expected = observed,
+                desired = desired,
+            );
+
+            if admitted
+            {
+                ticket = next;
+                break;
+            }
+
+            observed = current;
+        }
+
+        while(core.atomic.load<u32, 1>(&state.tickets) >> 16) != ticket
         {
             trusted internal spin_loop();
         }
 
         return
         {
+            acquisition = std.sync.spin_lock.Marker
+            {
+            },
             lock = &self
         };
     }
 
     trusted func try_lock() -> SpinLockGuard<T>?
-        requires(trusted core.memory.uninit_initialized<std.sync.spin_lock.State<T>>(storage = &self.storage))
+        requires(trusted std.sync.spin_lock.valid(&self.instance))
         ensures(
-            trusted core.memory.uninit_initialized<std.sync.spin_lock.State<T>>(storage = &self.storage),
-            trusted std.sync.spin_lock.acquired<T>(result),
+            trusted std.sync.spin_lock.valid(&self.instance),
+            result matches none || trusted std.sync.spin_lock.acquired(std.sync.spin_lock.marker<T>(&result)),
         )
         uses(raw_memory, unchecked_alias)
     {
-        let pointer = trusted std.sync.spin_lock.pointer<T>(&self.storage);
+        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.spin_lock.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.spin_lock.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.spin_lock.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
         let state = trusted std.memory.borrow_from<std.sync.spin_lock.State<T>, Self>(&self, pointer);
-        let serving: u32 = core.atomic.load<u32, 1>(&state.serving_ticket);
-        let next: u32 = core.atomic.load<u32, 0>(&state.next_ticket);
+        let observed = core.atomic.load<u32, 1>(&state.tickets);
+        let serving = observed >> 16;
+        let next = observed & 65535;
 
         if next != serving
         {
             return none;
         }
 
-        let (_, acquired) = core.atomic.compare_exchange<u32, 0, 0>(
-            &state.next_ticket,
-            expected = next,
-            desired = next + 1,
+        let (_, acquired) = core.atomic.compare_exchange<u32, 3, 1>(
+            &state.tickets,
+            expected = observed,
+            desired = (observed & 4294901760) | ((next + 1) & 65535),
         );
 
         if !acquired
@@ -81,6 +152,9 @@ struct SpinLock<T>
 
         let guard: SpinLockGuard<T> =
         {
+            acquisition = std.sync.spin_lock.Marker
+            {
+            },
             lock = &self
         };
 

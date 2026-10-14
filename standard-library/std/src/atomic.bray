@@ -279,6 +279,7 @@ impl Atomic<T>
     /// Waits while the observed value equals the expected value.
     /// Returns after observing a different value or waking spuriously, so callers must recheck the condition.
     func wait(pos expected: T, order: LoadOrder)
+        requires(blocking_execution())
     {
         match order
         {

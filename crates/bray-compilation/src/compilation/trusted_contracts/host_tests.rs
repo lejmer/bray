@@ -381,11 +381,11 @@ fn production_host_authority_cannot_be_constructed_from_fields() {
             true,
         ),
         (
-            "let fake: HostLease = { synchronization = lease.synchronization, owner = lease.owner, active = true, retirement = lease.retirement }; let pointer = trusted host_access_pointer(&fake);",
+            "let fake: HostLease = { acquisition = lease.acquisition, synchronization = lease.synchronization, owner = lease.owner, active = true, retirement = lease.retirement }; let pointer = trusted host_access_pointer(&fake);",
             false,
         ),
         (
-            "let fake: HostLease = { synchronization = lease.synchronization, owner = lease.owner, active = lease.active, retirement = lease.retirement };",
+            "let fake: HostLease = { acquisition = lease.acquisition, synchronization = lease.synchronization, owner = lease.owner, active = lease.active, retirement = lease.retirement };",
             false,
         ),
         (
@@ -618,7 +618,7 @@ fn production_retirement_lease_cannot_mutate_or_relocate_its_owned_row() {
             r#"
             trusted internal module bray.runtime.bootstrap.host;
             func production_probe(pos mut completed: HostLease)
-                requires(completed.active, completed.retirement.pending, trusted host_access_live(owner = &completed), trusted attachment_cleanup_completed(owner = &completed))
+                requires(completed.active, completed.retirement.pending, trusted host_access_live(owner = &completed.acquisition), trusted attachment_cleanup_completed(owner = &completed))
             {{
                 {body}
             }}
@@ -858,7 +858,7 @@ fn closing_epoch_authority_cannot_be_copied_from_internal_fields() {
             false,
         ),
         (
-            "let own_lease = trusted host_access(); let fake: HostLease = { synchronization = own_lease.synchronization, owner = own_lease.owner, active = true, retirement = AttachmentRetirement { pending = true, identity = selected.identity, native_thread = selected.native_thread, record = std.memory.null<Attachment>(), active = std.memory.null<usize>(), remaining_active = 0 } }; let pointer = trusted completed_attachment_pointer(&fake);",
+            "let own_lease = trusted host_access(); let fake: HostLease = { acquisition = own_lease.acquisition, synchronization = own_lease.synchronization, owner = own_lease.owner, active = true, retirement = AttachmentRetirement { pending = true, identity = selected.identity, native_thread = selected.native_thread, record = std.memory.null<Attachment>(), active = std.memory.null<usize>(), remaining_active = 0 } }; let pointer = trusted completed_attachment_pointer(&fake);",
             false,
         ),
     ] {
@@ -869,7 +869,7 @@ fn closing_epoch_authority_cannot_be_copied_from_internal_fields() {
                     selected.ready,
                     trusted attachment_exit_selected(owner = &selected),
                     lease.active,
-                    trusted host_access_live(owner = lease),
+                    trusted host_access_live(owner = &lease.acquisition),
                     trusted host_anchor_matches(anchor = &anchor, lease = lease)
                 )
             {{ {body} }}"#
@@ -926,8 +926,8 @@ fn cleanup_registration_requires_the_prepared_owner_and_exact_slot_lease() {
             func production_probe(pos lease: &HostLease, pos other: &HostLease,
                 pos selected: &AttachmentSelection, pos mut owner: AttachmentExit) -> u32
                 requires(
-                    trusted host_access_live(owner = lease), trusted host_access_idle(owner = lease), trusted attachment_cleanup_completed(owner = lease),
-                    trusted host_access_live(owner = other), trusted host_access_idle(owner = other), trusted attachment_cleanup_completed(owner = other),
+                    trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease), trusted attachment_cleanup_completed(owner = lease),
+                    trusted host_access_live(owner = &other.acquisition), trusted host_access_idle(owner = other), trusted attachment_cleanup_completed(owner = other),
                     !selected.pending || trusted vacant_attachment_exit(slot = &selected.slot, lease = lease),
                     !selected.pending || trusted core.memory.valid_write<(AttachmentExit?)>(pointer = selected.slot.storage, count = 1),
                     !selected.pending || trusted core.memory.aligned_for<(AttachmentExit?)>(pointer = selected.slot.storage),

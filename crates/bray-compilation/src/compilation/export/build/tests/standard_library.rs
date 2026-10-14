@@ -377,7 +377,7 @@ fn lock_guard_borrows_end_before_unlock_and_keep_the_lock_alive() {
         module app;
 
         func increment(pos lock: &std.sync.SpinLock<i32>)
-            requires(trusted core.memory.uninit_initialized<std.sync.spin_lock.State<i32>>(storage = &lock.storage)) {
+            requires(trusted std.sync.spin_lock.valid(marker = &lock.instance)) {
             let mut guard: std.sync.SpinLockGuard<i32> = lock.lock();
             let value: &mut i32 = guard.get();
 
@@ -413,7 +413,7 @@ fn lock_guard_borrows_end_before_unlock_and_keep_the_lock_alive() {
             module app;
 
             func use_after_unlock(pos lock: &std.sync.SpinLock<i32>)
-                requires(trusted core.memory.uninit_initialized<std.sync.spin_lock.State<i32>>(storage = &lock.storage)) {
+                requires(trusted std.sync.spin_lock.valid(marker = &lock.instance)) {
                 let mut guard: std.sync.SpinLockGuard<i32> = lock.lock();
                 let value: &mut i32 = guard.get();
 
@@ -933,8 +933,8 @@ fn native_environment_cursor_requires_live_provider_storage() {
             &windows_platform,
             [
                 "{ let arguments: LocalAllocation = trusted internal native_arguments(); if arguments.count > 0 { let _ = trusted internal native_argument(&arguments, index = 0); } }; let owner: EnvironmentBlock = trusted internal native_environment();",
-                "let mut owner: EnvironmentBlock = trusted internal native_environment(); owner.current = std.memory.null<u16>();",
-                "let owner: EnvironmentBlock = { pointer = std.memory.null<u16>(), current = std.memory.null<u16>() };",
+                "let original = trusted internal native_environment(); let owner: EnvironmentBlock = { identity = original.identity, pointer = original.pointer, current = std.memory.uninit_from<RawPointer<u16>>(std.memory.null<u16>()) };",
+                "let owner: EnvironmentBlock = { identity = NativeTextOwner {}, pointer = std.memory.null<u16>(), current = std.memory.uninit_from<RawPointer<u16>>(std.memory.null<u16>()) };",
             ],
         ),
     ] {
@@ -975,7 +975,11 @@ fn native_environment_cursor_requires_live_provider_storage() {
             } else {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     compilation.check_diagnostics(),
-                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+                    if target == SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc) && index == 1 {
+                        bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven
+                    } else {
+                        bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven
+                    },
                 );
             }
         }
@@ -2925,5 +2929,112 @@ fn unix_native_outputs_remain_in_typed_storage() {
             compilation.check_diagnostics(),
             bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
         );
+    }
+}
+
+#[test]
+fn local_callable_execution_proofs_export_their_named_dependencies() {
+    let provider = super::fixtures::compilation(r#"
+        module app;
+        func helper() executes(pure, total) {}
+        func invoke() executes(pure, total) {
+            let action = lambda() executes(pure, total) { helper(); };
+            action();
+        }
+    "#);
+
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    let consumer = super::fixtures::execution_consumer(&provider, r#"
+        module consumer;
+        using example.package.app;
+        func invoke() executes(pure, total) { example.package.app.invoke(); }
+    "#);
+
+    assert!(!consumer.check_diagnostics().has_errors(), "{:?}", consumer.check_diagnostics());
+
+    for application in [&provider, &consumer] {
+        let proof = application.execution_properties(source_function_body_key(application, "invoke")).unwrap();
+
+        assert!(!proof.diagnostics().has_errors(), "{:?}", proof.diagnostics());
+    }
+}
+
+#[test]
+fn production_path_view_preserves_its_borrowed_storage() {
+    let compilation = standard_library_compilation([
+        include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/bytes.bray"),
+        include_str!("../../../../../../../standard-library/std/src/bytes/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/path.bray"),
+        include_str!("../../../../../../../standard-library/std/src/fs.bray"),
+        include_str!("../../../../../../../standard-library/std/src/fs/platform.bray"),
+        include_str!("../../../../../../../standard-library/std/src/io.bray"),
+        include_str!("../../../../../../../standard-library/std/src/platform.bray"),
+        include_str!("../../../../../../../standard-library/std/src/platform/status.bray"),
+        "module std.collection;",
+    ]);
+
+    let key = source_function_body_key(&compilation, "platform_path");
+    let checked = compilation.lowered_unit(key.clone()).unwrap();
+
+    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+
+    let proof = compilation.execution_properties(key).unwrap();
+
+    assert!(!proof.diagnostics().has_errors(), "{:?}", proof.diagnostics());
+}
+
+#[test]
+fn guard_lifetime_anchors_are_not_opaque_call_targets() {
+    let declarations = [
+        include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/sync/spin_lock.bray"),
+        include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/lock.bray"),
+        include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/guard.bray"),
+        include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/state.bray"),
+    ];
+
+    let caller = r#"
+        trusted module app;
+        using std.sync;
+        using internal std.sync.spin_lock;
+        static LOCK: std.sync.SpinLock<u32> = std.sync.spin_lock.initialize<u32>(0);
+        trusted func acquire() -> std.sync.SpinLockGuard<u32>
+            ensures(trusted std.sync.spin_lock.acquired(&result.acquisition)) { return LOCK.lock(); }
+        func static_caller(pos callback: func() -> unit) {
+            let mut guard = acquire();
+            change(guard.get(), callback);
+        }
+        func access(pos guard: &mut std.sync.SpinLockGuard<u32>) -> &mut u32
+            requires(trusted std.sync.spin_lock.acquired(&guard.acquisition))
+            ensures(trusted std.sync.spin_lock.acquired(&guard.acquisition)) {
+            return guard.get();
+        }
+        func change(pos value: &mut u32, pos callback: func() -> unit) { callback(); value += 1; }
+        func caller(pos callback: func() -> unit) {
+            let lock = std.sync.SpinLock<u32>(0);
+            let mut guard = lock.lock();
+            change(access(&mut guard), callback);
+        }
+    "#;
+
+    let source = standard_library_compilation([declarations[0], declarations[1], declarations[2], declarations[3], declarations[4], declarations[5], caller]);
+
+    for name in ["caller", "static_caller"] {
+        let checked = source.lowered_unit(source_function_body_key(&source, name)).unwrap();
+
+        assert!(!checked.diagnostics().has_errors(), "{name}: {:?}", checked.diagnostics());
+    }
+
+    let provider = standard_library_compilation(declarations);
+    let consumer = super::fixtures::execution_consumer(&provider, caller);
+
+    for name in ["caller", "static_caller"] {
+        let checked = consumer.lowered_unit(source_function_body_key(&consumer, name)).unwrap();
+
+        assert!(!checked.diagnostics().has_errors(), "{name}: {:?}", checked.diagnostics());
     }
 }

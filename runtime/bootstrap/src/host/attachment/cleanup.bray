@@ -63,12 +63,12 @@ trusted internal func select_cleanup_slot(
     pos native_thread: u64
 ) -> AttachmentSelection
     requires(
-        trusted host_access_live(owner = lease),
+        trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = lease),
         trusted host_anchor_matches(anchor = &anchor, lease = lease)
     )
     ensures(
-        trusted host_access_live(owner = lease),
+        trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = lease),
         trusted attachment_cleanup_completed(owner = lease),
         !result.pending || trusted vacant_attachment_exit(slot = &result.slot, lease = lease),
@@ -145,7 +145,7 @@ trusted internal func prepare_attachment_cleanup(
     pos callback: AttachmentCleanup
 ) -> (HostLease, AttachmentSelection, AttachmentExit)
     ensures(
-        trusted host_access_live(owner = &result.0),
+        trusted host_access_live(owner = &result.0.acquisition),
         trusted host_access_idle(owner = &result.0),
         trusted attachment_cleanup_completed(owner = &result.0),
         !result.1.pending || trusted vacant_attachment_exit(slot = &result.1.slot, lease = &result.0),
@@ -184,7 +184,7 @@ trusted internal func prepare_attachment_cleanup(
 
 trusted internal func publish_attachment_cleanup(pos prepared: (HostLease, AttachmentSelection, AttachmentExit)) -> u32
     requires(
-        trusted host_access_live(owner = &prepared.0),
+        trusted host_access_live(owner = &prepared.0.acquisition),
         trusted host_access_idle(owner = &prepared.0),
         trusted attachment_cleanup_completed(owner = &prepared.0),
         !prepared.1.pending || trusted vacant_attachment_exit(slot = &prepared.1.slot, lease = &prepared.0),
@@ -210,7 +210,7 @@ trusted internal func store_attachment_cleanup(
     pos owner: AttachmentExit
 ) -> u32
     requires(
-        trusted host_access_live(owner = lease),
+        trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = lease),
         trusted attachment_cleanup_completed(owner = lease),
         !selected.pending || trusted vacant_attachment_exit(slot = &selected.slot, lease = lease),
@@ -224,7 +224,7 @@ trusted internal func store_attachment_cleanup(
         trusted prepared_attachment_exit(owner = &owner, slot = &selected.slot, lease = lease)
     )
     ensures(
-        trusted host_access_live(owner = lease),
+        trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = lease),
         trusted attachment_cleanup_completed(owner = lease)
     )

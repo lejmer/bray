@@ -51,7 +51,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         assumptions,
         storage,
         memory,
-        body.storage_flow(),
+        body,
         body.refinements().invalidations(),
         contracts,
         &disposal,
@@ -290,7 +290,7 @@ fn check_expression_execution<C: CheckerRequestContext + ?Sized>(
     let mut valid = super::operation::check_expression(
         request,
         expression,
-        property,
+        super::operation::ExecutionGoal::Property(property),
         expressions.selections(),
         storage,
         memory,

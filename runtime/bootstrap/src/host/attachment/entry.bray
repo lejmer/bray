@@ -53,9 +53,13 @@ trusted internal func enter_attachment_locked(
     pos lease: &HostLease,
     pos prepared: &mut(std.memory.RawBuffer<Attachment>?)
 ) -> Result<u32, usize>
-    requires(lease.active, trusted host_access_idle(owner = lease), trusted host_access_live(owner = lease))
+    requires(
+        lease.active,
+        trusted host_access_idle(owner = lease),
+        trusted host_access_live(owner = &lease.acquisition)
+    )
     ensures(
-        trusted host_access_live(owner = lease),
+        trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = lease),
         trusted attachment_cleanup_completed(owner = lease)
     )

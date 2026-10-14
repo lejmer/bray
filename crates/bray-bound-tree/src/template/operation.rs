@@ -171,6 +171,13 @@ pub enum CheckedTemplateOperation<
         /// The selected field, payload, or associated declaration.
         member: Declaration,
     },
+    /// Tests the active tag of a union without inspecting payload contents.
+    VariantTest {
+        /// Evaluated union subject.
+        subject: CheckedTemplateNodeId,
+        /// Exact checked variant declaration.
+        variant: Declaration,
+    },
     /// Projects a tuple component using its checked ordinal.
     TupleElement {
         /// The projected tuple.
@@ -333,6 +340,9 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 subject: *subject,
                 member: declaration(member)?,
             },
+            Self::VariantTest { subject, variant } => CheckedTemplateOperation::VariantTest {
+                subject: *subject, variant: declaration(variant)?,
+            },
             Self::TupleElement { subject, index } => CheckedTemplateOperation::TupleElement {
                 subject: *subject,
                 index: *index,
@@ -419,7 +429,7 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 visit(*left)?;
                 visit(*right)?;
             }
-            Self::Project { subject, .. } | Self::TupleElement { subject, .. } => visit(*subject)?,
+            Self::VariantTest { subject, .. } | Self::Project { subject, .. } | Self::TupleElement { subject, .. } => visit(*subject)?,
             Self::Index { subject, index, .. } => {
                 visit(*subject)?;
                 visit(*index)?;

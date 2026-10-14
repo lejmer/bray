@@ -42,6 +42,23 @@ impl StructuralValueEncoder<'_, '_> {
 
         self.unordered_identities(identities);
 
+        let mut identities = Vec::with_capacity(data.carriers().len());
+
+        for carrier in data.carriers() {
+            let mut encoder = StructuralValueEncoder {
+                values: self.values,
+                binding_context: self.binding_context,
+                digest: StableDigestHasher::new(),
+                allow_static_address: self.allow_static_address,
+            };
+
+            encoder.constant_term(carrier.guarantee())?;
+            encoder.dependency_projections(carrier.path())?;
+            identities.push(encoder.digest.finalize());
+        }
+
+        self.unordered_identities(identities);
+
         let mut identities = Vec::with_capacity(data.effects().len());
 
         for effect in data.effects() {
@@ -68,6 +85,8 @@ impl StructuralValueEncoder<'_, '_> {
         use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
 
         let kind = match effect {
+            DependencyStorageEffect::Cleanup(ty) => { self.tag(3); return self.ty(*ty); }
+            DependencyStorageEffect::Atomic => { self.tag(4); return Ok(()); }
             DependencyStorageEffect::Unknown => {
                 self.tag(0);
 
@@ -96,6 +115,7 @@ impl StructuralValueEncoder<'_, '_> {
             DependencyMutationKind::Write => 1,
             DependencyMutationKind::Consume => 2,
             DependencyMutationKind::Retire => 3,
+            DependencyMutationKind::Atomic => 4,
         });
 
         Ok(())

@@ -1,0 +1,74 @@
+trusted module std.channel.owner;
+
+struct Marker
+{
+}
+
+trusted predicate live(marker: &Marker);
+
+trusted predicate sender(marker: &Marker);
+
+trusted predicate receiver(marker: &Marker);
+
+// Only the trusted channel protocol grants access to the shared allocation.
+trusted internal predicate access(marker: &Marker);
+
+trusted internal predicate valid(marker: &Marker);
+
+struct Owner<T>
+{
+    instance: std.channel.owner.Marker;
+    internal core: RawPointer<std.channel.ChannelCore<T>>;
+
+    trusted destruct()
+        requires(trusted std.channel.owner.live(&self.instance))
+    {
+        let authorize = trusted lambda(pos marker: &std.channel.owner.Marker)
+            ensures(trusted std.channel.owner.access(marker))
+            executes(pure, total) {};
+
+        authorize(&self.instance);
+
+        let shared = trusted internal std.channel.channel_core<T>(&self);
+
+        let owners: usize = core.atomic.fetch_sub<usize, 3>(&shared.owners, 1);
+
+        if owners == 1
+        {
+            let detached: (std.memory.RawBuffer<T>, std.memory.RawBuffer<std.channel.WaiterEntry>, std.memory.RawBuffer<std.channel.WaiterEntry>) =
+            {
+                let mut state = shared.state.lock();
+                let channel: &mut std.channel.ChannelState<T> = state.get();
+
+                let authorize_state = trusted lambda(pos marker: &std.channel.owner.Marker)
+                    ensures(trusted std.channel.owner.valid(marker))
+                    executes(pure, total) {};
+
+                authorize_state(&channel.instance);
+
+                let messages = trusted channel.take_storage();
+
+                let send_waiters = channel.send_waiters.take_storage();
+                let receive_waiters = channel.receive_waiters.take_storage();
+
+                yield (messages, send_waiters, receive_waiters);
+            };
+
+            let authorize_release = trusted lambda(pos pointer: RawPointer<std.channel.ChannelCore<T>>)
+                ensures(
+                    trusted core.memory.owned_allocation(
+                        pointer = trusted std.memory.reinterpret<u8, std.channel.ChannelCore<T>>(pointer),
+                        bytes = internal std.memory.value_allocation_bytes<std.channel.ChannelCore<T>>(),
+                        align = std.memory.align_of<std.channel.ChannelCore<T>>(),
+                    )
+                )
+                executes(pure, total) {};
+
+            authorize_release(self.core);
+
+            let pointer = self.core;
+
+            trusted internal std.memory.deallocate_value<std.channel.ChannelCore<T>>(pointer);
+        }
+    }
+}

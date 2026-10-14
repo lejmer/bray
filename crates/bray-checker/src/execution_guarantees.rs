@@ -22,7 +22,7 @@ pub use model::{
     ExecutionCertification, ExecutionCompletionContract, ExecutionCompletionDependency,
     ExecutionDeclaration, ExecutionDependency, ExecutionDomain, ExecutionObligation,
 };
-pub(crate) use normalize::{condition_literals, expression_condition, expression_place};
+pub(crate) use normalize::{condition_literals, expression_condition, expression_place, pattern_conditions, pattern_value};
 pub use normalize::{execution_conditions, predicate_conditions, predicate_conditions_with_inputs};
 pub(crate) use place::ExecutionInput;
 pub use place::ExecutionPlace;

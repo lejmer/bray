@@ -1,6 +1,7 @@
 module std.collection;
 
 using std.memory;
+using internal std.collection.ring;
 
 struct Deque<T>
 {
@@ -155,7 +156,7 @@ struct Deque<T>
     {
         try trusted self.reserve(additional = 1);
 
-        let index: usize = wrapped_deque_index(
+        let index: usize = internal std.collection.ring.index(
             head = self.head,
             storage_capacity = self.capacity(),
             logical_index = self.count,
@@ -206,22 +207,10 @@ struct Deque<T>
     }
 }
 
-internal func wrapped_deque_index(head: usize, storage_capacity: usize, logical_index: usize) -> usize
-{
-    let contiguous: usize = storage_capacity - head;
-
-    if logical_index < contiguous
-    {
-        return head + logical_index;
-    }
-
-    return logical_index - contiguous;
-}
-
 trusted internal func borrow_deque_element<T>(pos deque: &Deque<T>, logical_index: usize) -> &T
     uses(raw_memory)
 {
-    let index: usize = wrapped_deque_index(
+    let index: usize = internal std.collection.ring.index(
         head = deque.head,
         storage_capacity = deque.capacity(),
         logical_index = logical_index,
@@ -239,7 +228,7 @@ trusted internal func borrow_deque_element<T>(pos deque: &Deque<T>, logical_inde
 trusted internal func borrow_deque_element_mut<T>(pos deque: &mut Deque<T>, logical_index: usize) -> &mut T
     uses(raw_memory)
 {
-    let index: usize = wrapped_deque_index(
+    let index: usize = internal std.collection.ring.index(
         head = deque.head,
         storage_capacity = deque.capacity(),
         logical_index = logical_index,
@@ -301,7 +290,7 @@ trusted internal func take_deque_front<T>(pos deque: &mut Deque<T>) -> T
 
 trusted internal func take_deque_back<T>(pos deque: &mut Deque<T>) -> T
 {
-    let index: usize = wrapped_deque_index(
+    let index: usize = internal std.collection.ring.index(
         head = deque.head,
         storage_capacity = deque.capacity(),
         logical_index = deque.count - 1,
@@ -373,7 +362,7 @@ trusted internal func reallocate_deque<T>(
 
     while moved < retained
     {
-        let source_index: usize = wrapped_deque_index(
+        let source_index: usize = internal std.collection.ring.index(
             head = source_head,
             storage_capacity = source_capacity,
             logical_index = moved,

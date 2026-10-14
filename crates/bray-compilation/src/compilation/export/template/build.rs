@@ -67,6 +67,9 @@ pub(in crate::compilation::export) fn export_checked_source_template(
         crate::compilation::binder::expression_result_dependencies(&context, &key)
             .map_err(super::super::binding_query_export_error)?;
 
+    let patterns = compilation.patterns_with_cancellation(key.clone(), cancellation)
+        .map_err(super::super::fact_query_export_error)?;
+
     let body = compilation
         .body_behavior_with_cancellation(key, cancellation)
         .map_err(super::super::fact_query_export_error)?;
@@ -131,6 +134,7 @@ pub(in crate::compilation::export) fn export_checked_source_template(
         SourceTemplateRequest {
             kind,
             unit: bound.result().value(),
+            patterns: patterns.result().value(),
             types: semantics.types(),
             selections: semantics.selections(),
             literals: semantics.literals(),
@@ -160,6 +164,7 @@ impl SourceTemplateInput {
 pub(in crate::compilation::export) struct SourceTemplateRequest<'a> {
     pub(in crate::compilation::export) kind: CheckedTemplateKind,
     pub(in crate::compilation::export) unit: &'a BoundUnit,
+    pub(in crate::compilation::export) patterns: &'a bray_bound_tree::CheckedPatterns,
     pub(in crate::compilation::export) types: &'a CheckedExpressionTypes,
     pub(in crate::compilation::export) selections: &'a CheckedSemanticSelections,
     pub(in crate::compilation::export) literals: &'a CheckedLiteralValues,
@@ -224,6 +229,7 @@ fn source_expression_root(unit: &BoundUnit, syntax: SyntaxAnchor) -> Option<Boun
 pub(in crate::compilation::export) struct SourceTemplateBuilder<'export, 'values, 'unit> {
     pub(in crate::compilation::export) export: &'export mut SemanticExporter<'values>,
     unit: &'unit BoundUnit,
+    patterns: &'unit bray_bound_tree::CheckedPatterns,
     types: &'unit CheckedExpressionTypes,
     pub(in crate::compilation::export) selections: &'unit CheckedSemanticSelections,
     literals: &'unit CheckedLiteralValues,
@@ -259,6 +265,7 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
         Ok(Self {
             export,
             unit: request.unit,
+            patterns: request.patterns,
             types: request.types,
             selections: request.selections,
             literals: request.literals,
@@ -267,6 +274,49 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             nodes: Vec::new(),
             expression_nodes: BTreeMap::new(),
         })
+    }
+
+    fn pattern_test(
+        &mut self,
+        expression: &bray_bound_tree::BoundStructuredExpression,
+    ) -> Result<InterfaceCheckedTemplateOperation, PackageInterfaceExportError> {
+        let [subject] = expression.operands() else {
+            panic!("checked pattern test has one subject");
+        };
+
+        let pattern = expression.patterns().first()
+            .and_then(|pattern| self.patterns.complete_test(self.unit, *pattern))
+            .ok_or_else(|| incomplete("unsupported_pattern_test"))?;
+
+        let left = self.expression(*subject)?;
+
+        let operation = match pattern {
+            bray_bound_tree::PatternPredicate::ActiveUnionVariant(variant) => {
+                return Ok(InterfaceCheckedTemplateOperation::VariantTest {
+                    subject: left,
+                    variant: InterfaceTemplateReference::Symbol(self.export.symbol_reference(variant.into())?),
+                });
+            }
+            bray_bound_tree::PatternPredicate::NullableAbsent => ConstantBinaryOperation::Equal,
+            bray_bound_tree::PatternPredicate::NullablePresent => ConstantBinaryOperation::NotEqual,
+            _ => return Err(incomplete("unsupported_pattern_test")),
+        };
+
+        let subject_type = self.types.expression(*subject)
+            .expect("checked pattern subject retains its type").ty();
+
+        let subject_type = self.export.values.unborrowed_type(subject_type);
+        let right = CheckedTemplateNodeId::new(index(self.nodes.len())?);
+
+        self.nodes.push(InterfaceCheckedTemplateNode::new(
+            InterfaceCheckedTemplateOperation::Constant {
+                term: self.export.nullable_absence_term_id(subject_type)?,
+                usage: Default::default(),
+            },
+            self.export.type_id(subject_type)?,
+        ));
+
+        Ok(InterfaceCheckedTemplateOperation::Binary { operation, left, right })
     }
 
     pub(in crate::compilation::export) fn expression(
@@ -364,41 +414,7 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
                         usage: Default::default(),
                     })
                 }
-                BoundStructuredExpressionKind::PatternTest
-                    if expression.patterns().first().is_some_and(|pattern| {
-                        self.unit.tree().pattern(*pattern).is_some_and(|pattern| {
-                            pattern.kind() == bray_bound_tree::BoundPatternKind::NullableAbsent
-                        })
-                    }) =>
-                {
-                    let [operand] = expression.operands() else {
-                        return Err(incomplete("invalid_pattern_subject_count"));
-                    };
-
-                    let left = self.expression(*operand)?;
-
-                    let subject_type = self
-                        .types
-                        .expression(*operand)
-                        .expect("checked pattern subject retains its type")
-                        .ty();
-
-                    let right = CheckedTemplateNodeId::new(index(self.nodes.len())?);
-
-                    self.nodes.push(InterfaceCheckedTemplateNode::new(
-                        InterfaceCheckedTemplateOperation::Constant {
-                            term: self.export.nullable_absence_term_id(subject_type)?,
-                            usage: Default::default(),
-                        },
-                        self.export.type_id(subject_type)?,
-                    ));
-
-                    Ok(InterfaceCheckedTemplateOperation::Binary {
-                        operation: ConstantBinaryOperation::Equal,
-                        left,
-                        right,
-                    })
-                }
+                BoundStructuredExpressionKind::PatternTest => self.pattern_test(expression),
                 BoundStructuredExpressionKind::Tuple => {
                     Ok(InterfaceCheckedTemplateOperation::tuple(
                         self.expressions(expression.operands())?,

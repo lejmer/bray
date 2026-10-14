@@ -17,19 +17,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         operation: super::super::super::model::AnalysisOperationKind,
         observe: Option<&mut super::super::cleanup::Observer<'_>>,
     ) {
+        if let (Some(body), bray_bound_tree::BoundExecutionSite::Node(node)) = (self.checked_body, operation.occurrence()) {
+            self.assume_patterns(state, body.refinements().refinements_before(node).iter());
+        }
+
         self.transition_cleanup(state, operation, observe);
 
         let expression = operation.occurrence().expression();
 
         let target = self
-            .checked_flow
+            .checked_body.map(bray_bound_tree::CheckedBodySemantics::storage_flow)
             .and_then(|flow| flow.assignment_target(expression?));
 
         let assignment =
             target.and_then(|target| crate::ExecutionPlace::storage_path(self.storage, target));
 
         let invalidation = self
-            .checked_flow
+            .checked_body.map(bray_bound_tree::CheckedBodySemantics::storage_flow)
             .filter(|flow| {
                 target.is_some()
                     || expression.is_some_and(|expression| {
@@ -138,7 +142,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     self.expression(state, expression, invalidation, assignment_place);
                 }
 
-                if self.checked_flow.is_some() {
+                if self.checked_body.map(bray_bound_tree::CheckedBodySemantics::storage_flow).is_some() {
                     self.complete_operation(state, operation, None);
                 }
 
@@ -243,7 +247,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         if self
-            .checked_flow
+            .checked_body.map(bray_bound_tree::CheckedBodySemantics::storage_flow)
             .and_then(|flow| flow.memory_operation_status(expression))
             .is_some_and(|status| status != bray_bound_tree::MemoryOperationStatus::Valid)
         {
@@ -254,7 +258,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let observations = observations
             .or_else(|| {
-                self.checked_flow.and_then(|flow| {
+                self.checked_body.map(bray_bound_tree::CheckedBodySemantics::storage_flow).and_then(|flow| {
                     flow.completion(bray_bound_tree::StorageMutation::Operation(
                         operation.occurrence(),
                     ))
@@ -437,49 +441,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     fn pattern(&self, state: &mut ExecutionState, pattern: bray_bound_tree::BoundPatternId) {
-        let bound = self
-            .request
-            .view()
-            .pattern(pattern)
-            .expect("checked pattern must exist");
-
-        let expression = self
-            .storage
-            .node_plans(pattern.into())
-            .next()
-            .map(|plan| plan.expression());
-
-        let mut plans = self.storage.node_plans(pattern.into()).filter(|plan| {
-            !matches!(
-                plan.purpose(),
-                bray_bound_tree::StorageAccessPurpose::Projection
-                    | bray_bound_tree::StorageAccessPurpose::Initialize
-            )
-        });
-
-        for binding in bound
-            .bindings()
-            .iter()
-            .copied()
-            .chain(bound.entries().iter().filter_map(|entry| entry.binding()))
-        {
-            let source = match self
-                .storage
-                .binding(bray_bound_tree::StorageBindingTarget::Local(binding))
-            {
-                Some(bray_bound_tree::StorageBinding::Access(access)) => {
-                    expression.map(|expression| (expression, access))
-                }
-                Some(bray_bound_tree::StorageBinding::Identity(_)) => {
-                    plans.next().map(|plan| (plan.expression(), plan.access()))
-                }
-                None => None,
-            };
-
-            let Some((expression, access)) = source else {
-                continue;
-            };
-
+        for (binding, expression, access) in crate::storage::pattern_binding_sources(
+            self.request.view(), self.storage, pattern,
+        ) {
             let mut value = self.storage_value(state, expression, access);
 
             if let Some(bray_bound_tree::StorageBinding::Identity(identity)) = self

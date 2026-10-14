@@ -28,6 +28,7 @@ pub struct PreparedBodyAnalysis {
     >,
     pub(crate) yield_targets: BTreeMap<BoundExpressionId, BoundExpressionId>,
     pub(crate) literals: BTreeMap<BoundExpressionId, crate::ExecutionCondition>,
+    pub(crate) pattern_conditions: BTreeMap<bray_bound_tree::BoundPatternId, (bray_bound_tree::BoundOperator, crate::ExecutionCondition)>,
     kind: BoundUnitKind,
     cleanup_shapes: Arc<BTreeMap<TypeId, CleanupShape>>,
 }
@@ -126,6 +127,7 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
             expressions,
             request.semantic_values(),
         ),
+        pattern_conditions: crate::execution_guarantees::pattern_conditions(request.unit(), patterns, request.semantic_values()),
         cleanup_shapes: cleanup_shapes.completed,
     };
 

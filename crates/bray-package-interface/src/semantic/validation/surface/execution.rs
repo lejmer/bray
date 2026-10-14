@@ -344,7 +344,7 @@ impl InterfaceSemantics {
         Ok(())
     }
 
-    fn validate_execution_term(
+    pub(in crate::semantic::validation) fn validate_execution_term(
         &self,
         term: InterfaceConstantTermId,
         inputs: usize,
@@ -371,6 +371,13 @@ impl InterfaceSemantics {
                     if index >= inputs && !(result && index == inputs) {
                         return Err(invalid());
                     }
+                }
+                InterfaceConstantTerm::VariantTest { subject, variant } => {
+                    if validate_symbol_kind(variant, surface)? != bray_symbols::SymbolKind::UnionVariant {
+                        return Err(invalid());
+                    }
+
+                    pending.push(*subject);
                 }
                 InterfaceConstantTerm::Unary { operand, .. } => pending.push(*operand),
                 InterfaceConstantTerm::Binary { left, right, .. } => {

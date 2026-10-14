@@ -5,6 +5,7 @@ trusted func allocate(pos bytes: usize, pos align: usize) -> RawPointer<u8>
     let allocation: RawPointer<u8> = trusted try_allocate(bytes, align);
 
     assert(!std.memory.is_null<u8>(allocation), "memory allocation failed");
+
     return allocation;
 }
 

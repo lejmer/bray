@@ -1,0 +1,116 @@
+trusted module std.sync.once;
+
+struct Attempt<T>
+{
+    once: &std.sync.Once<T>;
+    thread: &core.atomic.Atomic<u8>;
+    acquisition: Marker;
+
+    trusted destruct()
+        requires(trusted acquired(&self.acquisition))
+        ensures(trusted valid(&self.once.instance))
+        executes(total)
+        uses(raw_memory, unchecked_alias)
+    {
+        let state =
+        {
+            let pointer = std.memory.uninit_pointer<State<T>>(&self.once.storage);
+
+            let authorize = trusted lambda(pos pointer: RawPointer<State<T>>)
+                ensures(
+                    trusted core.memory.valid_read<State<T>>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<State<T>>(pointer = pointer),
+                    trusted core.memory.initialized_as<State<T>>(pointer = pointer),
+                    trusted core.memory.shared_alias_valid<State<T>>(pointer = pointer),
+                    trusted core.memory.epoch_current<State<T>>(pointer = pointer),
+                    trusted core.memory.synchronized_access<State<T>>(pointer = pointer),
+                    trusted core.memory.movement_stable<State<T>>(pointer = pointer),
+                    trusted core.memory.finalization_pending<State<T>>(pointer = pointer),
+                )
+                executes(pure, total) {};
+
+            authorize(pointer);
+            yield trusted std.memory.borrow_from<State<T>, std.sync.Once<T>>(self.once, pointer);
+        };
+
+        if core.atomic.load<u32, 0>(&state.phase) != INITIALIZED
+        {
+            core.atomic.store<usize, 0>(&state.owner, 0);
+            core.atomic.store<u32, 2>(&state.phase, EMPTY);
+            core.atomic.notify_all<u32>(&state.phase);
+        }
+    }
+
+    trusted consume func publish(pos value: T) -> &T
+        requires(trusted acquired(&self.acquisition))
+        ensures(trusted valid(&self.once.instance))
+        uses(raw_memory, unchecked_alias, unchecked_init)
+    {
+        let state =
+        {
+            let pointer = std.memory.uninit_pointer<State<T>>(&self.once.storage);
+
+            let authorize = trusted lambda(pos pointer: RawPointer<State<T>>)
+                ensures(
+                    trusted core.memory.valid_read<State<T>>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<State<T>>(pointer = pointer),
+                    trusted core.memory.initialized_as<State<T>>(pointer = pointer),
+                    trusted core.memory.shared_alias_valid<State<T>>(pointer = pointer),
+                    trusted core.memory.epoch_current<State<T>>(pointer = pointer),
+                    trusted core.memory.synchronized_access<State<T>>(pointer = pointer),
+                    trusted core.memory.movement_stable<State<T>>(pointer = pointer),
+                    trusted core.memory.finalization_pending<State<T>>(pointer = pointer),
+                )
+                executes(pure, total) {};
+
+            authorize(pointer);
+            yield trusted std.memory.borrow_from<State<T>, std.sync.Once<T>>(self.once, pointer);
+        };
+
+        if core.atomic.load<u32, 0>(&state.phase) == REENTERED
+        {
+            panic("Once initialization reentered");
+        }
+
+        let pointer = std.memory.address_of<Uninit<T>>(&state.value);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<Uninit<T>>)
+            ensures(
+                trusted core.memory.valid_write<Uninit<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<Uninit<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<Uninit<T>>(pointer = pointer),
+                trusted core.memory.exclusive_alias_valid<Uninit<T>>(pointer = pointer),
+                trusted core.memory.epoch_current<Uninit<T>>(pointer = pointer),
+                trusted core.memory.synchronized_access<Uninit<T>>(pointer = pointer),
+                trusted core.memory.movement_stable<Uninit<T>>(pointer = pointer),
+                trusted core.memory.finalization_pending<Uninit<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+        trusted std.memory.write<Uninit<T>>(pointer, std.memory.uninit_from<T>(value));
+        core.atomic.store<usize, 0>(&state.owner, 0);
+        core.atomic.store<u32, 2>(&state.phase, INITIALIZED);
+        core.atomic.notify_all<u32>(&state.phase);
+
+        {
+            let payload = std.memory.uninit_pointer<T>(&state.value);
+
+            let readable = trusted lambda(pos payload: RawPointer<T>)
+                ensures(
+                    trusted core.memory.valid_read<T>(pointer = payload, count = 1),
+                    trusted core.memory.aligned_for<T>(pointer = payload),
+                    trusted core.memory.initialized_as<T>(pointer = payload),
+                    trusted core.memory.shared_alias_valid<T>(pointer = payload),
+                    trusted core.memory.epoch_current<T>(pointer = payload),
+                    trusted core.memory.synchronized_access<T>(pointer = payload),
+                    trusted core.memory.movement_stable<T>(pointer = payload),
+                    trusted core.memory.finalization_pending<T>(pointer = payload),
+                )
+                executes(pure, total) {};
+
+            readable(payload);
+            return trusted std.memory.borrow_from<T, std.sync.Once<T>>(self.once, payload);
+        };
+    }
+}

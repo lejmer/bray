@@ -7,10 +7,15 @@ use crate::ExecutionCondition;
 /// Checked predicate conditions supplied to one body analysis.
 #[derive(Debug, Default)]
 pub struct TrustedContractInputs {
+    /// Whether checked body evidence may refine returned authority beyond declared promises.
+    /// Trusted implementations expose only their declared boundary contract.
+    pub infer_result_witnesses: bool,
+    /// Receiver-first formal inputs used by portable result summaries.
+    pub inputs: Vec<bray_bound_tree::BoundReferenceTarget>,
+    /// Initializer-established authority belonging to exact referenced static instances.
+    pub statics: BTreeMap<crate::ExecutionPlace, Vec<bray_symbols::DependencyWitnessCarrier>>,
     /// Closed declaration constants used by this body's conditions.
     pub constants: BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
-    /// Checked scalar values tested by match patterns.
-    pub pattern_values: BTreeMap<bray_bound_tree::BoundPatternId, ExecutionCondition>,
     /// Trusted conditions the caller must supply at entry.
     pub requirements: Vec<ExecutionCondition>,
     /// Borrowed or owning subjects whose established entry authority cannot be copied.

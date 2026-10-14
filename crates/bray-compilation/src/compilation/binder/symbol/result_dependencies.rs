@@ -397,6 +397,10 @@ fn body_result_dependencies(
             })
             .cloned(),
     )
+    .with_carriers(
+        (if !previous.normal_completion() { checked.carriers() } else { previous.carriers() })
+            .iter().filter(|carrier| !previous.normal_completion() || !checked.normal_completion() || checked.carriers().binary_search(carrier).is_ok()).cloned()
+    )
     .with_effects(previous.effects().iter().chain(checked.effects()).cloned())
     .with_normal_completion(previous.normal_completion() || checked.normal_completion())
 }

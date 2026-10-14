@@ -127,7 +127,8 @@ pub(super) fn validate_constant_term_data(
             tables.constant_terms.get(store, *operand);
             tables.types.get(store, *target);
         }
-        ConstantTermData::NullablePresent(value) => {
+        ConstantTermData::VariantTest { subject: value, .. }
+        | ConstantTermData::NullablePresent(value) => {
             tables.constant_terms.get(store, *value);
         }
         ConstantTermData::Tuple(values) | ConstantTermData::Array(values) => {
@@ -284,6 +285,8 @@ pub(super) fn validate_dependency_template_data(
     store: SemanticValueStoreId,
     data: &DependencyContractTemplateData,
 ) {
+    for carrier in data.carriers() { tables.constant_terms.get(store, carrier.guarantee()); validate_dependency_projections(tables, store, carrier.path()); }
+
     for relation in data.borrows() {
         validate_dependency_subject(tables, store, relation.entry());
         validate_dependency_subject(tables, store, relation.exit());
@@ -294,7 +297,8 @@ pub(super) fn validate_dependency_template_data(
         use crate::DependencyStorageEffect;
 
         match effect {
-            DependencyStorageEffect::Unknown => {}
+            DependencyStorageEffect::Atomic | DependencyStorageEffect::Unknown => {}
+            DependencyStorageEffect::Cleanup(ty) => { tables.types.get(store, *ty); }
             DependencyStorageEffect::Direct { subject, .. } => {
                 validate_dependency_subject(tables, store, subject)
             }

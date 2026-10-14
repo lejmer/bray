@@ -21,19 +21,15 @@ internal struct ReportPool
 }
 
 // One pool retains the linked-image lifetime and owns every stable record slab.
-internal static RECORD_POOL: std.sync.SpinLock<ReportPool> =
-{
-    next_ticket = core.atomic.initialize<u32>(0),
-    serving_ticket = core.atomic.initialize<u32>(0),
-    storage =
+internal static RECORD_POOL: std.sync.SpinLock<ReportPool> = std.sync.spin_lock.initialize<ReportPool>(
     {
         slabs = none,
         free = 0,
         available = 0,
         total = 0,
-        credits = 0
-    },
-};
+        credits = 0,
+    }
+);
 
 trusted internal func slab_index(pos pool: &mut ReportPool) -> &mut std.memory.RawBuffer<ReportSlab>
     uses(intrinsic)

@@ -3,6 +3,7 @@ mod merge;
 mod model;
 mod operation;
 mod prepare;
+mod refinement;
 mod value;
 
 pub(in crate::analysis) use merge::merge as merge_execution;

@@ -158,7 +158,7 @@ impl Compilation {
                 self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
 
             let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
-            let body = self.body_semantics_with_cancellation(key, cancellation)?;
+            let body = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
 
             let clause_diagnostics = DiagnosticBag::merged_all([
                 bound.result().diagnostics(),
@@ -176,11 +176,15 @@ impl Compilation {
                 &mut diagnostics,
             )?;
 
+            let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
+
             let normalized = bray_checker::predicate_conditions_with_inputs(
                 bound.result().value(),
                 semantics.result().value(),
+                patterns.result().value(),
                 self.semantic_value_store()?,
                 &constants,
+                Some((storage.result().value(), body.result().value().storage_flow())),
             )?;
 
             if clause_diagnostics.has_errors() {

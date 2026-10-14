@@ -167,6 +167,10 @@ pub(crate) enum AnalysisRefinement {
         expression: BoundExpressionId,
         value: bool,
     },
+    PropagationOutcome {
+        expression: BoundExpressionId,
+        succeeded: bool,
+    },
     NullablePresence {
         expression: BoundExpressionId,
         is_present: bool,
@@ -479,6 +483,7 @@ impl ControlFlowGraph {
             Some(
                 AnalysisRefinement::Condition { expression, .. }
                 | AnalysisRefinement::NullablePresence { expression, .. }
+                | AnalysisRefinement::PropagationOutcome { expression, .. }
                 | AnalysisRefinement::TrustBoundary(expression),
             ) => expression.unit() == self.unit,
             Some(AnalysisRefinement::PatternOutcome {

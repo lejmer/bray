@@ -86,7 +86,7 @@ impl State {
         ty: TypeId,
         origin: BoundExpressionId,
     ) {
-        let references = self.addressed_target(Target::storage(source), ty);
+        let references = self.addressed_target(Target::storage(source), ty, bray_symbols::DependencyReferenceKind::Address);
 
         self.values
             .insert(Target::storage(destination.clone()), references);
@@ -105,6 +105,8 @@ impl State {
 
         for target in &references.targets {
             let contents = self.contents.entry(target.clone()).or_default();
+
+            contents.exposed = true;
 
             if let Some(previous) = contents.storage_type {
                 assert_eq!(

@@ -342,6 +342,10 @@ fn decode_operation(
             lower: read_optional_u32(reader)?.map(CheckedTemplateNodeId::new),
             upper: read_optional_u32(reader)?.map(CheckedTemplateNodeId::new),
         }),
+        19 => Ok(InterfaceCheckedTemplateOperation::VariantTest {
+            subject: CheckedTemplateNodeId::new(read_u32(reader)?),
+            variant: decode_template_reference(reader, context)?,
+        }),
         18 => Ok(InterfaceCheckedTemplateOperation::TupleElement {
             subject: CheckedTemplateNodeId::new(read_u32(reader)?),
             index: bray_symbols::SymbolOrdinal::new(read_u32(reader)?),

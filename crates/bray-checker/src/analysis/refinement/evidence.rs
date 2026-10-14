@@ -148,7 +148,6 @@ pub(super) fn pattern_refinements(
         result.push(Refinement::new(
             RefinementKind::Pattern {
                 subject,
-                pattern: root,
                 predicate,
                 access,
                 value,

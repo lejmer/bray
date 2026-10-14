@@ -168,6 +168,7 @@ where
             | ConstantTermData::Unary { .. }
             | ConstantTermData::Binary { .. }
             | ConstantTermData::Conversion { .. }
+            | ConstantTermData::VariantTest { .. }
             | ConstantTermData::NullablePresent(_)
             | ConstantTermData::Tuple(_)
             | ConstantTermData::Array(_)

@@ -74,7 +74,7 @@ impl Lowerer<'_> {
                 boundary,
                 result_type,
             } => (*boundary, *result_type),
-            SelectedPropagation::Result { .. } | SelectedPropagation::CurrentRun => {
+            SelectedPropagation::Result { .. } | SelectedPropagation::CurrentRun { .. } => {
                 panic!(
                     "lowering contract violation: MissingSemanticSelection {value:?}",
                     value = id
@@ -176,11 +176,12 @@ impl Lowerer<'_> {
                 boundary,
                 result_type,
                 error_conversion,
+                ..
             } => {
                 // MIR owns the selected conversion independently of the checked selection table.
                 (*boundary, *result_type, error_conversion.clone())
             }
-            SelectedPropagation::Nullable { .. } | SelectedPropagation::CurrentRun => {
+            SelectedPropagation::Nullable { .. } | SelectedPropagation::CurrentRun { .. } => {
                 panic!(
                     "lowering contract violation: MissingSemanticSelection {value:?}",
                     value = id
@@ -292,7 +293,7 @@ impl Lowerer<'_> {
         operand_type: TypeId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        if self.selected_propagation(id) != &SelectedPropagation::CurrentRun {
+        if !matches!(self.selected_propagation(id), SelectedPropagation::CurrentRun { .. }) {
             panic!(
                 "lowering contract violation: MissingSemanticSelection {value:?}",
                 value = id

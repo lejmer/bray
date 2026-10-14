@@ -57,6 +57,10 @@ impl<'a> SemanticExporter<'a> {
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
+        let carriers = data.carriers().iter().map(|carrier| {
+            Ok(bray_symbols::DependencyWitnessCarrier::new(self.constant_term_id(carrier.guarantee())?, carrier.path().iter().map(|projection| self.dependency_projection(projection)).collect::<Result<Vec<_>, _>>()?))
+        }).collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
+
         let effects = data
             .effects()
             .iter()
@@ -64,7 +68,9 @@ impl<'a> SemanticExporter<'a> {
                 use bray_symbols::DependencyStorageEffect;
 
                 Ok(match effect {
+                    DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
                     DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
+                    DependencyStorageEffect::Cleanup(ty) => DependencyStorageEffect::Cleanup(self.type_id(*ty)?),
                     DependencyStorageEffect::Direct { subject, kind } => {
                         DependencyStorageEffect::Direct {
                             subject: self.dependency_subject(subject)?,
@@ -90,6 +96,7 @@ impl<'a> SemanticExporter<'a> {
         self.dependency_contracts.push(
             InterfaceDependencyContract::new(requirements)
                 .with_borrows(borrows)
+                .with_carriers(carriers)
                 .with_effects(effects)
                 .with_normal_completion(data.normal_completion()),
         );

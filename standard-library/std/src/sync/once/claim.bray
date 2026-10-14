@@ -1,0 +1,89 @@
+trusted module std.sync;
+
+using internal std.sync.once;
+
+impl Once<T>
+{
+    internal trusted func claim() -> std.sync.once.Attempt<T>?
+        requires(blocking_execution(), trusted std.sync.once.valid(&self.instance))
+        ensures(
+            trusted std.sync.once.valid(&self.instance),
+            result matches none || trusted std.sync.once.acquired(std.sync.once.marker<T>(&result)),
+            !(result matches none) || trusted std.sync.once.ready(&self.instance),
+        )
+        uses(raw_memory, unchecked_alias, intrinsic)
+    {
+        let state =
+        {
+            let pointer = std.memory.uninit_pointer<std.sync.once.State<T>>(&self.storage);
+
+            let authorize = trusted lambda(pos pointer: RawPointer<std.sync.once.State<T>>)
+                ensures(
+                    trusted core.memory.valid_read<std.sync.once.State<T>>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<std.sync.once.State<T>>(pointer = pointer),
+                    trusted core.memory.initialized_as<std.sync.once.State<T>>(pointer = pointer),
+                    trusted core.memory.shared_alias_valid<std.sync.once.State<T>>(pointer = pointer),
+                    trusted core.memory.epoch_current<std.sync.once.State<T>>(pointer = pointer),
+                    trusted core.memory.synchronized_access<std.sync.once.State<T>>(pointer = pointer),
+                    trusted core.memory.movement_stable<std.sync.once.State<T>>(pointer = pointer),
+                    trusted core.memory.finalization_pending<std.sync.once.State<T>>(pointer = pointer),
+                )
+                executes(pure, total) {};
+
+            authorize(pointer);
+            yield trusted std.memory.borrow_from<std.sync.once.State<T>, Self>(&self, pointer);
+        };
+
+        let thread = &std.sync.once.CURRENT;
+
+        let owner = trusted core.target.expose_address<core.atomic.Atomic<u8>>(
+            std.memory.address_of<core.atomic.Atomic<u8>>(thread)
+        );
+
+        while true
+        {
+            let observed = core.atomic.load<u32, 1>(&state.phase);
+
+            if observed == std.sync.once.INITIALIZED
+            {
+                return none;
+            }
+
+            if observed == std.sync.once.INITIALIZING || observed == std.sync.once.REENTERED
+            {
+                if core.atomic.load<usize, 0>(&state.owner) == owner
+                {
+                    core.atomic.store<u32, 0>(&state.phase, std.sync.once.REENTERED);
+                    panic("Once initialization reentered");
+                }
+
+                core.atomic.wait<u32, 1>(&state.phase, expected = observed);
+                continue;
+            }
+
+            let (_, acquired) = core.atomic.compare_exchange<u32, 1, 1>(
+                &state.phase,
+                expected = std.sync.once.EMPTY,
+                desired = std.sync.once.INITIALIZING,
+            );
+
+            if acquired
+            {
+                core.atomic.store<usize, 0>(&state.owner, owner);
+
+                let attempt: std.sync.once.Attempt<T> =
+                {
+                    once = &self,
+                    thread = thread,
+                    acquisition = std.sync.once.Marker
+                    {
+                    }
+                };
+
+                return attempt;
+            }
+        }
+
+        return none;
+    }
+}

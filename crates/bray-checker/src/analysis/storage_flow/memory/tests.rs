@@ -1165,7 +1165,7 @@ fn opaque_mutation_forgets_stored_references_without_retargeting_live_borrows() 
         StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish();
 
     state.invalidate(
-        &bray_bound_tree::StorageInvalidation::All(Default::default()),
+        &bray_bound_tree::StorageInvalidation::unknown(),
         &storage,
         bray_symbols::DependencyMutationKind::Retire,
     );
@@ -1584,7 +1584,7 @@ fn protected_payload_address_does_not_prove_initialization() {
     let payload = super::Target::storage(owner).project(&[StorageProjection::UninitPayload]);
 
     state.uninit(payload.clone(), error_type());
-    state.point_at(payload, pointer.clone(), error_type());
+    state.point_at(payload, pointer.clone(), error_type(), bray_symbols::DependencyReferenceKind::Address);
 
     assert_eq!(
         state.read(
@@ -1609,7 +1609,7 @@ fn whole_value_transfer_moves_inline_payload_facts_without_retargeting_pointers(
 
     state.uninit(payload.clone(), error_type());
     state.write_value(payload.clone(), error_type(), origins[0], None);
-    state.point_at(payload.clone(), old_pointer.clone(), error_type());
+    state.point_at(payload.clone(), old_pointer.clone(), error_type(), bray_symbols::DependencyReferenceKind::Address);
 
     let occurrence = origins[1].into();
 
@@ -1629,7 +1629,7 @@ fn whole_value_transfer_moves_inline_payload_facts_without_retargeting_pointers(
     let moved =
         super::Target::storage(destination).project(&[field, StorageProjection::UninitPayload]);
 
-    state.point_at(moved, new_pointer.clone(), error_type());
+    state.point_at(moved, new_pointer.clone(), error_type(), bray_symbols::DependencyReferenceKind::Address);
     assert!(state.initialized(&Target::storage(new_pointer.clone()), error_type()));
     assert!(!state.initialized(&Target::storage(old_pointer.clone()), error_type()));
     assert!(state.contents[&payload].pending.is_empty());
@@ -1659,11 +1659,11 @@ fn reusing_inline_storage_does_not_revive_old_payload_pointers() {
 
     state.uninit(payload.clone(), error_type());
     state.write_value(payload.clone(), error_type(), origins[0], None);
-    state.point_at(payload.clone(), old_pointer.clone(), error_type());
+    state.point_at(payload.clone(), old_pointer.clone(), error_type(), bray_symbols::DependencyReferenceKind::Address);
     state.begin(owner.root);
     state.uninit(payload.clone(), error_type());
     state.write_value(payload.clone(), error_type(), origins[1], None);
-    state.point_at(payload, new_pointer.clone(), error_type());
+    state.point_at(payload, new_pointer.clone(), error_type(), bray_symbols::DependencyReferenceKind::Address);
     assert!(state.initialized(&Target::storage(new_pointer.clone()), error_type()));
     assert!(!state.initialized(&Target::storage(old_pointer.clone()), error_type()));
 }
@@ -1704,6 +1704,7 @@ fn constructed_aggregate_and_return_transfer_the_evaluated_payload() {
         super::Target::storage(result).project(&[field, StorageProjection::UninitPayload]),
         pointer.clone(),
         error_type(),
+        bray_symbols::DependencyReferenceKind::Address,
     );
 
     assert!(state.initialized(&Target::storage(pointer.clone()), error_type()));
@@ -1728,6 +1729,7 @@ fn consumed_inline_value_transfers_after_borrow_plan_completion() {
         super::Target::storage(destination).project(&[StorageProjection::UninitPayload]),
         pointer.clone(),
         error_type(),
+        bray_symbols::DependencyReferenceKind::Address,
     );
 
     assert!(state.initialized(&Target::storage(pointer.clone()), error_type()));
@@ -1770,6 +1772,7 @@ fn alternative_payload_sources_require_initialization_on_every_path() {
         super::Target::storage(result).project(&[StorageProjection::UninitPayload]),
         pointer.clone(),
         error_type(),
+        bray_symbols::DependencyReferenceKind::Address,
     );
 
     assert!(!state.initialized(&Target::storage(pointer.clone()), error_type()));
@@ -1793,11 +1796,11 @@ fn allocation_reuse_retires_addresses_into_nested_inline_payloads() {
 
     state.uninit(payload.clone(), error_type());
     state.write_value(payload.clone(), error_type(), origins[1], None);
-    state.point_at(payload.clone(), pointer.clone(), error_type());
+    state.point_at(payload.clone(), pointer.clone(), error_type(), bray_symbols::DependencyReferenceKind::Address);
     state.fresh(allocation, origins[0]);
     state.uninit(payload.clone(), error_type());
     state.write_value(payload.clone(), error_type(), origins[2], None);
-    state.point_at(payload, new_pointer.clone(), error_type());
+    state.point_at(payload, new_pointer.clone(), error_type(), bray_symbols::DependencyReferenceKind::Address);
     assert!(!state.initialized(&Target::storage(pointer.clone()), error_type()));
     assert!(state.initialized(&Target::storage(new_pointer.clone()), error_type()));
 }
@@ -1813,7 +1816,7 @@ fn replacing_inline_storage_does_not_revalidate_a_pointer_to_its_old_contents() 
 
     state.uninit(payload.clone(), error_type());
     state.write_value(payload.clone(), error_type(), origins[0], None);
-    state.point_at(payload.clone(), pointer.clone(), error_type());
+    state.point_at(payload.clone(), pointer.clone(), error_type(), bray_symbols::DependencyReferenceKind::Address);
 
     let replacement_payload =
         super::Target::storage(replacement.clone()).project(&[StorageProjection::UninitPayload]);
@@ -1821,7 +1824,7 @@ fn replacing_inline_storage_does_not_revalidate_a_pointer_to_its_old_contents() 
     state.uninit(replacement_payload.clone(), error_type());
     state.write_value(replacement_payload, error_type(), origins[1], None);
     state.transfer(&replacement, first);
-    state.point_at(payload, new_pointer.clone(), error_type());
+    state.point_at(payload, new_pointer.clone(), error_type(), bray_symbols::DependencyReferenceKind::Address);
     assert!(!state.initialized(&Target::storage(pointer.clone()), error_type()));
     assert!(state.initialized(&Target::storage(new_pointer.clone()), error_type()));
 }
@@ -1843,7 +1846,7 @@ fn memory_writes_capture_formed_borrows_and_reads_transfer_the_whole_value() {
         Some(super::Source::Borrow(capability)),
     );
 
-    state.point_at(payload, pointer.clone(), error_type());
+    state.point_at(payload, pointer.clone(), error_type(), bray_symbols::DependencyReferenceKind::Address);
 
     state.read(
         &Target::storage(pointer.clone()),
@@ -1867,7 +1870,7 @@ fn ending_inline_storage_lifetime_expires_its_exposed_payload_address() {
 
     state.uninit(payload.clone(), error_type());
     state.write_value(payload.clone(), error_type(), origins[0], None);
-    state.point_at(payload, pointer.clone(), error_type());
+    state.point_at(payload, pointer.clone(), error_type(), bray_symbols::DependencyReferenceKind::Address);
     state.forget(owner.root);
     assert!(state.initialized(&Target::storage(pointer.clone()), error_type()));
     state.end_storage(|identity| identity == owner.root);
@@ -2207,4 +2210,135 @@ fn incoming_aliases_can_reach_allocations_under_invocation_owned_headers() {
         state.target_relationship(&Target::storage(moved), &incoming),
         StorageRelationship::Disjoint
     );
+}
+
+#[test]
+fn opaque_effects_preserve_unexposed_reference_slots_but_revoke_contents() {
+    for (owned_target, exposed) in [(false, false), (false, true), (true, false)] {
+        let ([source, slot, address, _], origins) = places();
+
+        let mut state = State {
+            owned_storage: vec![slot.root].into(),
+            ..State::default()
+        };
+
+        let component = Place {
+            root: slot.root,
+            projections: owned_target.then_some(StorageProjection::OwnedTarget).into_iter()
+                .chain([StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0))]).collect(),
+        };
+
+        state.address(source.clone(), component.clone(), error_type(), origins[0]);
+
+        if exposed {
+            state.address(component.clone(), address, error_type(), origins[1]);
+        }
+
+        let storage = StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish();
+
+        let candidates = [slot.clone()];
+        let stable_descriptors = state.unexposed_storage(&candidates, []).cloned().collect();
+
+        state.invalidate(
+            &bray_bound_tree::StorageInvalidation::All {
+                stable_descriptors,
+                stable_values: Default::default(),
+            },
+            &storage,
+            bray_symbols::DependencyMutationKind::Retire,
+        );
+
+        assert_eq!(state.referent(&component, error_type()), (!exposed && !owned_target).then_some(source));
+        assert!(!state.initialized(&Target::storage(component), error_type()));
+    }
+}
+
+#[test]
+fn null_pointer_has_no_effect_targets_or_initialization_authority() {
+    let ([slot, copied, ..], _) = places();
+
+    let mut state = State::default();
+
+    state.null(slot.clone());
+    state.transfer(&slot, copied.clone());
+
+    for place in [slot, copied] {
+        let target = Target::storage(place);
+
+        assert_eq!(state.referenced_regions(&target), Some(Vec::new()));
+        assert!(!state.initialized(&target, error_type()));
+    }
+}
+
+#[test]
+fn opaque_reachability_distinguishes_safe_borrows_raw_escape_and_nested_arguments() {
+    let ([owner, reference, holder, sibling], origins, capability) = borrowed_places();
+
+    let candidates = [owner.root, reference.root, holder.root, sibling.root];
+    let mut state = State { owned_storage: candidates.into(), ..State::default() };
+    let candidates = candidates.map(Place::root);
+
+    state.begin_borrow(capability, owner.clone(), error_type());
+    state.retain_borrow(capability, reference.clone());
+    state.end_borrows(&[capability].into_iter().collect());
+    assert!(state.unexposed_storage(&candidates, []).any(|path| path.root == owner.root));
+
+    state.transfer(&reference, holder.clone());
+
+    let reached = state.contained_regions(&Target::storage(holder)).cloned().collect::<Vec<_>>();
+    let unexposed = state.unexposed_storage(&candidates, reached).collect::<BTreeSet<_>>();
+
+    assert!(!unexposed.contains(&owner));
+    assert!(unexposed.contains(&sibling));
+
+    state.expose_address(&reference, error_type(), origins[0]);
+    state.clear(&reference);
+    assert!(!state.unexposed_storage(&candidates, []).any(|path| path.root == owner.root));
+}
+
+#[test]
+fn opaque_payload_borrows_preserve_disjoint_markers_but_raw_exposure_does_not() {
+    let ([owner, reference, ..], origins, capability) = borrowed_places();
+
+    let marker = Place { root: owner.root, projections: [StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0))].into() };
+    let payload = Place { root: owner.root, projections: [StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(1))].into() };
+    let mut state = State { owned_storage: vec![owner.root, reference.root].into(), ..State::default() };
+
+    state.begin_borrow(capability, payload.clone(), error_type());
+    state.retain_borrow(capability, reference.clone());
+
+    let candidates = [owner.clone(), marker.clone(), payload.clone()];
+    let reached = state.contained_regions(&Target::storage(reference.clone())).cloned().collect::<Vec<_>>();
+
+    assert_eq!(state.unexposed_storage(&candidates, reached).cloned().collect::<Vec<_>>(), vec![marker]);
+    state.expose_address(&reference, error_type(), origins[0]);
+    assert_eq!(state.unexposed_storage(&candidates, []).count(), 0);
+}
+
+#[test]
+fn returned_borrow_regions_bound_aliases_without_claiming_argument_identity() {
+    let ([first, second, result, copied], origins) = places();
+
+    let call = origins[0].into();
+    let mut state = State { owned_storage: [first.root, second.root, result.root, copied.root].into(), ..State::default() };
+
+    state.begin_transition(call);
+    state.stage_returned_references(call, [(result.clone(), error_type())], [Target::storage(first.clone())]);
+    state.complete_transition(call);
+
+    let returned = state.value_target(&Target::storage(result.clone()), error_type()).expect("returned reference identity");
+
+    assert_ne!(returned, Target::storage(first.clone()));
+    assert_eq!(state.target_relationship(&returned, &Target::storage(first.clone())), bray_bound_tree::StorageRelationship::PotentiallyOverlapping);
+    assert_eq!(state.target_relationship(&returned, &Target::storage(second.clone())), bray_bound_tree::StorageRelationship::Disjoint);
+    state.transfer(&result, copied.clone());
+    state.begin_transition(call);
+    state.stage_returned_references(call, [(result.clone(), error_type())], [Target::storage(second.clone())]);
+    state.complete_transition(call);
+
+    let current = state.value_target(&Target::storage(result), error_type()).expect("current returned reference");
+    let previous = state.referenced_regions(&Target::storage(copied)).expect("older reference region").pop().unwrap();
+
+    assert_eq!(state.target_relationship(&current, &previous), bray_bound_tree::StorageRelationship::PotentiallyOverlapping);
+    assert_eq!(state.target_relationship(&current, &Target::storage(first)), bray_bound_tree::StorageRelationship::PotentiallyOverlapping);
 }

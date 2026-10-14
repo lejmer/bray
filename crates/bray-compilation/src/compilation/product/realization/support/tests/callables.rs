@@ -155,13 +155,8 @@ fn callable_indirection_closes_recursive_value_layouts_before_abi_classification
 
 #[test]
 fn raw_pointer_indirection_closes_recursive_value_layouts() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "struct Node\n",
-        "{\n",
-        "    next: RawPointer<Node>;\n",
-        "}\n",
-    ));
+    for field in ["RawPointer<Node>", "core.atomic.Atomic<RawPointer<Node>>"] {
+    let compilation = compilation(&format!("module app; struct Node {{ next: {field}; }}"));
 
     let target = baseline_codegen_target();
 
@@ -188,4 +183,5 @@ fn raw_pointer_indirection_closes_recursive_value_layouts() {
         mappings[&ty].layout().map(TargetValueLayout::size),
         Some(pointer_layout(&target).size())
     );
+}
 }

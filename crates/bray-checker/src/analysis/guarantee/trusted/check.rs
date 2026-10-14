@@ -15,8 +15,10 @@ pub(in crate::analysis) struct TrustedChecks {
     failed: BTreeSet<BoundExpressionId>,
     transfers: BTreeSet<BoundExpressionId>,
     cleanup_failures: BTreeSet<AnyBoundNodeId>,
-    guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
+    pub(super) guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
     guarantee_failures: Vec<bool>,
+    pub(super) inferred: Option<BTreeSet<bray_symbols::DependencyWitnessCarrier>>,
+    pub(super) carriers: Vec<Option<BTreeSet<Vec<bray_symbols::DependencyProjection>>>>,
 }
 
 impl TrustedChecks {
@@ -53,6 +55,7 @@ impl TrustedChecks {
 
         Self {
             guarantee_failures: vec![false; guarantees.len()],
+            carriers: vec![None; guarantees.len()],
             guarantees,
             ..Self::default()
         }
@@ -136,6 +139,13 @@ impl TrustedChecks {
             &self.guarantees,
             &mut self.guarantee_failures,
         );
+
+        let result = match domain.request.unit().root() {
+            bray_bound_tree::BoundUnitRoot::Expression(expression) => domain.value(state, expression),
+            _ => state.result.clone(),
+        };
+
+        self.collect_carriers(domain.request, domain.dependencies, state, &result);
     }
 
     pub(in crate::analysis) fn finish<C: CheckerRequestContext + ?Sized>(

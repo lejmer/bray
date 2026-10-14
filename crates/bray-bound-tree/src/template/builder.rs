@@ -228,6 +228,7 @@ fn validate_operation_types(
         | CheckedTemplateOperation::Index { .. }
         | CheckedTemplateOperation::Slice { .. }
         | CheckedTemplateOperation::Project { .. }
+        | CheckedTemplateOperation::VariantTest { .. }
         | CheckedTemplateOperation::TupleElement { .. } => {}
     }
 

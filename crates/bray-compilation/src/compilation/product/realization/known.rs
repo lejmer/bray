@@ -44,9 +44,6 @@ impl Compilation {
                 role,
                 substitution,
                 target,
-                cancellation,
-                mappings,
-                pending,
             );
         }
 
@@ -256,19 +253,12 @@ impl Compilation {
         }
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "pointer realization shares recursive mapping state with its caller"
-    )]
     fn codegen_indirect_pointer_type(
         &self,
         ty: TypeId,
         role: RepresentationRole,
         substitution: GenericSubstitutionId,
         target: &CodegenTarget,
-        cancellation: &CancellationToken,
-        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
-        pending: &mut BTreeSet<TypeId>,
     ) -> Result<Option<CodegenTypeMapping>, CodegenPreparationError> {
         let substitution = self
             .semantic_value_store()?
@@ -288,20 +278,8 @@ impl Compilation {
             _ => return Err(CodegenPreparationError::UnresolvedType(ty)),
         };
 
-        let mapping = pointer_mapping(ty, pointee, target, address_space);
-
-        // Publish the indirection before following its pointee so recursive pointer graphs
-        // terminate here while non-recursive pointees still receive complete mappings.
-        mappings.insert(ty, mapping.clone());
-
-        if !pending.contains(&pointee)
-            && let Err(error) = self.codegen_type(pointee, target, cancellation, mappings, pending)
-        {
-            mappings.remove(&ty);
-
-            return Err(error);
-        }
-
-        Ok(Some(mapping))
+        // Pointer layout is independent of the pointee. Operations demanding the
+        // pointee's value representation realize it through their own type inputs.
+        Ok(Some(pointer_mapping(ty, pointee, target, address_space)))
     }
 }

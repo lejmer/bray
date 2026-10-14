@@ -1,9 +1,15 @@
-use super::super::model::{Contents, Origin, Place, References, State, Target};
+use super::super::model::{Contents, Effect, Origin, Place, References, State, Target};
 use super::slots::take_subtree;
 use bray_bound_tree::{BorrowCapabilityId, BoundExpressionId, StorageIdentityId};
 use bray_symbols::TypeId;
+use std::collections::BTreeSet;
 
 impl State {
+    pub(in crate::analysis::storage_flow) fn null(&mut self, destination: Place) {
+        self.clear(&destination);
+        self.values.insert(Target::storage(destination), References::default());
+    }
+
     pub(in crate::analysis::storage_flow) fn begin_transition(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
@@ -14,7 +20,7 @@ impl State {
     pub(in crate::analysis::storage_flow) fn defer_effects(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
-        effects: Option<Vec<(Target, bray_symbols::DependencyMutationKind)>>,
+        effects: Option<Vec<Effect>>,
     ) {
         self.deferred_effects
             .insert(call, effects.map(|effects| effects.into_iter().collect()));
@@ -23,7 +29,7 @@ impl State {
     pub(in crate::analysis::storage_flow) fn deferred_effects(
         &self,
         call: bray_bound_tree::BoundExecutionSite,
-    ) -> Option<Vec<(Target, bray_symbols::DependencyMutationKind)>> {
+    ) -> Option<Vec<Effect>> {
         self.deferred_effects
             .get(&call)?
             .as_ref()
@@ -77,6 +83,52 @@ impl State {
         pending.payloads.extend(staged.payloads);
     }
 
+    pub(in crate::analysis::storage_flow) fn stage_returned_references(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        references: impl IntoIterator<Item = (Place, TypeId)>,
+        inputs: impl IntoIterator<Item = Target>,
+    ) {
+        let references = references.into_iter().filter(|(destination, _)| !self.pending.get(&call).is_some_and(|pending| pending.values.contains_key(&Target::storage(destination.clone())))).collect::<Vec<_>>();
+
+        if references.is_empty() { return; }
+
+        let mut roots = BTreeSet::new();
+
+        for target in self.reachable_targets(inputs) {
+            match target.origin {
+                Origin::Storage(path) => { roots.insert(path.root); }
+                Origin::Returned { reference, .. } => { roots.extend(self.returned_roots.get(&reference).into_iter().flatten().copied()); }
+                Origin::Entry { .. } | Origin::Allocation(_) => {}
+            }
+        }
+
+        for (destination, ty) in references {
+        let slot = Target::storage(destination.clone());
+
+        // This finite union also bounds older executions of a call site at loop joins.
+        self.returned_roots.entry(destination.clone()).or_default().extend(roots.iter().copied());
+
+        let target = Target { previous: false, origin: Origin::Returned { reference: destination, projections: std::sync::Arc::from([]) } };
+
+        self.retire(&target);
+        self.contents.entry(target.clone()).or_default().storage_type = Some(ty);
+        self.pending.entry(call).or_default().values.insert(slot, References::one(target));
+        }
+    }
+
+    pub(in crate::analysis::storage_flow) fn capture_inputs(
+        &mut self,
+        destination: Place,
+        captures: impl IntoIterator<Item = Target>,
+    ) {
+        // Opaque frames retain reachable inputs, without being references to those inputs.
+        let references = self.values.entry(Target::storage(destination)).or_default();
+
+        references.unknown = true;
+        references.targets.extend(captures);
+    }
+
     pub(in crate::analysis::storage_flow) fn stage_unknown(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
@@ -124,8 +176,9 @@ impl State {
         source: Target,
         destination: Target,
         ty: TypeId,
+        kind: bray_symbols::DependencyReferenceKind,
     ) {
-        let references = self.addressed_target(source, ty);
+        let references = self.addressed_target(source, ty, kind);
 
         self.pending
             .entry(call)
@@ -163,7 +216,7 @@ impl State {
 
             if let Some(contents) = self.contents.get_mut(&affected) {
                 contents.initialized.retain(|ty| {
-                    kind == bray_symbols::DependencyMutationKind::Write
+                    matches!(kind, bray_symbols::DependencyMutationKind::Write | bray_symbols::DependencyMutationKind::Atomic)
                         && contents.storage_type == Some(*ty)
                 });
             }
@@ -176,17 +229,26 @@ impl State {
         storage: &bray_bound_tree::StoragePlan,
         kind: bray_symbols::DependencyMutationKind,
     ) {
-        self.values.retain(|target, _| match target.storage_path() {
-            Some(slot) => matches!(invalidation, bray_bound_tree::StorageInvalidation::All(descriptors) if descriptors.contains(slot))
+        let unexposed = match invalidation {
+            bray_bound_tree::StorageInvalidation::All { stable_descriptors, .. } => stable_descriptors.iter()
+                .filter(|path| path.projections.is_empty()).map(|path| path.root).collect::<std::collections::BTreeSet<_>>(),
+            _ => Default::default(),
+        };
+
+        // An opaque operation can change the referent without replacing a reference
+        // stored in an invocation-owned value whose address was never available to it.
+        self.values.retain(|target, _| kind == bray_symbols::DependencyMutationKind::Atomic || match target.storage_path() {
+            Some(slot) => unexposed.contains(&slot.root)
+                && !slot.projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget)
                 || !invalidation.invalidates_path(slot, storage),
-            None => !matches!(invalidation, bray_bound_tree::StorageInvalidation::All(_)),
+            None => !matches!(invalidation, bray_bound_tree::StorageInvalidation::All { .. }),
         });
 
         for (target, contents) in &mut self.contents {
             let affected = match &target.origin {
                 Origin::Storage(path) => invalidation.invalidates_path(path, storage),
-                Origin::Entry { .. } | Origin::Allocation(_) => {
-                    matches!(invalidation, bray_bound_tree::StorageInvalidation::All(_))
+                Origin::Entry { .. } | Origin::Returned { .. } | Origin::Allocation(_) => {
+                    matches!(invalidation, bray_bound_tree::StorageInvalidation::All { .. })
                 }
             };
 
@@ -194,7 +256,7 @@ impl State {
                 // A checked typed write preserves valid contents of the declared type.
                 // Reinterpreted views and consumed contents have no such guarantee.
                 contents.initialized.retain(|ty| {
-                    kind == bray_symbols::DependencyMutationKind::Write
+                    matches!(kind, bray_symbols::DependencyMutationKind::Write | bray_symbols::DependencyMutationKind::Atomic)
                         && contents.storage_type == Some(*ty)
                 });
             }
@@ -269,8 +331,9 @@ impl State {
         target: Target,
         destination: Place,
         ty: TypeId,
+        kind: bray_symbols::DependencyReferenceKind,
     ) {
-        let references = self.addressed_target(target, ty);
+        let references = self.addressed_target(target, ty, kind);
 
         self.clear(&destination);
         self.values.insert(Target::storage(destination), references);
@@ -302,12 +365,11 @@ impl State {
         for effects in self.deferred_effects.values_mut().flatten() {
             *effects = std::mem::take(effects)
                 .into_iter()
-                .map(|(mut target, kind)| {
-                    if current.contains(&target) {
-                        target.previous = true;
-                    }
+                .map(|mut effect| {
+                    if let Effect::Mutation(target, _) = &mut effect
+                        && current.contains(target) { target.previous = true; }
 
-                    (target, kind)
+                    effect
                 })
                 .collect();
         }

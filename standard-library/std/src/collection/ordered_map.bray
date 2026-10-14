@@ -137,10 +137,7 @@ struct OrderedMap<Key, Value>
                     index = index,
                 );
 
-                let pointer: RawPointer<Value> = std.memory.address_of_mut<Value>(&mut item.value);
-                let previous: Value = trusted std.memory.read<Value>(pointer);
-
-                trusted std.memory.write<Value>(pointer, value);
+                let previous: Value = trusted std.memory.replace_value<Value>(&mut item.value, value);
 
                 let mut replaced: Value? = none;
 

@@ -46,7 +46,7 @@ trusted internal func initialized() -> bool
 }
 
 trusted internal func lease_synchronization_pointer(pos lease: &HostLease) -> RawPointer<Synchronization>
-    requires(trusted host_access_live(owner = lease))
+    requires(trusted host_access_live(owner = &lease.acquisition))
     ensures(
         trusted core.memory.valid_read<Synchronization>(pointer = result, count = 1),
         trusted core.memory.aligned_for<Synchronization>(pointer = result),

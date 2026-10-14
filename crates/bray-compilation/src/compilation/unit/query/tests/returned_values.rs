@@ -1223,7 +1223,10 @@ fn stored_borrow_preservation_excludes_replacement_and_carrier_escape() {
                 .borrows()
                 .iter()
                 .any(|relation| relation.entry() == relation.exit()
-                    && !relation.entry().projections().is_empty()),
+                    && relation.entry().projections().first().is_some_and(|projection| {
+                        let bray_symbols::DependencyProjection::ProductField(field) = projection else { return false; };
+                        application.symbol_graph().unwrap().member_name((*field).into()).unwrap().as_str() == "reference"
+                    })),
             preserved,
             "{source}\n{template:#?}"
         );

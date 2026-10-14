@@ -14,6 +14,7 @@ pub(super) fn selected_condition(
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
     literals: &BTreeMap<BoundExpressionId, ExecutionCondition>,
+    patterns: &BTreeMap<bray_bound_tree::BoundPatternId, (bray_bound_tree::BoundOperator, ExecutionCondition)>,
     current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     expression: BoundExpressionId,
@@ -37,55 +38,45 @@ pub(super) fn selected_condition(
             )
         {
             return Some(expression_condition(
-                unit, semantics, values, literals, current, evaluated, *pointer, budget,
+                unit, semantics, values, literals, patterns, current, evaluated, *pointer, budget,
             ));
         }
 
-        if let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target()
-            && matches!(
-                call.implementation_hook(),
-                Some(
-                    bray_compiler_known::ImplementationHook::SequenceLength
-                        | bray_compiler_known::ImplementationHook::SequenceIsEmpty
-                        | bray_compiler_known::ImplementationHook::RawPointerIsNull
-                )
-            )
-        {
-            let arguments = call_argument_conditions(
-                call, unit, semantics, values, literals, current, evaluated, budget,
-            );
+        let observed_intrinsic = matches!(call.implementation_hook(), Some(
+            bray_compiler_known::ImplementationHook::SequenceLength
+                | bray_compiler_known::ImplementationHook::SequenceIsEmpty
+                | bray_compiler_known::ImplementationHook::RawPointerIsNull
+        ));
 
-            let arguments = if matches!(
-                call.implementation_hook(),
-                Some(
-                    bray_compiler_known::ImplementationHook::SequenceLength
-                        | bray_compiler_known::ImplementationHook::SequenceIsEmpty
-                )
-            ) {
-                arguments
-                    .into_iter()
-                    .map(|argument| argument.owner_identity().clone())
-                    .collect()
-            } else {
-                arguments
-            };
-
-            return Some(ExecutionCondition::call(callable, arguments));
-        }
-
-        if let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target()
-            && let BoundExpression::Call(bound_call) = bound
-            && semantics.types().expression(bound_call.callee()).is_some_and(|ty|
+        let constant = matches!(bound, BoundExpression::Call(bound_call)
+            if semantics.types().expression(bound_call.callee()).is_some_and(|ty|
                 matches!(values.type_data(ty.ty()).as_ref(), bray_symbols::TypeData::Callable(callable)
-                    if callable.constness() == bray_symbols::CallableConstness::Constant)) {
-            let arguments = call_argument_conditions(call, unit, semantics, values, literals, current, evaluated, budget);
+                    if callable.constness() == bray_symbols::CallableConstness::Constant)));
 
-            return Some(ExecutionCondition::call(callable, arguments));
+        if let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target()
+            && (observed_intrinsic || constant)
+        {
+            let arguments = call_argument_conditions(call, unit, semantics, values, literals, patterns, current, evaluated, budget);
+
+            let arguments = if matches!(call.implementation_hook(), Some(
+                bray_compiler_known::ImplementationHook::SequenceLength
+                    | bray_compiler_known::ImplementationHook::SequenceIsEmpty
+            )) {
+                arguments.into_iter().map(|argument| argument.owner_identity().clone()).collect()
+            } else { arguments };
+
+            let condition = ExecutionCondition::call(callable, arguments);
+
+            // Losing an input's symbolic contents does not erase the identity of the
+            // actual returned value. Repeated evaluations already retire this identity.
+            return Some(if condition == ExecutionCondition::Unknown {
+                ExecutionCondition::Expression(expression)
+            } else { condition });
         }
 
         if let bray_bound_tree::BoundCallableTarget::Predicate(predicate) = call.target() {
             let arguments = call_argument_conditions(
-                call, unit, semantics, values, literals, current, evaluated, budget,
+                call, unit, semantics, values, literals, patterns, current, evaluated, budget,
             );
 
             return Some(ExecutionCondition::predicate(
@@ -111,6 +102,7 @@ pub(super) fn selected_condition(
                     semantics,
                     values,
                     literals,
+                    patterns,
                     current,
                     evaluated,
                     argument.expression(),
@@ -148,6 +140,7 @@ fn call_argument_conditions(
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
     literals: &BTreeMap<BoundExpressionId, ExecutionCondition>,
+    patterns: &BTreeMap<bray_bound_tree::BoundPatternId, (bray_bound_tree::BoundOperator, ExecutionCondition)>,
     current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     budget: &mut usize,
@@ -160,6 +153,7 @@ fn call_argument_conditions(
             semantics,
             values,
             literals,
+            patterns,
             current,
             evaluated,
             receiver.expression(),
@@ -189,6 +183,7 @@ fn call_argument_conditions(
                     semantics,
                     values,
                     literals,
+                    patterns,
                     current,
                     evaluated,
                     *expression,

@@ -240,12 +240,14 @@ pub enum InterfaceDependencyRequirementKind {
 /// One normalized portable dependency contract.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceDependencyContract {
+    pub(crate) carriers: Arc<[bray_symbols::DependencyWitnessCarrier<InterfaceDependencyProjection, super::InterfaceConstantTermId>]>,
     pub(crate) normal_completion: bool,
     pub(crate) requirements: Arc<[InterfaceDependencyRequirement]>,
     pub(crate) effects: Arc<
         [bray_symbols::DependencyStorageEffect<
             InterfaceDependencySubject,
             InterfaceDependencyProjection,
+            crate::InterfaceTypeId,
         >],
     >,
     pub(crate) borrows: Arc<
@@ -262,9 +264,17 @@ impl InterfaceDependencyContract {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
             normal_completion: true,
+            carriers: Arc::new([]),
             borrows: Arc::new([]),
             effects: Arc::new([bray_symbols::DependencyStorageEffect::Unknown]),
         }
+    }
+
+    /// Attaches the complete returned carriers of declared trusted guarantees.
+    pub fn with_carriers(mut self, carriers: impl IntoIterator<Item = bray_symbols::DependencyWitnessCarrier<InterfaceDependencyProjection, super::InterfaceConstantTermId>>) -> Self {
+        self.carriers = sorted_unique_shared_slice(carriers);
+
+        self
     }
 
     /// Records whether execution can complete normally.
@@ -281,6 +291,7 @@ impl InterfaceDependencyContract {
             Item = bray_symbols::DependencyStorageEffect<
                 InterfaceDependencySubject,
                 InterfaceDependencyProjection,
+            crate::InterfaceTypeId,
             >,
         >,
     ) -> Self {

@@ -483,6 +483,10 @@ pub(super) fn decode_constant_term(
             term: InterfaceConstantTermId::new(read_u32(reader)?),
             ty: InterfaceTypeId::new(read_u32(reader)?),
         }),
+        19 => Ok(InterfaceConstantTerm::VariantTest {
+            subject: InterfaceConstantTermId::new(read_u32(reader)?),
+            variant: read_symbol_reference(reader, context)?,
+        }),
         18 => Ok(InterfaceConstantTerm::CallableArgument(
             bray_symbols::SymbolOrdinal::new(read_u32(reader)?),
         )),
@@ -624,6 +628,7 @@ mod tests {
         );
 
         let effects = [
+            DependencyStorageEffect::Cleanup(crate::InterfaceTypeId::new(0)),
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Write,
@@ -631,6 +636,10 @@ mod tests {
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Consume,
+            },
+            DependencyStorageEffect::Direct {
+                subject: subject.clone(),
+                kind: DependencyMutationKind::Atomic,
             },
             DependencyStorageEffect::Indirect {
                 reference: subject,
@@ -646,6 +655,7 @@ mod tests {
             InterfaceDependencyContract::new([])
                 .with_effects(effects)
                 .with_normal_completion(false),
+            InterfaceDependencyContract::new([]).with_effects([DependencyStorageEffect::Atomic]),
         ]
         .into();
 
@@ -661,11 +671,13 @@ mod tests {
         let imported = decoded.intern(&store, &resolver(&surface)).unwrap();
         let template = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
 
-        assert_eq!(template.effects().len(), 3);
+        assert_eq!(template.effects().len(), 5);
+        assert_eq!(store.dependency_contract_template_data(imported.dependency_contracts()[1]).effects(), &[DependencyStorageEffect::Atomic]);
         assert!(!template.normal_completion());
+        assert_eq!(template.effects()[0], DependencyStorageEffect::Cleanup(imported.types()[0]));
 
         assert!(
-            matches!(&template.effects()[2], DependencyStorageEffect::Indirect { projections, kind: DependencyMutationKind::Retire, .. }
+            matches!(&template.effects()[4], DependencyStorageEffect::Indirect { projections, kind: DependencyMutationKind::Retire, .. }
             if projections.as_ref() == [bray_symbols::DependencyProjection::Element(imported.constant_terms()[0])])
         );
     }

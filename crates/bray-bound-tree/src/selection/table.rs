@@ -274,7 +274,7 @@ fn selection_matches_expression(
                     SelectedPropagation::Nullable { .. },
                     BoundStructuredExpressionKind::NullablePropagation
                 ) | (
-                    SelectedPropagation::Result { .. } | SelectedPropagation::CurrentRun,
+                    SelectedPropagation::Result { .. } | SelectedPropagation::CurrentRun { .. },
                     BoundStructuredExpressionKind::ResultPropagation
                 )
             )

@@ -231,6 +231,18 @@ impl MirMemoryOperation {
         self
     }
 
+    /// Native word operation used when this operation specializes to 32-bit atomic storage.
+    pub const fn atomic_word_runtime_role(&self) -> Option<bray_runtime_interface::RuntimeAbiRole> {
+        use bray_runtime_interface::RuntimeAbiRole;
+
+        match self.kind {
+            CheckedMemoryOperationKind::AtomicWait { .. } => Some(RuntimeAbiRole::AtomicWordWait),
+            CheckedMemoryOperationKind::AtomicNotify { all: true, .. } => Some(RuntimeAbiRole::AtomicWordNotifyAll),
+            CheckedMemoryOperationKind::AtomicNotify { all: false, .. } => Some(RuntimeAbiRole::AtomicWordNotifyOne),
+            _ => None,
+        }
+    }
+
     /// Returns the checked memory behavior.
     pub const fn kind(&self) -> CheckedMemoryOperationKind {
         self.kind

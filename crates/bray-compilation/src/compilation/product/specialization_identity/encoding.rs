@@ -249,6 +249,11 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
                 self.constant_term(*operand)?;
                 self.ty(*target)?;
             }
+            ConstantTermData::VariantTest { subject, variant } => {
+                self.tag(18);
+                self.symbol((*variant).into())?;
+                self.constant_term(*subject)?;
+            }
             ConstantTermData::NullablePresent(value) => {
                 self.tag(7);
                 self.constant_term(*value)?;

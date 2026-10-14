@@ -22,13 +22,14 @@ where
         let success = self.push_block();
         let failure = self.push_block();
 
-        self.push_edge(current, success, AnalysisEdgeKind::ResultSuccess, None);
+        self.push_edge(current, success, AnalysisEdgeKind::ResultSuccess,
+            Some(AnalysisRefinement::PropagationOutcome { expression, succeeded: true }));
 
         self.push_edge(
             current,
             failure,
             AnalysisEdgeKind::ResultErrorPropagation,
-            None,
+            Some(AnalysisRefinement::PropagationOutcome { expression, succeeded: false }),
         );
 
         self.push_exit(
@@ -36,6 +37,8 @@ where
             AnalysisExitKind::ResultErrorPropagation,
             expression.into(),
         );
+
+        self.push_bound(success, expression.into());
 
         Some(Some(success))
     }
@@ -111,7 +114,7 @@ where
             return match selection {
                 SelectedPropagation::Nullable { .. } => None,
                 SelectedPropagation::Result { .. } => Some(RepresentationRole::Result),
-                SelectedPropagation::CurrentRun => Some(RepresentationRole::RunResult),
+                SelectedPropagation::CurrentRun { .. } => Some(RepresentationRole::RunResult),
             };
         }
 
@@ -148,17 +151,20 @@ where
             current,
             completed,
             AnalysisEdgeKind::RunResultCompleted,
-            None,
+            Some(AnalysisRefinement::PropagationOutcome { expression, succeeded: true }),
         );
 
-        self.push_edge(current, panicked, AnalysisEdgeKind::RunResultPanicked, None);
+        self.push_edge(current, panicked, AnalysisEdgeKind::RunResultPanicked,
+            Some(AnalysisRefinement::PropagationOutcome { expression, succeeded: false }));
 
         self.push_edge(
             current,
             cancelled,
             AnalysisEdgeKind::RunResultCancelled,
-            None,
+            Some(AnalysisRefinement::PropagationOutcome { expression, succeeded: false }),
         );
+
+        self.push_bound(completed, expression.into());
 
         self.push_exit(panicked, AnalysisExitKind::Panic, expression.into());
 

@@ -149,7 +149,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 reference: path, ..
             } => (path, true),
             Origin::Storage(path) => (path, false),
-            Origin::Allocation(_) => return Ok(None),
+            Origin::Allocation(_) | Origin::Returned { .. } => return Ok(None),
         };
 
         let Some(root) = self.formal_root(target.root) else {

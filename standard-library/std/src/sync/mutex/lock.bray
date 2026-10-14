@@ -4,17 +4,20 @@ using internal std.sync.mutex;
 
 struct Mutex<T>
 {
-    mut storage: Uninit<std.sync.mutex.State<T>>;
+    instance: std.sync.mutex.Marker;
+    storage: Uninit<std.sync.mutex.State<T>>;
 
     trusted construct(pos value: T) -> Self
-        ensures(trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = &result.storage))
+        ensures(trusted std.sync.mutex.valid(&result.instance))
     {
         return
         {
+            instance = std.sync.mutex.Marker
+            {
+            },
             storage = std.memory.uninit_from<std.sync.mutex.State<T>>(
                 {
-                    next_ticket = core.atomic.initialize<u32>(0),
-                    serving_ticket = core.atomic.initialize<u32>(0),
+                    tickets = core.atomic.initialize<u32>(0),
                     value = value,
                 }
             ),
@@ -22,60 +25,136 @@ struct Mutex<T>
     }
 
     trusted destruct()
-        requires(trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = &self.storage))
+        requires(trusted std.sync.mutex.valid(&self.instance))
+        uses(raw_memory)
     {
-        trusted std.memory.destroy_initialized<std.sync.mutex.State<T>>(&mut self.storage);
+        let pointer = std.memory.uninit_pointer<std.sync.mutex.State<T>>(&self.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.mutex.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.mutex.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.mutex.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
+        let _: std.sync.mutex.State<T> = trusted std.memory.read<std.sync.mutex.State<T>>(pointer);
     }
 
     trusted func lock() -> MutexGuard<T>
         requires(blocking_execution())
-        requires(trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = &self.storage))
-        ensures(
-            trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = &self.storage),
-            trusted std.sync.mutex.acquired<T>(result),
-        )
+        requires(trusted std.sync.mutex.valid(&self.instance))
+        ensures(trusted std.sync.mutex.valid(&self.instance), trusted std.sync.mutex.acquired(&result.acquisition))
         uses(raw_memory, unchecked_alias)
     {
-        let pointer = trusted std.sync.mutex.pointer<T>(&self.storage);
+        let pointer = std.memory.uninit_pointer<std.sync.mutex.State<T>>(&self.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.mutex.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.mutex.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.mutex.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
         let state = trusted std.memory.borrow_from<std.sync.mutex.State<T>, Self>(&self, pointer);
-        let ticket: u32 = core.atomic.fetch_add<u32, 0>(&state.next_ticket, 1);
+        let mut observed = core.atomic.load<u32, 1>(&state.tickets);
+        let mut ticket: u32 = 0;
 
-        let mut serving: u32 = core.atomic.load<u32, 1>(&state.serving_ticket);
-
-        while serving != ticket
+        while true
         {
-            trusted internal std.atomic.platform_wait_word(&state.serving_ticket, expected = serving);
-            serving = core.atomic.load<u32, 1>(&state.serving_ticket);
+            let next = observed & 65535;
+            let serving = observed >> 16;
+
+            if((next + 65536 - serving) & 65535) == 65535
+            {
+                core.atomic.wait<u32, 1>(&state.tickets, expected = observed);
+                observed = core.atomic.load<u32, 1>(&state.tickets);
+                continue;
+            }
+
+            let desired = (observed & 4294901760) | ((next + 1) & 65535);
+
+            let (current, admitted) = core.atomic.compare_exchange<u32, 3, 1>(
+                &state.tickets,
+                expected = observed,
+                desired = desired,
+            );
+
+            if admitted
+            {
+                ticket = next;
+                break;
+            }
+
+            observed = current;
+        }
+
+        observed = core.atomic.load<u32, 1>(&state.tickets);
+
+        while(observed >> 16) != ticket
+        {
+            core.atomic.wait<u32, 1>(&state.tickets, expected = observed);
+            observed = core.atomic.load<u32, 1>(&state.tickets);
         }
 
         return
         {
+            acquisition = std.sync.mutex.Marker
+            {
+            },
             mutex = &self
         };
     }
 
     trusted func try_lock() -> MutexGuard<T>?
-        requires(trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = &self.storage))
+        requires(trusted std.sync.mutex.valid(&self.instance))
         ensures(
-            trusted core.memory.uninit_initialized<std.sync.mutex.State<T>>(storage = &self.storage),
-            trusted std.sync.mutex.acquired<T>(result),
+            trusted std.sync.mutex.valid(&self.instance),
+            result matches none || trusted std.sync.mutex.acquired(std.sync.mutex.marker<T>(&result)),
         )
         uses(raw_memory, unchecked_alias)
     {
-        let pointer = trusted std.sync.mutex.pointer<T>(&self.storage);
+        let pointer = std.memory.uninit_pointer<std.sync.mutex.State<T>>(&self.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.mutex.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.mutex.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.mutex.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
         let state = trusted std.memory.borrow_from<std.sync.mutex.State<T>, Self>(&self, pointer);
-        let serving: u32 = core.atomic.load<u32, 1>(&state.serving_ticket);
-        let next: u32 = core.atomic.load<u32, 0>(&state.next_ticket);
+        let observed = core.atomic.load<u32, 1>(&state.tickets);
+        let serving = observed >> 16;
+        let next = observed & 65535;
 
         if next != serving
         {
             return none;
         }
 
-        let (_, acquired) = core.atomic.compare_exchange<u32, 0, 0>(
-            &state.next_ticket,
-            expected = next,
-            desired = next + 1,
+        let (_, acquired) = core.atomic.compare_exchange<u32, 3, 1>(
+            &state.tickets,
+            expected = observed,
+            desired = (observed & 4294901760) | ((next + 1) & 65535),
         );
 
         if !acquired
@@ -85,6 +164,9 @@ struct Mutex<T>
 
         let guard: MutexGuard<T> =
         {
+            acquisition = std.sync.mutex.Marker
+            {
+            },
             mutex = &self
         };
 

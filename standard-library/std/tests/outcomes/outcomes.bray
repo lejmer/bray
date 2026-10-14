@@ -279,3 +279,43 @@ func timeout_observes_cancellation()
         std.run.checkpoint();
     }
 }
+
+@test
+func channel_close_finishes_each_panicking_element_once()
+{
+    core.atomic.store<u32, 4>(&RAW_BUFFER_CLEANUP_COUNT, 0);
+
+    let (sender, receiver) = std.testing.assert_ok<
+        (std.channel.Sender<PanickingBufferElement>, std.channel.Receiver<PanickingBufferElement>),
+        std.channel.ChannelError
+    >(std.channel.bounded<PanickingBufferElement>(capacity = 3));
+
+    let mut value: u8 = 0;
+
+    while value < 3
+    {
+        std.testing.assert_ok<unit, std.channel.TrySendError<PanickingBufferElement>>(
+            sender.try_send(
+                PanickingBufferElement
+                {
+                    value = value
+                }
+            )
+        );
+
+        value += 1;
+    }
+
+    let caught: Result<unit, PanicReport> = catch
+    {
+        receiver.close();
+        yield unit;
+    };
+
+    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+
+    assert(core.atomic.load<u32, 1>(&RAW_BUFFER_CLEANUP_COUNT) == 3);
+    sender.close();
+    assert(core.atomic.load<u32, 1>(&RAW_BUFFER_CLEANUP_COUNT) == 3);
+    panic("channel cleanup progress checked");
+}

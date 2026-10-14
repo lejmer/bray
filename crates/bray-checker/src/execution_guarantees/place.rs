@@ -10,9 +10,10 @@ pub struct ExecutionPlace {
     pub(crate) projections: Arc<[ConstantProjectionKind]>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) enum ExecutionInput {
     Reference(BoundReferenceTarget),
+    Static(Arc<bray_symbols::StaticReferenceSelection>),
     Argument(bray_symbols::SymbolOrdinal),
 }
 
@@ -26,6 +27,18 @@ impl From<BoundReferenceTarget> for ExecutionPlace {
 }
 
 impl ExecutionPlace {
+    /// Identifies one selected static instance, including its substitution and witnesses.
+    pub fn static_instance(selection: bray_symbols::StaticReferenceSelection) -> Self {
+        Self { root: ExecutionInput::Static(Arc::new(selection)), projections: Arc::new([]) }
+    }
+
+    pub(crate) fn selected_static(&self) -> Option<bray_symbols::StaticSymbolId> {
+        match &self.root {
+            ExecutionInput::Static(selection) => Some(selection.template().declaration()),
+            _ => None,
+        }
+    }
+
     pub(crate) fn argument(ordinal: bray_symbols::SymbolOrdinal) -> Self {
         Self {
             root: ExecutionInput::Argument(ordinal),
@@ -34,9 +47,9 @@ impl ExecutionPlace {
     }
 
     pub(crate) const fn reference(&self) -> Option<BoundReferenceTarget> {
-        match self.root {
-            ExecutionInput::Reference(reference) => Some(reference),
-            ExecutionInput::Argument(_) => None,
+        match &self.root {
+            ExecutionInput::Reference(reference) => Some(*reference),
+            ExecutionInput::Argument(_) | ExecutionInput::Static(_) => None,
         }
     }
     pub(crate) fn is_callable_input(&self) -> bool {
@@ -86,6 +99,9 @@ impl ExecutionPlace {
             }
             bray_bound_tree::StorageIdentity::AnonymousParameter(parameter) => {
                 BoundReferenceTarget::Local(parameter.into())
+            }
+            bray_bound_tree::StorageIdentity::PostconditionResult(result) => {
+                BoundReferenceTarget::Local(result.into())
             }
             _ => storage
                 .binding_targets(bray_bound_tree::StorageBinding::Identity(identity))
@@ -150,7 +166,7 @@ impl ExecutionPlace {
     ) -> Option<super::ExecutionCondition> {
         for length in (0..=self.projections.len()).rev() {
             let prefix = Self {
-                root: self.root,
+                root: self.root.clone(),
                 projections: self.projections[..length].into(),
             };
 

@@ -1,5 +1,5 @@
 use bray_declarations::SyntaxAnchor;
-use bray_symbols::TypeId;
+use bray_symbols::{TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId};
 
 use super::SelectedConversion;
 
@@ -30,17 +30,38 @@ pub enum SelectedPropagation {
         result_type: TypeId,
         /// The checked conversion from the operand error to the boundary error.
         error_conversion: SelectedConversion,
+        /// The success variant and its retained payload.
+        success: (UnionVariantSymbolId, UnionPayloadFieldSymbolId),
     },
     /// Forward `RunResult` panic or cancellation within the current run.
-    CurrentRun,
+    CurrentRun {
+        /// The completed variant and its retained payload.
+        success: (UnionVariantSymbolId, UnionPayloadFieldSymbolId),
+    },
 }
 
 impl SelectedPropagation {
+    /// Returns the selected successful union case, when propagation unwraps a union.
+    pub const fn success(&self) -> Option<(UnionVariantSymbolId, UnionPayloadFieldSymbolId)> {
+        match self {
+            Self::Nullable { .. } => None,
+            Self::Result { success, .. } | Self::CurrentRun { success } => Some(*success),
+        }
+    }
+
+    /// Returns the retained payload on normal continuation.
+    pub fn success_projection(&self) -> crate::StorageProjection {
+        match self.success() {
+            Some((variant, field)) => crate::StorageProjection::ActiveUnionPayloadField { variant, field },
+            None => crate::StorageProjection::NullableValue,
+        }
+    }
+
     /// Returns the selected lexical result boundary, when propagation targets one.
     pub const fn boundary(&self) -> Option<SelectedPropagationBoundary> {
         match self {
             Self::Nullable { boundary, .. } | Self::Result { boundary, .. } => Some(*boundary),
-            Self::CurrentRun => None,
+            Self::CurrentRun { .. } => None,
         }
     }
 
@@ -50,7 +71,7 @@ impl SelectedPropagation {
             Self::Nullable { result_type, .. } | Self::Result { result_type, .. } => {
                 Some(*result_type)
             }
-            Self::CurrentRun => None,
+            Self::CurrentRun { .. } => None,
         }
     }
 
@@ -60,7 +81,7 @@ impl SelectedPropagation {
             Self::Result {
                 error_conversion, ..
             } => Some(error_conversion),
-            Self::Nullable { .. } | Self::CurrentRun => None,
+            Self::Nullable { .. } | Self::CurrentRun { .. } => None,
         }
     }
 }

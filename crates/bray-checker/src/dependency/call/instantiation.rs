@@ -105,6 +105,24 @@ where
         }
     }
 
+    fn receiver_access(&self, root: DependencySubjectRoot) -> Option<StorageAccessId> {
+        if root != DependencySubjectRoot::Receiver { return None; }
+
+        let CallInstantiationInput::Selected { call, .. } = self.input else { return None; };
+
+        let receiver = call.receiver()?;
+
+        let kind = match receiver.mode() {
+            ReceiverMode::Shared => bray_symbols::BorrowKind::Shared,
+            ReceiverMode::Mutable => bray_symbols::BorrowKind::Mutable,
+            _ => return None,
+        };
+
+        self.storage.expression_plans(receiver.expression())
+            .find(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Borrow(kind))
+            .map(bray_bound_tree::StorageAccessPlan::access)
+    }
+
     fn hidden_access(&self, root: DependencySubjectRoot) -> Option<StorageAccessId> {
         let CallInstantiationInput::Hidden { input, result } = self.input else {
             return None;
@@ -265,6 +283,7 @@ where
         let frame_access = self.deferred_frame_access(root);
 
         let base = frame_access
+            .or_else(|| (requirement != DependencyRequirementKind::ValueDependencies).then(|| self.receiver_access(root)).flatten())
             .or_else(|| {
                 expression.and_then(|expression| expression_access(self.storage, expression))
             })
@@ -272,7 +291,7 @@ where
 
         if let DependencyRequirementKind::BorrowCapabilityActive(kind) = requirement {
             let capability = self
-                .borrow_capability(expression, base, kind).unwrap_or_else(|| panic!("resolve_subject requires planned borrow capability, root: {root:?}, expression: {expression:?}, requirement: {requirement:?}"));
+                .borrow_capability(expression, base, kind).unwrap_or_else(|| panic!("resolve_subject requires planned borrow capability, subject: {subject:?}, expression: {expression:?}, requirement: {requirement:?}"));
 
             return Ok(BoundDependencySubject::BorrowCapability(capability));
         }
@@ -336,7 +355,7 @@ fn projected_access<C: CheckerRequestContext + ?Sized>(
     base: StorageAccessId,
     projections: &[DependencyProjection],
 ) -> CheckerQueryResult<Option<StorageAccessId>, C::UpstreamError> {
-    let Some(projected) = crate::storage::storage_projections(request, projections) else {
+    let Some(projected) = crate::storage::resolve_storage_projections(request, projections)? else {
         return Ok(None);
     };
 

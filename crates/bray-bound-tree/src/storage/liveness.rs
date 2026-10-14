@@ -277,6 +277,19 @@ impl Liveness {
         &self.owner_retained_subjects
     }
 
+    /// Returns the checked lifetime dependencies carried by this operation's result.
+    pub fn retained_by(
+        &self,
+        occurrence: impl Into<crate::BoundExecutionSite>,
+    ) -> impl Iterator<Item = BoundDependencySubject> + '_ {
+        let occurrence = occurrence.into();
+        let start = self.owner_retentions.partition_point(|retention| retention.occurrence() < occurrence);
+
+        self.owner_retentions[start..].iter()
+            .take_while(move |retention| retention.occurrence() == occurrence)
+            .map(|retention| retention.subject())
+    }
+
     /// Returns whether this exact call transfers the subject into an owning result.
     pub fn is_owner_retained_by(
         &self,

@@ -94,7 +94,11 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         let source = if let StorageAccessPurpose::Borrow(kind) = purpose
             && !existing
         {
-            // The invocation retains the loan separately from the receiver's value slot.
+            // Receiver dispatch reaches the object through existing borrows. Its invocation
+            // loan must retain that referent, not the local slot containing the reference.
+            let target = self.request.semantic_values().unborrowed_type(self.expression_type(expression).ty());
+            let source = self.access_with_reached_type(expression, source, target)?;
+
             self.borrow_access(
                 occurrence
                     .expression()

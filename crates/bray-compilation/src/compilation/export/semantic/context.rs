@@ -58,7 +58,7 @@ pub(in crate::compilation::export) struct SemanticExporter<'a> {
     pub(super) graph: &'a bray_symbols::SymbolGraph,
     pub(super) surface: &'a PackageInterfaceSurface,
     pub(super) keys: &'a BTreeMap<AnySymbolId, ExternalSymbolKey>,
-    pub(super) values: &'a SemanticValueStore,
+    pub(in crate::compilation::export) values: &'a SemanticValueStore,
     declaration: Option<AnySymbolId>,
     pub(super) type_ids: BTreeMap<TypeId, InterfaceTypeId>,
     pub(super) substitution_ids: BTreeMap<GenericSubstitutionId, InterfaceGenericSubstitutionId>,

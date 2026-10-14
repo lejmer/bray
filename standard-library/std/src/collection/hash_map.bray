@@ -134,10 +134,7 @@ struct HashMap<Key, Value>
                     index = index,
                 );
 
-                let pointer: RawPointer<Value> = std.memory.address_of_mut<Value>(&mut item.value);
-                let previous: Value = trusted std.memory.read<Value>(pointer);
-
-                trusted std.memory.write<Value>(pointer, value);
+                let previous: Value = trusted std.memory.replace_value<Value>(&mut item.value, value);
 
                 let mut replaced: Value? = none;
 
@@ -298,19 +295,13 @@ struct OccupiedEntry<Key, Value>
 
     /// Replaces and returns the entry value.
     trusted mut func insert(pos value: Value) -> Value
-        uses(raw_memory, unchecked_init)
     {
         let item: &mut MapItem<Key, Value> = trusted hash_table_item_mut<MapItem<Key, Value>>(
             &mut self.map.table,
             index = self.index,
         );
 
-        let pointer: RawPointer<Value> = std.memory.address_of_mut<Value>(&mut item.value);
-        let previous: Value = trusted std.memory.read<Value>(pointer);
-
-        trusted std.memory.write<Value>(pointer, value);
-
-        return previous;
+        return trusted std.memory.replace_value<Value>(&mut item.value, value);
     }
 
     /// Removes and returns the owned entry.

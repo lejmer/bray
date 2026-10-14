@@ -7,6 +7,12 @@ use std::sync::Arc;
 pub enum ExecutionCondition {
     /// A checked Boolean value.
     Boolean(bool),
+    /// An active union tag in a checked aggregate snapshot.
+    Variant(bray_symbols::UnionVariantSymbolId),
+    /// A constructed union snapshot with its exact active tag.
+    Tagged(bray_symbols::UnionVariantSymbolId, Arc<ExecutionCondition>),
+    /// A test of a union tag, independent of its payload.
+    VariantTest(bray_symbols::UnionVariantSymbolId, Arc<ExecutionCondition>),
     /// A checked literal value.
     Literal(Arc<ConstantValueData>),
     /// The value of a supplied input before execution begins.
@@ -81,6 +87,7 @@ impl ExecutionCondition {
                 | Self::Borrowed(value)
                 | Self::Present(value)
                 | Self::Projection(_, value)
+                | Self::VariantTest(_, value)
                 | Self::Entry {
                     condition: value, ..
                 } => condition = value,
@@ -88,4 +95,14 @@ impl ExecutionCondition {
             }
         }
     }
+    pub(super) fn contains_unknown(&self) -> bool {
+        match self {
+            Self::Operation(_, operands) => operands.iter().any(Self::contains_unknown),
+            Self::Trusted(value) | Self::Borrowed(value) | Self::Present(value)
+            | Self::Projection(_, value) | Self::VariantTest(_, value)
+            | Self::Entry { condition: value, .. } => value.contains_unknown(),
+            _ => self.is_unknown(),
+        }
+    }
+
 }

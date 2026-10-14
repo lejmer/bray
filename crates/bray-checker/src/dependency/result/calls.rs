@@ -32,16 +32,9 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             );
         }
 
-        let borrowed_receiver = call
-            .receiver()
-            .and_then(|receiver| self.types.expression(receiver.expression()))
-            .map(|ty| self.request.semantic_values().type_data(ty.ty()))
-            .is_some_and(|ty| matches!(ty.as_ref(), bray_symbols::TypeData::Borrow { .. }));
-
         result.extend(self.mapped_result_values(
             template.template.requirements(),
             |root| crate::dependency::result_argument(call, root),
-            borrowed_receiver.then_some(bray_symbols::DependencySubjectRoot::Receiver),
         )?);
 
         Ok(result)
@@ -118,21 +111,12 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             )?
         };
 
-        let borrowed = matches!(
-            self.request
-                .semantic_values()
-                .type_data(scoped.source_type())
-                .as_ref(),
-            bray_symbols::TypeData::Borrow { .. }
-        );
-
         self.mapped_result_values(
             template.requirements(),
             |root| {
                 (root == bray_symbols::DependencySubjectRoot::Receiver)
                     .then_some(scoped.initializer())
             },
-            borrowed.then_some(bray_symbols::DependencySubjectRoot::Receiver),
         )
     }
 
@@ -140,7 +124,6 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         &self,
         requirements: &[DependencyRequirement],
         argument: impl Fn(bray_symbols::DependencySubjectRoot) -> Option<BoundExpressionId>,
-        borrowed: Option<bray_symbols::DependencySubjectRoot>,
     ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
         Ok(
             crate::dependency::witness::map_requirements(requirements, &mut |subject, kind| {
@@ -148,8 +131,14 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                     return Ok(vec![DependencyRequirement::direct(subject.clone(), kind)]);
                 };
 
+                // A supplied borrow retains its referent and original loan dependencies.
+                // Requiring the slot containing that borrow would invent a caller loan,
+                // especially when the containing value is consumed.
                 if kind == DependencyRequirementKind::ValueDependencies
-                    || borrowed == Some(subject.subject_root())
+                    || self.types.expression(argument).is_some_and(|ty| matches!(
+                        self.request.semantic_values().type_data(ty.ty()).as_ref(),
+                        bray_symbols::TypeData::Borrow { .. }
+                    ))
                 {
                     return Ok(self
                         .projected_values(argument, subject.projections())

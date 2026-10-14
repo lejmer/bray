@@ -74,7 +74,7 @@ trusted internal func take_attachment_exit(
     pos incidents: &mut u32
 ) -> AttachmentExit
     requires(
-        trusted host_access_live(owner = lease),
+        trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = lease),
         trusted retained_attachment_exit(slot = slot, lease = lease),
         trusted core.memory.valid_read<AttachmentExit>(pointer = slot.value, count = 1),
@@ -84,7 +84,7 @@ trusted internal func take_attachment_exit(
         trusted core.memory.aligned_for<(AttachmentExit?)>(pointer = slot.storage)
     )
     ensures(
-        trusted host_access_live(owner = lease),
+        trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = lease),
         trusted attachment_cleanup_completed(owner = lease),
         result.ready,
@@ -105,7 +105,7 @@ trusted internal func take_attachment_exit(
 
 trusted internal func release_attachment_exit(pos lease: HostLease, pos selected: AttachmentExit) -> AttachmentExit
     requires(
-        trusted host_access_live(owner = &lease),
+        trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = &lease),
         trusted attachment_cleanup_completed(owner = &lease),
         selected.ready,
@@ -137,7 +137,7 @@ trusted internal func request_attachment_exit(
 ) -> (HostLease, AttachmentExitRequest)
     requires(trusted bray.runtime.bootstrap.thread.destruction.exit_scope_live(owner = scope))
     ensures(
-        trusted host_access_live(owner = &result.0),
+        trusted host_access_live(owner = &result.0.acquisition),
         trusted host_access_idle(owner = &result.0),
         trusted attachment_cleanup_completed(owner = &result.0),
         trusted attachment_exit_request_live(scope = &result.1, lease = &result.0)
@@ -162,12 +162,12 @@ trusted internal func select_attachment_slot(
 ) -> AttachmentSelection
     requires(
         trusted attachment_exit_request_live(scope = scope, lease = lease),
-        trusted host_access_live(owner = lease),
+        trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = lease),
         trusted host_anchor_matches(anchor = &anchor, lease = lease)
     )
     ensures(
-        trusted host_access_live(owner = lease),
+        trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = lease),
         trusted attachment_cleanup_completed(owner = lease),
         !result.pending || trusted retained_attachment_exit(slot = &result.slot, lease = lease),
@@ -363,7 +363,7 @@ trusted internal func retire_attachment(pos selected: &AttachmentExit) -> HostLe
     ensures(
         result.active,
         result.retirement.pending,
-        trusted host_access_live(owner = &result),
+        trusted host_access_live(owner = &result.acquisition),
         trusted attachment_cleanup_completed(owner = &result),
     )
     uses(intrinsic)
@@ -435,11 +435,11 @@ trusted internal func complete_attachment_exit_locked(pos completed: &HostLease,
     requires(
         completed.active,
         completed.retirement.pending,
-        trusted host_access_live(owner = completed),
+        trusted host_access_live(owner = &completed.acquisition),
         trusted host_anchor_matches(anchor = &anchor, lease = completed),
         trusted attachment_cleanup_completed(owner = completed),
     )
-    ensures(trusted host_access_live(owner = completed))
+    ensures(trusted host_access_live(owner = &completed.acquisition))
     executes(total)
     uses(raw_memory, unchecked_init, unchecked_alias)
 {
@@ -483,7 +483,7 @@ trusted internal func completed_attachment_pointer(pos completed: &HostLease) ->
     requires(completed.retirement.pending, trusted attachment_cleanup_completed(owner = completed))
     ensures(
         trusted attachment_cleanup_completed(owner = completed),
-        trusted host_access_live(owner = completed),
+        trusted host_access_live(owner = &completed.acquisition),
         trusted core.memory.valid_read<Attachment>(pointer = result, count = 1),
         trusted core.memory.valid_write<Attachment>(pointer = result, count = 1),
         trusted core.memory.aligned_for<Attachment>(pointer = result),
@@ -503,7 +503,7 @@ trusted internal func completed_active_pointer(pos completed: &HostLease) -> Raw
     requires(completed.retirement.pending, trusted attachment_cleanup_completed(owner = completed))
     ensures(
         trusted attachment_cleanup_completed(owner = completed),
-        trusted host_access_live(owner = completed),
+        trusted host_access_live(owner = &completed.acquisition),
         trusted core.memory.valid_read<usize>(pointer = result, count = 1),
         trusted core.memory.valid_write<usize>(pointer = result, count = 1),
         trusted core.memory.aligned_for<usize>(pointer = result),

@@ -507,6 +507,14 @@ struct RawBuffer<T>
     }
 }
 
+// Detach the allocation and initialized prefix without running element cleanup.
+trusted internal func take_buffer<T>(pos buffer: &mut RawBuffer<T>) -> RawBuffer<T>
+    uses(manual_alloc)
+{
+    let empty = trusted internal allocate_buffer<T>(capacity = 0, bytes = 0, align = align_of<T>());
+    return replace_value(buffer, empty);
+}
+
 trusted internal func uninit_buffer<T>(capacity: usize) -> Result<RawBuffer<Uninit<T>>, MemoryLayoutError>
 {
     let mut storage: RawBuffer<Uninit<T>> = try trusted RawBuffer<Uninit<T>>(capacity = capacity);

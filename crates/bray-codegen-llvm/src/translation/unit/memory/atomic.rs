@@ -90,7 +90,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 Ok(None)
             }
-            CheckedMemoryOperationKind::AtomicNotify { .. } => Ok(None),
+            CheckedMemoryOperationKind::AtomicNotify { value, .. } => {
+                if self.atomic_storage_type(value)? == self.types.context().i32_type().into() {
+                    let [storage] = operation.operands() else {
+                        panic!("atomic notification requires one checked storage operand");
+                    };
+
+                    let storage = self.memory_pointer(storage)?;
+
+                    self.invoke_atomic_word(operation, &[storage.into()])?;
+                }
+
+                Ok(None)
+            },
             unexpected => panic!(
                 "checked MIR memory translation violated an established compiler contract: {unexpected:?}"
             ),
@@ -237,12 +249,37 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let observed = self.atomic_load_storage(storage, value, order)?;
         let equal = self.atomic_values_equal(observed, expected)?;
 
-        llvm(
-            self.builder
-                .build_conditional_branch(equal, waiting, complete),
-        )?;
+        let retry = if expected.get_type() == self.types.context().i32_type().into() {
+            let park = self.types.context().append_basic_block(self.function, "atomic.wait.park");
+
+            self.builder.position_at_end(park);
+            self.invoke_atomic_word(operation, &[storage.into(), expected])?;
+            llvm(self.builder.build_unconditional_branch(waiting))?;
+            self.builder.position_at_end(waiting);
+
+            park
+        } else {
+            waiting
+        };
+
+        llvm(self.builder.build_conditional_branch(equal, retry, complete))?;
 
         self.builder.position_at_end(complete);
+
+        Ok(())
+    }
+
+    fn invoke_atomic_word(
+        &mut self,
+        operation: &MirMemoryOperation,
+        arguments: &[BasicValueEnum<'context>],
+    ) -> Result<(), CodegenFailure> {
+        let role = operation.atomic_word_runtime_role()
+            .expect("atomic word invocation requires a wait or notification");
+
+        let reference = bray_ir::MirRuntimeReference::new(role, self.unit.target().runtime_abi());
+
+        self.invoke_runtime(reference, arguments)?;
 
         Ok(())
     }

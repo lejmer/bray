@@ -783,3 +783,17 @@ public func update(pos records: Records) -> Records
         "the records payload must be extracted after tuple padding: {ir}"
     );
 }
+
+#[test]
+fn constant_slice_places_emit_valid_native_units() {
+    for body in [
+        "return value[0];",
+        "match value { case [first, ..] { return first; } case _ { return 0; } }",
+        "match value { case [.., last] { return last; } case _ { return 0; } }",
+    ] {
+        assert_source_emits_valid_native_units(
+            &format!("module app; public func read(pos value: &[u8]) -> u8 {{ {body} }}"),
+            crate::BuildConfiguration::Development,
+        );
+    }
+}

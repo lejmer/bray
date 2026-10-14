@@ -884,7 +884,8 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 self.enqueue(PendingRecord::ConstantTerm(operand.raw()));
                 self.enqueue(PendingRecord::Type(target.raw()));
             }
-            InterfaceConstantTerm::NullablePresent(value) => {
+            InterfaceConstantTerm::VariantTest { subject: value, .. }
+            | InterfaceConstantTerm::NullablePresent(value) => {
                 self.enqueue(PendingRecord::ConstantTerm(value.raw()));
             }
             InterfaceConstantTerm::Tuple(values) | InterfaceConstantTerm::Array(values) => {
@@ -976,11 +977,14 @@ impl<'bytes> SelectionBuilder<'bytes> {
             self.include_dependency_projections(relation.target_projections());
         }
 
+        for carrier in &*contract.carriers { self.enqueue(PendingRecord::ConstantTerm(carrier.guarantee().raw())); self.include_dependency_projections(carrier.path()); }
+
         for effect in &*contract.effects {
             use bray_symbols::DependencyStorageEffect;
 
             match effect {
-                DependencyStorageEffect::Unknown => {}
+                DependencyStorageEffect::Atomic | DependencyStorageEffect::Unknown => {}
+                DependencyStorageEffect::Cleanup(ty) => self.enqueue(PendingRecord::Type(ty.raw())),
                 DependencyStorageEffect::Direct { subject, .. } => {
                     self.include_dependency_subject(subject)
                 }

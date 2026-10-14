@@ -219,9 +219,9 @@ trusted internal func panic_report_suppression(
 
     value = trusted exchange_primary(handle, value);
 
-    let released: ReportOutcome = trusted release_primary(&value, trusted primary_release(&value));
+    let (released, _) = trusted release_primary(&value, trusted primary_release(&value));
 
-    if released.state != RUN_COMPLETED
+    if released != RUN_COMPLETED
     {
         trusted core.target.abort();
     }

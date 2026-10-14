@@ -265,11 +265,21 @@ fn remap_dependency_contract(
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
+    let carriers = contract.carriers.iter().map(|carrier| {
+        // Selected records own their remapped paths independently of the decoded table.
+        let mut path = carrier.path().to_vec();
+
+        remap_dependency_projections(&mut path, maps)?;
+
+        Ok(bray_symbols::DependencyWitnessCarrier::new(maps.constant_term_id(carrier.guarantee())?, path))
+    }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
     for effect in Arc::make_mut(&mut contract.effects) {
         use bray_symbols::DependencyStorageEffect;
 
         match effect {
-            DependencyStorageEffect::Unknown => {}
+            DependencyStorageEffect::Atomic | DependencyStorageEffect::Unknown => {}
+            DependencyStorageEffect::Cleanup(ty) => { *ty = maps.type_id(*ty)?; }
             DependencyStorageEffect::Direct { subject, .. } => {
                 remap_dependency_subject(subject, maps)?
             }
@@ -288,6 +298,7 @@ fn remap_dependency_contract(
 
     Ok(contract
         .with_borrows(borrows)
+        .with_carriers(carriers)
         .with_effects(effects.iter().cloned()))
 }
 
@@ -469,7 +480,8 @@ fn remap_constant_term(
             *operand = maps.constant_term_id(*operand)?;
             *target = maps.type_id(*target)?;
         }
-        InterfaceConstantTerm::NullablePresent(value) => {
+        InterfaceConstantTerm::VariantTest { subject: value, .. }
+            | InterfaceConstantTerm::NullablePresent(value) => {
             *value = maps.constant_term_id(*value)?;
         }
         InterfaceConstantTerm::Tuple(values) | InterfaceConstantTerm::Array(values) => {

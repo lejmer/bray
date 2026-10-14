@@ -50,19 +50,10 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
         declaration(instance.definition().callable_symbol())?
     } else {
         // An opaque target can retain any input value contract, including its receiver.
-        let requirements = call
-            .arguments()
-            .iter()
-            .map(|argument| match argument {
-                SelectedArgument::Explicit { ordinal, .. }
-                | SelectedArgument::Default { ordinal, .. } => value_requirement(
-                    DependencySubjectRoot::Parameter(SymbolOrdinal::new(*ordinal)),
-                ),
-            })
-            .chain(
-                call.receiver()
-                    .map(|_| value_requirement(DependencySubjectRoot::Receiver)),
-            );
+        let requirements = call.arguments().iter().map(|argument| match argument {
+        SelectedArgument::Explicit { ordinal, .. } | SelectedArgument::Default { ordinal, .. } =>
+            value_requirement(DependencySubjectRoot::Parameter(SymbolOrdinal::new(*ordinal))),
+    }).chain(call.receiver().map(|_| value_requirement(DependencySubjectRoot::Receiver)));
 
         store
             .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements)).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in call_result_template: {error:?}"))
@@ -100,11 +91,58 @@ pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
 
     let template = store.dependency_contract_template_data(template);
 
-    Ok(template.with_requirements(super::witness::resolve(
-        request,
-        template.requirements(),
-    )?))
+    let mut result = template.with_requirements(super::witness::resolve(request, template.requirements())?);
+
+    if template.effects().iter().any(|effect| matches!(effect, bray_symbols::DependencyStorageEffect::Cleanup(_))) {
+        result = result.with_effects(resolve_cleanup_effects(request, template.effects())?);
+    }
+
+    Ok(result)
 }
+
+fn resolve_cleanup_effects<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    effects: &[bray_symbols::DependencyStorageEffect],
+) -> Result<Vec<bray_symbols::DependencyStorageEffect>, CheckerQueryError<C::UpstreamError>> {
+    use bray_symbols::{DependencyStorageEffect, TypeData};
+
+    let mut cleanup = crate::asynchronous::CleanupShapeResolver::new(request);
+    let mut resolved = Vec::with_capacity(effects.len());
+
+    for effect in effects {
+        let DependencyStorageEffect::Cleanup(ty) = effect else {
+            // Instantiation owns its effect list and shares the immutable subject projections.
+            resolved.push(effect.clone());
+            continue;
+        };
+
+        if matches!(cleanup.requirement(*ty)?, bray_bound_tree::AsyncStorageCleanupRequirement::None) {
+            continue;
+        }
+
+        let parts = crate::asynchronous::full_cleanup_parts(
+            &mut cleanup, *ty, request.unit().key().source(), false,
+        )?;
+
+        if parts.value().is_empty() {
+            return Ok(vec![DependencyStorageEffect::Unknown]);
+        }
+
+        for (ty, part) in parts.value() {
+            // Retain formal type parameters, not recursively growing instantiated wrappers.
+            // A concrete lifecycle or storage protocol has opaque effects at this boundary.
+            if matches!(request.semantic_values().type_data(*ty).as_ref(), TypeData::TypeParameter(_))
+                && part.as_ref().is_some_and(|part| part.release().is_none()) {
+                resolved.push(DependencyStorageEffect::Cleanup(*ty));
+            } else {
+                return Ok(vec![DependencyStorageEffect::Unknown]);
+            }
+        }
+    }
+
+    Ok(resolved)
+}
+
 
 fn value_requirement(root: DependencySubjectRoot) -> DependencyRequirement {
     DependencyRequirement::direct(

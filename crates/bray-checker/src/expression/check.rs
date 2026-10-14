@@ -79,6 +79,7 @@ where
         );
     }
 
+    let dependencies = super::pattern_reference::binding_type_dependencies(request, &pending);
     let mut evidence = Vec::new();
     let mut deferred = pending.clone();
 
@@ -107,7 +108,7 @@ where
             }
         };
 
-        let resolved = resolved_pattern_binding_evidence(request, &patterns, &deferred);
+        let resolved = resolved_pattern_binding_evidence(request, &patterns, &deferred, &dependencies);
 
         if resolved.is_empty() {
             break patterns;

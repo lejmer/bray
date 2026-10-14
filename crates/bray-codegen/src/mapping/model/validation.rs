@@ -194,6 +194,11 @@ fn operation_runtime_references(
     match operation {
         MirOperationKind::AdmitOutgoing { runtime, .. }
         | MirOperationKind::DischargeOutgoing { runtime, .. } => [Some(*runtime), None, None],
+        MirOperationKind::Memory(operation) => [
+            operation.atomic_word_runtime_role().map(|role| MirRuntimeReference::new(role, abi)),
+            None,
+            None,
+        ],
         MirOperationKind::Call(call) if call.is_cleanup() => [
             Some(MirRuntimeReference::new(
                 bray_runtime_interface::RuntimeAbiRole::OutgoingActivation,
@@ -269,7 +274,6 @@ fn operation_runtime_references(
             | MirGeneratorOperation::Push { .. }
             | MirGeneratorOperation::Finish { .. },
         )
-        | MirOperationKind::Memory(_)
         | MirOperationKind::Text(_)
         | MirOperationKind::PanicReport(_)
         | MirOperationKind::Finalize(_)

@@ -182,8 +182,7 @@ pub(in crate::analysis) fn merge(
 
     let before = target.trusted_assumptions.len();
 
-    target
-        .trusted_assumptions
+    target.trusted_assumptions
         .retain(|condition| incoming.trusted_assumptions.contains(condition));
 
     changed |= before != target.trusted_assumptions.len();
@@ -272,18 +271,91 @@ fn insert_replacement(
 }
 
 fn join_components(left: &ExecutionCondition, right: &ExecutionCondition) -> ExecutionCondition {
-    let fields = |value: &ExecutionCondition| match value {
-        // Each predecessor's components become an independently owned join map.
-        ExecutionCondition::Constructed(_, fields) => fields.iter().cloned().collect(),
-        _ => BTreeMap::new(),
+    common_components(left, right, &mut { ExecutionCondition::WORK_LIMIT })
+}
+
+fn common_components(
+    left: &ExecutionCondition,
+    right: &ExecutionCondition,
+    budget: &mut usize,
+) -> ExecutionCondition {
+    if left == right {
+        return left.clone();
+    }
+
+    let Some(next) = budget.checked_sub(1) else {
+        return ExecutionCondition::Unknown;
     };
 
-    let mut joined = fields(left);
+    *budget = next;
 
-    merge_values(&mut joined, &fields(right));
+    if let (ExecutionCondition::Borrowed(left), ExecutionCondition::Borrowed(right)) = (left, right) {
+        return common_components(left, right, budget).borrowed();
+    }
 
-    ExecutionCondition::Constructed(
-        std::sync::Arc::new(left.owner_identity().clone()),
-        joined.into_iter().collect(),
-    )
+    let fields = |value: &ExecutionCondition| match value {
+        ExecutionCondition::Constructed(_, fields) => fields.iter().map(|(field, _)| *field).collect::<std::collections::BTreeSet<_>>(),
+        _ => Default::default(),
+    };
+
+    let mut projections = fields(left);
+
+    projections.extend(fields(right));
+
+    if projections.is_empty() {
+        return ExecutionCondition::Unknown;
+    }
+
+    let identity = if left.owner_identity() == right.owner_identity() {
+        left.owner_identity().clone()
+    } else {
+        ExecutionCondition::Unknown
+    };
+
+    let fields = projections.into_iter().map(|projection| {
+        let left = left.clone().project(projection);
+        let right = right.clone().project(projection);
+
+        (projection, common_components(&left, &right, budget))
+    }).collect();
+
+    ExecutionCondition::Constructed(std::sync::Arc::new(identity), fields)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::join_components;
+    use crate::{ExecutionCondition, ExecutionPlace};
+    use bray_bound_tree::{BoundUnitId, StorageProjection};
+    use bray_symbols::{ConstantProjectionKind, SymbolOrdinal};
+    use std::sync::Arc;
+
+    #[test]
+    fn joins_keep_matching_nested_observations_without_inventing_identity() {
+        let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let component = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let identity = ExecutionCondition::Input(place.clone());
+        let marker = ExecutionCondition::Boolean(true);
+
+        let nested = |version| ExecutionCondition::Constructed(
+            Arc::new(ExecutionCondition::Joined(BoundUnitId::new(0), version, place.clone())),
+            [(field, marker.clone())].into(),
+        ).borrowed();
+
+        let owner = |value| ExecutionCondition::Constructed(
+            Arc::new(identity.clone()), [(field, value)].into(),
+        );
+
+        let joined = join_components(&owner(nested(1)), &owner(nested(2)));
+
+        assert_eq!(joined.owner_identity(), &identity);
+        assert_eq!(joined.clone().component(component).component(component), marker);
+
+        let different = owner(ExecutionCondition::Constructed(
+            Arc::new(ExecutionCondition::Unknown), [(field, ExecutionCondition::Boolean(false))].into(),
+        ).borrowed());
+
+        assert_eq!(join_components(&joined, &different).component(component).component(component), ExecutionCondition::Unknown);
+    }
 }

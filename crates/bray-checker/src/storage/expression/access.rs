@@ -61,7 +61,7 @@ where
                     .receiver_field_access(expression, StorageProjection::ProductField(field));
             }
             BoundReferenceTarget::Surface(AnySymbolId::UnionPayloadField(field)) => {
-                let Some(field) = self.request.symbols().union_payload_field(field) else {
+                let Some(field) = self.request.union_payload_field(field)? else {
                     panic!(
                         "Storage-planning inputs or constructed records violate the requested unit contract. in reference_access"
                     );
@@ -148,7 +148,7 @@ where
                 MemberStorage::Projection(StorageProjection::ProductField(field))
             }
             AnySymbolId::UnionPayloadField(field) => {
-                let Some(field) = self.request.symbols().union_payload_field(field) else {
+                let Some(field) = self.request.union_payload_field(field)? else {
                     panic!(
                         "Storage-planning inputs or constructed records violate the requested unit contract. in selected_member_projection"
                     );
@@ -223,7 +223,7 @@ where
                 MemberStorage::Projection(StorageProjection::ProductField(field)),
             ),
             MemberLookupResult::Found(AnySymbolId::UnionPayloadField(field)) => {
-                let Some(field) = self.request.symbols().union_payload_field(field) else {
+                let Some(field) = self.request.union_payload_field(field)? else {
                     panic!(
                         "Storage-planning inputs or constructed records violate the requested unit contract. in member_from_checked_receiver"
                     );

@@ -1,0 +1,39 @@
+trusted module std.sync.once;
+
+const EMPTY: u32 = 0;
+
+const INITIALIZING: u32 = 1;
+
+const REENTERED: u32 = 2;
+
+const INITIALIZED: u32 = 3;
+
+@thread_local static CURRENT: core.atomic.Atomic<u8> = core.atomic.initialize<u8>(0);
+
+struct Marker
+{
+}
+
+trusted predicate valid(marker: &Marker);
+
+trusted predicate acquired(marker: &Marker);
+
+trusted predicate ready(marker: &Marker);
+
+struct State<T>
+{
+    phase: core.atomic.Atomic<u32>;
+    owner: core.atomic.Atomic<usize>;
+    value: Uninit<T>;
+}
+
+const func marker<T>(pos attempt: &(Attempt<T>?)) -> &Marker
+    requires(attempt matches ?_)
+    executes(pure, total)
+{
+    match attempt
+    {
+        case ?held { return &held.acquisition; }
+        case none { panic("missing initialization attempt"); }
+    }
+}

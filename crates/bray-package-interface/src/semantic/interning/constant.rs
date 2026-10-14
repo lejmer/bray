@@ -202,6 +202,14 @@ impl InternState {
 
                 Some(ConstantTermData::Conversion { operand, target })
             }
+            InterfaceConstantTerm::VariantTest { subject, variant } => {
+                let Some(subject) = self.constant_term_id(*subject) else { return Ok(None); };
+
+                Some(ConstantTermData::VariantTest {
+                    subject,
+                    variant: resolve_exact::<bray_symbols::UnionVariantSymbolId>(symbols, variant)?,
+                })
+            }
             InterfaceConstantTerm::NullablePresent(value) => self
                 .constant_term_id(*value)
                 .map(ConstantTermData::NullablePresent),

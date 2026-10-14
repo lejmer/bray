@@ -112,7 +112,8 @@ impl ExecutionCondition {
                 Self::Operation(_, operands)
                 | Self::Predicate(_, _, operands)
                 | Self::Call(_, operands) => pending.extend(operands.iter()),
-                Self::Projection(_, value)
+                Self::Tagged(_, value) | Self::VariantTest(_, value)
+                | Self::Projection(_, value)
                 | Self::Trusted(value)
                 | Self::Borrowed(value)
                 | Self::Present(value)
@@ -153,7 +154,8 @@ impl ExecutionCondition {
                 Self::Operation(_, operands)
                 | Self::Predicate(_, _, operands)
                 | Self::Call(_, operands) => pending.extend(operands.iter()),
-                Self::Projection(_, value)
+                Self::Tagged(_, value) | Self::VariantTest(_, value)
+                | Self::Projection(_, value)
                 | Self::Trusted(value)
                 | Self::Borrowed(value)
                 | Self::Present(value)
@@ -198,6 +200,31 @@ impl ExecutionCondition {
         })
     }
 
+    /// Whether every observed value is in the established unchanged set.
+    pub(crate) fn observes_only(
+        &self,
+        stable: &std::collections::BTreeSet<Self>,
+    ) -> bool {
+        let mut pending = vec![self];
+        let mut observed = false;
+
+        while let Some(value) = pending.pop() {
+            if stable.contains(value) {
+                observed = true;
+                continue;
+            }
+
+            match value {
+                Self::Boolean(_) | Self::Literal(_) | Self::Variant(_) => {}
+                Self::Tagged(_, value) | Self::VariantTest(_, value) | Self::Trusted(value) | Self::Borrowed(value) | Self::Present(value) => pending.push(value),
+                Self::Predicate(_, _, values) | Self::Call(_, values) | Self::Operation(_, values) => pending.extend(values.iter()),
+                _ => return false,
+            }
+        }
+
+        observed
+    }
+
     pub(crate) fn observations(&self) -> impl Iterator<Item = &Self> {
         self.observations_except(|_| false)
     }
@@ -222,7 +249,7 @@ impl ExecutionCondition {
                     | Self::Call(_, operands) => {
                         pending.extend(operands.iter());
                     }
-                    Self::Trusted(subject) | Self::Borrowed(subject) | Self::Present(subject) => {
+                    Self::Tagged(_, subject) | Self::VariantTest(_, subject) | Self::Trusted(subject) | Self::Borrowed(subject) | Self::Present(subject) => {
                         pending.push(subject);
                     }
                     Self::Entry {
@@ -269,7 +296,7 @@ impl ExecutionCondition {
                 Self::Operation(_, operands)
                 | Self::Predicate(_, _, operands)
                 | Self::Call(_, operands) => pending.extend(operands.iter()),
-                Self::Trusted(value) | Self::Projection(_, value) | Self::Present(value) => {
+                Self::Tagged(_, value) | Self::VariantTest(_, value) | Self::Trusted(value) | Self::Projection(_, value) | Self::Present(value) => {
                     pending.push(value)
                 }
                 Self::Entry {

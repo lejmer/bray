@@ -147,19 +147,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                 }
 
                 results.insert(match result {
-                    crate::ExecutionCondition::Expression(expression) => {
-                        match self.domain.semantics.selections().expression(*expression) {
-                            Some(bray_bound_tree::SemanticSelection::Operation(
-                                bray_bound_tree::SelectedOperation::Construction(construction),
-                            )) => match construction.target() {
-                                bray_bound_tree::ConstructionTarget::UnionVariant(variant) => {
-                                    Some(variant)
-                                }
-                                _ => None,
-                            },
-                            _ => None,
-                        }
-                    }
+                    crate::ExecutionCondition::Tagged(variant, _) => Some(*variant),
                     _ => None,
                 });
             }
@@ -244,6 +232,72 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
+    fn scoped_call_entry(
+        &self,
+        state: &ExecutionState,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        expression: BoundExpressionId,
+        scoped: &bray_bound_tree::SelectedScopedUse,
+    ) -> Option<crate::ExecutionCallEvidence> {
+        let (input, value, consumes) = match invocation {
+            bray_bound_tree::BoundExecutionSite::ScopedEnter(_) => (
+                scoped
+                    .enter()
+                    .1
+                    .receiver()
+                    .expect("selected scope enter has a receiver")
+                    .parameter()
+                    .into(),
+                self.value(state, scoped.initializer()),
+                scoped.enter().1.receiver().is_some_and(|receiver| {
+                    matches!(
+                        receiver.mode(),
+                        bray_symbols::ReceiverMode::Consuming
+                            | bray_symbols::ReceiverMode::ConsumingMutable
+                    )
+                }),
+            ),
+            bray_bound_tree::BoundExecutionSite::ScopedExit(_) => (
+                scoped.exit().1.parameters()[0].parameter().into(),
+                ExecutionCondition::ScopedCapability(expression),
+                !matches!(
+                    self.request
+                        .semantic_values()
+                        .type_data(scoped.capability_type())
+                        .as_ref(),
+                    TypeData::Borrow { .. }
+                ),
+            ),
+            bray_bound_tree::BoundExecutionSite::Node(_) => return None,
+        };
+
+        let input = crate::ExecutionPlace::from(BoundReferenceTarget::Surface(input));
+        let ordinal = crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
+
+        let transferred = if consumes {
+            BTreeSet::from([input.clone(), ordinal.clone()])
+        } else {
+            BTreeSet::new()
+        };
+
+        let arguments = BTreeMap::from([(input, value.clone()), (ordinal, value)]);
+
+        let trusted_assumptions =
+            self.call_trusted_assumptions(state, invocation, &arguments, &transferred);
+
+        return Some(crate::ExecutionCallEvidence {
+            anonymous_target: None,
+            trusted_boundary: !state.trust_boundaries.is_empty(),
+            pending_execution: matches!(
+                scoped.invocation(invocation).2,
+                bray_bound_tree::BoundCallResult::LazyFuture(_)
+            ),
+            arguments,
+            assumptions: state.assumptions.clone(),
+            trusted_assumptions,
+        });
+    }
+
     pub(super) fn call_entry(
         &self,
         state: &ExecutionState,
@@ -256,62 +310,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let selection = self.semantics.selections().expression(expression)?;
 
         if let bray_bound_tree::SemanticSelection::ScopedUse(scoped) = selection {
-            let (input, value, consumes) = match invocation {
-                bray_bound_tree::BoundExecutionSite::ScopedEnter(_) => (
-                    scoped
-                        .enter()
-                        .1
-                        .receiver()
-                        .expect("selected scope enter has a receiver")
-                        .parameter()
-                        .into(),
-                    self.value(state, scoped.initializer()),
-                    scoped.enter().1.receiver().is_some_and(|receiver| {
-                        matches!(
-                            receiver.mode(),
-                            bray_symbols::ReceiverMode::Consuming
-                                | bray_symbols::ReceiverMode::ConsumingMutable
-                        )
-                    }),
-                ),
-                bray_bound_tree::BoundExecutionSite::ScopedExit(_) => (
-                    scoped.exit().1.parameters()[0].parameter().into(),
-                    ExecutionCondition::ScopedCapability(expression),
-                    !matches!(
-                        self.request
-                            .semantic_values()
-                            .type_data(scoped.capability_type())
-                            .as_ref(),
-                        TypeData::Borrow { .. }
-                    ),
-                ),
-                bray_bound_tree::BoundExecutionSite::Node(_) => return None,
-            };
-
-            let input = crate::ExecutionPlace::from(BoundReferenceTarget::Surface(input));
-            let ordinal = crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
-
-            let transferred = if consumes {
-                BTreeSet::from([input.clone(), ordinal.clone()])
-            } else {
-                BTreeSet::new()
-            };
-
-            let arguments = BTreeMap::from([(input, value.clone()), (ordinal, value)]);
-
-            let trusted_assumptions =
-                self.call_trusted_assumptions(state, invocation, &arguments, &transferred);
-
-            return Some(crate::ExecutionCallEvidence {
-                trusted_boundary: !state.trust_boundaries.is_empty(),
-                pending_execution: matches!(
-                    scoped.invocation(invocation).2,
-                    bray_bound_tree::BoundCallResult::LazyFuture(_)
-                ),
-                arguments,
-                assumptions: state.assumptions.clone(),
-                trusted_assumptions,
-            });
+            return self.scoped_call_entry(state, invocation, expression, scoped);
         }
 
         let bray_bound_tree::SemanticSelection::Call(call) = selection else {
@@ -322,6 +321,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .get(&expression.into())?;
 
             return Some(crate::ExecutionCallEvidence {
+                anonymous_target: None,
                 trusted_boundary: !state.trust_boundaries.is_empty(),
                 pending_execution: false,
                 arguments: contract
@@ -412,6 +412,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.call_trusted_assumptions(state, invocation, &arguments, &transferred);
 
         let mut evidence = crate::ExecutionCallEvidence {
+            anonymous_target: match self.request.view().expression(expression) {
+                Some(bray_bound_tree::BoundExpression::Call(source))
+                    if matches!(call.target(), bray_bound_tree::BoundCallableTarget::Anonymous(_) | bray_bound_tree::BoundCallableTarget::Indirect(_)) => {
+                    match self.value(state, source.callee()) {
+                        ExecutionCondition::Expression(origin) => match self.request.view().expression(origin) {
+                            Some(bray_bound_tree::BoundExpression::AnonymousCallable(callable)) => Some(callable.unit().clone()),
+                            _ => None,
+                        },
+                        _ => None,
+                    }
+                }
+                _ => None,
+            },
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: matches!(
                 call.resolution().result(),
@@ -490,7 +503,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         expression: BoundExpressionId,
         observations: &BTreeMap<
-            bray_bound_tree::StoragePath,
+            bray_bound_tree::BoundExpressionId,
             BTreeSet<bray_bound_tree::StoragePath>,
         >,
     ) {

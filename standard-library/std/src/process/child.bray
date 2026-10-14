@@ -390,10 +390,10 @@ trusted internal func spawn_child_request(
         standard_input_policy = internal std.process.stream_policy_value(policy = standard_input),
         standard_output_policy = internal std.process.stream_policy_value(policy = standard_output),
         standard_error_policy = internal std.process.stream_policy_value(policy = standard_error),
-        child = std.memory.address_of_mut(&mut child),
-        standard_input = std.memory.address_of_mut(&mut input),
-        standard_output = std.memory.address_of_mut(&mut output),
-        standard_error = std.memory.address_of_mut(&mut error),
+        child = &mut child,
+        standard_input = &mut input,
+        standard_output = &mut output,
+        standard_error = &mut error,
     );
 
     try internal std.process.child_status(status, kind = Creation);
@@ -471,13 +471,11 @@ trusted internal func wait_for_child(pos child: &mut ChildProcess) -> Result<Exi
 
     let mut terminal: u32 = 0;
     let mut status: PlatformExitStatus = internal std.process.empty_exit_status();
-    let terminal_pointer: RawPointer<u32> = std.memory.address_of_mut(&mut terminal);
-    let status_pointer: RawPointer<PlatformExitStatus> = std.memory.address_of_mut(&mut status);
 
     let waited: std.platform.PlatformStatus = trusted internal std.process.platform_child_wait(
         child = child.state.handle,
-        terminal = terminal_pointer,
-        status = status_pointer,
+        terminal = std.memory.address_of_mut(&mut terminal),
+        status = std.memory.address_of_mut(&mut status),
     );
 
     try checked_child_status_or_dispose(&mut child, waited, kind = Waiting);
@@ -492,7 +490,7 @@ trusted internal func wait_for_child(pos child: &mut ChildProcess) -> Result<Exi
 
     let reaped: std.platform.PlatformStatus = trusted internal std.process.platform_child_reap(
         child = child.state.handle,
-        status = status_pointer,
+        status = std.memory.address_of_mut(&mut status),
     );
 
     try checked_child_status_or_dispose(&mut child, reaped, kind = Reaping);

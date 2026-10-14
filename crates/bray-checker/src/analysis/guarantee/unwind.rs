@@ -95,7 +95,7 @@ pub fn check_unwind_candidate<C: CheckerRequestContext + ?Sized>(
         let valid = super::operation::check_expression(
             request,
             expression,
-            ExecutionProperty::Total,
+            super::operation::ExecutionGoal::NoUnwind,
             expressions.selections(),
             storage,
             memory,

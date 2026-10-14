@@ -207,7 +207,7 @@ pub use value::{
     CallableParameterData, CallableParameterMode, CallableParameterName, CallablePosition,
     CallableTrust, CallableTypeData, ConstantBinaryOperation, ConstantField, ConstantProjection,
     ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantUnaryOperation,
-    ConstantValueData, ConstantValueId, ConstantValueKind, DependencyBorrowRelation,
+    ConstantValueData, ConstantValueId, ConstantValueKind, DependencyBorrowRelation, DependencyWitnessCarrier,
     DependencyCallInput, DependencyContractTemplateData, DependencyContractTemplateId,
     DependencyGuard, DependencyMutationKind, DependencyProjection, DependencyReferenceKind,
     DependencyRequirement, DependencyRequirementKind, DependencyStorageEffect, DependencySubject,

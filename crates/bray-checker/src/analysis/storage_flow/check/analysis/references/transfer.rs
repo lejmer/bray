@@ -12,9 +12,42 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &mut StorageFlowState,
         node: bray_bound_tree::AnyBoundNodeId,
     ) {
+        if let bray_bound_tree::AnyBoundNodeId::Pattern(pattern) = node {
+            for (binding, expression, access) in crate::storage::pattern_binding_sources(
+                self.request.view(), self.storage, pattern,
+            ) {
+                let Some(bray_bound_tree::StorageBinding::Identity(destination)) = self.storage
+                    .binding(bray_bound_tree::StorageBindingTarget::Local(binding))
+                else { continue; };
+
+                if self.input.initialization_destination(expression) == Some(destination) {
+                    // The initializer already transferred this whole value, including formed borrows.
+                    continue;
+                }
+
+                if let Some(source) = self.input.reference_target(&state.memory, self.storage, access) {
+                    state.memory.transfer_value(&source, Place::root(destination));
+                }
+            }
+
+            return;
+        }
+
         let bray_bound_tree::AnyBoundNodeId::Expression(expression) = node else {
             return;
         };
+
+        let captures_inputs = self.dependencies.calls().get(&expression.into()).is_some_and(|call| call.deferred_effects().is_some())
+            || matches!(self.execution.semantics.selections().expression(expression),
+                Some(bray_bound_tree::SemanticSelection::Call(call))
+                    if call.implementation_hook() == Some(bray_compiler_known::ImplementationHook::FutureStart));
+
+        if captures_inputs && let Some(result) = self.expression_result_storage(expression)
+        {
+            let captures = self.invocation_roots(state, expression.into());
+
+            state.memory.capture_inputs(result, captures);
+        }
 
         if let Some(fields) = self.input.reference_constructions.get(&expression) {
             for (operand, destination, ty) in fields {
@@ -214,7 +247,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let Some(destination) = destination else {
             state.memory.invalidate(
-                &bray_bound_tree::StorageInvalidation::All(Default::default()),
+                &bray_bound_tree::StorageInvalidation::unknown(),
                 self.storage,
                 bray_symbols::DependencyMutationKind::Write,
             );
@@ -280,7 +313,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .map(Target::storage)
                     .and_then(|target| {
                         Some(target.project(&storage_projections(
-                            self.request,
+                            self.dependencies,
                             relation.exit().projections(),
                         )?))
                     })
@@ -328,6 +361,23 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     destination.clone(),
                     reference,
                 );
+            }
+        }
+
+        if let Some(destination) = self.invocation_result(occurrence) {
+            let root = self.storage.storage_type(destination.root)
+                .and_then(|ty| crate::representation::reference_target_type(self.request, ty))
+                .map(|target| (destination.clone(), target));
+
+            let contained = self.input.returned_references.get(&destination.root);
+
+            if root.is_some() || contained.is_some_and(|paths| !paths.is_empty()) {
+                let inputs = self.invocation_roots(state, occurrence);
+
+                // Transitions own small place keys with shared projection paths.
+                let references = contained.into_iter().flat_map(|paths| paths.iter().map(|(path, ty)| (path.clone(), *ty))).chain(root.filter(|(path, _)| !contained.is_some_and(|paths| paths.contains_key(path))));
+
+                state.memory.stage_returned_references(occurrence, references, inputs);
             }
         }
     }
@@ -397,7 +447,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
             let Some(projections) =
-                storage_projections(self.request, relation.target_projections())
+                storage_projections(self.dependencies, relation.target_projections())
             else {
                 return;
             };
@@ -412,6 +462,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     target.project(&projections),
                     destination.clone(),
                     ty,
+                    relation.kind(),
                 );
             }
         } else if let Some(ty) = reference.addressed_type() {
@@ -419,7 +470,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 panic!("addressed storage has a location");
             };
 
-            memory.stage_address(occurrence, target, destination.clone(), ty);
+            memory.stage_address(occurrence, target, destination.clone(), ty, relation.kind());
         } else {
             source.stage(memory, occurrence, destination.clone());
         }
@@ -434,17 +485,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let start = self.expression_target(state, argument)?;
 
         let root_borrow = if path.borrows().first().is_some_and(|(index, _)| *index == 0) {
-            let borrowed = self
-                .execution
-                .semantics
-                .types()
-                .expression(argument)
-                .is_some_and(|ty| {
-                    matches!(
-                        self.request.semantic_values().type_data(ty.ty()).as_ref(),
-                        TypeData::Borrow { .. }
-                    )
-                });
+            let borrowed = self.expression_is_borrowed(argument);
 
             Some(if borrowed {
                 self.expression_reference(state, argument)?

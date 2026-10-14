@@ -191,9 +191,9 @@ internal struct WaitQueue
         self.head = 0;
     }
 
-    trusted mut func release_storage()
+    trusted mut func take_storage() -> std.memory.RawBuffer<WaiterEntry>
     {
-        trusted internal std.collection.release_list_storage<WaiterEntry>(&mut self.entries);
         self.head = 0;
+        return trusted internal std.memory.take_buffer<WaiterEntry>(&mut self.entries.storage);
     }
 }

@@ -147,8 +147,11 @@ trusted internal func native_release_address(pos primary: &ReportPrimary) -> Raw
     );
 }
 
-trusted internal func release_primary(pos primary: &ReportPrimary, pos callback: PanicMessageRelease?) -> ReportOutcome
-    ensures(trusted native_report_callbacks(report = &result.report))
+trusted internal func release_primary(
+    pos primary: &ReportPrimary,
+    pos callback: PanicMessageRelease?
+) -> (u32, PanicReportData)
+    ensures(trusted native_report_callbacks(report = &result.1))
     uses(layout_reinterpret)
 {
     let mut outcome: ReportOutcome =
@@ -167,7 +170,7 @@ trusted internal func release_primary(pos primary: &ReportPrimary, pos callback:
         trusted release(primary.message, primary.message_length, output);
     }
 
-    return outcome;
+    return (outcome.state, outcome.report);
 }
 
 @abi(c)
@@ -194,9 +197,9 @@ trusted internal func recycle_reservation(pos handle: usize)
     primary = trusted read_primary(pointer);
 
     let callback: PanicMessageRelease? = trusted primary_release(&primary);
-    let outcome: ReportOutcome = trusted release_primary(&primary, callback);
+    let (state, _) = trusted release_primary(&primary, callback);
 
-    if outcome.state != RUN_COMPLETED
+    if state != RUN_COMPLETED
     {
         trusted core.target.abort();
     }
@@ -243,9 +246,9 @@ trusted internal func consume_report(pos pointer: RawPointer<PanicReportData>, p
             }
         }
 
-        let mut release: ReportOutcome = trusted release_primary(&primary, callback);
+        let (release_state, report) = trusted release_primary(&primary, callback);
 
-        if release.state == RUN_PANICKED
+        if release_state == RUN_PANICKED
         {
             if status == STATUS_SUCCESS
             {
@@ -254,14 +257,14 @@ trusted internal func consume_report(pos pointer: RawPointer<PanicReportData>, p
 
             let mut incidents: ReportRecords =
             {
-                head = release.report.outgoing_head,
-                tail = release.report.outgoing_tail,
-                count = release.report.outgoing_count
+                head = report.outgoing_head,
+                tail = report.outgoing_tail,
+                count = report.outgoing_count
             };
 
-            let reservation: usize = release.report.reserved;
+            let reservation: usize = report.reserved;
 
-            primary = trusted report_primary_value(release.report);
+            primary = trusted report_primary_value(report);
             callback = trusted primary_release(&primary);
             trusted recycle_reservation(reservation);
 
@@ -274,7 +277,7 @@ trusted internal func consume_report(pos pointer: RawPointer<PanicReportData>, p
         }
         else
         {
-            if release.state != RUN_COMPLETED
+            if release_state != RUN_COMPLETED
             {
                 trusted core.target.abort();
             }

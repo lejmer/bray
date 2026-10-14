@@ -74,6 +74,7 @@ where
                 values,
                 execution.semantics.selections(),
                 execution.disposal.plan,
+                memory,
             )
             .map(|prepared| (prepared, diagnostics))
         }) {
@@ -201,6 +202,8 @@ where
         }
     }
 
+    let carriers = collector.trusted.result_carriers(request);
+
     collector
         .diagnostics
         .add_range(std::mem::take(&mut collector.trusted).finish(execution));
@@ -252,7 +255,7 @@ where
     .and_then(|analysis| analysis.with_assignment_targets(assignments))
     {
         Ok(analysis) => analysis
-            .with_dependencies(dependencies.with_effects(effects))
+            .with_dependencies(dependencies.with_effects(effects).with_carriers(carriers))
             .with_cleanup_mutations(collector.cleanup_mutations)
             .with_completions(collector.completions),
         Err(error) => {
@@ -587,7 +590,7 @@ where
             .and_then(|target| target.storage_path())
             .cloned();
 
-        let invalidation = if completing {
+        let mut invalidation = if completing {
             None
         } else {
             let call_effects = call_effects
@@ -604,7 +607,7 @@ where
                 .or_else(|| {
                     self.refinements
                         .invalidation_at(kind.occurrence())
-                        .map(|planned| self.planned_observations(state, planned))
+                        .map(|planned| self.planned_observations(state, planned, kind.occurrence()))
                         .or_else(|| {
                             matches!(
                                 kind,
@@ -613,10 +616,14 @@ where
                                     ..
                                 }
                             )
-                            .then(|| self.opaque_observations(&state.memory))
+                            .then(|| self.opaque_observations(&state.memory, self.invocation_roots(state, kind.occurrence())))
                         })
                 })
         };
+
+        if let Some(invalidation) = &mut invalidation {
+            self.preserve_borrowed_carriers(state, &state.memory, invalidation);
+        }
 
         if !completing {
             self.record_operation_effects(kind, call_effects.as_deref(), assignment.as_ref());
@@ -736,6 +743,24 @@ where
         refinements: impl Iterator<Item = &'refinements Refinement> + Clone,
     ) {
         for refinement in refinements.clone() {
+            if let bray_bound_tree::RefinementKind::Pattern {
+                access,
+                predicate: bray_bound_tree::PatternPredicate::ActiveUnionVariant(active),
+                value,
+                ..
+            } = refinement.kind()
+                && let Some(payloads) = self.storage.logical_path(access).and_then(|path| self.input.variant_payloads.get(path))
+            {
+                for payload in payloads {
+                    if let Some(bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, .. }) = payload.projections.last()
+                        && (*variant == active) != value
+                    {
+                        // The absent variant is an ownership fact even when its payload has no source binding.
+                        state.definitely_absent.entry(payload.clone()).or_insert(StorageAbsence::NoPayload);
+                    }
+                }
+            }
+
             let access = match refinement.kind() {
                 bray_bound_tree::RefinementKind::Pattern {
                     access,
@@ -803,7 +828,7 @@ where
             self.refinements
                 .invalidation_at(operation.kind().occurrence())
         }) {
-            state.invalidate_observed_absence(invalidation, self.storage);
+            state.invalidate_observed_absence(invalidation, self.storage, &self.input.discriminants);
         }
 
         if let AnalysisOperationKind::Call { invocation, phase } = operation.kind() {
@@ -1143,7 +1168,7 @@ where
                 } else {
                     // A lifetime anchor cannot stand in for an unresolved physical target.
                     state.memory.invalidate(
-                        &bray_bound_tree::StorageInvalidation::All(Default::default()),
+                        &bray_bound_tree::StorageInvalidation::unknown(),
                         self.storage,
                         if purpose == StorageAccessPurpose::Move {
                             bray_symbols::DependencyMutationKind::Consume

@@ -1,3 +1,4 @@
+use crate::analysis::storage_flow::memory::Effect;
 use bray_bound_tree::{StorageAccessId, StorageInvalidation, StoragePath};
 use bray_symbols::{DependencyMutationKind, DependencySubjectRoot};
 
@@ -38,18 +39,31 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let dependencies = self.dependencies;
 
         let mut mutate = |execution: &mut ExecutionState,
-                          invocation: Option<
-            crate::analysis::guarantee::LifecycleInvocation<'_>,
-        >| {
-            let effects = invocation.as_ref().and_then(|call| {
-                self.lifecycle_effects(&memory, call.access, call.path, call.lifecycle)
-            });
+                          mutation: crate::analysis::guarantee::CleanupMutation<'_>| {
+            use crate::analysis::guarantee::CleanupMutation;
 
-            let mut invalidation = effects
-                .as_ref()
-                .map_or_else(|| self.opaque_observations(&memory), |effects| {
-                    self.target_observations(&memory, effects.iter().map(|(target, _)| target))
-                });
+            let invocation = match &mutation { CleanupMutation::Lifecycle(call) => Some(call), _ => None };
+
+            let receiver = match &mutation {
+                CleanupMutation::Opaque { access, path, .. } => self.cleanup_receiver(&memory, *access, *path),
+                CleanupMutation::Lifecycle(call) => self.cleanup_receiver(&memory, call.access, call.path),
+                CleanupMutation::Unknown => None,
+            };
+
+            let effects = match mutation {
+                CleanupMutation::Unknown => None,
+                CleanupMutation::Opaque { ty, .. } => {
+                    Some(vec![Effect::Cleanup(ty)])
+                },
+                CleanupMutation::Lifecycle(ref call) => self.lifecycle_effects(&memory, call.access, call.path, call.lifecycle),
+            };
+
+            let mut invalidation = match effects.as_deref() {
+                Some(effects) if !effects.iter().any(|effect| matches!(effect, Effect::Cleanup(_))) => self.resolved_observations(&memory, effects, receiver.iter().cloned()),
+                _ => receiver.map_or_else(StorageInvalidation::unknown, |receiver| self.opaque_observations(&memory, [receiver])),
+            };
+
+            self.preserve_borrowed_carriers(state, &memory, &mut invalidation);
 
             if let Some(call) = &invocation
                 && call.completes
@@ -68,19 +82,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             );
 
             if let Some(effects) = &effects {
-                for (target, kind) in effects {
-                    self.record_target_effect(target, *kind);
-                    memory.invalidate_target(target, *kind);
-                }
+                self.record_resolved_effects(effects);
             } else {
-                self.record_effects(&StorageInvalidation::All(Default::default()), DependencyMutationKind::Retire);
-
-                memory.invalidate(
-                    &invalidation,
-                    self.storage,
-                    DependencyMutationKind::Retire,
-                );
+                self.record_effects(&StorageInvalidation::unknown(), DependencyMutationKind::Retire);
             }
+
+            self.apply_resolved_effects(&mut memory, effects.as_deref(), &invalidation);
 
             if invocation.as_ref().is_some_and(|call| call.completes) {
                 memory.complete_transition(operation.occurrence());
@@ -180,7 +187,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         memory: &State,
         call: &crate::analysis::guarantee::LifecycleInvocation<'_>,
-        effects: &[(Target, DependencyMutationKind)],
+        effects: &[Effect],
         invalidation: &mut StorageInvalidation,
     ) {
         let Some(path) = call.path else {
@@ -243,7 +250,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         access: StorageAccessId,
         path: Option<&StoragePath>,
         lifecycle: &Lifecycle,
-    ) -> Option<Vec<(Target, DependencyMutationKind)>> {
+    ) -> Option<Vec<Effect>> {
         let contracts = &self.dependencies.lifecycle_dependencies()[&lifecycle.callable];
 
         self.resolve_effects(contracts.effects(), |subject, indirect| {

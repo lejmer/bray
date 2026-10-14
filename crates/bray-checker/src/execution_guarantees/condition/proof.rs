@@ -43,7 +43,7 @@ impl ExecutionCondition {
         // Test exact evidence once per Boolean node. Recursively proving its entire
         // subtree at each level makes a chain of clauses require quadratic work.
         for value in [true, false] {
-            if trusted.contains(&(self.clone(), value)) {
+            if trusted.contains(&(self.clone(), value)) && !self.contains_unknown() {
                 return Some(value);
             }
         }
@@ -107,12 +107,18 @@ impl ExecutionCondition {
         }
 
         // These owned keys share immutable operation operands with the proof input.
-        if assumptions.contains(&(self.clone(), true)) {
+        if assumptions.contains(&(self.clone(), true)) && !self.contains_unknown() {
             return Some(true);
         }
 
-        if assumptions.contains(&(self.clone(), false)) {
+        if assumptions.contains(&(self.clone(), false)) && !self.contains_unknown() {
             return Some(false);
+        }
+
+        if let Self::VariantTest(variant, subject) = self {
+            return assumptions.iter().any(|(condition, value)| {
+                *value && matches!(condition, Self::VariantTest(active, other) if active != variant && other == subject)
+            }).then_some(false);
         }
 
         let Self::Operation(operator, operands) = self else {
@@ -182,7 +188,10 @@ impl ExecutionCondition {
             Self::Unknown => {}
             Self::Trusted(condition) => {
                 // Keep the occurrence qualifier for contract implication and authority-bearing values.
-                insert(Self::Trusted(condition.clone()), value);
+                if !condition.contains_unknown() {
+                    insert(Self::Trusted(condition.clone()), value);
+                }
+
                 condition.as_ref().clone().assume_with(value, insert);
             }
             Self::Operation(BoundOperator::LogicalNot, operands) if operands.len() == 1 => {
@@ -198,9 +207,10 @@ impl ExecutionCondition {
                     operand.clone().assume_with(value, insert);
                 }
             }
-            condition => {
+            condition if !condition.contains_unknown() => {
                 insert(condition, value);
             }
+            _ => {}
         }
     }
 }

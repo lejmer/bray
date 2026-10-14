@@ -99,7 +99,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let expired_roots = expired
             .iter()
-            .map(|(place, _)| place.root)
+            .map(|(place, _)| place.root.clone())
             .collect::<BTreeSet<_>>();
 
         // A formal carrier's stored reference names caller-owned storage. Retain its
@@ -187,6 +187,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         expression: BoundExpressionId,
         call: &bray_bound_tree::SelectedCall,
         arguments: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+        origins: &BTreeMap<BoundExpressionId, BTreeSet<bray_bound_tree::StoragePath>>,
     ) -> (Vec<ExecutionCondition>, BTreeSet<crate::ExecutionPlace>) {
         let mut carriers = Vec::new();
         let mut owners = BTreeSet::new();
@@ -268,7 +269,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // A local borrow alias retains the referent, rather than the slot holding
             // the alias. Its returned view can outlive that slot while the input lives.
             if returned(*operand) {
-                self.retain_trusted_borrow_owners(&mut owners, *operand, &input, &place);
+                self.retain_trusted_borrow_owners(&mut owners, *operand, &place, origins);
             }
 
             let value = input;
@@ -313,8 +314,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.retain_trusted_borrow_owners(
                     &mut owners,
                     receiver.expression(),
-                    &input,
                     &place,
+                    origins,
                 );
             }
 
@@ -336,40 +337,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         owners: &mut BTreeSet<crate::ExecutionPlace>,
         expression: BoundExpressionId,
-        input: &ExecutionCondition,
         place: &crate::ExecutionPlace,
+        origins: &BTreeMap<BoundExpressionId, BTreeSet<bray_bound_tree::StoragePath>>,
     ) {
-        // Retained borrow aliases name local slots, but their capabilities reach the
-        // original storage. Use the same resolved roots as ordinary borrow checking.
-        let mut retained = false;
-
-        let borrowed = self.storage.expression_plans(expression).any(|plan| {
-            matches!(
-                plan.purpose(),
-                bray_bound_tree::StorageAccessPurpose::Borrow(_)
-            )
-        });
-
-        for plan in self.storage.expression_plans(expression).filter(|plan| {
-            !borrowed
-                || matches!(
-                    plan.purpose(),
-                    bray_bound_tree::StorageAccessPurpose::Borrow(_)
-                )
-        }) {
-            for root in self.storage.retained_roots(plan.access()) {
-                if let Some(owner) = crate::ExecutionPlace::storage_identity(self.storage, root) {
-                    owners.insert(owner);
-                    retained = true;
-                }
-            }
-        }
-
-        if !retained {
-            owners.insert(match input {
-                ExecutionCondition::Input(owner) => owner.clone(),
-                _ => place.clone(),
-            });
+        if let Some(paths) = origins.get(&expression) {
+            owners.extend(paths.iter().filter_map(|path| {
+                crate::ExecutionPlace::storage_path(self.storage, path)
+            }));
+        } else {
+            // Provisional execution analysis has no completed storage transition yet.
+            owners.insert(place.clone());
         }
     }
 
@@ -379,7 +356,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invocation: bray_bound_tree::BoundExecutionSite,
         result: ExecutionCondition,
         observations: &BTreeMap<
-            bray_bound_tree::StoragePath,
+            bray_bound_tree::BoundExpressionId,
             BTreeSet<bray_bound_tree::StoragePath>,
         >,
     ) {
@@ -463,13 +440,27 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             )
         };
 
-        let guarantees = contract.guarantees.iter().map(capture).collect::<Vec<_>>();
+        let inferred = self.dependencies.calls().get(&invocation).into_iter().flat_map(|dependencies| {
+            dependencies.carriers().iter().map(|carrier| {
+                let condition = crate::execution_condition_from_type_term(self.request.semantic_values(), carrier.guarantee(), dependencies.input_count())
+                    .expect("checked carrier condition decodes in the same semantic store");
 
-        let subjects = contract
-            .witness_subjects
-            .iter()
-            .map(|(guarantee, subject)| (capture(guarantee), subject))
-            .collect::<Vec<_>>();
+                (capture(&condition), super::carriers::result_projection(self.dependencies, carrier.path()))
+            })
+        }).collect::<Vec<_>>();
+
+        let guarantees = contract.guarantees.iter().map(capture)
+            .chain(inferred.iter().map(|(condition, _)| condition.clone())).collect::<Vec<_>>();
+
+        let mut subjects = contract.witness_subjects.iter().filter_map(|(guarantee, subject)| {
+            let guarantee = capture(guarantee);
+
+            if subject.observes_completion_result() && inferred.iter().any(|(condition, _)| *condition == guarantee) {
+                None
+            } else { Some((guarantee, subject.clone())) }
+        }).collect::<Vec<_>>();
+
+        subjects.extend(inferred);
 
         let postconditions = contract
             .postconditions
@@ -494,7 +485,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .clone()
         }));
 
-        let (carriers, owners) = if !contract.guarantees.is_empty()
+        let (carriers, owners) = if !guarantees.is_empty()
             && let bray_bound_tree::BoundExecutionSite::Node(
                 bray_bound_tree::AnyBoundNodeId::Expression(expression),
             ) = invocation
@@ -502,7 +493,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.semantics.selections().expression(expression)
         {
             // The entry above already proves the valid domain of this preservation promise.
-            self.prepare_trusted_observations(state, expression, call, &mut arguments)
+            self.prepare_trusted_observations(state, expression, call, &mut arguments, observations)
         } else {
             Default::default()
         };
@@ -564,36 +555,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             guarantee.assume(true, &mut state.trusted_assumptions);
         }
 
-        if !contract.guarantees.is_empty() && !owners.is_empty() {
+        if !guarantees.is_empty() && !owners.is_empty() {
             let dependencies = state
                 .witness_dependencies
                 .entry(result.owner_identity().clone())
                 .or_default();
 
-            // The ordinary dependency checker validates the reached storage and borrow capability.
-            // Keep those same input owners attached to the trusted conditions on the returned view.
-            // Resolve borrow aliases using the physical locations established by storage flow.
-            // Value equality alone cannot identify storage or extend its lifetime.
-            let aliases = observations
-                .iter()
-                .filter_map(|(path, targets)| {
-                    Some((
-                        crate::ExecutionPlace::storage_path(self.storage, path)?,
-                        targets
-                            .iter()
-                            .map(|target| crate::ExecutionPlace::storage_path(self.storage, target))
-                            .collect::<Option<Vec<_>>>()?,
-                    ))
-                })
-                .collect::<BTreeMap<_, _>>();
-
-            for owner in owners {
-                if let Some(targets) = aliases.get(&owner) {
-                    dependencies.extend(targets.iter().cloned());
-                } else {
-                    dependencies.insert(owner);
-                }
-            }
+            // The owning storage transition already resolved the required lifetimes.
+            // These anchors need not name the physical storage reached by the borrow.
+            dependencies.extend(owners);
         }
 
         for postcondition in &postconditions {

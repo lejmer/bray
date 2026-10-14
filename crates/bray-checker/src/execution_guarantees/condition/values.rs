@@ -68,7 +68,7 @@ impl ExecutionCondition {
     pub(crate) fn call(callable: bray_symbols::CallableInstanceData, arguments: Vec<Self>) -> Self {
         if arguments
             .iter()
-            .any(|argument| matches!(argument, Self::Unknown))
+            .any(Self::contains_unknown)
         {
             Self::Unknown
         } else {
@@ -88,6 +88,25 @@ impl ExecutionCondition {
             self.present()
         } else {
             self
+        }
+    }
+
+    pub(crate) fn pattern(subject: Self, operator: BoundOperator, expected: Self) -> Self {
+        if let Self::Variant(variant) = expected {
+            subject.matches_variant(variant)
+        } else {
+            Self::operation(operator, vec![subject, expected])
+        }
+    }
+
+    pub(crate) fn matches_variant(self, variant: bray_symbols::UnionVariantSymbolId) -> Self {
+        match self {
+            Self::Unknown => Self::Unknown,
+            Self::Borrowed(value) => value.as_ref().clone().matches_variant(variant),
+            Self::Literal(ref value) if let bray_symbols::ConstantValueKind::Union { variant: active, .. } = value.kind() => Self::Boolean(*active == variant),
+            Self::Tagged(active, _) => Self::Boolean(active == variant),
+            Self::Constructed(base, fields) => Self::component_base(&base, &fields).clone().matches_variant(variant),
+            value => Self::VariantTest(variant, Arc::new(value)),
         }
     }
 
@@ -138,7 +157,7 @@ impl ExecutionCondition {
     ) -> Self {
         if arguments
             .iter()
-            .any(|argument| matches!(argument, Self::Unknown))
+            .any(Self::contains_unknown)
         {
             Self::Unknown
         } else {
@@ -247,7 +266,7 @@ impl ExecutionCondition {
                     .find(|(field, _)| *field == StorageProjection::NullableValue)
                     .map(|(_, value)| value.clone().component(projection))
                     .unwrap_or_else(|| {
-                        base.as_ref()
+                        Self::component_base(&base, &fields)
                             .clone()
                             .component(ConstantProjectionKind::NullableValue)
                             .component(projection)
@@ -277,10 +296,18 @@ impl ExecutionCondition {
                     _ => false,
                 })
                 .map(|(_, value)| value.clone())
-                .unwrap_or_else(|| base.as_ref().clone().component(projection)),
+                .unwrap_or_else(|| Self::component_base(&base, &fields).clone().component(projection)),
             Self::Unknown => Self::Unknown,
             value => Self::Projection(projection, Arc::new(value)),
         }
+    }
+
+    fn component_base<'a>(
+        base: &'a Self,
+        fields: &'a [(bray_bound_tree::StorageProjection, Self)],
+    ) -> &'a Self {
+        fields.iter().find(|(projection, _)| *projection == bray_bound_tree::StorageProjection::OwnedTarget)
+            .map(|(_, contents)| contents).unwrap_or(base)
     }
 
     pub(crate) fn with_component(
@@ -316,7 +343,12 @@ impl ExecutionCondition {
             _ => return Self::Unknown,
         };
 
-        let child = self.clone().component(*first).with_component(rest, value);
+        let previous = self.clone().component(*first);
+        let child = previous.with_component(rest, value);
+
+        if child == previous {
+            return self.clone();
+        }
 
         let (base, mut fields) = match self {
             Self::Constructed(base, fields) => (Arc::clone(base), fields.to_vec()),
@@ -333,10 +365,19 @@ impl ExecutionCondition {
         Self::Constructed(base, fields.into())
     }
 
-    pub(crate) fn operation(operator: BoundOperator, operands: Vec<Self>) -> Self {
-        if operands
-            .iter()
-            .any(|operand| matches!(operand, Self::Unknown))
+    pub(crate) fn operation(operator: BoundOperator, mut operands: Vec<Self>) -> Self {
+        for operand in &mut operands {
+            if let Self::Constructed(base, fields) = operand {
+                let contents = Self::component_base(base, fields);
+
+                if matches!(contents, Self::Literal(_) | Self::Boolean(_)) {
+                    *operand = contents.clone();
+                }
+            }
+        }
+
+        if !matches!(operator, BoundOperator::LogicalNot | BoundOperator::LogicalAnd | BoundOperator::LogicalOr)
+            && operands.iter().any(Self::contains_unknown)
         {
             return Self::Unknown;
         }
@@ -364,6 +405,24 @@ impl ExecutionCondition {
             }
         }
 
+        if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual) {
+            if let [Self::Borrowed(subject), Self::Literal(absent)] | [Self::Literal(absent), Self::Borrowed(subject)] = operands.as_slice()
+                && matches!(absent.kind(), bray_symbols::ConstantValueKind::NullableAbsent)
+            {
+                // Nullable tests observe the reached value, as union tag tests do.
+                return Self::operation(operator, vec![subject.as_ref().clone(), Self::Literal(Arc::clone(absent))]);
+            }
+
+            if let [left, Self::Literal(absent)] | [Self::Literal(absent), left] = operands.as_slice()
+                && matches!(absent.kind(), bray_symbols::ConstantValueKind::NullableAbsent)
+                && let Self::Constructed(base, fields) = left
+                && fields.iter().all(|(projection, _)| *projection == bray_bound_tree::StorageProjection::NullableValue)
+            {
+                // Updating a present payload snapshot does not replace the nullable tag.
+                return Self::operation(operator, vec![(**base).clone(), Self::Literal(Arc::clone(absent))]);
+            }
+        }
+
         match (operator, operands.as_slice()) {
             (
                 BoundOperator::Equal | BoundOperator::NotEqual,
@@ -384,11 +443,12 @@ impl ExecutionCondition {
                 BoundOperator::NotEqual | BoundOperator::Less | BoundOperator::Greater,
                 [left, right],
             ) if left == right => Self::Boolean(false),
-            (BoundOperator::Equal, [Self::Boolean(left), Self::Boolean(right)]) => {
-                Self::Boolean(left == right)
-            }
-            (BoundOperator::NotEqual, [Self::Boolean(left), Self::Boolean(right)]) => {
-                Self::Boolean(left != right)
+            (BoundOperator::Equal | BoundOperator::NotEqual, [condition, Self::Boolean(expected)] | [Self::Boolean(expected), condition]) => {
+                if *expected == (operator == BoundOperator::Equal) {
+                    condition.clone()
+                } else {
+                    Self::operation(BoundOperator::LogicalNot, vec![condition.clone()])
+                }
             }
             (BoundOperator::LogicalNot, [Self::Boolean(value)]) => Self::Boolean(!value),
             (BoundOperator::LogicalNot, [Self::Operation(BoundOperator::LogicalNot, inner)]) => {

@@ -54,6 +54,7 @@ fn propagated_nested_scope_exit_publishes_its_cleanup_plan() {
         include_str!("../../../../../../standard-library/std/src/bytes/buffer.bray"),
         include_str!("../../../../../../standard-library/std/src/collection/list.bray"),
         include_str!("../../../../../../standard-library/std/src/collection/deque.bray"),
+        include_str!("../../../../../../standard-library/std/src/collection/ring.bray"),
         r#"module app;
 
 using std.collection;

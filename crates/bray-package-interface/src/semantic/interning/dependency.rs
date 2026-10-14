@@ -57,6 +57,18 @@ impl InternState {
                 continue;
             }
 
+            let mut carriers = Vec::with_capacity(input.carriers.len());
+
+            for carrier in &*input.carriers {
+                let Some(path) = self.convert_dependency_projections(carrier.path(), symbols)? else { break; };
+
+                let Some(condition) = self.constant_term_id(carrier.guarantee()) else { break; };
+
+                carriers.push(bray_symbols::DependencyWitnessCarrier::new(condition, path));
+            }
+
+            if carriers.len() != input.carriers.len() { continue; }
+
             let Some(effects) = self.convert_dependency_effects(&input.effects, symbols)? else {
                 continue;
             };
@@ -65,6 +77,7 @@ impl InternState {
                 store.intern_dependency_contract_template(
                     DependencyContractTemplateData::new(requirements)
                         .with_borrows(borrows)
+                        .with_carriers(carriers)
                         .with_effects(effects)
                         .with_normal_completion(input.normal_completion),
                 )?,
@@ -289,6 +302,7 @@ impl InternState {
         input: &[bray_symbols::DependencyStorageEffect<
             InterfaceDependencySubject,
             InterfaceDependencyProjection,
+            crate::InterfaceTypeId,
         >],
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<Option<Vec<bray_symbols::DependencyStorageEffect>>, InterfaceSemanticInternError>
@@ -299,7 +313,13 @@ impl InternState {
 
         for effect in input {
             effects.push(match effect {
-                DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
+                DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
+                    DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
+                DependencyStorageEffect::Cleanup(ty) => {
+                    let Some(ty) = self.type_id(*ty) else { return Ok(None); };
+
+                    DependencyStorageEffect::Cleanup(ty)
+                }
                 DependencyStorageEffect::Direct { subject, kind } => {
                     let Some(subject) = self.convert_dependency_subject(subject, symbols)? else {
                         return Ok(None);

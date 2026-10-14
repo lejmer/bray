@@ -359,11 +359,32 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     }
 }
 
+/// A checked trusted condition carried by a complete returned owner.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DependencyWitnessCarrier<Projection = DependencyProjection, Condition = ConstantTermId> {
+    guarantee: Condition,
+    path: Arc<[Projection]>,
+}
+
+impl<Projection, Condition: Copy> DependencyWitnessCarrier<Projection, Condition> {
+    /// Records a checked carrier path relative to the complete returned value.
+    pub fn new(guarantee: Condition, path: impl IntoIterator<Item = Projection>) -> Self {
+        Self { guarantee, path: path.into_iter().collect() }
+    }
+
+    /// Returns the portable condition independently supported by this owner.
+    pub const fn guarantee(&self) -> Condition { self.guarantee }
+
+    /// Returns the complete carrier's owned path within the result.
+    pub fn path(&self) -> &[Projection] { &self.path }
+}
+
 /// A normalized source-independent dependency-contract template.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DependencyContractTemplateData {
     requirements: Arc<[DependencyRequirement]>,
     borrows: Arc<[DependencyBorrowRelation]>,
+    carriers: Arc<[DependencyWitnessCarrier]>,
     effects: Arc<[super::DependencyStorageEffect]>,
     normal_completion: bool,
 }
@@ -375,7 +396,7 @@ impl DependencyContractTemplateData {
             .iter()
             .flat_map(|relation| [relation.entry(), relation.exit()])
             .chain(self.effects().iter().filter_map(|effect| match effect {
-                DependencyStorageEffect::Unknown => None,
+                DependencyStorageEffect::Atomic | DependencyStorageEffect::Unknown | DependencyStorageEffect::Cleanup(_) => None,
                 DependencyStorageEffect::Direct { subject, .. } => Some(subject),
                 DependencyStorageEffect::Indirect { reference, .. } => Some(reference),
             }))
@@ -386,6 +407,7 @@ impl DependencyContractTemplateData {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
             borrows: Arc::new([]),
+            carriers: Arc::new([]),
             effects: Arc::new([super::DependencyStorageEffect::Unknown]),
             normal_completion: true,
         }
@@ -400,10 +422,21 @@ impl DependencyContractTemplateData {
             requirements: sorted_unique_shared_slice(requirements),
             // Transformations own a new contract while retaining the immutable checked summary.
             borrows: Arc::clone(&self.borrows),
+            carriers: Arc::clone(&self.carriers),
             effects: Arc::clone(&self.effects),
             normal_completion: self.normal_completion,
         }
     }
+
+    /// Attaches complete carrier paths proved by the owning body analysis.
+    pub fn with_carriers(mut self, carriers: impl IntoIterator<Item = DependencyWitnessCarrier>) -> Self {
+        self.carriers = sorted_unique_shared_slice(carriers);
+
+        self
+    }
+
+    /// Returns the proven returned carriers of declared trusted guarantees.
+    pub fn carriers(&self) -> &[DependencyWitnessCarrier] { &self.carriers }
 
     /// Records whether the checked body can produce a normal result.
     pub fn with_normal_completion(mut self, possible: bool) -> Self {

@@ -156,7 +156,7 @@ where
                 .reported_diagnostics
                 .insert((DiagnosticKind::CheckingEscapingStorageDependency, access))
             {
-                self.report_escaping_access(exit, access);
+            self.report_escaping_access(exit, access);
             }
         }
     }
@@ -310,7 +310,7 @@ where
         )
     }
 
-    fn borrow_reaches_external_storage(
+    pub(super) fn borrow_reaches_external_storage(
         &self,
         mut access: bray_bound_tree::StorageAccessId,
     ) -> bool {

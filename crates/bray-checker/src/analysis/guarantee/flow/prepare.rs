@@ -20,7 +20,7 @@ pub(in crate::analysis::guarantee) fn analyze_execution_flow<
     assumptions: &'a [ExecutionCondition],
     storage: &'a bray_bound_tree::StoragePlan,
     memory: &'a bray_bound_tree::CheckedMemoryOperations,
-    checked_flow: &'a bray_bound_tree::StorageFlow,
+    checked_body: &'a bray_bound_tree::CheckedBodySemantics,
     refinements: &'a std::collections::BTreeMap<
         bray_bound_tree::BoundExecutionSite,
         bray_bound_tree::StorageInvalidation,
@@ -43,7 +43,7 @@ pub(in crate::analysis::guarantee) fn analyze_execution_flow<
     );
 
     domain.excluded_edges = excluded_edges;
-    domain.checked_flow = Some(checked_flow);
+    domain.checked_body = Some(checked_body);
 
     let states = match solve_fixed_point(&prepared.graph, &domain, &request) {
         FixedPointOutcome::Complete(states) => states,
@@ -75,6 +75,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         dependencies,
         sequence_lengths: &prepared.sequence_lengths,
         observed_types: &prepared.observed_types,
+        pattern_conditions: &prepared.pattern_conditions,
         borrowed_inputs: &prepared.borrowed_inputs,
         assigned_places: &prepared.assigned_places,
         values: &prepared.values,
@@ -91,7 +92,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         disposal,
         refinements,
         memory,
-        checked_flow: None,
+        checked_body: None,
         spatial_predicates: request
             .trusted_contracts()
             .filter(|contracts| !contracts.requirements.is_empty() || !contracts.calls.is_empty())

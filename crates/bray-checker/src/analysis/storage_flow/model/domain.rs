@@ -160,7 +160,10 @@ where
             .block(edge.target())
             .expect("flow edge has a target")
             .predecessors()
-            .len()
+            .iter()
+            .filter(|id| self.reachability.is_edge_reachable(**id))
+            .take(2)
+            .count()
             == 1;
 
         // Each edge owns one correlated state before refining and joining it.
@@ -187,6 +190,10 @@ where
         } else if let Some(refinement) = edge.refinement() {
             self.refinements
                 .insert_refinement(&mut incoming.refinements, refinement);
+
+            if let Some(execution) = incoming.execution.as_mut() {
+                self.execution.assume_patterns(execution, self.refinements.edge_facts(refinement));
+            }
         }
 
         let ends = self

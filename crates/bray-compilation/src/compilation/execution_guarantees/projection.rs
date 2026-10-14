@@ -153,10 +153,11 @@ mod tests {
             ("total", "core.atomic.wait<u32, 1>(storage, 0)"),
             ("pure", "core.atomic.load<u32, 1>(storage)"),
             ("pure", "core.atomic.fetch_add<u32, 2>(storage, 1)"),
+            ("pure", "core.atomic.notify_all<u32>(storage)"),
         ] {
             let compilation = compilation(&format!(
                 "module app; func operation(pos storage: &core.atomic.Atomic<u32>) \
-                 executes({property}) {{ let _ = {operation}; }}"
+                 requires(blocking_execution()) executes({property}) {{ let _ = {operation}; }}"
             ));
 
             assert!(
@@ -167,6 +168,20 @@ mod tests {
                 compilation.check_diagnostics()
             );
         }
+    }
+
+    #[test]
+    fn atomic_notification_is_total() {
+        let notification = compilation(r#"
+            module app;
+            func notify(pos storage: &core.atomic.Atomic<u32>) executes(total) {
+                core.atomic.notify_one<u32>(storage);
+                core.atomic.notify_all<u32>(storage);
+            }
+        "#);
+
+        assert!(!notification.check_diagnostics().has_errors(), "{:?}", notification.check_diagnostics());
+
     }
 
     #[test]

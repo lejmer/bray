@@ -431,7 +431,8 @@ where
             }
             BoundStructuredExpressionKind::ElementIndex
             | BoundStructuredExpressionKind::SliceIndex
-            | BoundStructuredExpressionKind::NullablePropagation => {
+            | BoundStructuredExpressionKind::NullablePropagation
+            | BoundStructuredExpressionKind::ResultPropagation => {
                 self.plan_structured_projection(id, kind, operands)
             }
             BoundStructuredExpressionKind::BooleanAllFold
@@ -605,7 +606,7 @@ where
         let custom = custom_borrow_kind.is_some();
 
         let receiver_purpose = match kind {
-            BoundStructuredExpressionKind::NullablePropagation => Some(StorageAccessPurpose::Read),
+            BoundStructuredExpressionKind::NullablePropagation | BoundStructuredExpressionKind::ResultPropagation => Some(StorageAccessPurpose::Read),
             _ => custom_borrow_kind.map(StorageAccessPurpose::Borrow),
         };
 
@@ -712,10 +713,13 @@ where
                     StorageAccessPurpose::Slice,
                 )
             }
-            BoundStructuredExpressionKind::NullablePropagation => (
-                StorageProjection::NullableValue,
-                StorageAccessPurpose::Projection,
-            ),
+            BoundStructuredExpressionKind::NullablePropagation | BoundStructuredExpressionKind::ResultPropagation => {
+                let Some(SemanticSelection::Propagation(selection)) = self.selections.expression(id) else {
+                    return self.recovery_access(id);
+                };
+
+                (selection.success_projection(), StorageAccessPurpose::Projection)
+            },
             _ => panic!(
                 "Storage-planning inputs or constructed records violate the requested unit contract. in plan_structured_projection"
             ),

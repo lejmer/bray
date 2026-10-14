@@ -172,10 +172,11 @@ impl Compilation {
             return Ok(true);
         };
 
-        if let Some(hook) = self
+        let hook = self
             .available_compiler_known_symbols()
-            .symbol_implementation(instance.definition().callable_symbol().into_any())
-        {
+            .symbol_implementation(instance.definition().callable_symbol().into_any());
+
+        if let Some(hook) = hook.filter(|hook| *hook != ImplementationHook::AtomicWait) {
             return Ok(matches!(
                 hook,
                 ImplementationHook::CurrentRunCancellationPropagation
@@ -223,6 +224,10 @@ impl Compilation {
 
         if unproved_requirement {
             return Ok(true);
+        }
+
+        if hook == Some(ImplementationHook::AtomicWait) {
+            return Ok(false);
         }
 
         if let Some(body) = self.callable_body_key(instance.definition())? {
@@ -379,6 +384,30 @@ mod tests {
                 result.result().diagnostics()
             );
 
+            assert_eq!(*result.result().value(), expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn atomic_wait_does_not_unwind_after_its_execution_requirement_is_proven() {
+        for (requirement, argument, expected) in [
+            ("requires(blocking_execution())", "0", false),
+            ("", "0", true),
+            ("requires(compute_execution())", "0", true),
+            ("requires(blocking_execution())", "fail()", true),
+        ] {
+            let source = format!(r#"
+                module app;
+                func fail() -> u32 {{ panic("argument failed"); }}
+                func root(pos storage: &core.atomic.Atomic<u32>) {requirement} {{
+                    core.atomic.wait<u32, 1>(storage, {argument});
+                }}
+            "#);
+
+            let compilation = compilation(&source);
+            let result = compilation.unwind_behavior(source_function_body_key(&compilation, "root"), &compilation.state.cancellation).unwrap();
+
+            assert!(!result.result().diagnostics().has_errors(), "{source}: {:?}", result.result().diagnostics());
             assert_eq!(*result.result().value(), expected, "{source}");
         }
     }
