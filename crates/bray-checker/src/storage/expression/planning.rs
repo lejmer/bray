@@ -430,10 +430,18 @@ where
                 Ok(access)
             }
             BoundStructuredExpressionKind::ElementIndex
-            | BoundStructuredExpressionKind::SliceIndex
-            | BoundStructuredExpressionKind::NullablePropagation
-            | BoundStructuredExpressionKind::ResultPropagation => {
+            | BoundStructuredExpressionKind::SliceIndex => {
                 self.plan_structured_projection(id, kind, operands)
+            }
+            BoundStructuredExpressionKind::NullablePropagation
+            | BoundStructuredExpressionKind::ResultPropagation => {
+                for operand in operands {
+                    self.plan_expression(*operand, Some(StorageAccessPurpose::ValueTransfer))?;
+                }
+
+                // Propagation transfers the selected payload out of its container.
+                // Observers of the result must retain that new value, not the consumed input.
+                self.temporary_access(id)
             }
             BoundStructuredExpressionKind::BooleanAllFold
             | BoundStructuredExpressionKind::BooleanAnyFold => {
@@ -605,13 +613,10 @@ where
         let custom_borrow_kind = target.and_then(IndexTarget::custom_borrow_kind);
         let custom = custom_borrow_kind.is_some();
 
-        let receiver_purpose = match kind {
-            BoundStructuredExpressionKind::NullablePropagation
-            | BoundStructuredExpressionKind::ResultPropagation => Some(StorageAccessPurpose::Read),
-            _ => custom_borrow_kind.map(StorageAccessPurpose::Borrow),
-        };
-
-        let receiver_access = self.plan_expression(receiver, receiver_purpose)?;
+        let receiver_access = self.plan_expression(
+            receiver,
+            custom_borrow_kind.map(StorageAccessPurpose::Borrow),
+        )?;
 
         for selector in &operands[1..] {
             let purpose = match (kind, custom) {
@@ -712,19 +717,6 @@ where
                         end: bounds.upper(),
                     },
                     StorageAccessPurpose::Slice,
-                )
-            }
-            BoundStructuredExpressionKind::NullablePropagation
-            | BoundStructuredExpressionKind::ResultPropagation => {
-                let Some(SemanticSelection::Propagation(selection)) =
-                    self.selections.expression(id)
-                else {
-                    return self.recovery_access(id);
-                };
-
-                (
-                    selection.success_projection(),
-                    StorageAccessPurpose::Projection,
                 )
             }
             _ => panic!(

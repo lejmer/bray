@@ -545,6 +545,14 @@ fn standard_task_yield_is_an_asynchronous_computation() {
             }
         )
     }));
+
+    assert!(
+        lowered_mir(&lowered)
+            .blocks()
+            .iter()
+            .any(|block| { matches!(block.terminator().kind(), MirTerminatorKind::Return { .. }) }),
+        "resuming the suspension must retain normal completion"
+    );
 }
 
 #[test]
@@ -589,6 +597,14 @@ fn standard_task_events_lower_creation_and_waiting() {
             }
         )
     }));
+
+    assert!(
+        lowered_mir(&wait)
+            .blocks()
+            .iter()
+            .any(|block| { matches!(block.terminator().kind(), MirTerminatorKind::Return { .. }) }),
+        "resuming the suspension must retain normal completion"
+    );
 }
 
 fn implementation_hooks(compilation: &Compilation, name: &str) -> Vec<ImplementationHook> {

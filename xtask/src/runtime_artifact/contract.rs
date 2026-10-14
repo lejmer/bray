@@ -195,6 +195,16 @@ fn native_type(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
 }
 
 fn pointer_kind(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
+    if let syn::Type::Path(path) = ty
+        && let Some(segment) = path.path.segments.last()
+        && segment.ident == "MaybeUninit"
+        && let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments
+        && arguments.args.len() == 1
+        && let Some(syn::GenericArgument::Type(inner)) = arguments.args.first()
+    {
+        return pointer_kind(inner);
+    }
+
     if matches!(ty, syn::Type::Slice(_) | syn::Type::TraitObject(_))
         || matches!(ty, syn::Type::Path(path) if path.path.is_ident("str"))
     {
@@ -266,6 +276,31 @@ mod tests {
 
             assert!(native_type(&ty).is_err(), "{source} is a wide pointer");
         }
+    }
+
+    #[test]
+    fn output_storage_preserves_its_native_record_kind() {
+        for source in [
+            "&mut NativePanicReport",
+            "&mut std::mem::MaybeUninit<bray_runtime_abi::NativePanicReport>",
+            "*mut std::mem::MaybeUninit<NativePanicReport>",
+        ] {
+            let ty = syn::parse_str::<syn::Type>(source).expect("type parses");
+
+            assert_eq!(
+                native_type(&ty),
+                Ok(bray_runtime_interface::RuntimeAbiType::PanicReport),
+                "{source}",
+            );
+        }
+
+        let ty =
+            syn::parse_str::<syn::Type>("&mut std::mem::MaybeUninit<u32>").expect("type parses");
+
+        assert_eq!(
+            native_type(&ty),
+            Ok(bray_runtime_interface::RuntimeAbiType::Pointer)
+        );
     }
 
     #[test]

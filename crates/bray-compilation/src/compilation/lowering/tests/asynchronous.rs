@@ -254,3 +254,58 @@ fn async_callable_frames_retain_declared_execution_lanes() {
             .all(|state| { state.lane_requirements() == [ExecutionLaneRequirement::Blocking] })
     );
 }
+
+#[test]
+fn task_operations_retain_normal_completion_before_await() {
+    for observation in ["join", "cancel"] {
+        let source = format!(
+            r#"
+            module app;
+
+            async func work() -> i32
+            {{
+                return 13;
+            }}
+
+            async func caller() -> RunResult<i32>
+            {{
+                let task = work().start();
+
+                return await task.{observation}();
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "{observation}: {diagnostics:?}");
+
+        let result = application
+            .lowered_unit(source_function_body_key(&application, "caller"))
+            .expect("task operations must lower");
+
+        let mir = lowered_mir(&result);
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::StartTask { .. })
+        )));
+
+        assert!(
+            mir.operations().iter().any(|operation| matches!(
+                operation.kind(),
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame { .. })
+            )),
+            "{observation} must remain reachable after task construction: {mir:?}"
+        );
+
+        assert!(
+            mir.operations().iter().any(|operation| matches!(
+                operation.kind(),
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::CommitAwaitedCompletion { .. })
+            )),
+            "{observation} must resume and transfer its result: {mir:?}"
+        );
+    }
+}

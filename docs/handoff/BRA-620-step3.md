@@ -40,9 +40,9 @@ Retain logs under C:/Users/anton/source/repos/bray/target/bra-620-authority. Do 
 ## Current checkpoint, 2026-10-15
 
 Branch: `feature/trusted-storage-integration`. Worktree:
-`C:/Users/anton/.codex/worktrees/bra-553-host-bootstrap/bray`. Published recovery checkpoint: `a4691a63`.
-PR #607 remains draft. The next recovery checkpoint preserves the cleanup/import certification repair and
-formatted source. Native acceptance and independent review are still pending, so it does not complete Step 3.
+`C:/Users/anton/.codex/worktrees/bra-553-host-bootstrap/bray`. Published recovery checkpoint: `f5e41a20`.
+PR #607 remains draft. The published checkpoint preserves the cleanup/import certification repair and formatted
+source. The current working tree repairs the native acceptance failures below. Acceptance passes. Published independent review remains open.
 
 Implemented candidates include synchronization markers and protected control state, Once attempt identity and rollback,
 native atomic32 wait/notify roles, channel ring detachment and cleanup outside its lock, host/environment/thread
@@ -176,3 +176,97 @@ Map before editing. Change code only for concrete gaps, in the owning analysis, 
 and reuse established results downstream. Add no syntax, language feature, general framework or downstream validation.
 Batch fixes before tests and formatters. Step 4 requires evidence for every obligation and resolution of every identified
 gap. Step 3 production success alone does not establish Step 4. Record findings and completion evidence in the tracked plan.
+
+### Native acceptance 13: pool teardown ownership
+
+The corrected guard layout assertions compile. Native generation `a767b1879d371c886cf6869f8b3a8192a72a80220f926c07ecf6c73f629d5214`
+crashes with Windows access violation `0xC0000005`. The no-build report confirms compilation, emission and linking were
+all reused. A debugger trace of this exact executable shows the report slab index freed by product-static destruction
+of `SpinLock<ReportPool>`, followed by record retirement through the freed index. This is a native lifetime defect,
+not a source error. The prior recursive lock acquisition is no longer the observed failure.
+
+The repair uses the existing resident Uninit ownership pattern from HostOwner. Ordinary product cleanup cannot destroy
+the pool. Explicit teardown after successful host shutdown checks that all records and credits are returned, then
+releases the existing RawBuffer hierarchy in place. It leaves the resident lock and an empty reusable pool. No new
+allocator, runtime identity table, language feature or compiler exception is needed. Acceptance and review remain open.
+
+### Native acceptance 14/15: concrete execution repairs
+
+The resident pool repair passes `cargo xtask runtime-artifact smoke-test`, including live-record refusal, allocation
+failure, recursive entry, concurrent attachment, teardown and reinitialization. See `step3-pool-smoke-2.log`.
+The native API batch now reaches individual tests. Fourteen fail, with eleven task/synchronization traps, one native
+thread panic access violation, one awaited-frame completion failure and one time-zone assertion. The outcome audit
+has not run because API acceptance failed. Generation `f6d2617c68fb51003427b2cdeffba1e1c69064a61e7a4ae611185ec72a8d787c`
+is retained under `bray-standard-library-native-XAY6kk` in the task log directory. The native audit now shares the
+runtime smoke command's failure-artifact retention, preserving the exact failing executable without a rebuild.
+
+Debugger traces and MIR inspection identify these owning contracts:
+
+- Task start/join/cancel were absent from normal storage-completion publication. Lowering consequently terminated
+  their continuation as unreachable. The owning storage analysis now publishes their completion. Yield/event wait
+  publish completion on resumption, matching await, and guarantee flow does not complete them at suspension.
+- Native thread execution receives output-only `Uninit<PanicReport>` storage. Rust previously accepted an initialized
+  `&mut NativePanicReport` and destroyed arbitrary old bytes on assignment. The ABI now accepts `MaybeUninit` and
+  uses its safe write. The execution helper retains an owned outcome for Rust tests. Native acceptance checks transfer
+  and report consumption through the actual ABI. No unsafe Rust was added.
+- `try` moved a payload into new storage while storage planning still described observers as aliases into the consumed
+  result. The retained time-zone executable read two zero timestamps from the cleared input. Propagation now plans
+  an owned temporary, while existing selected-payload dependency transfers retain provenance. This covers Result,
+  RunResult and nullable propagation. A new composition test also exposed missing nullable propagation inference
+  without an expected result type. The existing propagation inference now handles its nullable operand directly.
+
+The first batch passed 320 existing checker tests and 67 of 68 lowering tests. The scoped retention assertion assumed
+the old entry-loan representation. Its trace establishes that the parameter storage remains live until ScopedExit,
+while the temporary entry loan is no longer the dependency being retained. The regression now checks that exact
+parameter storage lifetime. New propagation regressions check observation of initialized
+result storage after the container transfer. The previous result-propagation fixture reused its consumed input and
+now returns its extracted value. All changed checks and native acceptance must pass before review.
+
+### ABI audit and current verification
+
+Native acceptance 16 stopped before product tests. The adapter signature audit classified the new
+`&mut MaybeUninit<NativePanicReport>` output as an untyped pointer. The audit now unwraps the storage wrapper
+while retaining the underlying record kind. Focused cases distinguish report storage from ordinary output pointers,
+and the existing catalog test checks every real adapter. Native acceptance 17 passes this audit and is running.
+
+The full compiler suite also found a constant-propagation fixture that returned its consumed Result. It now rebuilds
+Ok from the extracted payload, keeping both success/error constant-evaluation checks. Its focused rerun must wait
+for the running Windows test executable to exit before relinking. The failed relink is an environment collision,
+not compiler evidence. The updated scoped-liveness assertion and new propagation/lowering tests pass in the broad run.
+
+The added compiler changes do not convert invariant failures into InfrastructureFailure or source diagnostics.
+Absent optional semantic evidence remains distinct from an impossible missing record. The bounded Step 4 audit
+must preserve that distinction when checking incomplete operation handling.
+
+
+Native acceptance 17 passes all 160 API tests and all seven API plans. The outcome product exposed a missing
+`using std.channel` in the new cleanup fixture. With that import, the retained-toolchain rerun executes all 25 cases,
+including exact-once channel cleanup after element panics. One expectation still used the pre-BRA-553 overflow text.
+Commit `50634db6` deliberately made internal `try_allocate` return null on size overflow so host admission can fail
+without panicking. Public allocation still panics, now with `memory allocation failed`. The outcome expectation follows
+that existing behavior. It still checks the failure category and exact message, without changing allocation behavior.
+The report is `step3-outcomes18-report.json`, generation `e5ffbe5a40406f4324963dc65093aa6e085d6a396a9f8ef9ebc75cb1d891a5aa`.
+All six native ABI audit tests pass in `step3-abi-audit-tests.log`. Mutating style pass 7 succeeds, fixing 20 spacing
+violations and formatting maintained Bray files. Final formatting and published review remain pending.
+
+
+### Final acceptance audit
+
+The broad compiler run completed 1,661 cases in 951.73 seconds. It passed 1,659 and failed the invalid consumed-result
+fixture plus BRA-619's existing missing CleanupIncidentTransfer role. After correcting the fixture, the focused run
+passes all 71 selected constant/lowering cases in 3.74 seconds. No remaining Step 3 failure is attributed to BRA-619.
+The broad suite's storage-scaling tests, source/import authority cases and production declarations all passed.
+
+The final behavior audit covers resident report lifetime and explicit teardown, task/suspension normal completion,
+owned propagation storage and nullable inference, output-only native panic storage, ABI record classification and
+failed-native-artifact retention. Searches for pool locks and teardown, completion publication, propagation storage,
+native output records, `pointer_kind`, and TempDir retention reuse the existing owners. The old ordinary pool static,
+propagation-as-projection branch and duplicated failure-artifact retention are removed. No extra proof pass, authority
+factory, unsafe Rust, runtime witness allocation or compatibility path was added. Scoped lifetime assertions now name
+the retained receiver storage. Source fixtures use readable declarations. Rust formatting, mutating style and maintained
+Bray formatting cover the changed files. Existing cohesive module-size warnings remain warnings, not new exemptions.
+
+Final native acceptance 19 passes all 25 outcome cases through the normal xtask audit, including exact failure
+messages and source anchors, in 31.3 seconds (step3-native-19.log). Together with native acceptance 17, all 160
+API cases, seven API plans and 25 outcome cases pass. Rustfmt, mutating style pass 8 and final Bray formatting pass.
+The remaining Step 3 gate is the fresh review of the published commit and any resulting fixes.

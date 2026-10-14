@@ -157,7 +157,17 @@ where
             let cancellation = self.push_block();
 
             self.push_edge(current, suspended, AnalysisEdgeKind::Suspension, None);
-            self.push_edge(suspended, resume, AnalysisEdgeKind::Resume, None);
+
+            self.push_edge(
+                suspended,
+                resume,
+                AnalysisEdgeKind::Resume,
+                Some(super::model::AnalysisRefinement::InvocationCompletion(
+                    id.into(),
+                )),
+            );
+
+            self.push_call(resume, id.into(), AnalysisCallPhase::Completion);
 
             self.push_edge(
                 suspended,

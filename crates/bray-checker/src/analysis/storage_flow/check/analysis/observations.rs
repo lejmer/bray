@@ -390,7 +390,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             AnalysisOperationKind::Call {
                 phase: AnalysisCallPhase::Completion,
                 ..
-            }
+            } | AnalysisOperationKind::TaskOperation { .. }
         ) && !(matches!(operation, AnalysisOperationKind::Bound(_))
             && (contracts.is_some()
                 || occurrence.expression().is_some_and(|expression| {

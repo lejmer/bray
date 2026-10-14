@@ -9,8 +9,10 @@ in [contract reasoning](../language/contracts-and-trust/contract-reasoning.md),
 [witnesses](../language/contracts-and-trust/trusted-witness-values.md).
 
 Continue on the existing repair branch. The implementation baseline is `e3f56424`, with proof checkpoint `7f300ef2`.
-Step 2 must complete shared authority analysis and remove its superseded mechanisms. Production API migration is step 3
-and is not part of this authorization. Historical test results below remain evidence, not current acceptance.
+Steps 1 and 2 are complete. Step 3 production migration is authorized and tracked in
+[BRA-620 Step 3](BRA-620-step3.md). The user also authorized a bounded dependency-retirement and cleanup-composition
+step after Step 3's acceptance, push and review. The later backing/runtime work remains in sequence.
+Historical test results below remain evidence, not current acceptance.
 
 Prepared on 2026-10-12. The user accepted the groundwork and requested actionable Linear issues.
 See the [Linear execution guide](runtime-stack-linear-execution.md) for the recoverable starting state and publication order.

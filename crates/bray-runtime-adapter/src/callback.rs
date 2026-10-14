@@ -18,7 +18,7 @@ native_adapter! {
         context: usize,
         cancellation: NativeThreadCancellationCallback,
         cancellation_context: usize,
-        panic_report: &mut bray_runtime_abi::NativePanicReport,
+        panic_report: &mut std::mem::MaybeUninit<bray_runtime_abi::NativePanicReport>,
     ) -> u32 {
         implementation::bray_runtime_native_thread_execution(
             callback,

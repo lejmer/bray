@@ -1364,15 +1364,18 @@ mod tests {
 
     #[test]
     fn constant_calls_propagate_closed_result_values() {
-        let compilation = compilation(concat!(
-            "module app;\n",
-            "const func forward(pos value: Result<i32, i32>) -> Result<i32, i32>\n",
-            "{\n",
-            "    const unwrapped: i32 = try value;\n",
-            "\n",
-            "    return value;\n",
-            "}\n",
-        ));
+        let compilation = compilation(
+            r#"
+            module app;
+
+            const func forward(pos value: Result<i32, i32>) -> Result<i32, i32>
+            {
+                const unwrapped: i32 = try value;
+
+                return Ok(unwrapped);
+            }
+        "#,
+        );
 
         let integer_type = i32_type(&compilation);
         let result_type = result_type(&compilation, integer_type, integer_type);

@@ -2,6 +2,7 @@
 trusted internal module bray.runtime.bootstrap;
 
 using std.memory;
+using internal bray.runtime.bootstrap.pool;
 
 @layout(c)
 internal struct ReportPrimary
@@ -245,7 +246,7 @@ trusted internal func take_record_values(
         trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
     )
 {
-    let mut guard = RECORD_POOL.lock();
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
     let pool: &mut ReportPool = guard.get();
     let mut remaining: usize = count;
 
@@ -309,7 +310,7 @@ trusted internal func append_record_values(
         return (left, right);
     }
 
-    let mut guard = RECORD_POOL.lock();
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
     let pool: &mut ReportPool = guard.get();
 
     if left.count == 0
@@ -333,7 +334,7 @@ trusted internal func exchange_primary(pos handle: usize, pos value: ReportPrima
     ensures(trusted native_primary_callbacks(primary = &result))
 {
     let replacement: StoredReportPrimary = trusted stored_primary(value);
-    let mut guard = RECORD_POOL.lock();
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
     let entry: &mut ReportRecord = trusted record(guard.get(), handle);
 
     let old: StoredReportPrimary = trusted std.memory.replace_value<StoredReportPrimary>(
@@ -396,7 +397,7 @@ trusted internal func report_segment_mark(pos chain: RawPointer<ReportRecords>, 
 {
     let value: ReportRecords = trusted std.memory.read<ReportRecords>(chain);
     let segment: ReportSegment = trusted std.memory.read<ReportSegment>(metadata);
-    let mut guard = RECORD_POOL.lock();
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
     let pool: &mut ReportPool = guard.get();
     let first: &mut ReportRecord = trusted record(pool, value.head);
 
@@ -454,7 +455,7 @@ trusted internal func take_segment_values(
         trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
     )
 {
-    let mut guard = RECORD_POOL.lock();
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
     let pool: &mut ReportPool = guard.get();
     let (segment, output) = trusted record_segment_value(pool, source.head);
 

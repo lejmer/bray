@@ -728,6 +728,54 @@ static int check_concurrent_attachments(void)
     return status;
 }
 
+static int check_pool_retirement(void)
+{
+    if (bray_runtime_initialization(1, 1) != 0)
+        return 42;
+
+    RunOutcome outcome = {0};
+
+    bray_runtime_outgoing_admission(1, &outcome);
+
+    if (outcome.state != 0)
+        return 43;
+
+    uintptr_t record = bray_runtime_outgoing_activation();
+    unsigned before = atomic_load(&allocation_attempts);
+
+    atomic_store(&reject_allocations, 1);
+
+    if (bray_runtime_structured_shutdown() != 4)
+        return 44;
+
+    bray_runtime_outgoing_retirement(record, &outcome);
+    bray_runtime_outgoing_discharge(1);
+
+    if (bray_runtime_structured_shutdown() != 1 ||
+        atomic_load(&allocation_attempts) != before || atomic_load(&live_allocations) != 0)
+        return 45;
+
+    atomic_store(&reject_allocations, 0);
+
+    // A new epoch must allocate a usable pool after the previous one released its backing.
+    if (bray_runtime_initialization(1, 1) != 0)
+        return 46;
+
+    bray_runtime_outgoing_admission(1, &outcome);
+
+    if (outcome.state != 0)
+        return 47;
+
+    record = bray_runtime_outgoing_activation();
+    bray_runtime_outgoing_retirement(record, &outcome);
+    bray_runtime_outgoing_discharge(1);
+
+    if (bray_runtime_structured_shutdown() != 0 || atomic_load(&live_allocations) != 0)
+        return 48;
+
+    return 0;
+}
+
 int main(void)
 {
     int attachment_status = check_primitive_attachment();
@@ -785,6 +833,11 @@ int main(void)
 
     if (bray_runtime_initialization(1, 1) != 0 || bray_runtime_structured_shutdown() != 0)
         return 6;
+
+    int retirement_status = check_pool_retirement();
+
+    if (retirement_status != 0)
+        return retirement_status;
 
     if (atomic_load_explicit(&cleanup_shield_balance, memory_order_relaxed) != 0)
         return 7;

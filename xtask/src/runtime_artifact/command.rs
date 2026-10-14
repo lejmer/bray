@@ -107,14 +107,7 @@ fn smoke_test_command(mut arguments: impl Iterator<Item = String>) -> Result<(),
         smoke_test(&package, target, directory.path())
     });
 
-    if result.is_err() {
-        eprintln!(
-            "failed smoke artifacts retained at {}",
-            directory.keep().display()
-        );
-    }
-
-    result
+    crate::native_toolchain::retain_failed_artifacts(directory, result)
 }
 
 pub(crate) fn smoke_test_host() -> Result<(), String> {

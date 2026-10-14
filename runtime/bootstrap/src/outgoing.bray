@@ -2,6 +2,7 @@
 trusted internal module bray.runtime.bootstrap;
 
 using std.memory;
+using internal bray.runtime.bootstrap.pool;
 
 @abi(c)
 trusted internal func outgoing_admission(pos count: usize, pos outcome: RawPointer<ReportOutcome>)
@@ -41,7 +42,7 @@ trusted internal func admit_outgoing_values(pos count: usize, pos outcome: RawPo
         trusted core.memory.aligned_for<ReportOutcome>(pointer = outcome),
     )
 {
-    let mut guard = RECORD_POOL.lock();
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
     let pool: &mut ReportPool = guard.get();
     let maximum: usize = ~0;
 
@@ -65,7 +66,7 @@ trusted internal func admit_outgoing_values(pos count: usize, pos outcome: RawPo
 trusted internal func outgoing_discharge(pos count: usize)
     uses(intrinsic)
 {
-    let mut guard = RECORD_POOL.lock();
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
     let pool: &mut ReportPool = guard.get();
 
     if count > pool.credits
@@ -79,7 +80,7 @@ trusted internal func outgoing_discharge(pos count: usize)
 @abi(c)
 trusted internal func outgoing_activation() -> usize
 {
-    let mut guard = RECORD_POOL.lock();
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
 
     return trusted activate_record(guard.get());
 }

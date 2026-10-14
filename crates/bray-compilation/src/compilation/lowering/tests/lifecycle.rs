@@ -219,7 +219,7 @@ fn scoped_invocations_retain_distinct_inputs_and_clear_activity_before_exit() {
 }
 
 #[test]
-fn borrowed_scoped_capability_retains_its_entry_receiver_through_exit() {
+fn borrowed_scoped_capability_retains_its_receiver_storage_through_exit() {
     let compilation = compilation(
         r#"
         module app;
@@ -256,7 +256,7 @@ fn borrowed_scoped_capability_retains_its_entry_receiver_through_exit() {
 
     let expression = entry.expression().unwrap();
 
-    let (loan, capability) = storage
+    let (_, capability) = storage
         .value()
         .borrow_capability_entries()
         .find(|(_, loan)| loan.expression() == Some(expression))
@@ -274,7 +274,7 @@ fn borrowed_scoped_capability_retains_its_entry_receiver_through_exit() {
     assert!(
         liveness.value().is_last_use(
             bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
-            bray_bound_tree::BoundDependencySubject::BorrowCapability(loan)
+            bray_bound_tree::BoundDependencySubject::Storage(receiver)
         ),
         "{:#?}",
         liveness.value()

@@ -242,10 +242,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             super::super::super::model::AnalysisOperationKind::Call {
                 phase: super::super::super::model::AnalysisCallPhase::Attempt,
                 ..
-            } | super::super::super::model::AnalysisOperationKind::Suspension {
-                kind: super::super::super::model::AnalysisSuspensionKind::Await,
-                ..
-            }
+            } | super::super::super::model::AnalysisOperationKind::Suspension { .. }
         ) {
             return;
         }

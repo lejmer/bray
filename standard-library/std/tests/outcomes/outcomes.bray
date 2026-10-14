@@ -1,5 +1,6 @@
 module bray.standard_library_tests.outcomes;
 
+using std.channel;
 using std.memory;
 using std.run;
 using std.string;

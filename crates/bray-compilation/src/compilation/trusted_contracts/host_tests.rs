@@ -8,7 +8,14 @@ use crate::{Compilation, CompilationRequest};
 fn production_host_nested_bodies_and_contracts_are_checked() {
     let compilation = production_host_compilation("module app;");
 
-    let owners = ["initialize_host", "shutdown_host"].map(|name| {
+    let owners = [
+        "initialize_host",
+        "shutdown_host",
+        "structured_shutdown",
+        "lock",
+        "release",
+    ]
+    .map(|name| {
         source_function_body_key(&compilation, name)
             .source()
             .syntax()
@@ -1189,6 +1196,17 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
         include_str!("../../../../../runtime/bootstrap/src/host/attachment/exit.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/attachment/cleanup.bray"),
         include_str!("../../../../../runtime/bootstrap/src/bootstrap.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/pool.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/record_pool.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/records.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/panic.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/outgoing.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/report_consumer.bray"),
+        include_str!("../../../../../standard-library/std/src/sync.bray"),
+        include_str!("../../../../../standard-library/std/src/sync/spin_lock.bray"),
+        include_str!("../../../../../standard-library/std/src/sync/spin_lock/state.bray"),
+        include_str!("../../../../../standard-library/std/src/sync/spin_lock/lock.bray"),
+        include_str!("../../../../../standard-library/std/src/sync/spin_lock/guard.bray"),
         include_str!("../../../../../runtime/bootstrap/src/thread.bray"),
         include_str!("../../../../../runtime/bootstrap/src/thread/destruction.bray"),
         include_str!("../../../../../runtime/bootstrap/src/thread/destruction/common.bray"),
@@ -1255,12 +1273,14 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
             bray_symbols::ProductKind::Library,
             target,
         )
-        .with_native_link_inputs(["c", "pthread", "Kernel32"].map(|name| {
-            bray_symbols::NativeLinkRequirement::new(
-                bray_base::NonEmptySharedStr::try_new(name).expect("native test library name"),
-                bray_symbols::NativeLinkKind::System,
-            )
-        })),
+        .with_native_link_inputs(["c", "pthread", "Kernel32", "bray_runtime_host"].map(
+            |name| {
+                bray_symbols::NativeLinkRequirement::new(
+                    bray_base::NonEmptySharedStr::try_new(name).expect("native test library name"),
+                    bray_symbols::NativeLinkKind::System,
+                )
+            },
+        )),
     )
     .with_standard_library_source_authority();
 

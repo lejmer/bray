@@ -2,6 +2,7 @@
 trusted internal module bray.runtime.bootstrap;
 
 using std.memory;
+using internal bray.runtime.bootstrap.pool;
 using internal std.memory;
 using internal std.sync;
 using internal std.sync.spin_lock;
@@ -175,7 +176,7 @@ trusted internal func allocate_message_storage(
 
 trusted internal func retain_message_storage(pos storage: std.memory.RawBuffer<u8>) -> usize
 {
-    let mut guard = RECORD_POOL.lock();
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
     let pool: &mut ReportPool = guard.get();
     let maximum: usize = ~0;
 
@@ -208,7 +209,7 @@ trusted internal func message_copy_lock(
         trusted std.sync.spin_lock.acquired(&result.acquisition),
     )
 {
-    return RECORD_POOL.lock();
+    return trusted bray.runtime.bootstrap.pool.lock();
 }
 
 trusted internal func message_storage(
@@ -271,7 +272,7 @@ trusted internal func panic_message_copy(
 trusted internal func take_message_storage(pos handle: usize) -> std.memory.RawBuffer<u8>?
     uses(intrinsic)
 {
-    let mut guard = RECORD_POOL.lock();
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
     let pool: &mut ReportPool = guard.get();
     let next: usize = pool.free;
 

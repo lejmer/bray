@@ -3,6 +3,7 @@ trusted internal module bray.runtime.bootstrap;
 
 using std.memory;
 using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.pool;
 
 internal const STATUS_SUCCESS: u32 = 0;
 
@@ -92,6 +93,11 @@ trusted internal func structured_shutdown() -> u32
     if shutdown != STATUS_SUCCESS
     {
         return shutdown;
+    }
+
+    if !trusted bray.runtime.bootstrap.pool.release()
+    {
+        return STATUS_RUNTIME_FAILURE;
     }
 
     return status;

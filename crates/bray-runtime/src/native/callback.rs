@@ -14,28 +14,29 @@ native_export! {
         context: usize,
         cancellation: NativeThreadCancellationCallback,
         cancellation_context: usize,
-        panic_report: &mut bray_runtime_abi::NativePanicReport,
+        panic_report: &mut std::mem::MaybeUninit<bray_runtime_abi::NativePanicReport>,
     ) -> u32 {
-        let mut outcome = super::state::with_independent_execution_context(|| {
-            crate::context::with_native_thread_cancellation(
-                cancellation,
-                cancellation_context,
-                || {
-                    execute_callback_boundary(
-                        |outcome| callback(context, outcome),
-                        |_| {},
-                        false,
-                    )
-                },
-            )
-        });
+        let mut outcome = execute_native_thread(callback, context, cancellation, cancellation_context);
 
         if outcome.state() == NativeRunState::PANICKED {
-            *panic_report = outcome.take_report();
+            panic_report.write(outcome.take_report());
         }
 
         outcome.state().code()
     }
+}
+
+fn execute_native_thread(
+    callback: NativeThreadOperationCallback,
+    context: usize,
+    cancellation: NativeThreadCancellationCallback,
+    cancellation_context: usize,
+) -> NativeRunOutcome {
+    super::state::with_independent_execution_context(|| {
+        crate::context::with_native_thread_cancellation(cancellation, cancellation_context, || {
+            execute_callback_boundary(|outcome| callback(context, outcome), |_| {}, false)
+        })
+    })
 }
 
 native_export! {
@@ -149,7 +150,7 @@ mod tests {
         NativeRunOutcome, NativeRunState, NativeSynchronousRootCallback, NativeTaskHandle,
     };
 
-    use super::bray_runtime_native_thread_execution;
+    use super::{bray_runtime_native_thread_execution, execute_native_thread};
 
     extern "C" fn cancellation_requested(_: usize) -> u32 {
         1
@@ -302,17 +303,12 @@ mod tests {
 
     #[test]
     fn callback_report_outlives_its_producer_and_keeps_written_then_caught_incidents() {
-        let mut report = bray_runtime_abi::NativePanicReport::empty();
+        let mut outcome =
+            execute_native_thread(write_then_unwind, 0, cancellation_not_requested, 0);
 
-        let state = bray_runtime_native_thread_execution(
-            write_then_unwind,
-            0,
-            cancellation_not_requested,
-            0,
-            &mut report,
-        );
+        let mut report = outcome.take_report();
 
-        assert_eq!(state, NativeRunState::PANICKED.code());
+        assert_eq!(outcome.state(), NativeRunState::PANICKED);
         assert!(crate::outgoing::OutgoingRecords::admit(1).is_err());
 
         RELEASES.with_borrow(|events| assert!(events.is_empty()));
@@ -328,7 +324,7 @@ mod tests {
     fn native_thread_completion_can_leave_the_failure_header_untouched() {
         extern "C-unwind" fn completed(_: usize, _: &mut NativeRunOutcome) {}
 
-        let mut report = bray_runtime_abi::NativePanicReport::empty();
+        let mut report = std::mem::MaybeUninit::uninit();
 
         let state = bray_runtime_native_thread_execution(
             completed,
@@ -339,12 +335,11 @@ mod tests {
         );
 
         assert_eq!(state, NativeRunState::COMPLETED.code());
-        assert!(report.consume(false).is_success());
     }
 
     #[test]
     fn native_thread_execution_uses_typed_cancellation_observation() {
-        let mut payload = bray_runtime_abi::NativePanicReport::empty();
+        let mut payload = std::mem::MaybeUninit::uninit();
 
         let state = bray_runtime_native_thread_execution(
             observe_cancellation,
@@ -355,28 +350,19 @@ mod tests {
         );
 
         assert_eq!(state, NativeRunState::COMPLETED.code());
-        assert!(payload.consume(false).is_success());
     }
 
     #[test]
     fn native_thread_execution_returns_owned_panic_reports() {
-        let mut payload = bray_runtime_abi::NativePanicReport::empty();
+        let mut outcome = execute_native_thread(propagate_report, 0, cancellation_not_requested, 0);
 
-        let state = bray_runtime_native_thread_execution(
-            propagate_report,
-            0,
-            cancellation_not_requested,
-            0,
-            &mut payload,
-        );
-
-        assert_eq!(state, NativeRunState::PANICKED.code());
-        assert!(payload.consume(false).is_success());
+        assert_eq!(outcome.state(), NativeRunState::PANICKED);
+        assert!(outcome.take_report().consume(false).is_success());
     }
 
     #[test]
     fn native_thread_execution_returns_propagated_cancellation() {
-        let mut payload = bray_runtime_abi::NativePanicReport::empty();
+        let mut payload = std::mem::MaybeUninit::uninit();
 
         let state = bray_runtime_native_thread_execution(
             propagate_cancellation,
@@ -387,6 +373,5 @@ mod tests {
         );
 
         assert_eq!(state, NativeRunState::CANCELLED.code());
-        assert!(payload.consume(false).is_success());
     }
 }
