@@ -102,7 +102,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 }
 
                 Ok(None)
-            },
+            }
             unexpected => panic!(
                 "checked MIR memory translation violated an established compiler contract: {unexpected:?}"
             ),
@@ -250,7 +250,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let equal = self.atomic_values_equal(observed, expected)?;
 
         let retry = if expected.get_type() == self.types.context().i32_type().into() {
-            let park = self.types.context().append_basic_block(self.function, "atomic.wait.park");
+            let park = self
+                .types
+                .context()
+                .append_basic_block(self.function, "atomic.wait.park");
 
             self.builder.position_at_end(park);
             self.invoke_atomic_word(operation, &[storage.into(), expected])?;
@@ -262,7 +265,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             waiting
         };
 
-        llvm(self.builder.build_conditional_branch(equal, retry, complete))?;
+        llvm(
+            self.builder
+                .build_conditional_branch(equal, retry, complete),
+        )?;
 
         self.builder.position_at_end(complete);
 
@@ -274,7 +280,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         operation: &MirMemoryOperation,
         arguments: &[BasicValueEnum<'context>],
     ) -> Result<(), CodegenFailure> {
-        let role = operation.atomic_word_runtime_role()
+        let role = operation
+            .atomic_word_runtime_role()
             .expect("atomic word invocation requires a wait or notification");
 
         let reference = bray_ir::MirRuntimeReference::new(role, self.unit.target().runtime_abi());

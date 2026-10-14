@@ -184,7 +184,10 @@ impl Compilation {
                 patterns.result().value(),
                 self.semantic_value_store()?,
                 &constants,
-                Some((storage.result().value(), body.result().value().storage_flow())),
+                Some((
+                    storage.result().value(),
+                    body.result().value().storage_flow(),
+                )),
             )?;
 
             if clause_diagnostics.has_errors() {

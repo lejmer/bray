@@ -28,14 +28,24 @@ impl State {
         })
     }
 
-    pub(in crate::analysis::storage_flow) fn contained_regions<'a>(&'a self, location: &'a Target) -> impl Iterator<Item = &'a Target> {
-        self.values.range(location.clone()..).take_while(|(slot, _)| location.contains(slot))
+    pub(in crate::analysis::storage_flow) fn contained_regions<'a>(
+        &'a self,
+        location: &'a Target,
+    ) -> impl Iterator<Item = &'a Target> {
+        self.values
+            .range(location.clone()..)
+            .take_while(|(slot, _)| location.contains(slot))
             .flat_map(|(_, references)| references.targets.iter())
     }
 
-    pub(in crate::analysis::storage_flow) fn raw_exposed_roots(&self) -> BTreeSet<StorageIdentityId> {
-        self.contents.iter().filter(|(_, contents)| contents.exposed)
-            .filter_map(|(target, _)| target.storage_path().map(|path| path.root)).collect()
+    pub(in crate::analysis::storage_flow) fn raw_exposed_roots(
+        &self,
+    ) -> BTreeSet<StorageIdentityId> {
+        self.contents
+            .iter()
+            .filter(|(_, contents)| contents.exposed)
+            .filter_map(|(target, _)| target.storage_path().map(|path| path.root))
+            .collect()
     }
 
     pub(in crate::analysis::storage_flow) fn unexposed_storage<'a>(
@@ -48,30 +58,62 @@ impl State {
         candidates.iter().filter(move |path| {
             let candidate = Target::storage((*path).clone());
 
-            reached.iter().all(|target| self.target_relationship(target, &candidate) == bray_bound_tree::StorageRelationship::Disjoint)
+            reached.iter().all(|target| {
+                self.target_relationship(target, &candidate)
+                    == bray_bound_tree::StorageRelationship::Disjoint
+            })
         })
     }
 
-    pub(super) fn reachable_targets(&self, roots: impl IntoIterator<Item = Target>) -> BTreeSet<Target> {
+    pub(super) fn reachable_targets(
+        &self,
+        roots: impl IntoIterator<Item = Target>,
+    ) -> BTreeSet<Target> {
         // Raw addresses can escape. Ordinary borrowed values are reachable only
         // through the current invocation or another externally reachable value.
-        let mut pending = roots.into_iter().chain(
-            self.contents.iter().filter(|(_, contents)| contents.exposed).map(|(target, _)| {
-                // Native address arithmetic can reach other fields of the allocation.
-                target.storage_path().map_or_else(|| target.clone(), |path| Target::storage(Place::root(path.root)))
-            })
-        ).chain(self.values.keys().filter(|target| target.storage_path().is_none_or(|path| {
-            self.owned_storage.binary_search(&path.root).is_err()
-                || path.projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget)
-        })).cloned()).collect::<Vec<_>>();
+        let mut pending = roots
+            .into_iter()
+            .chain(
+                self.contents
+                    .iter()
+                    .filter(|(_, contents)| contents.exposed)
+                    .map(|(target, _)| {
+                        // Native address arithmetic can reach other fields of the allocation.
+                        target.storage_path().map_or_else(
+                            || target.clone(),
+                            |path| Target::storage(Place::root(path.root)),
+                        )
+                    }),
+            )
+            .chain(
+                self.values
+                    .keys()
+                    .filter(|target| {
+                        // Retired reference slots are history, not external roots. A surviving raw
+                        // address can still reach them through the explicit exposure roots above.
+                        !target.previous
+                            && target.storage_path().is_none_or(|path| {
+                                self.owned_storage.binary_search(&path.root).is_err()
+                                    || path
+                                        .projections
+                                        .contains(&bray_bound_tree::StorageProjection::OwnedTarget)
+                            })
+                    })
+                    .cloned(),
+            )
+            .collect::<Vec<_>>();
 
         let mut reached = BTreeSet::new();
 
         while let Some(target) = pending.pop() {
-            if !reached.insert(target.clone()) { continue; }
+            if !reached.insert(target.clone()) {
+                continue;
+            }
 
             for (slot, references) in &self.values {
-                if self.target_relationship(&target, slot) != bray_bound_tree::StorageRelationship::Disjoint {
+                if self.target_relationship(&target, slot)
+                    != bray_bound_tree::StorageRelationship::Disjoint
+                {
                     pending.extend(references.targets.iter().cloned());
                 }
             }

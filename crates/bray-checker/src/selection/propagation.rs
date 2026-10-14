@@ -186,7 +186,11 @@ where
 
     match representation {
         Some(RepresentationRole::RunResult) => Ok(Some(Ok(SelectedPropagation::CurrentRun {
-            success: success_payload(request, "RunResultVariant0Completed", "RunResultVariant0CompletedValue"),
+            success: success_payload(
+                request,
+                "RunResultVariant0Completed",
+                "RunResultVariant0CompletedValue",
+            ),
         }))),
         Some(RepresentationRole::Result) => {
             let Some(error_type) = named_type_arguments(request, operand_type.ty())
@@ -202,7 +206,11 @@ where
                         boundary: boundary.target,
                         result_type: boundary.ty,
                         error_conversion: conversion,
-                        success: success_payload(request, "ResultVariant0Ok", "ResultVariant0OkValue"),
+                        success: success_payload(
+                            request,
+                            "ResultVariant0Ok",
+                            "ResultVariant0OkValue",
+                        ),
                     }),
                     Err(available_errors) => {
                         Err(DiagnosticPropagationProblem::ResultBoundaryUnavailable {
@@ -408,7 +416,10 @@ fn success_payload<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     variant: &str,
     field: &str,
-) -> (bray_symbols::UnionVariantSymbolId, bray_symbols::UnionPayloadFieldSymbolId) {
+) -> (
+    bray_symbols::UnionVariantSymbolId,
+    bray_symbols::UnionPayloadFieldSymbolId,
+) {
     let symbols = request.available_compiler_known_symbols();
 
     let variant = bray_compiler_known::CompilerKnownDeclarationKey::try_new(variant)
@@ -418,7 +429,11 @@ fn success_payload<C: CheckerRequestContext + ?Sized>(
         .expect("propagation success uses a compiler-known payload");
 
     (
-        symbols.declaration_symbol(&variant).expect("checked propagation retains its success variant"),
-        symbols.declaration_symbol(&field).expect("checked propagation retains its success payload"),
+        symbols
+            .declaration_symbol(&variant)
+            .expect("checked propagation retains its success variant"),
+        symbols
+            .declaration_symbol(&field)
+            .expect("checked propagation retains its success payload"),
     )
 }

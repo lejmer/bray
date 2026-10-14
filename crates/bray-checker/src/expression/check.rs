@@ -108,7 +108,8 @@ where
             }
         };
 
-        let resolved = resolved_pattern_binding_evidence(request, &patterns, &deferred, &dependencies);
+        let resolved =
+            resolved_pattern_binding_evidence(request, &patterns, &deferred, &dependencies);
 
         if resolved.is_empty() {
             break patterns;

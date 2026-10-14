@@ -72,7 +72,7 @@ struct RwLockReadGuard<T>
         authorize(pointer);
 
         let state = trusted std.memory.borrow_from<std.sync.rw_lock.State<T>, RwLock<T>>(self.lock, pointer);
-        let value = std.memory.address_of<T>(&state.value);
+        let value = std.memory.uninit_pointer<T>(&state.value);
 
         return value;
     }
@@ -159,7 +159,7 @@ struct RwLockWriteGuard<T>
         authorize(pointer);
 
         let state = trusted std.memory.borrow_from<std.sync.rw_lock.State<T>, RwLock<T>>(self.lock, pointer);
-        let value = std.memory.address_of<T>(&state.value);
+        let value = std.memory.uninit_pointer<T>(&state.value);
 
         return value;
     }

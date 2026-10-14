@@ -195,8 +195,7 @@ pub(crate) fn storage_effect(operation: Operation) -> StorageEffect {
         | Operation::CatastrophicAbort
         | Operation::DebuggerTrap
         | Operation::UnreachableTermination
-        | Operation::InlineAssembly { .. }
-        => StorageEffect::Unknown,
+        | Operation::InlineAssembly { .. } => StorageEffect::Unknown,
     }
 }
 

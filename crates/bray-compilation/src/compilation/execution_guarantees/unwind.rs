@@ -396,18 +396,31 @@ mod tests {
             ("requires(compute_execution())", "0", true),
             ("requires(blocking_execution())", "fail()", true),
         ] {
-            let source = format!(r#"
+            let source = format!(
+                r#"
                 module app;
                 func fail() -> u32 {{ panic("argument failed"); }}
                 func root(pos storage: &core.atomic.Atomic<u32>) {requirement} {{
                     core.atomic.wait<u32, 1>(storage, {argument});
                 }}
-            "#);
+            "#
+            );
 
             let compilation = compilation(&source);
-            let result = compilation.unwind_behavior(source_function_body_key(&compilation, "root"), &compilation.state.cancellation).unwrap();
 
-            assert!(!result.result().diagnostics().has_errors(), "{source}: {:?}", result.result().diagnostics());
+            let result = compilation
+                .unwind_behavior(
+                    source_function_body_key(&compilation, "root"),
+                    &compilation.state.cancellation,
+                )
+                .unwrap();
+
+            assert!(
+                !result.result().diagnostics().has_errors(),
+                "{source}: {:?}",
+                result.result().diagnostics()
+            );
+
             assert_eq!(*result.result().value(), expected, "{source}");
         }
     }

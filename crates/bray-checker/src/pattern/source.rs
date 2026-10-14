@@ -1,4 +1,6 @@
-use bray_bound_tree::{BoundBlockItem, BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, BoundUnit};
+use bray_bound_tree::{
+    BoundBlockItem, BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, BoundUnit,
+};
 
 pub(crate) fn binding_subjects(
     unit: &BoundUnit,
@@ -38,4 +40,3 @@ pub(crate) fn binding_subjects(
 
     subjects
 }
-

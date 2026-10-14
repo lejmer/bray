@@ -128,7 +128,10 @@ pub fn map_execution_condition_substitutions<E>(
         ExecutionCondition::VariantTest(variant, value) => {
             map_execution_condition_substitutions(value, map)?.matches_variant(*variant)
         }
-        ExecutionCondition::Tagged(variant, value) => ExecutionCondition::Tagged(*variant, std::sync::Arc::new(map_execution_condition_substitutions(value, map)?)),
+        ExecutionCondition::Tagged(variant, value) => ExecutionCondition::Tagged(
+            *variant,
+            std::sync::Arc::new(map_execution_condition_substitutions(value, map)?),
+        ),
         ExecutionCondition::Present(value) => {
             map_execution_condition_substitutions(value, map)?.present()
         }

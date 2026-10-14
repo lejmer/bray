@@ -187,7 +187,8 @@ fn native_pointer_types_do_not_bound_unknown_effects() {
         "trusted touch_marker(core.memory.address_of<Marker>(&owner.marker));",
         "let address = core.memory.address_of<Marker>(&owner.marker); trusted opaque();",
     ] {
-        let source = format!(r#"
+        let source = format!(
+            r#"
             trusted module app;
             struct Marker {{}}
             struct Owner {{ marker: Marker; value: u32; }}
@@ -216,7 +217,8 @@ fn native_pointer_types_do_not_bound_unknown_effects() {
                 {body}
                 accept(owner);
             }}
-        "#);
+        "#
+        );
 
         let options = crate::CompilationOptions::default().with_native_link_inputs([
             bray_symbols::NativeLinkRequirement::new(
@@ -229,7 +231,8 @@ fn native_pointer_types_do_not_bound_unknown_effects() {
         let diagnostics = compilation.check_diagnostics();
 
         bray_testing::assert_goal_state_diagnostic_kind(
-            &diagnostics, DiagnosticKind::CheckingTrustedObligationNotProven,
+            &diagnostics,
+            DiagnosticKind::CheckingTrustedObligationNotProven,
         );
     }
 }
@@ -3333,13 +3336,20 @@ fn opaque_effects_preserve_unexposed_pointer_identity_without_preserving_authori
     for (exposure, preserve, valid) in [
         ("", true, true),
         ("", false, false),
-        ("let escaped = core.memory.address_of_mut<RawPointer<u8>>(&mut pointer);", true, false),
+        (
+            "let escaped = core.memory.address_of_mut<RawPointer<u8>>(&mut pointer);",
+            true,
+            false,
+        ),
     ] {
         let postcondition = if preserve {
             "ensures(trusted core.memory.valid_read<u8>(pointer = value, count = 1), trusted core.memory.valid_write<u8>(pointer = value, count = 1), trusted core.memory.aligned_for<u8>(pointer = value), trusted core.memory.initialized_as<u8>(pointer = value))"
-        } else { "" };
+        } else {
+            ""
+        };
 
-        let source = format!(r#"
+        let source = format!(
+            r#"
             trusted module app;
             trusted extern func renew(pos value: RawPointer<u8>) {postcondition};
             trusted func run(pos input: RawPointer<u8>) uses(raw_memory, unchecked_init)
@@ -3350,19 +3360,31 @@ fn opaque_effects_preserve_unexposed_pointer_identity_without_preserving_authori
                 let contents = core.memory.read<u8>(pointer);
                 core.memory.write<u8>(pointer, contents);
             }}
-        "#);
+        "#
+        );
 
         let compilation = compilation(&source);
         let diagnostics = compilation.check_diagnostics();
 
-        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:?}");
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:?}"
+        );
     }
 }
 
 #[test]
 fn content_writes_keep_spatial_facts_about_copied_pointer_values() {
-    for (write, valid) in [("core.memory.write<RawPointer<u8>>(slot, replacement);", true), ("opaque();", false)] {
-        let source = format!(r#"
+    for (write, valid) in [
+        (
+            "core.memory.write<RawPointer<u8>>(slot, replacement);",
+            true,
+        ),
+        ("opaque();", false),
+    ] {
+        let source = format!(
+            r#"
             trusted module app;
             extern func opaque();
             struct Pointer {{ value: RawPointer<u8>; }}
@@ -3378,11 +3400,16 @@ fn content_writes_keep_spatial_facts_about_copied_pointer_values() {
                 {write}
                 core.memory.write<u8>(captured, 1);
             }}
-        "#);
+        "#
+        );
 
         let compilation = compilation(&source);
         let diagnostics = compilation.check_diagnostics();
 
-        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:?}");
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:?}"
+        );
     }
 }

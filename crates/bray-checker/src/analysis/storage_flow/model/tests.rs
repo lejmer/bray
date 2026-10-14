@@ -95,7 +95,13 @@ fn raw_expression_indexes_preserve_first_result_and_later_alias_order() {
         )
         .expect("empty test selections"),
         &crate::analysis::guarantee::CleanupPlan::default(),
-        &bray_bound_tree::CheckedMemoryOperations::try_new(unit.unit(), unit.key().kind(), [], false).expect("empty test memory operations"),
+        &bray_bound_tree::CheckedMemoryOperations::try_new(
+            unit.unit(),
+            unit.key().kind(),
+            [],
+            false,
+        )
+        .expect("empty test memory operations"),
     )
     .expect("test storage indexes must build");
 
@@ -248,7 +254,11 @@ fn absence_provenance_survives_mutation_and_joins_conservatively() {
         (observed, StorageAbsence::NoPayload),
     ]);
 
-    state.invalidate_observed_absence(&StorageInvalidation::unknown(), &storage, &Default::default());
+    state.invalidate_observed_absence(
+        &StorageInvalidation::unknown(),
+        &storage,
+        &Default::default(),
+    );
 
     assert_eq!(
         state.definitely_absent.keys().cloned().collect::<Vec<_>>(),
@@ -263,7 +273,13 @@ fn absence_provenance_survives_mutation_and_joins_conservatively() {
 
     assert!(state.merge(&incoming, None));
     assert!(!state.merge(&incoming, None));
-    state.invalidate_observed_absence(&StorageInvalidation::unknown(), &storage, &Default::default());
+
+    state.invalidate_observed_absence(
+        &StorageInvalidation::unknown(),
+        &storage,
+        &Default::default(),
+    );
+
     assert!(state.definitely_absent.is_empty());
 }
 
@@ -340,34 +356,64 @@ fn storage_and_expressions(
 
 #[test]
 fn payload_absence_survives_contents_changes_but_not_discriminant_replacement() {
-    use bray_bound_tree::{StorageAccess, StorageAccessRoot, StorageInvalidation, StoragePath, StorageProjection};
     use super::StorageAbsence;
+
+    use bray_bound_tree::{
+        StorageAccess, StorageAccessRoot, StorageInvalidation, StoragePath, StorageProjection,
+    };
+
     use std::collections::{BTreeMap, BTreeSet};
 
     let (unit, expressions) = expression_unit(BoundUnitId::new(126), |tree, origin| {
-        vec![push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type())))]
+        vec![push_expression(
+            tree,
+            BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
+        )]
     });
 
-    let source = unit.tree().expression(expressions[0]).unwrap().origin().source_anchor();
-    let mut builder = StoragePlanBuilder::new(unit.unit(), BoundUnitKind::CallableBody);
-    let root = builder.push_identity(StorageIdentity::Temporary(expressions[0])).unwrap();
+    let source = unit
+        .tree()
+        .expression(expressions[0])
+        .unwrap()
+        .origin()
+        .source_anchor();
 
-    let access = builder.push_access(StorageAccess::new(
-        StorageAccessRoot::Storage(root), [], error_type(), source, false,
-    )).unwrap();
+    let mut builder = StoragePlanBuilder::new(unit.unit(), BoundUnitKind::CallableBody);
+
+    let root = builder
+        .push_identity(StorageIdentity::Temporary(expressions[0]))
+        .unwrap();
+
+    let access = builder
+        .push_access(StorageAccess::new(
+            StorageAccessRoot::Storage(root),
+            [],
+            error_type(),
+            source,
+            false,
+        ))
+        .unwrap();
 
     let storage = builder.finish();
     let parent = StoragePath::root(root);
-    let payload = StoragePath { root, projections: [StorageProjection::NullableValue].into() };
+
+    let payload = StoragePath {
+        root,
+        projections: [StorageProjection::NullableValue].into(),
+    };
+
     let discriminants = BTreeMap::from([(root, vec![parent.clone()])]);
 
     let observed = |changed| StorageInvalidation::Observed {
         accesses: BTreeMap::from([(access, vec![changed])]),
-        snapshots: BTreeMap::new(), referents: BTreeSet::new(), stable_descriptors: BTreeSet::new(),
+        snapshots: BTreeMap::new(),
+        referents: BTreeSet::new(),
+        stable_descriptors: BTreeSet::new(),
     };
 
     let opaque = StorageInvalidation::All {
-        stable_descriptors: [parent.clone()].into(), stable_values: BTreeSet::new(),
+        stable_descriptors: [parent.clone()].into(),
+        stable_values: BTreeSet::new(),
     };
 
     for (invalidation, inline, retained) in [
@@ -379,11 +425,22 @@ fn payload_absence_survives_contents_changes_but_not_discriminant_replacement() 
     ] {
         let mut state = reachable_state();
 
-        state.definitely_absent.insert(payload.clone(), StorageAbsence::NoPayload);
+        state
+            .definitely_absent
+            .insert(payload.clone(), StorageAbsence::NoPayload);
 
         let no_discriminants = BTreeMap::new();
 
-        state.invalidate_observed_absence(&invalidation, &storage, if inline { &discriminants } else { &no_discriminants });
+        state.invalidate_observed_absence(
+            &invalidation,
+            &storage,
+            if inline {
+                &discriminants
+            } else {
+                &no_discriminants
+            },
+        );
+
         assert_eq!(state.definitely_absent.contains_key(&payload), retained);
     }
 }

@@ -28,7 +28,10 @@ pub struct PreparedBodyAnalysis {
     >,
     pub(crate) yield_targets: BTreeMap<BoundExpressionId, BoundExpressionId>,
     pub(crate) literals: BTreeMap<BoundExpressionId, crate::ExecutionCondition>,
-    pub(crate) pattern_conditions: BTreeMap<bray_bound_tree::BoundPatternId, (bray_bound_tree::BoundOperator, crate::ExecutionCondition)>,
+    pub(crate) pattern_conditions: BTreeMap<
+        bray_bound_tree::BoundPatternId,
+        (bray_bound_tree::BoundOperator, crate::ExecutionCondition),
+    >,
     kind: BoundUnitKind,
     cleanup_shapes: Arc<BTreeMap<TypeId, CleanupShape>>,
 }
@@ -127,7 +130,11 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
             expressions,
             request.semantic_values(),
         ),
-        pattern_conditions: crate::execution_guarantees::pattern_conditions(request.unit(), patterns, request.semantic_values()),
+        pattern_conditions: crate::execution_guarantees::pattern_conditions(
+            request.unit(),
+            patterns,
+            request.semantic_values(),
+        ),
         cleanup_shapes: cleanup_shapes.completed,
     };
 
@@ -254,11 +261,10 @@ impl PreparedBodyAnalysis {
 
             if let Some(scope) =
                 identity.and_then(|identity| owners.identity_scope(storage, identity))
-                && let Some(reference) =
-                    crate::execution_guarantees::storage_binding_reference(*target)
+                && let Some(place) = crate::ExecutionPlace::binding(storage, *target)
             {
                 self.scope_places.entry(scope).or_default().push((
-                    crate::ExecutionPlace::from(reference),
+                    place,
                     identity.expect("scoped binding has a storage identity"),
                 ));
             }

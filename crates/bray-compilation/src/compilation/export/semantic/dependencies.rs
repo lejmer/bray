@@ -57,9 +57,20 @@ impl<'a> SemanticExporter<'a> {
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
-        let carriers = data.carriers().iter().map(|carrier| {
-            Ok(bray_symbols::DependencyWitnessCarrier::new(self.constant_term_id(carrier.guarantee())?, carrier.path().iter().map(|projection| self.dependency_projection(projection)).collect::<Result<Vec<_>, _>>()?))
-        }).collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
+        let carriers = data
+            .carriers()
+            .iter()
+            .map(|carrier| {
+                Ok(bray_symbols::DependencyWitnessCarrier::new(
+                    self.constant_term_id(carrier.guarantee())?,
+                    carrier
+                        .path()
+                        .iter()
+                        .map(|projection| self.dependency_projection(projection))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ))
+            })
+            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
         let effects = data
             .effects()
@@ -70,7 +81,9 @@ impl<'a> SemanticExporter<'a> {
                 Ok(match effect {
                     DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
                     DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
-                    DependencyStorageEffect::Cleanup(ty) => DependencyStorageEffect::Cleanup(self.type_id(*ty)?),
+                    DependencyStorageEffect::Cleanup(ty) => {
+                        DependencyStorageEffect::Cleanup(self.type_id(*ty)?)
+                    }
                     DependencyStorageEffect::Direct { subject, kind } => {
                         DependencyStorageEffect::Direct {
                             subject: self.dependency_subject(subject)?,
@@ -93,10 +106,16 @@ impl<'a> SemanticExporter<'a> {
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
+        let returned_input = data
+            .returned_input()
+            .map(|input| self.constant_term_id(input))
+            .transpose()?;
+
         self.dependency_contracts.push(
             InterfaceDependencyContract::new(requirements)
                 .with_borrows(borrows)
                 .with_carriers(carriers)
+                .with_returned_input(returned_input)
                 .with_effects(effects)
                 .with_normal_completion(data.normal_completion()),
         );

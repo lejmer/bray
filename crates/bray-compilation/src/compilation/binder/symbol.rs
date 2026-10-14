@@ -13,7 +13,7 @@ mod module_surface;
 mod result_dependencies;
 pub(in crate::compilation) use result_dependencies::{
     BodyAnalysis, default_result_dependencies, expression_result_dependencies,
-    static_result_dependencies, source_body_semantics,
+    source_body_semantics, static_result_dependencies,
 };
 mod static_storage;
 pub(in crate::compilation) use static_storage::static_dependencies_from_contract;

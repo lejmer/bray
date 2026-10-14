@@ -146,7 +146,11 @@ where
         .map(|exit| exit.block())
         .collect::<BTreeSet<_>>();
 
+    let normal_paths = graph.completion_predecessors();
+
     for block in graph.blocks() {
+        collector.on_normal_path = normal_paths.contains(&block.id());
+
         // Publication evaluates operations against an independent final block-entry state.
         let Some(mut state) = result.state(block.id()).cloned() else {
             continue;
@@ -189,20 +193,16 @@ where
         collector.collect_conditions(&state, block, graph, &mut conditions);
 
         if normal_exits.contains(&block.id()) {
-            collector.collect_exit_references(&state);
-            collector.results.merge_returns(&state.result_dependencies);
-
-            collector.trusted.exit(
-                execution,
-                state
-                    .execution
-                    .as_ref()
-                    .expect("reachable storage state has execution facts"),
-            );
+            collector.collect_completion(&state);
         }
     }
 
     let carriers = collector.trusted.result_carriers(request);
+
+    let returned_input = (!collector.has_normal_effects)
+        .then_some(collector.trusted.returned_input)
+        .flatten()
+        .flatten();
 
     collector
         .diagnostics
@@ -229,7 +229,7 @@ where
     let assignments = collector.take_assignment_targets();
     let effects = std::mem::take(&mut collector.effects);
 
-    let analysis = match StorageFlow::try_new(
+    let analysis = StorageFlow::try_new(
         storage.unit(),
         storage.kind(),
         decisions,
@@ -253,18 +253,15 @@ where
     .and_then(|analysis| analysis.with_memory_operations(memory, memory_decisions))
     .and_then(|analysis| analysis.with_replacements(replacements))
     .and_then(|analysis| analysis.with_assignment_targets(assignments))
-    {
-        Ok(analysis) => analysis
-            .with_dependencies(dependencies.with_effects(effects).with_carriers(carriers))
-            .with_cleanup_mutations(collector.cleanup_mutations)
-            .with_completions(collector.completions),
-        Err(error) => {
-            panic!(
-                "Durable storage-flow construction rejected an exact invariant. in check_storage_flow_with_graph, value0: {:?}",
-                error
-            );
-        }
-    };
+    .expect("durable storage flow must preserve the checked plan's identities")
+    .with_dependencies(
+        dependencies
+            .with_effects(effects)
+            .with_carriers(carriers)
+            .with_returned_input(returned_input),
+    )
+    .with_cleanup_mutations(collector.cleanup_mutations)
+    .with_completions(collector.completions);
 
     let published = match crate::analysis::refinement::publish_refinements(
         request,
@@ -351,16 +348,11 @@ where
     replacements: BTreeMap<StorageAccessPlan, ReplacementState>,
     assignments: BTreeMap<BoundExpressionId, Option<crate::analysis::storage_flow::memory::Place>>,
     pub(super) effects: BTreeSet<bray_symbols::DependencyStorageEffect>,
+    pub(super) on_normal_path: bool,
+    pub(super) has_normal_effects: bool,
     pub(super) references: Option<crate::analysis::storage_flow::memory::ReferenceExit>,
-    pub(super) cleanup_mutations: BTreeMap<
-        (
-            bray_bound_tree::BoundExecutionSite,
-            StorageAccessId,
-            usize,
-            bray_symbols::TypeAssociatedLifecycleSlot,
-        ),
-        bray_bound_tree::StorageInvalidation,
-    >,
+    pub(super) cleanup_mutations:
+        BTreeMap<bray_bound_tree::StorageMutation, bray_bound_tree::StorageInvalidation>,
     pub(super) completions:
         BTreeMap<bray_bound_tree::StorageMutation, bray_bound_tree::StorageCompletion>,
     invalidations:
@@ -378,6 +370,19 @@ impl<'analysis, C> StorageFlowCollector<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    fn collect_completion(&mut self, state: &StorageFlowState) {
+        self.collect_exit_references(state);
+        self.results.merge_returns(&state.result_dependencies);
+
+        self.trusted.exit(
+            self.execution,
+            state
+                .execution
+                .as_ref()
+                .expect("reachable storage state has execution facts"),
+        );
+    }
+
     fn collect_conditions(
         &self,
         state: &StorageFlowState,
@@ -456,6 +461,8 @@ where
             cleanup_mutations: BTreeMap::new(),
             completions: BTreeMap::new(),
             effects: BTreeSet::new(),
+            on_normal_path: false,
+            has_normal_effects: false,
             references: None,
             memory_decisions: BTreeMap::new(),
             diagnostics: DiagnosticBag::new(),
@@ -530,23 +537,7 @@ where
 
         let kind = operation.kind();
 
-        let mut transfer = crate::dependency::ResultTransfer::new(
-            self.request,
-            self.execution.semantics.types(),
-            self.execution.semantics.selections(),
-            self.patterns,
-            self.values,
-            &mut state.result_dependencies,
-        );
-
-        if let Err(error) = transfer.operation(
-            kind,
-            kind.occurrence()
-                .expression()
-                .and_then(|id| self.execution.yield_targets.get(&id).copied()),
-        ) {
-            self.query_failure = Some(error);
-        }
+        self.transfer_result_dependencies(state, kind);
 
         if self.publish {
             self.trusted
@@ -616,7 +607,12 @@ where
                                     ..
                                 }
                             )
-                            .then(|| self.opaque_observations(&state.memory, self.invocation_roots(state, kind.occurrence())))
+                            .then(|| {
+                                self.opaque_observations(
+                                    &state.memory,
+                                    self.invocation_roots(state, kind.occurrence()),
+                                )
+                            })
                         })
                 })
         };
@@ -737,6 +733,30 @@ where
         state.refinements = refinements;
     }
 
+    fn transfer_result_dependencies(
+        &mut self,
+        state: &mut StorageFlowState,
+        kind: AnalysisOperationKind,
+    ) {
+        let mut transfer = crate::dependency::ResultTransfer::new(
+            self.request,
+            self.execution.semantics.types(),
+            self.execution.semantics.selections(),
+            self.patterns,
+            self.values,
+            &mut state.result_dependencies,
+        );
+
+        if let Err(error) = transfer.operation(
+            kind,
+            kind.occurrence()
+                .expression()
+                .and_then(|id| self.execution.yield_targets.get(&id).copied()),
+        ) {
+            self.query_failure = Some(error);
+        }
+    }
+
     fn observe_absence<'refinements>(
         &self,
         state: &mut StorageFlowState,
@@ -749,14 +769,23 @@ where
                 value,
                 ..
             } = refinement.kind()
-                && let Some(payloads) = self.storage.logical_path(access).and_then(|path| self.input.variant_payloads.get(path))
+                && let Some(payloads) = self
+                    .storage
+                    .logical_path(access)
+                    .and_then(|path| self.input.variant_payloads.get(path))
             {
                 for payload in payloads {
-                    if let Some(bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, .. }) = payload.projections.last()
+                    if let Some(bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
+                        variant,
+                        ..
+                    }) = payload.projections.last()
                         && (*variant == active) != value
                     {
                         // The absent variant is an ownership fact even when its payload has no source binding.
-                        state.definitely_absent.entry(payload.clone()).or_insert(StorageAbsence::NoPayload);
+                        state
+                            .definitely_absent
+                            .entry(payload.clone())
+                            .or_insert(StorageAbsence::NoPayload);
                     }
                 }
             }
@@ -828,7 +857,11 @@ where
             self.refinements
                 .invalidation_at(operation.kind().occurrence())
         }) {
-            state.invalidate_observed_absence(invalidation, self.storage, &self.input.discriminants);
+            state.invalidate_observed_absence(
+                invalidation,
+                self.storage,
+                &self.input.discriminants,
+            );
         }
 
         if let AnalysisOperationKind::Call { invocation, phase } = operation.kind() {
@@ -1365,6 +1398,7 @@ where
                 let reaches_last_use = self.liveness.is_last_use(operation, subject);
 
                 capability.entry_binding().is_none()
+                    && !state.retains_borrow_for_cleanup(*borrow, self.input)
                     && ((moved_borrows.contains(borrow)
                         && !self.liveness.is_owner_retained(subject)
                         && (!retained_for_suspension || completed_retaining_suspension))
@@ -1391,8 +1425,16 @@ where
 
         state.retain_live_storage();
 
+        let retained = state
+            .active_borrows
+            .iter()
+            .copied()
+            .filter(|borrow| state.retains_borrow_for_cleanup(*borrow, self.input))
+            .collect::<BTreeSet<_>>();
+
         state.active_borrows.retain(|borrow| {
-            self.borrow_is_entry(*borrow)
+            retained.contains(borrow)
+                || self.borrow_is_entry(*borrow)
                 || self.liveness.is_live_across_scope(
                     block,
                     exit,
@@ -1401,7 +1443,8 @@ where
         });
 
         state.definitely_active_borrows.retain(|borrow| {
-            self.borrow_is_entry(*borrow)
+            retained.contains(borrow)
+                || self.borrow_is_entry(*borrow)
                 || self.liveness.is_live_across_scope(
                     block,
                     exit,

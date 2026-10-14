@@ -26,7 +26,6 @@ pub(crate) struct Plan {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(super) enum Step {
-    Invalidate,
     Opaque {
         ty: TypeId,
         path: Option<bray_bound_tree::StoragePath>,
@@ -37,6 +36,11 @@ pub(super) enum Step {
         path: Option<bray_bound_tree::StoragePath>,
         whole: bool,
         conditional: bool,
+        guards: Vec<(
+            bray_bound_tree::StoragePath,
+            bray_bound_tree::BoundOperator,
+            ExecutionCondition,
+        )>,
     },
 }
 
@@ -76,10 +80,20 @@ impl<'a> Cleanup<'a> {
 }
 
 impl Plan {
-    pub(in crate::analysis) fn represented_paths(&self) -> impl Iterator<Item = &bray_bound_tree::StoragePath> {
+    pub(in crate::analysis) fn has_opaque_effects(&self) -> bool {
+        self.steps.iter().any(|(access, steps)| {
+            matches!(
+                self.replacements.get(access),
+                Some(bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_))
+            ) && steps.iter().any(|step| matches!(step, Step::Opaque { .. }))
+        })
+    }
+
+    pub(in crate::analysis) fn represented_paths(
+        &self,
+    ) -> impl Iterator<Item = &bray_bound_tree::StoragePath> {
         self.steps.values().flatten().filter_map(|step| match step {
             Step::Opaque { path, .. } | Step::Lifecycle { path, .. } => path.as_ref(),
-            Step::Invalidate => None,
         })
     }
 
@@ -181,16 +195,28 @@ impl Plan {
 
         prepared.requirements = cleanup_shapes.storage_requirements(storage)?;
 
-        let mut accesses = storage.identity_entries().filter_map(|(identity, _)| {
-            if bray_bound_tree::storage_identity_transfers_at_unit_exit(storage, identity) { return None; }
+        let mut accesses = storage
+            .identity_entries()
+            .filter_map(|(identity, _)| {
+                if bray_bound_tree::storage_identity_transfers_at_unit_exit(storage, identity) {
+                    return None;
+                }
 
-            Some((storage.root_access(identity)?, storage.storage_type(identity)?))
-        }).collect::<BTreeMap<_, _>>();
+                Some((
+                    storage.root_access(identity)?,
+                    storage.storage_type(identity)?,
+                ))
+            })
+            .collect::<BTreeMap<_, _>>();
 
-        for plan in storage.access_plans().iter().filter(|plan| {
-            plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment
-        }) {
-            let access = storage.access(plan.access()).expect("replacement retains its checked access");
+        for plan in storage
+            .access_plans()
+            .iter()
+            .filter(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment)
+        {
+            let access = storage
+                .access(plan.access())
+                .expect("replacement retains its checked access");
 
             accesses.insert(plan.access(), access.reached_type());
         }
@@ -230,9 +256,7 @@ impl Plan {
 
                     if part.as_ref().is_some_and(|part| {
                         part.release().is_some() || !part.phases().includes_lifecycle()
-                    }) {
-                        Step::Invalidate
-                    } else if !matches!(request.semantic_values().type_data(ty).as_ref(), TypeData::Named { .. }) {
+                    }) || !matches!(request.semantic_values().type_data(ty).as_ref(), TypeData::Named { .. }) {
                         Step::Opaque { ty, path }
                     } else {
                         types.insert(ty);
@@ -241,6 +265,7 @@ impl Plan {
 
                         Step::Lifecycle {
                             ty,
+                            guards: cleanup_guards(request.semantic_values(), storage, access, part.as_ref()),
                             path,
                             place,
                             conditional: part.as_ref().is_none_or(|part| part.projections().iter().any(|projection| {
@@ -259,7 +284,10 @@ impl Plan {
 
             if steps.is_empty() {
                 // Opaque native cleanup has no represented lifecycle whose effects we can apply.
-                steps.push(Step::Invalidate);
+                steps.push(Step::Opaque {
+                    ty,
+                    path: storage.logical_path(access).cloned(),
+                });
             }
 
             prepared.steps.insert(access, steps);
@@ -370,4 +398,62 @@ fn lifecycle(
         synchronous: callable.execution() == bray_symbols::CallableExecution::Synchronous,
         contract,
     })
+}
+
+fn cleanup_guards(
+    values: &bray_symbols::SemanticValueStore,
+    storage: &StoragePlan,
+    access: StorageAccessId,
+    part: Option<&bray_bound_tree::StorageCleanupPart>,
+) -> Vec<(
+    bray_bound_tree::StoragePath,
+    bray_bound_tree::BoundOperator,
+    ExecutionCondition,
+)> {
+    use bray_bound_tree::{PatternPredicate, StorageCleanupProjectionKind, StorageProjection};
+
+    let Some(part) = part else {
+        return Vec::new();
+    };
+
+    // Each guard owns its prefix because later projections descend into the selected payload.
+    let Some(mut path) = storage.logical_path(access).cloned() else {
+        return Vec::new();
+    };
+
+    let mut guards = Vec::new();
+
+    for projection in part.projections() {
+        let StorageCleanupProjectionKind::Component(component) = projection.projection() else {
+            break;
+        };
+
+        let predicate = match component {
+            StorageProjection::NullableValue => Some(PatternPredicate::NullablePresent),
+            StorageProjection::ActiveUnionPayloadField { variant, .. } => {
+                Some(PatternPredicate::ActiveUnionVariant(variant))
+            }
+            _ => None,
+        };
+
+        if let Some(predicate) = predicate {
+            let (operator, expected) = crate::execution_guarantees::pattern_value(
+                values,
+                projection.source_type(),
+                predicate,
+            )
+            .expect("cleanup presence guards have checked pattern values");
+
+            guards.push((path.clone(), operator, expected));
+        }
+
+        path.projections = path
+            .projections
+            .iter()
+            .copied()
+            .chain([component])
+            .collect();
+    }
+
+    guards
 }

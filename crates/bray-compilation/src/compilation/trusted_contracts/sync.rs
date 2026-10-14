@@ -113,9 +113,15 @@ fn production_spin_lock_rejects_fabricated_guard_authority() {
     for (body, valid) in [
         ("", true),
         ("let guard = lock.lock();", true),
-        ("let mut guard = lock.lock(); let value = guard.get();", true),
+        (
+            "let mut guard = lock.lock(); let value = guard.get();",
+            true,
+        ),
         ("let mut guard = lock.lock(); guard.get().value = 9;", true),
-        ("let mut guard: std.sync.SpinLockGuard<Payload> = { lock = &lock, acquisition = internal std.sync.spin_lock.Marker {} }; let value = guard.get();", false),
+        (
+            "let mut guard: std.sync.SpinLockGuard<Payload> = { lock = &lock, acquisition = internal std.sync.spin_lock.Marker {} }; let value = guard.get();",
+            false,
+        ),
     ] {
         let caller = format!(
             r#"
@@ -154,7 +160,10 @@ fn production_sync_compilation(caller: &str) -> Compilation {
     production_sync_compilation_for_target(caller, crate::SelectedTarget::baseline())
 }
 
-fn production_sync_compilation_for_target(caller: &str, target: crate::SelectedTarget) -> Compilation {
+fn production_sync_compilation_for_target(
+    caller: &str,
+    target: crate::SelectedTarget,
+) -> Compilation {
     let sources = [
         include_str!("../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../standard-library/std/src/memory.bray"),
@@ -214,7 +223,6 @@ fn production_sync_compilation_for_target(caller: &str, target: crate::SelectedT
         include_str!("../../../../../standard-library/std/src/sync/once/attempt.bray"),
         include_str!("../../../../../standard-library/std/src/sync/once/lazy.bray"),
         include_str!("../../../../../standard-library/std/src/sync/barrier.bray"),
-
         caller,
     ];
 
@@ -233,7 +241,11 @@ fn production_sync_compilation_for_target(caller: &str, target: crate::SelectedT
         .with_native_link_inputs(["c", "pthread", "dl", "Kernel32"].map(|name| {
             bray_symbols::NativeLinkRequirement::new(
                 bray_base::NonEmptySharedStr::try_new(name).unwrap(),
-                if name == "dl" { bray_symbols::NativeLinkKind::Dynamic } else { bray_symbols::NativeLinkKind::System },
+                if name == "dl" {
+                    bray_symbols::NativeLinkKind::Dynamic
+                } else {
+                    bray_symbols::NativeLinkKind::System
+                },
             )
         })),
     )
@@ -241,7 +253,11 @@ fn production_sync_compilation_for_target(caller: &str, target: crate::SelectedT
 
     let compilation = Compilation::load(request).unwrap();
 
-    assert!(!compilation.syntax_tree_result().diagnostics().has_errors(), "{:?}", compilation.syntax_tree_result().diagnostics());
+    assert!(
+        !compilation.syntax_tree_result().diagnostics().has_errors(),
+        "{:?}",
+        compilation.syntax_tree_result().diagnostics()
+    );
 
     compilation
 }
@@ -987,7 +1003,11 @@ fn production_mutex_requires_acquisition_authority() {
 fn production_rw_lock_requires_distinct_acquisition_authority() {
     for (kind, method) in [("Read", "read"), ("Write", "write")] {
         for (guard, nullable, valid) in [
-            ("{ lock = &lock, acquisition = internal std.sync.rw_lock.Marker {} }".to_owned(), false, false),
+            (
+                "{ lock = &lock, acquisition = internal std.sync.rw_lock.Marker {} }".to_owned(),
+                false,
+                false,
+            ),
             (format!("lock.try_{method}()"), true, true),
             (format!("lock.{method}()"), false, true),
         ] {
@@ -1038,13 +1058,17 @@ fn production_lock_declarations_check_their_own_bodies() {
 
     for key in compilation.declared_unit_keys_for_test().unwrap() {
         if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody
-            || !matches!(key.source().syntax().source_id().raw(), 4..=6 | 8..=10 | 28..=32) {
+            || !matches!(key.source().syntax().source_id().raw(), 4..=6 | 8..=10 | 28..=32)
+        {
             continue;
         }
 
-        let diagnostics = compilation.semantic_unit_diagnostics_with_cancellation(
-            key.clone(), &compilation.state.cancellation,
-        ).unwrap();
+        let diagnostics = compilation
+            .semantic_unit_diagnostics_with_cancellation(
+                key.clone(),
+                &compilation.state.cancellation,
+            )
+            .unwrap();
 
         if diagnostics.has_errors() {
             failures.push(format!("{key:?}: {diagnostics:?}"));
@@ -1053,7 +1077,9 @@ fn production_lock_declarations_check_their_own_bodies() {
 
         let checked = compilation.lowered_unit(key.clone()).unwrap();
 
-        if checked.diagnostics().has_errors() { failures.push(format!("{key:?}: {:?}", checked.diagnostics())); }
+        if checked.diagnostics().has_errors() {
+            failures.push(format!("{key:?}: {:?}", checked.diagnostics()));
+        }
     }
 
     assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -1063,24 +1089,55 @@ fn production_lock_declarations_check_their_own_bodies() {
 fn consuming_guard_release_keeps_its_destructors_reference_effects() {
     let application = production_sync_compilation("module app;");
     let symbols = application.symbol_graph().unwrap();
-    let context = application.binding_context(&application.state.cancellation).unwrap();
 
-    let callable = symbols.type_callable_members().iter().find(|member| {
-        member.syntax_anchor().is_some_and(|anchor| anchor.source_id().raw() == 5)
-            && symbols.member_name(member.id().into()).is_some_and(|name| name.as_str() == "unlock")
-    }).expect("production spin-lock guard release").id();
+    let context = application
+        .binding_context(&application.state.cancellation)
+        .unwrap();
 
-    let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(&context,
-        bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(callable.into())).unwrap();
+    let callable = symbols
+        .type_callable_members()
+        .iter()
+        .find(|member| {
+            member
+                .syntax_anchor()
+                .is_some_and(|anchor| anchor.source_id().raw() == 5)
+                && symbols
+                    .member_name(member.id().into())
+                    .is_some_and(|name| name.as_str() == "unlock")
+        })
+        .expect("production spin-lock guard release")
+        .id();
 
-    let template = application.semantic_value_store().unwrap().dependency_contract_template_data(*dependencies.value());
+    let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
+        &context,
+        bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(
+            callable.into(),
+        ),
+    )
+    .unwrap();
 
-    assert!(matches!(template.effects(), [bray_symbols::DependencyStorageEffect::Indirect { kind: bray_symbols::DependencyMutationKind::Atomic, .. }]), "{:?}", template.effects());
+    let template = application
+        .semantic_value_store()
+        .unwrap()
+        .dependency_contract_template_data(*dependencies.value());
+
+    assert!(
+        matches!(
+            template.effects(),
+            [bray_symbols::DependencyStorageEffect::Indirect {
+                kind: bray_symbols::DependencyMutationKind::Atomic,
+                ..
+            }]
+        ),
+        "{:?}",
+        template.effects()
+    );
 }
 
 #[test]
 fn independent_production_guards_keep_their_authority() {
-    let compilation = production_sync_compilation(r#"
+    let compilation = production_sync_compilation(
+        r#"
         module app;
         using std.sync;
         func production_probe() {
@@ -1090,11 +1147,18 @@ fn independent_production_guards_keep_their_authority() {
             { let other = second.lock(); }
             let value = guard.get();
         }
-    "#);
+    "#,
+    );
 
-    let checked = compilation.lowered_unit(source_function_body_key(&compilation, "production_probe")).unwrap();
+    let checked = compilation
+        .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+        .unwrap();
 
-    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{:?}",
+        checked.diagnostics()
+    );
 }
 
 #[test]
@@ -1114,7 +1178,11 @@ fn production_synchronization_declarations_check_their_own_bodies() {
 
         let certified = compilation.execution_properties(key.clone()).unwrap();
 
-        assert!(!certified.diagnostics().has_errors(), "{key:?}: {:?}", certified.diagnostics());
+        assert!(
+            !certified.diagnostics().has_errors(),
+            "{key:?}: {:?}",
+            certified.diagnostics()
+        );
 
         let checked = compilation.lowered_unit(key.clone()).unwrap();
 
@@ -1298,10 +1366,15 @@ fn production_guard_borrow_origin_reaches_the_protected_payload() {
     );
 
     assert_eq!(relation.entry().projections().len(), 1, "{relation:#?}");
-    assert_eq!(relation.target_projections().len(), 3, "{relation:#?}");
+    assert_eq!(relation.target_projections().len(), 4, "{relation:#?}");
 
     assert_eq!(
         relation.target_projections()[1],
+        bray_symbols::DependencyProjection::UninitPayload
+    );
+
+    assert_eq!(
+        relation.target_projections()[3],
         bray_symbols::DependencyProjection::UninitPayload
     );
 }
@@ -1742,10 +1815,7 @@ fn joined_mutated_values_do_not_inherit_their_entry_contents() {
         let application = compilation(&source);
 
         let checked = application
-            .execution_properties(source_function_body_key(
-                &application,
-                "update",
-            ))
+            .execution_properties(source_function_body_key(&application, "update"))
             .unwrap();
 
         assert_eq!(
@@ -1844,26 +1914,53 @@ fn input_referent_mutations_preserve_only_proven_disjoint_component_witnesses() 
 #[test]
 fn production_spin_lock_rejects_detached_authority() {
     for (body, expected) in [
-        ("let marker = lock.instance;", DiagnosticKind::CheckingTrustedWitnessTransferNotProven),
-        ("let mut original = lock.lock(); let marker = original.acquisition;", DiagnosticKind::CheckingTrustedWitnessTransferNotProven),
-        ("let original = lock.lock(); let other = std.sync.SpinLock<u32>(8); let guard: std.sync.SpinLockGuard<u32> = { lock = &other, acquisition = original.acquisition };", DiagnosticKind::CheckingTrustedWitnessTransferNotProven),
-        ("let mut original = lock.lock(); original.lock = &lock;", DiagnosticKind::CheckingMissingMutationAuthority),
-        ("let mut original = lock; original.storage = std.memory.uninit<std.sync.spin_lock.State<u32>>();", DiagnosticKind::CheckingMissingMutationAuthority),
-        ("let forged: std.sync.SpinLock<u32> = { instance = internal std.sync.spin_lock.Marker {}, storage = std.memory.uninit_from<std.sync.spin_lock.State<u32>>({ tickets = core.atomic.initialize<u32>(0), value = 8 }) }; let guard = forged.lock();", DiagnosticKind::CheckingTrustedObligationNotProven),
+        (
+            "let marker = lock.instance;",
+            DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
+        ),
+        (
+            "let mut original = lock.lock(); let marker = original.acquisition;",
+            DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
+        ),
+        (
+            "let original = lock.lock(); let other = std.sync.SpinLock<u32>(8); let guard: std.sync.SpinLockGuard<u32> = { lock = &other, acquisition = original.acquisition };",
+            DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
+        ),
+        (
+            "let mut original = lock.lock(); original.lock = &lock;",
+            DiagnosticKind::CheckingMissingMutationAuthority,
+        ),
+        (
+            "let mut original = lock; original.storage = std.memory.uninit<std.sync.spin_lock.State<u32>>();",
+            DiagnosticKind::CheckingMissingMutationAuthority,
+        ),
+        (
+            "let forged: std.sync.SpinLock<u32> = { instance = internal std.sync.spin_lock.Marker {}, storage = std.memory.uninit_from<std.sync.spin_lock.State<u32>>({ tickets = core.atomic.initialize<u32>(0), value = 8 }) }; let guard = forged.lock();",
+            DiagnosticKind::CheckingTrustedObligationNotProven,
+        ),
     ] {
-        let source = format!(r#"
+        let source = format!(
+            r#"
             module app;
             using internal std.sync;
             func production_probe() {{
                 let lock = std.sync.SpinLock<u32>(7);
                 {body}
             }}
-        "#);
+        "#
+        );
 
         let compilation = production_sync_compilation(&source);
-        let checked = compilation.lowered_unit(source_function_body_key(&compilation, "production_probe")).unwrap();
 
-        assert!(checked.diagnostics().has_errors(), "accepted forged authority: {source}");
+        let checked = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert!(
+            checked.diagnostics().has_errors(),
+            "accepted forged authority: {source}"
+        );
+
         bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), expected);
     }
 }
@@ -1872,7 +1969,8 @@ fn production_spin_lock_rejects_detached_authority() {
 fn native_atomic_word_bridge_retains_wait_and_notification_roles() {
     use bray_runtime_interface::RuntimeAbiRole;
 
-    let compilation = production_sync_compilation(r#"
+    let compilation = production_sync_compilation(
+        r#"
         module app;
         func production_probe(pos word: &core.atomic.Atomic<u32>, pos expected: u32)
             requires(blocking_execution())
@@ -1881,18 +1979,32 @@ fn native_atomic_word_bridge_retains_wait_and_notification_roles() {
             core.atomic.notify_one<u32>(word);
             core.atomic.notify_all<u32>(word);
         }
-    "#);
+    "#,
+    );
 
-    let checked = compilation.lowered_unit(source_function_body_key(&compilation, "production_probe")).unwrap();
+    let checked = compilation
+        .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+        .unwrap();
 
     assert!(!checked.diagnostics().has_errors(), "{checked:?}");
 
-    let mir = checked.value().as_ref().expect("checked word operation lowers").mir().expect("word operation has MIR");
+    let mir = checked
+        .value()
+        .as_ref()
+        .expect("checked word operation lowers")
+        .mir()
+        .expect("word operation has MIR");
 
     let roles = bray_codegen::demanded_runtime_references_for_mir(mir)
-        .into_iter().map(|reference| reference.role()).collect::<std::collections::BTreeSet<_>>();
+        .into_iter()
+        .map(|reference| reference.role())
+        .collect::<std::collections::BTreeSet<_>>();
 
-    for role in [RuntimeAbiRole::AtomicWordWait, RuntimeAbiRole::AtomicWordNotifyOne, RuntimeAbiRole::AtomicWordNotifyAll] {
+    for role in [
+        RuntimeAbiRole::AtomicWordWait,
+        RuntimeAbiRole::AtomicWordNotifyOne,
+        RuntimeAbiRole::AtomicWordNotifyAll,
+    ] {
         assert!(roles.contains(&role), "missing {role:?}: {roles:?}");
     }
 
@@ -1904,21 +2016,40 @@ fn native_atomic_word_bridge_retains_wait_and_notification_roles() {
 #[test]
 fn native_atomic_word_declarations_check_for_every_target() {
     for target in bray_target::NativeTarget::ALL {
-        let compilation = production_sync_compilation_for_target("module app;", crate::SelectedTarget::for_native(target));
+        let compilation = production_sync_compilation_for_target(
+            "module app;",
+            crate::SelectedTarget::for_native(target),
+        );
+
         let mut checked_bodies = 0;
 
         for key in compilation.declared_unit_keys_for_test().unwrap() {
-            if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody || !matches!(key.source().syntax().source_id().raw(), 35..=37) {
+            if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody
+                || !matches!(key.source().syntax().source_id().raw(), 35..=37)
+            {
                 continue;
             }
 
-            let diagnostics = compilation.semantic_unit_diagnostics_with_cancellation(key.clone(), &compilation.state.cancellation).unwrap();
+            let diagnostics = compilation
+                .semantic_unit_diagnostics_with_cancellation(
+                    key.clone(),
+                    &compilation.state.cancellation,
+                )
+                .unwrap();
 
-            assert!(!diagnostics.has_errors(), "{target:?} {key:?}: {diagnostics:?}");
+            assert!(
+                !diagnostics.has_errors(),
+                "{target:?} {key:?}: {diagnostics:?}"
+            );
 
             let checked = compilation.lowered_unit(key).unwrap();
 
-            assert!(!checked.diagnostics().has_errors(), "{target:?}: {:?}", checked.diagnostics());
+            assert!(
+                !checked.diagnostics().has_errors(),
+                "{target:?}: {:?}",
+                checked.diagnostics()
+            );
+
             checked_bodies += 1;
         }
 
@@ -1928,8 +2059,12 @@ fn native_atomic_word_declarations_check_for_every_target() {
 
 #[test]
 fn generic_cleanup_effects_specialize_through_forwarding() {
-    for (argument, valid) in [("forward<u32>(7)", true), ("forward<Writer>(Writer { value = &word })", false)] {
-        let source = format!(r#"
+    for (argument, valid) in [
+        ("forward<u32>(7)", true),
+        ("forward<Writer>(Writer { value = &word })", false),
+    ] {
+        let source = format!(
+            r#"
             trusted module app;
             trusted predicate ready(value: &core.atomic.Atomic<u32>);
             trusted func establish(pos value: &core.atomic.Atomic<u32>)
@@ -1948,38 +2083,59 @@ fn generic_cleanup_effects_specialize_through_forwarding() {
                 {argument};
                 observe(&word);
             }}
-        "#);
+        "#
+        );
 
         let application = production_sync_compilation(&source);
-        let checked = application.lowered_unit(source_function_body_key(&application, "production_probe")).unwrap();
 
-        assert_eq!(!checked.diagnostics().has_errors(), valid, "{source}: {:?}", checked.diagnostics());
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            checked.diagnostics()
+        );
 
         if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
         }
     }
 }
 
 #[test]
 fn recursive_cleanup_effects_do_not_grow_with_generic_wrappers() {
-    let application = production_sync_compilation(r#"
+    let application = production_sync_compilation(
+        r#"
         module app;
         func dispose<T>(pos value: T, pos stop: bool) {
             if stop { return; }
             dispose<(T,)>((value,), stop);
         }
         func production_probe() { dispose<u32>(7, true); }
-    "#);
+    "#,
+    );
 
-    let checked = application.lowered_unit(source_function_body_key(&application, "production_probe")).unwrap();
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "production_probe"))
+        .unwrap();
 
-    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{:?}",
+        checked.diagnostics()
+    );
 }
 
 #[test]
 fn production_guard_reacquisition_retains_original_lock_dependency() {
-    let application = production_sync_compilation(r#"
+    let application = production_sync_compilation(
+        r#"
         trusted module app;
         using internal std.sync;
         func production_probe<T>(pos guard: std.sync.MutexGuard<T>) -> std.sync.MutexGuard<T>
@@ -1990,17 +2146,25 @@ fn production_guard_reacquisition_retains_original_lock_dependency() {
             guard.unlock();
             return mutex.lock();
         }
-    "#);
+    "#,
+    );
 
-    let checked = application.lowered_unit(source_function_body_key(&application, "production_probe")).unwrap();
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "production_probe"))
+        .unwrap();
 
-    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{:?}",
+        checked.diagnostics()
+    );
 }
 
 #[test]
 fn unknown_atomic_aliases_preserve_markers_but_revoke_content_observations() {
     for (observation, valid) in [("marker", true), ("word", false), ("scalar", false)] {
-        let source = format!(r#"
+        let source = format!(
+            r#"
             trusted module app;
             struct Marker {{}}
             trusted predicate held(value: &Marker);
@@ -2026,14 +2190,28 @@ fn unknown_atomic_aliases_preserve_markers_but_revoke_content_observations() {
                 core.atomic.store<u32, 0>(alias, 1);
                 observe_{observation}({observation});
             }}
-        "#);
+        "#
+        );
 
         let application = production_sync_compilation(&source);
-        let checked = application.lowered_unit(source_function_body_key(&application, "production_probe")).unwrap();
 
-        assert_eq!(!checked.diagnostics().has_errors(), valid, "{observation}: {:?}", checked.diagnostics());
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "production_probe"))
+            .unwrap();
 
-        if !valid { bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven); }
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{observation}: {:?}",
+            checked.diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
     }
 }
 
@@ -2042,7 +2220,8 @@ fn physical_entry_origin_does_not_erase_a_local_lifetime_anchor() {
     for (inside, valid) in [(true, true), (false, false)] {
         let observe = "observe(pointer);";
 
-        let source = format!(r#"
+        let source = format!(
+            r#"
             trusted module app;
             struct Anchor {{}}
             trusted func anchored(pos owner: &Anchor, pos payload: &u32) -> &u32
@@ -2065,15 +2244,29 @@ fn physical_entry_origin_does_not_erase_a_local_lifetime_anchor() {
                 }};
                 {}
             }}
-        "#, if inside { observe } else { "" }, if inside { "" } else { observe });
+        "#,
+            if inside { observe } else { "" },
+            if inside { "" } else { observe }
+        );
 
         let application = production_sync_compilation(&source);
-        let checked = application.lowered_unit(source_function_body_key(&application, "production_probe")).unwrap();
 
-        assert_eq!(!checked.diagnostics().has_errors(), valid, "{source}: {:?}", checked.diagnostics());
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            checked.diagnostics()
+        );
 
         if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
         }
     }
 }
@@ -2098,9 +2291,16 @@ fn unexposed_owned_marker_survives_opaque_callback_cleanup() {
     "#;
 
     let application = compilation(source);
-    let checked = application.lowered_unit(source_function_body_key(&application, "caller")).unwrap();
 
-    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "caller"))
+        .unwrap();
+
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{:?}",
+        checked.diagnostics()
+    );
 }
 
 #[test]
@@ -2110,10 +2310,20 @@ fn opaque_callback_preserves_only_unexposed_complete_marker_carriers() {
         ("&result.marker", "let marker = guard.marker;", false),
         ("&result", "observe(&guard);", false),
     ] {
-        let ty = if observation == "&result" { "Guard" } else { "Marker" };
-        let argument = if ty == "Guard" { "guard" } else { "&guard.marker" };
+        let ty = if observation == "&result" {
+            "Guard"
+        } else {
+            "Marker"
+        };
 
-        let source = format!(r#"
+        let argument = if ty == "Guard" {
+            "guard"
+        } else {
+            "&guard.marker"
+        };
+
+        let source = format!(
+            r#"
             trusted module app;
             struct Marker {{}}
             struct Payload {{ mut value: bool; }}
@@ -2130,12 +2340,21 @@ fn opaque_callback_preserves_only_unexposed_complete_marker_carriers() {
                 callback();
                 {after}
             }}
-        "#);
+        "#
+        );
 
         let application = compilation(&source);
-        let checked = application.lowered_unit(source_function_body_key(&application, "caller")).unwrap();
 
-        assert_eq!(!checked.diagnostics().has_errors(), valid, "{source}: {:?}", checked.diagnostics());
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "caller"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            checked.diagnostics()
+        );
     }
 }
 
@@ -2161,9 +2380,15 @@ fn opaque_callback_does_not_reuse_a_carriers_borrowed_payload_snapshot() {
     "#;
 
     let application = compilation(source);
-    let checked = application.lowered_unit(source_function_body_key(&application, "caller")).unwrap();
 
-    bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "caller"))
+        .unwrap();
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        checked.diagnostics(),
+        DiagnosticKind::CheckingTrustedObligationNotProven,
+    );
 }
 
 #[test]
@@ -2173,17 +2398,30 @@ fn production_once_declarations_check_their_own_bodies() {
 
     for key in application.declared_unit_keys_for_test().unwrap() {
         if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody
-            || !matches!(key.source().syntax().source_id().raw(), 40..=44) {
+            || !matches!(key.source().syntax().source_id().raw(), 40..=44)
+        {
             continue;
         }
 
         let certified = application.execution_properties(key.clone()).unwrap();
 
-        if certified.diagnostics().has_errors() { failures.push((key.source().syntax().source_id().raw(), key.source().syntax().full_range(), format!("{:?}", certified.diagnostics()))); }
+        if certified.diagnostics().has_errors() {
+            failures.push((
+                key.source().syntax().source_id().raw(),
+                key.source().syntax().full_range(),
+                format!("{:?}", certified.diagnostics()),
+            ));
+        }
 
         let checked = application.lowered_unit(key.clone()).unwrap();
 
-        if checked.diagnostics().has_errors() { failures.push((key.source().syntax().source_id().raw(), key.source().syntax().full_range(), format!("{:?}", checked.diagnostics()))); }
+        if checked.diagnostics().has_errors() {
+            failures.push((
+                key.source().syntax().source_id().raw(),
+                key.source().syntax().full_range(),
+                format!("{:?}", checked.diagnostics()),
+            ));
+        }
     }
 
     assert!(failures.is_empty(), "{failures:#?}");
@@ -2195,23 +2433,33 @@ fn production_once_and_lazy_owners_keep_cleanup_authority() {
         "let once = std.sync.Once<u32>.empty(); let value = once.get_or_init(callback);",
         "let lazy = std.sync.Lazy<u32>(callback); let value = lazy.get();",
     ] {
-    let source = format!(r#"
+        let source = format!(
+            r#"
         module app;
         func production_probe(pos callback: func() -> u32) requires(blocking_execution()) {{
             {body}
         }}
-    "#);
+    "#
+        );
 
-    let application = production_sync_compilation(&source);
-    let checked = application.lowered_unit(source_function_body_key(&application, "production_probe")).unwrap();
+        let application = production_sync_compilation(&source);
 
-    assert!(!checked.diagnostics().has_errors(), "{body}: {:?}", checked.diagnostics());
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "production_probe"))
+            .unwrap();
+
+        assert!(
+            !checked.diagnostics().has_errors(),
+            "{body}: {:?}",
+            checked.diagnostics()
+        );
     }
 }
 
 #[test]
 fn consuming_wrapper_transfers_a_forwarded_stored_borrow() {
-    let application = compilation(r#"
+    let application = compilation(
+        r#"
         module app;
         func forward(pos value: &u32) -> &u32 { return value; }
         struct Wrapper {
@@ -2223,11 +2471,18 @@ fn consuming_wrapper_transfers_a_forwarded_stored_borrow() {
             let wrapper: Wrapper = { value = &value };
             let borrowed = wrapper.get();
         }
-    "#);
+    "#,
+    );
 
-    let checked = application.lowered_unit(source_function_body_key(&application, "caller")).unwrap();
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "caller"))
+        .unwrap();
 
-    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{:?}",
+        checked.diagnostics()
+    );
 }
 
 #[test]
@@ -2237,7 +2492,8 @@ fn shared_marker_borrows_preserve_the_original_owner_without_mutable_authority()
         ("&mut Owner", "&mut owner", false),
         ("&Marker", "&owner.marker", true),
     ] {
-        let source = format!(r#"
+        let source = format!(
+            r#"
             trusted module app;
             struct Marker {{}}
             trusted predicate live(value: &Marker);
@@ -2253,15 +2509,27 @@ fn shared_marker_borrows_preserve_the_original_owner_without_mutable_authority()
                 let mut owner = create();
                 invoke({argument}, callback);
             }}
-        "#);
+        "#
+        );
 
         let application = compilation(&source);
-        let checked = application.lowered_unit(source_function_body_key(&application, "caller")).unwrap();
 
-        assert_eq!(!checked.diagnostics().has_errors(), valid, "{source}: {:?}", checked.diagnostics());
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "caller"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            checked.diagnostics()
+        );
 
         if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
         }
     }
 }
@@ -2272,23 +2540,32 @@ fn production_once_rejects_fabricated_instance_and_attempt_authority() {
         "let once: std.sync.Once<u32> = { instance = std.sync.once.Marker {}, storage = std.memory.uninit<std.sync.once.State<u32>>() }; let value = once.get_or_init(callback);",
         "let once = std.sync.Once<u32>.empty(); let attempt: std.sync.once.Attempt<u32> = { once = &once, thread = &std.sync.once.CURRENT, acquisition = std.sync.once.Marker {} }; let value = attempt.publish(7);",
     ] {
-        let source = format!(r#"
+        let source = format!(
+            r#"
             module app;
             func production_probe(pos callback: func() -> u32) requires(blocking_execution()) {{
                 {body}
             }}
-        "#);
+        "#
+        );
 
         let application = production_sync_compilation(&source);
-        let checked = application.lowered_unit(source_function_body_key(&application, "production_probe")).unwrap();
 
-        bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "production_probe"))
+            .unwrap();
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            checked.diagnostics(),
+            DiagnosticKind::CheckingTrustedObligationNotProven,
+        );
     }
 }
 
 #[test]
 fn barrier_preserves_its_nested_mutex_authority() {
-    let compilation = production_sync_compilation(r#"
+    let compilation = production_sync_compilation(
+        r#"
         module app;
         func caller() requires(blocking_execution()) {
             match consume std.sync.Barrier(participants = 1) {
@@ -2296,22 +2573,39 @@ fn barrier_preserves_its_nested_mutex_authority() {
                 case Error(_) {}
             }
         }
-    "#);
+    "#,
+    );
 
-    let checked = compilation.lowered_unit(source_function_body_key(&compilation, "caller")).unwrap();
+    let checked = compilation
+        .lowered_unit(source_function_body_key(&compilation, "caller"))
+        .unwrap();
 
-    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{:?}",
+        checked.diagnostics()
+    );
 
     for name in ["result_marker"] {
-        let checked = compilation.execution_properties(crate::test_support::source_type_callable_member_body_key(&compilation, name)).unwrap();
+        let checked = compilation
+            .execution_properties(crate::test_support::source_type_callable_member_body_key(
+                &compilation,
+                name,
+            ))
+            .unwrap();
 
-        assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+        assert!(
+            !checked.diagnostics().has_errors(),
+            "{:?}",
+            checked.diagnostics()
+        );
     }
 }
 
 #[test]
 fn union_variant_contracts_share_checked_branch_evidence() {
-    let application = compilation(r#"
+    let application = compilation(
+        r#"
         module app;
         const func unwrap(pos value: &Result<u32, u32>) -> u32
             requires(value matches Ok(_))
@@ -2328,12 +2622,19 @@ fn union_variant_contracts_share_checked_branch_evidence() {
                 case Error(_) {}
             }
         }
-    "#);
+    "#,
+    );
 
     for name in ["unwrap", "caller"] {
-        let checked = application.execution_properties(source_function_body_key(&application, name)).unwrap();
+        let checked = application
+            .execution_properties(source_function_body_key(&application, name))
+            .unwrap();
 
-        assert!(!checked.diagnostics().has_errors(), "{name}: {:?}", checked.diagnostics());
+        assert!(
+            !checked.diagnostics().has_errors(),
+            "{name}: {:?}",
+            checked.diagnostics()
+        );
     }
 }
 
@@ -2341,12 +2642,21 @@ fn union_variant_contracts_share_checked_branch_evidence() {
 fn union_variant_contracts_do_not_survive_replacement_or_prove_payload_tests() {
     for (action, pattern, valid) in [
         ("", "Ok(_)", true),
-        ("let replacement: Result<u32, u32> = Error(9); holder.value = replacement;", "Ok(_)", false),
-        ("let replacement: Result<u32, u32> = Ok(9); holder.value = replacement;", "Ok(_)", true),
+        (
+            "let replacement: Result<u32, u32> = Error(9); holder.value = replacement;",
+            "Ok(_)",
+            false,
+        ),
+        (
+            "let replacement: Result<u32, u32> = Ok(9); holder.value = replacement;",
+            "Ok(_)",
+            true,
+        ),
         ("change(holder);", "Ok(_)", false),
         ("", "Ok(0)", false),
     ] {
-        let source = format!(r#"
+        let source = format!(
+            r#"
             module app;
             struct Holder {{ mut value: Result<u32, u32>; }}
             func need(pos value: &Result<u32, u32>) requires(value matches {pattern}) executes(total) {{}}
@@ -2355,40 +2665,66 @@ fn union_variant_contracts_do_not_survive_replacement_or_prove_payload_tests() {
                 {action}
                 need(&holder.value);
             }}
-        "#);
+        "#
+        );
 
         let application = compilation(&source);
-        let checked = application.execution_properties(source_function_body_key(&application, "caller")).unwrap();
 
-        assert_eq!(!checked.diagnostics().has_errors(), valid, "{source}: {:?}", checked.diagnostics());
+        let checked = application
+            .execution_properties(source_function_body_key(&application, "caller"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            checked.diagnostics()
+        );
     }
 }
 
 #[test]
 fn constructed_union_variants_establish_only_their_actual_tag() {
     for (constructed, valid) in [("Ok(7)", true), ("Error(7)", false)] {
-        let source = format!(r#"
+        let source = format!(
+            r#"
             module app;
             func create() -> Result<u32, u32> ensures(result matches Ok(_)) {{
                 return {constructed};
             }}
-        "#);
+        "#
+        );
 
         let application = compilation(&source);
-        let checked = application.execution_properties(source_function_body_key(&application, "create")).unwrap();
 
-        assert_eq!(!checked.diagnostics().has_errors(), valid, "{source}: {:?}", checked.diagnostics());
+        let checked = application
+            .execution_properties(source_function_body_key(&application, "create"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            checked.diagnostics()
+        );
     }
 }
 
 #[test]
 fn forwarded_nested_carrier_keeps_its_original_authority_boundary() {
     for (body, valid) in [
-        ("let wrapper = wrap(); let guard = wrapper.guard; observe(&guard);", true),
+        (
+            "let wrapper = wrap(); let guard = wrapper.guard; observe(&guard);",
+            true,
+        ),
         ("let marker = wrap().guard.marker;", false),
-        ("let wrapper: Wrapper = { guard = Guard { marker = Marker {} } }; observe(&wrapper.guard);", false),
+        (
+            "let wrapper: Wrapper = { guard = Guard { marker = Marker {} } }; observe(&wrapper.guard);",
+            false,
+        ),
     ] {
-        let source = format!(r#"
+        let source = format!(
+            r#"
             trusted module app;
             struct Marker {{}}
             struct Guard {{ marker: Marker; }}
@@ -2403,34 +2739,57 @@ fn forwarded_nested_carrier_keeps_its_original_authority_boundary() {
             func observe(pos guard: &Guard)
                 requires(trusted held(&guard.marker)) executes(pure, total) {{}}
             func caller() {{ {body} }}
-        "#);
+        "#
+        );
 
         let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
 
-        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
     }
 }
 
 #[test]
 fn static_once_keeps_initializer_authority() {
-    let application = production_sync_compilation(r#"
+    let application = production_sync_compilation(
+        r#"
         module app;
         static CELL: std.sync.Once<u32> = std.sync.Once<u32>.empty();
         func caller(pos callback: func() -> u32) requires(blocking_execution()) {
             let value = CELL.get_or_init(callback);
         }
-    "#);
+    "#,
+    );
 
-    let checked = application.lowered_unit(source_function_body_key(&application, "caller")).unwrap();
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "caller"))
+        .unwrap();
 
-    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{:?}",
+        checked.diagnostics()
+    );
 }
 
 #[test]
 fn static_initializers_preserve_only_established_owner_authority() {
-    for (initializer, mutation, valid) in [("create()", "", true), ("Owner { marker = Marker {} }", "", false), ("create()", "change();", false)] {
-        let source = format!(r#"
+    for (initializer, mutation, valid) in [
+        ("create()", "", true),
+        ("Owner { marker = Marker {} }", "", false),
+        ("create()", "change();", true),
+        (
+            "create()",
+            "let address = core.memory.address_of<Owner>(&OWNER); change();",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
             trusted module app;
             struct Marker {{}}
             struct Owner {{ marker: Marker; }}
@@ -2441,23 +2800,36 @@ fn static_initializers_preserve_only_established_owner_authority() {
             static OWNER: Owner = {initializer};
             func observe(pos owner: &Owner) requires(trusted held(&owner.marker)) {{}}
             extern func change();
-            func caller() {{ {mutation} observe(&OWNER); }}
-        "#);
+            trusted func caller() uses(raw_memory) {{ {mutation} observe(&OWNER); }}
+        "#
+        );
 
         let application = compilation(&source);
-        let checked = application.lowered_unit(source_function_body_key(&application, "caller")).unwrap();
 
-        assert_eq!(!checked.diagnostics().has_errors(), valid, "{source}: {:?}", checked.diagnostics());
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "caller"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            checked.diagnostics()
+        );
 
         if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
         }
     }
 }
 
 #[test]
 fn mutable_slice_foreign_output_keeps_its_extent_authority() {
-    let application = production_sync_compilation(r#"
+    let application = production_sync_compilation(
+        r#"
         trusted module app;
         @abi(c)
         trusted func sink(destination: RawPointer<u8>, length: u64, transferred: RawPointer<u64>)
@@ -2478,26 +2850,45 @@ fn mutable_slice_foreign_output_keeps_its_extent_authority() {
             sink(destination = pointer, length = capacity as u64, transferred = transferred_pointer);
             return Ok(unit);
         }
-    "#);
+    "#,
+    );
 
-    let checked = application.lowered_unit(source_function_body_key(&application, "caller")).unwrap();
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "caller"))
+        .unwrap();
 
-    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{:?}",
+        checked.diagnostics()
+    );
 }
 
 #[test]
 fn production_standard_input_keeps_buffer_authority() {
     let application = crate::test_support::production_standard_library_compilation(
-        crate::SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc), "module app;");
+        crate::SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc),
+        "module app;",
+    );
 
-    let checked = application.lowered_unit(source_function_body_key(&application, "read_standard_input")).unwrap();
+    let checked = application
+        .lowered_unit(source_function_body_key(
+            &application,
+            "read_standard_input",
+        ))
+        .unwrap();
 
-    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{:?}",
+        checked.diagnostics()
+    );
 }
 
 #[test]
 fn trusted_implementation_does_not_export_undeclared_authority() {
-    let application = compilation(r#"
+    let application = compilation(
+        r#"
         trusted module app;
         struct Marker {}
         struct Owner { marker: Marker; }
@@ -2506,26 +2897,40 @@ fn trusted_implementation_does_not_export_undeclared_authority() {
         trusted func hidden() -> Owner { return acquire(); }
         func observe(pos value: &Owner) requires(trusted held(&value.marker)) {}
         func caller() { let value = hidden(); observe(&value); }
-    "#);
+    "#,
+    );
 
-    let checked = application.lowered_unit(source_function_body_key(&application, "caller")).unwrap();
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "caller"))
+        .unwrap();
 
-    bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
+    bray_testing::assert_goal_state_diagnostic_kind(
+        checked.diagnostics(),
+        DiagnosticKind::CheckingTrustedObligationNotProven,
+    );
 }
 
 #[test]
 fn production_channel_declarations_check_their_own_bodies() {
     let application = crate::test_support::production_standard_library_compilation(
-        crate::SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc), "module app;");
+        crate::SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc),
+        "module app;",
+    );
 
     let mut failures = Vec::new();
 
     for key in application.declared_unit_keys_for_test().unwrap() {
-        if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody { continue; }
+        if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody {
+            continue;
+        }
 
-        let source = application.source(key.source().syntax().source_id()).unwrap();
+        let source = application
+            .source(key.source().syntax().source_id())
+            .unwrap();
 
-        if !source.text().starts_with("trusted module std.channel") { continue; }
+        if !source.text().starts_with("trusted module std.channel") {
+            continue;
+        }
 
         let checked = application.lowered_unit(key.clone()).unwrap();
 
@@ -2568,19 +2973,38 @@ fn production_channel_rejects_fabrication_and_protocol_access() {
             let receiver: std.channel.Receiver<u32> = { owner = sender.owner };
             let _ = receiver.try_receive();
         }
-        "#);
+        "#,
+    );
 
-    for (name, valid) in [("genuine", true), ("fabricated", false), ("expose_protocol", false), ("change_kind", false)] {
-        let checked = application.lowered_unit(source_function_body_key(&application, name)).unwrap();
+    for (name, valid) in [
+        ("genuine", true),
+        ("fabricated", false),
+        ("expose_protocol", false),
+        ("change_kind", false),
+    ] {
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, name))
+            .unwrap();
 
-        if valid { assert!(!checked.diagnostics().has_errors(), "{name}: {:?}", checked.diagnostics()); }
-        else { bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven); }
+        if valid {
+            assert!(
+                !checked.diagnostics().has_errors(),
+                "{name}: {:?}",
+                checked.diagnostics()
+            );
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
     }
 }
 
 #[test]
 fn nested_owner_cleanup_preserves_its_required_authority() {
-    let application = compilation(r#"
+    let application = compilation(
+        r#"
         trusted module app;
         extern trusted func opaque();
         struct Marker {}
@@ -2599,7 +3023,8 @@ fn nested_owner_cleanup_preserves_its_required_authority() {
             return { owner = { instance = Marker {} } };
         }
         func caller() { let value = make(); value.close(); }
-    "#);
+    "#,
+    );
 
     let diagnostics = application.check_diagnostics();
 
@@ -2609,14 +3034,33 @@ fn nested_owner_cleanup_preserves_its_required_authority() {
 #[test]
 fn opaque_execution_preserves_only_unexposed_shared_carrier_references() {
     for (body, valid) in [
-        ("let owner = make(); let borrowed = borrow(&owner); opaque(); observe(borrowed);", true),
-        ("let owner = make(); observe(&owner); opaque(); observe(&owner);", true),
-        ("let mut owner = make(); replace_owner(&mut owner); observe(&owner);", false),
-        ("let mut owner = make(); let holder: Holder = { owner = &mut owner }; replace_holder(holder); observe(&owner);", false),
-        ("let mut owner = make(); let address = core.memory.address_of_mut<Owner>(&mut owner); opaque(); observe(&owner);", false),
-        ("let owner = make(); let mut borrowed = borrow(&owner); replace(&mut borrowed); observe(borrowed);", false),
+        (
+            "let owner = make(); let borrowed = borrow(&owner); opaque(); observe(borrowed);",
+            true,
+        ),
+        (
+            "let owner = make(); observe(&owner); opaque(); observe(&owner);",
+            true,
+        ),
+        (
+            "let mut owner = make(); replace_owner(&mut owner); observe(&owner);",
+            false,
+        ),
+        (
+            "let mut owner = make(); let holder: Holder = { owner = &mut owner }; replace_holder(holder); observe(&owner);",
+            false,
+        ),
+        (
+            "let mut owner = make(); let address = core.memory.address_of_mut<Owner>(&mut owner); opaque(); observe(&owner);",
+            false,
+        ),
+        (
+            "let owner = make(); let mut borrowed = borrow(&owner); replace(&mut borrowed); observe(borrowed);",
+            false,
+        ),
     ] {
-        let application = compilation(&format!(r#"
+        let application = compilation(&format!(
+            r#"
             trusted module app;
             struct Marker {{}}
             struct Owner {{ instance: Marker; }}
@@ -2630,17 +3074,26 @@ fn opaque_execution_preserves_only_unexposed_shared_carrier_references() {
             struct Holder {{ owner: &mut Owner; }}
             extern trusted func replace_holder(pos holder: Holder);
             trusted func caller() uses(raw_memory) {{ {body} }}
-        "#));
+        "#
+        ));
 
-        let checked = application.lowered_unit(source_function_body_key(&application, "caller")).unwrap();
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "caller"))
+            .unwrap();
 
-        assert_eq!(!checked.diagnostics().has_errors(), valid, "{body}: {:?}", checked.diagnostics());
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{body}: {:?}",
+            checked.diagnostics()
+        );
     }
 }
 
 #[test]
 fn borrowed_accessor_does_not_prepare_its_referents_cleanup() {
-    let application = compilation(r#"
+    let application = compilation(
+        r#"
         trusted module app;
         struct Marker {}
         trusted predicate live(marker: &Marker);
@@ -2653,7 +3106,8 @@ fn borrowed_accessor_does_not_prepare_its_referents_cleanup() {
             return { instance = Marker {} };
         }
         func caller() { let owner = make(); }
-    "#);
+    "#,
+    );
 
     let diagnostics = application.check_diagnostics();
 
@@ -2662,7 +3116,8 @@ fn borrowed_accessor_does_not_prepare_its_referents_cleanup() {
 
 #[test]
 fn shared_component_borrow_preserves_only_its_marker_observations() {
-    let application = compilation(r#"
+    let application = compilation(
+        r#"
         trusted module app;
         struct Marker {}
         struct Owner { instance: Marker; }
@@ -2679,11 +3134,18 @@ fn shared_component_borrow_preserves_only_its_marker_observations() {
             opaque();
             observe(borrowed);
         }
-    "#);
+    "#,
+    );
 
-    let checked = application.lowered_unit(source_function_body_key(&application, "caller")).unwrap();
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "caller"))
+        .unwrap();
 
-    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{:?}",
+        checked.diagnostics()
+    );
 }
 
 #[test]
@@ -2723,9 +3185,18 @@ fn fallible_pair_factory_keeps_each_complete_owner() {
     "#;
 
     for valid in [true, false] {
-        let source = if valid { source.to_owned() } else {
-            source.replace("return Ok((make(), make()));", "return Ok((make(), Owner { instance = Marker {} }));")
-                .replace(", !(result matches Ok(_)) || trusted live(second(&result))", "")
+        let source = if valid {
+            source.to_owned()
+        } else {
+            source
+                .replace(
+                    "return Ok((make(), make()));",
+                    "return Ok((make(), Owner { instance = Marker {} }));",
+                )
+                .replace(
+                    ", !(result matches Ok(_)) || trusted live(second(&result))",
+                    "",
+                )
         };
 
         let application = compilation(&source);
@@ -2733,13 +3204,19 @@ fn fallible_pair_factory_keeps_each_complete_owner() {
 
         assert_eq!(!diagnostics.has_errors(), valid, "{diagnostics:?}");
 
-        if !valid { bray_testing::assert_goal_state_diagnostic_kind(&diagnostics, DiagnosticKind::CheckingTrustedObligationNotProven); }
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                &diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
     }
 }
 
 #[test]
 fn nullable_propagation_keeps_only_the_successful_carriers_authority() {
-    let application = compilation(r#"
+    let application = compilation(
+        r#"
         trusted module app;
         struct Marker {}
         struct Owner { instance: Marker; }
@@ -2758,7 +3235,8 @@ fn nullable_propagation_keeps_only_the_successful_carriers_authority() {
             observe(&owner);
             return unit;
         }
-    "#);
+    "#,
+    );
 
     let diagnostics = application.check_diagnostics();
 
@@ -2767,8 +3245,13 @@ fn nullable_propagation_keeps_only_the_successful_carriers_authority() {
 
 #[test]
 fn loop_cleanup_keeps_independent_complete_carriers() {
-    for operation in ["opaque();", "let _: T = take<T>(&mut pending);", "await suspend();"] {
-        let application = compilation(&format!(r#"
+    for operation in [
+        "opaque();",
+        "let _: T = take<T>(&mut pending);",
+        "await suspend();",
+    ] {
+        let application = compilation(&format!(
+            r#"
             trusted module app;
             struct Marker {{}}
             trusted predicate live(marker: &Marker);
@@ -2821,21 +3304,39 @@ fn loop_cleanup_keeps_independent_complete_carriers() {
                     await suspend();
                 }}
             }}
-        "#));
+        "#
+        ));
 
-        let checked = application.lowered_unit(source_function_body_key(&application, "caller")).unwrap();
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "caller"))
+            .unwrap();
 
-        assert!(!checked.diagnostics().has_errors(), "{operation}: {:?}", checked.diagnostics());
+        assert!(
+            !checked.diagnostics().has_errors(),
+            "{operation}: {:?}",
+            checked.diagnostics()
+        );
     }
 }
 
 #[test]
 fn production_guard_cleanup_survives_loop_payload_transitions() {
-    for operation in ["touch<Payload<T>>(payload);", "opaque();", "let _: T = take<T>(&mut pending);", "await suspend();"] {
-        let application = production_sync_compilation(&format!(r#"
+    for operation in [
+        "payload.inner.change();",
+        "touch<Payload<T>>(payload);",
+        "opaque();",
+        "let _: T = take<T>(&mut pending);",
+        "await suspend();",
+    ] {
+        let application = production_sync_compilation(&format!(
+            r#"
             trusted module app;
             struct Pending<T> {{ mut value: T?; }}
-            struct Payload<T> {{ mut value: T?; }}
+            struct Payload<T> {{ mut inner: Inner; mut value: T?; }}
+            struct Inner {{
+                mut value: u32;
+                mut func change() {{ opaque(); self.value += 1; }}
+            }}
             extern trusted func opaque();
             extern trusted func touch<T>(pos value: &mut T);
             extern trusted func stop() -> bool;
@@ -2854,11 +3355,18 @@ fn production_guard_cleanup_survives_loop_payload_transitions() {
                     await suspend();
                 }}
             }}
-        "#));
+        "#
+        ));
 
-        let checked = application.lowered_unit(source_function_body_key(&application, "production_probe")).unwrap();
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "production_probe"))
+            .unwrap();
 
-        assert!(!checked.diagnostics().has_errors(), "{operation}: {:?}", checked.diagnostics());
+        assert!(
+            !checked.diagnostics().has_errors(),
+            "{operation}: {:?}",
+            checked.diagnostics()
+        );
     }
 }
 
@@ -2868,9 +3376,13 @@ fn opaque_calls_preserve_unexposed_scalar_values_only() {
         ("opaque();", true),
         ("signal();", true),
         ("replace(&mut value);", false),
-        ("let pointer = core.memory.address_of_mut<u32>(&mut value); opaque();", false),
+        (
+            "let pointer = core.memory.address_of_mut<u32>(&mut value); opaque();",
+            false,
+        ),
     ] {
-        let source = format!(r#"
+        let source = format!(
+            r#"
             trusted module app;
             extern trusted func opaque();
             static WORD: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
@@ -2881,19 +3393,29 @@ fn opaque_calls_preserve_unexposed_scalar_values_only() {
                 {effect}
                 return value;
             }}
-        "#);
+        "#
+        );
 
         let application = compilation(&source);
-        let checked = application.execution_properties(source_function_body_key(&application, "caller")).unwrap();
 
-        assert_eq!(!checked.diagnostics().has_errors(), valid, "{effect}: {:?}", checked.diagnostics());
+        let checked = application
+            .execution_properties(source_function_body_key(&application, "caller"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{effect}: {:?}",
+            checked.diagnostics()
+        );
     }
 }
 
 #[test]
 fn opaque_returned_borrows_revoke_possible_inputs_but_not_unpassed_owners() {
     for (observed, valid) in [("first", false), ("second", false), ("third", true)] {
-        let application = compilation(&format!(r#"
+        let application = compilation(&format!(
+            r#"
             trusted module app;
             struct Marker {{}}
             struct Owner {{ marker: Marker; }}
@@ -2909,17 +3431,26 @@ fn opaque_returned_borrows_revoke_possible_inputs_but_not_unpassed_owners() {
                 {{ let selected = choose(&mut first, &mut second); replace(selected); }}
                 observe(&{observed});
             }}
-        "#));
+        "#
+        ));
 
-        let checked = application.lowered_unit(source_function_body_key(&application, "caller")).unwrap();
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "caller"))
+            .unwrap();
 
-        assert_eq!(!checked.diagnostics().has_errors(), valid, "{observed}: {:?}", checked.diagnostics());
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{observed}: {:?}",
+            checked.diagnostics()
+        );
     }
 }
 
 #[test]
 fn returned_tuple_owner_keeps_its_predicate_after_scalar_field_reads() {
-    let application = compilation(r#"
+    let application = compilation(
+        r#"
         trusted module app;
         struct Owner { mut first: u32; mut second: u32; mut third: usize; mut fourth: usize; mut pointer: RawPointer<u8>; }
         trusted predicate live(owner: &Owner);
@@ -2936,11 +3467,18 @@ fn returned_tuple_owner_keeps_its_predicate_after_scalar_field_reads() {
                 } else { return; }
             }
         }
-    "#);
+    "#,
+    );
 
-    let checked = application.lowered_unit(source_function_body_key(&application, "caller")).unwrap();
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "caller"))
+        .unwrap();
 
-    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{:?}",
+        checked.diagnostics()
+    );
 }
 
 #[test]
@@ -2948,11 +3486,20 @@ fn opaque_drivers_retain_the_borrows_held_by_deferred_values() {
     for (parameter, initialize, argument) in [
         ("Future<unit>", "work(&mut owner)", "pending"),
         ("&mut Future<unit>", "work(&mut owner)", "&mut pending"),
-        ("&mut (Future<unit>, u32)", "(work(&mut owner), 0)", "&mut pending"),
+        (
+            "&mut (Future<unit>, u32)",
+            "(work(&mut owner), 0)",
+            "&mut pending",
+        ),
         ("Task<unit>", "work(&mut owner).start()", "pending"),
-        ("&mut Task<unit>", "work(&mut owner).start()", "&mut pending"),
+        (
+            "&mut Task<unit>",
+            "work(&mut owner).start()",
+            "&mut pending",
+        ),
     ] {
-        let application = compilation(&format!(r#"
+        let application = compilation(&format!(
+            r#"
             trusted module app;
             struct Marker {{}}
             struct Owner {{ mut marker: Marker; }}
@@ -2967,10 +3514,326 @@ fn opaque_drivers_retain_the_borrows_held_by_deferred_values() {
                 {{ let mut pending = {initialize}; drive({argument}); }}
                 observe(&owner);
             }}
-        "#));
+        "#
+        ));
 
         let diagnostics = application.check_diagnostics();
 
-        assert!(diagnostics.by_kind(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven).next().is_some(), "{parameter}: {diagnostics:?}");
+        assert!(
+            diagnostics
+                .by_kind(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven)
+                .next()
+                .is_some(),
+            "{parameter}: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn production_owner_transport_and_async_observations_preserve_authority() {
+    let application = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc),
+        r#"
+        module app;
+        static ONCE: std.sync.Once<u32> = std.sync.Once<u32>.empty();
+        func initialized_value() -> u32 { return 37; }
+        func static_once_case() requires(blocking_execution()) {
+            let _ = catch { let _ = ONCE.get_or_init(initialized_value); };
+            let _ = ONCE.get_or_init(initialized_value);
+        }
+        func pair() {
+            let (sender, receiver) = std.testing.assert_ok<
+                (std.channel.Sender<u32>, std.channel.Receiver<u32>), std.channel.ChannelError
+            >(std.channel.bounded<u32>(capacity = 1));
+            sender.close();
+            receiver.close();
+        }
+        func barrier_case() requires(blocking_execution()) {
+            let barrier = std.testing.assert_ok<std.sync.Barrier, std.sync.BarrierError>(
+                std.sync.Barrier(participants = 1));
+            let _ = barrier.wait();
+        }
+        func once_case(pos callback: func() -> u32) requires(blocking_execution()) {
+            let once = std.sync.Once<u32>.empty();
+            let _ = once.get_or_init(callback);
+        }
+        async func worker(pos lock: &std.sync.Mutex<u32>)
+            requires(blocking_execution(), trusted std.sync.mutex.valid(&lock.instance))
+            ensures(trusted std.sync.mutex.valid(&lock.instance)) {
+            let guard = lock.lock();
+        }
+        async func task_case() requires(blocking_execution()) {
+            let lock = std.sync.Mutex<u32>(0);
+            let task = worker(&lock).start();
+            try await task.join();
+            let guard = lock.lock();
+        }
+        "#,
+    );
+
+    for name in ["assert_ok", "assert_error", "assert_present"] {
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(
+            &application,
+            name,
+        );
+
+        assert!(summary.returned_input().is_some(), "{name}: {summary:?}");
+    }
+
+    let failures = [
+        "pair",
+        "barrier_case",
+        "once_case",
+        "task_case",
+        "static_once_case",
+    ]
+    .into_iter()
+    .filter_map(|name| {
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, name))
+            .unwrap();
+
+        checked
+            .diagnostics()
+            .has_errors()
+            .then(|| format!("{name}: {:?}", checked.diagnostics()))
+    })
+    .collect::<Vec<_>>();
+
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn task_observation_preserves_the_shared_owner_marker() {
+    let application = compilation(
+        r#"
+        trusted module app;
+        struct Marker {}
+        struct Owner { marker: Marker; }
+        trusted predicate live(marker: &Marker);
+        trusted func make() -> Owner ensures(trusted live(&result.marker)) { return { marker = Marker {} }; }
+        async func work(pos owner: &Owner)
+            requires(trusted live(&owner.marker)) ensures(trusted live(&owner.marker)) {}
+        func observe(pos owner: &Owner) requires(trusted live(&owner.marker)) {}
+        async func caller() {
+            let owner = make();
+            let task = work(&owner).start();
+            try await task.join();
+            observe(&owner);
+        }
+    "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+}
+
+#[test]
+fn static_marker_preservation_keeps_selected_instances_distinct() {
+    for (expected, valid) in [(1, true), (2, false)] {
+        let application = compilation(&format!(
+            r#"
+            trusted module app;
+            struct Marker {{}}
+            struct Owner {{ marker: Marker; }}
+            trusted predicate held(marker: &Marker, identity: u32);
+            trusted const func create(pos identity: u32) -> Owner
+                ensures(trusted held(&result.marker, identity)) executes(pure, total)
+            {{ return {{ marker = Marker {{}} }}; }}
+            static OWNER<const N: u32>: Owner = create(N);
+            extern func opaque();
+            func observe(pos owner: &Owner, pos identity: u32)
+                requires(trusted held(&owner.marker, identity)) {{}}
+            func caller() {{
+                observe(&OWNER<1>, 1);
+                observe(&OWNER<2>, 2);
+                opaque();
+                observe(&OWNER<1>, {expected});
+                observe(&OWNER<2>, 2);
+            }}
+        "#
+        ));
+
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "caller"))
+            .unwrap();
+
+        if valid {
+            assert!(
+                !checked.diagnostics().has_errors(),
+                "{:?}",
+                checked.diagnostics()
+            );
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn opaque_cleanup_preserves_independent_owner_authority() {
+    for cleanup in [
+        "let task = work().start();",
+        r#"let report = catch { panic("failure"); };"#,
+    ] {
+        let application = compilation(&format!(
+            r#"
+            trusted module app;
+            struct Marker {{}}
+            trusted predicate live(marker: &Marker);
+            struct Owner {{
+                marker: Marker;
+                trusted destruct() requires(trusted live(&self.marker)) {{}}
+            }}
+            trusted func make() -> Owner ensures(trusted live(&result.marker)) {{
+                return {{ marker = Marker {{}} }};
+            }}
+            extern trusted async func work();
+            async func caller() {{
+                let owner = make();
+                {{ {cleanup} }}
+            }}
+        "#
+        ));
+
+        let diagnostics = application.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "{cleanup}: {diagnostics:?}");
+    }
+}
+
+#[test]
+fn production_synchronization_api_cleanup_checks() {
+    let names = [
+        "synchronization_owners_guard_and_publish_values",
+        "concurrency_stress_mutex_contention_and_panic_cleanup_preserve_progress",
+        "concurrency_model_reader_writer_lock_admits_a_pending_writer_before_later_readers",
+        "concurrency_stress_barrier_reuses_its_generation_across_contended_rounds",
+    ];
+
+    let mut source = include_str!("../../../../../standard-library/std/tests/api/sync.bray")
+        .replace("@test", "");
+
+    for name in names {
+        source = source.replace(
+            &format!("func {name}()"),
+            &format!("func {name}() requires(blocking_execution())"),
+        );
+    }
+
+    let application = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc),
+        &source,
+    );
+
+    let failures = names
+        .into_iter()
+        .filter_map(|name| {
+            let checked = application
+                .lowered_unit(source_function_body_key(&application, name))
+                .unwrap();
+
+            checked
+                .diagnostics()
+                .has_errors()
+                .then(|| format!("{name}: {:?}", checked.diagnostics()))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn conditional_cleanup_requires_authority_for_the_selected_payload() {
+    for (construction, valid) in [
+        ("make();", true),
+        ("let owner = make();", true),
+        ("let _: Owner? = make();", true),
+        ("let _: Owner? = Owner { marker = Marker {} };", false),
+        ("let owner: Owner? = Owner { marker = Marker {} };", false),
+    ] {
+        let application = compilation(&format!(
+            r#"
+            trusted module app;
+            struct Marker {{}}
+            trusted predicate live(marker: &Marker);
+            struct Owner {{
+                marker: Marker;
+                trusted destruct() requires(trusted live(&self.marker)) executes(total) {{}}
+            }}
+            const func marker(pos value: &(Owner?)) -> &Marker
+                requires(!(value matches none)) executes(pure, total)
+            {{
+                match value {{
+                    case ?owner {{ return &owner.marker; }}
+                    case none {{ panic("absent owner"); }}
+                }}
+            }}
+            extern trusted func make() -> Owner?
+                ensures(result matches none || trusted live(marker(&result)));
+            func caller() {{ {construction} }}
+        "#
+        ));
+
+        let diagnostics = application.check_diagnostics();
+
+        if valid {
+            assert!(!diagnostics.has_errors(), "{construction}: {diagnostics:?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn task_cleanup_retains_loans_until_the_task_is_consumed() {
+    for (body, valid) in [
+        (
+            "let task = work(&value).start(); opaque(); value = 1;",
+            false,
+        ),
+        ("let _ = work(&value).start(); opaque(); value = 1;", false),
+        (
+            "let task = work(&value).start(); let moved = task; opaque(); value = 1;",
+            false,
+        ),
+        (
+            "let task = work(&value).start(); try await task.join(); value = 1;",
+            true,
+        ),
+        (
+            "{ let task = work(&value).start(); opaque(); } value = 1;",
+            true,
+        ),
+    ] {
+        let application = compilation(&format!(
+            r#"
+            module app;
+            extern async func work(pos value: &u32);
+            extern func opaque();
+            async func caller() {{
+                let mut value: u32 = 0;
+                {body}
+            }}
+        "#
+        ));
+
+        let diagnostics = application.check_diagnostics();
+
+        if valid {
+            assert!(!diagnostics.has_errors(), "{body}: {diagnostics:?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingConflictingBorrow,
+            );
+        }
     }
 }

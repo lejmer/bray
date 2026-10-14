@@ -204,7 +204,10 @@ where
             | CheckedMemoryOperationKind::Reinterpret { .. }
             | CheckedMemoryOperationKind::CallableFromPointer { .. }
             | CheckedMemoryOperationKind::PointerFromCallable { .. } => {
-                let pointer = usize::from(matches!(operation.kind(), CheckedMemoryOperationKind::BorrowFrom { .. }));
+                let pointer = usize::from(matches!(
+                    operation.kind(),
+                    CheckedMemoryOperationKind::BorrowFrom { .. }
+                ));
 
                 if let Some(result) = result() {
                     // Unknown physical provenance remains unknown after a checked conversion.
@@ -396,7 +399,12 @@ where
                 };
 
                 if let Some(result) = result() {
-                    state.memory.point_at(payload, result, element, bray_symbols::DependencyReferenceKind::Address);
+                    state.memory.point_at(
+                        payload,
+                        result,
+                        element,
+                        bray_symbols::DependencyReferenceKind::Address,
+                    );
                 }
             }
             CheckedMemoryOperationKind::UninitWrite { element } => {
@@ -416,7 +424,12 @@ where
                 if status == MemoryOperationStatus::Valid
                     && let Some(result) = result()
                 {
-                    state.memory.point_at(payload, result, element, bray_symbols::DependencyReferenceKind::Borrow);
+                    state.memory.point_at(
+                        payload,
+                        result,
+                        element,
+                        bray_symbols::DependencyReferenceKind::Borrow,
+                    );
                 }
 
                 return status;
@@ -521,14 +534,22 @@ where
                 | CheckedMemoryOperationKind::AtomicFetch { .. }
         ) {
             // Atomics update their protected word, never retire its owner or unrelated storage.
-            let targets = self.expression_reference(state, operation.arguments()[0])
+            let targets = self
+                .expression_reference(state, operation.arguments()[0])
                 .and_then(|source| source.targets(&state.memory));
 
-            let Some(targets) = targets else { return Some(vec![Effect::Atomic]); };
+            let Some(targets) = targets else {
+                return Some(vec![Effect::Atomic]);
+            };
 
-            return Some(targets.into_iter()
-                .map(|target| Effect::Mutation(target, bray_symbols::DependencyMutationKind::Atomic))
-                .collect());
+            return Some(
+                targets
+                    .into_iter()
+                    .map(|target| {
+                        Effect::Mutation(target, bray_symbols::DependencyMutationKind::Atomic)
+                    })
+                    .collect(),
+            );
         }
 
         let (argument, _, purpose) = self.memory_mutation(operation)?;
@@ -552,19 +573,28 @@ where
             bray_symbols::DependencyMutationKind::Write
         };
 
-        Some(targets.into_iter().map(|target| Effect::Mutation(target, kind)).collect())
+        Some(
+            targets
+                .into_iter()
+                .map(|target| Effect::Mutation(target, kind))
+                .collect(),
+        )
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn expression_is_borrowed(
         &self,
         expression: BoundExpressionId,
     ) -> bool {
-        self.execution.semantics.types().expression(expression).is_some_and(|ty| {
-            matches!(
-                self.request.semantic_values().type_data(ty.ty()).as_ref(),
-                bray_symbols::TypeData::Borrow { .. }
-            )
-        })
+        self.execution
+            .semantics
+            .types()
+            .expression(expression)
+            .is_some_and(|ty| {
+                matches!(
+                    self.request.semantic_values().type_data(ty.ty()).as_ref(),
+                    bray_symbols::TypeData::Borrow { .. }
+                )
+            })
     }
 
     pub(super) fn uninit_target(

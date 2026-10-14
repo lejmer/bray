@@ -42,8 +42,10 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 if let Some((ty, path)) =
                     crate::storage::reference_path(request, owner, projections.into(), None)?
                 {
-                    demands.entry(owner)
-                        .or_default().insert((std::sync::Arc::from(path.projections()), ty));
+                    demands
+                        .entry(owner)
+                        .or_default()
+                        .insert((std::sync::Arc::from(path.projections()), ty));
 
                     types.insert(subject.clone(), ty);
                     self.lifecycle_paths.insert(key, path);
@@ -192,8 +194,14 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
     }
 }
 
-pub(super) fn project<C: CheckerRequestContext + ?Sized>(request: crate::CheckerUnitView<'_, C>, mut path: Place, projections: &[bray_symbols::DependencyProjection]) -> crate::CheckerQueryResult<Option<Place>, C::UpstreamError> {
-    let Some(suffix) = crate::storage::resolve_storage_projections(request, projections)? else { return Ok(None); };
+pub(super) fn project<C: CheckerRequestContext + ?Sized>(
+    request: crate::CheckerUnitView<'_, C>,
+    mut path: Place,
+    projections: &[bray_symbols::DependencyProjection],
+) -> crate::CheckerQueryResult<Option<Place>, C::UpstreamError> {
+    let Some(suffix) = crate::storage::resolve_storage_projections(request, projections)? else {
+        return Ok(None);
+    };
 
     path.projections = path.projections.iter().copied().chain(suffix).collect();
 

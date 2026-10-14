@@ -168,8 +168,12 @@ impl CheckerRequestContext for TestCheckerContext {
     fn static_result_dependencies(
         &self,
         _declaration: bray_symbols::StaticSymbolId,
-    ) -> crate::CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError> {
-        Ok(self.semantic_values().empty_dependency_contract_template().expect("test initializer has no carried authority"))
+    ) -> crate::CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>
+    {
+        Ok(self
+            .semantic_values()
+            .empty_dependency_contract_template()
+            .expect("test initializer has no carried authority"))
     }
 
     fn default_result_dependencies(

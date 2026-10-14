@@ -32,10 +32,11 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             );
         }
 
-        result.extend(self.mapped_result_values(
-            template.template.requirements(),
-            |root| crate::dependency::result_argument(call, root),
-        )?);
+        result.extend(
+            self.mapped_result_values(template.template.requirements(), |root| {
+                crate::dependency::result_argument(call, root)
+            })?,
+        );
 
         Ok(result)
     }
@@ -111,13 +112,9 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             )?
         };
 
-        self.mapped_result_values(
-            template.requirements(),
-            |root| {
-                (root == bray_symbols::DependencySubjectRoot::Receiver)
-                    .then_some(scoped.initializer())
-            },
-        )
+        self.mapped_result_values(template.requirements(), |root| {
+            (root == bray_symbols::DependencySubjectRoot::Receiver).then_some(scoped.initializer())
+        })
     }
 
     fn mapped_result_values(

@@ -8,7 +8,10 @@ use crate::analysis::storage_flow::memory::Place;
 
 pub(super) type Demands = BTreeMap<
     bray_symbols::TypeId,
-    BTreeSet<(Arc<[bray_bound_tree::StorageProjection]>, bray_symbols::TypeId)>,
+    BTreeSet<(
+        Arc<[bray_bound_tree::StorageProjection]>,
+        bray_symbols::TypeId,
+    )>,
 >;
 
 impl crate::analysis::storage_flow::model::StorageFlowInput {
@@ -33,10 +36,19 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             };
 
             let root = request.semantic_values().unborrowed_type(root);
-            let ty = storage.access(*access).expect("prepared reference has a checked access").reached_type();
-            let projections = Arc::<[bray_bound_tree::StorageProjection]>::from(prepared.projections());
 
-            demands.entry(root).or_default().insert((Arc::clone(&projections), ty));
+            let ty = storage
+                .access(*access)
+                .expect("prepared reference has a checked access")
+                .reached_type();
+
+            let projections =
+                Arc::<[bray_bound_tree::StorageProjection]>::from(prepared.projections());
+
+            demands
+                .entry(root)
+                .or_default()
+                .insert((Arc::clone(&projections), ty));
 
             // Only inline containment transports demands. Following references or owned
             // indirection here would grow recursive paths instead of preparing finite slots.
@@ -49,9 +61,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             {
                 parents.entry(ty).or_default().insert((
                     root,
-                    Arc::<[bray_bound_tree::StorageProjection]>::from(
-                        prepared.projections(),
-                    ),
+                    Arc::<[bray_bound_tree::StorageProjection]>::from(prepared.projections()),
                 ));
             }
         }
@@ -65,13 +75,26 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
     fn close_entry_demands<C: CheckerRequestContext + ?Sized>(
         request: crate::CheckerUnitView<'_, C>,
         demands: &mut Demands,
-        mut parents: BTreeMap<bray_symbols::TypeId, BTreeSet<(bray_symbols::TypeId, Arc<[bray_bound_tree::StorageProjection]>)>>,
+        mut parents: BTreeMap<
+            bray_symbols::TypeId,
+            BTreeSet<(
+                bray_symbols::TypeId,
+                Arc<[bray_bound_tree::StorageProjection]>,
+            )>,
+        >,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
         let components = bray_base::strongly_connected_components(parents.keys().copied(), |ty| {
-            parents.get(&ty).into_iter().flatten().map(|(parent, _)| *parent).collect::<Vec<_>>()
-        }).into_iter().enumerate().flat_map(|(component, types)| {
-            types.into_iter().map(move |ty| (ty, component))
-        }).collect::<BTreeMap<_, _>>();
+            parents
+                .get(&ty)
+                .into_iter()
+                .flatten()
+                .map(|(parent, _)| *parent)
+                .collect::<Vec<_>>()
+        })
+        .into_iter()
+        .enumerate()
+        .flat_map(|(component, types)| types.into_iter().map(move |ty| (ty, component)))
+        .collect::<BTreeMap<_, _>>();
 
         // Recovered recursive inline types must not expand paths indefinitely. Their
         // representation diagnostic belongs to type analysis, not demand preparation.
@@ -81,7 +104,14 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
         // Well-formed inline type containment is acyclic. Each demanded path is prepared
         // once, independent of how many whole-value moves lead to its eventual use.
-        let mut pending = demands.iter().flat_map(|(root, paths)| paths.iter().map(move |(path, reached)| (*root, Arc::clone(path), *reached))).collect::<Vec<_>>();
+        let mut pending = demands
+            .iter()
+            .flat_map(|(root, paths)| {
+                paths
+                    .iter()
+                    .map(move |(path, reached)| (*root, Arc::clone(path), *reached))
+            })
+            .collect::<Vec<_>>();
 
         while let Some((ty, path, reached)) = pending.pop() {
             if request.is_cancelled() {
@@ -95,7 +125,11 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     .copied()
                     .collect::<std::sync::Arc<[_]>>();
 
-                if demands.entry(*parent).or_default().insert((Arc::clone(&path), reached)) {
+                if demands
+                    .entry(*parent)
+                    .or_default()
+                    .insert((Arc::clone(&path), reached))
+                {
                     pending.push((*parent, path, reached));
                 }
             }
@@ -115,12 +149,14 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             let temporary = matches!(source, bray_bound_tree::StorageIdentity::Temporary(expression)
                 if matches!(selections.expression(expression), Some(bray_bound_tree::SemanticSelection::Call(_))));
 
-            if !temporary && !matches!(
-                source,
-                bray_bound_tree::StorageIdentity::Parameter(_)
-                    | bray_bound_tree::StorageIdentity::Receiver(_)
-                    | bray_bound_tree::StorageIdentity::AnonymousParameter(_)
-            ) {
+            if !temporary
+                && !matches!(
+                    source,
+                    bray_bound_tree::StorageIdentity::Parameter(_)
+                        | bray_bound_tree::StorageIdentity::Receiver(_)
+                        | bray_bound_tree::StorageIdentity::AnonymousParameter(_)
+                )
+            {
                 continue;
             }
 
@@ -142,13 +178,37 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 };
 
                 if temporary {
-                    let reference = prepared.borrows().first().map(|(index, target)|
-                        (Place { root: identity, projections: projections[..*index].into() }, *target))
-                        .or_else(|| crate::representation::reference_target_type(request, reached)
-                            .map(|target| (Place { root: identity, projections: Arc::clone(projections) }, target)));
+                    let reference = prepared
+                        .borrows()
+                        .first()
+                        .map(|(index, target)| {
+                            (
+                                Place {
+                                    root: identity,
+                                    projections: projections[..*index].into(),
+                                },
+                                *target,
+                            )
+                        })
+                        .or_else(|| {
+                            crate::representation::reference_target_type(request, reached).map(
+                                |target| {
+                                    (
+                                        Place {
+                                            root: identity,
+                                            projections: Arc::clone(projections),
+                                        },
+                                        target,
+                                    )
+                                },
+                            )
+                        });
 
                     if let Some((path, target)) = reference {
-                        self.returned_references.entry(identity).or_default().insert(path, target);
+                        self.returned_references
+                            .entry(identity)
+                            .or_default()
+                            .insert(path, target);
                     }
 
                     continue;
@@ -170,9 +230,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         Ok(())
     }
 
-    fn prepare_summary_demands<
-        C: CheckerRequestContext + ?Sized,
-    >(
+    fn prepare_summary_demands<C: CheckerRequestContext + ?Sized>(
         &self,
         request: crate::CheckerUnitView<'_, C>,
         storage: &bray_bound_tree::StoragePlan,
@@ -216,7 +274,10 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 continue;
             };
 
-            demands.entry(owner).or_default().insert((path.projections, ty));
+            demands
+                .entry(owner)
+                .or_default()
+                .insert((path.projections, ty));
         }
 
         Ok(())

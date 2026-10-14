@@ -35,7 +35,9 @@ impl Compilation {
         if key.kind() != bray_bound_tree::BoundUnitKind::ConstantTemplate {
             let context = self.binding_context(cancellation)?;
 
-            let owner = context.symbols().symbol_for_key(key.declared_owner())
+            let owner = context
+                .symbols()
+                .symbol_for_key(key.declared_owner())
                 .expect("checked callable body retains its owner");
 
             inputs.inputs = self.execution_callable_inputs(owner, cancellation)?;
@@ -225,12 +227,14 @@ impl Compilation {
             inputs.constants =
                 self.execution_constant_inputs(bound, semantics, cancellation, &mut diagnostics)?;
 
-            inputs.statics.extend(semantics.selections().entries().iter().filter_map(|entry| {
-                match entry.selection() {
-                    SemanticSelection::StaticReference(selection) => Some(selection.clone()),
-                    _ => None,
-                }
-            }));
+            inputs
+                .statics
+                .extend(semantics.selections().entries().iter().filter_map(|entry| {
+                    match entry.selection() {
+                        SemanticSelection::StaticReference(selection) => Some(selection.clone()),
+                        _ => None,
+                    }
+                }));
         }
 
         let witnesses = self.trusted_required_witnesses(&inputs.requirements, cancellation)?;

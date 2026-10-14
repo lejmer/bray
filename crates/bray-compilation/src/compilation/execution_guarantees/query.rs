@@ -988,36 +988,102 @@ mod tests {
     #[test]
     fn nullable_match_execution_proofs_respect_payload_conditions() {
         for (parameter, requirement, arms, valid) in [
-            ("value: bool", "value", "case true { return; } case false { panic(\"false\"); }", true),
-            ("value: u32?", "value matches ?_", "case ?held { return; } case none { panic(\"absent\"); }", true),
-            ("value: &(u32?)", "value matches ?_", "case ?held { return; } case none { panic(\"absent\"); }", true),
-            ("value: u32?", "value matches none", "case ?held { panic(\"present\"); } case none { return; }", true),
-            ("value: u32?", "value matches ?_", "case ?1 { return; } case _ { panic(\"other payload\"); }", false),
-            ("value: u32?", "true", "case ?held { return; } case none { panic(\"absent\"); }", false),
+            (
+                "value: bool",
+                "value",
+                "case true { return; } case false { panic(\"false\"); }",
+                true,
+            ),
+            (
+                "value: u32?",
+                "value matches ?_",
+                "case ?held { return; } case none { panic(\"absent\"); }",
+                true,
+            ),
+            (
+                "value: &(u32?)",
+                "value matches ?_",
+                "case ?held { return; } case none { panic(\"absent\"); }",
+                true,
+            ),
+            (
+                "value: u32?",
+                "value matches none",
+                "case ?held { panic(\"present\"); } case none { return; }",
+                true,
+            ),
+            (
+                "value: u32?",
+                "value matches ?_",
+                "case ?1 { return; } case _ { panic(\"other payload\"); }",
+                false,
+            ),
+            (
+                "value: u32?",
+                "true",
+                "case ?held { return; } case none { panic(\"absent\"); }",
+                false,
+            ),
         ] {
-            let source = format!("module app; func root(pos {parameter}) requires({requirement}) executes(pure, total) {{ match value {{ {arms} }} }}");
-            let application = compilation(&source);
-            let evidence = application.execution_properties(source_function_body_key(&application, "root")).unwrap();
+            let source = format!(
+                "module app; func root(pos {parameter}) requires({requirement}) executes(pure, total) {{ match value {{ {arms} }} }}"
+            );
 
-            assert_eq!(!evidence.diagnostics().has_errors(), valid, "{source}: {:?}", evidence.diagnostics());
+            let application = compilation(&source);
+
+            let evidence = application
+                .execution_properties(source_function_body_key(&application, "root"))
+                .unwrap();
+
+            assert_eq!(
+                !evidence.diagnostics().has_errors(),
+                valid,
+                "{source}: {:?}",
+                evidence.diagnostics()
+            );
         }
     }
 
     #[test]
     fn local_callable_targets_keep_checked_termination_dependencies() {
         for (setup, valid) in [
-            ("let action = lambda() executes(pure, total) {}; action();", true),
-            ("let action = lambda() executes(pure, total) {}; let forwarded = action; forwarded();", true),
+            (
+                "let action = lambda() executes(pure, total) {}; action();",
+                true,
+            ),
+            (
+                "let action = lambda() executes(pure, total) {}; let forwarded = action; forwarded();",
+                true,
+            ),
             ("let action = lambda() { while true {} }; action();", false),
-            ("let action = lambda() executes(total) { root(flag); }; action();", false),
-            ("let mut action: func() -> unit = lambda() executes(total) {}; action = lambda() { while true {} }; action();", false),
-            ("let mut action: func() -> unit = lambda() executes(total) {}; if flag { action = lambda() { while true {} }; } action();", false),
+            (
+                "let action = lambda() executes(total) { root(flag); }; action();",
+                false,
+            ),
+            (
+                "let mut action: func() -> unit = lambda() executes(total) {}; action = lambda() { while true {} }; action();",
+                false,
+            ),
+            (
+                "let mut action: func() -> unit = lambda() executes(total) {}; if flag { action = lambda() { while true {} }; } action();",
+                false,
+            ),
         ] {
-            let source = format!("module app; func root(pos flag: bool) executes(total) {{ {setup} }}");
-            let application = compilation(&source);
-            let evidence = application.execution_properties(source_function_body_key(&application, "root")).unwrap();
+            let source =
+                format!("module app; func root(pos flag: bool) executes(total) {{ {setup} }}");
 
-            assert_eq!(!evidence.diagnostics().has_errors(), valid, "{source}: {:?}", evidence.diagnostics());
+            let application = compilation(&source);
+
+            let evidence = application
+                .execution_properties(source_function_body_key(&application, "root"))
+                .unwrap();
+
+            assert_eq!(
+                !evidence.diagnostics().has_errors(),
+                valid,
+                "{source}: {:?}",
+                evidence.diagnostics()
+            );
         }
     }
 

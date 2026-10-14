@@ -14,7 +14,10 @@ pub(super) fn selected_condition(
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
     literals: &BTreeMap<BoundExpressionId, ExecutionCondition>,
-    patterns: &BTreeMap<bray_bound_tree::BoundPatternId, (bray_bound_tree::BoundOperator, ExecutionCondition)>,
+    patterns: &BTreeMap<
+        bray_bound_tree::BoundPatternId,
+        (bray_bound_tree::BoundOperator, ExecutionCondition),
+    >,
     current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     expression: BoundExpressionId,
@@ -42,11 +45,14 @@ pub(super) fn selected_condition(
             ));
         }
 
-        let observed_intrinsic = matches!(call.implementation_hook(), Some(
-            bray_compiler_known::ImplementationHook::SequenceLength
-                | bray_compiler_known::ImplementationHook::SequenceIsEmpty
-                | bray_compiler_known::ImplementationHook::RawPointerIsNull
-        ));
+        let observed_intrinsic = matches!(
+            call.implementation_hook(),
+            Some(
+                bray_compiler_known::ImplementationHook::SequenceLength
+                    | bray_compiler_known::ImplementationHook::SequenceIsEmpty
+                    | bray_compiler_known::ImplementationHook::RawPointerIsNull
+            )
+        );
 
         let constant = matches!(bound, BoundExpression::Call(bound_call)
             if semantics.types().expression(bound_call.callee()).is_some_and(|ty|
@@ -56,14 +62,24 @@ pub(super) fn selected_condition(
         if let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target()
             && (observed_intrinsic || constant)
         {
-            let arguments = call_argument_conditions(call, unit, semantics, values, literals, patterns, current, evaluated, budget);
+            let arguments = call_argument_conditions(
+                call, unit, semantics, values, literals, patterns, current, evaluated, budget,
+            );
 
-            let arguments = if matches!(call.implementation_hook(), Some(
-                bray_compiler_known::ImplementationHook::SequenceLength
-                    | bray_compiler_known::ImplementationHook::SequenceIsEmpty
-            )) {
-                arguments.into_iter().map(|argument| argument.owner_identity().clone()).collect()
-            } else { arguments };
+            let arguments = if matches!(
+                call.implementation_hook(),
+                Some(
+                    bray_compiler_known::ImplementationHook::SequenceLength
+                        | bray_compiler_known::ImplementationHook::SequenceIsEmpty
+                )
+            ) {
+                arguments
+                    .into_iter()
+                    .map(|argument| argument.owner_identity().clone())
+                    .collect()
+            } else {
+                arguments
+            };
 
             let condition = ExecutionCondition::call(callable, arguments);
 
@@ -71,7 +87,9 @@ pub(super) fn selected_condition(
             // actual returned value. Repeated evaluations already retire this identity.
             return Some(if condition == ExecutionCondition::Unknown {
                 ExecutionCondition::Expression(expression)
-            } else { condition });
+            } else {
+                condition
+            });
         }
 
         if let bray_bound_tree::BoundCallableTarget::Predicate(predicate) = call.target() {
@@ -140,7 +158,10 @@ fn call_argument_conditions(
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
     literals: &BTreeMap<BoundExpressionId, ExecutionCondition>,
-    patterns: &BTreeMap<bray_bound_tree::BoundPatternId, (bray_bound_tree::BoundOperator, ExecutionCondition)>,
+    patterns: &BTreeMap<
+        bray_bound_tree::BoundPatternId,
+        (bray_bound_tree::BoundOperator, ExecutionCondition),
+    >,
     current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     budget: &mut usize,

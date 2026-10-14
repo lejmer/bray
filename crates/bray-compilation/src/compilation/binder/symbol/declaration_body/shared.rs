@@ -18,7 +18,12 @@ pub(super) fn checked_bound_contract(
     bound: &BoundUnit,
     declared: &bray_bound_tree::DeclaredValueTypeTemplates,
     syntax: Option<bray_syntax::SyntaxNodeView<'_>>,
-) -> BindingQueryResult<bray_diagnostics::DiagnosticResult<(CheckedExpressionSemantics, bray_bound_tree::CheckedPatterns)>> {
+) -> BindingQueryResult<
+    bray_diagnostics::DiagnosticResult<(
+        CheckedExpressionSemantics,
+        bray_bound_tree::CheckedPatterns,
+    )>,
+> {
     use bray_checker::{ExpressionSemanticChecker, PatternChecker};
 
     let compilation = context.compilation();
@@ -78,9 +83,13 @@ pub(super) fn checked_bound_contract(
         if next == resolutions {
             let (patterns, pattern_diagnostics) = crate::compilation::checker::checker_result(
                 bray_checker::DefaultPatternChecker.check_patterns(
-                    request, semantics.types(), &bray_checker::PatternCheckInput::new(),
+                    request,
+                    semantics.types(),
+                    &bray_checker::PatternCheckInput::new(),
                 ),
-            ).map_err(super::super::binding::binder_error)?.into_parts();
+            )
+            .map_err(super::super::binding::binder_error)?
+            .into_parts();
 
             return Ok(bray_diagnostics::DiagnosticResult::new(
                 (semantics, patterns),
@@ -255,7 +264,9 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         )
         .map_err(super::super::binding::binder_error)?;
 
-    let patterns = compilation.patterns_with_cancellation(key.clone(), context.cancellation).map_err(super::super::binding::binder_error)?;
+    let patterns = compilation
+        .patterns_with_cancellation(key.clone(), context.cancellation)
+        .map_err(super::super::binding::binder_error)?;
 
     let normalized = bray_checker::predicate_conditions_with_inputs(
         bound.result().value(),
@@ -263,7 +274,10 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         patterns.result().value(),
         context.semantic_values(),
         &constants,
-        Some((storage.result().value(), body.result().value().storage_flow())),
+        Some((
+            storage.result().value(),
+            body.result().value().storage_flow(),
+        )),
     )
     .map_err(|error| BindingQueryError::Binding(bray_binder::BindingError::SemanticValue(error)))?;
 

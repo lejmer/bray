@@ -13,20 +13,27 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         node: bray_bound_tree::AnyBoundNodeId,
     ) {
         if let bray_bound_tree::AnyBoundNodeId::Pattern(pattern) = node {
-            for (binding, expression, access) in crate::storage::pattern_binding_sources(
-                self.request.view(), self.storage, pattern,
-            ) {
-                let Some(bray_bound_tree::StorageBinding::Identity(destination)) = self.storage
-                    .binding(bray_bound_tree::StorageBindingTarget::Local(binding))
-                else { continue; };
+            for (binding, expression, access) in
+                crate::storage::pattern_binding_sources(self.request.view(), self.storage, pattern)
+            {
+                let Some(bray_bound_tree::StorageBinding::Identity(destination)) =
+                    self.storage.binding(binding)
+                else {
+                    continue;
+                };
 
                 if self.input.initialization_destination(expression) == Some(destination) {
                     // The initializer already transferred this whole value, including formed borrows.
                     continue;
                 }
 
-                if let Some(source) = self.input.reference_target(&state.memory, self.storage, access) {
-                    state.memory.transfer_value(&source, Place::root(destination));
+                if let Some(source) =
+                    self.input
+                        .reference_target(&state.memory, self.storage, access)
+                {
+                    state
+                        .memory
+                        .transfer_value(&source, Place::root(destination));
                 }
             }
 
@@ -37,13 +44,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return;
         };
 
-        let captures_inputs = self.dependencies.calls().get(&expression.into()).is_some_and(|call| call.deferred_effects().is_some())
+        let captures_inputs = self
+            .dependencies
+            .calls()
+            .get(&expression.into())
+            .is_some_and(|call| call.deferred_effects().is_some())
             || matches!(self.execution.semantics.selections().expression(expression),
                 Some(bray_bound_tree::SemanticSelection::Call(call))
                     if call.implementation_hook() == Some(bray_compiler_known::ImplementationHook::FutureStart));
 
-        if captures_inputs && let Some(result) = self.expression_result_storage(expression)
-        {
+        if captures_inputs && let Some(result) = self.expression_result_storage(expression) {
             let captures = self.invocation_roots(state, expression.into());
 
             state.memory.capture_inputs(result, captures);
@@ -365,7 +375,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         if let Some(destination) = self.invocation_result(occurrence) {
-            let root = self.storage.storage_type(destination.root)
+            let root = self
+                .storage
+                .storage_type(destination.root)
                 .and_then(|ty| crate::representation::reference_target_type(self.request, ty))
                 .map(|target| (destination.clone(), target));
 
@@ -375,9 +387,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let inputs = self.invocation_roots(state, occurrence);
 
                 // Transitions own small place keys with shared projection paths.
-                let references = contained.into_iter().flat_map(|paths| paths.iter().map(|(path, ty)| (path.clone(), *ty))).chain(root.filter(|(path, _)| !contained.is_some_and(|paths| paths.contains_key(path))));
+                let references = contained
+                    .into_iter()
+                    .flat_map(|paths| paths.iter().map(|(path, ty)| (path.clone(), *ty)))
+                    .chain(root.filter(|(path, _)| {
+                        !contained.is_some_and(|paths| paths.contains_key(path))
+                    }));
 
-                state.memory.stage_returned_references(occurrence, references, inputs);
+                state
+                    .memory
+                    .stage_returned_references(occurrence, references, inputs);
             }
         }
     }

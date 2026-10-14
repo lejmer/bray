@@ -265,21 +265,35 @@ fn remap_dependency_contract(
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
-    let carriers = contract.carriers.iter().map(|carrier| {
-        // Selected records own their remapped paths independently of the decoded table.
-        let mut path = carrier.path().to_vec();
+    contract.returned_input = contract
+        .returned_input
+        .map(|input| maps.constant_term_id(input))
+        .transpose()?;
 
-        remap_dependency_projections(&mut path, maps)?;
+    let carriers = contract
+        .carriers
+        .iter()
+        .map(|carrier| {
+            // Selected records own their remapped paths independently of the decoded table.
+            let mut path = carrier.path().to_vec();
 
-        Ok(bray_symbols::DependencyWitnessCarrier::new(maps.constant_term_id(carrier.guarantee())?, path))
-    }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+            remap_dependency_projections(&mut path, maps)?;
+
+            Ok(bray_symbols::DependencyWitnessCarrier::new(
+                maps.constant_term_id(carrier.guarantee())?,
+                path,
+            ))
+        })
+        .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
     for effect in Arc::make_mut(&mut contract.effects) {
         use bray_symbols::DependencyStorageEffect;
 
         match effect {
             DependencyStorageEffect::Atomic | DependencyStorageEffect::Unknown => {}
-            DependencyStorageEffect::Cleanup(ty) => { *ty = maps.type_id(*ty)?; }
+            DependencyStorageEffect::Cleanup(ty) => {
+                *ty = maps.type_id(*ty)?;
+            }
             DependencyStorageEffect::Direct { subject, .. } => {
                 remap_dependency_subject(subject, maps)?
             }
@@ -481,7 +495,7 @@ fn remap_constant_term(
             *target = maps.type_id(*target)?;
         }
         InterfaceConstantTerm::VariantTest { subject: value, .. }
-            | InterfaceConstantTerm::NullablePresent(value) => {
+        | InterfaceConstantTerm::NullablePresent(value) => {
             *value = maps.constant_term_id(*value)?;
         }
         InterfaceConstantTerm::Tuple(values) | InterfaceConstantTerm::Array(values) => {

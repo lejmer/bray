@@ -308,10 +308,23 @@ fn validate_template(
         semantics.dependency_contracts.len(),
     )?;
 
-    let result_dependencies = &semantics.dependency_contracts[template.behavior().result_dependencies().to_index().expect("validated template result dependency index")];
+    let result_dependencies = &semantics.dependency_contracts[template
+        .behavior()
+        .result_dependencies()
+        .to_index()
+        .expect("validated template result dependency index")];
+
+    if let Some(input) = result_dependencies.returned_input {
+        semantics.validate_returned_input(input, template.inputs().len(), surface)?;
+    }
 
     for carrier in &*result_dependencies.carriers {
-        semantics.validate_execution_term(carrier.guarantee(), template.inputs().len(), true, surface)?;
+        semantics.validate_execution_term(
+            carrier.guarantee(),
+            template.inputs().len(),
+            true,
+            surface,
+        )?;
     }
 
     for symbol in template
@@ -432,7 +445,9 @@ fn validate_operation_references(
         }
         InterfaceCheckedTemplateOperation::VariantTest { subject, variant } => {
             if validate_template_reference(context, variant)? != SymbolKind::UnionVariant {
-                return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Template));
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
             }
 
             let mut subject_type = node_type(context.template, *subject);
@@ -450,13 +465,22 @@ fn validate_operation_references(
             }
 
             let owned = match (variant, owner) {
-                (InterfaceTemplateReference::Symbol(variant), Some(owner)) => super::surface::reference_has_owner(variant, owner, context.surface)?,
-                (InterfaceTemplateReference::Support(_), Some(owner)) if !matches!(owner, crate::InterfaceSymbolReference::CompilerKnown(_)) => template_reference_key(context, variant)?.owner() == Some(reference_key(owner, context.surface)?),
+                (InterfaceTemplateReference::Symbol(variant), Some(owner)) => {
+                    super::surface::reference_has_owner(variant, owner, context.surface)?
+                }
+                (InterfaceTemplateReference::Support(_), Some(owner))
+                    if !matches!(owner, crate::InterfaceSymbolReference::CompilerKnown(_)) =>
+                {
+                    template_reference_key(context, variant)?.owner()
+                        == Some(reference_key(owner, context.surface)?)
+                }
                 _ => false,
             };
 
             if !owned {
-                return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Template));
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
             }
         }
         InterfaceCheckedTemplateOperation::Project { member, .. } => {
@@ -522,7 +546,8 @@ fn validate_operation_type(
         InterfaceCheckedTemplateOperation::Unary { operand, .. } => {
             node_type(template, *operand) == Some(node.ty())
         }
-        InterfaceCheckedTemplateOperation::Binary { .. } | InterfaceCheckedTemplateOperation::VariantTest { .. } => true,
+        InterfaceCheckedTemplateOperation::Binary { .. }
+        | InterfaceCheckedTemplateOperation::VariantTest { .. } => true,
         InterfaceCheckedTemplateOperation::Borrow { kind, operand } => {
             let Some(InterfaceType::Borrow {
                 kind: ty_kind,

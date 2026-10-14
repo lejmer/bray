@@ -126,7 +126,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             MirProjectionKind::OwnedStorage => Ok(pointer),
             MirProjectionKind::Field(_) | MirProjectionKind::TupleField(_) => {
-                panic!("field projection {projection:?} requires aggregate representation, got {kind:?} for {source_type:?}")
+                panic!(
+                    "field projection {projection:?} requires aggregate representation, got {kind:?} for {source_type:?}"
+                )
             }
         }
     }
@@ -139,14 +141,25 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ordinal: u32,
         from_end: bool,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
-        let integer = self.types.context().ptr_sized_int_type(self.types.target_data(), None);
+        let integer = self
+            .types
+            .context()
+            .ptr_sized_int_type(self.types.target_data(), None);
+
         let ordinal = u64::from(ordinal);
 
         let (pointer, element, index) = match kind {
             CodegenTypeKind::Array { element, length } => {
-                assert!(ordinal < *length, "checked array projection {ordinal} exceeds length {length}");
+                assert!(
+                    ordinal < *length,
+                    "checked array projection {ordinal} exceeds length {length}"
+                );
 
-                let index = if from_end { length - ordinal - 1 } else { ordinal };
+                let index = if from_end {
+                    length - ordinal - 1
+                } else {
+                    ordinal
+                };
 
                 (pointer, *element, integer.const_int(index, false))
             }
@@ -154,14 +167,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let (data, length) = self.unsized_slice_parts(pointer, source_type)?;
 
                 let index = if from_end {
-                    llvm(self.builder.build_int_sub(length, integer.const_int(ordinal + 1, false), "slice.suffix.index"))?
+                    llvm(self.builder.build_int_sub(
+                        length,
+                        integer.const_int(ordinal + 1, false),
+                        "slice.suffix.index",
+                    ))?
                 } else {
                     integer.const_int(ordinal, false)
                 };
 
                 (data, *element, index)
             }
-            unexpected => panic!("checked sequence projection requires an array or slice, got {unexpected:?}"),
+            unexpected => {
+                panic!("checked sequence projection requires an array or slice, got {unexpected:?}")
+            }
         };
 
         self.dynamic_offset_pointer(pointer, index, self.mapped_type_size(element))

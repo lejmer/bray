@@ -1,8 +1,8 @@
 use super::super::{
-    CallableDependencyContracts, ConstantTermData, DependencyGuard,
-    DependencyProjection, DependencyRequirement, DependencySubject, DependencySubjectRoot,
-    GenericArgument, GenericSubstitutionData, GenericSubstitutionId, SemanticValueStore,
-    SemanticValueStoreError, TypeData,
+    CallableDependencyContracts, ConstantTermData, DependencyGuard, DependencyProjection,
+    DependencyRequirement, DependencySubject, DependencySubjectRoot, GenericArgument,
+    GenericSubstitutionData, GenericSubstitutionId, SemanticValueStore, SemanticValueStoreError,
+    TypeData,
 };
 use crate::{GenericOwnerId, GenericParameterSymbolId};
 
@@ -96,9 +96,22 @@ impl SemanticValueStore {
             })
             .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
 
-        let carriers = template.carriers().iter().map(|carrier| {
-            Ok(super::super::DependencyWitnessCarrier::new(self.substitute_constant_term_data(carrier.guarantee(), substitution)?, carrier.path().iter().map(|projection| self.substitute_dependency_projection(projection, substitution)).collect::<Result<Vec<_>, _>>()?))
-        }).collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
+        let carriers = template
+            .carriers()
+            .iter()
+            .map(|carrier| {
+                Ok(super::super::DependencyWitnessCarrier::new(
+                    self.substitute_constant_term_data(carrier.guarantee(), substitution)?,
+                    carrier
+                        .path()
+                        .iter()
+                        .map(|projection| {
+                            self.substitute_dependency_projection(projection, substitution)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                ))
+            })
+            .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
 
         let effects = template
             .effects()
@@ -109,7 +122,9 @@ impl SemanticValueStore {
                 Ok(match effect {
                     DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
                     DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
-                    DependencyStorageEffect::Cleanup(ty) => DependencyStorageEffect::Cleanup(self.substitute_type_data(*ty, substitution)?),
+                    DependencyStorageEffect::Cleanup(ty) => DependencyStorageEffect::Cleanup(
+                        self.substitute_type_data(*ty, substitution)?,
+                    ),
                     DependencyStorageEffect::Direct { subject, kind } => {
                         DependencyStorageEffect::Direct {
                             subject: self.substitute_dependency_subject(subject, substitution)?,
@@ -135,9 +150,16 @@ impl SemanticValueStore {
             .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
 
         self.intern_dependency_contract_template(
-            template.with_requirements(requirements)
+            template
+                .with_requirements(requirements)
                 .with_borrows(borrows)
                 .with_carriers(carriers)
+                .with_returned_input(
+                    template
+                        .returned_input()
+                        .map(|input| self.substitute_constant_term_data(input, substitution))
+                        .transpose()?,
+                )
                 .with_effects(effects),
         )
     }

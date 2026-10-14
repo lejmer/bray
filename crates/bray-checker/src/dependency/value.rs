@@ -106,9 +106,7 @@ impl ValueInputs {
             returned_errors: Default::default(),
             expressions,
             projected_initializers: BTreeMap::new(),
-            pattern_subjects: crate::pattern::binding_subjects(unit)
-                .into_iter()
-                .collect(),
+            pattern_subjects: crate::pattern::binding_subjects(unit).into_iter().collect(),
             independent: Default::default(),
             source_inputs: Default::default(),
             projections: BTreeMap::new(),

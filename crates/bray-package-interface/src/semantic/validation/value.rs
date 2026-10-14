@@ -78,7 +78,19 @@ impl InterfaceSemantics {
                 ));
             }
 
-            for carrier in &*contract.carriers { validate_index(carrier.guarantee().to_index(), self.constant_terms.len())?; self.validate_dependency_projections(carrier.path(), symbol_count, dependency_count)?; }
+            if let Some(input) = contract.returned_input {
+                validate_index(input.to_index(), self.constant_terms.len())?;
+            }
+
+            for carrier in &*contract.carriers {
+                validate_index(carrier.guarantee().to_index(), self.constant_terms.len())?;
+
+                self.validate_dependency_projections(
+                    carrier.path(),
+                    symbol_count,
+                    dependency_count,
+                )?;
+            }
 
             for relation in &*contract.borrows {
                 self.validate_dependency_subject(relation.entry(), symbol_count, dependency_count)?;
@@ -96,7 +108,9 @@ impl InterfaceSemantics {
 
                 match effect {
                     DependencyStorageEffect::Atomic | DependencyStorageEffect::Unknown => {}
-                    DependencyStorageEffect::Cleanup(ty) => validate_index(ty.to_index(), self.types.len())?,
+                    DependencyStorageEffect::Cleanup(ty) => {
+                        validate_index(ty.to_index(), self.types.len())?
+                    }
                     DependencyStorageEffect::Direct { subject, .. } => {
                         self.validate_dependency_subject(subject, symbol_count, dependency_count)?
                     }

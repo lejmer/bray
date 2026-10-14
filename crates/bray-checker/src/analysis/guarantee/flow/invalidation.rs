@@ -8,6 +8,37 @@ use super::super::state::ExecutionState;
 use bray_bound_tree::StorageInvalidation;
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    fn storage_places<'state>(
+        &'state self,
+        state: &'state ExecutionState,
+        path: bray_bound_tree::StoragePath,
+    ) -> impl Iterator<Item = crate::ExecutionPlace> + 'state {
+        let declaration = match self.storage.identity(path.root) {
+            Some(bray_bound_tree::StorageIdentity::Static(declaration)) => Some(declaration),
+            _ => None,
+        };
+
+        let local = declaration
+            .is_none()
+            .then(|| crate::ExecutionPlace::storage_path(self.storage, &path))
+            .flatten();
+
+        local
+            .into_iter()
+            .chain(declaration.into_iter().flat_map(move |declaration| {
+                // Each selected instance keeps its own immutable projection path and snapshot.
+                let projections = path.projections.clone();
+
+                state
+                    .current
+                    .keys()
+                    .filter(move |place| {
+                        place.projections.is_empty() && place.selected_static() == Some(declaration)
+                    })
+                    .filter_map(move |place| place.clone().project(&projections))
+            }))
+    }
+
     pub(super) fn invalidate(
         &self,
         state: &mut ExecutionState,
@@ -72,6 +103,88 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         );
     }
 
+    fn invalidate_all_observations(
+        &self,
+        state: &mut ExecutionState,
+        mutation: bray_bound_tree::StorageMutation,
+        descriptors: &BTreeSet<bray_bound_tree::StoragePath>,
+        stable_values: &BTreeSet<bray_bound_tree::StoragePath>,
+    ) {
+        let descriptors = descriptors
+            .iter()
+            .flat_map(|path| self.storage_places(state, path.clone()))
+            .filter_map(|place| {
+                let value = place.value_in(&state.current)?;
+
+                Some((place, value.owner_identity().clone()))
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        let retained = stable_values
+            .iter()
+            .flat_map(|path| self.storage_places(state, path.clone()))
+            .filter_map(|place| {
+                let value = place.value_in(&state.current)?;
+
+                Some((place, value))
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        let owners = stable_values
+            .iter()
+            .flat_map(|path| {
+                self.storage_places(state, bray_bound_tree::StoragePath::root(path.root))
+            })
+            .filter_map(|place| place.value_in(&state.current))
+            .flat_map(|value| {
+                value
+                    .owned_values()
+                    .map(|value| value.owner_identity().clone())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        state.invalidate_cleanup(&retained.values().cloned().collect(), &owners);
+
+        let observed = self
+            .observed_types
+            .keys()
+            .chain(state.current.keys())
+            .cloned()
+            .collect::<BTreeSet<_>>();
+
+        let roots = observed
+            .iter()
+            .filter(|place| place.projections.is_empty())
+            .cloned();
+
+        state.current.clear();
+
+        for place in roots {
+            let contents = ExecutionCondition::PostState(mutation, place.clone());
+
+            let value = descriptors.get(&place).map_or_else(
+                || contents.clone(),
+                |identity| {
+                    ExecutionCondition::Constructed(
+                        std::sync::Arc::new(identity.clone()),
+                        [(
+                            bray_bound_tree::StorageProjection::OwnedTarget,
+                            contents.clone(),
+                        )]
+                        .into(),
+                    )
+                },
+            );
+
+            state.assign(place, value);
+        }
+
+        for (place, value) in retained {
+            state.assign(place, value);
+        }
+    }
+
     pub(in crate::analysis) fn invalidate_observations(
         &self,
         state: &mut ExecutionState,
@@ -80,56 +193,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         transfers: bool,
         content_only: bool,
     ) {
-        if matches!(mutation, bray_bound_tree::StorageMutation::Lifecycle { .. }) {
+        if !matches!(mutation, bray_bound_tree::StorageMutation::Operation(_)) {
             state.retire_evaluation(mutation);
         }
 
-        if let StorageInvalidation::All { stable_descriptors: descriptors, stable_values } = invalidation {
-            let descriptors = descriptors.iter().filter_map(|path| {
-                let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
-                let value = place.value_in(&state.current)?;
-
-                Some((place, value.owner_identity().clone()))
-            }).collect::<BTreeMap<_, _>>();
-
-            let retained = stable_values.iter().filter_map(|path| {
-                let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
-                let value = place.value_in(&state.current)?;
-
-                Some((place, value))
-            }).collect::<BTreeMap<_, _>>();
-
-            let owners = stable_values.iter().filter_map(|path| {
-                let place = crate::ExecutionPlace::storage_path(self.storage, &bray_bound_tree::StoragePath::root(path.root))?;
-
-                Some(place.value_in(&state.current)?)
-            }).flat_map(|value| value.owned_values().map(|value| value.owner_identity().clone()).collect::<Vec<_>>()).collect();
-
-            state.invalidate_cleanup(&retained.values().cloned().collect(), &owners);
-
-            let observed = self.observed_types.keys().chain(state.current.keys()).cloned().collect::<BTreeSet<_>>();
-            let roots = observed.iter().filter(|place| place.projections.is_empty()).cloned();
-
-            state.current.clear();
-
-            for place in roots {
-                let contents = ExecutionCondition::PostState(mutation, place.clone());
-
-                let value = descriptors.get(&place).map_or_else(
-                    || contents.clone(),
-                    |identity| ExecutionCondition::Constructed(
-                        std::sync::Arc::new(identity.clone()),
-                        [(bray_bound_tree::StorageProjection::OwnedTarget, contents.clone())].into(),
-                    ),
-                );
-
-                state.assign(place, value);
-            }
-
-            for (place, value) in retained {
-                state.assign(place, value);
-            }
-
+        if let StorageInvalidation::All {
+            stable_descriptors: descriptors,
+            stable_values,
+        } = invalidation
+        {
+            self.invalidate_all_observations(state, mutation, descriptors, stable_values);
             return;
         }
 
@@ -184,9 +257,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         continue;
                     }
 
-                    let Some(reference) =
-                        crate::execution_guarantees::storage_binding_reference(*target)
-                    else {
+                    let Some(place) = crate::ExecutionPlace::binding(self.storage, *target) else {
                         continue;
                     };
 
@@ -197,9 +268,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             continue;
                         }
 
-                        let changed = crate::ExecutionPlace::from(reference)
+                        // Each affected path owns its projection of this binding.
+                        let changed = place
+                            .clone()
                             .project(&invalidated.projections)
-                            .unwrap_or_else(|| reference.into());
+                            .unwrap_or_else(|| place.clone());
 
                         changed_places.insert(changed);
                     }
@@ -211,16 +284,35 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Storage aliasing conservatively groups specializations by declaration. Revoke
         // each selected instance affected by that storage path, without merging identities.
         let mut changed_static = |path: &bray_bound_tree::StoragePath| {
-            let Some(bray_bound_tree::StorageIdentity::Static(declaration)) = self.storage.identity(path.root) else { return; };
+            let Some(bray_bound_tree::StorageIdentity::Static(declaration)) =
+                self.storage.identity(path.root)
+            else {
+                return;
+            };
 
-            for place in state.current.keys().filter(|place| place.projections.is_empty() && place.selected_static() == Some(declaration)) {
-                changed_places.insert(place.clone().project(&path.projections).unwrap_or_else(|| place.clone()));
+            for place in state.current.keys().filter(|place| {
+                place.projections.is_empty() && place.selected_static() == Some(declaration)
+            }) {
+                changed_places.insert(
+                    place
+                        .clone()
+                        .project(&path.projections)
+                        .unwrap_or_else(|| place.clone()),
+                );
             }
         };
 
         match invalidation {
-            StorageInvalidation::Observed { accesses, referents, .. } => {
-                accesses.values().flatten().chain(referents).for_each(&mut changed_static);
+            StorageInvalidation::Observed {
+                accesses,
+                referents,
+                ..
+            } => {
+                accesses
+                    .values()
+                    .flatten()
+                    .chain(referents)
+                    .for_each(&mut changed_static);
             }
             StorageInvalidation::Paths(paths) => paths.iter().for_each(&mut changed_static),
             StorageInvalidation::All { .. } => unreachable!("global invalidation handled above"),
@@ -298,12 +390,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .into(),
                     )
                 })
-                .unwrap_or_else(|| if transfers {
-                    ExecutionCondition::Unknown
-                } else {
-                    // A possible write retires the old contents, not this live place's
-                    // identity. Distinct post-state terms assert no equality between aliases.
-                    ExecutionCondition::PostState(mutation, place.clone())
+                .unwrap_or_else(|| {
+                    if transfers {
+                        ExecutionCondition::Unknown
+                    } else {
+                        // A possible write retires the old contents, not this live place's
+                        // identity. Distinct post-state terms assert no equality between aliases.
+                        ExecutionCondition::PostState(mutation, place.clone())
+                    }
                 });
 
             state.assign(place, value);

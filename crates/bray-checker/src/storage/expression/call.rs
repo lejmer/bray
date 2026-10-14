@@ -96,7 +96,11 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         {
             // Receiver dispatch reaches the object through existing borrows. Its invocation
             // loan must retain that referent, not the local slot containing the reference.
-            let target = self.request.semantic_values().unborrowed_type(self.expression_type(expression).ty());
+            let target = self
+                .request
+                .semantic_values()
+                .unborrowed_type(self.expression_type(expression).ty());
+
             let source = self.access_with_reached_type(expression, source, target)?;
 
             self.borrow_access(

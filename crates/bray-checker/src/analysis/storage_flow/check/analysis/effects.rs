@@ -1,8 +1,8 @@
 use crate::analysis::storage_flow::memory::Effect;
 use bray_bound_tree::{StorageIdentity, StorageInvalidation, StoragePath};
 use bray_symbols::{
-    DependencyMutationKind, DependencyStorageEffect, DependencySubject,
-    DependencySubjectRoot, SymbolOrdinal, TypeData,
+    DependencyMutationKind, DependencyStorageEffect, DependencySubject, DependencySubjectRoot,
+    SymbolOrdinal, TypeData,
 };
 
 use super::core::StorageFlowCollector;
@@ -52,7 +52,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             state.memory.defer_effects(invocation, effects);
         }
 
-        if let Some(bray_bound_tree::SemanticSelection::Call(call)) = invocation.expression()
+        if let Some(bray_bound_tree::SemanticSelection::Call(call)) = invocation
+            .expression()
             .and_then(|expression| self.execution.semantics.selections().expression(expression))
             && crate::analysis::storage_invalidation::call_preserves_storage(call, None)
         {
@@ -111,7 +112,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 ..
             }
         ) {
-            self.record_effects(&StorageInvalidation::unknown(), DependencyMutationKind::Retire);
+            self.record_effects(
+                &StorageInvalidation::unknown(),
+                DependencyMutationKind::Retire,
+            );
         } else if let Some(effects) = self.refinements.invalidation_at(kind.occurrence()) {
             let effect_kind = if self.call_attempt(kind).is_some() {
                 bray_symbols::DependencyMutationKind::Retire
@@ -143,10 +147,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .expression()
                 .is_some_and(|expression| self.memory.operation(expression).is_none())
         {
-            if let Some(invalidation) = invalidation.or_else(|| self.refinements.invalidation_at(kind.occurrence())) {
+            if let Some(invalidation) =
+                invalidation.or_else(|| self.refinements.invalidation_at(kind.occurrence()))
+            {
                 self.apply_resolved_effects(&mut state.memory, call_effects, invalidation);
             }
-
         }
     }
 
@@ -156,7 +161,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         effects: Option<&[Effect]>,
         invalidation: &StorageInvalidation,
     ) {
-        let Some(effects) = effects.filter(|effects| !effects.iter().any(|effect| matches!(effect, Effect::Cleanup(_)))) else {
+        let Some(effects) = effects.filter(|effects| {
+            !effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::Cleanup(_)))
+        }) else {
             memory.invalidate(invalidation, self.storage, DependencyMutationKind::Retire);
             return;
         };
@@ -164,7 +173,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for effect in effects {
             match effect {
                 Effect::Mutation(target, kind) => memory.invalidate_target(target, *kind),
-                Effect::Atomic => memory.invalidate(&StorageInvalidation::unknown(), self.storage, DependencyMutationKind::Atomic),
+                Effect::Atomic => memory.invalidate(
+                    &StorageInvalidation::unknown(),
+                    self.storage,
+                    DependencyMutationKind::Atomic,
+                ),
                 Effect::Cleanup(_) => unreachable!("opaque cleanup handled above"),
             }
         }
@@ -208,8 +221,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for effect in effects {
             let (subject, indirect, projections, kind) = match effect {
                 DependencyStorageEffect::Unknown => return None,
-                DependencyStorageEffect::Atomic => { resolved.push(Effect::Atomic); continue; }
-                DependencyStorageEffect::Cleanup(ty) => { resolved.push(Effect::Cleanup(*ty)); continue; }
+                DependencyStorageEffect::Atomic => {
+                    resolved.push(Effect::Atomic);
+                    continue;
+                }
+                DependencyStorageEffect::Cleanup(ty) => {
+                    resolved.push(Effect::Cleanup(*ty));
+                    continue;
+                }
                 DependencyStorageEffect::Direct { subject, kind } => {
                     (subject, false, &[][..], *kind)
                 }
@@ -223,7 +242,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let suffix = storage_projections(self.dependencies, projections)?;
 
             let Some(targets) = resolve(subject, indirect) else {
-                if kind == DependencyMutationKind::Atomic { resolved.push(Effect::Atomic); continue; }
+                if kind == DependencyMutationKind::Atomic {
+                    resolved.push(Effect::Atomic);
+                    continue;
+                }
 
                 return None;
             };
@@ -237,19 +259,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     }
 
     pub(super) fn record_resolved_effects(&mut self, effects: &[Effect]) {
-        if !self.publish || self.effects.contains(&DependencyStorageEffect::Unknown) { return; }
+        if !self.publish {
+            return;
+        }
 
         for effect in effects {
             match effect {
                 Effect::Mutation(target, kind) => self.record_target_effect(target, *kind),
-                Effect::Cleanup(ty) => { self.effects.insert(DependencyStorageEffect::Cleanup(*ty)); }
-                Effect::Atomic => { self.effects.insert(DependencyStorageEffect::Atomic); }
+                Effect::Cleanup(ty) => self.record_effect(DependencyStorageEffect::Cleanup(*ty)),
+                Effect::Atomic => self.record_effect(DependencyStorageEffect::Atomic),
             }
         }
     }
 
     pub(super) fn record_target_effect(&mut self, target: &Target, kind: DependencyMutationKind) {
-        if !self.publish || self.effects.contains(&DependencyStorageEffect::Unknown) {
+        if !self.publish {
             return;
         }
 
@@ -275,19 +299,23 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     _ => Some(DependencyStorageEffect::Unknown),
                 }
             }
-            Origin::Entry { .. } | Origin::Returned { .. } => Some(DependencyStorageEffect::Unknown),
+            Origin::Entry { .. } | Origin::Returned { .. } => {
+                Some(DependencyStorageEffect::Unknown)
+            }
             Origin::Storage(path) => self.formal_effect(path, kind),
             Origin::Allocation(_) => None,
         };
 
         if let Some(effect) = effect {
-            let effect = if effect == DependencyStorageEffect::Unknown && kind == DependencyMutationKind::Atomic { DependencyStorageEffect::Atomic } else { effect };
+            let effect = if effect == DependencyStorageEffect::Unknown
+                && kind == DependencyMutationKind::Atomic
+            {
+                DependencyStorageEffect::Atomic
+            } else {
+                effect
+            };
 
-            if effect == DependencyStorageEffect::Unknown {
-                self.effects.clear();
-            }
-
-            self.effects.insert(effect);
+            self.record_effect(effect);
         }
     }
 
@@ -296,29 +324,49 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         invalidation: &StorageInvalidation,
         kind: DependencyMutationKind,
     ) {
-        if !self.publish || self.effects.contains(&DependencyStorageEffect::Unknown) {
+        if !self.publish {
             return;
         }
 
         let StorageInvalidation::Paths(paths) = invalidation else {
-            self.effects.clear();
-            self.effects.insert(DependencyStorageEffect::Unknown);
+            self.record_effect(DependencyStorageEffect::Unknown);
             return;
         };
 
         for path in paths {
             match self.formal_effect(path, kind) {
                 Some(DependencyStorageEffect::Unknown) => {
-                    self.effects.clear();
-                    self.effects.insert(DependencyStorageEffect::Unknown);
+                    self.record_effect(DependencyStorageEffect::Unknown);
                     return;
                 }
                 Some(effect) => {
-                    self.effects.insert(effect);
+                    self.record_effect(effect);
                 }
                 None => {}
             }
         }
+    }
+
+    fn record_effect(&mut self, effect: DependencyStorageEffect) {
+        if !matches!(
+            effect,
+            DependencyStorageEffect::Direct {
+                kind: DependencyMutationKind::Consume,
+                ..
+            }
+        ) {
+            self.has_normal_effects |= self.on_normal_path;
+        }
+
+        if self.effects.contains(&DependencyStorageEffect::Unknown) {
+            return;
+        }
+
+        if effect == DependencyStorageEffect::Unknown {
+            self.effects.clear();
+        }
+
+        self.effects.insert(effect);
     }
 
     fn formal_effect(

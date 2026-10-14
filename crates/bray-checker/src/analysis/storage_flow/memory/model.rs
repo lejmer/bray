@@ -15,7 +15,10 @@ pub(in crate::analysis::storage_flow) enum Origin {
         projections: std::sync::Arc<[bray_bound_tree::StorageProjection]>,
     },
     // One returned referent has stable identity without equating it with a lifetime anchor.
-    Returned { reference: Place, projections: std::sync::Arc<[bray_bound_tree::StorageProjection]> },
+    Returned {
+        reference: Place,
+        projections: std::sync::Arc<[bray_bound_tree::StorageProjection]>,
+    },
     Storage(Place),
     Allocation(Place),
 }
@@ -62,7 +65,9 @@ pub(in crate::analysis::storage_flow) enum Effect {
 }
 
 impl Effect {
-    pub(in crate::analysis::storage_flow) fn mutation(&self) -> Option<(&Target, bray_symbols::DependencyMutationKind)> {
+    pub(in crate::analysis::storage_flow) fn mutation(
+        &self,
+    ) -> Option<(&Target, bray_symbols::DependencyMutationKind)> {
         match self {
             Self::Mutation(target, kind) => Some((target, *kind)),
             Self::Atomic | Self::Cleanup(_) => None,
@@ -164,7 +169,9 @@ impl Contents {
         self.initialized
             .retain(|ty| incoming.initialized.contains(ty));
 
-        let mut changed = self.initialized.len() != count || self.storage_type != previous_type || self.exposed != previous_exposure;
+        let mut changed = self.initialized.len() != count
+            || self.storage_type != previous_type
+            || self.exposed != previous_exposure;
 
         for (&ty, origins) in &incoming.pending {
             changed |= merge_origins(self.pending.entry(ty).or_default(), origins);
@@ -208,10 +215,7 @@ pub(in crate::analysis::storage_flow) struct State {
     pub(super) values: BTreeMap<Target, References>,
     pub(super) borrows: BTreeMap<BorrowCapabilityId, References>,
     pub(super) pending: BTreeMap<BoundExecutionSite, Transfer>,
-    pub(super) deferred_effects: BTreeMap<
-        BoundExecutionSite,
-        Option<BTreeSet<Effect>>,
-    >,
+    pub(super) deferred_effects: BTreeMap<BoundExecutionSite, Option<BTreeSet<Effect>>>,
     pub(super) contents: BTreeMap<Target, Contents>,
     // Consumed inline values remain available to the current operation's value transfers.
     // Proof queries read physical contents only. This snapshot never crosses an operation edge.

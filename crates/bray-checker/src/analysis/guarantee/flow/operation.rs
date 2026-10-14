@@ -17,7 +17,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         operation: super::super::super::model::AnalysisOperationKind,
         observe: Option<&mut super::super::cleanup::Observer<'_>>,
     ) {
-        if let (Some(body), bray_bound_tree::BoundExecutionSite::Node(node)) = (self.checked_body, operation.occurrence()) {
+        if let (Some(body), bray_bound_tree::BoundExecutionSite::Node(node)) =
+            (self.checked_body, operation.occurrence())
+        {
             self.assume_patterns(state, body.refinements().refinements_before(node).iter());
         }
 
@@ -26,14 +28,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let expression = operation.occurrence().expression();
 
         let target = self
-            .checked_body.map(bray_bound_tree::CheckedBodySemantics::storage_flow)
+            .checked_body
+            .map(bray_bound_tree::CheckedBodySemantics::storage_flow)
             .and_then(|flow| flow.assignment_target(expression?));
 
         let assignment =
             target.and_then(|target| crate::ExecutionPlace::storage_path(self.storage, target));
 
         let invalidation = self
-            .checked_body.map(bray_bound_tree::CheckedBodySemantics::storage_flow)
+            .checked_body
+            .map(bray_bound_tree::CheckedBodySemantics::storage_flow)
             .filter(|flow| {
                 target.is_some()
                     || expression.is_some_and(|expression| {
@@ -142,7 +146,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     self.expression(state, expression, invalidation, assignment_place);
                 }
 
-                if self.checked_body.map(bray_bound_tree::CheckedBodySemantics::storage_flow).is_some() {
+                if self
+                    .checked_body
+                    .map(bray_bound_tree::CheckedBodySemantics::storage_flow)
+                    .is_some()
+                {
                     self.complete_operation(state, operation, None);
                 }
 
@@ -247,7 +255,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         if self
-            .checked_body.map(bray_bound_tree::CheckedBodySemantics::storage_flow)
+            .checked_body
+            .map(bray_bound_tree::CheckedBodySemantics::storage_flow)
             .and_then(|flow| flow.memory_operation_status(expression))
             .is_some_and(|status| status != bray_bound_tree::MemoryOperationStatus::Valid)
         {
@@ -258,11 +267,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let observations = observations
             .or_else(|| {
-                self.checked_body.map(bray_bound_tree::CheckedBodySemantics::storage_flow).and_then(|flow| {
-                    flow.completion(bray_bound_tree::StorageMutation::Operation(
-                        operation.occurrence(),
-                    ))
-                })
+                self.checked_body
+                    .map(bray_bound_tree::CheckedBodySemantics::storage_flow)
+                    .and_then(|flow| {
+                        flow.completion(bray_bound_tree::StorageMutation::Operation(
+                            operation.occurrence(),
+                        ))
+                    })
             })
             .unwrap_or(&empty);
 
@@ -441,14 +452,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     fn pattern(&self, state: &mut ExecutionState, pattern: bray_bound_tree::BoundPatternId) {
-        for (binding, expression, access) in crate::storage::pattern_binding_sources(
-            self.request.view(), self.storage, pattern,
-        ) {
+        for (binding, expression, access) in
+            crate::storage::pattern_binding_sources(self.request.view(), self.storage, pattern)
+        {
             let mut value = self.storage_value(state, expression, access);
 
-            if let Some(bray_bound_tree::StorageBinding::Identity(identity)) = self
-                .storage
-                .binding(bray_bound_tree::StorageBindingTarget::Local(binding))
+            if let Some(bray_bound_tree::StorageBinding::Identity(identity)) =
+                self.storage.binding(binding)
             {
                 value = value.coerce(
                     self.request.semantic_values(),
@@ -462,8 +472,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 );
             }
 
-            // Observing bindings use their committed component, independently of borrow and initialization plans.
-            state.assign(BoundReferenceTarget::Local(binding.into()).into(), value);
+            let place = crate::ExecutionPlace::binding(self.storage, binding)
+                .expect("checked pattern binding has an execution place");
+
+            // Named and discarded owners retain the same committed value and cleanup evidence.
+            state.assign(place, value);
         }
     }
 }

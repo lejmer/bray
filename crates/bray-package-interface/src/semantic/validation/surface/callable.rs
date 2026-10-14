@@ -101,10 +101,26 @@ impl InterfaceSemantics {
             self.dependency_contracts.len(),
         )?;
 
-        let result_dependencies = &self.dependency_contracts[signature.result_dependencies.to_index().expect("validated dependency index")];
+        let result_dependencies = &self.dependency_contracts[signature
+            .result_dependencies
+            .to_index()
+            .expect("validated dependency index")];
+
+        if let Some(input) = result_dependencies.returned_input {
+            self.validate_returned_input(
+                input,
+                signature.parameters.len() + usize::from(signature.receiver.is_some()),
+                surface,
+            )?;
+        }
 
         for carrier in &*result_dependencies.carriers {
-            self.validate_execution_term(carrier.guarantee(), signature.parameters.len() + usize::from(signature.receiver.is_some()), true, surface)?;
+            self.validate_execution_term(
+                carrier.guarantee(),
+                signature.parameters.len() + usize::from(signature.receiver.is_some()),
+                true,
+                surface,
+            )?;
         }
 
         let Some(crate::InterfaceType::Callable {

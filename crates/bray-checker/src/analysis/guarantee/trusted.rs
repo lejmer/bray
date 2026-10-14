@@ -1,6 +1,6 @@
 mod borrows;
-mod check;
 mod carriers;
+mod check;
 mod completion;
 mod proof;
 mod transfers;

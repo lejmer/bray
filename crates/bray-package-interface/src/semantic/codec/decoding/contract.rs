@@ -103,6 +103,8 @@ pub(super) fn decode_dependency_contract(
         );
     }
 
+    let returned_input = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
+
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
     let mut carriers = context.allocate_items(reader, count)?;
 
@@ -146,6 +148,7 @@ pub(super) fn decode_dependency_contract(
     Ok(InterfaceDependencyContract::new(requirements)
         .with_borrows(borrows)
         .with_carriers(carriers)
+        .with_returned_input(returned_input)
         .with_effects(effects)
         .with_normal_completion(normal_completion))
 }
@@ -637,7 +640,8 @@ mod tests {
             1, 0, // Receiver input with no projection.
             1, 1, 2, 5, 0, 7, // Values carried by parameter five.
             1, 1, 8, 0, 1, // Evaluation-owned storage.
-            0, 1, 0, // No reference relations and unknown mutation effects.
+            0, 0, 0, 1,
+            0, // No reference relations, returned input or carriers. Unknown effects.
         ];
 
         let decoded = decode_words(&words, InterfaceValidationLimits::default()).unwrap();
@@ -707,7 +711,7 @@ mod tests {
     }
     #[test]
     fn dependency_equations_decode_with_bounded_nesting() {
-        let words = [1, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 1, 0];
+        let words = [1, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 1, 0];
         let variable = InterfaceDependencyRequirement::variable(0, SymbolOrdinal::new(0));
 
         let expected =

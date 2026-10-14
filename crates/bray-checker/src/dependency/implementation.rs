@@ -1,23 +1,34 @@
 use bray_compiler_known::ImplementationHook;
-use bray_symbols::{BorrowKind, DependencyReferenceKind, SymbolOrdinal};
+use bray_symbols::{BorrowKind, DependencyReferenceKind, DependencySubjectRoot, SymbolOrdinal};
 
 pub(crate) const fn implementation_dependency_source(
     implementation: ImplementationHook,
-) -> Option<(SymbolOrdinal, Option<BorrowKind>)> {
+) -> Option<(DependencySubjectRoot, Option<BorrowKind>)> {
     match implementation {
         ImplementationHook::StringUtf8
         | ImplementationHook::CallableFromPointer
         | ImplementationHook::PointerFromCallable
         | ImplementationHook::RawPointerOffset
         | ImplementationHook::RawPointerByteOffset
-        | ImplementationHook::RawPointerReinterpret => Some((SymbolOrdinal::new(0), None)),
-        ImplementationHook::BorrowFrom | ImplementationHook::RawBufferInitializedSlice => {
-            Some((SymbolOrdinal::new(0), Some(BorrowKind::Shared)))
-        }
+        | ImplementationHook::RawPointerReinterpret => Some((
+            DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)),
+            None,
+        )),
+        ImplementationHook::BorrowFrom | ImplementationHook::RawBufferInitializedSlice => Some((
+            DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)),
+            Some(BorrowKind::Shared),
+        )),
         ImplementationHook::BorrowMutFrom | ImplementationHook::RawBufferInitializedSliceMut => {
-            Some((SymbolOrdinal::new(0), Some(BorrowKind::Mutable)))
+            Some((
+                DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)),
+                Some(BorrowKind::Mutable),
+            ))
         }
-        ImplementationHook::NativeThreadStart => Some((SymbolOrdinal::new(1), None)),
+        ImplementationHook::NativeThreadStart => Some((
+            DependencySubjectRoot::Parameter(SymbolOrdinal::new(1)),
+            None,
+        )),
+        ImplementationHook::FutureStart => Some((DependencySubjectRoot::Receiver, None)),
         _ => None,
     }
 }

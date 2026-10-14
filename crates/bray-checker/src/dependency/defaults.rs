@@ -188,16 +188,15 @@ fn expand<C: CheckerRequestContext + ?Sized>(
 
     Ok(CallResultDependencies {
         // Default arguments have no caller expression to anchor an exact entry identity.
-        template: template.with_requirements(result)
-            .with_borrows(
-                template
-                    .borrows()
-                    .iter()
-                    .filter(|relation| {
-                        super::result_argument(call, relation.entry().subject_root()).is_some()
-                    })
-                    .cloned(),
-            ),
+        template: template.with_requirements(result).with_borrows(
+            template
+                .borrows()
+                .iter()
+                .filter(|relation| {
+                    super::result_argument(call, relation.entry().subject_root()).is_some()
+                })
+                .cloned(),
+        ),
         evaluation_effects,
         evaluation_completes,
         escaping_evaluation_inputs: escaping_evaluation_inputs.into_iter().collect(),

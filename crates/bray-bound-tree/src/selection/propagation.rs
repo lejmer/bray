@@ -52,7 +52,9 @@ impl SelectedPropagation {
     /// Returns the retained payload on normal continuation.
     pub fn success_projection(&self) -> crate::StorageProjection {
         match self.success() {
-            Some((variant, field)) => crate::StorageProjection::ActiveUnionPayloadField { variant, field },
+            Some((variant, field)) => {
+                crate::StorageProjection::ActiveUnionPayloadField { variant, field }
+            }
             None => crate::StorageProjection::NullableValue,
         }
     }

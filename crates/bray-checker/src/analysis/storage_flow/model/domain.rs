@@ -192,7 +192,8 @@ where
                 .insert_refinement(&mut incoming.refinements, refinement);
 
             if let Some(execution) = incoming.execution.as_mut() {
-                self.execution.assume_patterns(execution, self.refinements.edge_facts(refinement));
+                self.execution
+                    .assume_patterns(execution, self.refinements.edge_facts(refinement));
             }
         }
 
@@ -213,7 +214,8 @@ where
                     (self
                         .storage
                         .borrow_capability(id)
-                        .is_some_and(|borrow| borrow.entry_binding().is_none()))
+                        .is_some_and(|borrow| borrow.entry_binding().is_none())
+                        && !incoming.retains_borrow_for_cleanup(id, self.input))
                     .then_some(id)
                 })
                 .collect::<BTreeSet<_>>();

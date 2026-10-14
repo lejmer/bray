@@ -215,7 +215,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             };
 
-            let reference = crate::representation::reference_kind(self.request, conversion.target_type());
+            let reference =
+                crate::representation::reference_kind(self.request, conversion.target_type());
 
             if reference.is_none() {
                 continue;
@@ -245,17 +246,27 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
 
             if reference == Some(bray_symbols::DependencyReferenceKind::Address) {
-                let ordinal = ordinal.checked_add(u32::from(call.receiver().is_some())).expect("selected argument order must fit");
-                let ordinal = crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal));
+                let ordinal = ordinal
+                    .checked_add(u32::from(call.receiver().is_some()))
+                    .expect("selected argument order must fit");
+
+                let ordinal =
+                    crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal));
 
                 if let Some(current) = place.value_in(&state.current)
                     && current.owner_identity() != &ExecutionCondition::Unknown
-                    && arguments.get(&ordinal).is_some_and(|entry| entry.owner_identity() == current.owner_identity())
+                    && arguments
+                        .get(&ordinal)
+                        .is_some_and(|entry| entry.owner_identity() == current.owner_identity())
                 {
                     // Completion clauses observe current contents of the evaluated address.
                     // A reassigned or exposed pointer slot cannot establish this identity.
                     if let Some(parameter) = parameter {
-                        arguments.insert(bray_bound_tree::BoundReferenceTarget::Surface((*parameter).into()).into(), current.clone());
+                        arguments.insert(
+                            bray_bound_tree::BoundReferenceTarget::Surface((*parameter).into())
+                                .into(),
+                            current.clone(),
+                        );
                     }
 
                     arguments.insert(ordinal, current);
@@ -341,9 +352,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         origins: &BTreeMap<BoundExpressionId, BTreeSet<bray_bound_tree::StoragePath>>,
     ) {
         if let Some(paths) = origins.get(&expression) {
-            owners.extend(paths.iter().filter_map(|path| {
-                crate::ExecutionPlace::storage_path(self.storage, path)
-            }));
+            owners.extend(
+                paths
+                    .iter()
+                    .filter_map(|path| crate::ExecutionPlace::storage_path(self.storage, path)),
+            );
         } else {
             // Provisional execution analysis has no completed storage transition yet.
             owners.insert(place.clone());
@@ -394,37 +407,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        let equalities = ExecutionCondition::equalities(&entry.assumptions, None);
-
-        let preconditions = contract
-            .preconditions
-            .iter()
-            .map(|condition| {
-                condition
-                    .substitute(
-                        &|place| {
-                            place
-                                .value_in(&entry.arguments)
-                                .unwrap_or(ExecutionCondition::Unknown)
-                        },
-                        &ExecutionCondition::Unknown,
-                        &mut { ExecutionCondition::WORK_LIMIT },
-                    )
-                    .with_equalities(&equalities)
-            })
-            .collect::<Vec<_>>();
-
-        // A disproven entry cannot complete normally. Unknown ordinary requirements
-        // can pass their runtime checks; capture that entry evidence for completion guards.
-        if preconditions.iter().any(|condition| {
-            condition.prove(&entry.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
-                == Some(false)
-        }) {
+        if !assume_normal_entry(&mut entry, &contract.preconditions) {
             return;
-        }
-
-        for condition in preconditions {
-            condition.assume(true, &mut entry.assumptions);
         }
 
         let capture = |condition: &ExecutionCondition| {
@@ -440,25 +424,52 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             )
         };
 
-        let inferred = self.dependencies.calls().get(&invocation).into_iter().flat_map(|dependencies| {
-            dependencies.carriers().iter().map(|carrier| {
-                let condition = crate::execution_condition_from_type_term(self.request.semantic_values(), carrier.guarantee(), dependencies.input_count())
+        let inferred = self
+            .dependencies
+            .calls()
+            .get(&invocation)
+            .into_iter()
+            .flat_map(|dependencies| {
+                dependencies.carriers().iter().map(|carrier| {
+                    let condition = crate::execution_condition_from_type_term(
+                        self.request.semantic_values(),
+                        carrier.guarantee(),
+                        dependencies.input_count(),
+                    )
                     .expect("checked carrier condition decodes in the same semantic store");
 
-                (capture(&condition), super::carriers::result_projection(self.dependencies, carrier.path()))
+                    (
+                        capture(&condition),
+                        super::carriers::result_projection(self.dependencies, carrier.path()),
+                    )
+                })
             })
-        }).collect::<Vec<_>>();
+            .collect::<Vec<_>>();
 
-        let guarantees = contract.guarantees.iter().map(capture)
-            .chain(inferred.iter().map(|(condition, _)| condition.clone())).collect::<Vec<_>>();
+        let guarantees = contract
+            .guarantees
+            .iter()
+            .map(capture)
+            .chain(inferred.iter().map(|(condition, _)| condition.clone()))
+            .collect::<Vec<_>>();
 
-        let mut subjects = contract.witness_subjects.iter().filter_map(|(guarantee, subject)| {
-            let guarantee = capture(guarantee);
+        let mut subjects = contract
+            .witness_subjects
+            .iter()
+            .filter_map(|(guarantee, subject)| {
+                let guarantee = capture(guarantee);
 
-            if subject.observes_completion_result() && inferred.iter().any(|(condition, _)| *condition == guarantee) {
-                None
-            } else { Some((guarantee, subject.clone())) }
-        }).collect::<Vec<_>>();
+                if subject.observes_completion_result()
+                    && inferred
+                        .iter()
+                        .any(|(condition, _)| *condition == guarantee)
+                {
+                    None
+                } else {
+                    Some((guarantee, subject.clone()))
+                }
+            })
+            .collect::<Vec<_>>();
 
         subjects.extend(inferred);
 
@@ -474,6 +485,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             ),
             _ => None,
         };
+
+        state.restore_returned_evidence(entry.returned);
 
         let mut arguments = entry.arguments;
 
@@ -503,7 +516,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             _ => None,
         };
 
-        let result = self.complete_returned_references(invocation, result, &arguments);
+        let result = self.complete_returned_values(invocation, state, result, &arguments);
 
         let instantiate = |condition: &ExecutionCondition| {
             let condition = condition.substitute(
@@ -539,7 +552,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             if subject.observes_completion_result() {
-                self.carry_result_guarantee(state, &condition, &guarantee, !contract.transferred_inputs.is_empty());
+                self.carry_result_guarantee(
+                    state,
+                    &condition,
+                    &guarantee,
+                    !contract.transferred_inputs.is_empty(),
+                );
             }
 
             for carrier in &carriers {
@@ -583,28 +601,62 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         guarantee: &ExecutionCondition,
         transferred: bool,
     ) {
-                state.carry_guarantee(carrier.clone(), guarantee.clone());
+        state.carry_guarantee(carrier.clone(), guarantee.clone());
 
-                let mut pending = vec![guarantee];
+        let mut pending = vec![guarantee];
 
-                while let Some(predicate) = pending.pop() {
-                    match predicate {
-                        ExecutionCondition::Trusted(predicate) => pending.push(predicate),
-                        ExecutionCondition::Operation(_, operands) => {
-                            pending.extend(operands.iter())
-                        }
-                        ExecutionCondition::Predicate(symbol, _, _)
-                            if Some(*symbol) == self.owned_allocation
-                                && (predicate.observes(carrier)
-                                    || transferred) =>
-                        {
-                            state
-                                .allocation_owners
-                                .insert(predicate.clone(), carrier.clone());
-                        }
-                        _ => {}
-                    }
+        while let Some(predicate) = pending.pop() {
+            match predicate {
+                ExecutionCondition::Trusted(predicate) => pending.push(predicate),
+                ExecutionCondition::Operation(_, operands) => pending.extend(operands.iter()),
+                ExecutionCondition::Predicate(symbol, _, _)
+                    if Some(*symbol) == self.owned_allocation
+                        && (predicate.observes(carrier) || transferred) =>
+                {
+                    state
+                        .allocation_owners
+                        .insert(predicate.clone(), carrier.clone());
                 }
+                _ => {}
+            }
+        }
+    }
+}
+
+fn assume_normal_entry(
+    entry: &mut crate::ExecutionCallEvidence,
+    preconditions: &[ExecutionCondition],
+) -> bool {
+    let equalities = ExecutionCondition::equalities(&entry.assumptions, None);
+
+    let preconditions = preconditions
+        .iter()
+        .map(|condition| {
+            condition
+                .substitute(
+                    &|place| {
+                        place
+                            .value_in(&entry.arguments)
+                            .unwrap_or(ExecutionCondition::Unknown)
+                    },
+                    &ExecutionCondition::Unknown,
+                    &mut { ExecutionCondition::WORK_LIMIT },
+                )
+                .with_equalities(&equalities)
+        })
+        .collect::<Vec<_>>();
+
+    // A disproven entry cannot complete normally. Unknown ordinary requirements
+    // can pass their runtime checks; capture that entry evidence for completion guards.
+    if preconditions.iter().any(|condition| {
+        condition.prove(&entry.assumptions, &mut { ExecutionCondition::WORK_LIMIT }) == Some(false)
+    }) {
+        return false;
     }
 
+    for condition in preconditions {
+        condition.assume(true, &mut entry.assumptions);
+    }
+
+    true
 }

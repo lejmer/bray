@@ -98,11 +98,15 @@ impl ExecutionCondition {
     pub(super) fn contains_unknown(&self) -> bool {
         match self {
             Self::Operation(_, operands) => operands.iter().any(Self::contains_unknown),
-            Self::Trusted(value) | Self::Borrowed(value) | Self::Present(value)
-            | Self::Projection(_, value) | Self::VariantTest(_, value)
-            | Self::Entry { condition: value, .. } => value.contains_unknown(),
+            Self::Trusted(value)
+            | Self::Borrowed(value)
+            | Self::Present(value)
+            | Self::Projection(_, value)
+            | Self::VariantTest(_, value)
+            | Self::Entry {
+                condition: value, ..
+            } => value.contains_unknown(),
             _ => self.is_unknown(),
         }
     }
-
 }

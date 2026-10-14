@@ -90,6 +90,11 @@ internal func failed_initialization() -> Result<i32, i32>
 @test
 func synchronization_owners_guard_and_publish_values()
 {
+    assert(std.memory.size_of<std.sync.SpinLockGuard<u32>>() == std.memory.size_of<&std.sync.SpinLock<u32>>());
+    assert(std.memory.size_of<std.sync.MutexGuard<u32>>() == std.memory.size_of<&std.sync.Mutex<u32>>());
+    assert(std.memory.size_of<std.sync.RwLockReadGuard<u32>>() == std.memory.size_of<&std.sync.RwLock<u32>>());
+    assert(std.memory.size_of<std.sync.RwLockWriteGuard<u32>>() == std.memory.size_of<&std.sync.RwLock<u32>>());
+
     let spin: std.sync.SpinLock<i32> = std.sync.SpinLock<i32>(1);
 
     {

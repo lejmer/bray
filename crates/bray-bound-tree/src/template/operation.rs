@@ -341,7 +341,8 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 member: declaration(member)?,
             },
             Self::VariantTest { subject, variant } => CheckedTemplateOperation::VariantTest {
-                subject: *subject, variant: declaration(variant)?,
+                subject: *subject,
+                variant: declaration(variant)?,
             },
             Self::TupleElement { subject, index } => CheckedTemplateOperation::TupleElement {
                 subject: *subject,
@@ -429,7 +430,9 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 visit(*left)?;
                 visit(*right)?;
             }
-            Self::VariantTest { subject, .. } | Self::Project { subject, .. } | Self::TupleElement { subject, .. } => visit(*subject)?,
+            Self::VariantTest { subject, .. }
+            | Self::Project { subject, .. }
+            | Self::TupleElement { subject, .. } => visit(*subject)?,
             Self::Index { subject, index, .. } => {
                 visit(*subject)?;
                 visit(*index)?;

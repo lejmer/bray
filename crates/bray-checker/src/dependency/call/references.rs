@@ -51,6 +51,12 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
                 .cloned(),
         )
         .with_carriers(template.carriers().iter().cloned())
+        .with_returned_input(template.returned_input())
+        .with_returned_input_conditions(returned_input_conditions(
+            request,
+            call,
+            template.returned_input(),
+        )?)
         .with_normal_completion(
             dependencies.evaluation_completes && (deferred || template.normal_completion()),
         ),
@@ -93,7 +99,8 @@ pub(super) fn with_scoped_references<C: CheckerRequestContext + ?Sized>(
             return Ok(None);
         }
 
-        let Some(projections) = crate::storage::resolve_storage_projections(request, subject.projections())?
+        let Some(projections) =
+            crate::storage::resolve_storage_projections(request, subject.projections())?
         else {
             return Ok(None);
         };
@@ -229,10 +236,125 @@ fn reference_input_type<C: CheckerRequestContext + ?Sized>(
         return Ok(None);
     };
 
-    let Some(projections) = crate::storage::resolve_storage_projections(request, subject.projections())?
+    let Some(projections) =
+        crate::storage::resolve_storage_projections(request, subject.projections())?
     else {
         return Ok(None);
     };
 
     crate::storage::reference_path(request, ty, projections.into(), None)
+}
+
+fn returned_input_conditions<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    call: &SelectedCall,
+    input: Option<bray_symbols::ConstantTermId>,
+) -> Result<Vec<bray_symbols::ConstantTermId>, CheckerQueryError<C::UpstreamError>> {
+    use bray_symbols::{
+        ConstantBinaryOperation, ConstantProjectionKind, ConstantTermData, ConstantValueData,
+        ConstantValueKind, DependencyProjection, DependencySubject, SymbolOrdinal,
+    };
+
+    let Some(mut term) = input else {
+        return Ok(Vec::new());
+    };
+
+    let values = request.semantic_values();
+    let mut projections = Vec::new();
+
+    let ordinal = loop {
+        match values.constant_term_data(term).as_ref() {
+            ConstantTermData::CallableArgument(ordinal) => break ordinal.raw(),
+            ConstantTermData::Projection(projection) => {
+                projections.push((projection.subject(), projection.kind()));
+                term = projection.subject();
+            }
+            _ => unreachable!("checked whole-value transport contains only input projections"),
+        }
+    };
+
+    let receiver = call.receiver().is_some();
+
+    let root = if receiver && ordinal == 0 {
+        DependencySubjectRoot::Receiver
+    } else {
+        DependencySubjectRoot::Parameter(SymbolOrdinal::new(ordinal - u32::from(receiver)))
+    };
+
+    let Some((mut ty, _)) = reference_input_type(request, call, &DependencySubject::root(root))?
+    else {
+        return Ok(Vec::new());
+    };
+
+    let mut conditions = Vec::new();
+
+    for (subject, projection) in projections.into_iter().rev() {
+        let condition = match projection {
+            ConstantProjectionKind::UnionPayloadField(field) => {
+                let variant = request
+                    .union_payload_field(field)?
+                    .expect("checked transport field retains its variant")
+                    .variant();
+
+                Some(ConstantTermData::VariantTest { subject, variant })
+            }
+            ConstantProjectionKind::NullableValue => {
+                let absent = values
+                    .intern_constant_value(ConstantValueData::new(
+                        ty,
+                        ConstantValueKind::NullableAbsent,
+                    ))
+                    .expect("selected nullable type belongs to the same semantic store");
+
+                let absent = values
+                    .intern_constant_term(ConstantTermData::Value(absent))
+                    .expect("selected nullable literal belongs to the same semantic store");
+
+                Some(ConstantTermData::Binary {
+                    operation: ConstantBinaryOperation::NotEqual,
+                    left: subject,
+                    right: absent,
+                })
+            }
+            _ => None,
+        };
+
+        if let Some(condition) = condition {
+            conditions.push(
+                values
+                    .intern_constant_term(condition)
+                    .expect("selected transport condition belongs to the same semantic store"),
+            );
+        }
+
+        let projection = match projection {
+            ConstantProjectionKind::ProductField(field) => {
+                DependencyProjection::ProductField(field)
+            }
+            ConstantProjectionKind::UnionPayloadField(field) => {
+                DependencyProjection::UnionPayloadField(field)
+            }
+            ConstantProjectionKind::TupleElement(index) => {
+                DependencyProjection::TupleElement(index)
+            }
+            ConstantProjectionKind::NullableValue => DependencyProjection::NullableValue,
+            ConstantProjectionKind::ArrayElementOrdinal(_) => {
+                let data = values.type_data(ty);
+
+                let bray_symbols::TypeData::Array { element, .. } = data.as_ref() else {
+                    unreachable!("checked owned element transport retains an array type");
+                };
+
+                ty = *element;
+                continue;
+            }
+            _ => unreachable!("checked transport projection is owned"),
+        };
+
+        ty = crate::storage::projected_value_type(request, ty, projection)?
+            .value()
+            .expect("checked returned input retains its projected type");
+    }
+
+    Ok(conditions)
 }

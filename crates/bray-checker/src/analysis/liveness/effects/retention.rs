@@ -80,6 +80,12 @@ impl OperationEffects {
                     continue;
                 }
 
+                let initializer_retention = retained_by_expression.entry(*initializer).or_default();
+                let previous = initializer_retention.len();
+
+                initializer_retention.extend(retained.iter().copied());
+                changed |= initializer_retention.len() != previous;
+
                 for binding in bindings {
                     let root = match binding {
                         StorageBinding::Identity(identity) => Some(*identity),

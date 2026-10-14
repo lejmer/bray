@@ -214,12 +214,7 @@ impl Compilation {
             domain
                 .properties
                 .contains(&bray_checker::ExecutionProperty::Pure)
-                && domain
-                    .entry
-                    .iter()
-                    .copied()
-                    .collect::<std::collections::BTreeSet<_>>()
-                    == requirements
+                && domain.requires_only(&requirements)
         }))
     }
 

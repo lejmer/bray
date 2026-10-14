@@ -3,6 +3,22 @@
 pub enum StorageMutation {
     /// One explicit or scoped call.
     Operation(crate::BoundExecutionSite),
+    /// Cancellation broadcast for one owned task-bearing value.
+    Cancellation {
+        /// Source boundary containing the broadcast.
+        occurrence: crate::BoundExecutionSite,
+        /// Owner receiving cancellation.
+        access: crate::StorageAccessId,
+    },
+    /// One opaque represented component within an ordered cleanup.
+    Cleanup {
+        /// Source boundary containing the cleanup.
+        occurrence: crate::BoundExecutionSite,
+        /// Owner being cleaned up.
+        access: crate::StorageAccessId,
+        /// Prepared component within that owner.
+        part: usize,
+    },
     /// One lifecycle invocation within an ordered cleanup.
     Lifecycle {
         /// Source boundary containing the invocation.
@@ -20,7 +36,10 @@ impl StorageMutation {
     /// Returns the enclosing source occurrence.
     pub const fn occurrence(self) -> crate::BoundExecutionSite {
         match self {
-            Self::Operation(occurrence) | Self::Lifecycle { occurrence, .. } => occurrence,
+            Self::Operation(occurrence)
+            | Self::Lifecycle { occurrence, .. }
+            | Self::Cleanup { occurrence, .. }
+            | Self::Cancellation { occurrence, .. } => occurrence,
         }
     }
 }

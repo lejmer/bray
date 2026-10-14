@@ -293,7 +293,11 @@ fn static_initializer_behavior(
 
         let dependency_contract = extend_dependency_contract_with_statics(
             context,
-            with_initializer_carriers(context, checked.dependency_contract, checked.result_dependencies),
+            with_initializer_carriers(
+                context,
+                checked.dependency_contract,
+                checked.result_dependencies,
+            ),
             behavior.result().value().static_dependencies(),
         )?;
 
@@ -372,7 +376,11 @@ fn static_initializer_behavior(
 
     Ok((
         duration,
-        with_initializer_carriers(context, template.behavior().dependency_contract(), template.behavior().result_dependencies()),
+        with_initializer_carriers(
+            context,
+            template.behavior().dependency_contract(),
+            template.behavior().result_dependencies(),
+        ),
         template.behavior().lifecycle_obligations().to_vec(),
         template
             .behavior()
@@ -579,7 +587,13 @@ fn with_initializer_carriers(
     let result = values.dependency_contract_template_data(result);
 
     // The static template owns the initialization requirements and returned authority together.
-    values.intern_dependency_contract_template(dependency.as_ref().clone().with_carriers(result.carriers().iter().cloned()))
+    values
+        .intern_dependency_contract_template(
+            dependency
+                .as_ref()
+                .clone()
+                .with_carriers(result.carriers().iter().cloned()),
+        )
         .expect("checked static initializer summaries belong to the same semantic store")
 }
 
@@ -1299,7 +1313,7 @@ mod tests {
     #[test]
     fn static_lifecycle_dependencies_through_helpers_report_cycles() {
         for witness in ["", "let evidence = issue();"] {
-        let source = r#"
+            let source = r#"
             trusted module app;
             trusted predicate valid(value: &bool);
             trusted func issue() -> bool ensures(trusted valid(&result)) { return true; }
@@ -1319,22 +1333,22 @@ mod tests {
             }
             "#;
 
-        let compilation = compilation(&source.replace("WITNESS", witness));
+            let compilation = compilation(&source.replace("WITNESS", witness));
 
-        assert_eq!(
-            diagnostics_of_kind(
+            assert_eq!(
+                diagnostics_of_kind(
+                    compilation.check_diagnostics(),
+                    DiagnosticKind::CheckingStaticLifecycleCycle,
+                )
+                .len(),
+                2
+            );
+
+            assert_goal_state_diagnostic_kind(
                 compilation.check_diagnostics(),
                 DiagnosticKind::CheckingStaticLifecycleCycle,
-            )
-            .len(),
-            2
-        );
-
-        assert_goal_state_diagnostic_kind(
-            compilation.check_diagnostics(),
-            DiagnosticKind::CheckingStaticLifecycleCycle,
-        );
-         }
+            );
+        }
     }
 
     #[test]

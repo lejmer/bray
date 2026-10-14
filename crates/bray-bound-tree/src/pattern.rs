@@ -401,11 +401,21 @@ impl CheckedPatterns {
     }
 
     /// Returns the outer test only when no child imposes another condition.
-    pub fn complete_test(&self, unit: &crate::BoundUnit, pattern: BoundPatternId) -> Option<PatternPredicate> {
-        let bound = unit.view().pattern(pattern).expect("checked pattern is bound");
+    pub fn complete_test(
+        &self,
+        unit: &crate::BoundUnit,
+        pattern: BoundPatternId,
+    ) -> Option<PatternPredicate> {
+        let bound = unit
+            .view()
+            .pattern(pattern)
+            .expect("checked pattern is bound");
 
         if bound.children().iter().any(|child| {
-            self.pattern(*child).expect("checked child pattern exists").refutability() != PatternRefutability::Irrefutable
+            self.pattern(*child)
+                .expect("checked child pattern exists")
+                .refutability()
+                != PatternRefutability::Irrefutable
         }) {
             return None;
         }

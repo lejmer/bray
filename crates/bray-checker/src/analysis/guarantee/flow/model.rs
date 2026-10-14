@@ -71,10 +71,14 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(in crate::analysis) semantics: &'a CheckedExpressionSemantics,
     pub(super) assumptions: &'a [ExecutionCondition],
     pub(super) literals: &'a BTreeMap<BoundExpressionId, ExecutionCondition>,
-    pub(super) pattern_conditions: &'a BTreeMap<bray_bound_tree::BoundPatternId, (bray_bound_tree::BoundOperator, ExecutionCondition)>,
+    pub(super) pattern_conditions: &'a BTreeMap<
+        bray_bound_tree::BoundPatternId,
+        (bray_bound_tree::BoundOperator, ExecutionCondition),
+    >,
     pub(in crate::analysis::guarantee) storage: &'a bray_bound_tree::StoragePlan,
     pub(super) memory: &'a bray_bound_tree::CheckedMemoryOperations,
-    pub(in crate::analysis::guarantee) checked_body: Option<&'a bray_bound_tree::CheckedBodySemantics>,
+    pub(in crate::analysis::guarantee) checked_body:
+        Option<&'a bray_bound_tree::CheckedBodySemantics>,
     pub(in crate::analysis::guarantee) contracts:
         &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
     pub(in crate::analysis) disposal: &'a super::super::cleanup::Cleanup<'a>,
@@ -110,7 +114,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .unwrap_or_else(|| self.value(state, expression));
 
         let value = self
-            .checked_body.map(bray_bound_tree::CheckedBodySemantics::storage_flow)
+            .checked_body
+            .map(bray_bound_tree::CheckedBodySemantics::storage_flow)
             .and_then(|flow| flow.condition_value(expression))
             .or_else(|| {
                 condition.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
@@ -196,8 +201,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if let Some((condition, value)) = self.branch_condition(state, edge) {
-            if condition.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
-                .is_some_and(|known| known != value) { return false; }
+            if condition
+                .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                .is_some_and(|known| known != value)
+            {
+                return false;
+            }
 
             condition.assume(value, &mut state.assumptions);
         }
@@ -207,36 +216,90 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         true
     }
-    fn branch_condition(&self, state: &ExecutionState, edge: &AnalysisEdge) -> Option<(ExecutionCondition, bool)> {
+    fn branch_condition(
+        &self,
+        state: &ExecutionState,
+        edge: &AnalysisEdge,
+    ) -> Option<(ExecutionCondition, bool)> {
         match edge.refinement()? {
-            AnalysisRefinement::PatternOutcome { subject, pattern, value } => {
+            AnalysisRefinement::PatternOutcome {
+                subject,
+                pattern,
+                value,
+            } => {
                 let (operator, expected) = self.pattern_conditions.get(&pattern)?;
 
-                Some((ExecutionCondition::pattern(self.value(state, subject), *operator, expected.clone()), value))
+                Some((
+                    ExecutionCondition::pattern(
+                        self.value(state, subject),
+                        *operator,
+                        expected.clone(),
+                    ),
+                    value,
+                ))
             }
-            AnalysisRefinement::NullablePresence { expression, is_present } => {
-                let ty = self.semantics.types().expression(expression).expect("nullable edge retains its subject type").ty();
-                let ty = self.request.semantic_values().unborrowed_type(ty);
-                let absent = ExecutionCondition::Literal(std::sync::Arc::new(bray_symbols::ConstantValueData::new(ty, bray_symbols::ConstantValueKind::NullableAbsent)));
+            AnalysisRefinement::NullablePresence {
+                expression,
+                is_present,
+            } => {
+                let ty = self
+                    .semantics
+                    .types()
+                    .expression(expression)
+                    .expect("nullable edge retains its subject type")
+                    .ty();
 
-                Some((ExecutionCondition::pattern(self.value(state, expression), bray_bound_tree::BoundOperator::Equal, absent), !is_present))
+                let (operator, absent) = crate::execution_guarantees::pattern_value(
+                    self.request.semantic_values(),
+                    ty,
+                    bray_bound_tree::PatternPredicate::NullableAbsent,
+                )
+                .expect("nullable presence has a prepared comparison");
+
+                Some((
+                    ExecutionCondition::pattern(self.value(state, expression), operator, absent),
+                    !is_present,
+                ))
             }
-            AnalysisRefinement::PropagationOutcome { expression, succeeded } => {
-                let bray_bound_tree::SemanticSelection::Propagation(selection) = self.semantics.selections().expression(expression)
-                    .expect("checked propagation retains its selection") else { unreachable!("propagation edge requires a propagation selection") };
+            AnalysisRefinement::PropagationOutcome {
+                expression,
+                succeeded,
+            } => {
+                let bray_bound_tree::SemanticSelection::Propagation(selection) = self
+                    .semantics
+                    .selections()
+                    .expression(expression)
+                    .expect("checked propagation retains its selection")
+                else {
+                    unreachable!("propagation edge requires a propagation selection")
+                };
 
-                let (variant, _) = selection.success().expect("union propagation has a success variant");
+                let (variant, _) = selection
+                    .success()
+                    .expect("union propagation has a success variant");
 
-                let Some(BoundExpression::Structured(operation)) = self.request.view().expression(expression) else { unreachable!("propagation edge requires a structured expression") };
+                let Some(BoundExpression::Structured(operation)) =
+                    self.request.view().expression(expression)
+                else {
+                    unreachable!("propagation edge requires a structured expression")
+                };
 
-                let subject = *operation.operands().first().expect("propagation retains its operand");
+                let subject = *operation
+                    .operands()
+                    .first()
+                    .expect("propagation retains its operand");
 
-                Some((ExecutionCondition::VariantTest(variant, std::sync::Arc::new(self.value(state, subject))), succeeded))
+                Some((
+                    ExecutionCondition::VariantTest(
+                        variant,
+                        std::sync::Arc::new(self.value(state, subject)),
+                    ),
+                    succeeded,
+                ))
             }
             _ => None,
         }
     }
-
 }
 
 impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain<'_, '_, C> {
@@ -296,14 +359,28 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                 state.current.insert(place.clone(), value.clone());
 
                 for carrier in carriers.iter() {
-                    let guarantee = crate::execution_condition_from_type_term(self.request.semantic_values(), carrier.guarantee(), 0)
-                        .expect("checked initializer condition belongs to the same semantic store")
-                        .substitute(&|_| ExecutionCondition::Unknown, &value, &mut { ExecutionCondition::WORK_LIMIT });
+                    let guarantee = crate::execution_condition_from_type_term(
+                        self.request.semantic_values(),
+                        carrier.guarantee(),
+                        0,
+                    )
+                    .expect("checked initializer condition belongs to the same semantic store")
+                    .substitute(
+                        &|_| ExecutionCondition::Unknown,
+                        &value,
+                        &mut { ExecutionCondition::WORK_LIMIT },
+                    );
 
-                    let subject = super::super::trusted::static_carrier(self.dependencies, carrier.path())
-                        .substitute(&|_| ExecutionCondition::Unknown, &value, &mut { ExecutionCondition::WORK_LIMIT });
+                    let subject =
+                        super::super::trusted::static_carrier(self.dependencies, carrier.path())
+                            .substitute(&|_| ExecutionCondition::Unknown, &value, &mut {
+                                ExecutionCondition::WORK_LIMIT
+                            });
 
-                    guarantee.clone().assume(true, &mut state.trusted_assumptions);
+                    guarantee
+                        .clone()
+                        .assume(true, &mut state.trusted_assumptions);
+
                     state.carry_guarantee(subject, guarantee);
                 }
             }

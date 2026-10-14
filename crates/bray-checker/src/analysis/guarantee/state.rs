@@ -40,6 +40,30 @@ impl Default for ExecutionState {
 }
 
 impl ExecutionState {
+    pub(super) fn restore_returned_evidence(
+        &mut self,
+        returned: crate::execution_guarantees::ExecutionValueEvidence,
+    ) {
+        // Checked whole-input forwarding has no storage effects on a normal exit.
+        // Failure paths never reach this restoration and retain their original invalidation.
+        for (carrier, conditions) in returned.carriers {
+            for condition in &conditions {
+                condition
+                    .clone()
+                    .assume(true, &mut self.trusted_assumptions);
+            }
+
+            self.witness_carriers
+                .entry(carrier)
+                .or_default()
+                .extend(conditions);
+        }
+
+        self.witness_dependencies.extend(returned.dependencies);
+
+        self.allocation_owners.extend(returned.allocations);
+    }
+
     pub(super) fn call_trusted_assumptions(
         &self,
         transferred: impl IntoIterator<Item = ExecutionCondition>,
@@ -161,6 +185,15 @@ impl ExecutionState {
             .retain(|condition, owner| !stale(condition) && !stale(owner));
 
         for entry in self.entries.values_mut() {
+            if entry
+                .returned
+                .carriers
+                .iter()
+                .any(|(carrier, conditions)| stale(carrier) || conditions.iter().any(stale))
+            {
+                entry.returned = Default::default();
+            }
+
             entry.arguments.retain(|_, value| !stale(value));
             entry.assumptions.retain(|(condition, _)| !stale(condition));
 
@@ -219,7 +252,10 @@ impl ExecutionState {
         let mut retained = BTreeSet::new();
 
         self.witness_carriers.retain(|carrier, conditions| {
-            if !stable_owners.iter().any(|owner| carrier.is_owned_projection_of(owner)) {
+            if !stable_owners
+                .iter()
+                .any(|owner| carrier.is_owned_projection_of(owner))
+            {
                 return false;
             }
 
@@ -232,13 +268,27 @@ impl ExecutionState {
             !conditions.is_empty()
         });
 
-        self.witness_dependencies.retain(|carrier, _| self.witness_carriers.contains_key(carrier));
-        self.trusted_assumptions.retain(|fact| retained.contains(fact));
+        self.witness_dependencies
+            .retain(|carrier, _| self.witness_carriers.contains_key(carrier));
+
+        self.trusted_assumptions
+            .retain(|fact| retained.contains(fact));
+
         self.allocation_owners.clear();
 
-        for entry in self.entries.values_mut().filter(|entry| entry.pending_execution) {
-            entry.assumptions.retain(|(condition, _)| condition.observes_only(stable_values));
-            entry.trusted_assumptions.retain(|fact| retained.contains(fact));
+        for entry in self
+            .entries
+            .values_mut()
+            .filter(|entry| entry.pending_execution)
+        {
+            entry
+                .assumptions
+                .retain(|(condition, _)| condition.observes_only(stable_values));
+
+            entry
+                .trusted_assumptions
+                .retain(|fact| retained.contains(fact));
+
             entry.trusted_boundary = false;
         }
 
@@ -444,7 +494,12 @@ impl ExecutionState {
             // A write changes a storage observation, never the meaning of a constant
             // also held by an unrelated slot. Borrowed scalars retain their place identity.
             if kind == bray_symbols::DependencyMutationKind::Write
-                && matches!(value, ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_) | ExecutionCondition::Variant(_))
+                && matches!(
+                    value,
+                    ExecutionCondition::Literal(_)
+                        | ExecutionCondition::Boolean(_)
+                        | ExecutionCondition::Variant(_)
+                )
             {
                 continue;
             }
@@ -687,21 +742,35 @@ mod tests {
 
     #[test]
     fn discharging_a_guard_never_borrows_authority_from_another_carrier() {
-        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>(
+            "ValidWrite",
+        );
+
         let substitution = crate::test_support::empty_substitution(symbol.into());
 
         let predicate = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Predicate(
-            symbol.into(), substitution, [input(2).borrowed(), ExecutionCondition::Boolean(true)].into(),
+            symbol.into(),
+            substitution,
+            [input(2).borrowed(), ExecutionCondition::Boolean(true)].into(),
         )));
 
         let guard = input(3);
-        let conditional = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr, vec![guard.clone(), predicate.clone()]);
+
+        let conditional = ExecutionCondition::operation(
+            bray_bound_tree::BoundOperator::LogicalOr,
+            vec![guard.clone(), predicate.clone()],
+        );
+
         let mut state = ExecutionState::default();
 
         state.carry_guarantee(input(0), conditional.clone());
         state.carry_guarantee(input(1), predicate.clone());
         conditional.assume(true, &mut state.trusted_assumptions);
-        predicate.clone().assume(true, &mut state.trusted_assumptions);
+
+        predicate
+            .clone()
+            .assume(true, &mut state.trusted_assumptions);
+
         state.assumptions.insert((guard.clone(), true));
 
         state.refine_witnesses();
@@ -786,6 +855,7 @@ mod tests {
         state.entries.insert(
             occurrence,
             crate::ExecutionCallEvidence {
+                returned: Default::default(),
                 anonymous_target: None,
                 trusted_boundary: true,
                 pending_execution: true,

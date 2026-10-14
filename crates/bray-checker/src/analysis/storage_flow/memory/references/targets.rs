@@ -86,7 +86,11 @@ impl State {
         ty: TypeId,
         origin: BoundExpressionId,
     ) {
-        let references = self.addressed_target(Target::storage(source), ty, bray_symbols::DependencyReferenceKind::Address);
+        let references = self.addressed_target(
+            Target::storage(source),
+            ty,
+            bray_symbols::DependencyReferenceKind::Address,
+        );
 
         self.values
             .insert(Target::storage(destination.clone()), references);

@@ -14,7 +14,13 @@ impl Target {
                     reference.is_exact()
                         && projections.iter().all(|projection| projection.is_exact())
                 }
-                Origin::Returned { reference, projections } => reference.is_exact() && projections.iter().all(|projection| projection.is_exact()),
+                Origin::Returned {
+                    reference,
+                    projections,
+                } => {
+                    reference.is_exact()
+                        && projections.iter().all(|projection| projection.is_exact())
+                }
                 Origin::Storage(place) | Origin::Allocation(place) => place.is_exact(),
             }
     }
@@ -56,7 +62,9 @@ impl Target {
         let mut region = self.clone();
 
         match &mut region.origin {
-            Origin::Returned { projections: path, .. } => *path = std::sync::Arc::from([]),
+            Origin::Returned {
+                projections: path, ..
+            } => *path = std::sync::Arc::from([]),
             Origin::Allocation(place) => {
                 place.projections = projections[..boundary.unwrap_or(0)].into()
             }
@@ -76,13 +84,17 @@ impl Target {
         use bray_bound_tree::StorageRelationship;
 
         if self.previous || other.previous {
-            if matches!(self.origin, Origin::Returned { .. }) || matches!(other.origin, Origin::Returned { .. }) {
+            if matches!(self.origin, Origin::Returned { .. })
+                || matches!(other.origin, Origin::Returned { .. })
+            {
                 // Repeated calls can return the same object. Older evaluations lose
                 // exact identity, but never establish disjoint allocations.
                 return StorageRelationship::PotentiallyOverlapping;
             }
 
-            if self.previous != other.previous { return StorageRelationship::Disjoint; }
+            if self.previous != other.previous {
+                return StorageRelationship::Disjoint;
+            }
         }
 
         match (&self.origin, &other.origin) {
@@ -100,8 +112,19 @@ impl Target {
             ) if left == right && left_layer == right_layer => {
                 region_relationship(left_path, right_path)
             }
-            (Origin::Returned { reference: left, projections: left_path }, Origin::Returned { reference: right, projections: right_path }) if left == right => region_relationship(left_path, right_path),
-            (Origin::Returned { .. }, _) | (_, Origin::Returned { .. }) => StorageRelationship::PotentiallyOverlapping,
+            (
+                Origin::Returned {
+                    reference: left,
+                    projections: left_path,
+                },
+                Origin::Returned {
+                    reference: right,
+                    projections: right_path,
+                },
+            ) if left == right => region_relationship(left_path, right_path),
+            (Origin::Returned { .. }, _) | (_, Origin::Returned { .. }) => {
+                StorageRelationship::PotentiallyOverlapping
+            }
             (Origin::Entry { .. }, _) | (_, Origin::Entry { .. }) => {
                 StorageRelationship::PotentiallyOverlapping
             }
@@ -135,7 +158,16 @@ impl Target {
                     projections,
                 },
             ) => left == right && left_layer == right_layer && projections.starts_with(prefix),
-            (Origin::Returned { reference: left, projections: prefix }, Origin::Returned { reference: right, projections }) => left == right && projections.starts_with(prefix),
+            (
+                Origin::Returned {
+                    reference: left,
+                    projections: prefix,
+                },
+                Origin::Returned {
+                    reference: right,
+                    projections,
+                },
+            ) => left == right && projections.starts_with(prefix),
             (Origin::Storage(left), Origin::Storage(right))
             | (Origin::Allocation(left), Origin::Allocation(right)) => left.contains(right),
             _ => false,
@@ -165,7 +197,13 @@ impl Target {
                 layer: *layer,
                 projections: append(prefix),
             },
-            Origin::Returned { reference, projections: prefix } => Origin::Returned { reference: reference.clone(), projections: append(prefix) },
+            Origin::Returned {
+                reference,
+                projections: prefix,
+            } => Origin::Returned {
+                reference: reference.clone(),
+                projections: append(prefix),
+            },
             Origin::Storage(place) => Origin::Storage(path(place)),
             Origin::Allocation(place) => Origin::Allocation(path(place)),
         };
@@ -199,14 +237,20 @@ impl State {
     ) -> bray_bound_tree::StorageRelationship {
         let returned_slot = match (&left.origin, &right.origin) {
             (Origin::Returned { reference, .. }, Origin::Storage(slot))
-            | (Origin::Storage(slot), Origin::Returned { reference, .. }) => Some((reference, slot)),
+            | (Origin::Storage(slot), Origin::Returned { reference, .. }) => {
+                Some((reference, slot))
+            }
             _ => None,
         };
 
         if let Some((reference, slot)) = returned_slot
             && self.owned_storage.binary_search(&slot.root).is_ok()
             && !slot.projections.contains(&StorageProjection::OwnedTarget)
-            && !self.returned_roots.get(reference).is_some_and(|roots| roots.contains(&slot.root)) {
+            && !self
+                .returned_roots
+                .get(reference)
+                .is_some_and(|roots| roots.contains(&slot.root))
+        {
             return bray_bound_tree::StorageRelationship::Disjoint;
         }
 
@@ -228,7 +272,12 @@ impl State {
         left.relationship(right)
     }
 
-    pub(super) fn addressed_target(&mut self, target: Target, ty: TypeId, kind: bray_symbols::DependencyReferenceKind) -> References {
+    pub(super) fn addressed_target(
+        &mut self,
+        target: Target,
+        ty: TypeId,
+        kind: bray_symbols::DependencyReferenceKind,
+    ) -> References {
         let contents = self.contents.entry(target.clone()).or_default();
 
         contents.storage_type.get_or_insert(ty);

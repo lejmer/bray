@@ -1,6 +1,6 @@
 use super::super::flow::ExecutionFlowDomain;
 use super::super::state::ExecutionState;
-use crate::{CheckerRequestContext, CheckerUnitView, ExecutionCondition};
+use crate::{CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{BoundExpressionId, StoragePlan};
 use std::collections::BTreeSet;
 
@@ -81,28 +81,7 @@ fn separates_carrier<C: CheckerRequestContext + ?Sized>(
         .root_identity(access)
         .expect("resolved access retains its root");
 
-    let mut value =
-        if let Some(place) = crate::ExecutionPlace::storage_identity(domain.storage, root) {
-            place
-                .value_in(&state.current)
-                .unwrap_or(ExecutionCondition::Input(place))
-        } else {
-            match domain
-                .storage
-                .identity(root)
-                .expect("resolved access retains its identity")
-            {
-                bray_bound_tree::StorageIdentity::Temporary(expression)
-                | bray_bound_tree::StorageIdentity::Allocation(expression)
-                | bray_bound_tree::StorageIdentity::Result(
-                    bray_bound_tree::AnyBoundNodeId::Expression(expression),
-                ) => domain.value(state, expression),
-                bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. } => {
-                    ExecutionCondition::ScopedCapability(expression)
-                }
-                _ => return false,
-            }
-        };
+    let mut value = domain.storage_identity_value(state, root);
 
     for (index, projection) in path.iter().enumerate() {
         // Unwrapping presence moves the complete contained carrier. Other ownership

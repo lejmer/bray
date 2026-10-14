@@ -15,7 +15,7 @@ struct SpinLock<T>
 
     trusted destruct()
         requires(trusted std.sync.spin_lock.valid(&self.instance))
-        uses(raw_memory)
+        uses(raw_memory, unchecked_init)
     {
         let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.storage);
 
@@ -29,7 +29,15 @@ struct SpinLock<T>
 
         authorize(pointer);
 
-        let _: std.sync.spin_lock.State<T> = trusted std.memory.read<std.sync.spin_lock.State<T>>(pointer);
+        let state: std.sync.spin_lock.State<T> = trusted std.memory.read<std.sync.spin_lock.State<T>>(pointer);
+
+        let initialized = trusted lambda(pos storage: &Uninit<T>)
+            ensures(trusted core.memory.uninit_initialized<T>(storage = storage))
+            executes(pure, total) {};
+
+        initialized(&state.value);
+
+        let _: T = trusted std.memory.assume_initialized<T>(state.value);
     }
 
     trusted func lock() -> SpinLockGuard<T>

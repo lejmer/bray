@@ -175,7 +175,8 @@ impl OrderEncoder<'_, '_> {
                     .collect::<Result<Vec<_>, CodegenPreparationError>>()?,
             )),
             ConstantTermData::VariantTest { subject, variant } => Ok(term(
-                "variant-test", [self.symbol((*variant).into())?, self.constant(*subject)?],
+                "variant-test",
+                [self.symbol((*variant).into())?, self.constant(*subject)?],
             )),
             ConstantTermData::Union { variant, fields } => Ok(term(
                 "union",

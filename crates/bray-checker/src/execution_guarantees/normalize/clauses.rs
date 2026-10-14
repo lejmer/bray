@@ -161,13 +161,16 @@ fn reference_conditions(
             continue;
         };
 
-        let Some(completion) = flow.completion(
-            bray_bound_tree::StorageMutation::Operation(expression.into()),
-        ) else {
+        let Some(completion) = flow.completion(bray_bound_tree::StorageMutation::Operation(
+            expression.into(),
+        )) else {
             continue;
         };
 
-        let path = bray_bound_tree::StoragePath { root: identity, projections: [].into() };
+        let path = bray_bound_tree::StoragePath {
+            root: identity,
+            projections: [].into(),
+        };
 
         let Some(target) = completion.references().get(&path) else {
             continue;

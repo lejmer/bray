@@ -15,17 +15,33 @@ impl super::ValueInputs {
         let targets = super::value::transfer_targets(request.unit());
 
         for entry in selections.entries() {
-            let SemanticSelection::Propagation(selection) = entry.selection() else { continue; };
+            let SemanticSelection::Propagation(selection) = entry.selection() else {
+                continue;
+            };
 
-            let Some(BoundExpression::Structured(expression)) = request.unit().tree().expression(entry.expression()) else {
+            let Some(BoundExpression::Structured(expression)) =
+                request.unit().tree().expression(entry.expression())
+            else {
                 unreachable!("checked propagation retains its structured expression");
             };
 
-            let operand = *expression.operands().first().expect("checked propagation retains its operand");
-            let projection = selection.success().map_or(DependencyProjection::NullableValue, |(_, field)| DependencyProjection::UnionPayloadField(field));
+            let operand = *expression
+                .operands()
+                .first()
+                .expect("checked propagation retains its operand");
+
+            let projection = selection
+                .success()
+                .map_or(DependencyProjection::NullableValue, |(_, field)| {
+                    DependencyProjection::UnionPayloadField(field)
+                });
 
             self.expressions.remove(&entry.expression());
-            self.projected.entry(entry.expression()).or_default().push((operand, vec![projection]));
+
+            self.projected
+                .entry(entry.expression())
+                .or_default()
+                .push((operand, vec![projection]));
 
             let SemanticSelection::Propagation(SelectedPropagation::Result {
                 boundary,

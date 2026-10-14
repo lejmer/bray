@@ -3,7 +3,7 @@ trusted module std.sync.mutex;
 struct State<T>
 {
     tickets: core.atomic.Atomic<u32>;
-    value: T;
+    value: Uninit<T>;
 }
 
 struct Marker

@@ -3,7 +3,7 @@ trusted module std.sync.spin_lock;
 struct State<T>
 {
     tickets: core.atomic.Atomic<u32>;
-    value: T;
+    value: Uninit<T>;
 }
 
 struct Marker
@@ -37,7 +37,7 @@ trusted const func initialize<T>(pos value: T) -> std.sync.SpinLock<T>
         storage = std.memory.uninit_from<State<T>>(
             {
                 tickets = core.atomic.initialize<u32>(0),
-                value = value,
+                value = std.memory.uninit_from<T>(value),
             }
         ),
     };

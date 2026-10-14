@@ -290,15 +290,8 @@ pub struct StorageFlow {
     conditions: std::collections::BTreeMap<BoundExpressionId, bool>,
     assignment_targets: std::collections::BTreeMap<BoundExpressionId, crate::StoragePath>,
     dependencies: bray_symbols::DependencyContractTemplateData,
-    cleanup_mutations: std::collections::BTreeMap<
-        (
-            crate::BoundExecutionSite,
-            crate::StorageAccessId,
-            usize,
-            bray_symbols::TypeAssociatedLifecycleSlot,
-        ),
-        crate::StorageInvalidation,
-    >,
+    cleanup_mutations:
+        std::collections::BTreeMap<crate::StorageMutation, crate::StorageInvalidation>,
     completions: std::collections::BTreeMap<crate::StorageMutation, crate::StorageCompletion>,
     reachable_exits: Arc<[StorageExitPoint]>,
     exits: Arc<[StorageExitDecision]>,
@@ -410,34 +403,24 @@ impl StorageFlow {
         })
     }
 
-    /// Publishes each represented lifecycle invocation's resolved mutation observations.
+    /// Publishes resolved observations for cancellation and ordered cleanup steps.
     pub fn with_cleanup_mutations(
         mut self,
-        mutations: std::collections::BTreeMap<
-            (
-                crate::BoundExecutionSite,
-                crate::StorageAccessId,
-                usize,
-                bray_symbols::TypeAssociatedLifecycleSlot,
-            ),
-            crate::StorageInvalidation,
-        >,
+        mutations: std::collections::BTreeMap<crate::StorageMutation, crate::StorageInvalidation>,
     ) -> Self {
         self.cleanup_mutations = mutations;
 
         self
     }
 
-    /// Returns mutations established by storage analysis for the prepared lifecycle step.
+    /// Returns the storage analysis result for one prepared cleanup transition.
     pub fn cleanup_mutation(
         &self,
-        occurrence: crate::BoundExecutionSite,
-        access: crate::StorageAccessId,
-        part: usize,
-        slot: bray_symbols::TypeAssociatedLifecycleSlot,
-    ) -> Option<&crate::StorageInvalidation> {
+        mutation: crate::StorageMutation,
+    ) -> &crate::StorageInvalidation {
         self.cleanup_mutations
-            .get(&(occurrence, access, part, slot))
+            .get(&mutation)
+            .expect("selected cleanup has a published mutation")
     }
 
     /// Publishes checked reference observations and retained origins at normal completion.

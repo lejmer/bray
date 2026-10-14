@@ -49,17 +49,24 @@ fn encode(
             ConstantTermData::Value(values.intern_constant_value(value.as_ref().clone())?)
         }
         ExecutionCondition::Input(place) => {
-            let Some(ordinal) = inputs
-                .iter()
-                .position(|input| Some(*input) == place.reference())
-                .and_then(|index| u32::try_from(index).ok())
-            else {
-                return Ok(None);
+            let root = if let Some(BoundReferenceTarget::Surface(
+                bray_symbols::AnySymbolId::GenericConstParameter(parameter),
+            )) = place.reference()
+            {
+                ConstantTermData::Parameter(parameter)
+            } else {
+                let Some(ordinal) = inputs
+                    .iter()
+                    .position(|input| Some(*input) == place.reference())
+                    .and_then(|index| u32::try_from(index).ok())
+                else {
+                    return Ok(None);
+                };
+
+                ConstantTermData::CallableArgument(SymbolOrdinal::new(ordinal))
             };
 
-            let mut term = values.intern_constant_term(ConstantTermData::CallableArgument(
-                SymbolOrdinal::new(ordinal),
-            ))?;
+            let mut term = values.intern_constant_term(root)?;
 
             for field in &*place.projections {
                 let kind = match *field {
@@ -69,6 +76,7 @@ fn encode(
                     ConstantProjectionKind::UnionPayloadField(field) => {
                         ConstantProjectionKind::UnionPayloadField(field)
                     }
+                    ConstantProjectionKind::NullableValue => ConstantProjectionKind::NullableValue,
                     ConstantProjectionKind::TupleElement(index) => {
                         ConstantProjectionKind::TupleElement(index)
                     }
@@ -95,9 +103,14 @@ fn encode(
             ConstantTermData::CallableArgument(SymbolOrdinal::new(ordinal))
         }
         ExecutionCondition::VariantTest(variant, subject) => {
-            let Some(subject) = encode(values, subject, inputs, boolean_type, budget)? else { return Ok(None); };
+            let Some(subject) = encode(values, subject, inputs, boolean_type, budget)? else {
+                return Ok(None);
+            };
 
-            ConstantTermData::VariantTest { subject, variant: *variant }
+            ConstantTermData::VariantTest {
+                subject,
+                variant: *variant,
+            }
         }
         ExecutionCondition::Present(value) => {
             let Some(value) = encode(values, value, inputs, boolean_type, budget)? else {
@@ -276,6 +289,9 @@ fn decode(
 
     Ok(match values.constant_term_data(term).as_ref() {
         ConstantTermData::Typed { term, .. } => decode(values, *term, inputs, budget)?,
+        ConstantTermData::Parameter(parameter) => {
+            ExecutionCondition::Input(BoundReferenceTarget::Surface((*parameter).into()).into())
+        }
         ConstantTermData::Value(value) => {
             let value = values.constant_value_data(*value);
 

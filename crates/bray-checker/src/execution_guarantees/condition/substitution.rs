@@ -40,8 +40,12 @@ impl ExecutionCondition {
             }
             Self::Borrowed(value) => value.substitute(input, result, budget).borrowed(),
             Self::Present(value) => value.substitute(input, result, budget).present(),
-            Self::Tagged(variant, value) => Self::Tagged(*variant, Arc::new(value.substitute(input, result, budget))),
-            Self::VariantTest(variant, value) => value.substitute(input, result, budget).matches_variant(*variant),
+            Self::Tagged(variant, value) => {
+                Self::Tagged(*variant, Arc::new(value.substitute(input, result, budget)))
+            }
+            Self::VariantTest(variant, value) => value
+                .substitute(input, result, budget)
+                .matches_variant(*variant),
             Self::Entry {
                 condition,
                 captured: false,
@@ -241,7 +245,10 @@ fn rewrite_equalities(
 
             ExecutionCondition::Trusted(Arc::new(value))
         }
-        ExecutionCondition::Tagged(variant, value) => ExecutionCondition::Tagged(variant, Arc::new(rewrite_equalities(&value, replacements, identities, budget))),
+        ExecutionCondition::Tagged(variant, value) => ExecutionCondition::Tagged(
+            variant,
+            Arc::new(rewrite_equalities(&value, replacements, identities, budget)),
+        ),
         ExecutionCondition::VariantTest(variant, value) => {
             rewrite_equalities(&value, replacements, identities, budget).matches_variant(variant)
         }

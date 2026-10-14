@@ -53,7 +53,6 @@ impl OperationEffects {
         let selections = semantics.selections();
 
         effects.value_inputs = value_inputs;
-        effects.retain_call_input_dependencies(request.unit());
         effects.add_selected_call_dependencies(selections, storage, dependencies);
 
         for plan in storage.access_plans() {
@@ -90,6 +89,9 @@ impl OperationEffects {
 
         for (borrow, capability) in storage.borrow_capability_entries() {
             if let Some(expression) = capability.expression()
+                // A scoped receiver loan belongs to entry evaluation. Its returned
+                // capability retains only the dependencies published by that call.
+                && !matches!(selections.expression(expression), Some(SemanticSelection::ScopedUse(_)))
                 && semantics.types().expression(expression).is_some_and(|ty| {
                     matches!(
                         request.semantic_values().type_data(ty.ty()).as_ref(),
@@ -97,24 +99,16 @@ impl OperationEffects {
                     )
                 })
             {
-                let owner = if matches!(
-                    selections.expression(expression),
-                    Some(SemanticSelection::ScopedUse(_))
-                ) {
-                    bray_bound_tree::BoundExecutionSite::ScopedEnter(expression)
-                } else {
-                    expression.into()
-                };
-
                 effects
                     .owner_dependencies
-                    .entry(owner)
+                    .entry(expression.into())
                     .or_default()
                     .extend(borrow_capability_subjects(storage, borrow));
             }
         }
 
         effects.retain_owned_call_dependencies(request, storage);
+        effects.retain_invocation_input_dependencies(request.unit());
 
         if let bray_bound_tree::BoundUnitRoot::Expression(root) = request.unit().root() {
             let retained =
@@ -269,22 +263,6 @@ impl OperationEffects {
             effects.extend_uses(expression, subjects);
         }
 
-        let await_uses = unit
-            .tree()
-            .expressions()
-            .filter_map(|(expression, node)| match node {
-                BoundExpression::Await(awaited) => Some((
-                    expression,
-                    effects.subtree_subjects(unit, awaited.operand()),
-                )),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-
-        for (expression, subjects) in await_uses {
-            effects.extend_uses(expression, subjects);
-        }
-
         for operation in memory.operations() {
             let subjects = operation
                 .arguments()
@@ -298,32 +276,27 @@ impl OperationEffects {
         effects
     }
 
-    pub(in crate::analysis::liveness) fn retain_call_input_dependencies(
+    pub(in crate::analysis::liveness) fn retain_invocation_input_dependencies(
         &mut self,
         unit: &BoundUnit,
     ) {
-        let call_inputs = unit
+        let inputs = unit
             .tree()
             .expressions()
-            .filter_map(|(expression, node)| {
-                let BoundExpression::Call(call) = node else {
-                    return None;
-                };
-
-                let subjects = std::iter::once(call.callee())
-                    .chain(
-                        call.arguments()
-                            .iter()
-                            .map(bray_bound_tree::BoundArgument::expression),
-                    )
+            .filter(|(_, node)| {
+                matches!(node, BoundExpression::Call(_) | BoundExpression::Await(_))
+            })
+            .map(|(expression, node)| {
+                let subjects = node
+                    .child_expressions()
                     .flat_map(|input| self.subtree_subjects(unit, input))
                     .collect::<BTreeSet<_>>();
 
-                Some((expression, subjects))
+                (expression, subjects)
             })
             .collect::<Vec<_>>();
 
-        for (expression, subjects) in call_inputs {
+        for (expression, subjects) in inputs {
             self.extend_uses(expression, subjects);
         }
     }

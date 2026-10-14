@@ -293,7 +293,10 @@ impl Lowerer<'_> {
         operand_type: TypeId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        if !matches!(self.selected_propagation(id), SelectedPropagation::CurrentRun { .. }) {
+        if !matches!(
+            self.selected_propagation(id),
+            SelectedPropagation::CurrentRun { .. }
+        ) {
             panic!(
                 "lowering contract violation: MissingSemanticSelection {value:?}",
                 value = id

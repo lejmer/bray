@@ -17,7 +17,11 @@ pub enum DependencyMutationKind {
 
 /// A possible mutation expressed over entry values, separately from their reference targets.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DependencyStorageEffect<Subject = DependencySubject, Projection = DependencyProjection, Type = super::TypeId> {
+pub enum DependencyStorageEffect<
+    Subject = DependencySubject,
+    Projection = DependencyProjection,
+    Type = super::TypeId,
+> {
     /// Opaque effects of disposing this type. No effects occur when the type needs no cleanup.
     Cleanup(Type),
     /// Protected atomic payloads may change through unresolved aliases.
@@ -52,9 +56,18 @@ impl<Subject: Ord, Projection: Ord, Type: Ord> DependencyStorageEffect<Subject, 
         }
 
         if effects.iter().any(|effect| matches!(effect, Self::Atomic)) {
-            effects.retain(|effect| !matches!(effect,
-                Self::Direct { kind: DependencyMutationKind::Atomic, .. }
-                | Self::Indirect { kind: DependencyMutationKind::Atomic, .. }));
+            effects.retain(|effect| {
+                !matches!(
+                    effect,
+                    Self::Direct {
+                        kind: DependencyMutationKind::Atomic,
+                        ..
+                    } | Self::Indirect {
+                        kind: DependencyMutationKind::Atomic,
+                        ..
+                    }
+                )
+            });
         }
 
         bray_base::sorted_unique_shared_slice(effects)
@@ -69,16 +82,24 @@ mod tests {
         let subject = DependencySubject::root(super::super::DependencySubjectRoot::Receiver);
 
         let write: DependencyStorageEffect = DependencyStorageEffect::Direct {
-            subject: subject.clone(), kind: DependencyMutationKind::Write,
+            subject: subject.clone(),
+            kind: DependencyMutationKind::Write,
         };
 
         let atomic = DependencyStorageEffect::Direct {
-            subject, kind: DependencyMutationKind::Atomic,
+            subject,
+            kind: DependencyMutationKind::Atomic,
         };
 
-        assert_eq!(DependencyStorageEffect::normalize([
-            atomic, write.clone(), DependencyStorageEffect::Atomic,
-        ]).as_ref(), &[DependencyStorageEffect::Atomic, write]);
+        assert_eq!(
+            DependencyStorageEffect::normalize([
+                atomic,
+                write.clone(),
+                DependencyStorageEffect::Atomic,
+            ])
+            .as_ref(),
+            &[DependencyStorageEffect::Atomic, write]
+        );
     }
 
     #[test]

@@ -821,7 +821,7 @@ mod tests {
         let storage = builder.finish();
         let mut effects = OperationEffects::from_storage_plan(&bound_unit, &storage, &memory);
 
-        effects.retain_call_input_dependencies(&bound_unit);
+        effects.retain_invocation_input_dependencies(&bound_unit);
 
         let Some(effect) = effects.effect(AnyBoundNodeId::Expression(*call)) else {
             panic!("call input retention must produce one operation effect");

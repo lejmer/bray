@@ -44,9 +44,91 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
-    pub(in crate::analysis::guarantee) fn complete_returned_references(
+    fn returned_input_value(
         &self,
         invocation: BoundExecutionSite,
+        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+    ) -> Option<ExecutionCondition> {
+        let dependencies = self.dependencies.calls().get(&invocation)?;
+
+        let input = crate::execution_condition_from_type_term(
+            self.request.semantic_values(),
+            dependencies.returned_input()?,
+            dependencies.input_count(),
+        )
+        .expect("checked returned input decodes in the same semantic store");
+
+        let value = input.substitute(
+            &|place| {
+                place
+                    .value_in(arguments)
+                    .unwrap_or(ExecutionCondition::Unknown)
+            },
+            &ExecutionCondition::Unknown,
+            &mut { ExecutionCondition::WORK_LIMIT },
+        );
+
+        (value != ExecutionCondition::Unknown).then_some(value)
+    }
+
+    pub(in crate::analysis::guarantee) fn returned_value_evidence(
+        &self,
+        state: &super::super::state::ExecutionState,
+        invocation: BoundExecutionSite,
+        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+    ) -> crate::execution_guarantees::ExecutionValueEvidence {
+        let Some(value) = self.returned_input_value(invocation, arguments) else {
+            return Default::default();
+        };
+
+        let carriers = state
+            .witness_carriers
+            .iter()
+            .filter(|(carrier, _)| {
+                value
+                    .owned_values()
+                    .any(|owner| carrier.is_owned_projection_of(owner))
+            })
+            // The call entry must retain the original carrier independently of failure invalidation.
+            .filter_map(|(carrier, conditions)| {
+                let conditions = conditions
+                    .iter()
+                    .filter(|condition| {
+                        condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
+                            == Some(true)
+                    })
+                    .cloned()
+                    .collect::<std::collections::BTreeSet<_>>();
+
+                (!conditions.is_empty()).then(|| (carrier.clone(), conditions))
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        let dependencies = state
+            .witness_dependencies
+            .iter()
+            .filter(|(carrier, _)| carriers.contains_key(*carrier))
+            .map(|(carrier, dependencies)| (carrier.clone(), dependencies.clone()))
+            .collect();
+
+        let allocations = state
+            .allocation_owners
+            .iter()
+            .filter(|(_, owner)| carriers.contains_key(*owner))
+            .map(|(condition, owner)| (condition.clone(), owner.clone()))
+            .collect();
+
+        crate::execution_guarantees::ExecutionValueEvidence {
+            carriers,
+            dependencies,
+            allocations,
+        }
+    }
+
+    pub(in crate::analysis::guarantee) fn complete_returned_values(
+        &self,
+        invocation: BoundExecutionSite,
+        state: &mut super::super::state::ExecutionState,
         result: ExecutionCondition,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
     ) -> ExecutionCondition {
@@ -64,6 +146,32 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let Some(dependencies) = self.dependencies.calls().get(&invocation) else {
             return result;
         };
+
+        for condition in dependencies.returned_input_conditions() {
+            let condition = crate::execution_condition_from_type_term(
+                self.request.semantic_values(),
+                *condition,
+                dependencies.input_count(),
+            )
+            .expect("prepared transport condition belongs to the same semantic store")
+            .substitute(
+                &|place| {
+                    place
+                        .value_in(arguments)
+                        .unwrap_or(ExecutionCondition::Unknown)
+                },
+                &ExecutionCondition::Unknown,
+                &mut { ExecutionCondition::WORK_LIMIT },
+            );
+
+            condition.assume(true, &mut state.assumptions);
+        }
+
+        state.refine_witnesses();
+
+        if let Some(value) = self.returned_input_value(invocation, arguments) {
+            return value;
+        }
 
         let has_receiver = match self.semantics.selections().expression(source) {
             Some(bray_bound_tree::SemanticSelection::Call(call)) => call.receiver().is_some(),

@@ -182,13 +182,20 @@ impl Compilation {
             cancellation,
             |cancellation| {
                 let source_static = key.kind() == bray_bound_tree::BoundUnitKind::ConstantTemplate
-                    && matches!(self.binding_context_for(&key, cancellation)?.symbols().symbol_for_key(key.declared_owner()), Some(bray_symbols::AnySymbolId::Static(_)));
+                    && matches!(
+                        self.binding_context_for(&key, cancellation)?
+                            .symbols()
+                            .symbol_for_key(key.declared_owner()),
+                        Some(bray_symbols::AnySymbolId::Static(_))
+                    );
 
-                if source_static || matches!(
-                    key.kind(),
-                    bray_bound_tree::BoundUnitKind::CallableBody
-                        | bray_bound_tree::BoundUnitKind::RuntimeDefault
-                ) {
+                if source_static
+                    || matches!(
+                        key.kind(),
+                        bray_bound_tree::BoundUnitKind::CallableBody
+                            | bray_bound_tree::BoundUnitKind::RuntimeDefault
+                    )
+                {
                     let context = self.binding_context_for(&key, cancellation)?;
 
                     let result = crate::compilation::binder::source_body_semantics(&context, &key)

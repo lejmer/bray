@@ -606,7 +606,8 @@ where
         let custom = custom_borrow_kind.is_some();
 
         let receiver_purpose = match kind {
-            BoundStructuredExpressionKind::NullablePropagation | BoundStructuredExpressionKind::ResultPropagation => Some(StorageAccessPurpose::Read),
+            BoundStructuredExpressionKind::NullablePropagation
+            | BoundStructuredExpressionKind::ResultPropagation => Some(StorageAccessPurpose::Read),
             _ => custom_borrow_kind.map(StorageAccessPurpose::Borrow),
         };
 
@@ -713,13 +714,19 @@ where
                     StorageAccessPurpose::Slice,
                 )
             }
-            BoundStructuredExpressionKind::NullablePropagation | BoundStructuredExpressionKind::ResultPropagation => {
-                let Some(SemanticSelection::Propagation(selection)) = self.selections.expression(id) else {
+            BoundStructuredExpressionKind::NullablePropagation
+            | BoundStructuredExpressionKind::ResultPropagation => {
+                let Some(SemanticSelection::Propagation(selection)) =
+                    self.selections.expression(id)
+                else {
                     return self.recovery_access(id);
                 };
 
-                (selection.success_projection(), StorageAccessPurpose::Projection)
-            },
+                (
+                    selection.success_projection(),
+                    StorageAccessPurpose::Projection,
+                )
+            }
             _ => panic!(
                 "Storage-planning inputs or constructed records violate the requested unit contract. in plan_structured_projection"
             ),

@@ -137,39 +137,15 @@ impl Compilation {
     ) -> Result<u32, CodegenPreparationError> {
         let unit = self.codegen_representation_type(RepresentationRole::Unit)?;
 
-        if execution == CallableExecution::Synchronous
-            && result == unit
-            && let Some(body) = self.callable_body_key(callable.definition())?
-        {
-            let certified = self.certified_execution_with_cancellation(body, cancellation)?;
-
-            // This measures a checked lifecycle invocation, not its authority to run.
-            // Only the verified unconditional property applies to every legal receiver.
-            // Guarded Total clauses remain dependent on their particular receiver state.
-            if !certified.result().diagnostics().has_errors()
-                && certified
-                    .result()
-                    .value()
-                    .properties
-                    .contains(&bray_checker::ExecutionProperty::Total)
-            {
-                return Ok(0);
-            }
-        }
-
+        // Capacity measures a checked invocation. Its caller authority was established
+        // by analysis. Only a certificate covering every legal input can remove backing.
         let empty = execution == CallableExecution::Synchronous
             && result == unit
-            && self
-                .verified_execution_obligation(
-                    callable,
-                    bray_checker::ExecutionObligation::Property(
-                        bray_checker::ExecutionProperty::Total,
-                        None,
-                    ),
-                    None,
-                    cancellation,
-                )?
-                .is_some();
+            && self.certified_entry_property(
+                callable,
+                bray_checker::ExecutionProperty::Total,
+                cancellation,
+            )?;
 
         Ok(u32::from(!empty))
     }
@@ -293,9 +269,17 @@ mod tests {
         "#,
         );
 
-        let nominal = compilation.lowered_unit(crate::test_support::source_function_body_key(&compilation, "extract_nominal_witness")).unwrap();
+        let nominal = compilation
+            .lowered_unit(crate::test_support::source_function_body_key(
+                &compilation,
+                "extract_nominal_witness",
+            ))
+            .unwrap();
 
-        bray_testing::assert_goal_state_diagnostic_kind(nominal.diagnostics(), bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven);
+        bray_testing::assert_goal_state_diagnostic_kind(
+            nominal.diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
+        );
 
         for (name, capacity) in [("retain", 1), ("take", 0)] {
             let lowered = compilation

@@ -975,7 +975,10 @@ fn native_environment_cursor_requires_live_provider_storage() {
             } else {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     compilation.check_diagnostics(),
-                    if target == SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc) && index == 1 {
+                    if target
+                        == SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc)
+                        && index == 1
+                    {
                         bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven
                     } else {
                         bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven
@@ -2934,29 +2937,48 @@ fn unix_native_outputs_remain_in_typed_storage() {
 
 #[test]
 fn local_callable_execution_proofs_export_their_named_dependencies() {
-    let provider = super::fixtures::compilation(r#"
+    let provider = super::fixtures::compilation(
+        r#"
         module app;
         func helper() executes(pure, total) {}
         func invoke() executes(pure, total) {
             let action = lambda() executes(pure, total) { helper(); };
             action();
         }
-    "#);
+    "#,
+    );
 
-    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
 
-    let consumer = super::fixtures::execution_consumer(&provider, r#"
+    let consumer = super::fixtures::execution_consumer(
+        &provider,
+        r#"
         module consumer;
         using example.package.app;
         func invoke() executes(pure, total) { example.package.app.invoke(); }
-    "#);
+    "#,
+    );
 
-    assert!(!consumer.check_diagnostics().has_errors(), "{:?}", consumer.check_diagnostics());
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
 
     for application in [&provider, &consumer] {
-        let proof = application.execution_properties(source_function_body_key(application, "invoke")).unwrap();
+        let proof = application
+            .execution_properties(source_function_body_key(application, "invoke"))
+            .unwrap();
 
-        assert!(!proof.diagnostics().has_errors(), "{:?}", proof.diagnostics());
+        assert!(
+            !proof.diagnostics().has_errors(),
+            "{:?}",
+            proof.diagnostics()
+        );
     }
 }
 
@@ -2979,11 +3001,19 @@ fn production_path_view_preserves_its_borrowed_storage() {
     let key = source_function_body_key(&compilation, "platform_path");
     let checked = compilation.lowered_unit(key.clone()).unwrap();
 
-    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{:?}",
+        checked.diagnostics()
+    );
 
     let proof = compilation.execution_properties(key).unwrap();
 
-    assert!(!proof.diagnostics().has_errors(), "{:?}", proof.diagnostics());
+    assert!(
+        !proof.diagnostics().has_errors(),
+        "{:?}",
+        proof.diagnostics()
+    );
 }
 
 #[test]
@@ -3021,20 +3051,40 @@ fn guard_lifetime_anchors_are_not_opaque_call_targets() {
         }
     "#;
 
-    let source = standard_library_compilation([declarations[0], declarations[1], declarations[2], declarations[3], declarations[4], declarations[5], caller]);
+    let source = standard_library_compilation([
+        declarations[0],
+        declarations[1],
+        declarations[2],
+        declarations[3],
+        declarations[4],
+        declarations[5],
+        caller,
+    ]);
 
     for name in ["caller", "static_caller"] {
-        let checked = source.lowered_unit(source_function_body_key(&source, name)).unwrap();
+        let checked = source
+            .lowered_unit(source_function_body_key(&source, name))
+            .unwrap();
 
-        assert!(!checked.diagnostics().has_errors(), "{name}: {:?}", checked.diagnostics());
+        assert!(
+            !checked.diagnostics().has_errors(),
+            "{name}: {:?}",
+            checked.diagnostics()
+        );
     }
 
     let provider = standard_library_compilation(declarations);
     let consumer = super::fixtures::execution_consumer(&provider, caller);
 
     for name in ["caller", "static_caller"] {
-        let checked = consumer.lowered_unit(source_function_body_key(&consumer, name)).unwrap();
+        let checked = consumer
+            .lowered_unit(source_function_body_key(&consumer, name))
+            .unwrap();
 
-        assert!(!checked.diagnostics().has_errors(), "{name}: {:?}", checked.diagnostics());
+        assert!(
+            !checked.diagnostics().has_errors(),
+            "{name}: {:?}",
+            checked.diagnostics()
+        );
     }
 }

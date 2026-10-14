@@ -4,8 +4,8 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 
 use crate::{
-    AnyBoundNodeId, BoundExecutionSite, BoundExpressionId, BoundUnitId,
-    BoundUnitKind, PatternPredicate, StorageAccessId, StoragePlan, StorageRelationship,
+    AnyBoundNodeId, BoundExecutionSite, BoundExpressionId, BoundUnitId, BoundUnitKind,
+    PatternPredicate, StorageAccessId, StoragePlan, StorageRelationship,
 };
 
 /// Storage whose previously observed contents may change at one execution site.
@@ -39,13 +39,25 @@ pub enum StorageInvalidation {
 impl StorageInvalidation {
     /// Creates an opaque effect without any established preservation.
     pub fn unknown() -> Self {
-        Self::All { stable_descriptors: BTreeSet::new(), stable_values: BTreeSet::new() }
+        Self::All {
+            stable_descriptors: BTreeSet::new(),
+            stable_values: BTreeSet::new(),
+        }
     }
 
     /// Retains every target that either incoming execution can mutate.
     pub fn merge(&mut self, incoming: &Self) {
         match (&mut *self, incoming) {
-            (Self::All { stable_descriptors, stable_values }, Self::All { stable_descriptors: descriptors, stable_values: values }) => {
+            (
+                Self::All {
+                    stable_descriptors,
+                    stable_values,
+                },
+                Self::All {
+                    stable_descriptors: descriptors,
+                    stable_values: values,
+                },
+            ) => {
                 stable_descriptors.retain(|path| descriptors.contains(path));
                 stable_values.retain(|path| values.contains(path));
             }
@@ -152,13 +164,8 @@ impl RefinementKind {
             | Self::NullablePresence { expression, .. }
             | Self::TrustBoundary(expression) => expression.unit().raw() == unit.raw(),
             Self::Pattern {
-                subject,
-                access,
-                ..
-            } => {
-                subject.unit().raw() == unit.raw()
-                    && access.unit().raw() == unit.raw()
-            }
+                subject, access, ..
+            } => subject.unit().raw() == unit.raw() && access.unit().raw() == unit.raw(),
         }
     }
 }
@@ -276,7 +283,13 @@ impl CheckedRefinements {
         if invalidations.iter().any(|(site, invalidation)| {
             site.node().unit() != unit
                 || match invalidation {
-                    StorageInvalidation::All { stable_descriptors, stable_values } => stable_descriptors.iter().chain(stable_values).any(|path| !path.is_valid_for(unit)),
+                    StorageInvalidation::All {
+                        stable_descriptors,
+                        stable_values,
+                    } => stable_descriptors
+                        .iter()
+                        .chain(stable_values)
+                        .any(|path| !path.is_valid_for(unit)),
                     StorageInvalidation::Paths(paths) => {
                         paths.iter().any(|path| !path.is_valid_for(unit))
                     }
@@ -361,15 +374,15 @@ impl CheckedRefinements {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
     use super::{
         CheckedRefinements, Refinement, RefinementKind, RefinementOccurrence,
         RefinementSetBuildError,
     };
     use crate::{
-        AnyBoundNodeId, BoundExpressionId, BoundUnitId, BoundUnitKind,
-        PatternPredicate, StorageAccessId,
+        AnyBoundNodeId, BoundExpressionId, BoundUnitId, BoundUnitKind, PatternPredicate,
+        StorageAccessId,
     };
+    use std::collections::BTreeSet;
 
     #[test]
     fn checked_refinements_are_send_and_sync() {
@@ -559,12 +572,26 @@ mod tests {
         let unit = BoundUnitId::new(4);
         let first = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 0));
         let second = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 1));
-        let mut effects = super::StorageInvalidation::All { stable_descriptors: [first.clone(), second].into(), stable_values: BTreeSet::new() };
 
-        effects.merge(&super::StorageInvalidation::All { stable_descriptors: [first.clone()].into(), stable_values: BTreeSet::new() });
-        assert_eq!(effects, super::StorageInvalidation::All { stable_descriptors: [first.clone()].into(), stable_values: BTreeSet::new() });
+        let mut effects = super::StorageInvalidation::All {
+            stable_descriptors: [first.clone(), second].into(),
+            stable_values: BTreeSet::new(),
+        };
+
+        effects.merge(&super::StorageInvalidation::All {
+            stable_descriptors: [first.clone()].into(),
+            stable_values: BTreeSet::new(),
+        });
+
+        assert_eq!(
+            effects,
+            super::StorageInvalidation::All {
+                stable_descriptors: [first.clone()].into(),
+                stable_values: BTreeSet::new()
+            }
+        );
+
         effects.merge(&super::StorageInvalidation::Paths(vec![first]));
         assert_eq!(effects, super::StorageInvalidation::unknown());
     }
-
 }

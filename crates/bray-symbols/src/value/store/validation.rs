@@ -285,7 +285,14 @@ pub(super) fn validate_dependency_template_data(
     store: SemanticValueStoreId,
     data: &DependencyContractTemplateData,
 ) {
-    for carrier in data.carriers() { tables.constant_terms.get(store, carrier.guarantee()); validate_dependency_projections(tables, store, carrier.path()); }
+    if let Some(input) = data.returned_input() {
+        tables.constant_terms.get(store, input);
+    }
+
+    for carrier in data.carriers() {
+        tables.constant_terms.get(store, carrier.guarantee());
+        validate_dependency_projections(tables, store, carrier.path());
+    }
 
     for relation in data.borrows() {
         validate_dependency_subject(tables, store, relation.entry());
@@ -298,7 +305,9 @@ pub(super) fn validate_dependency_template_data(
 
         match effect {
             DependencyStorageEffect::Atomic | DependencyStorageEffect::Unknown => {}
-            DependencyStorageEffect::Cleanup(ty) => { tables.types.get(store, *ty); }
+            DependencyStorageEffect::Cleanup(ty) => {
+                tables.types.get(store, *ty);
+            }
             DependencyStorageEffect::Direct { subject, .. } => {
                 validate_dependency_subject(tables, store, subject)
             }

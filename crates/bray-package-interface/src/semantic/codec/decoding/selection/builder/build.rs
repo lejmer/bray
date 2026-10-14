@@ -977,7 +977,14 @@ impl<'bytes> SelectionBuilder<'bytes> {
             self.include_dependency_projections(relation.target_projections());
         }
 
-        for carrier in &*contract.carriers { self.enqueue(PendingRecord::ConstantTerm(carrier.guarantee().raw())); self.include_dependency_projections(carrier.path()); }
+        if let Some(input) = contract.returned_input {
+            self.enqueue(PendingRecord::ConstantTerm(input.raw()));
+        }
+
+        for carrier in &*contract.carriers {
+            self.enqueue(PendingRecord::ConstantTerm(carrier.guarantee().raw()));
+            self.include_dependency_projections(carrier.path());
+        }
 
         for effect in &*contract.effects {
             use bray_symbols::DependencyStorageEffect;

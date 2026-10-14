@@ -257,7 +257,8 @@ fn named_arguments_share_selection_mapping_with_type_inference() {
 
 #[test]
 fn dependent_pattern_bindings_wait_for_numeric_context_before_defaulting() {
-    let compilation = compilation(r#"
+    let compilation = compilation(
+        r#"
         module app;
         func pair(pos value: u32) -> (u32, bool) { return (value, true); }
         func probe() -> u32 {
@@ -269,7 +270,8 @@ fn dependent_pattern_bindings_wait_for_numeric_context_before_defaulting() {
             if available { return value; }
             return 0;
         }
-    "#);
+    "#,
+    );
 
     let diagnostics = compilation.check_diagnostics();
 
@@ -278,5 +280,9 @@ fn dependent_pattern_bindings_wait_for_numeric_context_before_defaulting() {
     let key = source_function_body_key(&compilation, "probe");
     let lowered = compilation.lowered_unit(key).unwrap();
 
-    assert!(!lowered.diagnostics().has_errors(), "{:?}", lowered.diagnostics());
+    assert!(
+        !lowered.diagnostics().has_errors(),
+        "{:?}",
+        lowered.diagnostics()
+    );
 }

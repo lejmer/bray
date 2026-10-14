@@ -96,6 +96,21 @@ impl StorageFlowState {
         self.forget_storage(identity);
     }
 
+    pub(in crate::analysis::storage_flow) fn retains_borrow_for_cleanup(
+        &self,
+        borrow: BorrowCapabilityId,
+        input: &StorageFlowInput,
+    ) -> bool {
+        input
+            .cleanup_borrow_owners
+            .get(&borrow)
+            .is_some_and(|owners| {
+                owners
+                    .iter()
+                    .any(|owner| self.live.contains(owner) && !self.fully_moved.contains(owner))
+            })
+    }
+
     pub(in crate::analysis::storage_flow) fn end_borrows(
         &mut self,
         ended: &BTreeSet<BorrowCapabilityId>,
@@ -159,15 +174,26 @@ impl StorageFlowState {
             // Writing a payload cannot select a different union variant or make an absent
             // nullable present. Those operations must replace its enclosing value.
             match invalidation {
-                bray_bound_tree::StorageInvalidation::All { stable_descriptors, .. }
-                    if stable_descriptors.contains(&bray_bound_tree::StoragePath::root(access.root))
-                        && discriminants.get(&access.root).is_some_and(|paths| paths.iter().any(|path| {
-                            path.projections.len() + 1 == access.projections.len() && path.contains(access)
-                        })) => true,
-                bray_bound_tree::StorageInvalidation::Observed { accesses, .. } => !accesses.values().flatten().any(|changed| {
-                    changed.projections.len() < access.projections.len()
-                        && changed.relationship(access) != bray_bound_tree::StorageRelationship::Disjoint
-                }),
+                bray_bound_tree::StorageInvalidation::All {
+                    stable_descriptors, ..
+                } if stable_descriptors
+                    .contains(&bray_bound_tree::StoragePath::root(access.root))
+                    && discriminants.get(&access.root).is_some_and(|paths| {
+                        paths.iter().any(|path| {
+                            path.projections.len() + 1 == access.projections.len()
+                                && path.contains(access)
+                        })
+                    }) =>
+                {
+                    true
+                }
+                bray_bound_tree::StorageInvalidation::Observed { accesses, .. } => {
+                    !accesses.values().flatten().any(|changed| {
+                        changed.projections.len() < access.projections.len()
+                            && changed.relationship(access)
+                                != bray_bound_tree::StorageRelationship::Disjoint
+                    })
+                }
                 _ => !invalidation.invalidates_path(access, storage),
             }
         });

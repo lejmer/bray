@@ -84,7 +84,9 @@ where
             request,
             expression,
             call,
-            instantiated.with_result(result).with_input_count(input_count),
+            instantiated
+                .with_result(result)
+                .with_input_count(input_count),
             &template,
         )
         .map_err(DependencyContractInstantiationError::Resolution)?,
@@ -104,7 +106,7 @@ where
         return Ok(contracts);
     };
 
-    let Some((parameter, authority)) = implementation_dependency_source(implementation) else {
+    let Some((root, authority)) = implementation_dependency_source(implementation) else {
         return Ok(contracts);
     };
 
@@ -112,7 +114,7 @@ where
         .semantic_values()
         .dependency_contract_template_data(contracts.invocation());
 
-    let source = || DependencySubject::root(DependencySubjectRoot::Parameter(parameter));
+    let source = || DependencySubject::root(root);
 
     let mut dependencies = vec![DependencyRequirement::direct(
         source(),
@@ -212,6 +214,7 @@ pub(crate) fn selected_scoped_contracts<C>(
     storage: &StoragePlan,
     scoped: &bray_bound_tree::SelectedScopedUse,
     occurrence: bray_bound_tree::BoundExecutionSite,
+    values: &crate::dependency::ValueInputs,
 ) -> Result<
     BoundCallDependencyContracts,
     DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
@@ -274,7 +277,15 @@ where
     instantiated = instantiated.with_normal_completion(template.normal_completion());
 
     if result.is_some() {
-        let mut context = CallInstantiationContext::hidden(request, storage, (root, input), result);
+        let mut context = CallInstantiationContext::hidden(
+            request,
+            storage,
+            (root, input),
+            result,
+            Some(scoped.initializer()),
+        );
+
+        context.set_result_values(values);
 
         let concrete = DependencyContractTemplateData::new(
             template
@@ -318,9 +329,12 @@ where
         callable_dependency_contracts(request, BoundCallableTarget::Declaration(callable))
             .map_err(DependencyContractInstantiationError::Resolution)?;
 
-    let mut context = CallInstantiationContext::hidden(request, storage, input, result);
+    let mut context = CallInstantiationContext::hidden(request, storage, input, result, None);
 
-    Ok(instantiate_callable_contracts(request, contracts, &mut context)?.with_input_count(input_count))
+    Ok(
+        instantiate_callable_contracts(request, contracts, &mut context)?
+            .with_input_count(input_count),
+    )
 }
 
 fn instantiate_callable_contracts<C>(
@@ -873,6 +887,7 @@ mod tests {
             &storage,
             (DependencySubjectRoot::Receiver, source_access),
             Some(cursor_access),
+            None,
         );
 
         let contracts = instantiate_callable_contracts(

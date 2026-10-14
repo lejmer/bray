@@ -420,6 +420,34 @@ impl ControlFlowGraph {
         })
     }
 
+    /// Blocks that can lead to a normal function completion.
+    pub(crate) fn completion_predecessors(&self) -> std::collections::BTreeSet<AnalysisBlockId> {
+        let mut pending = self
+            .completion_exits()
+            .map(|exit| exit.block())
+            .collect::<Vec<_>>();
+
+        let mut blocks = std::collections::BTreeSet::new();
+
+        while let Some(block) = pending.pop() {
+            if blocks.insert(block) {
+                pending.extend(
+                    self.block(block)
+                        .expect("completion path belongs to graph")
+                        .predecessors()
+                        .iter()
+                        .map(|edge| {
+                            self.edge(*edge)
+                                .expect("predecessor belongs to graph")
+                                .source()
+                        }),
+                );
+            }
+        }
+
+        blocks
+    }
+
     pub(crate) fn block(&self, id: AnalysisBlockId) -> Option<&AnalysisBlock> {
         (id.unit() == self.unit)
             .then(|| id.to_index())

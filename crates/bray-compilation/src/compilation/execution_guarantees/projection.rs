@@ -172,16 +172,21 @@ mod tests {
 
     #[test]
     fn atomic_notification_is_total() {
-        let notification = compilation(r#"
+        let notification = compilation(
+            r#"
             module app;
             func notify(pos storage: &core.atomic.Atomic<u32>) executes(total) {
                 core.atomic.notify_one<u32>(storage);
                 core.atomic.notify_all<u32>(storage);
             }
-        "#);
+        "#,
+        );
 
-        assert!(!notification.check_diagnostics().has_errors(), "{:?}", notification.check_diagnostics());
-
+        assert!(
+            !notification.check_diagnostics().has_errors(),
+            "{:?}",
+            notification.check_diagnostics()
+        );
     }
 
     #[test]

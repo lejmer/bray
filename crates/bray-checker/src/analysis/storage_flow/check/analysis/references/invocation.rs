@@ -15,17 +15,36 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Vec<Target> {
         let mut roots = Vec::new();
 
-        if let Some(expression) = occurrence.expression().and_then(|id| self.request.view().expression(id)) {
+        if let Some(expression) = occurrence
+            .expression()
+            .and_then(|id| self.request.view().expression(id))
+        {
             // An awaited task retains inputs even though its invocation is deferred.
-            let receiver = invocation_argument(self.execution.semantics.selections(), occurrence, DependencySubjectRoot::Receiver);
+            let receiver = invocation_argument(
+                self.execution.semantics.selections(),
+                occurrence,
+                DependencySubjectRoot::Receiver,
+            );
 
             for argument in expression.child_expressions().chain(receiver) {
                 if let Some(place) = self.argument_storage(argument) {
-                    roots.extend(state.memory.contained_regions(&Target::storage(place)).cloned());
+                    roots.extend(
+                        state
+                            .memory
+                            .contained_regions(&Target::storage(place))
+                            .cloned(),
+                    );
                 }
 
-                let regions = self.expression_reference(state, argument)
-                    .and_then(|source| source.regions(&state.memory));
+                // An implicit receiver borrow already names its physical target. Its
+                // retained lifetime anchor can be a different object, such as a guard.
+                let source = if receiver == Some(argument) {
+                    self.invocation_reference(state, occurrence, DependencySubjectRoot::Receiver)
+                } else {
+                    self.expression_reference(state, argument)
+                };
+
+                let regions = source.and_then(|source| source.regions(&state.memory));
 
                 if let Some(regions) = regions {
                     // The physical target is authoritative. Its lifetime anchor need
@@ -36,16 +55,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     // publishing a physical field. Its possible targets bound effects,
                     // but never establish exact reference equality.
                     for dependency in self.liveness.retained_by(argument) {
-                        if let bray_bound_tree::BoundDependencySubject::BorrowCapability(capability) = dependency {
-                            roots.extend(state.memory.borrow_targets(capability).into_iter().flatten());
+                        if let bray_bound_tree::BoundDependencySubject::BorrowCapability(
+                            capability,
+                        ) = dependency
+                        {
+                            roots.extend(
+                                state
+                                    .memory
+                                    .borrow_targets(capability)
+                                    .into_iter()
+                                    .flatten(),
+                            );
                         }
                     }
                 }
             }
-        }
-
-        if let Some(source) = self.invocation_reference(state, occurrence, DependencySubjectRoot::Receiver) {
-            roots.extend(source.regions(&state.memory).into_iter().flatten());
         }
 
         roots
@@ -96,28 +120,42 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 );
 
             for root in arguments {
-                let argument = invocation_argument(self.execution.semantics.selections(), occurrence, root)
-                    .expect("selected borrow input retains its argument");
+                let argument =
+                    invocation_argument(self.execution.semantics.selections(), occurrence, root)
+                        .expect("selected borrow input retains its argument");
 
-                let owners = self.liveness.retained_by(argument).filter_map(|subject| {
-                    let access = match subject {
-                        bray_bound_tree::BoundDependencySubject::BorrowCapability(borrow) => {
-                            let capability = self.storage.borrow_capability(borrow)
-                                .expect("checked lifetime dependency retains its loan");
+                let owners = self
+                    .liveness
+                    .retained_by(argument)
+                    .filter_map(|subject| {
+                        let access = match subject {
+                            bray_bound_tree::BoundDependencySubject::BorrowCapability(borrow) => {
+                                let capability = self
+                                    .storage
+                                    .borrow_capability(borrow)
+                                    .expect("checked lifetime dependency retains its loan");
 
-                            if capability.entry_binding().is_some() { return None; }
+                                if capability.entry_binding().is_some() {
+                                    return None;
+                                }
 
-                            capability.access()
+                                capability.access()
+                            }
+                            bray_bound_tree::BoundDependencySubject::StorageAccess(access)
+                                if self.input.retained_storage.contains(&access) =>
+                            {
+                                access
+                            }
+                            _ => return None,
+                        };
+
+                        if self.borrow_reaches_external_storage(access) {
+                            return None;
                         }
-                        bray_bound_tree::BoundDependencySubject::StorageAccess(access)
-                            if self.input.retained_storage.contains(&access) => access,
-                        _ => return None,
-                    };
 
-                    if self.borrow_reaches_external_storage(access) { return None; }
-
-                    self.storage.logical_path(access).cloned()
-                }).collect();
+                        self.storage.logical_path(access).cloned()
+                    })
+                    .collect();
 
                 // Physical provenance can differ from the lifetime anchor of a trusted borrow.
                 // Consume the ordinary dependency analysis instead of reconstructing ownership.

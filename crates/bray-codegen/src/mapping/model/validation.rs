@@ -195,7 +195,9 @@ fn operation_runtime_references(
         MirOperationKind::AdmitOutgoing { runtime, .. }
         | MirOperationKind::DischargeOutgoing { runtime, .. } => [Some(*runtime), None, None],
         MirOperationKind::Memory(operation) => [
-            operation.atomic_word_runtime_role().map(|role| MirRuntimeReference::new(role, abi)),
+            operation
+                .atomic_word_runtime_role()
+                .map(|role| MirRuntimeReference::new(role, abi)),
             None,
             None,
         ],

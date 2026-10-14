@@ -1223,10 +1223,24 @@ fn stored_borrow_preservation_excludes_replacement_and_carrier_escape() {
                 .borrows()
                 .iter()
                 .any(|relation| relation.entry() == relation.exit()
-                    && relation.entry().projections().first().is_some_and(|projection| {
-                        let bray_symbols::DependencyProjection::ProductField(field) = projection else { return false; };
-                        application.symbol_graph().unwrap().member_name((*field).into()).unwrap().as_str() == "reference"
-                    })),
+                    && relation
+                        .entry()
+                        .projections()
+                        .first()
+                        .is_some_and(|projection| {
+                            let bray_symbols::DependencyProjection::ProductField(field) =
+                                projection
+                            else {
+                                return false;
+                            };
+                            application
+                                .symbol_graph()
+                                .unwrap()
+                                .member_name((*field).into())
+                                .unwrap()
+                                .as_str()
+                                == "reference"
+                        })),
             preserved,
             "{source}\n{template:#?}"
         );
@@ -2193,10 +2207,16 @@ fn scoped_nullable_yields_keep_the_present_reference_origin() {
 #[test]
 fn scoped_entry_demands_nested_references_not_otherwise_read_by_the_caller() {
     for (parameter, body) in [
-        ("resource: &Resource", "return with lease = resource { yield lease; };"),
-        ("incoming: Resource", "let moved = incoming; return with lease = moved { yield lease; };"),
+        (
+            "resource: &Resource",
+            "return with lease = resource { yield lease; };",
+        ),
+        (
+            "incoming: Resource",
+            "let moved = incoming; return with lease = moved { yield lease; };",
+        ),
     ] {
-    let source = r#"
+        let source = r#"
         module app;
         struct Resource { value: &bool; }
         impl Resource {
@@ -2204,29 +2224,31 @@ fn scoped_entry_demands_nested_references_not_otherwise_read_by_the_caller() {
             exit(pos lease: &bool) {}
         }
         func caller(pos PARAMETER) -> &bool { BODY }
-    "#.replace("PARAMETER", parameter).replace("BODY", body);
+    "#
+        .replace("PARAMETER", parameter)
+        .replace("BODY", body);
 
-    let application = compilation(&source);
+        let application = compilation(&source);
 
-    let diagnostics = application.check_diagnostics();
+        let diagnostics = application.check_diagnostics();
 
-    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+        assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
 
-    let result = crate::compilation::result_dependencies::source_function_dependencies(
-        &application,
-        "caller",
-    );
+        let result = crate::compilation::result_dependencies::source_function_dependencies(
+            &application,
+            "caller",
+        );
 
-    assert!(
-        result
-            .borrows()
-            .iter()
-            .any(|relation| relation.exit().subject_root()
-                == bray_symbols::DependencySubjectRoot::Result
-                && !relation.entry().projections().is_empty()),
-        "{result:#?}"
-    );
-}
+        assert!(
+            result
+                .borrows()
+                .iter()
+                .any(|relation| relation.exit().subject_root()
+                    == bray_symbols::DependencySubjectRoot::Result
+                    && !relation.entry().projections().is_empty()),
+            "{result:#?}"
+        );
+    }
 }
 
 #[test]

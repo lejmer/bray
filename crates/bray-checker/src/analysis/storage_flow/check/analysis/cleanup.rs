@@ -38,75 +38,85 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let publish = self.publish;
         let dependencies = self.dependencies;
 
-        let mut mutate = |execution: &mut ExecutionState,
-                          mutation: crate::analysis::guarantee::CleanupMutation<'_>| {
-            use crate::analysis::guarantee::CleanupMutation;
+        let mut mutate =
+            |execution: &mut ExecutionState,
+             identity: bray_bound_tree::StorageMutation,
+             mutation: crate::analysis::guarantee::CleanupMutation<'_>| {
+                use crate::analysis::guarantee::CleanupMutation;
 
-            let invocation = match &mutation { CleanupMutation::Lifecycle(call) => Some(call), _ => None };
+                let invocation = match &mutation {
+                    CleanupMutation::Lifecycle(call) => Some(call),
+                    _ => None,
+                };
 
-            let receiver = match &mutation {
-                CleanupMutation::Opaque { access, path, .. } => self.cleanup_receiver(&memory, *access, *path),
-                CleanupMutation::Lifecycle(call) => self.cleanup_receiver(&memory, call.access, call.path),
-                CleanupMutation::Unknown => None,
+                let receiver = match &mutation {
+                    CleanupMutation::Opaque { access, path, .. } => {
+                        self.cleanup_receiver(&memory, *access, *path)
+                    }
+                    CleanupMutation::Lifecycle(call) => {
+                        self.cleanup_receiver(&memory, call.access, call.path)
+                    }
+                    CleanupMutation::Unknown => None,
+                };
+
+                let effects = match mutation {
+                    CleanupMutation::Unknown => None,
+                    CleanupMutation::Opaque { ty, .. } => Some(vec![Effect::Cleanup(ty)]),
+                    CleanupMutation::Lifecycle(ref call) => {
+                        self.lifecycle_effects(&memory, call.access, call.path, call.lifecycle)
+                    }
+                };
+
+                let mut invalidation = match effects.as_deref() {
+                    Some(effects)
+                        if !effects
+                            .iter()
+                            .any(|effect| matches!(effect, Effect::Cleanup(_))) =>
+                    {
+                        self.resolved_observations(&memory, effects, receiver.iter().cloned())
+                    }
+                    _ => receiver.map_or_else(StorageInvalidation::unknown, |receiver| {
+                        self.opaque_observations(&memory, [receiver])
+                    }),
+                };
+
+                self.preserve_borrowed_carriers(state, &memory, &mut invalidation);
+
+                if let Some(call) = &invocation
+                    && call.completes
+                {
+                    self.prepare_cleanup_references(&mut memory, operation.occurrence(), call);
+                }
+
+                if let Some(effects) = &effects {
+                    self.record_resolved_effects(effects);
+                } else {
+                    self.record_effects(
+                        &StorageInvalidation::unknown(),
+                        DependencyMutationKind::Retire,
+                    );
+                }
+
+                self.apply_resolved_effects(&mut memory, effects.as_deref(), &invalidation);
+
+                if invocation.as_ref().is_some_and(|call| call.completes) {
+                    memory.complete_transition(operation.occurrence());
+                }
+
+                if let (Some(call), Some(effects)) = (&invocation, &effects) {
+                    self.cleanup_observations(&memory, call, effects, &mut invalidation);
+                }
+
+                if publish {
+                    self.cleanup_mutations
+                        .entry(identity)
+                        .and_modify(|previous| previous.merge(&invalidation))
+                        // Publication owns observations while the current proof transition consumes them.
+                        .or_insert_with(|| invalidation.clone());
+                }
+
+                domain.invalidate_observations(execution, identity, &invalidation, false, false);
             };
-
-            let effects = match mutation {
-                CleanupMutation::Unknown => None,
-                CleanupMutation::Opaque { ty, .. } => {
-                    Some(vec![Effect::Cleanup(ty)])
-                },
-                CleanupMutation::Lifecycle(ref call) => self.lifecycle_effects(&memory, call.access, call.path, call.lifecycle),
-            };
-
-            let mut invalidation = match effects.as_deref() {
-                Some(effects) if !effects.iter().any(|effect| matches!(effect, Effect::Cleanup(_))) => self.resolved_observations(&memory, effects, receiver.iter().cloned()),
-                _ => receiver.map_or_else(StorageInvalidation::unknown, |receiver| self.opaque_observations(&memory, [receiver])),
-            };
-
-            self.preserve_borrowed_carriers(state, &memory, &mut invalidation);
-
-            if let Some(call) = &invocation
-                && call.completes
-            {
-                self.prepare_cleanup_references(&mut memory, operation.occurrence(), call);
-            }
-
-            let mutation = invocation.as_ref().map_or(
-                bray_bound_tree::StorageMutation::Operation(operation.occurrence()),
-                |call| bray_bound_tree::StorageMutation::Lifecycle {
-                    occurrence: operation.occurrence(),
-                    access: call.access,
-                    part: call.part,
-                    slot: call.slot,
-                },
-            );
-
-            if let Some(effects) = &effects {
-                self.record_resolved_effects(effects);
-            } else {
-                self.record_effects(&StorageInvalidation::unknown(), DependencyMutationKind::Retire);
-            }
-
-            self.apply_resolved_effects(&mut memory, effects.as_deref(), &invalidation);
-
-            if invocation.as_ref().is_some_and(|call| call.completes) {
-                memory.complete_transition(operation.occurrence());
-            }
-
-            if let (Some(call), Some(effects)) = (&invocation, &effects) {
-                self.cleanup_observations(&memory, call, effects, &mut invalidation);
-            }
-
-            if publish && let Some(call) = &invocation {
-                self.cleanup_mutations
-                    .entry((operation.occurrence(), call.access, call.part, call.slot))
-                    .and_modify(|previous| previous.merge(&invalidation))
-                    // Publication owns observations while the current proof transition consumes them.
-                    .or_insert_with(|| invalidation.clone());
-            }
-
-            domain.invalidate_observations(execution, mutation, &invalidation, false, false);
-        };
 
         domain.transition_storage_cleanup(
             execution,

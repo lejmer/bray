@@ -18,6 +18,7 @@ enum CallInstantiationInput<'check> {
     Hidden {
         input: (DependencySubjectRoot, StorageAccessId),
         result: Option<StorageAccessId>,
+        expression: Option<BoundExpressionId>,
     },
 }
 
@@ -56,11 +57,16 @@ where
         storage: &'check StoragePlan,
         input: (DependencySubjectRoot, StorageAccessId),
         result: Option<StorageAccessId>,
+        expression: Option<BoundExpressionId>,
     ) -> Self {
         Self {
             request,
             storage,
-            input: CallInstantiationInput::Hidden { input, result },
+            input: CallInstantiationInput::Hidden {
+                input,
+                result,
+                expression,
+            },
             deferred: false,
             result_values: None,
         }
@@ -95,8 +101,13 @@ where
     }
 
     fn selected_expression(&self, root: DependencySubjectRoot) -> Option<BoundExpressionId> {
-        let CallInstantiationInput::Selected { expression, call } = self.input else {
-            return None;
+        let (expression, call) = match self.input {
+            CallInstantiationInput::Selected { expression, call } => (expression, call),
+            CallInstantiationInput::Hidden {
+                input, expression, ..
+            } => {
+                return (root == input.0).then_some(expression).flatten();
+            }
         };
 
         match root {
@@ -106,9 +117,13 @@ where
     }
 
     fn receiver_access(&self, root: DependencySubjectRoot) -> Option<StorageAccessId> {
-        if root != DependencySubjectRoot::Receiver { return None; }
+        if root != DependencySubjectRoot::Receiver {
+            return None;
+        }
 
-        let CallInstantiationInput::Selected { call, .. } = self.input else { return None; };
+        let CallInstantiationInput::Selected { call, .. } = self.input else {
+            return None;
+        };
 
         let receiver = call.receiver()?;
 
@@ -118,13 +133,14 @@ where
             _ => return None,
         };
 
-        self.storage.expression_plans(receiver.expression())
+        self.storage
+            .expression_plans(receiver.expression())
             .find(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Borrow(kind))
             .map(bray_bound_tree::StorageAccessPlan::access)
     }
 
     fn hidden_access(&self, root: DependencySubjectRoot) -> Option<StorageAccessId> {
-        let CallInstantiationInput::Hidden { input, result } = self.input else {
+        let CallInstantiationInput::Hidden { input, result, .. } = self.input else {
             return None;
         };
 

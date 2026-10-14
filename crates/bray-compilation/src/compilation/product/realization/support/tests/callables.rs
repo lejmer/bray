@@ -156,32 +156,32 @@ fn callable_indirection_closes_recursive_value_layouts_before_abi_classification
 #[test]
 fn raw_pointer_indirection_closes_recursive_value_layouts() {
     for field in ["RawPointer<Node>", "core.atomic.Atomic<RawPointer<Node>>"] {
-    let compilation = compilation(&format!("module app; struct Node {{ next: {field}; }}"));
+        let compilation = compilation(&format!("module app; struct Node {{ next: {field}; }}"));
 
-    let target = baseline_codegen_target();
+        let target = baseline_codegen_target();
 
-    let symbols = compilation
-        .symbol_graph()
-        .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
 
-    let node = symbols
-        .structures()
-        .iter()
-        .find(|symbol| symbol.origin() == SymbolOrigin::Source)
-        .unwrap_or_else(|| panic!("fixture must declare Node"));
+        let node = symbols
+            .structures()
+            .iter()
+            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .unwrap_or_else(|| panic!("fixture must declare Node"));
 
-    let values = compilation
-        .semantic_value_store()
-        .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
 
-    let ty = named_type(values, NamedTypeSymbolId::Struct(node.id()))
-        .unwrap_or_else(|error| panic!("Node type must be available: {error:?}"));
+        let ty = named_type(values, NamedTypeSymbolId::Struct(node.id()))
+            .unwrap_or_else(|error| panic!("Node type must be available: {error:?}"));
 
-    let mappings = realized_types(&compilation, &target, [ty]);
+        let mappings = realized_types(&compilation, &target, [ty]);
 
-    assert_eq!(
-        mappings[&ty].layout().map(TargetValueLayout::size),
-        Some(pointer_layout(&target).size())
-    );
-}
+        assert_eq!(
+            mappings[&ty].layout().map(TargetValueLayout::size),
+            Some(pointer_layout(&target).size())
+        );
+    }
 }

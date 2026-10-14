@@ -156,7 +156,7 @@ where
                 .reported_diagnostics
                 .insert((DiagnosticKind::CheckingEscapingStorageDependency, access))
             {
-            self.report_escaping_access(exit, access);
+                self.report_escaping_access(exit, access);
             }
         }
     }

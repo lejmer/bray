@@ -10,8 +10,9 @@ in [contract reasoning](../language/contracts-and-trust/contract-reasoning.md),
 
 Continue on `feature/trusted-storage-integration`, the published combined branch. The implementation baseline is `e3f56424`, with proof checkpoint `7f300ef2`.
 Steps 1 and 2 are complete. Shared authority analysis and its required removals passed published review at
-`5144e732`. Production API migration is Step 3 and remains the next work, outside this completed authorization.
-Dated progress entries below are historical evidence. The current verification checkpoint supersedes their status.
+`5144e732`. The user subsequently authorized completing Step 3, including the production API migration.
+The [Step 3 task record](BRA-620-step3.md) owns current progress and remaining acceptance. Dated Step 2 entries below
+retain historical evidence and do not restrict the current authorization.
 
 Recorded on 2026-10-10. This handoff covers the remaining trusted synchronization authority defect and review requirements.
 

@@ -182,7 +182,8 @@ pub(in crate::analysis) fn merge(
 
     let before = target.trusted_assumptions.len();
 
-    target.trusted_assumptions
+    target
+        .trusted_assumptions
         .retain(|condition| incoming.trusted_assumptions.contains(condition));
 
     changed |= before != target.trusted_assumptions.len();
@@ -289,12 +290,16 @@ fn common_components(
 
     *budget = next;
 
-    if let (ExecutionCondition::Borrowed(left), ExecutionCondition::Borrowed(right)) = (left, right) {
+    if let (ExecutionCondition::Borrowed(left), ExecutionCondition::Borrowed(right)) = (left, right)
+    {
         return common_components(left, right, budget).borrowed();
     }
 
     let fields = |value: &ExecutionCondition| match value {
-        ExecutionCondition::Constructed(_, fields) => fields.iter().map(|(field, _)| *field).collect::<std::collections::BTreeSet<_>>(),
+        ExecutionCondition::Constructed(_, fields) => fields
+            .iter()
+            .map(|(field, _)| *field)
+            .collect::<std::collections::BTreeSet<_>>(),
         _ => Default::default(),
     };
 
@@ -312,12 +317,15 @@ fn common_components(
         ExecutionCondition::Unknown
     };
 
-    let fields = projections.into_iter().map(|projection| {
-        let left = left.clone().project(projection);
-        let right = right.clone().project(projection);
+    let fields = projections
+        .into_iter()
+        .map(|projection| {
+            let left = left.clone().project(projection);
+            let right = right.clone().project(projection);
 
-        (projection, common_components(&left, &right, budget))
-    }).collect();
+            (projection, common_components(&left, &right, budget))
+        })
+        .collect();
 
     ExecutionCondition::Constructed(std::sync::Arc::new(identity), fields)
 }
@@ -338,24 +346,44 @@ mod tests {
         let identity = ExecutionCondition::Input(place.clone());
         let marker = ExecutionCondition::Boolean(true);
 
-        let nested = |version| ExecutionCondition::Constructed(
-            Arc::new(ExecutionCondition::Joined(BoundUnitId::new(0), version, place.clone())),
-            [(field, marker.clone())].into(),
-        ).borrowed();
+        let nested = |version| {
+            ExecutionCondition::Constructed(
+                Arc::new(ExecutionCondition::Joined(
+                    BoundUnitId::new(0),
+                    version,
+                    place.clone(),
+                )),
+                [(field, marker.clone())].into(),
+            )
+            .borrowed()
+        };
 
-        let owner = |value| ExecutionCondition::Constructed(
-            Arc::new(identity.clone()), [(field, value)].into(),
-        );
+        let owner = |value| {
+            ExecutionCondition::Constructed(Arc::new(identity.clone()), [(field, value)].into())
+        };
 
         let joined = join_components(&owner(nested(1)), &owner(nested(2)));
 
         assert_eq!(joined.owner_identity(), &identity);
-        assert_eq!(joined.clone().component(component).component(component), marker);
 
-        let different = owner(ExecutionCondition::Constructed(
-            Arc::new(ExecutionCondition::Unknown), [(field, ExecutionCondition::Boolean(false))].into(),
-        ).borrowed());
+        assert_eq!(
+            joined.clone().component(component).component(component),
+            marker
+        );
 
-        assert_eq!(join_components(&joined, &different).component(component).component(component), ExecutionCondition::Unknown);
+        let different = owner(
+            ExecutionCondition::Constructed(
+                Arc::new(ExecutionCondition::Unknown),
+                [(field, ExecutionCondition::Boolean(false))].into(),
+            )
+            .borrowed(),
+        );
+
+        assert_eq!(
+            join_components(&joined, &different)
+                .component(component)
+                .component(component),
+            ExecutionCondition::Unknown
+        );
     }
 }

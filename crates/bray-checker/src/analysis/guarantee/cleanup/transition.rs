@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use bray_bound_tree::{AnyBoundNodeId, StorageAccessId};
+use bray_bound_tree::{AnyBoundNodeId, StorageAccessId, StorageMutation};
 use bray_symbols::TypeAssociatedLifecycleSlot;
 
 use super::super::super::model::{AnalysisOperationKind, AnalysisScopeExitPhase};
@@ -20,8 +20,6 @@ pub(in crate::analysis) type Observer<'a> = dyn FnMut(
 
 pub(in crate::analysis) struct LifecycleInvocation<'a> {
     pub(in crate::analysis) access: StorageAccessId,
-    pub(in crate::analysis) part: usize,
-    pub(in crate::analysis) slot: TypeAssociatedLifecycleSlot,
     pub(in crate::analysis) lifecycle: &'a Lifecycle,
     pub(in crate::analysis) completes: bool,
     pub(in crate::analysis) path: Option<&'a bray_bound_tree::StoragePath>,
@@ -29,12 +27,16 @@ pub(in crate::analysis) struct LifecycleInvocation<'a> {
 
 pub(in crate::analysis) enum CleanupMutation<'a> {
     Unknown,
-    Opaque { ty: bray_symbols::TypeId, access: StorageAccessId, path: Option<&'a bray_bound_tree::StoragePath> },
+    Opaque {
+        ty: bray_symbols::TypeId,
+        access: StorageAccessId,
+        path: Option<&'a bray_bound_tree::StoragePath>,
+    },
     Lifecycle(LifecycleInvocation<'a>),
 }
 
 pub(in crate::analysis) type Mutation<'a> =
-    dyn FnMut(&mut ExecutionState, CleanupMutation<'_>) + 'a;
+    dyn FnMut(&mut ExecutionState, StorageMutation, CleanupMutation<'_>) + 'a;
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis::guarantee) fn transition_cleanup(
@@ -54,8 +56,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }) {
                     match phase {
                         AnalysisScopeExitPhase::TaskCancellationBroadcast => {
-                            if !plan.cancellation_broadcast().is_empty() {
-                                state.invalidate_cleanup(&Default::default(), &Default::default());
+                            for access in plan.cancellation_broadcast() {
+                                self.apply_published_cleanup(
+                                    state,
+                                    StorageMutation::Cancellation {
+                                        occurrence: operation.occurrence(),
+                                        access: *access,
+                                    },
+                                );
                             }
                         }
                         AnalysisScopeExitPhase::LifecycleResolution => {
@@ -160,9 +168,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             AnalysisScopeExitPhase::TaskCancellationBroadcast
                                 if phases.includes_cancellation() =>
                             {
-                                let ty = self.storage.storage_type(identity).expect("cleanup obligation retains its type");
+                                let ty = self
+                                    .storage
+                                    .storage_type(identity)
+                                    .expect("cleanup obligation retains its type");
 
-                                mutate(state, CleanupMutation::Opaque { ty, access, path: self.storage.logical_path(access) });
+                                mutate(
+                                    state,
+                                    StorageMutation::Cancellation {
+                                        occurrence: operation.occurrence(),
+                                        access,
+                                    },
+                                    CleanupMutation::Opaque {
+                                        ty,
+                                        access,
+                                        path: self.storage.logical_path(access),
+                                    },
+                                );
                             }
                             AnalysisScopeExitPhase::LifecycleResolution
                                 if phases.includes_lifecycle() =>
@@ -194,7 +216,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         }
                         // The owning cleanup analysis publishes the unavailable-order recovery.
                         Err(_) => {
-                            mutate(state, CleanupMutation::Unknown);
+                            mutate(
+                                state,
+                                StorageMutation::Operation(operation.occurrence()),
+                                CleanupMutation::Unknown,
+                            );
                         }
                     }
 
@@ -237,6 +263,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
             _ => {}
         }
+    }
+
+    fn apply_published_cleanup(&self, state: &mut ExecutionState, mutation: StorageMutation) {
+        let flow = self
+            .checked_body
+            .expect("execution cleanup consumes checked body semantics")
+            .storage_flow();
+
+        self.invalidate_observations(
+            state,
+            mutation,
+            flow.cleanup_mutation(mutation),
+            false,
+            false,
+        );
     }
 
     fn dispose(
@@ -284,7 +325,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         for (part, step) in steps.iter().enumerate() {
             let path = match step {
                 Step::Opaque { path, .. } | Step::Lifecycle { path, .. } => path.as_ref(),
-                Step::Invalidate => None,
             };
 
             if path.is_some_and(|path| absent.iter().any(|absent| absent.contains(path))) {
@@ -297,16 +337,32 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 path,
                 whole,
                 conditional,
+                guards,
             } = step
             else {
                 if !preserves {
+                    let mutation = StorageMutation::Cleanup {
+                        occurrence,
+                        access,
+                        part,
+                    };
+
                     if let Some(mutate) = mutate {
-                        mutate(state, match step {
-                            Step::Opaque { ty, path, .. } => CleanupMutation::Opaque { ty: *ty, access, path: path.as_ref() },
-                            _ => CleanupMutation::Unknown,
-                        });
+                        let Step::Opaque { ty, path } = step else {
+                            unreachable!("lifecycle handled below")
+                        };
+
+                        mutate(
+                            state,
+                            mutation,
+                            CleanupMutation::Opaque {
+                                ty: *ty,
+                                access,
+                                path: path.as_ref(),
+                            },
+                        );
                     } else {
-                        state.invalidate_cleanup(&Default::default(), &Default::default());
+                        self.apply_published_cleanup(state, mutation);
                     }
                 }
 
@@ -316,7 +372,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let always = initialized
                 && !conditional
                 && path.as_ref().is_some_and(|path| {
-                    !moved.iter().any(|moved| moved.relationship(path) != bray_bound_tree::StorageRelationship::Disjoint)
+                    !moved.iter().any(|moved| {
+                        moved.relationship(path) != bray_bound_tree::StorageRelationship::Disjoint
+                    })
                 });
 
             for slot in [
@@ -334,7 +392,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             bray_bound_tree::BoundCallableTarget::Declaration(lifecycle.callable),
                         ));
 
-                let evidence = lifecycle.entry(state, place.as_ref());
+                let value = path
+                    .as_ref()
+                    .map(|path| self.storage_path_value(state, path));
+
+                let mut evidence = lifecycle.entry(state, place.as_ref(), value);
+
+                // These premises hold only on the runtime branch that invokes this payload's cleanup.
+                for (path, operator, expected) in guards {
+                    crate::ExecutionCondition::pattern(
+                        self.storage_path_value(state, path),
+                        *operator,
+                        expected.clone(),
+                    )
+                    .assume(true, &mut evidence.assumptions);
+                }
 
                 let established = self
                     .trusted_requirements_proven(&evidence, &lifecycle.contract.requirements)
@@ -344,37 +416,26 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     observe(access, slot, lifecycle, *whole, &evidence, established);
                 }
 
+                let mutation = StorageMutation::Lifecycle {
+                    occurrence,
+                    access,
+                    part,
+                    slot,
+                };
+
                 if let Some(mutate) = mutate {
                     mutate(
                         state,
+                        mutation,
                         CleanupMutation::Lifecycle(LifecycleInvocation {
                             access,
-                            part,
-                            slot,
                             lifecycle,
                             completes: always && established && completes,
                             path: path.as_ref(),
                         }),
                     );
                 } else {
-                    let invalidation = self
-                        .checked_body.map(bray_bound_tree::CheckedBodySemantics::storage_flow)
-                        .expect("execution cleanup consumes checked storage flow")
-                        .cleanup_mutation(occurrence, access, part, slot)
-                        .expect("selected lifecycle has a published mutation");
-
-                    self.invalidate_observations(
-                        state,
-                        bray_bound_tree::StorageMutation::Lifecycle {
-                            occurrence,
-                            access,
-                            part,
-                            slot,
-                        },
-                        invalidation,
-                        false,
-                        false,
-                    );
+                    self.apply_published_cleanup(state, mutation);
                 }
 
                 if always && established && completes {
@@ -390,6 +451,7 @@ impl Lifecycle {
         &self,
         state: &ExecutionState,
         place: Option<&ExecutionPlace>,
+        value: Option<crate::ExecutionCondition>,
     ) -> ExecutionCallEvidence {
         let mut arguments = BTreeMap::new();
 
@@ -408,12 +470,13 @@ impl Lifecycle {
             }
         }
 
-        if let Some(value) = place.and_then(|place| place.value_in(&state.current)) {
+        if let Some(value) = value {
             arguments.entry(self.receiver.into()).or_insert(value);
         }
 
         // Entry assumptions must survive the mutations made by this lifecycle invocation.
         ExecutionCallEvidence {
+            returned: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: false,

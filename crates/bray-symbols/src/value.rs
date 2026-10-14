@@ -21,9 +21,9 @@ pub use constant::{
     ConstantValueKind, IntegerConstant, IntegerSign, RealConstantBits, TargetSizedIntegerType,
 };
 pub use dependency::{
-    DependencyBorrowRelation, DependencyWitnessCarrier, DependencyCallInput, DependencyContractTemplateData, DependencyGuard,
+    DependencyBorrowRelation, DependencyCallInput, DependencyContractTemplateData, DependencyGuard,
     DependencyProjection, DependencyReferenceKind, DependencyRequirement,
-    DependencyRequirementKind, DependencySubject, DependencySubjectRoot,
+    DependencyRequirementKind, DependencySubject, DependencySubjectRoot, DependencyWitnessCarrier,
     GuardedDependencyRequirement, LifecycleObligationKind,
 };
 pub use error::{SemanticValueStoreCreateError, SemanticValueStoreError};

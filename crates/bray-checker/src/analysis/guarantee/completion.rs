@@ -286,6 +286,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.call_trusted_assumptions(state, invocation, &arguments, &transferred);
 
         return Some(crate::ExecutionCallEvidence {
+            returned: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: matches!(
@@ -321,6 +322,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .get(&expression.into())?;
 
             return Some(crate::ExecutionCallEvidence {
+                returned: Default::default(),
                 anonymous_target: None,
                 trusted_boundary: !state.trust_boundaries.is_empty(),
                 pending_execution: false,
@@ -412,14 +414,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.call_trusted_assumptions(state, invocation, &arguments, &transferred);
 
         let mut evidence = crate::ExecutionCallEvidence {
+            returned: Default::default(),
             anonymous_target: match self.request.view().expression(expression) {
                 Some(bray_bound_tree::BoundExpression::Call(source))
-                    if matches!(call.target(), bray_bound_tree::BoundCallableTarget::Anonymous(_) | bray_bound_tree::BoundCallableTarget::Indirect(_)) => {
+                    if matches!(
+                        call.target(),
+                        bray_bound_tree::BoundCallableTarget::Anonymous(_)
+                            | bray_bound_tree::BoundCallableTarget::Indirect(_)
+                    ) =>
+                {
                     match self.value(state, source.callee()) {
-                        ExecutionCondition::Expression(origin) => match self.request.view().expression(origin) {
-                            Some(bray_bound_tree::BoundExpression::AnonymousCallable(callable)) => Some(callable.unit().clone()),
-                            _ => None,
-                        },
+                        ExecutionCondition::Expression(origin) => {
+                            match self.request.view().expression(origin) {
+                                Some(bray_bound_tree::BoundExpression::AnonymousCallable(
+                                    callable,
+                                )) => Some(callable.unit().clone()),
+                                _ => None,
+                            }
+                        }
                         _ => None,
                     }
                 }
@@ -493,6 +505,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 }
             }
+        }
+
+        if !evidence.pending_execution {
+            evidence.returned =
+                self.returned_value_evidence(state, invocation, &evidence.arguments);
         }
 
         Some(evidence)

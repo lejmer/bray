@@ -780,16 +780,56 @@ fn deferred_and_scoped_calls_without_normal_returns_do_not_create_result_origins
 
 #[test]
 fn recovered_inline_type_cycles_do_not_expand_reference_demands() {
-    let compilation = compilation(r#"
+    let compilation = compilation(
+        r#"
         module app;
         struct Recursive { next: Recursive; pointer: &u8; }
         func select(pos value: Recursive) -> &u8 {
             let child = value.next;
             return child.pointer;
         }
-    "#);
+    "#,
+    );
 
     let diagnostics = compilation.check_diagnostics();
 
-    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind() == bray_diagnostics::DiagnosticKind::CheckingRecursiveTypeRepresentation), "{diagnostics:?}");
+    assert!(
+        diagnostics.iter().any(|diagnostic| diagnostic.kind()
+            == bray_diagnostics::DiagnosticKind::CheckingRecursiveTypeRepresentation),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn starting_a_task_transfers_the_future_borrow_until_join_completes() {
+    for (body, valid) in [
+        (
+            "let task = work(&value).start(); value.number = 1; try await task.join();",
+            false,
+        ),
+        (
+            "let task = work(&value).start(); try await task.join(); value.number = 1;",
+            true,
+        ),
+    ] {
+        let application = compilation(&format!(
+            r#"
+            module app;
+            struct Cell {{ mut number: u32; }}
+            async func work(pos value: &Cell) -> u32 {{ return value.number; }}
+            async func caller() {{ let mut value: Cell = {{ number = 0 }}; {body} }}
+        "#
+        ));
+
+        let diagnostics = application.check_diagnostics();
+
+        if valid {
+            assert!(!diagnostics.has_errors(), "{body}: {diagnostics:?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow,
+            );
+        }
+    }
 }

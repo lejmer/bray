@@ -106,11 +106,7 @@ where
                                 crate::diagnostic::diagnostic_id(diagnostics.len()),
                             );
 
-                            {
-                                let diagnostic = diagnostic;
-
-                                diagnostics.add(diagnostic)
-                            }
+                            diagnostics.add(diagnostic);
 
                             is_recovered = true;
                         }
@@ -142,7 +138,13 @@ where
                     bray_bound_tree::BoundExecutionSite::ScopedEnter(entry.expression()),
                     bray_bound_tree::BoundExecutionSite::ScopedExit(entry.expression()),
                 ] {
-                    match selected_scoped_contracts(request, storage, scoped, occurrence) {
+                    match selected_scoped_contracts(
+                        request,
+                        storage,
+                        scoped,
+                        occurrence,
+                        value_inputs,
+                    ) {
                         Ok(contracts) => {
                             expression_requirements
                                 .entry(occurrence)
@@ -200,22 +202,7 @@ where
         .into_iter()
         .map(|(occurrence, requirements)| (occurrence, BoundDependencyContract::new(requirements)));
 
-    let borrows = storage
-        .borrow_capability_entries()
-        .map(|(borrow, capability)| {
-            let mut requirements = access_requirements
-                .get(&capability.access())
-                .cloned()
-                .unwrap_or_else(|| operation_access_requirements(storage, capability.access()));
-
-            requirements.push(BoundDependencyRequirement::direct(
-                BoundDependencySubject::BorrowCapability(borrow),
-                BoundDependencyRequirementKind::BorrowCapabilityActive(capability.kind()),
-            ));
-
-            (borrow, BoundDependencyContract::new(requirements))
-        })
-        .collect::<Vec<_>>();
+    let borrows = borrow_requirements(storage, &access_requirements);
 
     let accesses = storage.access_entries().map(|(access, _)| {
         let requirements = access_requirements.remove(&access).unwrap_or_default();
@@ -249,34 +236,50 @@ where
         }
     };
 
-    let mut static_carriers = BTreeMap::new();
-
-    for selection in request.trusted_contracts().into_iter().flat_map(|inputs| &inputs.statics) {
-        let template = match request.static_result_dependencies(selection.template().declaration()) {
-            Ok(template) => template,
-            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
-        };
-
-        let values = request.semantic_values();
-
-        let template = values.substitute_dependency_contract(template, selection.substitution())
-            .expect("selected static substitution belongs to the same semantic store");
-
-        let template = values.dependency_contract_template_data(template);
-
-        static_carriers.insert(selection.clone(), template.carriers().into());
-    }
-
-    let contracts = contracts.with_static_carriers(static_carriers);
-
-    let variants = match super::projection::prepare_variants(request, &contracts, storage, value_inputs) {
-        Ok(variants) => variants,
+    let contracts = match prepare_static_carriers(request, contracts) {
+        Ok(contracts) => contracts,
         Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
         Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
     };
 
-    CheckerOutcome::Complete(DiagnosticResult::new(contracts.with_projection_variants(variants), diagnostics))
+    let variants =
+        match super::projection::prepare_variants(request, &contracts, storage, value_inputs) {
+            Ok(variants) => variants,
+            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(CheckerQueryError::Upstream(error)) => {
+                return CheckerOutcome::UpstreamFailure(error);
+            }
+        };
+
+    CheckerOutcome::Complete(DiagnosticResult::new(
+        contracts.with_projection_variants(variants),
+        diagnostics,
+    ))
+}
+
+fn borrow_requirements(
+    storage: &StoragePlan,
+    access_requirements: &BTreeMap<
+        bray_bound_tree::StorageAccessId,
+        Vec<BoundDependencyRequirement>,
+    >,
+) -> Vec<(bray_bound_tree::BorrowCapabilityId, BoundDependencyContract)> {
+    storage
+        .borrow_capability_entries()
+        .map(|(borrow, capability)| {
+            let mut requirements = access_requirements
+                .get(&capability.access())
+                .cloned()
+                .unwrap_or_else(|| operation_access_requirements(storage, capability.access()));
+
+            requirements.push(BoundDependencyRequirement::direct(
+                BoundDependencySubject::BorrowCapability(borrow),
+                BoundDependencyRequirementKind::BorrowCapabilityActive(capability.kind()),
+            ));
+
+            (borrow, BoundDependencyContract::new(requirements))
+        })
+        .collect::<Vec<_>>()
 }
 
 fn inherit_child_requirements<C: CheckerRequestContext + ?Sized>(
@@ -328,4 +331,31 @@ fn failed_contract<E, T>(
             )
         }
     }
+}
+
+fn prepare_static_carriers<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    contracts: CheckedDependencyContracts,
+) -> Result<CheckedDependencyContracts, CheckerQueryError<C::UpstreamError>> {
+    let mut static_carriers = BTreeMap::new();
+
+    for selection in request
+        .trusted_contracts()
+        .into_iter()
+        .flat_map(|inputs| &inputs.statics)
+    {
+        let template = request.static_result_dependencies(selection.template().declaration())?;
+
+        let values = request.semantic_values();
+
+        let template = values
+            .substitute_dependency_contract(template, selection.substitution())
+            .expect("selected static substitution belongs to the same semantic store");
+
+        let template = values.dependency_contract_template_data(template);
+
+        static_carriers.insert(selection.clone(), template.carriers().into());
+    }
+
+    Ok(contracts.with_static_carriers(static_carriers))
 }

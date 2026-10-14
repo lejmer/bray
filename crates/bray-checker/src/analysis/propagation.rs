@@ -22,14 +22,24 @@ where
         let success = self.push_block();
         let failure = self.push_block();
 
-        self.push_edge(current, success, AnalysisEdgeKind::ResultSuccess,
-            Some(AnalysisRefinement::PropagationOutcome { expression, succeeded: true }));
+        self.push_edge(
+            current,
+            success,
+            AnalysisEdgeKind::ResultSuccess,
+            Some(AnalysisRefinement::PropagationOutcome {
+                expression,
+                succeeded: true,
+            }),
+        );
 
         self.push_edge(
             current,
             failure,
             AnalysisEdgeKind::ResultErrorPropagation,
-            Some(AnalysisRefinement::PropagationOutcome { expression, succeeded: false }),
+            Some(AnalysisRefinement::PropagationOutcome {
+                expression,
+                succeeded: false,
+            }),
         );
 
         self.push_exit(
@@ -151,17 +161,30 @@ where
             current,
             completed,
             AnalysisEdgeKind::RunResultCompleted,
-            Some(AnalysisRefinement::PropagationOutcome { expression, succeeded: true }),
+            Some(AnalysisRefinement::PropagationOutcome {
+                expression,
+                succeeded: true,
+            }),
         );
 
-        self.push_edge(current, panicked, AnalysisEdgeKind::RunResultPanicked,
-            Some(AnalysisRefinement::PropagationOutcome { expression, succeeded: false }));
+        self.push_edge(
+            current,
+            panicked,
+            AnalysisEdgeKind::RunResultPanicked,
+            Some(AnalysisRefinement::PropagationOutcome {
+                expression,
+                succeeded: false,
+            }),
+        );
 
         self.push_edge(
             current,
             cancelled,
             AnalysisEdgeKind::RunResultCancelled,
-            Some(AnalysisRefinement::PropagationOutcome { expression, succeeded: false }),
+            Some(AnalysisRefinement::PropagationOutcome {
+                expression,
+                succeeded: false,
+            }),
         );
 
         self.push_bound(completed, expression.into());

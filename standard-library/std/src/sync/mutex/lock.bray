@@ -18,7 +18,7 @@ struct Mutex<T>
             storage = std.memory.uninit_from<std.sync.mutex.State<T>>(
                 {
                     tickets = core.atomic.initialize<u32>(0),
-                    value = value,
+                    value = std.memory.uninit_from<T>(value),
                 }
             ),
         };
@@ -26,7 +26,7 @@ struct Mutex<T>
 
     trusted destruct()
         requires(trusted std.sync.mutex.valid(&self.instance))
-        uses(raw_memory)
+        uses(raw_memory, unchecked_init)
     {
         let pointer = std.memory.uninit_pointer<std.sync.mutex.State<T>>(&self.storage);
 
@@ -40,7 +40,15 @@ struct Mutex<T>
 
         authorize(pointer);
 
-        let _: std.sync.mutex.State<T> = trusted std.memory.read<std.sync.mutex.State<T>>(pointer);
+        let state: std.sync.mutex.State<T> = trusted std.memory.read<std.sync.mutex.State<T>>(pointer);
+
+        let initialized = trusted lambda(pos storage: &Uninit<T>)
+            ensures(trusted core.memory.uninit_initialized<T>(storage = storage))
+            executes(pure, total) {};
+
+        initialized(&state.value);
+
+        let _: T = trusted std.memory.assume_initialized<T>(state.value);
     }
 
     trusted func lock() -> MutexGuard<T>

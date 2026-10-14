@@ -17,6 +17,13 @@ impl StructuralValueEncoder<'_, '_> {
         self.digest.write_u8(u8::from(data.normal_completion()));
         self.dependency_requirements(data.requirements())?;
 
+        self.digest
+            .write_u8(u8::from(data.returned_input().is_some()));
+
+        if let Some(input) = data.returned_input() {
+            self.constant_term(input)?;
+        }
+
         let mut identities = Vec::with_capacity(data.borrows().len());
 
         for relation in data.borrows() {
@@ -85,8 +92,16 @@ impl StructuralValueEncoder<'_, '_> {
         use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
 
         let kind = match effect {
-            DependencyStorageEffect::Cleanup(ty) => { self.tag(3); return self.ty(*ty); }
-            DependencyStorageEffect::Atomic => { self.tag(4); return Ok(()); }
+            DependencyStorageEffect::Cleanup(ty) => {
+                self.tag(3);
+
+                return self.ty(*ty);
+            }
+            DependencyStorageEffect::Atomic => {
+                self.tag(4);
+
+                return Ok(());
+            }
             DependencyStorageEffect::Unknown => {
                 self.tag(0);
 

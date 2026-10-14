@@ -17,6 +17,7 @@ pub(in crate::analysis) struct TrustedChecks {
     cleanup_failures: BTreeSet<AnyBoundNodeId>,
     pub(super) guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
     guarantee_failures: Vec<bool>,
+    pub(in crate::analysis) returned_input: Option<Option<bray_symbols::ConstantTermId>>,
     pub(super) inferred: Option<BTreeSet<bray_symbols::DependencyWitnessCarrier>>,
     pub(super) carriers: Vec<Option<BTreeSet<Vec<bray_symbols::DependencyProjection>>>>,
 }
@@ -141,11 +142,21 @@ impl TrustedChecks {
         );
 
         let result = match domain.request.unit().root() {
-            bray_bound_tree::BoundUnitRoot::Expression(expression) => domain.value(state, expression),
+            bray_bound_tree::BoundUnitRoot::Expression(expression) => {
+                domain.value(state, expression)
+            }
             _ => state.result.clone(),
         };
 
         self.collect_carriers(domain.request, domain.dependencies, state, &result);
+
+        let input = super::carriers::returned_input(domain, &result);
+
+        match &mut self.returned_input {
+            Some(previous) if *previous != input => *previous = None,
+            Some(_) => {}
+            None => self.returned_input = Some(input),
+        }
     }
 
     pub(in crate::analysis) fn finish<C: CheckerRequestContext + ?Sized>(

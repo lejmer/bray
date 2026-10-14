@@ -80,10 +80,12 @@ impl<'a> SemanticExporter<'a> {
                             target: self.type_id(*target)?,
                         }
                     }
-                    ConstantTermData::VariantTest { subject, variant } => InterfaceConstantTerm::VariantTest {
-                        subject: self.constant_term_id(*subject)?,
-                        variant: self.symbol_reference((*variant).into())?,
-                    },
+                    ConstantTermData::VariantTest { subject, variant } => {
+                        InterfaceConstantTerm::VariantTest {
+                            subject: self.constant_term_id(*subject)?,
+                            variant: self.symbol_reference((*variant).into())?,
+                        }
+                    }
                     ConstantTermData::NullablePresent(value) => {
                         InterfaceConstantTerm::NullablePresent(self.constant_term_id(*value)?)
                     }

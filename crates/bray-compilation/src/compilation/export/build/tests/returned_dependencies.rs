@@ -1,6 +1,6 @@
 use crate::test_support::source_function_body_key;
 
-use super::fixtures::{compilation, execution_consumer};
+use super::fixtures::{compilation, compilation_from_sources, execution_consumer};
 
 #[test]
 fn imported_call_effects_distinguish_forwarding_from_mutation() {
@@ -995,28 +995,232 @@ fn imported_recursive_results_preserve_normal_completion_and_exact_origin() {
 
 #[test]
 fn imported_union_payload_dependencies_resolve_at_the_owning_boundary() {
-    let provider = compilation(r#"
+    let provider = compilation(
+        r#"
         module api;
         union Choice { Value(pos item: &bool); }
         func get(pos choice: Choice) -> &bool {
             match choice { case .Value(item) { return item; } }
         }
-    "#);
+    "#,
+    );
 
-    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
 
     for (body, valid) in [
-        ("func caller(pos value: &bool) -> &bool { return example.package.api.get(example.package.api.Choice.Value(value)); }", true),
-        ("func caller() -> &bool { let value = true; return example.package.api.get(example.package.api.Choice.Value(&value)); }", false),
+        (
+            "func caller(pos value: &bool) -> &bool { return example.package.api.get(example.package.api.Choice.Value(value)); }",
+            true,
+        ),
+        (
+            "func caller() -> &bool { let value = true; return example.package.api.get(example.package.api.Choice.Value(&value)); }",
+            false,
+        ),
     ] {
-        let source = format!("module app; using example.package.api.Choice; using example.package.api.get; {body}");
+        let source = format!(
+            "module app; using example.package.api.Choice; using example.package.api.get; {body}"
+        );
+
         let consumer = execution_consumer(&provider, &source);
         let diagnostics = consumer.check_diagnostics();
 
         if valid {
             assert!(!diagnostics.has_errors(), "{diagnostics:?}");
         } else {
-            bray_testing::assert_goal_state_diagnostic_kind(diagnostics, bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency);
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
+            );
+        }
+    }
+}
+
+#[test]
+fn generic_owner_forwarding_preserves_only_the_transferred_witness() {
+    let forwarding = r#"
+        module api;
+        extern func fail() -> never;
+        extern func interfere();
+        func disturbed<T>(pos value: T) -> T { interfere(); return value; }
+        struct Box<T> { value: T; }
+        struct Cell { mut flag: bool; }
+        func changed_referent<T>(pos value: T, pos other: &mut Cell) -> T {
+            other.flag = false;
+            return value;
+        }
+        func caught_failure<T>(pos value: T) -> T {
+            let _ = catch { fail(); };
+            return value;
+        }
+        func scalar(pos value: bool) -> bool { return value; }
+        func borrow<T>(pos value: &T) -> &T { return value; }
+        func changed(pos value: Cell) -> Cell {
+            let mut owner = value;
+            owner.flag = false;
+            return owner;
+        }
+        func identity<T>(pos value: T) -> T { return value; }
+        func unwrap<T>(pos value: Box<T>) -> T { return value.value; }
+        func present<T>(pos value: T?) -> T {
+            match consume value {
+                case ?item { return item; }
+                case none { panic("absent"); }
+            }
+        }
+        func success<T>(pos value: Result<T, bool>) -> T {
+            match consume value {
+                case Ok(item) { return item; }
+                case Error(_) { fail(); }
+            }
+        }
+        func choose<T>(pos first: T, pos second: T, pos choice: bool) -> T {
+            if choice { return first; }
+            return second;
+        }
+    "#;
+
+    let provider = compilation(forwarding);
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for name in [
+        "scalar",
+        "borrow",
+        "changed",
+        "disturbed",
+        "changed_referent",
+        "caught_failure",
+    ] {
+        let dependencies =
+            crate::compilation::result_dependencies::source_function_dependencies(&provider, name);
+
+        assert!(
+            dependencies.returned_input().is_none(),
+            "{name}: {dependencies:?}"
+        );
+    }
+
+    for (body, failure) in [
+        (
+            "let owner = api.identity<Owner>(create()); observe(&owner);",
+            None,
+        ),
+        (
+            "let owner = api.identity<Owner>(api.identity<Owner>(create())); observe(&owner);",
+            None,
+        ),
+        (
+            "let wrapped: api.Box<Owner> = { value = create() }; let owner = api.unwrap<Owner>(wrapped); observe(&owner);",
+            None,
+        ),
+        (
+            "let owner = api.present<Owner>(create()); observe(&owner);",
+            None,
+        ),
+        (
+            "let wrapped: Result<Owner, bool> = Ok(create()); let owner = api.success<Owner>(wrapped); observe(&owner);",
+            None,
+        ),
+        (
+            "let owner = api.success<Owner>(create_result(true)); observe(&owner);",
+            None,
+        ),
+        (
+            "let owner = api.present<Owner>(create_optional(true)); observe(&owner);",
+            None,
+        ),
+        (
+            "let owner = api.identity<Owner>(Owner { marker = Marker {} }); observe(&owner);",
+            Some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven),
+        ),
+        (
+            "let owner = create(); let forged = api.identity<Owner>(Owner { marker = owner.marker }); observe(&forged);",
+            Some(bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven),
+        ),
+        (
+            "let owner = api.unwrap<Owner>(create_box()); observe(&owner);",
+            Some(bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven),
+        ),
+        (
+            "let owner = api.choose<Owner>(create(), Owner { marker = Marker {} }, false); observe(&owner);",
+            Some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven),
+        ),
+    ] {
+        let declarations = format!(
+            r#"
+            trusted module app;
+            using api;
+            struct Marker {{}}
+            struct Owner {{ marker: Marker; destruct() {{}} }}
+            trusted predicate live(value: &Marker);
+            trusted func create() -> Owner ensures(trusted live(&result.marker)) {{
+                return Owner {{ marker = Marker {{}} }};
+            }}
+            func create_result(pos succeeds: bool) -> Result<Owner, bool>
+                ensures(!(result matches Ok(_)) || trusted live(result_marker(&result))) {{
+                if succeeds {{ return Ok(create()); }}
+                return Error(false);
+            }}
+            const func result_marker(pos value: &Result<Owner, bool>) -> &Marker
+                requires(value matches Ok(_)) executes(pure, total) {{
+                match value {{
+                    case Ok(owner) {{ return &owner.marker; }}
+                    case Error(_) {{ panic("absent"); }}
+                }}
+            }}
+            func create_optional(pos succeeds: bool) -> Owner?
+                ensures(!(result matches ?_) || trusted live(optional_marker(&result))) {{
+                if succeeds {{ let owner = create(); return owner; }}
+                return none;
+            }}
+            const func optional_marker(pos value: &(Owner?)) -> &Marker
+                requires(value matches ?_) executes(pure, total) {{
+                match value {{
+                    case ?owner {{ return &owner.marker; }}
+                    case none {{ panic("absent"); }}
+                }}
+            }}
+            trusted func create_box() -> api.Box<Owner>
+                ensures(trusted live(&result.value.marker)) {{
+                return {{ value = Owner {{ marker = Marker {{}} }} }};
+            }}
+            func observe(pos value: &Owner)
+                requires(trusted live(&value.marker))
+                ensures(trusted live(&value.marker)) executes(pure, total) {{}}
+            func caller() {{ {body} }}
+        "#
+        );
+
+        for imported in [false, true] {
+            let consumer = if imported {
+                execution_consumer(
+                    &provider,
+                    &declarations
+                        .replace("using api;", "using example.package.api;")
+                        .replace("api.", "example.package.api."),
+                )
+            } else {
+                compilation_from_sources([forwarding, &declarations])
+            };
+
+            let diagnostics = consumer.check_diagnostics();
+
+            if let Some(failure) = failure {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics, failure);
+            } else {
+                assert!(
+                    !diagnostics.has_errors(),
+                    "imported={imported}, {body}: {diagnostics:#?}"
+                );
+            }
         }
     }
 }

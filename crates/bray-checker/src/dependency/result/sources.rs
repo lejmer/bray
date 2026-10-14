@@ -239,11 +239,20 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             return BTreeSet::from([(DependencySubject::root(root), true)]);
         }
 
-        if let Some(bray_bound_tree::SemanticSelection::Propagation(selection)) = self.selections.expression(id)
+        if let Some(bray_bound_tree::SemanticSelection::Propagation(selection)) =
+            self.selections.expression(id)
             && let BoundExpression::Structured(operation) = expression
         {
-            let operand = *operation.operands().first().expect("checked propagation retains its operand");
-            let projection = selection.success().map_or(DependencyProjection::NullableValue, |(_, field)| DependencyProjection::UnionPayloadField(field));
+            let operand = *operation
+                .operands()
+                .first()
+                .expect("checked propagation retains its operand");
+
+            let projection = selection
+                .success()
+                .map_or(DependencyProjection::NullableValue, |(_, field)| {
+                    DependencyProjection::UnionPayloadField(field)
+                });
 
             return self.projected_sources(operand, Some(projection));
         }
@@ -361,7 +370,11 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         self.projected_sources(receiver, projection)
     }
 
-    fn projected_sources(&self, receiver: BoundExpressionId, projection: Option<DependencyProjection>) -> BTreeSet<SourcePath> {
+    fn projected_sources(
+        &self,
+        receiver: BoundExpressionId,
+        projection: Option<DependencyProjection>,
+    ) -> BTreeSet<SourcePath> {
         if let Some(projection) = projection {
             let path = [projection];
 

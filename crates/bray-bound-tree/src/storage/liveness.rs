@@ -283,9 +283,13 @@ impl Liveness {
         occurrence: impl Into<crate::BoundExecutionSite>,
     ) -> impl Iterator<Item = BoundDependencySubject> + '_ {
         let occurrence = occurrence.into();
-        let start = self.owner_retentions.partition_point(|retention| retention.occurrence() < occurrence);
 
-        self.owner_retentions[start..].iter()
+        let start = self
+            .owner_retentions
+            .partition_point(|retention| retention.occurrence() < occurrence);
+
+        self.owner_retentions[start..]
+            .iter()
             .take_while(move |retention| retention.occurrence() == occurrence)
             .map(|retention| retention.subject())
     }

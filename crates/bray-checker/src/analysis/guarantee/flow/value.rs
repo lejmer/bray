@@ -153,6 +153,51 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
     }
 
+    pub(in crate::analysis::guarantee) fn storage_identity_value(
+        &self,
+        state: &ExecutionState,
+        identity: bray_bound_tree::StorageIdentityId,
+    ) -> ExecutionCondition {
+        if let Some(place) = crate::ExecutionPlace::storage_identity(self.storage, identity) {
+            return place
+                .value_in(&state.current)
+                .unwrap_or(ExecutionCondition::Input(place));
+        }
+
+        match self
+            .storage
+            .identity(identity)
+            .expect("checked storage retains its identity")
+        {
+            bray_bound_tree::StorageIdentity::Temporary(expression)
+            | bray_bound_tree::StorageIdentity::Allocation(expression)
+            | bray_bound_tree::StorageIdentity::Result(AnyBoundNodeId::Expression(expression)) => {
+                self.value(state, expression)
+            }
+            bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. } => {
+                ExecutionCondition::ScopedCapability(expression)
+            }
+            _ => ExecutionCondition::Unknown,
+        }
+    }
+
+    pub(in crate::analysis::guarantee) fn storage_path_value(
+        &self,
+        state: &ExecutionState,
+        path: &bray_bound_tree::StoragePath,
+    ) -> ExecutionCondition {
+        if let Some(value) = crate::ExecutionPlace::storage_path(self.storage, path)
+            .and_then(|place| place.value_in(&state.current))
+        {
+            return value;
+        }
+
+        path.projections.iter().fold(
+            self.storage_identity_value(state, path.root),
+            |value, projection| value.project(*projection),
+        )
+    }
+
     pub(in crate::analysis::guarantee) fn storage_value(
         &self,
         state: &ExecutionState,

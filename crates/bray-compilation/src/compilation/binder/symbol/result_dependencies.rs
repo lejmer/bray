@@ -398,9 +398,27 @@ fn body_result_dependencies(
             .cloned(),
     )
     .with_carriers(
-        (if !previous.normal_completion() { checked.carriers() } else { previous.carriers() })
-            .iter().filter(|carrier| !previous.normal_completion() || !checked.normal_completion() || checked.carriers().binary_search(carrier).is_ok()).cloned()
+        (if !previous.normal_completion() {
+            checked.carriers()
+        } else {
+            previous.carriers()
+        })
+        .iter()
+        .filter(|carrier| {
+            !previous.normal_completion()
+                || !checked.normal_completion()
+                || checked.carriers().binary_search(carrier).is_ok()
+        })
+        .cloned(),
     )
+    .with_returned_input(if !previous.normal_completion() {
+        checked.returned_input()
+    } else if !checked.normal_completion() || previous.returned_input() == checked.returned_input()
+    {
+        previous.returned_input()
+    } else {
+        None
+    })
     .with_effects(previous.effects().iter().chain(checked.effects()).cloned())
     .with_normal_completion(previous.normal_completion() || checked.normal_completion())
 }
@@ -429,7 +447,13 @@ fn body_callees<'a>(
             _ => None,
         })
         .chain(behavior.defaults().iter().map(|provider| provider.symbol()))
-        .chain(behavior.static_dependencies().iter().copied().map(AnySymbolId::Static))
+        .chain(
+            behavior
+                .static_dependencies()
+                .iter()
+                .copied()
+                .map(AnySymbolId::Static),
+        )
         .chain(prepared.lifecycle_callees().map(CallableSymbolId::into_any))
 }
 
@@ -541,7 +565,12 @@ pub(in crate::compilation) fn static_result_dependencies(
         return Ok(result);
     }
 
-    let template = context.resolve_symbol_query(SymbolQueryRequest::<bray_symbols::StaticInstanceTemplateQuery>::new(declaration))?;
+    let template = context.resolve_symbol_query(SymbolQueryRequest::<
+        bray_symbols::StaticInstanceTemplateQuery,
+    >::new(declaration))?;
 
-    Ok(DiagnosticResult::new(template.value().dependency_contract(), template.diagnostics().clone()))
+    Ok(DiagnosticResult::new(
+        template.value().dependency_contract(),
+        template.diagnostics().clone(),
+    ))
 }

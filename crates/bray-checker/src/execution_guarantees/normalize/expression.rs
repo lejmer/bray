@@ -16,7 +16,10 @@ pub(crate) fn expression_condition(
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
     literals: &BTreeMap<BoundExpressionId, ExecutionCondition>,
-    patterns: &BTreeMap<bray_bound_tree::BoundPatternId, (bray_bound_tree::BoundOperator, ExecutionCondition)>,
+    patterns: &BTreeMap<
+        bray_bound_tree::BoundPatternId,
+        (bray_bound_tree::BoundOperator, ExecutionCondition),
+    >,
     current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     expression: BoundExpressionId,
@@ -60,11 +63,18 @@ pub(crate) fn expression_condition(
         return constructed;
     }
 
-    if let Some(condition) = pattern_condition(patterns, semantics, values, expression, bound, &mut |source| {
-        expression_condition(
-            unit, semantics, values, literals, patterns, current, evaluated, source, budget,
-        )
-    }) {
+    if let Some(condition) = pattern_condition(
+        patterns,
+        semantics,
+        values,
+        expression,
+        bound,
+        &mut |source| {
+            expression_condition(
+                unit, semantics, values, literals, patterns, current, evaluated, source, budget,
+            )
+        },
+    ) {
         return condition;
     }
 
@@ -78,30 +88,11 @@ pub(crate) fn expression_condition(
 
     match bound {
         BoundExpression::AnonymousCallable(_) => ExecutionCondition::Expression(expression),
-        BoundExpression::Name(name) => {
-            let place = match semantics.selections().expression(expression) {
-                Some(SemanticSelection::StaticReference(selection)) => crate::ExecutionPlace::static_instance(selection.clone()),
-                _ => name.target().into(),
-            };
-
-            if let Some(value) = current.get(&place) {
-                // The current state and expression retain the same immutable term independently.
-                return value.clone();
-            }
-
-            match name.target() {
-                BoundReferenceTarget::Surface(
-                    AnySymbolId::CallableParameter(_) | AnySymbolId::ReceiverParameter(_),
-                )
-                | BoundReferenceTarget::Local(AnyLocalSymbolId::AnonymousCallableParameter(_)) => {
-                    ExecutionCondition::Input(name.target().into())
-                }
-                BoundReferenceTarget::Local(AnyLocalSymbolId::PostconditionResult(_)) => {
-                    ExecutionCondition::Result
-                }
-                _ => ExecutionCondition::Unknown,
-            }
-        }
+        BoundExpression::Name(name) => name_condition(
+            name.target(),
+            semantics.selections().expression(expression),
+            current,
+        ),
         BoundExpression::PatternReference(reference) => current
             .get(&BoundReferenceTarget::Local(reference.binding().into()).into())
             .cloned()
@@ -178,7 +169,8 @@ pub(crate) fn expression_condition(
                 .iter()
                 .map(|operand| {
                     expression_condition(
-                        unit, semantics, values, literals, patterns, current, evaluated, *operand, budget,
+                        unit, semantics, values, literals, patterns, current, evaluated, *operand,
+                        budget,
                     )
                 })
                 .collect();
@@ -266,7 +258,9 @@ pub(crate) fn expression_place(
         match unit.view().expression(expression)? {
             BoundExpression::Name(name) => {
                 let mut place = match semantics.selections().expression(expression) {
-                    Some(SemanticSelection::StaticReference(selection)) => crate::ExecutionPlace::static_instance(selection.clone()),
+                    Some(SemanticSelection::StaticReference(selection)) => {
+                        crate::ExecutionPlace::static_instance(selection.clone())
+                    }
                     _ => crate::ExecutionPlace::from(name.target()),
                 };
 
@@ -373,4 +367,37 @@ pub(crate) fn expression_place(
     }
 
     None
+}
+
+fn name_condition(
+    target: BoundReferenceTarget,
+    selection: Option<&SemanticSelection>,
+    current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+) -> ExecutionCondition {
+    let place = match selection {
+        Some(SemanticSelection::StaticReference(selection)) => {
+            crate::ExecutionPlace::static_instance(selection.clone())
+        }
+        _ => target.into(),
+    };
+
+    if let Some(value) = current.get(&place) {
+        // The current state and expression retain the same immutable term independently.
+        return value.clone();
+    }
+
+    match target {
+        BoundReferenceTarget::Surface(
+            AnySymbolId::CallableParameter(_)
+            | AnySymbolId::ReceiverParameter(_)
+            | AnySymbolId::GenericConstParameter(_),
+        )
+        | BoundReferenceTarget::Local(AnyLocalSymbolId::AnonymousCallableParameter(_)) => {
+            ExecutionCondition::Input(target.into())
+        }
+        BoundReferenceTarget::Local(AnyLocalSymbolId::PostconditionResult(_)) => {
+            ExecutionCondition::Result
+        }
+        _ => ExecutionCondition::Unknown,
+    }
 }

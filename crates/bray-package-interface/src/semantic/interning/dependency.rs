@@ -60,17 +60,34 @@ impl InternState {
             let mut carriers = Vec::with_capacity(input.carriers.len());
 
             for carrier in &*input.carriers {
-                let Some(path) = self.convert_dependency_projections(carrier.path(), symbols)? else { break; };
+                let Some(path) = self.convert_dependency_projections(carrier.path(), symbols)?
+                else {
+                    break;
+                };
 
-                let Some(condition) = self.constant_term_id(carrier.guarantee()) else { break; };
+                let Some(condition) = self.constant_term_id(carrier.guarantee()) else {
+                    break;
+                };
 
                 carriers.push(bray_symbols::DependencyWitnessCarrier::new(condition, path));
             }
 
-            if carriers.len() != input.carriers.len() { continue; }
+            if carriers.len() != input.carriers.len() {
+                continue;
+            }
 
             let Some(effects) = self.convert_dependency_effects(&input.effects, symbols)? else {
                 continue;
+            };
+
+            let returned_input = if let Some(input) = input.returned_input {
+                let Some(input) = self.constant_term_id(input) else {
+                    continue;
+                };
+
+                Some(input)
+            } else {
+                None
             };
 
             self.dependency_contracts[index] = Some(
@@ -78,6 +95,7 @@ impl InternState {
                     DependencyContractTemplateData::new(requirements)
                         .with_borrows(borrows)
                         .with_carriers(carriers)
+                        .with_returned_input(returned_input)
                         .with_effects(effects)
                         .with_normal_completion(input.normal_completion),
                 )?,
@@ -314,9 +332,11 @@ impl InternState {
         for effect in input {
             effects.push(match effect {
                 DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
-                    DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
+                DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
                 DependencyStorageEffect::Cleanup(ty) => {
-                    let Some(ty) = self.type_id(*ty) else { return Ok(None); };
+                    let Some(ty) = self.type_id(*ty) else {
+                        return Ok(None);
+                    };
 
                     DependencyStorageEffect::Cleanup(ty)
                 }

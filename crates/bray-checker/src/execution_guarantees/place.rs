@@ -15,6 +15,7 @@ pub(crate) enum ExecutionInput {
     Reference(BoundReferenceTarget),
     Static(Arc<bray_symbols::StaticReferenceSelection>),
     Argument(bray_symbols::SymbolOrdinal),
+    Storage(bray_bound_tree::StorageIdentityId),
 }
 
 impl From<BoundReferenceTarget> for ExecutionPlace {
@@ -29,7 +30,10 @@ impl From<BoundReferenceTarget> for ExecutionPlace {
 impl ExecutionPlace {
     /// Identifies one selected static instance, including its substitution and witnesses.
     pub fn static_instance(selection: bray_symbols::StaticReferenceSelection) -> Self {
-        Self { root: ExecutionInput::Static(Arc::new(selection)), projections: Arc::new([]) }
+        Self {
+            root: ExecutionInput::Static(Arc::new(selection)),
+            projections: Arc::new([]),
+        }
     }
 
     pub(crate) fn selected_static(&self) -> Option<bray_symbols::StaticSymbolId> {
@@ -49,7 +53,9 @@ impl ExecutionPlace {
     pub(crate) const fn reference(&self) -> Option<BoundReferenceTarget> {
         match &self.root {
             ExecutionInput::Reference(reference) => Some(*reference),
-            ExecutionInput::Argument(_) | ExecutionInput::Static(_) => None,
+            ExecutionInput::Argument(_)
+            | ExecutionInput::Static(_)
+            | ExecutionInput::Storage(_) => None,
         }
     }
     pub(crate) fn is_callable_input(&self) -> bool {
@@ -61,6 +67,25 @@ impl ExecutionPlace {
                 bray_symbols::AnyLocalSymbolId::AnonymousCallableParameter(_)
             ))
         )
+    }
+
+    pub(crate) fn binding(
+        storage: &bray_bound_tree::StoragePlan,
+        target: bray_bound_tree::StorageBindingTarget,
+    ) -> Option<Self> {
+        if let Some(reference) = storage_binding_reference(target) {
+            return Some(reference.into());
+        }
+
+        let bray_bound_tree::StorageBindingTarget::PatternDiscard(_) = target else {
+            return None;
+        };
+
+        let bray_bound_tree::StorageBinding::Identity(identity) = storage.binding(target)? else {
+            return None;
+        };
+
+        Self::storage_identity(storage, identity)
     }
 
     pub(crate) fn storage(
@@ -103,9 +128,21 @@ impl ExecutionPlace {
             bray_bound_tree::StorageIdentity::PostconditionResult(result) => {
                 BoundReferenceTarget::Local(result.into())
             }
-            _ => storage
-                .binding_targets(bray_bound_tree::StorageBinding::Identity(identity))
-                .find_map(storage_binding_reference)?,
+            kind => {
+                if let Some(reference) = storage
+                    .binding_targets(bray_bound_tree::StorageBinding::Identity(identity))
+                    .find_map(storage_binding_reference)
+                {
+                    reference
+                } else if matches!(kind, bray_bound_tree::StorageIdentity::LocalOwned(_)) {
+                    return Some(Self {
+                        root: ExecutionInput::Storage(identity),
+                        projections: Arc::new([]),
+                    });
+                } else {
+                    return None;
+                }
+            }
         };
 
         Some(Self::from(root))
@@ -227,7 +264,7 @@ impl ExecutionPlace {
     }
 }
 
-pub(crate) fn storage_binding_reference(
+fn storage_binding_reference(
     target: bray_bound_tree::StorageBindingTarget,
 ) -> Option<BoundReferenceTarget> {
     match target {

@@ -110,9 +110,16 @@ where
         }
         ConstantTermData::VariantTest { subject, variant } => {
             let subject = evaluator.evaluate_term(*subject, ty)?;
-            let value = evaluator.context.semantic_values().constant_value_data(subject);
 
-            let ConstantValueKind::Union { variant: active, .. } = value.kind() else {
+            let value = evaluator
+                .context
+                .semantic_values()
+                .constant_value_data(subject);
+
+            let ConstantValueKind::Union {
+                variant: active, ..
+            } = value.kind()
+            else {
                 panic!("checked variant test must observe a union value");
             };
 

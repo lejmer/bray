@@ -62,28 +62,51 @@ impl Compilation {
             }
         }
 
-        let assemblies = unit.operations().iter().filter_map(|operation| match operation.kind() {
-            bray_ir::MirOperationKind::Memory(memory) => match memory.kind() {
-                bray_bound_tree::CheckedMemoryOperationKind::InlineAssembly { contract, .. } => Some(contract),
+        let assemblies = unit
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                bray_ir::MirOperationKind::Memory(memory) => match memory.kind() {
+                    bray_bound_tree::CheckedMemoryOperationKind::InlineAssembly {
+                        contract,
+                        ..
+                    } => Some(contract),
+                    _ => None,
+                },
                 _ => None,
-            },
-            _ => None,
-        }).chain(unit.blocks().iter().filter_map(|block| match block.terminator().kind() {
-            MirTerminatorKind::InlineAssembly(assembly) => Some(assembly.contract()),
-            _ => None,
-        }));
+            })
+            .chain(
+                unit.blocks()
+                    .iter()
+                    .filter_map(|block| match block.terminator().kind() {
+                        MirTerminatorKind::InlineAssembly(assembly) => Some(assembly.contract()),
+                        _ => None,
+                    }),
+            );
 
         for contract in assemblies {
-            for operand in contract.operands().filter(|operand| operand.kind() == bray_bound_tree::InlineAssemblyOperandKind::Memory) {
-            let pointer = self.concrete_codegen_type(operand.ty(), instance.substitution(), Some(instance), cancellation)?;
+            for operand in contract.operands().filter(|operand| {
+                operand.kind() == bray_bound_tree::InlineAssemblyOperandKind::Memory
+            }) {
+                let pointer = self.concrete_codegen_type(
+                    operand.ty(),
+                    instance.substitution(),
+                    Some(instance),
+                    cancellation,
+                )?;
 
-            let target = self.available_compiler_known_symbols().unary_representation_argument(
-                values, bray_compiler_known::RepresentationRole::RawPointer, pointer,
-            ).expect("checked assembly memory operands have a raw pointer type");
+                let target = self
+                    .available_compiler_known_symbols()
+                    .unary_representation_argument(
+                        values,
+                        bray_compiler_known::RepresentationRole::RawPointer,
+                        pointer,
+                    )
+                    .expect("checked assembly memory operands have a raw pointer type");
 
-            // LLVM's elementtype attribute describes the accessed object. The pointer
-            // itself does not demand that object's layout for other operations.
-            demanded.insert(target);
+                // LLVM's elementtype attribute describes the accessed object. The pointer
+                // itself does not demand that object's layout for other operations.
+                demanded.insert(target);
             }
         }
 

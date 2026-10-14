@@ -39,12 +39,7 @@ impl Compilation {
             role,
             RepresentationRole::RawPointer | RepresentationRole::DevicePointer
         ) {
-            return self.codegen_indirect_pointer_type(
-                ty,
-                role,
-                substitution,
-                target,
-            );
+            return self.codegen_indirect_pointer_type(ty, role, substitution, target);
         }
 
         if role == RepresentationRole::Atomic {

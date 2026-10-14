@@ -139,7 +139,10 @@ pub(crate) fn resolve_storage_projections<C: CheckerRequestContext + ?Sized>(
     projections: &[DependencyProjection],
 ) -> crate::CheckerQueryResult<Option<Vec<StorageProjection>>, C::UpstreamError> {
     convert_projections(projections, |field| {
-        Ok(request.union_payload_field(field)?.expect("checked field projection retains its declaration").variant())
+        Ok(request
+            .union_payload_field(field)?
+            .expect("checked field projection retains its declaration")
+            .variant())
     })
 }
 
@@ -147,13 +150,17 @@ pub(crate) fn storage_projections(
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
     projections: &[DependencyProjection],
 ) -> Option<Vec<StorageProjection>> {
-    convert_projections(projections, |field| Ok::<_, std::convert::Infallible>(dependencies.projection_variant(field)))
-        .unwrap_or_else(|error| match error {})
+    convert_projections(projections, |field| {
+        Ok::<_, std::convert::Infallible>(dependencies.projection_variant(field))
+    })
+    .unwrap_or_else(|error| match error {})
 }
 
 fn convert_projections<E>(
     projections: &[DependencyProjection],
-    mut variant: impl FnMut(bray_symbols::UnionPayloadFieldSymbolId) -> Result<bray_symbols::UnionVariantSymbolId, E>,
+    mut variant: impl FnMut(
+        bray_symbols::UnionPayloadFieldSymbolId,
+    ) -> Result<bray_symbols::UnionVariantSymbolId, E>,
 ) -> Result<Option<Vec<StorageProjection>>, E> {
     let mut result = Vec::with_capacity(projections.len());
 
@@ -164,7 +171,12 @@ fn convert_projections<E>(
             DependencyProjection::NullableValue => StorageProjection::NullableValue,
             DependencyProjection::OwnedTarget => StorageProjection::OwnedTarget,
             DependencyProjection::UninitPayload => StorageProjection::UninitPayload,
-            DependencyProjection::UnionPayloadField(field) => StorageProjection::ActiveUnionPayloadField { variant: variant(field)?, field },
+            DependencyProjection::UnionPayloadField(field) => {
+                StorageProjection::ActiveUnionPayloadField {
+                    variant: variant(field)?,
+                    field,
+                }
+            }
             DependencyProjection::Element(_) => return Ok(None),
         });
     }

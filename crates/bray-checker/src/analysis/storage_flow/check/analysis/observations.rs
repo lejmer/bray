@@ -18,12 +18,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let paths = match invalidation {
             StorageInvalidation::All { .. } => {
                 let invocation = occurrence.expression().is_some_and(|expression| {
-                    matches!(self.execution.semantics.selections().expression(expression), Some(bray_bound_tree::SemanticSelection::Call(_)))
-                        || matches!(self.request.view().expression(expression), Some(bray_bound_tree::BoundExpression::Await(_)))
+                    matches!(
+                        self.execution.semantics.selections().expression(expression),
+                        Some(bray_bound_tree::SemanticSelection::Call(_))
+                    ) || matches!(
+                        self.request.view().expression(expression),
+                        Some(bray_bound_tree::BoundExpression::Await(_))
+                    )
                 });
 
                 return if invocation {
-                    self.opaque_observations(&state.memory, self.invocation_roots(state, occurrence))
+                    self.opaque_observations(
+                        &state.memory,
+                        self.invocation_roots(state, occurrence),
+                    )
                 } else {
                     StorageInvalidation::unknown()
                 };
@@ -83,7 +91,25 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        StorageInvalidation::All { stable_descriptors, stable_values }
+        // Ordinary statics cannot be replaced while their product or exact-thread
+        // owner is retained. Interior mutation cannot reach their empty markers.
+        let exposed = memory.raw_exposed_roots();
+
+        for (root, markers) in &self.input.stable_identities {
+            if matches!(
+                self.storage.identity(*root),
+                Some(bray_bound_tree::StorageIdentity::Static(_))
+            ) && !exposed.contains(root)
+            {
+                stable_descriptors.insert(StoragePath::root(*root));
+                stable_values.extend(markers.iter().cloned());
+            }
+        }
+
+        StorageInvalidation::All {
+            stable_descriptors,
+            stable_values,
+        }
     }
 
     pub(super) fn preserve_borrowed_carriers(
@@ -92,28 +118,56 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         memory: &crate::analysis::storage_flow::memory::State,
         invalidation: &mut StorageInvalidation,
     ) {
-        let StorageInvalidation::All { stable_descriptors, stable_values } = invalidation else { return; };
+        let StorageInvalidation::All {
+            stable_descriptors,
+            stable_values,
+        } = invalidation
+        else {
+            return;
+        };
 
         let exposed = memory.raw_exposed_roots();
 
         for borrow in &state.definitely_active_borrows {
-            let capability = self.storage.borrow_capability(*borrow).expect("active borrow retains its plan");
+            let capability = self
+                .storage
+                .borrow_capability(*borrow)
+                .expect("active borrow retains its plan");
 
-            if capability.kind() != bray_symbols::BorrowKind::Shared { continue; }
+            if capability.kind() != bray_symbols::BorrowKind::Shared {
+                continue;
+            }
 
-            let Some(path) = self.storage.logical_path(capability.access()) else { continue; };
+            let Some(path) = self.storage.logical_path(capability.access()) else {
+                continue;
+            };
 
             // An address formed from this borrow can be used by native code to replace
             // its allocation. The temporary borrow does not bound that opaque effect.
-            if exposed.contains(&path.root) { continue; }
+            if exposed.contains(&path.root) {
+                continue;
+            }
 
-            let Some(markers) = self.input.stable_identities.get(&path.root).or_else(|| self.input.borrowed_identities.get(&path.root)) else { continue; };
+            let Some(markers) = self
+                .input
+                .stable_identities
+                .get(&path.root)
+                .or_else(|| self.input.borrowed_identities.get(&path.root))
+            else {
+                continue;
+            };
 
             // A live shared borrow prevents replacement of the selected storage,
             // including a complete owner nested in another value. Keep only marker
             // observations within that borrow, never an unborrowed sibling.
             stable_descriptors.insert(path.clone());
-            stable_values.extend(markers.iter().filter(|marker| path.contains(marker)).cloned());
+
+            stable_values.extend(
+                markers
+                    .iter()
+                    .filter(|marker| path.contains(marker))
+                    .cloned(),
+            );
         }
     }
 
@@ -144,7 +198,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return;
         };
 
-        if !replaced && !effects.iter().filter_map(Effect::mutation).any(|(changed, _)| target.contains(changed)) {
+        if !replaced
+            && !effects
+                .iter()
+                .filter_map(Effect::mutation)
+                .any(|(changed, _)| target.contains(changed))
+        {
             return;
         }
 
@@ -172,22 +231,50 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         effects: &[Effect],
         roots: impl IntoIterator<Item = Target>,
     ) -> StorageInvalidation {
-        if effects.iter().any(|effect| matches!(effect, Effect::Cleanup(_))) {
+        if effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Cleanup(_)))
+        {
             return self.opaque_observations(memory, roots);
         }
 
-        let atomic = effects.iter().any(|effect| matches!(effect,
-            Effect::Atomic | Effect::Mutation(_, bray_symbols::DependencyMutationKind::Atomic)));
+        let atomic = effects.iter().any(|effect| {
+            matches!(
+                effect,
+                Effect::Atomic | Effect::Mutation(_, bray_symbols::DependencyMutationKind::Atomic)
+            )
+        });
 
-        let ordinary = effects.iter().filter_map(Effect::mutation).filter(|(_, kind)| *kind != bray_symbols::DependencyMutationKind::Atomic).map(|(target, _)| target);
+        let ordinary = effects
+            .iter()
+            .filter_map(Effect::mutation)
+            .filter(|(_, kind)| *kind != bray_symbols::DependencyMutationKind::Atomic)
+            .map(|(target, _)| target);
 
         let mut invalidation = if atomic {
-            let frame = self.input.atomic_observations.as_ref().expect("atomic effects prepare their observation frame");
+            let frame = self
+                .input
+                .atomic_observations
+                .as_ref()
+                .expect("atomic effects prepare their observation frame");
 
-            if effects.iter().any(|effect| matches!(effect, Effect::Atomic)) {
-                crate::storage::observation::restrict(self.opaque_observations(memory, roots), frame)
+            if effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::Atomic))
+            {
+                crate::storage::observation::restrict(
+                    self.opaque_observations(memory, roots),
+                    frame,
+                )
             } else {
-                let targets = self.target_observations(memory, effects.iter().filter_map(Effect::mutation).filter(|(_, kind)| *kind == bray_symbols::DependencyMutationKind::Atomic).map(|(target, _)| target));
+                let targets = self.target_observations(
+                    memory,
+                    effects
+                        .iter()
+                        .filter_map(Effect::mutation)
+                        .filter(|(_, kind)| *kind == bray_symbols::DependencyMutationKind::Atomic)
+                        .map(|(target, _)| target),
+                );
 
                 crate::storage::observation::restrict(targets, frame)
             }
@@ -208,11 +295,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: bray_bound_tree::BoundExecutionSite,
         effects: &[Effect],
     ) -> StorageInvalidation {
-        if effects.iter().any(|effect| matches!(effect, Effect::Cleanup(_))) {
-            return self.opaque_observations(&state.memory, self.invocation_roots(state, occurrence));
+        if effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Cleanup(_)))
+        {
+            return self
+                .opaque_observations(&state.memory, self.invocation_roots(state, occurrence));
         }
 
-        let mut invalidation = self.resolved_observations(&state.memory, effects, self.invocation_roots(state, occurrence));
+        let mut invalidation = self.resolved_observations(
+            &state.memory,
+            effects,
+            self.invocation_roots(state, occurrence),
+        );
 
         if effects.is_empty() {
             return invalidation;

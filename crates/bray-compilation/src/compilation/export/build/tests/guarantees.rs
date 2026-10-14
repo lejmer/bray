@@ -991,36 +991,36 @@ fn imported_mixed_predicate_conditions_preserve_trusted_occurrences() {
 #[test]
 fn nullable_pattern_contracts_survive_interface_transport() {
     for (parameter, argument) in [("u32?", "value"), ("&(u32?)", "&value")] {
-    for pattern in ["none", "?_"] {
-    let provider = compilation(&format!(
-        r#"
+        for pattern in ["none", "?_"] {
+            let provider = compilation(&format!(
+                r#"
         module api;
         func selected(pos value: {parameter}) requires(value matches {pattern}) executes(total) {{}}
     "#,
-    ));
+            ));
 
-    assert!(
-        !provider.check_diagnostics().has_errors(),
-        "{:?}",
-        provider.check_diagnostics()
-    );
+            assert!(
+                !provider.check_diagnostics().has_errors(),
+                "{:?}",
+                provider.check_diagnostics()
+            );
 
-    for (value, valid) in [("none", pattern == "none"), ("1", pattern == "?_")] {
-        let source = format!(
-            "module app; using example.package.api; func root() executes(total) {{ let value: u32? = {value}; example.package.api.selected({argument}); }}"
-        );
+            for (value, valid) in [("none", pattern == "none"), ("1", pattern == "?_")] {
+                let source = format!(
+                    "module app; using example.package.api; func root() executes(total) {{ let value: u32? = {value}; example.package.api.selected({argument}); }}"
+                );
 
-        let consumer = execution_consumer(&provider, &source);
+                let consumer = execution_consumer(&provider, &source);
 
-        assert_eq!(
-            !consumer.check_diagnostics().has_errors(),
-            valid,
-            "{source}: {:?}",
-            consumer.check_diagnostics()
-        );
+                assert_eq!(
+                    !consumer.check_diagnostics().has_errors(),
+                    valid,
+                    "{source}: {:?}",
+                    consumer.check_diagnostics()
+                );
+            }
+        }
     }
-}
-}
 }
 
 #[test]
@@ -1138,7 +1138,8 @@ fn imported_cleanup_postconditions_follow_the_updated_borrowed_storage() {
 
 #[test]
 fn imported_union_variant_contracts_preserve_checked_tags() {
-    let provider = compilation(r#"
+    let provider = compilation(
+        r#"
         module api;
         func create() -> Result<u32, u32> ensures(result matches Ok(_)) executes(total) { return Ok(7); }
         const func observe(pos value: &Result<u32, u32>) -> u32
@@ -1149,22 +1150,38 @@ fn imported_union_variant_contracts_preserve_checked_tags() {
                 case Error(_) { panic("unreachable"); }
             }
         }
-    "#);
+    "#,
+    );
 
     for (body, valid) in [
-        ("let value = example.package.api.create(); let _ = example.package.api.observe(&value);", true),
-        ("let value: Result<u32, u32> = Error(7); let _ = example.package.api.observe(&value);", false),
+        (
+            "let value = example.package.api.create(); let _ = example.package.api.observe(&value);",
+            true,
+        ),
+        (
+            "let value: Result<u32, u32> = Error(7); let _ = example.package.api.observe(&value);",
+            false,
+        ),
     ] {
-        let source = format!("module app; using example.package.api; func root() executes(total) {{ {body} }}");
+        let source = format!(
+            "module app; using example.package.api; func root() executes(total) {{ {body} }}"
+        );
+
         let consumer = execution_consumer(&provider, &source);
 
-        assert_eq!(!consumer.check_diagnostics().has_errors(), valid, "{body}: {:?}", consumer.check_diagnostics());
+        assert_eq!(
+            !consumer.check_diagnostics().has_errors(),
+            valid,
+            "{body}: {:?}",
+            consumer.check_diagnostics()
+        );
     }
 }
 
 #[test]
 fn imported_forwarded_carrier_preserves_its_original_boundary() {
-    let provider = compilation(r#"
+    let provider = compilation(
+        r#"
         trusted module api;
         struct Marker {}
         struct Guard { marker: Marker; }
@@ -1178,28 +1195,42 @@ fn imported_forwarded_carrier_preserves_its_original_boundary() {
         { return { guard = acquire() }; }
         func observe(pos guard: &Guard)
             requires(trusted held(&guard.marker)) executes(pure, total) {}
-    "#);
+    "#,
+    );
 
     for (body, valid) in [
-        ("let wrapper = example.package.api.wrap(); let guard = wrapper.guard; example.package.api.observe(&guard);", true),
-        ("let marker = example.package.api.wrap().guard.marker;", false),
+        (
+            "let wrapper = example.package.api.wrap(); let guard = wrapper.guard; example.package.api.observe(&guard);",
+            true,
+        ),
+        (
+            "let marker = example.package.api.wrap().guard.marker;",
+            false,
+        ),
     ] {
-        let source = format!(r#"
+        let source = format!(
+            r#"
             module app;
             using example.package.api;
             func root() {{ {body} }}
-        "#);
+        "#
+        );
 
         let application = execution_consumer(&provider, &source);
         let diagnostics = application.check_diagnostics();
 
-        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:?}");
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:?}"
+        );
     }
 }
 
 #[test]
 fn imported_static_owner_retains_initializer_authority() {
-    let provider = compilation(r#"
+    let provider = compilation(
+        r#"
         trusted module api;
         struct Marker {}
         struct Owner { marker: Marker; }
@@ -1208,16 +1239,145 @@ fn imported_static_owner_retains_initializer_authority() {
             ensures(trusted held(&result.marker)) executes(pure, total)
         { return { marker = Marker {} }; }
         static OWNER: Owner = create();
+        extern func opaque();
         func observe(pos owner: &Owner) requires(trusted held(&owner.marker)) {}
-    "#);
+    "#,
+    );
 
     for (body, valid) in [
-        ("example.package.api.observe(&example.package.api.OWNER);", true),
-        ("let owner = example.package.api.Owner { marker = example.package.api.Marker {} }; example.package.api.observe(&owner);", false),
+        (
+            "example.package.api.observe(&example.package.api.OWNER); example.package.api.opaque(); example.package.api.observe(&example.package.api.OWNER);",
+            true,
+        ),
+        (
+            "let owner = example.package.api.Owner { marker = example.package.api.Marker {} }; example.package.api.observe(&owner);",
+            false,
+        ),
     ] {
         let source = format!("module app; using example.package.api; func root() {{ {body} }}");
         let consumer = execution_consumer(&provider, &source);
 
-        assert_eq!(!consumer.check_diagnostics().has_errors(), valid, "{body}: {:?}", consumer.check_diagnostics());
+        assert_eq!(
+            !consumer.check_diagnostics().has_errors(),
+            valid,
+            "{body}: {:?}",
+            consumer.check_diagnostics()
+        );
+    }
+}
+
+#[test]
+fn imported_total_cleanup_certification_preserves_the_entry_domain() {
+    for (guarantee, body, total) in [
+        ("executes(total)", "", true),
+        (
+            "when(self.ready) { executes(total) }",
+            "if !self.ready { panic(\"not ready\"); }",
+            false,
+        ),
+    ] {
+        let declarations = format!(
+            r#"
+            trusted module api;
+            trusted predicate live<T>(owner: &Owner<T>);
+            struct Owner<T> {{
+                value: bool;
+                ready: bool;
+                trusted destruct() requires(trusted live<T>(owner = &self)) {guarantee} {{ {body} }}
+            }}
+            func dispose(pos owner: Owner<bool>) requires(trusted live<bool>(owner = &owner)) {{}}
+        "#
+        );
+
+        let provider = compilation(&declarations);
+
+        assert!(
+            !provider.check_diagnostics().has_errors(),
+            "{declarations}: {:#?}",
+            provider.check_diagnostics()
+        );
+
+        let consumer = execution_consumer(
+            &provider,
+            r#"
+            module app;
+            using example.package.api;
+            func dispose(pos owner: example.package.api.Owner<bool>)
+                requires(trusted example.package.api.live<bool>(owner = &owner)) {}
+            func forged() { let owner: example.package.api.Owner<bool> = { value = false, ready = true }; }
+        "#,
+        );
+
+        for application in [&provider, &consumer] {
+            let key = crate::test_support::source_function_body_key(application, "dispose");
+            let bound = application.bound_unit(key).unwrap();
+
+            assert!(!bound.diagnostics().has_errors(), "{bound:#?}");
+
+            let lowered = application
+                .lowered_unit(crate::test_support::source_function_body_key(
+                    application,
+                    "dispose",
+                ))
+                .unwrap();
+
+            assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
+
+            let ty = lowered
+                .value()
+                .as_ref()
+                .unwrap()
+                .mir()
+                .unwrap()
+                .storages()
+                .iter()
+                .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
+                .unwrap()
+                .ty();
+
+            let cancellation = crate::CancellationToken::new();
+
+            let selected = application
+                .selected_lifecycle_signature(
+                    ty,
+                    bray_symbols::TypeAssociatedLifecycleSlot::Destructor,
+                    &cancellation,
+                )
+                .unwrap();
+
+            let (callable, _) = selected.value().as_ref().unwrap();
+
+            assert_eq!(
+                application
+                    .certified_entry_property(
+                        *callable,
+                        bray_checker::ExecutionProperty::Total,
+                        &cancellation
+                    )
+                    .unwrap(),
+                total
+            );
+
+            assert!(
+                application
+                    .verified_execution_obligation(
+                        *callable,
+                        bray_checker::ExecutionObligation::Property(
+                            bray_checker::ExecutionProperty::Total,
+                            None
+                        ),
+                        None,
+                        &cancellation
+                    )
+                    .unwrap()
+                    .is_none(),
+                "a capacity certificate must not authorize a caller"
+            );
+        }
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            consumer.check_diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+        );
     }
 }

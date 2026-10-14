@@ -672,9 +672,20 @@ mod tests {
         let template = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
 
         assert_eq!(template.effects().len(), 5);
-        assert_eq!(store.dependency_contract_template_data(imported.dependency_contracts()[1]).effects(), &[DependencyStorageEffect::Atomic]);
+
+        assert_eq!(
+            store
+                .dependency_contract_template_data(imported.dependency_contracts()[1])
+                .effects(),
+            &[DependencyStorageEffect::Atomic]
+        );
+
         assert!(!template.normal_completion());
-        assert_eq!(template.effects()[0], DependencyStorageEffect::Cleanup(imported.types()[0]));
+
+        assert_eq!(
+            template.effects()[0],
+            DependencyStorageEffect::Cleanup(imported.types()[0])
+        );
 
         assert!(
             matches!(&template.effects()[4], DependencyStorageEffect::Indirect { projections, kind: DependencyMutationKind::Retire, .. }

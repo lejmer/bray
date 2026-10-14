@@ -135,7 +135,10 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
 
     if let Some(operation) = memory.operation(expression) {
         if goal == ExecutionGoal::NoUnwind
-            && matches!(operation.kind(), bray_bound_tree::CheckedMemoryOperationKind::AtomicWait { .. })
+            && matches!(
+                operation.kind(),
+                bray_bound_tree::CheckedMemoryOperationKind::AtomicWait { .. }
+            )
         {
             let Some(SemanticSelection::Call(call)) = selections.expression(expression) else {
                 panic!("checked atomic wait retains its selected call");

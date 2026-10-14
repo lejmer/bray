@@ -67,7 +67,8 @@ pub(in crate::compilation::export) fn export_checked_source_template(
         crate::compilation::binder::expression_result_dependencies(&context, &key)
             .map_err(super::super::binding_query_export_error)?;
 
-    let patterns = compilation.patterns_with_cancellation(key.clone(), cancellation)
+    let patterns = compilation
+        .patterns_with_cancellation(key.clone(), cancellation)
         .map_err(super::super::fact_query_export_error)?;
 
     let body = compilation
@@ -284,7 +285,9 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             panic!("checked pattern test has one subject");
         };
 
-        let pattern = expression.patterns().first()
+        let pattern = expression
+            .patterns()
+            .first()
             .and_then(|pattern| self.patterns.complete_test(self.unit, *pattern))
             .ok_or_else(|| incomplete("unsupported_pattern_test"))?;
 
@@ -294,7 +297,9 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             bray_bound_tree::PatternPredicate::ActiveUnionVariant(variant) => {
                 return Ok(InterfaceCheckedTemplateOperation::VariantTest {
                     subject: left,
-                    variant: InterfaceTemplateReference::Symbol(self.export.symbol_reference(variant.into())?),
+                    variant: InterfaceTemplateReference::Symbol(
+                        self.export.symbol_reference(variant.into())?,
+                    ),
                 });
             }
             bray_bound_tree::PatternPredicate::NullableAbsent => ConstantBinaryOperation::Equal,
@@ -302,8 +307,11 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             _ => return Err(incomplete("unsupported_pattern_test")),
         };
 
-        let subject_type = self.types.expression(*subject)
-            .expect("checked pattern subject retains its type").ty();
+        let subject_type = self
+            .types
+            .expression(*subject)
+            .expect("checked pattern subject retains its type")
+            .ty();
 
         let subject_type = self.export.values.unborrowed_type(subject_type);
         let right = CheckedTemplateNodeId::new(index(self.nodes.len())?);
@@ -316,7 +324,11 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             self.export.type_id(subject_type)?,
         ));
 
-        Ok(InterfaceCheckedTemplateOperation::Binary { operation, left, right })
+        Ok(InterfaceCheckedTemplateOperation::Binary {
+            operation,
+            left,
+            right,
+        })
     }
 
     pub(in crate::compilation::export) fn expression(

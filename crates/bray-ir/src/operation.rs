@@ -237,8 +237,12 @@ impl MirMemoryOperation {
 
         match self.kind {
             CheckedMemoryOperationKind::AtomicWait { .. } => Some(RuntimeAbiRole::AtomicWordWait),
-            CheckedMemoryOperationKind::AtomicNotify { all: true, .. } => Some(RuntimeAbiRole::AtomicWordNotifyAll),
-            CheckedMemoryOperationKind::AtomicNotify { all: false, .. } => Some(RuntimeAbiRole::AtomicWordNotifyOne),
+            CheckedMemoryOperationKind::AtomicNotify { all: true, .. } => {
+                Some(RuntimeAbiRole::AtomicWordNotifyAll)
+            }
+            CheckedMemoryOperationKind::AtomicNotify { all: false, .. } => {
+                Some(RuntimeAbiRole::AtomicWordNotifyOne)
+            }
             _ => None,
         }
     }

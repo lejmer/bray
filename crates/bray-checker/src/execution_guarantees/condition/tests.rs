@@ -14,15 +14,40 @@ fn changed_contents_do_not_reuse_unlisted_components_from_carrier_identity() {
     let value = ExecutionCondition::Constructed(
         Arc::new(identity.clone()),
         [
-            (bray_bound_tree::StorageProjection::OwnedTarget, contents.clone()),
-            (bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(1)), marker.clone()),
-        ].into(),
+            (
+                bray_bound_tree::StorageProjection::OwnedTarget,
+                contents.clone(),
+            ),
+            (
+                bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(1)),
+                marker.clone(),
+            ),
+        ]
+        .into(),
     );
 
     assert_eq!(value.owner_identity(), &identity);
-    assert_eq!(value.clone().component(first), contents.clone().component(first));
-    assert_eq!(value.clone().component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1))), marker);
-    assert_eq!(value.component(ConstantProjectionKind::NullableValue).component(first), contents.component(ConstantProjectionKind::NullableValue).component(first));
+
+    assert_eq!(
+        value.clone().component(first),
+        contents.clone().component(first)
+    );
+
+    assert_eq!(
+        value
+            .clone()
+            .component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1))),
+        marker
+    );
+
+    assert_eq!(
+        value
+            .component(ConstantProjectionKind::NullableValue)
+            .component(first),
+        contents
+            .component(ConstantProjectionKind::NullableValue)
+            .component(first)
+    );
 }
 
 #[test]
@@ -114,10 +139,13 @@ fn boolean_proofs_keep_decisive_operands_without_equating_unknowns() {
     for left in [None, Some(false), Some(true)] {
         for right in [None, Some(false), Some(true)] {
             for operator in [BoundOperator::LogicalAnd, BoundOperator::LogicalOr] {
-                let condition = ExecutionCondition::operation(operator, vec![
-                    left.map_or(ExecutionCondition::Unknown, ExecutionCondition::Boolean),
-                    right.map_or(ExecutionCondition::Unknown, ExecutionCondition::Boolean),
-                ]);
+                let condition = ExecutionCondition::operation(
+                    operator,
+                    vec![
+                        left.map_or(ExecutionCondition::Unknown, ExecutionCondition::Boolean),
+                        right.map_or(ExecutionCondition::Unknown, ExecutionCondition::Boolean),
+                    ],
+                );
 
                 let decisive = operator == BoundOperator::LogicalOr;
 
@@ -125,27 +153,51 @@ fn boolean_proofs_keep_decisive_operands_without_equating_unknowns() {
                     Some(decisive)
                 } else if left.is_some() && right.is_some() {
                     Some(!decisive)
-                } else { None };
+                } else {
+                    None
+                };
 
                 let facts = BTreeSet::new();
 
-                assert_eq!(condition.prove(&facts, &mut { ExecutionCondition::WORK_LIMIT }), expected);
-                assert_eq!(condition.prove_mixed(&facts, &facts, &mut { ExecutionCondition::WORK_LIMIT }), expected);
+                assert_eq!(
+                    condition.prove(&facts, &mut { ExecutionCondition::WORK_LIMIT }),
+                    expected
+                );
+
+                assert_eq!(
+                    condition.prove_mixed(&facts, &facts, &mut { ExecutionCondition::WORK_LIMIT }),
+                    expected
+                );
             }
         }
     }
 
     let known = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
 
-    for (operator, truth) in [(BoundOperator::LogicalOr, true), (BoundOperator::LogicalAnd, false)] {
-        let condition = ExecutionCondition::operation(operator, vec![ExecutionCondition::Unknown, known.clone()]);
+    for (operator, truth) in [
+        (BoundOperator::LogicalOr, true),
+        (BoundOperator::LogicalAnd, false),
+    ] {
+        let condition = ExecutionCondition::operation(
+            operator,
+            vec![ExecutionCondition::Unknown, known.clone()],
+        );
+
         let mut facts = BTreeSet::new();
 
         condition.clone().assume(truth, &mut facts);
         assert!(facts.is_empty());
         facts.insert((condition.clone(), truth));
-        assert_eq!(condition.prove(&facts, &mut { ExecutionCondition::WORK_LIMIT }), None);
-        assert_eq!(condition.prove_mixed(&facts, &facts, &mut { ExecutionCondition::WORK_LIMIT }), None);
+
+        assert_eq!(
+            condition.prove(&facts, &mut { ExecutionCondition::WORK_LIMIT }),
+            None
+        );
+
+        assert_eq!(
+            condition.prove_mixed(&facts, &facts, &mut { ExecutionCondition::WORK_LIMIT }),
+            None
+        );
     }
 }
 
@@ -161,5 +213,9 @@ fn repeated_component_observation_keeps_the_original_snapshot() {
     let changed = original.with_component(&[first, nested], ExecutionCondition::Boolean(true));
 
     assert_ne!(changed, original);
-    assert_eq!(changed.clone().component(first).component(nested), ExecutionCondition::Boolean(true));
+
+    assert_eq!(
+        changed.clone().component(first).component(nested),
+        ExecutionCondition::Boolean(true)
+    );
 }

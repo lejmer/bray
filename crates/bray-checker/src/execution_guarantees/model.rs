@@ -185,9 +185,25 @@ pub struct ExecutionDomain {
     pub postconditions: Vec<bray_declarations::SyntaxAnchor>,
 }
 
+/// Authority carried by an unchanged owned input across a checked forwarding call.
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub(crate) struct ExecutionValueEvidence {
+    pub(crate) carriers: std::collections::BTreeMap<
+        super::ExecutionCondition,
+        std::collections::BTreeSet<super::ExecutionCondition>,
+    >,
+    pub(crate) dependencies: std::collections::BTreeMap<
+        super::ExecutionCondition,
+        std::collections::BTreeSet<super::ExecutionPlace>,
+    >,
+    pub(crate) allocations:
+        std::collections::BTreeMap<super::ExecutionCondition, super::ExecutionCondition>,
+}
+
 /// Values captured at a selected call's entry, before callee mutation can occur.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ExecutionCallEvidence {
+    pub(crate) returned: ExecutionValueEvidence,
     pub(crate) anonymous_target: Option<bray_bound_tree::BoundUnitKey>,
     pub(crate) trusted_boundary: bool,
     pub(crate) pending_execution: bool,
@@ -213,6 +229,13 @@ impl ExecutionCallEvidence {
             self.arguments.len(),
         );
 
+        let returned_changed =
+            self.returned != other.returned && self.returned != ExecutionValueEvidence::default();
+
+        if returned_changed {
+            self.returned = ExecutionValueEvidence::default();
+        }
+
         if self.anonymous_target != other.anonymous_target {
             self.anonymous_target = None;
         }
@@ -229,15 +252,16 @@ impl ExecutionCallEvidence {
         self.arguments
             .retain(|place, value| other.arguments.get(place) == Some(value));
 
-        before
-            != (
-                self.anonymous_target.is_some(),
-            self.trusted_boundary,
-                self.pending_execution,
-                self.assumptions.len(),
-                self.trusted_assumptions.len(),
-                self.arguments.len(),
-            )
+        returned_changed
+            || before
+                != (
+                    self.anonymous_target.is_some(),
+                    self.trusted_boundary,
+                    self.pending_execution,
+                    self.assumptions.len(),
+                    self.trusted_assumptions.len(),
+                    self.arguments.len(),
+                )
     }
 
     /// Whether every callee-entry condition follows from the captured argument values.
