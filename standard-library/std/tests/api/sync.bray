@@ -6,7 +6,8 @@ using std.task;
 using std.testing;
 
 internal async func increment_mutex(pos counter: &std.sync.Mutex<u32>, pos iterations: u32)
-    requires(blocking_execution())
+    requires(blocking_execution(), trusted std.sync.mutex.valid(&counter.instance))
+    ensures(trusted std.sync.mutex.valid(&counter.instance))
 {
     let mut remaining: u32 = iterations;
 
@@ -25,7 +26,8 @@ internal async func increment_mutex(pos counter: &std.sync.Mutex<u32>, pos itera
 }
 
 internal async func panic_while_holding_mutex(pos mutex: &std.sync.Mutex<u32>)
-    requires(blocking_execution())
+    requires(blocking_execution(), trusted std.sync.mutex.valid(&mutex.instance))
+    ensures(trusted std.sync.mutex.valid(&mutex.instance))
 {
     let guard: std.sync.MutexGuard<u32> = mutex.lock();
 
@@ -33,7 +35,8 @@ internal async func panic_while_holding_mutex(pos mutex: &std.sync.Mutex<u32>)
 }
 
 internal async func record_writer_order(pos lock: &std.sync.RwLock<u32>, pos order: &std.atomic.Atomic<u32>)
-    requires(blocking_execution())
+    requires(blocking_execution(), trusted std.sync.rw_lock.valid(&lock.instance))
+    ensures(trusted std.sync.rw_lock.valid(&lock.instance))
 {
     let mut guard: std.sync.RwLockWriteGuard<u32> = lock.write();
     let position: u32 = order.fetch_add(1, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
@@ -44,7 +47,8 @@ internal async func record_writer_order(pos lock: &std.sync.RwLock<u32>, pos ord
 }
 
 internal async func record_reader_order(pos lock: &std.sync.RwLock<u32>, pos order: &std.atomic.Atomic<u32>)
-    requires(blocking_execution())
+    requires(blocking_execution(), trusted std.sync.rw_lock.valid(&lock.instance))
+    ensures(trusted std.sync.rw_lock.valid(&lock.instance))
 {
     let guard: std.sync.RwLockReadGuard<u32> = lock.read();
     let position: u32 = order.fetch_add(1, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
@@ -58,7 +62,8 @@ internal async func cross_reusable_barrier(
     pos rounds: u32,
     pos crossings: &std.atomic.Atomic<u32>,
 )
-    requires(blocking_execution())
+    requires(blocking_execution(), trusted std.sync.mutex.valid(barrier.marker()))
+    ensures(trusted std.sync.mutex.valid(barrier.marker()))
 {
     let mut remaining: u32 = rounds;
 

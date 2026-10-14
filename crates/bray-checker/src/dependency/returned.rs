@@ -143,7 +143,6 @@ fn resolve_cleanup_effects<C: CheckerRequestContext + ?Sized>(
     Ok(resolved)
 }
 
-
 fn value_requirement(root: DependencySubjectRoot) -> DependencyRequirement {
     DependencyRequirement::direct(
         DependencySubject::root(root),

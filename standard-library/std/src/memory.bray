@@ -512,6 +512,7 @@ trusted internal func take_buffer<T>(pos buffer: &mut RawBuffer<T>) -> RawBuffer
     uses(manual_alloc)
 {
     let empty = trusted internal allocate_buffer<T>(capacity = 0, bytes = 0, align = align_of<T>());
+
     return replace_value(buffer, empty);
 }
 

@@ -225,7 +225,12 @@ impl Compilation {
             inputs.constants =
                 self.execution_constant_inputs(bound, semantics, cancellation, &mut diagnostics)?;
 
-            self.trusted_static_inputs(semantics, &mut inputs, &mut diagnostics)?;
+            inputs.statics.extend(semantics.selections().entries().iter().filter_map(|entry| {
+                match entry.selection() {
+                    SemanticSelection::StaticReference(selection) => Some(selection.clone()),
+                    _ => None,
+                }
+            }));
         }
 
         let witnesses = self.trusted_required_witnesses(&inputs.requirements, cancellation)?;
@@ -234,38 +239,6 @@ impl Compilation {
         inputs.required_witnesses = witnesses.into_parts().0;
 
         Ok(DiagnosticResult::new(inputs, diagnostics))
-    }
-
-    fn trusted_static_inputs(
-        &self,
-        semantics: &CheckedExpressionSemantics,
-        inputs: &mut TrustedContractInputs,
-        diagnostics: &mut DiagnosticBag,
-    ) -> Result<(), FactQueryError> {
-        // Static initialization is demanded only by bodies that reason about authority.
-        // Ordinary dependency discovery must not recursively check initializer bodies.
-        for entry in semantics.selections().entries() {
-            if let SemanticSelection::StaticReference(selection) = entry.selection() {
-                let place = bray_checker::ExecutionPlace::static_instance(selection.clone());
-
-                if !inputs.statics.contains_key(&place) {
-                    let template = self.static_instance_template(selection.template().declaration())?;
-
-                    diagnostics.add_range(template.diagnostics().iter().cloned());
-
-                    let values = self.semantic_value_store()?;
-
-                    let contract = values.substitute_dependency_contract(template.value().dependency_contract(), selection.substitution())
-                        .expect("selected static substitution belongs to the same semantic store");
-
-                    let contract = values.dependency_contract_template_data(contract);
-
-                    inputs.statics.insert(place, contract.carriers().to_vec());
-                }
-            }
-        }
-
-        Ok(())
     }
 
     fn trusted_call_input_count(

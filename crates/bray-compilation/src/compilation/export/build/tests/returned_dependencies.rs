@@ -1002,6 +1002,7 @@ fn imported_union_payload_dependencies_resolve_at_the_owning_boundary() {
             match choice { case .Value(item) { return item; } }
         }
     "#);
+
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
 
     for (body, valid) in [
@@ -1011,6 +1012,7 @@ fn imported_union_payload_dependencies_resolve_at_the_owning_boundary() {
         let source = format!("module app; using example.package.api.Choice; using example.package.api.get; {body}");
         let consumer = execution_consumer(&provider, &source);
         let diagnostics = consumer.check_diagnostics();
+
         if valid {
             assert!(!diagnostics.has_errors(), "{diagnostics:?}");
         } else {

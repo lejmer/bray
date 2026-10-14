@@ -249,6 +249,27 @@ where
         }
     };
 
+    let mut static_carriers = BTreeMap::new();
+
+    for selection in request.trusted_contracts().into_iter().flat_map(|inputs| &inputs.statics) {
+        let template = match request.static_result_dependencies(selection.template().declaration()) {
+            Ok(template) => template,
+            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
+        };
+
+        let values = request.semantic_values();
+
+        let template = values.substitute_dependency_contract(template, selection.substitution())
+            .expect("selected static substitution belongs to the same semantic store");
+
+        let template = values.dependency_contract_template_data(template);
+
+        static_carriers.insert(selection.clone(), template.carriers().into());
+    }
+
+    let contracts = contracts.with_static_carriers(static_carriers);
+
     let variants = match super::projection::prepare_variants(request, &contracts, storage, value_inputs) {
         Ok(variants) => variants,
         Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,

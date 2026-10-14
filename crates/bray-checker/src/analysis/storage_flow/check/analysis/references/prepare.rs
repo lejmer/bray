@@ -194,6 +194,8 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
 pub(super) fn project<C: CheckerRequestContext + ?Sized>(request: crate::CheckerUnitView<'_, C>, mut path: Place, projections: &[bray_symbols::DependencyProjection]) -> crate::CheckerQueryResult<Option<Place>, C::UpstreamError> {
     let Some(suffix) = crate::storage::resolve_storage_projections(request, projections)? else { return Ok(None); };
+
     path.projections = path.projections.iter().copied().chain(suffix).collect();
+
     Ok(Some(path))
 }

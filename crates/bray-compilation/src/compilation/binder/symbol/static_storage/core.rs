@@ -1298,13 +1298,15 @@ mod tests {
 
     #[test]
     fn static_lifecycle_dependencies_through_helpers_report_cycles() {
-        let compilation = compilation(
-            r#"
-            module app;
+        for witness in ["", "let evidence = issue();"] {
+        let source = r#"
+            trusted module app;
+            trusted predicate valid(value: &bool);
+            trusted func issue() -> bool ensures(trusted valid(&result)) { return true; }
             static First: FirstResource = FirstResource {};
             static Second: SecondResource = SecondResource {};
-            func read_first() { let value = First; value; }
-            func read_second() { let value = Second; value; }
+            func read_first() { WITNESS let value = First; value; }
+            func read_second() { WITNESS let value = Second; value; }
             struct FirstResource {}
             impl FirstResource
             {
@@ -1315,8 +1317,9 @@ mod tests {
             {
                 finalize() { read_first(); }
             }
-            "#,
-        );
+            "#;
+
+        let compilation = compilation(&source.replace("WITNESS", witness));
 
         assert_eq!(
             diagnostics_of_kind(
@@ -1331,6 +1334,7 @@ mod tests {
             compilation.check_diagnostics(),
             DiagnosticKind::CheckingStaticLifecycleCycle,
         );
+         }
     }
 
     #[test]

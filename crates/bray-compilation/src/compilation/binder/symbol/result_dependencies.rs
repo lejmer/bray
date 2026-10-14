@@ -410,6 +410,7 @@ fn body_kind(owner: AnySymbolId) -> BoundUnitKind {
         AnySymbolId::CallableParameterDefaultProvider(_)
         | AnySymbolId::StructFieldDefaultProvider(_)
         | AnySymbolId::UnionPayloadDefaultProvider(_) => BoundUnitKind::RuntimeDefault,
+        AnySymbolId::Static(_) => BoundUnitKind::ConstantTemplate,
         _ => BoundUnitKind::CallableBody,
     }
 }
@@ -428,6 +429,7 @@ fn body_callees<'a>(
             _ => None,
         })
         .chain(behavior.defaults().iter().map(|provider| provider.symbol()))
+        .chain(behavior.static_dependencies().iter().copied().map(AnySymbolId::Static))
         .chain(prepared.lifecycle_callees().map(CallableSymbolId::into_any))
 }
 
@@ -459,6 +461,10 @@ fn summary(
         CallableParameterDefaultQuery, CallableParameterDefaultValue, StructFieldDefaultQuery,
         StructFieldDefaultValue, UnionPayloadDefaultValue, UnionPayloadFieldDefaultQuery,
     };
+
+    if let AnySymbolId::Static(declaration) = owner {
+        return static_result_dependencies(context, declaration);
+    }
 
     // Returned diagnostics share the checked query's persistent bag in every branch.
     if let Some(callable) = CallableSymbolId::try_from_any(owner) {
@@ -524,4 +530,18 @@ fn summary(
         }
         _ => panic!("runtime default {owner:?} has a non-default subject {subject:?}"),
     }
+}
+
+/// Static authority uses the initializer's component, without demanding lifecycle graph validation.
+pub(in crate::compilation) fn static_result_dependencies(
+    context: &CompilationBindingContext<'_>,
+    declaration: bray_symbols::StaticSymbolId,
+) -> BindingQueryResult<DiagnosticResult<DependencyContractTemplateId>> {
+    if let Some(result) = source_summary(context, declaration.into())? {
+        return Ok(result);
+    }
+
+    let template = context.resolve_symbol_query(SymbolQueryRequest::<bray_symbols::StaticInstanceTemplateQuery>::new(declaration))?;
+
+    Ok(DiagnosticResult::new(template.value().dependency_contract(), template.diagnostics().clone()))
 }

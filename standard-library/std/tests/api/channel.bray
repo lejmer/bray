@@ -24,6 +24,10 @@ internal async func completed_value() -> i32
 }
 
 internal async func send_sequence(pos mut sender: std.channel.Sender<i32>, pos first: i32, pos count: i32)
+    requires(
+        trusted std.channel.owner.live(&sender.owner.instance),
+        trusted std.channel.owner.sender(&sender.owner.instance),
+    )
 {
     let mut offset: i32 = 0;
 

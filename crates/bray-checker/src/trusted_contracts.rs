@@ -12,8 +12,8 @@ pub struct TrustedContractInputs {
     pub infer_result_witnesses: bool,
     /// Receiver-first formal inputs used by portable result summaries.
     pub inputs: Vec<bray_bound_tree::BoundReferenceTarget>,
-    /// Initializer-established authority belonging to exact referenced static instances.
-    pub statics: BTreeMap<crate::ExecutionPlace, Vec<bray_symbols::DependencyWitnessCarrier>>,
+    /// Exact static instances whose initializer authority is needed by this body.
+    pub statics: std::collections::BTreeSet<bray_symbols::StaticReferenceSelection>,
     /// Closed declaration constants used by this body's conditions.
     pub constants: BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     /// Trusted conditions the caller must supply at entry.

@@ -284,6 +284,7 @@ impl BoundCallDependencyContracts {
 /// Durable dependency contracts for values, accesses, and borrows in one checked unit.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CheckedDependencyContracts {
+    static_carriers: BTreeMap<bray_symbols::StaticReferenceSelection, Arc<[bray_symbols::DependencyWitnessCarrier]>>,
     projection_variants: BTreeMap<bray_symbols::UnionPayloadFieldSymbolId, bray_symbols::UnionVariantSymbolId>,
     unit: BoundUnitId,
     kind: BoundUnitKind,
@@ -302,9 +303,22 @@ pub struct CheckedDependencyContracts {
 }
 
 impl CheckedDependencyContracts {
+    /// Retains the initializer authority instantiated for referenced static storage.
+    pub fn with_static_carriers(mut self, carriers: BTreeMap<bray_symbols::StaticReferenceSelection, Arc<[bray_symbols::DependencyWitnessCarrier]>>) -> Self {
+        self.static_carriers = carriers;
+
+        self
+    }
+
+    /// Returns the checked initializer authority for each referenced instance.
+    pub fn static_carriers(&self) -> &BTreeMap<bray_symbols::StaticReferenceSelection, Arc<[bray_symbols::DependencyWitnessCarrier]>> {
+        &self.static_carriers
+    }
+
     /// Retains declaration relationships resolved before dependency flow.
     pub fn with_projection_variants(mut self, variants: BTreeMap<bray_symbols::UnionPayloadFieldSymbolId, bray_symbols::UnionVariantSymbolId>) -> Self {
         self.projection_variants = variants;
+
         self
     }
 
@@ -380,6 +394,7 @@ impl CheckedDependencyContracts {
 
         let mut result = Self {
             projection_variants: BTreeMap::new(),
+            static_carriers: BTreeMap::new(),
             unit: unit.unit(),
             kind: unit.key().kind(),
             contracts: contracts.into(),

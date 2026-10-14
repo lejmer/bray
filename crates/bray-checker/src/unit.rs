@@ -172,6 +172,15 @@ where
             .map_or_else(|| self.context.callable_result_dependencies(callable), Ok)
     }
 
+    pub(crate) fn static_result_dependencies(
+        self,
+        declaration: bray_symbols::StaticSymbolId,
+    ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, C::UpstreamError> {
+        self.result_dependencies
+            .and_then(|dependencies| dependencies.get(&declaration.into()).copied())
+            .map_or_else(|| self.context.static_result_dependencies(declaration), Ok)
+    }
+
     pub(crate) fn default_result_dependencies(
         self,
         provider: bray_bound_tree::DefaultValueProvider,

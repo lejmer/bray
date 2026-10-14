@@ -50,41 +50,54 @@ and reference transport. No new Bray syntax or language feature was introduced.
 
 ### Evidence and remaining acceptance
 
-- 319 checker tests passed before the latest dependency-projection repair.
-- Last broad compilation run: 1,638 passed and nine failed. Eight failures now pass focused checks: three static
-  dependency cases, three assembly pointee-layout cases, production channel declarations, and the native replacement
-  fixture. The ninth is the separately tracked BRA-619 CleanupIncidentTransfer blocker.
-- All five opaque Future/Task driver capture variants reject stale authority. Future creation retains deferred effects
-  and captured regions separately from completion dependencies. Actual guard local/static source and import tests pass.
-- Scalar mutation tests now cover custom indexing and writes through a local borrow. All nine variants pass. Unresolved
-  writes must not inherit the unexposed-local exemption of an opaque call with no arguments.
-- Native acceptance builds standard-library and runtime archives and reaches API product compilation. Its current
-  failure is an imported union payload declaration lookup in dependency instantiation. The candidate repair uses the
-  existing source/import declaration provider during preparation and retains variant relationships in the checked
-  dependency table for query-free flow. A new source/import regression is still being finalized. The latest run had
-  an incorrectly unqualified imported name, corrected after that run. No passing result is claimed yet.
-- Mutating style passed three times before the latest Rust edits. Final style and format remain required.
-- No Step 3 published review has run. The immediate checkpoint is not ready to merge and Linear remains unchanged.
+- Recovery checkpoint 6dfe51b4 was pushed and its remote hash verified on 2026-10-14.
+- Broad compilation run at that checkpoint: 1,647 passed and one failed. The remaining failure is
+  scoped_selected_calls_emit_native_artifacts, the separately tracked BRA-619 CleanupIncidentTransfer blocker.
+- Imported union-payload projection regression passes, including rejection of an escaping local borrow. Native API
+  compilation now gets past the prior declaration lookup panic.
+- Native API acceptance still fails with 77 trusted-obligation diagnostics, all in channel.bray and sync.bray. It did
+  not execute the native API or outcome cases. The source-level suite is not native acceptance.
+- Some API helpers lacked the new authority requirements on their parameters. Those helpers now require and preserve
+  their lock/barrier authority. The owning sender helper requires its endpoint authority. These changes remain to verify.
+- A minimal real source check confirms generic identity<T> loses an incoming witness when returning the same owned
+  value. This is a general forwarding boundary, not an import-only problem. Generic assert_ok/assert_present usages
+  account for further native failures. Do not bypass them with local unwraps or new trusted assertions.
+- The static-cycle audit reproduced a query cycle when a cleanup dependency helper also used trusted evidence. The
+  repair makes static initializer bodies members of the existing result-dependency components. Checking prepares static
+  carrier summaries from that component, and flow consumes them without queries. Shutdown graph validation keeps its
+  existing owner. Both focused cycle regressions and 71 static-neighbor tests pass.
+- Checker suite after the static-component repair: 319 passed. The source/import production guard regression also passes.
+- The latest mutating style pass applied five fixes but failed because check_dependency_contracts has 260 production
+  lines against the 250-line limit. Extract its static-summary preparation into the owning dependency module before
+  final acceptance. The chained format command did not run. See step3-style-5.log.
+- The user-requested expression_is_borrowed helper is shared by memory transfer and reference transfer.
+- Final mechanical audit, formatting, remaining acceptance and published Step 3 review are still pending. PR #607 remains
+  draft and Linear remains unchanged.
 
 ### Next actions
 
-1. Verify imported_union_payload_dependencies_resolve_at_the_owning_boundary. Recheck scalar mutation, replacement,
-   returned-reference, and authority neighbors with the current test binary.
-2. Run cargo xtask style to rebuild xtask itself, then native API/outcomes acceptance with Rust 1.98.1 and LLVM 22.1.8.
-   Updating brayc alone does not update xtask's in-process compiler library.
-3. Complete the mechanical audit of every changed file and behavior, including condition-waiter publication/unwinding,
-   static initializer query dependencies, non-32-bit atomic runtime-role demand, and production/test growth. Do not use
-   implementation agents. Move the static helper above tests and remove temporary tracing, both done at this checkpoint.
-4. Rerun affected broad checks after repairs, then final style and format. Push the finished change, obtain and verify a
-   fresh published review on #607, fix valid findings, and update Linear truthfully. Step 3 is not complete yet.
+1. Resolve the dependency-check function-size failure and finish the static-component audit. Focused checker and
+   source/import production guard checks have passed. Run final format after style succeeds.
+2. Repair generic whole-owner forwarding at its owning analysis. The language already requires moving and returning a
+   witness to preserve its value contract. Lifetime dependencies, field equality and borrowed-storage identity do not
+   prove this. Infer only actual whole-value transport, invalidate mutated observations, preserve exact dependencies,
+   and reject copying or reconstructing an owner from its fields. Use existing flow and exported dependency summaries.
+   No new syntax or language feature is authorized.
+3. Verify the corrected API helper contracts and all native diagnostics against the production declarations. Then run
+   native API/outcome acceptance with Rust 1.98.1 and LLVM 22.1.8. Updating brayc alone does not update xtask's compiler.
+4. Complete the mechanical audit of every Step 3 changed file and behavior. Audit condition-waiter publication/unwinding,
+   static initializer dependencies, non-32-bit atomic role demand, source/interface transport, and production/test growth.
+5. Run required style and format, push the finished change, obtain and verify a fresh published review on #607, fix valid
+   findings and update Linear truthfully. Step 3 is not complete yet.
 
 ### Execution and retained decisions
 
 - Use C:/Users/anton/source/repos/bray/target as CARGO_TARGET_DIR and its cargo subdirectory as CARGO_BUILD_BUILD_DIR.
   LLVM prefixes point to target/toolchains/llvm/active. Native workflows need RUSTUP_TOOLCHAIN=1.98.1.
-- Logs are in target/bra-620-authority. Relevant logs: step3-native-acceptance-5.log, step3-projection-build-2.log,
-  step3-imported-projection.log, step3-replacement-repair.log. Broad results are in step3-compilation-full.log.
-- All task-launched native/test commands have finished at this checkpoint. Do not rebuild a running Windows test binary.
+- Retain logs in target/bra-620-authority. Relevant logs are step3-compilation-full-2.log,
+  step3-native-acceptance-6.log, step3-imported-projection-2.log, step3-static-component-2.log,
+  step3-static-neighbors.log and step3-owner-transfer.log. Scratch source reproductions are static-cycle.bray and
+  owner-transfer.bray in the same ignored directory. The native workflow removed its temporary workspace on failure.
 - No BRAY_TRACE_PROOF or RETURN tracing remains. Reuse shared artifacts and never clean shared storage.
 - Automatic review previously rejected weakening channel core/lock requirements. The stronger contracts remain.
 - Optional File conditional-cleanup changes were restored. Inactive HostLease and channel registration cleanup use

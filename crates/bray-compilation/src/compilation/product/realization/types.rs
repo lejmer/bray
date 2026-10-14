@@ -76,9 +76,11 @@ impl Compilation {
         for contract in assemblies {
             for operand in contract.operands().filter(|operand| operand.kind() == bray_bound_tree::InlineAssemblyOperandKind::Memory) {
             let pointer = self.concrete_codegen_type(operand.ty(), instance.substitution(), Some(instance), cancellation)?;
+
             let target = self.available_compiler_known_symbols().unary_representation_argument(
                 values, bray_compiler_known::RepresentationRole::RawPointer, pointer,
             ).expect("checked assembly memory operands have a raw pointer type");
+
             // LLVM's elementtype attribute describes the accessed object. The pointer
             // itself does not demand that object's layout for other operations.
             demanded.insert(target);

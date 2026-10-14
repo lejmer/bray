@@ -125,6 +125,12 @@ pub trait CheckerRequestContext: Sync {
         callable: bray_symbols::CallableSymbolId,
     ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>;
 
+    /// Returns the checked result contract of a static initializer, independently of shutdown.
+    fn static_result_dependencies(
+        &self,
+        declaration: bray_symbols::StaticSymbolId,
+    ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>;
+
     /// Returns the exact trait requirement represented by an abstract dispatch route.
     fn result_dispatch_requirement(
         &self,

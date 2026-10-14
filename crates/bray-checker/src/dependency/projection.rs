@@ -313,6 +313,7 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
     values: &ValueInputs,
 ) -> crate::CheckerQueryResult<BTreeMap<bray_symbols::UnionPayloadFieldSymbolId, bray_symbols::UnionVariantSymbolId>, C::UpstreamError> {
     let mut fields = BTreeSet::new();
+
     let mut retain = |projections: &[DependencyProjection]| {
         fields.extend(projections.iter().filter_map(|projection| match projection {
             DependencyProjection::UnionPayloadField(field) => Some(*field),
@@ -322,32 +323,39 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
 
     for call in contracts.calls().values() {
         for subject in call.reference_subjects() { retain(subject.projections()); }
+
         for reference in call.references() {
             let relation = reference.relation();
+
             retain(relation.entry().projections());
             retain(relation.exit().projections());
             retain(relation.target_projections());
         }
+
         for carrier in call.carriers() { retain(carrier.path()); }
+
         for effect in call.effects().iter().chain(call.deferred_effects().into_iter().flatten()) {
             if let bray_symbols::DependencyStorageEffect::Indirect { projections, .. } = effect { retain(projections); }
         }
     }
+
     for contract in contracts.lifecycle_dependencies().values() {
         for subject in contract.reference_subjects() { retain(subject.projections()); }
         for relation in contract.borrows() { retain(relation.target_projections()); }
+
         for effect in contract.effects() {
             if let bray_symbols::DependencyStorageEffect::Indirect { projections, .. } = effect { retain(projections); }
         }
     }
-    if let Some(trusted) = request.trusted_contracts() {
-        for carrier in trusted.statics.values().flatten() { retain(carrier.path()); }
-    }
+
+    for carrier in contracts.static_carriers().values().flat_map(|carriers| carriers.iter()) { retain(carrier.path()); }
+
     for projections in values.projections.values() {
         for projection in projections.keys() { retain(std::slice::from_ref(projection)); }
     }
 
     let mut variants = BTreeMap::new();
+
     for (access, _) in storage.access_entries() {
         for projection in storage.resolved_projections(access).into_iter().flatten() {
             if let bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, field } = projection {
@@ -355,10 +363,12 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
             }
         }
     }
+
     for field in fields {
         if let std::collections::btree_map::Entry::Vacant(entry) = variants.entry(field) {
             entry.insert(request.union_payload_field(field)?.expect("checked dependency field retains its declaration").variant());
         }
     }
+
     Ok(variants)
 }

@@ -289,12 +289,13 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
         }
 
         if let Some(contracts) = self.request.trusted_contracts() {
-            for (place, carriers) in &contracts.statics {
+            for (selection, carriers) in self.dependencies.static_carriers() {
+                let place = crate::ExecutionPlace::static_instance(selection.clone());
                 let value = ExecutionCondition::Input(place.clone());
 
                 state.current.insert(place.clone(), value.clone());
 
-                for carrier in carriers {
+                for carrier in carriers.iter() {
                     let guarantee = crate::execution_condition_from_type_term(self.request.semantic_values(), carrier.guarantee(), 0)
                         .expect("checked initializer condition belongs to the same semantic store")
                         .substitute(&|_| ExecutionCondition::Unknown, &value, &mut { ExecutionCondition::WORK_LIMIT });

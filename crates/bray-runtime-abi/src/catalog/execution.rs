@@ -4,7 +4,7 @@ macro_rules! runtime_role_catalog {
     ($projection:ident) => {
         $projection! {
             AtomicWordWait {
-                "Wait on one native atomic word; return may be spurious.", "atomic_word_wait",
+                "Wait on one native atomic word. Return may be spurious.", "atomic_word_wait",
                 native: (ATOMIC_WORD_WAIT_SYMBOL = "bray_runtime_atomic_word_wait", [Pointer, U32] -> Void),
                 call_hook: (),
                 compiler: C [Pointer, U32] -> Void,

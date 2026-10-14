@@ -156,6 +156,7 @@ fn convert_projections<E>(
     mut variant: impl FnMut(bray_symbols::UnionPayloadFieldSymbolId) -> Result<bray_symbols::UnionVariantSymbolId, E>,
 ) -> Result<Option<Vec<StorageProjection>>, E> {
     let mut result = Vec::with_capacity(projections.len());
+
     for projection in projections {
         result.push(match *projection {
             DependencyProjection::ProductField(field) => StorageProjection::ProductField(field),
@@ -167,6 +168,7 @@ fn convert_projections<E>(
             DependencyProjection::Element(_) => return Ok(None),
         });
     }
+
     Ok(Some(result))
 }
 
