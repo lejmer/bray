@@ -176,6 +176,7 @@ fn merge_entry_cleanup<'context>(
 
     Ok(())
 }
+
 pub(super) fn resolve_callback_outcome<'context>(
     context: &'context Context,
     module: &Module<'context>,
