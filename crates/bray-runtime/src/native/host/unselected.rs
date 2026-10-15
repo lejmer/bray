@@ -1,6 +1,6 @@
 use std::convert::Infallible;
 
-use bray_runtime_abi::{NativePanicCause, NativeRunOutcome, NativeSourceAnchor};
+use bray_runtime_abi::{NativePanicPrimary, NativeRunOutcome};
 
 use crate::RootCancellationHandle;
 
@@ -16,10 +16,9 @@ pub(in crate::native) fn register_timeout(_cancellation: RootCancellationHandle)
 
 pub(in crate::native) fn record_outcome(_outcome: &NativeRunOutcome) {}
 
-pub(in crate::native) fn record_panic(
-    _cause: NativePanicCause,
-    _source: NativeSourceAnchor,
-    _message: String,
+pub(in crate::native) fn record_report(
+    _primary: &NativePanicPrimary,
+    _identity: Option<bray_runtime_abi::NativeTypeIdentity>,
 ) {
 }
 

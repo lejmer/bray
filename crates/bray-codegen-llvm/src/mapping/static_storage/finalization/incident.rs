@@ -76,7 +76,6 @@ pub(super) fn claim_storage<'context>(
 pub(super) fn declare_static_incident_reporter<'context>(
     module: &Module<'context>,
     mapping: &CodegenStaticStorageMapping,
-    payload_size: u64,
     types: &LlvmTypeMappings<'context, '_>,
 ) -> Result<FunctionValue<'context>, CodegenFailure> {
     let name = format!("{}.incident.report", mapping.finalize_name());
@@ -92,42 +91,39 @@ pub(super) fn declare_static_incident_reporter<'context>(
         module,
         &name,
         "static.finalize.incident.report",
-        context.i32_type().fn_type(&[usize.into()], false),
+        context.i32_type().fn_type(
+            &[
+                usize.into(),
+                context.ptr_type(AddressSpace::default()).into(),
+            ],
+            false,
+        ),
         types,
     );
-
-    let reporter = crate::native::declare_runtime_function(
-        module,
-        context,
-        types.target(),
-        bray_runtime_interface::RuntimeAbiRole::EntryFailureReporting,
-    )?;
 
     let builder = context.create_builder();
 
     let entry = callback
         .get_first_basic_block()
-        .expect("static-storage realization requires an established mapping or value");
-
-    let payload = callback
-        .get_first_param()
-        .expect("static-storage realization requires an established mapping or value");
+        .expect("static incident reporter has an entry block");
 
     builder.position_at_end(entry);
 
-    let status = builder
-        .build_call(
-            reporter,
-            &[payload.into(), usize.const_int(payload_size, false).into()],
-            "static.finalize.incident.report.status",
-        )
-        .map_err(CodegenFailure::backend_library)?
-        .try_as_basic_value()
-        .basic()
-        .expect("static-storage realization requires an established mapping or value");
+    let outcome = callback
+        .get_nth_param(1)
+        .expect("static incident reporter receives its outcome")
+        .into_pointer_value();
 
     builder
-        .build_return(Some(&status))
+        .build_store(
+            outcome,
+            crate::native::run_outcome_type(context, types.target()).const_zero(),
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
+    // Source reports the descriptor identity. No checked value formatter is selected.
+    builder
+        .build_return(Some(&context.i32_type().const_zero()))
         .map_err(CodegenFailure::backend_library)?;
 
     Ok(callback)

@@ -79,6 +79,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 let succeeded = self.entry_result_succeeded(entry_result, Some(result))?;
 
+                let succeeded = match completed {
+                    Some(completed) => {
+                        let abnormal = llvm(self.builder.build_not(completed, "entry.abnormal"))?;
+
+                        llvm(
+                            self.builder
+                                .build_or(succeeded, abnormal, "entry.no_error_owner"),
+                        )?
+                    }
+                    None => succeeded,
+                };
+
                 let mapping = self.type_mapping(ty).expect(
                     "checked MIR effect translation requires an established mapping or value",
                 );
@@ -402,12 +414,33 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.invoke_native_runtime(reporter, &[error_handle.into(), size.into()])?;
         }
 
-        if finalize.symbol().is_some() {
-            self.invoke_helper(finalize, &[error.into()])?;
-        }
+        let outcome_type =
+            crate::native::run_outcome_type(self.types.context(), self.request.target());
 
-        if destroy.symbol().is_some() && self.invoke_helper(destroy, &[error.into()])?.is_some() {
-            panic!("checked MIR effect translation violated an established compiler contract");
+        let outcome = self.allocate_temporary(outcome_type, "entry.cleanup.outcome")?;
+
+        for helper in [finalize, destroy] {
+            if helper.symbol().is_none() {
+                continue;
+            }
+
+            llvm(self.builder.build_store(outcome, outcome_type.const_zero()))?;
+            self.invoke_helper_with_panic_report_context(helper, &[error.into()], outcome)?;
+
+            let result = llvm(self.builder.build_load(
+                outcome_type,
+                outcome,
+                "entry.cleanup.result",
+            ))?;
+
+            super::super::callback::resolve_callback_outcome(
+                self.types.context(),
+                self.module,
+                self.request,
+                &self.builder,
+                function,
+                result,
+            )?;
         }
 
         llvm(self.builder.build_unconditional_branch(resolved))?;

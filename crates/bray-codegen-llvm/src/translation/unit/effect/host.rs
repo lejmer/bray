@@ -59,7 +59,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     *entry_failure,
                 )?;
 
-                self.finish_asynchronous_performance_interval(*entry, status)?;
+                let status = if self.synchronous_continuation.is_some() {
+                    self.finish_synchronous_root_boundary(status)?
+                } else {
+                    self.finish_asynchronous_performance_interval(*entry, status)?;
+
+                    status
+                };
 
                 self.host_status = Some(match self.host_status.take() {
                     Some(current) => llvm(self.builder.build_or(current, status, "host.status"))?,
@@ -118,8 +124,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         if execution == RootExecution::Synchronous {
-            self.host_result =
-                Some(self.translate_synchronous_root_boundary(entry, root, runtime)?);
+            self.begin_synchronous_root_boundary(entry, root, runtime)?;
 
             return Ok(None);
         }

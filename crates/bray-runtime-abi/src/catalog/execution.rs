@@ -93,6 +93,60 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [TransferCleanupIncident]
             }
+            ReportSinkTransfer {
+                "Update an exclusively borrowed cleanup sink.", "report_sink_transfer",
+                native: (REPORT_SINK_TRANSFER_SYMBOL = "bray_runtime_report_sink_transfer", [Pointer, Pointer, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Pointer, Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("report.sink.transfer"), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
+            ReportSinkBegin {
+                "Update an exclusively borrowed cleanup sink.", "report_sink_begin",
+                native: (REPORT_SINK_BEGIN_SYMBOL = "bray_runtime_report_sink_begin", [Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("report.sink.begin"), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
+            ReportSinkTake {
+                "Update an exclusively borrowed cleanup sink.", "report_sink_take",
+                native: (REPORT_SINK_TAKE_SYMBOL = "bray_runtime_report_sink_take", [Pointer, Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("report.sink.take"), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
+            ReportSinkFinish {
+                "Update an exclusively borrowed cleanup sink.", "report_sink_finish",
+                native: (REPORT_SINK_FINISH_SYMBOL = "bray_runtime_report_sink_finish", [Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("report.sink.finish"), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
+            ReportSegmentConsumer {
+                "Report and consume an owned cleanup segment with its origin.", "report_segment_consumer",
+                native: (REPORT_SEGMENT_CONSUMER_SYMBOL = "bray_runtime_report_segment_consumer", [Pointer, Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("consume_segment"), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
+            CleanupIncidentConsumer {
+                "Consume an exclusively transferred typed cleanup incident.", "cleanup_incident_consumer",
+                native: (CLEANUP_INCIDENT_CONSUMER_SYMBOL = "bray_runtime_cleanup_incident_consumer", [Pointer, U32] -> U32),
+                call_hook: (),
+                compiler: C [Pointer, U32] -> U32,
+                owner: Host, availability: All, bootstrap: ("report.incident.dispose"), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
             ReportConsumer {
                 "Consume an exclusively transferred report without fresh entry admission.", "report_consumer",
                 native: (REPORT_CONSUMER_SYMBOL = "bray_runtime_report_consumer", [Pointer, U32] -> U32),
@@ -590,7 +644,7 @@ macro_rules! runtime_role_catalog {
                 service: Host,
                 call_hook: (NativeThreadPanicReporting),
                 compiler: Bray [PanicReport] -> U32,
-                owner: Host, availability: All, bootstrap: (), host_control: true,
+                owner: Bootstrap, availability: All, bootstrap: ("panic_reporting"), host_control: true,
                 capabilities: [],
                 effects: [ReportPanic]
             }
@@ -600,7 +654,7 @@ macro_rules! runtime_role_catalog {
                 service: Host,
                 call_hook: (),
                 compiler: Bray [PanicReport] -> U32,
-                owner: Host, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("panic_report_destruction"), host_control: false,
                 capabilities: [],
                 effects: [DestroyPanicReport]
             }
@@ -700,7 +754,7 @@ macro_rules! runtime_role_catalog {
                 service: Host,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Host, availability: All, bootstrap: (), host_control: true,
+                owner: Bootstrap, availability: All, bootstrap: ("report.output.entry_failure"), host_control: true,
                 capabilities: [],
                 effects: [ReportEntryFailure]
             }

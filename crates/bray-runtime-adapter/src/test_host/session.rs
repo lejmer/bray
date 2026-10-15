@@ -31,6 +31,7 @@ struct NativeTestSession {
     command_cancellation: Arc<CommandCancellation>,
     output: RunOutputContext,
     outcome: Option<TestOutcome>,
+    suppressed: Vec<TestOutcome>,
     cancellation: Option<RootCancellationHandle>,
     timeouts: Option<RunTimeoutScheduler>,
     timer: Option<RunCancellationTimer>,
@@ -47,7 +48,7 @@ pub(crate) fn callbacks() -> NativeHostCallbacks {
         output,
         register_timeout,
         record_outcome,
-        record_panic,
+        record_report,
         record_returned_error,
         record_cleanup_failure,
         finish,
@@ -120,24 +121,64 @@ pub(super) fn record_outcome(outcome: &NativeRunOutcome) {
             return;
         };
 
-        session.outcome = match outcome.state() {
-            state if state == NativeRunState::COMPLETED => Some(TestOutcome::Passed),
-            state if state == NativeRunState::CANCELLED => Some(session.cancellation_outcome()),
-            state if state == NativeRunState::PANICKED => None,
-            state if state == NativeRunState::RUNTIME_FAILURE => Some(
-                TestOutcome::InfrastructureFailed(TestInfrastructureFailure::new(
+        match outcome.state() {
+            NativeRunState::COMPLETED => {
+                session.outcome.get_or_insert(TestOutcome::Passed);
+            }
+            NativeRunState::CANCELLED => {
+                let cancellation = session.cancellation_outcome();
+
+                if let Some(previous) = session.outcome.replace(cancellation)
+                    && previous != TestOutcome::Passed
+                {
+                    session.suppressed.insert(0, previous);
+                }
+            }
+            NativeRunState::PANICKED => {}
+            NativeRunState::RUNTIME_FAILURE => session.observe(TestOutcome::InfrastructureFailed(
+                TestInfrastructureFailure::new(
                     TestInfrastructureFailureKind::Host,
                     u64::try_from(outcome.payload()).ok(),
-                )),
-            ),
-            _ => Some(TestOutcome::InfrastructureFailed(
-                TestInfrastructureFailure::new(TestInfrastructureFailureKind::MissingOutcome, None),
+                ),
             )),
-        };
+            _ => panic!("native entry published an unknown run state"),
+        }
     });
 }
 
-pub(super) fn record_panic(cause: NativePanicCause, source: NativeSourceAnchor, message: String) {
+pub(super) fn record_report(
+    primary: &bray_runtime_abi::NativePanicPrimary,
+    identity: Option<bray_runtime_abi::NativeTypeIdentity>,
+) {
+    if let Some(identity) = identity {
+        TEST_SESSION.with_borrow_mut(|session| {
+            if let Some(session) = session {
+                session.observe(TestOutcome::ReturnedError {
+                    error_type: bray_test_protocol::TestErrorTypeIdentity::from_digest(
+                        identity.bytes(),
+                    ),
+                    source: test_source(primary.source()),
+                    formatted_value: None,
+                });
+            }
+        });
+
+        return;
+    }
+
+    // Capture is an explicit independent history request. Ordinary output borrows bytes in Bray.
+    let mut bytes = vec![0; primary.message().len()];
+    let status = primary.message().copy_to(0, &mut bytes);
+
+    assert!(
+        status.is_success(),
+        "captured report retains its complete message provider"
+    );
+
+    let message = String::from_utf8(bytes).expect("panic messages contain checked UTF-8");
+    let cause = primary.cause();
+    let source = primary.source();
+
     TEST_SESSION.with(|session| {
         let mut session = session.borrow_mut();
 
@@ -154,10 +195,13 @@ pub(super) fn record_panic(cause: NativePanicCause, source: NativeSourceAnchor, 
                 TestPanicCause::AllocationFailure
             }
             cause if cause == NativePanicCause::ENTRY_FAILURE => TestPanicCause::EntryFailure,
-            _ => TestPanicCause::Message,
+            NativePanicCause::MESSAGE | NativePanicCause::EXPLICIT_TEST_FAILURE => {
+                TestPanicCause::Message
+            }
+            _ => panic!("native report published an unknown panic cause"),
         };
 
-        session.outcome = Some(match (cause, source) {
+        session.observe(match (cause, source) {
             (cause, source) if cause == NativePanicCause::EXPLICIT_TEST_FAILURE => {
                 TestOutcome::ExplicitFailure(ExplicitTestFailure::new(source, message))
             }
@@ -183,9 +227,10 @@ pub(super) fn record_returned_error() {
             return;
         };
 
-        session.outcome = Some(match session.command.error_type().cloned() {
+        session.observe(match session.command.error_type().cloned() {
             Some(error_type) => TestOutcome::ReturnedError {
                 error_type,
+                source: None,
                 formatted_value: None,
             },
             None => TestOutcome::InfrastructureFailed(TestInfrastructureFailure::new(
@@ -205,7 +250,7 @@ pub(super) fn record_cleanup_failure(count: usize) {
         };
 
         if count != 0 {
-            session.outcome = Some(TestOutcome::InfrastructureFailed(
+            session.observe(TestOutcome::InfrastructureFailed(
                 TestInfrastructureFailure::new(
                     TestInfrastructureFailureKind::Cleanup,
                     u64::try_from(count).ok(),
@@ -226,6 +271,18 @@ pub(super) fn finish() -> io::Result<()> {
 }
 
 impl NativeTestSession {
+    fn observe(&mut self, outcome: TestOutcome) {
+        if self
+            .outcome
+            .as_ref()
+            .is_none_or(|previous| *previous == TestOutcome::Passed)
+        {
+            self.outcome = Some(outcome);
+        } else {
+            self.suppressed.push(outcome);
+        }
+    }
+
     fn read() -> Result<Self, ()> {
         let command = read_host_command(&mut io::stdin().lock()).map_err(|_| ())?;
         let command_cancellation = Arc::new(CommandCancellation::new());
@@ -246,6 +303,7 @@ impl NativeTestSession {
             command_cancellation,
             output,
             outcome: None,
+            suppressed: Vec::new(),
             cancellation: None,
             timeouts: None,
             timer: None,
@@ -305,7 +363,8 @@ impl NativeTestSession {
             outcome,
             standard_output,
             standard_error,
-        );
+        )
+        .with_suppressed(self.suppressed);
 
         let path = std::env::var_os(RESULT_PATH_VARIABLE).ok_or(io::ErrorKind::NotFound)?;
         let mut file = File::create(path)?;
@@ -399,4 +458,136 @@ fn test_source(source: NativeSourceAnchor) -> Option<TestSourceAnchor> {
             SourceVersion::new(source.version()),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        CommandCancellation, NativeTestSession, TEST_SESSION, record_outcome, record_report,
+    };
+    use bray_runtime_abi::{
+        NativePanicCause, NativePanicMessage, NativePanicPrimary, NativeRunOutcome, NativeRunState,
+        NativeSourceAnchor,
+    };
+    use bray_test_protocol::{
+        TestCancellationSource, TestCapturePolicy, TestCatalogDigest, TestCatalogEntryId,
+        TestHostCommand, TestHostCommandId, TestOutcome, TestPanicCause, TestPanicReport,
+        TestTimeoutPolicy,
+    };
+    use std::sync::Arc;
+
+    fn session() -> NativeTestSession {
+        NativeTestSession {
+            command: TestHostCommand::new(
+                TestHostCommandId::from_bytes([1; 32]),
+                TestCatalogDigest::from_bytes([2; 32]),
+                TestCatalogEntryId::new(0),
+                TestTimeoutPolicy::Unlimited,
+                TestCapturePolicy::Discarded,
+                None,
+            ),
+            command_cancellation: Arc::new(CommandCancellation::new()),
+            output: bray_platform::RunOutputContext::discarded(),
+            outcome: None,
+            suppressed: Vec::new(),
+            cancellation: None,
+            timeouts: None,
+            timer: None,
+        }
+    }
+
+    fn observe(cause: NativePanicCause) {
+        record_report(
+            &NativePanicPrimary::new(
+                cause,
+                NativeSourceAnchor::unavailable(),
+                NativePanicMessage::empty(),
+            ),
+            None,
+        );
+    }
+
+    #[test]
+    fn body_primary_survives_cleanup_and_completed_bridge_observation() {
+        TEST_SESSION.set(Some(session()));
+        observe(NativePanicCause::ASSERTION);
+        observe(NativePanicCause::ALLOCATION_FAILURE);
+        record_outcome(&NativeRunOutcome::new(NativeRunState::COMPLETED, 0));
+
+        let result = TEST_SESSION.take().unwrap();
+
+        assert_eq!(
+            result.outcome,
+            Some(TestOutcome::Panicked(TestPanicReport::new(
+                TestPanicCause::Assertion,
+                None,
+                ""
+            )))
+        );
+
+        assert_eq!(
+            result.suppressed,
+            [TestOutcome::Panicked(TestPanicReport::new(
+                TestPanicCause::AllocationFailure,
+                None,
+                ""
+            ))]
+        );
+    }
+
+    #[test]
+    fn cancellation_precedes_cleanup_observed_before_bridge_return() {
+        TEST_SESSION.set(Some(session()));
+        observe(NativePanicCause::ASSERTION);
+        observe(NativePanicCause::ALLOCATION_FAILURE);
+        record_outcome(&NativeRunOutcome::new(NativeRunState::CANCELLED, 0));
+
+        let result = TEST_SESSION.take().unwrap();
+
+        assert_eq!(
+            result.outcome,
+            Some(TestOutcome::Cancelled(TestCancellationSource::Invocation))
+        );
+
+        assert_eq!(
+            result.suppressed,
+            [
+                TestOutcome::Panicked(TestPanicReport::new(TestPanicCause::Assertion, None, "")),
+                TestOutcome::Panicked(TestPanicReport::new(
+                    TestPanicCause::AllocationFailure,
+                    None,
+                    ""
+                )),
+            ]
+        );
+    }
+    #[test]
+    fn cleanup_type_does_not_come_from_the_test_entry() {
+        TEST_SESSION.set(Some(session()));
+        observe(NativePanicCause::ASSERTION);
+
+        let source = NativeSourceAnchor::new([7; 32], 2, 3, 9, 11);
+
+        record_report(
+            &NativePanicPrimary::new(
+                NativePanicCause::ENTRY_FAILURE,
+                source,
+                NativePanicMessage::empty(),
+            ),
+            Some(bray_runtime_abi::NativeTypeIdentity::new([29; 32])),
+        );
+
+        let result = TEST_SESSION.take().unwrap();
+
+        assert!(matches!(result.outcome, Some(TestOutcome::Panicked(_))));
+
+        assert_eq!(
+            result.suppressed,
+            [TestOutcome::ReturnedError {
+                error_type: bray_test_protocol::TestErrorTypeIdentity::from_digest([29; 32]),
+                source: super::test_source(source),
+                formatted_value: None,
+            }]
+        );
+    }
 }

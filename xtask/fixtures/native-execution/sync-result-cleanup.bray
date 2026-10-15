@@ -1,0 +1,51 @@
+module sync_result_cleanup;
+
+struct Counter
+{
+    visits: core.atomic.Atomic<u32>;
+
+    trusted destruct()
+        uses(intrinsic)
+    {
+        if core.atomic.load<u32, 1>(&self.visits) != 2
+        {
+            trusted core.target.abort();
+        }
+    }
+}
+
+static COUNTER: Counter =
+{
+    visits = core.atomic.initialize<u32>(0)
+};
+
+func record_cleanup()
+{
+    let visits = core.atomic.load<u32, 1>(&COUNTER.visits);
+
+    core.atomic.store<u32, 4>(&COUNTER.visits, visits + 1);
+}
+
+struct Failure
+{
+    finalize()
+    {
+        record_cleanup();
+        panic("entry error finalizer");
+    }
+
+    destruct()
+    {
+        record_cleanup();
+        panic("entry error destructor");
+    }
+}
+
+func main() -> Result<unit, Failure>
+{
+    return Error(
+        Failure
+        {
+        }
+    );
+}

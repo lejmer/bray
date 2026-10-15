@@ -88,6 +88,15 @@ trusted internal func read_primary(pos pointer: RawPointer<ReportPrimary>) -> Re
     return trusted std.memory.read<ReportPrimary>(pointer);
 }
 
+trusted internal func primary_callbacks(pos primary: &ReportPrimary) -> (PanicMessageCopy?, PanicMessageRelease?)
+    requires(trusted native_primary_callbacks(primary = primary))
+{
+    let copy = trusted primary_copy(primary);
+    let release = trusted primary_release(primary);
+
+    return (copy, release);
+}
+
 trusted internal func primary_release(pos primary: &ReportPrimary) -> PanicMessageRelease?
     requires(trusted native_primary_callbacks(primary = primary))
     ensures(trusted native_primary_callbacks(primary = primary))
@@ -256,9 +265,11 @@ trusted internal func consume_primary(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted native_primary_callbacks(primary = &primary)
     )
-    uses(intrinsic, foreign_call)
+    uses(intrinsic)
 {
-    let mut callback: PanicMessageRelease? = trusted primary_release(&primary);
+    let (initial_copy, initial_release) = trusted primary_callbacks(&primary);
+    let mut callback = initial_release;
+    let mut copy = initial_copy;
 
     trusted recycle_reservation(reserved);
 
@@ -268,7 +279,7 @@ trusted internal func consume_primary(
     {
         if reporting != 0
         {
-            let found: u32 = trusted substrate_report_primary(std.memory.address_of<ReportPrimary>(&primary));
+            let found: u32 = trusted bray.runtime.bootstrap.report.output.primary(&primary, copy);
 
             if status == STATUS_SUCCESS
             {
@@ -295,7 +306,11 @@ trusted internal func consume_primary(
             let reservation: usize = report.reserved;
 
             primary = trusted report_primary_value(report);
-            callback = trusted primary_release(&primary);
+
+            let (next_copy, next_release) = trusted primary_callbacks(&primary);
+
+            callback = next_release;
+            copy = next_copy;
             trusted recycle_reservation(reservation);
 
             trusted report_records_append(
@@ -321,13 +336,80 @@ trusted internal func consume_primary(
 
             trusted report_records_pop(std.memory.address_of_mut<ReportRecords>(&mut remaining), next_primary);
             primary = trusted read_primary(next_primary);
-            callback = trusted primary_release(&primary);
+
+            let (next_copy, next_release) = trusted primary_callbacks(&primary);
+
+            callback = next_release;
+            copy = next_copy;
         }
     }
 }
 
-@link(name = "bray_runtime_host", kind = system)
-@symbol(name = "bray_runtime_substrate_report_primary")
 @abi(c)
-extern trusted internal func substrate_report_primary(pos primary: RawPointer<ReportPrimary>) -> u32
-    uses(foreign_call);
+trusted internal func panic_reporting(pos pointer: RawPointer<PanicReportData>) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.valid_write<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<PanicReportData>(pointer = pointer),
+        trusted core.memory.initialized_as<PanicReportData>(pointer = pointer),
+        trusted native_report_slot_callbacks(pointer = pointer),
+    )
+{
+    return trusted consume_report(pointer, 1);
+}
+
+@abi(c)
+trusted internal func panic_report_destruction(pos pointer: RawPointer<PanicReportData>) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.valid_write<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<PanicReportData>(pointer = pointer),
+        trusted core.memory.initialized_as<PanicReportData>(pointer = pointer),
+        trusted native_report_slot_callbacks(pointer = pointer),
+    )
+{
+    return trusted consume_report(pointer, 0);
+}
+
+@abi(c)
+trusted internal func consume_segment(
+    pos metadata: RawPointer<ReportSegment>,
+    pos pointer: RawPointer<PanicReportData>
+) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted core.memory.valid_read<ReportSegment>(pointer = metadata, count = 1),
+        trusted core.memory.aligned_for<ReportSegment>(pointer = metadata),
+        trusted core.memory.initialized_as<ReportSegment>(pointer = metadata),
+        trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.valid_write<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<PanicReportData>(pointer = pointer),
+        trusted core.memory.initialized_as<PanicReportData>(pointer = pointer),
+        trusted native_report_slot_callbacks(pointer = pointer)
+    )
+    uses(raw_memory)
+{
+    let metadata_value = trusted std.memory.read<ReportSegment>(metadata);
+    let report = trusted take_report(pointer);
+
+    let remaining: ReportRecords =
+    {
+        head = report.outgoing_head,
+        tail = report.outgoing_tail,
+        count = report.outgoing_count
+    };
+
+    let reserved = report.reserved;
+    let primary = trusted stored_primary(trusted report_primary_value(report));
+    let output = trusted bray.runtime.bootstrap.report.output.segment(&metadata_value);
+    let disposal = trusted consume_primary(trusted serialized_primary(primary), remaining, reserved, 1);
+
+    if output != STATUS_SUCCESS
+    {
+        return output;
+    }
+
+    return disposal;
+}

@@ -1,0 +1,196 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.report.sink;
+
+using std.memory;
+using internal bray.runtime.bootstrap;
+
+@layout(c)
+internal struct State
+{
+    mut next_ordinal: u64;
+    mut incidents: bray.runtime.bootstrap.ReportRecords;
+    mut pending_count: usize;
+    mut draining: u32;
+}
+
+// The native owner holds the sink mutex and retains its complete chain. The slot
+// is exclusive for this call. Callbacks run only after the native lock is released.
+trusted internal predicate owned(pointer: RawPointer<State>);
+
+@abi(c)
+trusted internal func transfer(
+    pos pointer: RawPointer<State>,
+    pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+    pos metadata: RawPointer<bray.runtime.bootstrap.ReportSegment>
+)
+    requires(
+        trusted owned(pointer = pointer),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted core.memory.valid_write<State>(pointer = pointer, count = 1),
+        trusted core.memory.valid_read<State>(pointer = pointer, count = 1),
+        trusted core.memory.initialized_as<State>(pointer = pointer),
+        trusted core.memory.aligned_for<State>(pointer = pointer),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportRecords>(pointer = records),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = records),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportSegment>(pointer = metadata, count = 1),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.ReportSegment>(pointer = metadata, count = 1),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportSegment>(pointer = metadata),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportSegment>(pointer = metadata),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let mut segment = trusted std.memory.read<bray.runtime.bootstrap.ReportSegment>(metadata);
+    let mut incoming = trusted std.memory.read<bray.runtime.bootstrap.ReportRecords>(records);
+    let state = trusted read_transfer(pointer, records);
+    let updated = trusted append(state, incoming, segment, pointer, records);
+
+    trusted std.memory.write<bray.runtime.bootstrap.ReportRecords>(records, bray.runtime.bootstrap.empty_records());
+    trusted std.memory.write<State>(pointer, updated);
+}
+
+trusted internal func read_transfer(
+    pos pointer: RawPointer<State>,
+    pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>
+) -> State
+    requires(
+        trusted core.memory.valid_read<State>(pointer = pointer, count = 1),
+        trusted core.memory.initialized_as<State>(pointer = pointer),
+        trusted core.memory.aligned_for<State>(pointer = pointer),
+        trusted core.memory.valid_write<State>(pointer = pointer, count = 1),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = records)
+    )
+    ensures(
+        trusted core.memory.valid_write<State>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<State>(pointer = pointer),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = records)
+    )
+    uses(raw_memory)
+{
+    return trusted std.memory.read<State>(pointer);
+}
+
+trusted internal func append(
+    pos mut state: State,
+    pos mut records: bray.runtime.bootstrap.ReportRecords,
+    pos mut segment: bray.runtime.bootstrap.ReportSegment,
+    pos pointer: RawPointer<State>,
+    pos incoming: RawPointer<bray.runtime.bootstrap.ReportRecords>
+) -> State
+    requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted core.memory.valid_write<State>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<State>(pointer = pointer),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = incoming, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = incoming)
+    )
+    ensures(
+        trusted core.memory.valid_write<State>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<State>(pointer = pointer),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = incoming, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = incoming)
+    )
+    uses(intrinsic)
+{
+    if state.next_ordinal == ~0 || state.pending_count == ~0
+    {
+        trusted core.target.abort();
+    }
+
+    segment.ordinal = state.next_ordinal;
+    state.next_ordinal += 1;
+    state.pending_count += 1;
+
+    trusted bray.runtime.bootstrap.report_segment_mark(
+        std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records),
+        std.memory.address_of_mut<bray.runtime.bootstrap.ReportSegment>(&mut segment)
+    );
+
+    trusted bray.runtime.bootstrap.report_records_append(
+        std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut state.incidents),
+        std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records)
+    );
+
+    return state;
+}
+
+@abi(c)
+trusted internal func begin(pos pointer: RawPointer<State>) -> u32
+    requires(
+        trusted owned(pointer = pointer),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted core.memory.valid_write<State>(pointer = pointer, count = 1),
+        trusted core.memory.valid_read<State>(pointer = pointer, count = 1),
+        trusted core.memory.initialized_as<State>(pointer = pointer),
+        trusted core.memory.aligned_for<State>(pointer = pointer),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let mut state = trusted std.memory.read<State>(pointer);
+
+    if state.draining != 0
+    {
+        trusted std.memory.write<State>(pointer, state);
+        return 0;
+    }
+
+    state.draining = 1;
+    trusted std.memory.write<State>(pointer, state);
+    return 1;
+}
+
+@abi(c)
+trusted internal func take(
+    pos pointer: RawPointer<State>,
+    pos batch: RawPointer<bray.runtime.bootstrap.ReportRecords>
+) -> u32
+    requires(
+        trusted owned(pointer = pointer),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted core.memory.valid_write<State>(pointer = pointer, count = 1),
+        trusted core.memory.valid_read<State>(pointer = pointer, count = 1),
+        trusted core.memory.initialized_as<State>(pointer = pointer),
+        trusted core.memory.aligned_for<State>(pointer = pointer),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = batch, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = batch),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let mut state = trusted std.memory.read<State>(pointer);
+
+    if state.pending_count == 0
+    {
+        state.draining = 0;
+        trusted std.memory.write<State>(pointer, state);
+        return 0;
+    }
+
+    let records = state.incidents;
+
+    state.incidents = bray.runtime.bootstrap.empty_records();
+    state.pending_count = 0;
+    trusted std.memory.write<bray.runtime.bootstrap.ReportRecords>(batch, records);
+    trusted std.memory.write<State>(pointer, state);
+    return 1;
+}
+
+@abi(c)
+trusted internal func finish(pos pointer: RawPointer<State>)
+    requires(
+        trusted owned(pointer = pointer),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted core.memory.valid_write<State>(pointer = pointer, count = 1),
+        trusted core.memory.valid_read<State>(pointer = pointer, count = 1),
+        trusted core.memory.initialized_as<State>(pointer = pointer),
+        trusted core.memory.aligned_for<State>(pointer = pointer),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let mut state = trusted std.memory.read<State>(pointer);
+
+    state.draining = 0;
+    trusted std.memory.write<State>(pointer, state);
+}

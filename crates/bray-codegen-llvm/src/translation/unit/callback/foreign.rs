@@ -88,15 +88,7 @@ pub(in crate::translation::unit) fn translate<'context, 'request>(
     llvm(builder.build_conditional_branch(admitted, invoke_block, return_block))?;
     builder.position_at_end(invoke_block);
 
-    let callback = declare_callback(
-        context,
-        module,
-        request.target(),
-        symbol,
-        state_type,
-        body,
-        types,
-    )?;
+    let callback = declare_callback(context, module, request, symbol, state_type, body, types)?;
 
     let usize = crate::native::pointer_integer_type(context, request.target());
     let state_handle = llvm(builder.build_ptr_to_int(state, usize, "callback.state.handle"))?;
@@ -294,12 +286,13 @@ fn initialize_indirect_result(
 fn declare_callback<'context>(
     context: &'context Context,
     module: &Module<'context>,
-    target: &bray_codegen::CodegenTarget,
+    request: CodegenRequest<'_>,
     symbol: &CodegenSymbolMapping,
     state_type: inkwell::types::StructType<'context>,
     body: FunctionValue<'context>,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<FunctionValue<'context>, CodegenFailure> {
+    let target = request.target();
     let usize = crate::native::pointer_integer_type(context, target);
 
     let callback_type = context.void_type().fn_type(
@@ -402,6 +395,13 @@ fn declare_callback<'context>(
         llvm(builder.build_store(destination, result))?;
     }
 
+    llvm(builder.build_unconditional_branch(finish))?;
+    builder.position_at_end(finish);
+
+    // A native C callback is a terminal reporting boundary. Resolve the body's
+    // report while its entry attachment and optional execution bridge remain live.
+    resolve_callback_outcome(context, module, request, &builder, callback, returned)?;
+
     let completed = native_run_outcome_value(
         context,
         &builder,
@@ -411,8 +411,6 @@ fn declare_callback<'context>(
     )?;
 
     llvm(builder.build_store(outcome, completed))?;
-    llvm(builder.build_unconditional_branch(finish))?;
-    builder.position_at_end(finish);
     llvm(builder.build_return(None))?;
 
     Ok(callback)

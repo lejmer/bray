@@ -280,6 +280,8 @@ trusted internal func select_attachment_slot(
 
                 entry.identity = 0;
                 entry.depth = 0;
+                entry.context_bridge = none;
+                entry.report_observer = none;
             }
             case none { return rejected; }
         }
@@ -468,6 +470,7 @@ trusted internal func complete_attachment_exit_locked(pos completed: &HostLease,
             depth = 0,
             closing = true,
             context_bridge = none,
+            report_observer = none,
             cleanup = none
         }
     );

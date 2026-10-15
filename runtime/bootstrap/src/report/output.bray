@@ -1,0 +1,234 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.report.output;
+
+using std;
+using std.memory;
+using internal std.memory;
+using internal std.io;
+using internal bray.runtime.bootstrap;
+
+trusted internal func primary(
+    pos value: &bray.runtime.bootstrap.ReportPrimary,
+    pos copy: bray.runtime.bootstrap.PanicMessageCopy?
+) -> u32
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(intrinsic)
+{
+    let identity: bytes<32> = [0; 32];
+    let observed = trusted bray.runtime.bootstrap.entry.bridge.observe(0, value, &identity);
+
+    if observed != bray.runtime.bootstrap.STATUS_NOT_INITIALIZED
+    {
+        return observed;
+    }
+
+    let mut offset: usize = 0;
+
+    if let ?callback = copy
+    {
+        let mut buffer: bytes<512> = [0; 512];
+
+        while offset < value.message_length
+        {
+            let mut length = value.message_length - offset;
+
+            if length > 512
+            {
+                length = 512;
+            }
+
+            let destination = trusted internal std.memory.slice_pointer_mut<u8>(&mut buffer[..], count = length);
+            let copied = trusted callback(value.message, offset, destination, length);
+
+            if copied != bray.runtime.bootstrap.STATUS_SUCCESS
+            {
+                return copied;
+            }
+
+            let status = trusted write(&buffer[0..length]);
+
+            if status != bray.runtime.bootstrap.STATUS_SUCCESS
+            {
+                return status;
+            }
+
+            offset += length;
+        }
+    }
+
+    if value.message_length == 0
+    {
+        let mut status: u32 = bray.runtime.bootstrap.STATUS_SUCCESS;
+
+        match value.cause
+        {
+            case 0 { status = trusted write(&b"panic"[..]); }
+            case 1 { status = trusted write(&b"assertion failed"[..]); }
+            case 2 { status = trusted write(&b"explicit test failure"[..]); }
+            case 3 { status = trusted write(&b"runtime panic"[..]); }
+            case 4 { status = trusted write(&b"allocation failure"[..]); }
+            case 5 { status = trusted write(&b"entry failure"[..]); }
+            case _ { trusted core.target.abort(); }
+        };
+
+        if status != bray.runtime.bootstrap.STATUS_SUCCESS
+        {
+            return status;
+        }
+    }
+
+    return trusted write(&b"\n"[..]);
+}
+
+trusted internal func write(pos bytes: &[u8]) -> u32
+{
+    let mut offset: usize = 0;
+
+    while offset < bytes.length()
+    {
+        let remaining = &bytes[offset..];
+        let length = remaining.length();
+        let pointer = trusted internal std.memory.slice_pointer<u8>(remaining, count = length);
+        let mut transferred: u64 = 0;
+
+        let status = trusted internal std.io.platform_standard_error_write(
+            source = pointer,
+            length = length as u64,
+            transferred = std.memory.address_of_mut<u64>(&mut transferred)
+        );
+
+        if status.category != 0 || status.reserved != 0 || transferred == 0 || transferred > length as u64
+        {
+            return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+        }
+
+        offset += transferred as usize;
+    }
+
+    return bray.runtime.bootstrap.STATUS_SUCCESS;
+}
+
+@abi(c)
+trusted internal func entry_failure(pos payload: usize, pos size: usize) -> u32
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    let value = bray.runtime.bootstrap.empty_primary();
+    let identity: bytes<32> = [0; 32];
+    let observed = trusted bray.runtime.bootstrap.entry.bridge.observe(1, &value, &identity);
+
+    if observed != bray.runtime.bootstrap.STATUS_NOT_INITIALIZED
+    {
+        return observed;
+    }
+
+    return trusted write(&b"entry returned an error\n"[..]);
+}
+
+trusted internal func number(pos value: u64) -> u32
+{
+    let mut remaining = value;
+    let mut bytes: bytes<20> = [0; 20];
+    let mut first: usize = 20;
+
+    loop
+    {
+        first -= 1;
+        bytes[first] = 48 + std.truncate_to<u8>(remaining % 10);
+        remaining /= 10;
+
+        if remaining == 0
+        {
+            break;
+        }
+    }
+
+    return trusted write(&bytes[first..]);
+}
+
+trusted internal func digest(pos value: &bytes<32>) -> u32
+{
+    let digits: bytes<16> = [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 97, 98, 99, 100, 101, 102];
+    let mut bytes: bytes<64> = [0; 64];
+    let mut index: usize = 0;
+
+    while index < 32
+    {
+        bytes[index * 2] = digits[(value[index] / 16) as usize];
+        bytes[index * 2 + 1] = digits[(value[index] % 16) as usize];
+        index += 1;
+    }
+
+    return trusted write(&bytes[..]);
+}
+
+trusted internal func segment(pos value: &bray.runtime.bootstrap.ReportSegment) -> u32
+{
+    let statuses: [u32; 9] = [
+        trusted write(&b"cleanup_incident ordinal="[..]),
+        trusted number(value.ordinal),
+        trusted write(&b" task="[..]),
+        trusted number(value.task),
+        trusted write(&b" frame="[..]),
+        trusted digest(&value.frame),
+        trusted write(&b" state="[..]),
+        trusted number(value.state as u64),
+        trusted write(&b"\n"[..])
+    ];
+
+    return first_failure(&statuses[..]);
+}
+
+trusted internal func typed(pos value: &bray.runtime.bootstrap.report.incident.Record) -> u32
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    let mut description = bray.runtime.bootstrap.empty_primary();
+
+    description.source_present = value.source.present;
+    description.source_identity = value.source.identity;
+    description.source_start = value.source.start;
+    description.source_end = value.source.end;
+    description.source_version = value.source.version;
+    description.source_namespace_word_0 = value.source.namespace[0];
+    description.source_namespace_word_1 = value.source.namespace[1];
+    description.source_namespace_word_2 = value.source.namespace[2];
+    description.source_namespace_word_3 = value.source.namespace[3];
+    description.cause = 5;
+
+    let observed = trusted bray.runtime.bootstrap.entry.bridge.observe(2, &description, &value.type_identity);
+
+    if observed != bray.runtime.bootstrap.STATUS_NOT_INITIALIZED
+    {
+        return observed;
+    }
+
+    let statuses: [u32; 9] = [
+        trusted write(&b"cleanup_error type="[..]),
+        trusted digest(&value.type_identity),
+        trusted write(&b" source="[..]),
+        trusted number(value.source.identity as u64),
+        trusted write(&b":"[..]),
+        trusted number(value.source.start as u64),
+        trusted write(&b".."[..]),
+        trusted number(value.source.end as u64),
+        trusted write(&b"\n"[..])
+    ];
+
+    return first_failure(&statuses[..]);
+}
+
+internal func first_failure(pos statuses: &[u32]) -> u32
+{
+    let mut index: usize = 0;
+
+    while index < statuses.length()
+    {
+        if statuses[index] != 0
+        {
+            return statuses[index];
+        }
+
+        index += 1;
+    }
+
+    return 0;
+}

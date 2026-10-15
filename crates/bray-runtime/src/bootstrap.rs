@@ -13,6 +13,7 @@ unsafe extern "C" {
     safe fn bray_runtime_thread_attachment_mark_main() -> u32;
     safe fn bray_runtime_thread_attachment_cleanup(callback: extern "C" fn(u64) -> u32) -> u32;
     safe fn bray_runtime_current_native_thread_identity() -> u64;
+    #[cfg(test)]
     safe fn bray_runtime_main_native_thread_identity() -> u64;
 }
 
@@ -26,6 +27,7 @@ pub(crate) fn current_runtime_thread() -> Option<RuntimeThread> {
     )
 }
 
+#[cfg(test)]
 pub(crate) fn main_runtime_thread() -> Option<RuntimeThread> {
     RuntimeThread::from_native_identity(bray_runtime_main_native_thread_identity())
 }

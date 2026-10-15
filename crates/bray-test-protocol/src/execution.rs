@@ -107,6 +107,11 @@ impl TestErrorTypeIdentity {
         Some(Self(identity))
     }
 
+    /// Creates the durable hexadecimal identity of a compiler-described cleanup error.
+    pub fn from_digest(digest: [u8; 32]) -> Self {
+        Self(shared_str(bray_base::lowercase_hex(&digest)))
+    }
+
     /// Returns the durable type identity text.
     pub fn as_str(&self) -> &str {
         &self.0
@@ -218,6 +223,8 @@ pub enum TestOutcome {
     ReturnedError {
         /// Durable identity of the concrete error type.
         error_type: TestErrorTypeIdentity,
+        /// Source of the cleanup operation when this is a cleanup error.
+        source: Option<TestSourceAnchor>,
         /// Formatted value when checked formatting support exists.
         formatted_value: Option<Arc<str>>,
     },
@@ -311,6 +318,7 @@ pub struct TestHostResult {
     command_id: TestHostCommandId,
     catalog_digest: TestCatalogDigest,
     outcome: TestOutcome,
+    suppressed: Vec<TestOutcome>,
     standard_output: CapturedStream,
     standard_error: CapturedStream,
 }
@@ -328,6 +336,7 @@ impl TestHostResult {
             command_id,
             catalog_digest,
             outcome,
+            suppressed: Vec::new(),
             standard_output,
             standard_error,
         }
@@ -341,6 +350,18 @@ impl TestHostResult {
     /// Returns the catalog digest used by the host command.
     pub const fn catalog_digest(&self) -> TestCatalogDigest {
         self.catalog_digest
+    }
+
+    /// Attaches independent observations in encounter order after the primary outcome.
+    pub fn with_suppressed(mut self, suppressed: Vec<TestOutcome>) -> Self {
+        self.suppressed = suppressed;
+
+        self
+    }
+
+    /// Returns the ordered incidents observed after the primary outcome.
+    pub fn suppressed(&self) -> &[TestOutcome] {
+        &self.suppressed
     }
 
     /// Returns the terminal semantic outcome.
@@ -366,6 +387,7 @@ impl TestHostResult {
             self.standard_output,
             self.standard_error,
         )
+        .with_suppressed(self.suppressed)
     }
 }
 
@@ -404,6 +426,7 @@ impl TestInvocationPlan {
 pub struct TestInvocationResult {
     identity: TestIdentity,
     outcome: TestOutcome,
+    suppressed: Vec<TestOutcome>,
     standard_output: CapturedStream,
     standard_error: CapturedStream,
     duration: Option<TestDuration>,
@@ -420,6 +443,7 @@ impl TestInvocationResult {
         Self {
             identity,
             outcome,
+            suppressed: Vec::new(),
             standard_output,
             standard_error,
             duration: None,
@@ -436,6 +460,18 @@ impl TestInvocationResult {
     /// Returns the exact selected test identity.
     pub const fn identity(&self) -> &TestIdentity {
         &self.identity
+    }
+
+    /// Attaches independent observations in encounter order after the primary outcome.
+    pub fn with_suppressed(mut self, suppressed: Vec<TestOutcome>) -> Self {
+        self.suppressed = suppressed;
+
+        self
+    }
+
+    /// Returns the ordered incidents observed after the primary outcome.
+    pub fn suppressed(&self) -> &[TestOutcome] {
+        &self.suppressed
     }
 
     /// Returns the terminal semantic outcome.

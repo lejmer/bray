@@ -10,17 +10,52 @@ type Continuation = extern "C" fn(*const u8, usize, u32, &mut NativeRunOutcome) 
     reason = "the native scope owns the exact-thread acquisition and callback provider"
 )]
 unsafe extern "C" {
-    safe fn bray_runtime_entry_context_registration(
-        callback: *const u8,
-        previous: &mut usize,
+    pub(crate) safe fn bray_runtime_entry_context_registration(
+        callbacks: &Callbacks,
+        previous: &mut Callbacks,
     ) -> u32;
     safe fn bray_runtime_thread_attachment_enter() -> u32;
     safe fn bray_runtime_thread_attachment_leave() -> u32;
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct Callbacks {
+    pub(crate) context: usize,
+    pub(crate) report: usize,
+}
+
+impl Callbacks {
+    fn selected() -> Self {
+        Self {
+            context: invoke as *const u8 as usize,
+            report: observe as *const u8 as usize,
+        }
+    }
+}
+
+extern "C" fn observe(
+    kind: u32,
+    primary: &bray_runtime_abi::NativePanicPrimary,
+    identity: &bray_runtime_abi::NativeTypeIdentity,
+) -> u32 {
+    if !super::host::active() {
+        return NativeRuntimeStatus::NOT_INITIALIZED.code();
+    }
+
+    match kind {
+        0 => super::host::record_report(primary, None),
+        2 => super::host::record_report(primary, Some(*identity)),
+        1 => super::host::record_returned_error(),
+        _ => panic!("unknown host report observation kind {kind}"),
+    }
+
+    NativeRuntimeStatus::SUCCESS.code()
+}
+
 /// Registration cannot leave this thread or outlive its enclosing native provider call.
 pub(crate) struct Scope {
-    previous: Option<usize>,
+    previous: Option<Callbacks>,
     thread: PhantomData<Rc<()>>,
 }
 
@@ -30,8 +65,8 @@ impl Scope {
             return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
         }
 
-        let mut previous = 0;
-        let status = bray_runtime_entry_context_registration(invoke as *const u8, &mut previous);
+        let mut previous = Callbacks::default();
+        let status = bray_runtime_entry_context_registration(&Callbacks::selected(), &mut previous);
 
         if status != 0 {
             if bray_runtime_thread_attachment_leave() != 0 {
@@ -56,20 +91,33 @@ impl Scope {
             return 0;
         };
 
-        let mut replaced = 0;
+        // The provider stays installed while the last acquisition runs cleanup.
+        // Nested acquisition retirement leaves the row alive, so restore its caller afterward.
+        let failures = usize::from(bray_runtime_thread_attachment_leave() != 0);
 
-        assert_eq!(
-            bray_runtime_entry_context_registration(previous as *const u8, &mut replaced),
-            0,
-            "a live native bridge scope restores its retained attachment before returning"
-        );
+        if crate::bootstrap::current_runtime_thread().is_some() {
+            let mut replaced = Callbacks::default();
 
-        assert_eq!(
-            replaced, invoke as *const u8 as usize,
-            "native bridge registrations retire in their exact-thread nesting order"
-        );
+            assert_eq!(
+                bray_runtime_entry_context_registration(&previous, &mut replaced),
+                0,
+                "a live native bridge scope restores its retained attachment before returning"
+            );
 
-        usize::from(bray_runtime_thread_attachment_leave() != 0)
+            assert_eq!(
+                replaced,
+                Callbacks::selected(),
+                "native bridge registrations retire in their exact-thread nesting order"
+            );
+        } else {
+            assert_eq!(
+                previous,
+                Callbacks::default(),
+                "the last attachment acquisition cannot retire a retained outer provider"
+            );
+        }
+
+        failures
     }
 }
 
@@ -167,6 +215,28 @@ fn report_retirement(
 #[cfg(test)]
 mod tests {
     use bray_runtime_abi::{NativeRunOutcome, NativeRunState};
+
+    #[test]
+    fn last_scope_without_cleanup_does_not_leave_callbacks_in_a_reusable_row() {
+        let _isolation = crate::native::test_runtime_isolation();
+        let scope = super::Scope::enter().unwrap();
+
+        assert_eq!(scope.finish(), 0);
+
+        let thread = crate::bootstrap::RuntimeThreadScope::enter().unwrap();
+        let mut previous = super::Callbacks::default();
+
+        assert_eq!(
+            super::bray_runtime_entry_context_registration(
+                &super::Callbacks::default(),
+                &mut previous
+            ),
+            0
+        );
+
+        assert_eq!(previous, super::Callbacks::default());
+        drop(thread);
+    }
 
     extern "C" fn continuation(
         _: *const u8,
@@ -329,9 +399,20 @@ mod tests {
             || None,
             |_| {},
             |_| {},
-            |cause, _, message| {
-                assert_eq!(cause, bray_runtime_abi::NativePanicCause::RUNTIME_PANIC);
-                MESSAGES.with_borrow_mut(|messages| messages.push(message));
+            |primary, identity| {
+                assert!(identity.is_none());
+
+                assert_eq!(
+                    primary.cause(),
+                    bray_runtime_abi::NativePanicCause::RUNTIME_PANIC
+                );
+
+                let mut message = vec![0; primary.message().len()];
+
+                assert!(primary.message().copy_to(0, &mut message).is_success());
+
+                MESSAGES
+                    .with_borrow_mut(|messages| messages.push(String::from_utf8(message).unwrap()));
             },
             || panic!("retirement panic is not a returned error"),
             |_| {},

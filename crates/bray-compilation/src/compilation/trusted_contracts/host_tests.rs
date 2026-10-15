@@ -5,6 +5,75 @@ use crate::test_support::{source_function_body_key, source_input};
 use crate::{Compilation, CompilationRequest};
 
 #[test]
+fn production_report_consumers_check_their_callback_protocol() {
+    let compilation = production_host_compilation("module app;");
+
+    let sources = ["dispose", "begin", "number", "consume_segment", "install"].map(|name| {
+        source_function_body_key(&compilation, name)
+            .source()
+            .syntax()
+            .source_id()
+    });
+
+    let diagnostics = compilation.check_diagnostics();
+
+    let failures = diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic
+                .primary_span()
+                .is_some_and(|span| sources.contains(&span.source_id()))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+#[test]
+fn raw_typed_incident_headers_do_not_grant_disposal_authority() {
+    let compilation = production_host_compilation(
+        r#"
+        trusted internal module bray.runtime.bootstrap;
+        trusted func production_probe(pos pointer: RawPointer<bray.runtime.bootstrap.report.incident.Record>) -> u32
+            requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+        {
+            return trusted bray.runtime.bootstrap.report.incident.dispose(pointer, 1);
+        }
+    "#,
+    );
+
+    let checked = compilation
+        .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+        .unwrap();
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        checked.diagnostics(),
+        DiagnosticKind::CheckingTrustedObligationNotProven,
+    );
+}
+
+#[test]
+fn incident_outcome_destinations_require_distinct_exclusive_borrows() {
+    let compilation = production_host_compilation(
+        r#"
+        trusted internal module bray.runtime.bootstrap;
+        trusted func production_probe(pos outcome: &mut ReportOutcome) {
+            let pair = trusted bray.runtime.bootstrap.report.incident.destinations(outcome, outcome);
+        }
+    "#,
+    );
+
+    let checked = compilation
+        .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+        .unwrap();
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        checked.diagnostics(),
+        DiagnosticKind::CheckingConflictingBorrow,
+    );
+}
+
+#[test]
 fn production_host_nested_bodies_and_contracts_are_checked() {
     let compilation = production_host_compilation("module app;");
 
@@ -236,7 +305,7 @@ fn native_exit_authority_is_required_by_actual_production_operations() {
             false,
         ),
         (
-            "let _ = trusted bray.runtime.bootstrap.entry.bridge.install(std.memory.null<u8>(), std.memory.null<usize>());",
+            "let _ = trusted bray.runtime.bootstrap.entry.bridge.install(std.memory.null<bray.runtime.bootstrap.entry.bridge.NativeCallbacks>(), std.memory.null<bray.runtime.bootstrap.entry.bridge.NativeCallbacks>());",
             false,
         ),
         (
@@ -1413,7 +1482,7 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
         include_str!("../../../../../runtime/bootstrap/src/report/transfer.bray"),
         include_str!("../../../../../runtime/bootstrap/src/report.bray"),
         include_str!("../../../../../runtime/bootstrap/src/report/chain.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/report_consumer.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/report/consumer.bray"),
         include_str!("../../../../../standard-library/std/src/sync.bray"),
         include_str!("../../../../../standard-library/std/src/sync/spin_lock.bray"),
         include_str!("../../../../../standard-library/std/src/sync/spin_lock/state.bray"),
@@ -1465,6 +1534,13 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
         include_str!(
             "../../../../../standard-library/std/src/os/generated/aarch64_apple_darwin.bray"
         ),
+        include_str!("../../../../../runtime/bootstrap/src/report/output.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/report/incident.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/report/sink.bray"),
+        include_str!("../../../../../standard-library/std/src/io.bray"),
+        include_str!("../../../../../standard-library/std/src/io/platform.bray"),
+        include_str!("../../../../../standard-library/std/src/io/windows.bray"),
+        include_str!("../../../../../standard-library/std/src/io/unix.bray"),
         caller,
         include_str!("../../../../../runtime/bootstrap/src/storage/data.bray"),
         include_str!("../../../../../runtime/bootstrap/src/storage/admission.bray"),

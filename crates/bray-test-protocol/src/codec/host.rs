@@ -102,6 +102,12 @@ pub fn write_host_result(
     encoder.bytes(&result.command_id().bytes())?;
     encoder.bytes(&result.catalog_digest().bytes())?;
     encode_outcome(&mut encoder, result.outcome())?;
+    encoder.length(result.suppressed().len())?;
+
+    for incident in result.suppressed() {
+        encode_outcome(&mut encoder, incident)?;
+    }
+
     encode_stream(&mut encoder, result.standard_output())?;
     encode_stream(&mut encoder, result.standard_error())?;
 
@@ -115,6 +121,13 @@ pub fn read_host_result(reader: &mut impl Read) -> Result<TestHostResult, TestPr
     let command_id = TestHostCommandId::from_bytes(decode_digest(&mut decoder)?);
     let catalog_digest = TestCatalogDigest::from_bytes(decode_digest(&mut decoder)?);
     let outcome = decode_outcome(&mut decoder)?;
+    let count = decoder.length()?;
+    let mut suppressed = Vec::new();
+
+    for _ in 0..count {
+        suppressed.push(decode_outcome(&mut decoder)?);
+    }
+
     let standard_output = decode_stream(&mut decoder)?;
     let standard_error = decode_stream(&mut decoder)?;
 
@@ -126,7 +139,8 @@ pub fn read_host_result(reader: &mut impl Read) -> Result<TestHostResult, TestPr
         outcome,
         standard_output,
         standard_error,
-    ))
+    )
+    .with_suppressed(suppressed))
 }
 
 fn decode_digest(decoder: &mut Decoder<'_>) -> Result<[u8; 32], TestProtocolError> {
@@ -187,22 +201,18 @@ fn encode_outcome(encoder: &mut Encoder, outcome: &TestOutcome) -> Result<(), Te
         TestOutcome::Passed => encoder.u8(0),
         TestOutcome::ReturnedError {
             error_type,
+            source,
             formatted_value,
         } => {
             encoder.u8(1);
             encoder.string(error_type.as_str())?;
+            encode_optional_source(encoder, *source)?;
             encode_optional_string(encoder, formatted_value.as_deref())?;
         }
         TestOutcome::ExplicitFailure(failure) => {
             encoder.u8(2);
 
-            match failure.source() {
-                Some(source) => {
-                    encoder.u8(1);
-                    encode_source(encoder, source)?;
-                }
-                None => encoder.u8(0),
-            }
+            encode_optional_source(encoder, failure.source())?;
 
             encoder.string(failure.message())?;
         }
@@ -222,13 +232,7 @@ fn encode_outcome(encoder: &mut Encoder, outcome: &TestOutcome) -> Result<(), Te
                 TestPanicCause::EntryFailure => 5,
             });
 
-            match report.source() {
-                Some(source) => {
-                    encoder.u8(1);
-                    encode_source(encoder, source)?;
-                }
-                None => encoder.u8(0),
-            }
+            encode_optional_source(encoder, report.source())?;
 
             encoder.string(report.message())?;
         }
@@ -260,19 +264,17 @@ fn decode_outcome(decoder: &mut Decoder<'_>) -> Result<TestOutcome, TestProtocol
             let error_type = TestErrorTypeIdentity::try_new(decoder.string()?)
                 .ok_or(TestProtocolError::Malformed)?;
 
+            let source = decode_optional_source(decoder)?;
             let formatted_value = decode_optional_string(decoder)?.map(Arc::from);
 
             Ok(TestOutcome::ReturnedError {
                 error_type,
+                source,
                 formatted_value,
             })
         }
         2 => {
-            let source = match decoder.u8()? {
-                0 => None,
-                1 => Some(decode_source(decoder)?),
-                _ => return Err(TestProtocolError::Malformed),
-            };
+            let source = decode_optional_source(decoder)?;
 
             Ok(TestOutcome::ExplicitFailure(ExplicitTestFailure::new(
                 source,
@@ -301,11 +303,7 @@ fn decode_outcome(decoder: &mut Decoder<'_>) -> Result<TestOutcome, TestProtocol
                 _ => return Err(TestProtocolError::Malformed),
             };
 
-            let source = match decoder.u8()? {
-                0 => None,
-                1 => Some(decode_source(decoder)?),
-                _ => return Err(TestProtocolError::Malformed),
-            };
+            let source = decode_optional_source(decoder)?;
 
             Ok(TestOutcome::Panicked(TestPanicReport::new(
                 cause,
@@ -394,6 +392,31 @@ fn decode_stream(decoder: &mut Decoder<'_>) -> Result<CapturedStream, TestProtoc
         2 if bytes.is_empty() && discarded == 0 && failure.is_none() => {
             Ok(CapturedStream::discarded())
         }
+        _ => Err(TestProtocolError::Malformed),
+    }
+}
+
+fn encode_optional_source(
+    encoder: &mut Encoder,
+    source: Option<TestSourceAnchor>,
+) -> Result<(), TestProtocolError> {
+    match source {
+        Some(source) => {
+            encoder.u8(1);
+            encode_source(encoder, source)?;
+        }
+        None => encoder.u8(0),
+    }
+
+    Ok(())
+}
+
+fn decode_optional_source(
+    decoder: &mut Decoder<'_>,
+) -> Result<Option<TestSourceAnchor>, TestProtocolError> {
+    match decoder.u8()? {
+        0 => Ok(None),
+        1 => decode_source(decoder).map(Some),
         _ => Err(TestProtocolError::Malformed),
     }
 }
@@ -605,6 +628,56 @@ mod tests {
 
             assert_eq!(decoded, result);
         }
+    }
+
+    #[test]
+    fn suppression_preserves_every_cause_in_encounter_order() {
+        let source = TestSourceAnchor::new(
+            [9; 32],
+            SourceSpan::new(
+                SourceId::new(2),
+                TextRange::new(TextSize::new(3), TextSize::new(7)),
+            ),
+            SourceVersion::new(11),
+        );
+
+        let result = TestHostResult::after_cleanup(
+            TestHostCommandId::from_bytes([3; 32]),
+            TestCatalogDigest::from_bytes([4; 32]),
+            TestOutcome::Panicked(TestPanicReport::new(
+                TestPanicCause::Message,
+                Some(source),
+                "body",
+            )),
+            CapturedStream::discarded(),
+            CapturedStream::discarded(),
+        )
+        .with_suppressed(vec![
+            TestOutcome::ReturnedError {
+                error_type: TestErrorTypeIdentity::from_digest([29; 32]),
+                source: Some(source),
+                formatted_value: None,
+            },
+            TestOutcome::Panicked(TestPanicReport::new(
+                TestPanicCause::Assertion,
+                Some(source),
+                "destruction",
+            )),
+            TestOutcome::Panicked(TestPanicReport::new(
+                TestPanicCause::AllocationFailure,
+                None,
+                "release",
+            )),
+        ]);
+
+        let mut bytes = Vec::new();
+
+        super::write_host_result(&mut bytes, &result).unwrap();
+
+        assert_eq!(
+            super::read_host_result(&mut Cursor::new(bytes)).unwrap(),
+            result
+        );
     }
 
     #[test]

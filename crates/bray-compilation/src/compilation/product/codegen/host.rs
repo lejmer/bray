@@ -632,7 +632,6 @@ pub(super) fn native_host_runtime_roles(
         .any(super::super::realization::ProductStaticHostEntry::has_cleanup_incident)
     {
         roles.extend([
-            RuntimeAbiRole::EntryFailureReporting,
             RuntimeAbiRole::CleanupStorageRelease,
             RuntimeAbiRole::CleanupStorageClaim,
         ]);

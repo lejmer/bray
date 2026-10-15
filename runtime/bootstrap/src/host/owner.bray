@@ -19,6 +19,7 @@ internal struct Attachment
     mut closing: bool;
     mut cleanup: AttachmentExit?;
     mut context_bridge: bray.runtime.bootstrap.entry.bridge.Callback?;
+    mut report_observer: bray.runtime.bootstrap.entry.bridge.Observer?;
 }
 
 internal struct HostOwner
@@ -402,6 +403,7 @@ trusted internal func insert_attachment(
             depth = 1,
             closing = false,
             context_bridge = none,
+            report_observer = none,
             cleanup = none
         }
     );

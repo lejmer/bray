@@ -75,8 +75,7 @@ internal struct StoredReportPrimary
 trusted internal func stored_primary(pos primary: ReportPrimary) -> StoredReportPrimary
     requires(trusted native_primary_callbacks(primary = &primary))
 {
-    let copy: PanicMessageCopy? = trusted primary_copy(&primary);
-    let release: PanicMessageRelease? = trusted primary_release(&primary);
+    let (copy, release) = trusted primary_callbacks(&primary);
 
     return
     {

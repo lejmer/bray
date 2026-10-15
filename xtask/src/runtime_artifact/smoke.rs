@@ -175,13 +175,34 @@ fn smoke_test_bootstrap(
         &package.native_links,
     )?;
 
-    let status = Command::new(&executable)
-        .status()
+    let output = Command::new(&executable)
+        .output()
         .map_err(CommandError::BootstrapSmokeExecution)?;
 
-    if !status.success() {
-        return Err(CommandError::BootstrapSmokeExecutionFailed(status));
+    if !output.status.success() {
+        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+
+        return Err(CommandError::BootstrapSmokeExecutionFailed(output.status));
     }
+
+    let mut expected = (0..16385)
+        .map(|index| b'a' + (index % 26) as u8)
+        .collect::<Vec<_>>();
+
+    expected.extend_from_slice(b"\nentry returned an error\n");
+    expected.extend_from_slice(b"cleanup_incident ordinal=7 task=19 frame=");
+    expected.extend_from_slice("05".repeat(32).as_bytes());
+    expected.extend_from_slice(b" state=23\nassertion failed\n");
+
+    if !output
+        .stderr
+        .windows(expected.len())
+        .any(|bytes| bytes == expected)
+    {
+        return Err(CommandError::BootstrapSmokeOutput);
+    }
+
+    print!("{}", String::from_utf8_lossy(&output.stdout));
 
     audit_bootstrap_link_map(&map)
 }
@@ -452,6 +473,7 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
         bray_runtime_abi::symbols::TEST_ENTRY_SELECTION_SYMBOL,
         bray_runtime_abi::symbols::AWAITED_FRAME_COMPOSITION_SYMBOL,
         bray_runtime_abi::symbols::FRAME_COMPLETION_MOVE_SYMBOL,
+        "bray_runtime_substrate_report_primary",
         "__rust_alloc",
         "__rust_dealloc",
         "rust_eh_personality",
