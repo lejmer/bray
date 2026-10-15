@@ -120,7 +120,7 @@ Native code-address conversion and foreign callable validation share the ABI's
 execution-mode rule. A native code pointer cannot manufacture an async factory.
 Imported generic coverage keeps the erased invocation and both async lambdas in
 one exported family. The existing native i32 fixture now executes two factories
-with distinct results. Its native execution remains pending.
+with distinct results. Its native execution passes in the concrete-backing acceptance batch below.
 
 Call translation distinguishes constructing an async cleanup frame from invoking
 a synchronous cleanup body. The former claims its already-admitted frame backing
@@ -178,9 +178,8 @@ switch. Do not add another owning graph beside it.
 
 Replace NativeFrame/NativeRun ownership, including Box/Arc activation links,
 activation-time completion allocation and six-record admission during composition.
-The source-frame allocation currently reserves a completion tail which the Rust
-consumer does not yet use. One admitted owner must retain that backing through
-result dependencies. Do not introduce another graph or a replacement allocation
+The source-frame allocation contains its initialized result slot. One admitted
+owner must retain that backing through result dependencies. Do not introduce another graph or a replacement allocation
 inside a transition.
 
 Validate backing epoch, concrete shape, provider and inherited execution authority
@@ -188,8 +187,8 @@ before committing activation. Rejection retains the inactive owner. Keep trusted
 native ownership contracts explicit. Numeric fields or pointer equality alone
 cannot establish that contract, and Bray fields have no privacy guarantee.
 
-Complete indirect factories, inactive Future lifecycle, initialized-state broadcast
-and iterative resolution. Setting a cancellation byte alone does not visit captured
+Complete native evidence for indirect factories, inactive Future lifecycle,
+initialized-state broadcast and iterative resolution. Setting a cancellation byte alone does not visit captured
 task obligations. Calling resume once and ignoring suspension does not resolve
 cleanup. Migrate task-observation and static-finalizer consumers through the same
 driver, retaining only bounded scheduler/task bridges for their separate issues.
@@ -198,3 +197,58 @@ Finish native allocation, deep-await, alignment, affinity, retained-result,
 imported/erased and failure acceptance. Record artifact and cost evidence, then
 push a draft PR and conduct its independent review before BRA-505 and BRA-619.
 This checkpoint does not complete BRA-561 and has not had a completion review.
+
+
+## Concrete backing identity correction
+
+LLVM backing descriptors and activation adapters now use the already-established
+concrete `CodegenInstance` frame identity. They previously emitted the generic MIR
+template identity, which could conflate same-sized generic specializations. The
+emitted backing layout is the source context itself, including its existing result
+field. Remove the unused second result field rather than reserving it speculatively.
+
+Nine host-emission tests pass, including a regression that creates same-sized
+`identity<i32>` and `identity<u32>` frames and checks both emitted descriptor and
+adapter identities against concrete specialization. The first regression run
+failed only because its expected LLVM string spelling used a hexadecimal escape
+for a backslash; that expectation is corrected. The complete `cargo xtask readiness native-execution` run passes in 376.2 seconds,
+including erased factories, independent tasks, panic shutdown, static cleanup and
+runtime artifact smoke tests. This is production behavior evidence, not completion
+of the remaining activation-owner migration.
+
+The audit consolidates four native identity-byte emitters into `native::identity_value`
+and removes the static identity forwarding wrappers. After this refactor, all nine
+host tests and both targeted static-finalizer/storage regressions pass. Rustfmt,
+`cargo xtask style`, `cargo xtask format` and `git diff --check` pass. Keep their
+small deterministic formatting fixes to avoid repeatedly undoing the formatter.
+Production code decreases by 17 lines, excluding those unrelated formatting-only
+changes. The new regression adds 95 test lines. Logs are `bra-561-concrete-hosts.log`,
+`bra-561-native-acceptance.log` and `bra-561-identity-audit.log` under the shared
+`target/bra-620-authority` directory.
+
+The remaining driver change must resolve these boundaries together:
+
+- Generated source callbacks already return explicit owned outcomes. Preserve
+  report-before-unwind evidence for native fixtures without requiring an unwind
+  to cross Bray frames. Any native containment bridge borrows preadmitted records
+  and has no activation ownership, allocation or scheduling policy.
+- Task observation currently owns a separate Rust context, result allocation and
+  cancellation path. Its initialized result and retained task must follow the
+  same result-retirement rule as ordinary frames. A successful payload move does
+  not itself prove that releasing the task's backing is safe.
+- Existing `ContinueCleanup` edges identify the transition from cancellation
+  broadcast to lifecycle resolution. Preserve that boundary in owning lowering.
+  Do not rediscover it by searching LLVM control flow or run source lifecycle
+  resolution from a broadcast callback. Cleanup suspension must return to the
+  same iterative driver with its pending outcome intact.
+
+
+The existing `MirFrameInitializer::TaskObservation` already carries the selected
+result representation and both cleanup helpers. Reuse that initializer rather
+than adding another compiler-provided callable kind. Before the Bray consumer can
+invoke those helpers, replace its current `helper_address` native-entry callbacks
+with explicit caller-owned outcomes, as static cleanup already does through
+`invoke_static_boundary`. The current native adapter can still contain fixture
+unwinds while preserving a report written before unwinding. This change should
+remove the source cleanup callback's dependence on foreign unwinding, not add a
+second report protocol.

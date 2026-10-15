@@ -433,6 +433,15 @@ pub(crate) fn string_view_type<'context>(
     )
 }
 
+pub(crate) fn identity_value(
+    context: &Context,
+    bytes: [u8; 32],
+) -> inkwell::values::ArrayValue<'_> {
+    context
+        .i8_type()
+        .const_array(&bytes.map(|byte| context.i8_type().const_int(u64::from(byte), false)))
+}
+
 pub(crate) fn source_anchor_type(context: &Context) -> StructType<'_> {
     context.struct_type(
         &std::array::from_fn::<_, 9, _>(|index| {

@@ -35,15 +35,16 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
         .symbol(&CodegenSymbolKey::CleanupStorage(instance.key().clone()))
         .expect("protected frame must publish its cleanup storage descriptor");
 
-    let completion = types.map(descriptor.result_type())?;
-    let backing = context.struct_type(&[context_type.into(), completion], false);
+    let identity = instance
+        .protected_frame_identity()
+        .expect("protected frame has a concrete instance identity");
 
     let value = crate::mapping::cleanup::descriptor_value(
         context,
         request.target(),
-        descriptor.frame().digest(),
-        types.target_data().get_store_size(&backing),
-        types.target_data().get_abi_alignment(&backing),
+        identity.digest(),
+        types.target_data().get_store_size(&context_type),
+        types.target_data().get_abi_alignment(&context_type),
     );
 
     module
@@ -339,13 +340,12 @@ fn translate_frame_adapter<'context>(
         types.target_data().get_abi_alignment(&completion),
     );
 
-    let identity = context.i8_type().const_array(
-        &descriptor
-            .frame()
-            .digest()
-            .iter()
-            .map(|byte| context.i8_type().const_int(u64::from(*byte), false))
-            .collect::<Vec<_>>(),
+    let identity = crate::native::identity_value(
+        context,
+        instance
+            .protected_frame_identity()
+            .expect("protected frame has a concrete instance identity")
+            .digest(),
     );
 
     let callbacks = [

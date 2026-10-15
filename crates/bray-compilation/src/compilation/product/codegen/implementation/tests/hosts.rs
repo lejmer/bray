@@ -481,3 +481,98 @@ fn erased_async_factories_preserve_constructor_backing() {
             })
     );
 }
+
+#[test]
+fn frame_backing_and_adapter_preserve_concrete_specialization_identity() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+        module app;
+        async func identity<T>(pos value: T) -> T { return value; }
+        async func main() -> i32 {
+            let first = await identity<i32>(7);
+            let second = await identity<u32>(8);
+            return first;
+        }
+    "#,
+    );
+
+    let artifacts = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+    let mut specializations = std::collections::BTreeMap::new();
+
+    for ((unit, mappings), artifact) in plan.units().iter().zip(plan.mappings()).zip(&artifacts) {
+        let ir = std::str::from_utf8(artifact).unwrap();
+
+        for instance in unit.instances() {
+            let Some(identity) = instance.protected_frame_identity() else {
+                continue;
+            };
+
+            specializations
+                .entry(instance.key().template())
+                .or_insert_with(Vec::new)
+                .push(identity);
+
+            let bytes = identity
+                .digest()
+                .iter()
+                .map(|byte| {
+                    if *byte == b'\\' {
+                        "\\\\".to_owned()
+                    } else if (b' '..=b'~').contains(byte) && *byte != b'"' {
+                        char::from(*byte).to_string()
+                    } else {
+                        format!("\\{byte:02X}")
+                    }
+                })
+                .collect::<String>();
+
+            let encoded = format!("c\"{bytes}\"");
+
+            let backing = mappings
+                .symbol(&bray_codegen::CodegenSymbolKey::CleanupStorage(
+                    instance.key().clone(),
+                ))
+                .unwrap();
+
+            let declaration = ir
+                .lines()
+                .find(|line| line.starts_with(&format!("@{} =", backing.name().as_str())))
+                .unwrap();
+
+            assert!(
+                declaration.contains(&encoded),
+                "backing must identify its concrete specialization: {declaration}"
+            );
+
+            let adapter = mappings
+                .symbol(&bray_codegen::CodegenSymbolKey::ProtectedFrame {
+                    frame: identity,
+                    operation: ProtectedFrameOperation::MoveBeforeStart,
+                })
+                .unwrap();
+
+            let body = ir
+                .split(&format!("@{}(", adapter.name().as_str()))
+                .nth(1)
+                .unwrap()
+                .split("\n}")
+                .next()
+                .unwrap();
+
+            assert!(
+                body.contains(&encoded),
+                "activation must preserve the admitted concrete identity: {body}"
+            );
+        }
+    }
+
+    let siblings = specializations
+        .values()
+        .find(|identities| identities.len() == 2)
+        .unwrap();
+
+    assert_ne!(
+        siblings[0], siblings[1],
+        "same-sized specializations need distinct authority identities"
+    );
+}

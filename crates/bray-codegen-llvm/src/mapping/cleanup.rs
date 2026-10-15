@@ -47,9 +47,7 @@ pub(crate) fn descriptor_value<'context>(
 ) -> StructValue<'context> {
     let integer = crate::native::pointer_integer_type(context, target);
 
-    let identity = context
-        .i8_type()
-        .const_array(&identity.map(|byte| context.i8_type().const_int(u64::from(byte), false)));
+    let identity = crate::native::identity_value(context, identity);
 
     descriptor_type(context, target).const_named_struct(&[
         identity.into(),
