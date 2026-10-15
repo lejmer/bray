@@ -42,6 +42,68 @@ pub(crate) fn emit_executable_with_configuration(
     map_output: Option<bray_linker::SystemLinkerMapOutput>,
     configuration: BuildConfiguration,
 ) -> Result<(), String> {
+    emit_with_configuration(
+        compilation,
+        product,
+        target,
+        runtime,
+        output,
+        additional_search_paths,
+        map_output,
+        configuration,
+        ProductKind::Executable,
+    )
+}
+
+pub(crate) fn emit_library(
+    compilation: &Compilation,
+    product: ProductIdentity,
+    target: NativeTarget,
+    runtime: &Path,
+    output: &Path,
+) -> Result<(), String> {
+    emit_with_configuration(
+        compilation,
+        product,
+        target,
+        runtime,
+        output,
+        [],
+        None,
+        BuildConfiguration::Release,
+        ProductKind::Library,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "native fixture emission retains its selected product and toolchain inputs"
+)]
+fn emit_with_configuration(
+    compilation: &Compilation,
+    product: ProductIdentity,
+    target: NativeTarget,
+    runtime: &Path,
+    output: &Path,
+    additional_search_paths: impl IntoIterator<Item = LinkSearchPath>,
+    map_output: Option<bray_linker::SystemLinkerMapOutput>,
+    configuration: BuildConfiguration,
+    kind: ProductKind,
+) -> Result<(), String> {
+    let (linked, artifact, output_kind) = match kind {
+        ProductKind::Library => (
+            bray_linker::LinkedProductKind::StaticLibrary,
+            ArtifactKind::StaticLibrary,
+            TargetOutputKind::StaticLibrary,
+        ),
+        ProductKind::Executable => (
+            bray_linker::LinkedProductKind::Executable,
+            ArtifactKind::Executable,
+            TargetOutputKind::Executable,
+        ),
+        ProductKind::Test => unreachable!("native fixtures select an executable or library"),
+    };
+
     let selected = SelectedTarget::for_native(target);
     let destination = managed_destination(output)?;
 
@@ -65,7 +127,7 @@ pub(crate) fn emit_executable_with_configuration(
             configuration,
             Some(runtime),
             [],
-            Some((linker.linker(), bray_linker::LinkedProductKind::Executable)),
+            Some((linker.linker(), linked)),
         )
         .map_err(|error| {
             crate::diagnostic_output::failure_detail(
@@ -84,20 +146,17 @@ pub(crate) fn emit_executable_with_configuration(
 
     let outputs = TargetOutputDescription::for_native(
         target,
-        [
-            TargetOutputKind::Executable,
-            TargetOutputKind::RelocatableObject,
-        ],
+        [output_kind, TargetOutputKind::RelocatableObject],
     );
 
     let request = EmissionRequest::try_new(
         product,
-        ProductKind::Executable,
+        kind,
         native.executable_host().cloned(),
         selected.profile().identity().clone(),
         RequestedArtifactDestination::FilesystemDirectory(destination),
         [
-            RequestedArtifact::new(ArtifactKind::Executable, ArtifactRequirement::Required),
+            RequestedArtifact::new(artifact, ArtifactRequirement::Required),
             RequestedArtifact::new(
                 ArtifactKind::RelocatableObject,
                 ArtifactRequirement::Optional,

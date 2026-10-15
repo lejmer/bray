@@ -21,12 +21,38 @@ use crate::{
 
 use super::super::frame::NativeTerminalState;
 thread_local! {
-    static NATIVE_CONTEXT: RefCell<NativeExecutionContext> =
-        const { RefCell::new(NativeExecutionContext::empty()) };
+    static NATIVE_CONTEXT: RefCell<NativeExecutionContext> = {
+        crate::context::initialize_thread_context();
+        #[cfg(feature = "test-output")]
+        super::super::host::initialize_thread_context();
+        crate::product::initialize_thread_static_registry();
+        RefCell::new(NativeExecutionContext::empty())
+    };
+    static RETIREMENT: ThreadRetirement = const { ThreadRetirement };
+}
+
+/// Establishes context storage before an attachment can publish its cleanup owner.
+pub(crate) fn initialize_thread_context() {
+    NATIVE_CONTEXT.with(|_| {});
+}
+
+struct ThreadRetirement;
+
+impl Drop for ThreadRetirement {
+    fn drop(&mut self) {
+        // The guard retires before attachment and context TLS. Task and frame owners
+        // already carry their cleanup backing and contain user callback failures.
+        retire_runtime(replace_runtime(None));
+    }
+}
+
+enum NativeRuntimeBinding {
+    Owned(Rc<NativeRuntime>),
+    Borrowed(Rc<NativeRuntime>),
 }
 
 struct NativeExecutionContext {
-    runtime: Option<Rc<NativeRuntime>>,
+    runtime: Option<NativeRuntimeBinding>,
     task: Option<NativeTaskHandle>,
 }
 
@@ -40,7 +66,14 @@ impl NativeExecutionContext {
 }
 
 pub(in crate::native) fn current_runtime() -> Option<Rc<NativeRuntime>> {
-    NATIVE_CONTEXT.with_borrow(|context| context.runtime.clone())
+    NATIVE_CONTEXT.with_borrow(|context| {
+        context.runtime.as_ref().map(|binding| {
+            let (NativeRuntimeBinding::Owned(runtime) | NativeRuntimeBinding::Borrowed(runtime)) =
+                binding;
+
+            Rc::clone(runtime)
+        })
+    })
 }
 
 pub(in crate::native) fn current_task() -> Option<NativeTaskHandle> {
@@ -50,8 +83,14 @@ pub(in crate::native) fn current_task() -> Option<NativeTaskHandle> {
         .flatten()
 }
 
-fn replace_runtime(runtime: Option<Rc<NativeRuntime>>) -> Option<Rc<NativeRuntime>> {
+fn replace_runtime(runtime: Option<NativeRuntimeBinding>) -> Option<NativeRuntimeBinding> {
     NATIVE_CONTEXT.with_borrow_mut(|context| std::mem::replace(&mut context.runtime, runtime))
+}
+
+fn retire_runtime(runtime: Option<NativeRuntimeBinding>) {
+    if let Some(NativeRuntimeBinding::Owned(runtime)) = runtime {
+        runtime.core.release_owner();
+    }
 }
 
 pub(in crate::native) fn with_bound_runtime<T>(
@@ -59,20 +98,25 @@ pub(in crate::native) fn with_bound_runtime<T>(
     callback: impl FnOnce() -> T,
 ) -> T {
     let previous = NATIVE_CONTEXT.replace(NativeExecutionContext {
-        runtime: Some(runtime),
+        runtime: Some(NativeRuntimeBinding::Borrowed(runtime)),
         task: None,
     });
 
-    let _scope = NativeExecutionContextScope(Some(previous));
+    crate::context::with_independent_execution_context(|| {
+        let _scope = NativeExecutionContextScope(Some(previous));
 
-    crate::context::with_independent_execution_context(callback)
+        callback()
+    })
 }
 
 pub(in crate::native) fn with_independent_execution_context<T>(callback: impl FnOnce() -> T) -> T {
     let previous = NATIVE_CONTEXT.replace(NativeExecutionContext::empty());
-    let _scope = NativeExecutionContextScope(Some(previous));
 
-    crate::context::with_independent_execution_context(callback)
+    crate::context::with_independent_execution_context(|| {
+        let _scope = NativeExecutionContextScope(Some(previous));
+
+        callback()
+    })
 }
 
 /// A returned root handle remains owned by the caller's runtime after entry returns.
@@ -102,7 +146,18 @@ impl Drop for NativeExecutionContextScope {
             .take()
             .expect("native execution context scope must restore exactly once");
 
+        // A callback can initialize its own runtime. Retire that owner before
+        // restoring the caller; borrowed cleanup bindings carry no owner count.
+        let runtime = replace_runtime(None);
+
+        let cleanup =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| retire_runtime(runtime)));
+
         NATIVE_CONTEXT.set(previous);
+
+        if let Err(payload) = cleanup {
+            std::panic::resume_unwind(payload);
+        }
     }
 }
 
@@ -175,8 +230,10 @@ pub(crate) struct NativeRuntimeCore {
 mod tests {
     use std::num::NonZeroUsize;
     use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::rc::Rc;
+    use std::sync::atomic::Ordering;
 
-    use bray_runtime_abi::NativeTaskHandle;
+    use bray_runtime_abi::{NativeRuntimeConfiguration, NativeTaskHandle};
     use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
 
     use crate::test_support::TestFrame;
@@ -187,6 +244,43 @@ mod tests {
 
     extern "C" fn cancellation_requested(_: usize) -> u32 {
         1
+    }
+
+    #[test]
+    fn thread_exit_retires_the_runtime_owner_and_stops_workers() {
+        for observe_first in [false, true] {
+            let cores = std::thread::spawn(move || {
+                if observe_first {
+                    assert!(super::current_runtime().is_none());
+                }
+
+                let mut cores = Vec::new();
+
+                for explicit_shutdown in [true, false] {
+                    assert!(super::initialize(NativeRuntimeConfiguration::new(4, 4)).is_success());
+
+                    let runtime = super::current_runtime().expect("runtime is initialized");
+
+                    cores.push(std::sync::Arc::clone(&runtime.core));
+                    assert_eq!(runtime.core.owners.load(Ordering::Acquire), 1);
+                    drop(runtime);
+
+                    if explicit_shutdown {
+                        assert!(super::shutdown().is_success());
+                    }
+                }
+
+                cores
+            })
+            .join()
+            .expect("native owner retirement completes before thread exit");
+
+            for core in cores {
+                assert_eq!(core.owners.load(Ordering::Acquire), 0);
+                assert!(core.workers.is_stopping());
+                assert!(core.tasks.lock().unwrap().is_empty());
+            }
+        }
     }
 
     #[test]
@@ -233,7 +327,7 @@ mod tests {
         let retained = super::retain_runtime()
             .unwrap_or_else(|status| panic!("runtime must initialize: {status:?}"));
 
-        let ((), status) = super::super::binding::with_cleanup_runtime(Some(&retained), || {
+        let ((), status) = super::super::binding::with_cleanup_runtime(&retained, || {
             let runtime = super::current_runtime().expect("cleanup runtime must be bound");
 
             let task = TaskControlBlock::start(
@@ -324,7 +418,7 @@ mod tests {
                         }
 
                         let result = catch_unwind(AssertUnwindSafe(|| {
-                            super::super::binding::with_cleanup_runtime(Some(&retained), || {
+                            super::super::binding::with_cleanup_runtime(&retained, || {
                                 assert!(super::current_runtime().is_some());
                                 assert_eq!(super::current_task(), None);
                                 assert!(crate::context::current_task_execution_context().is_none());
@@ -357,6 +451,76 @@ mod tests {
         assert_eq!(super::current_task(), None);
 
         retained.release();
+    }
+
+    #[test]
+    fn independent_runtime_owners_retire_without_releasing_borrowed_outer_bindings() {
+        let _isolation = super::test_runtime_isolation();
+
+        assert!(super::initialize(NativeRuntimeConfiguration::new(4, 4)).is_success());
+
+        let outer = super::current_runtime().expect("outer runtime initialized");
+
+        super::with_bound_runtime(Rc::clone(&outer), || {
+            assert_eq!(outer.core.owners.load(Ordering::Acquire), 1);
+        });
+
+        assert_eq!(outer.core.owners.load(Ordering::Acquire), 1);
+
+        for explicit_shutdown in [false, true] {
+            let inner = super::with_independent_execution_context(|| {
+                assert!(super::initialize(NativeRuntimeConfiguration::new(4, 4)).is_success());
+
+                let inner = super::current_runtime().expect("inner runtime initialized");
+                let core = std::sync::Arc::clone(&inner.core);
+
+                if explicit_shutdown {
+                    assert!(super::shutdown().is_success());
+                }
+
+                core
+            });
+
+            assert_eq!(inner.owners.load(Ordering::Acquire), 0);
+            assert!(inner.workers.is_stopping());
+            assert!(Rc::ptr_eq(&super::current_runtime().unwrap(), &outer));
+            assert_eq!(outer.core.owners.load(Ordering::Acquire), 1);
+        }
+
+        let mut unwound = None;
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            super::with_independent_execution_context(|| {
+                assert!(super::initialize(NativeRuntimeConfiguration::new(4, 4)).is_success());
+
+                let runtime = super::current_runtime().expect("unwinding runtime initialized");
+
+                unwound = Some(std::sync::Arc::clone(&runtime.core));
+                panic!("exercise owned-runtime retirement while unwinding");
+            });
+        }));
+
+        assert!(result.is_err());
+
+        let unwound = unwound.unwrap();
+
+        assert_eq!(unwound.owners.load(Ordering::Acquire), 0);
+        assert!(unwound.workers.is_stopping());
+        assert!(Rc::ptr_eq(&super::current_runtime().unwrap(), &outer));
+
+        let retained = super::with_independent_execution_context(|| {
+            assert!(super::initialize(NativeRuntimeConfiguration::new(4, 4)).is_success());
+
+            super::retain_current_runtime().unwrap().unwrap()
+        });
+
+        assert_eq!(retained.core.owners.load(Ordering::Acquire), 1);
+        assert!(!retained.core.workers.is_stopping());
+        retained.release();
+        assert_eq!(retained.core.owners.load(Ordering::Acquire), 0);
+        assert!(retained.core.workers.is_stopping());
+        assert!(super::shutdown().is_success());
+        assert_eq!(outer.core.owners.load(Ordering::Acquire), 0);
     }
 }
 
@@ -519,6 +683,12 @@ fn initialize_with_capabilities(
         return NativeRuntimeStatus::ALREADY_INITIALIZED;
     }
 
+    // Establish a fixed teardown order even when an earlier runtime was explicitly
+    // shut down before a later foreign attachment. Retirement runs while both the
+    // attachment owner and every context borrowed by its callbacks remain alive.
+    crate::product::initialize_thread_attachment_storage();
+    RETIREMENT.with(|_| {});
+
     #[cfg(test)]
     let test_isolation = test_runtime_isolation();
 
@@ -550,7 +720,7 @@ fn initialize_with_capabilities(
         return NativeRuntimeStatus::RUNTIME_FAILURE;
     }
 
-    let previous = replace_runtime(Some(Rc::new(NativeRuntime {
+    let previous = replace_runtime(Some(NativeRuntimeBinding::Owned(Rc::new(NativeRuntime {
         thread,
         main_thread_lane,
         cleanup_workloads: Cell::new(cleanup_workloads),
@@ -558,7 +728,7 @@ fn initialize_with_capabilities(
         core,
         #[cfg(test)]
         _test_isolation: test_isolation,
-    })));
+    }))));
 
     debug_assert!(
         previous.is_none(),
@@ -580,28 +750,36 @@ pub(in crate::native) fn with_runtime<T>(
 pub(in crate::native) fn shutdown() -> NativeRuntimeStatus {
     let runtime = replace_runtime(None);
 
-    let Some(runtime) = runtime else {
+    if runtime.is_none() {
         return NativeRuntimeStatus::NOT_INITIALIZED;
-    };
+    }
 
-    runtime.core.release_owner();
+    retire_runtime(runtime);
 
     NativeRuntimeStatus::SUCCESS
 }
 
-pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
-    if let Some(runtime) = current_runtime() {
-        if !runtime.core.retain_owner() {
-            return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
-        }
+pub(crate) fn retain_current_runtime() -> Result<Option<RetainedRuntime>, NativeRuntimeStatus> {
+    let Some(runtime) = current_runtime() else {
+        return Ok(None);
+    };
 
-        return Ok(RetainedRuntime {
-            core: Arc::clone(&runtime.core),
-            main_thread: runtime
-                .main_thread_lane
-                .then(|| runtime.thread.runtime().id()),
-            released: Arc::new(AtomicBool::new(false)),
-        });
+    if !runtime.core.retain_owner() {
+        return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
+    }
+
+    Ok(Some(RetainedRuntime {
+        core: Arc::clone(&runtime.core),
+        main_thread: runtime
+            .main_thread_lane
+            .then(|| runtime.thread.runtime().id()),
+        released: Arc::new(AtomicBool::new(false)),
+    }))
+}
+
+pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
+    if let Some(runtime) = retain_current_runtime()? {
+        return Ok(runtime);
     }
 
     let status = initialize_with_capabilities(
@@ -621,10 +799,8 @@ pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
         return Err(status);
     }
 
-    let runtime = replace_runtime(None);
-
-    let Some(runtime) = runtime else {
-        return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
+    let Some(NativeRuntimeBinding::Owned(runtime)) = replace_runtime(None) else {
+        panic!("retaining a newly initialized runtime transfers its owner count");
     };
 
     let retained = RetainedRuntime {
@@ -654,7 +830,7 @@ pub(in crate::native) fn run_worker(
         _test_isolation: None,
     });
 
-    let previous = replace_runtime(Some(Rc::clone(&runtime)));
+    let previous = replace_runtime(Some(NativeRuntimeBinding::Borrowed(Rc::clone(&runtime))));
 
     debug_assert!(
         previous.is_none(),

@@ -23,9 +23,12 @@ impl NativePanicCause {
     /// Storage required for a report or its outgoing records could not be acquired.
     pub const ALLOCATION_FAILURE: Self = Self(4);
 
+    /// Native entry or terminal cleanup failed without a transferable detailed report.
+    pub const ENTRY_FAILURE: Self = Self(5);
+
     /// Returns whether this cause is defined by the current native ABI.
     pub const fn is_known(&self) -> bool {
-        matches!(self.0, 0..=4)
+        matches!(self.0, 0..=5)
     }
 
     /// Returns the stable native ABI code.

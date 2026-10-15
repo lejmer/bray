@@ -153,6 +153,7 @@ pub(super) fn record_panic(cause: NativePanicCause, source: NativeSourceAnchor, 
             cause if cause == NativePanicCause::ALLOCATION_FAILURE => {
                 TestPanicCause::AllocationFailure
             }
+            cause if cause == NativePanicCause::ENTRY_FAILURE => TestPanicCause::EntryFailure,
             _ => TestPanicCause::Message,
         };
 

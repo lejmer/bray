@@ -93,6 +93,7 @@ pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl 
             | MirHostOperation::ExecuteRoot { .. }
             | MirHostOperation::ObserveRootTerminal { .. }
             | MirHostOperation::ResolveRootTerminal { .. }
+            | MirHostOperation::BeginProductEntry
             | MirHostOperation::BeginStaticCleanup
             | MirHostOperation::ReportCleanupIncidents { .. }
             | MirHostOperation::StructuredShutdown { .. },

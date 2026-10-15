@@ -8,7 +8,7 @@ using internal std.thread;
 
 @abi(c)
 trusted internal func thread_attachment_enter() -> u32
-    requires(trusted bray.runtime.bootstrap.host.attachment.native_acquisition_transfer())
+    requires(trusted bray.runtime.bootstrap.host.attachment.native_acquisition())
 {
     let transfer = trusted lambda(pos owner: &mut bray.runtime.bootstrap.host.attachment.Owner) -> u32
         requires(trusted bray.runtime.bootstrap.host.attachment.acquired(owner = &owner))

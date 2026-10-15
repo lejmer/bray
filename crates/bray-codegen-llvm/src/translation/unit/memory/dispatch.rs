@@ -687,6 +687,15 @@ mod tests {
             "atomicrmw xchg",
             "cmpxchg",
             "atomic.wait",
+            bray_runtime_interface::RuntimeAbiRole::AtomicWordWait
+                .native_symbol()
+                .expect("atomic word role has a native symbol"),
+            bray_runtime_interface::RuntimeAbiRole::AtomicWordNotifyOne
+                .native_symbol()
+                .expect("atomic word role has a native symbol"),
+            bray_runtime_interface::RuntimeAbiRole::AtomicWordNotifyAll
+                .native_symbol()
+                .expect("atomic word role has a native symbol"),
         ] {
             assert!(ir.contains(spelling), "missing atomic LLVM for {spelling}");
         }
@@ -2538,6 +2547,48 @@ mod tests {
 
         let debug = CodegenDebugLocation::new(source, file, NonZeroU32::MIN, NonZeroU32::MIN);
 
+        let atomic_symbols = instance
+            .mir()
+            .operations_with_ids()
+            .filter_map(|(_, operation)| {
+                let MirOperationKind::Memory(memory) = operation.kind() else {
+                    return None;
+                };
+
+                memory.atomic_word_runtime_role()
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .map(|role| {
+                let parameters = if role == bray_runtime_interface::RuntimeAbiRole::AtomicWordWait {
+                    vec![
+                        CodegenParameterMapping::direct(types.pointer, None, []),
+                        CodegenParameterMapping::direct(types.atomic_storage, None, []),
+                    ]
+                } else {
+                    vec![CodegenParameterMapping::direct(types.pointer, None, [])]
+                };
+
+                CodegenSymbolMapping::new(
+                    CodegenSymbolKey::Runtime(bray_ir::MirRuntimeReference::new(
+                        role,
+                        instance.mir().target().runtime_abi(),
+                    )),
+                    BinarySymbolName::try_new(
+                        role.native_symbol()
+                            .expect("atomic word role has a native symbol"),
+                    )
+                    .unwrap(),
+                    CodegenLinkage::Import,
+                    CodegenCallableSignature::new(
+                        parameters,
+                        CodegenResultMapping::Void,
+                        CallableAbi::C,
+                        false,
+                    ),
+                )
+            });
+
         CodegenMappings::new(
             unit,
             target,
@@ -2548,7 +2599,9 @@ mod tests {
                 allocation_symbol,
                 deallocation_symbol,
                 cleanup_symbol,
-            ],
+            ]
+            .into_iter()
+            .chain(atomic_symbols),
             [],
             [],
             [],

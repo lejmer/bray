@@ -1,7 +1,7 @@
 use crate::bootstrap::RuntimeThreadScope;
 use bray_runtime_abi::{
-    NativeRunOutcome, NativeRunState, NativeRuntimeStatus, NativeSynchronousRootCallback,
-    NativeThreadCancellationCallback, NativeThreadOperationCallback,
+    NativeRunOutcome, NativeRunState, NativeRuntimeStatus, NativeThreadCancellationCallback,
+    NativeThreadOperationCallback,
 };
 
 use crate::{RunOutcome, execute_synchronous_root};
@@ -39,52 +39,6 @@ fn execute_native_thread(
     })
 }
 
-native_export! {
-    pub extern "C" fn bray_runtime_synchronous_root_execution(
-        callback: NativeSynchronousRootCallback,
-        destination: usize,
-    ) -> NativeRunOutcome {
-        let outcome = super::state::with_independent_execution_context(|| {
-            execute_synchronous_callback(
-                callback,
-                destination,
-                super::host::register_timeout,
-                true,
-            )
-        });
-
-        super::host::record_outcome(&outcome);
-
-        outcome
-    }
-}
-
-native_export! {
-    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this callback export to the Bray provider"))]
-    #[cfg_attr(test, unsafe(no_mangle))]
-    pub extern "C" fn bray_runtime_foreign_callback_execution(
-        callback: NativeSynchronousRootCallback,
-        destination: usize,
-    ) -> NativeRunOutcome {
-        super::state::with_independent_execution_context(|| {
-            execute_synchronous_callback(callback, destination, |_| {}, false)
-        })
-    }
-}
-
-fn execute_synchronous_callback(
-    callback: NativeSynchronousRootCallback,
-    destination: usize,
-    on_started: impl FnOnce(crate::RootCancellationHandle),
-    main_thread: bool,
-) -> NativeRunOutcome {
-    execute_callback_boundary(
-        |outcome| callback(destination, outcome),
-        on_started,
-        main_thread,
-    )
-}
-
 fn execute_callback_boundary(
     callback: impl FnOnce(&mut NativeRunOutcome),
     on_started: impl FnOnce(crate::RootCancellationHandle),
@@ -119,17 +73,9 @@ fn execute_callback_boundary(
         RunOutcome::Cancelled if published.state() == NativeRunState::PANICKED => published,
         RunOutcome::Cancelled => NativeRunOutcome::new(NativeRunState::CANCELLED, 0),
         RunOutcome::Panicked(panic) => {
-            let report = if published.state() == NativeRunState::PANICKED {
-                let mut report = crate::RuntimePanic::from_native(published.take_report());
+            super::outgoing::append_panic(&mut published, panic, &mut admitted);
 
-                report.append(panic, &mut admitted);
-
-                report
-            } else {
-                panic
-            };
-
-            NativeRunOutcome::panicked(report.into_native())
+            published
         }
     };
 
@@ -149,7 +95,7 @@ fn execute_callback_boundary(
 #[cfg(test)]
 mod tests {
     use bray_runtime_abi::{
-        NativeRunOutcome, NativeRunState, NativeSynchronousRootCallback, NativeTaskHandle,
+        NativeRunOutcome, NativeRunState, NativeTaskHandle, NativeThreadOperationCallback,
     };
 
     use super::{bray_runtime_native_thread_execution, execute_native_thread};
@@ -178,7 +124,7 @@ mod tests {
     }
 
     fn assert_reentrant_entry_isolates_and_restores_outer_context(
-        execute: extern "C" fn(NativeSynchronousRootCallback, usize) -> NativeRunOutcome,
+        execute: extern "C" fn(NativeThreadOperationCallback, usize) -> NativeRunOutcome,
     ) {
         let task = NativeTaskHandle::new(7).expect("fixed task handle is nonzero");
         let cancellation = crate::CancellationContext::root();
@@ -213,16 +159,12 @@ mod tests {
 
     #[test]
     fn reentrant_foreign_callback_isolates_and_restores_outer_context() {
-        assert_reentrant_entry_isolates_and_restores_outer_context(
-            super::bray_runtime_foreign_callback_execution,
-        );
+        assert_reentrant_entry_isolates_and_restores_outer_context(super::super::entry::foreign);
     }
 
     #[test]
     fn reentrant_synchronous_root_isolates_and_restores_outer_context() {
-        assert_reentrant_entry_isolates_and_restores_outer_context(
-            super::bray_runtime_synchronous_root_execution,
-        );
+        assert_reentrant_entry_isolates_and_restores_outer_context(super::super::entry::root);
     }
 
     extern "C-unwind" fn propagate_cancellation(_: usize, outcome: &mut NativeRunOutcome) {
@@ -242,7 +184,7 @@ mod tests {
 
     #[test]
     fn callback_cancellation_preserves_an_already_published_panic() {
-        let mut outcome = super::bray_runtime_synchronous_root_execution(write_then_cancel, 0);
+        let mut outcome = super::super::entry::root(write_then_cancel, 0);
 
         assert_eq!(outcome.state(), NativeRunState::PANICKED);
         assert!(outcome.take_report().consume(false).is_success());

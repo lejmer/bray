@@ -33,7 +33,6 @@ internal callable ReportConsumer = @abi(c) trusted func(pos pointer: RawPointer<
         trusted native_report_slot_callbacks(pointer = pointer),
     );
 
-@abi(c)
 trusted internal func consume_pointer() -> RawPointer<u8>
     executes(pure, total)
     uses(layout_reinterpret)
@@ -173,7 +172,6 @@ trusted internal func release_primary(
     return (outcome.state, outcome.report);
 }
 
-@abi(c)
 trusted internal func recycle_reservation(pos handle: usize)
     uses(intrinsic)
     requires(trusted bray.runtime.bootstrap.pool.protocol_access())
@@ -216,11 +214,10 @@ trusted internal func consume_report(pos pointer: RawPointer<PanicReportData>, p
         trusted core.memory.initialized_as<PanicReportData>(pointer = pointer),
         trusted native_report_slot_callbacks(pointer = pointer),
     )
-    uses(intrinsic, foreign_call)
 {
     let owned: PanicReportData = trusted take_report(pointer);
 
-    let mut remaining: ReportRecords =
+    let remaining: ReportRecords =
     {
         head = owned.outgoing_head,
         tail = owned.outgoing_tail,
@@ -228,8 +225,39 @@ trusted internal func consume_report(pos pointer: RawPointer<PanicReportData>, p
     };
 
     let reserved: usize = owned.reserved;
-    let mut primary: ReportPrimary = report_primary_value(owned);
+    let primary: ReportPrimary = report_primary_value(owned);
 
+    return trusted consume_primary(primary, remaining, reserved, reporting);
+}
+
+trusted internal func consume_record_values(pos mut remaining: ReportRecords, pos reporting: u32) -> u32
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    if remaining.count == 0
+    {
+        return STATUS_SUCCESS;
+    }
+
+    let mut primary: ReportPrimary = empty_primary();
+    let pointer = std.memory.address_of_mut<ReportPrimary>(&mut primary);
+
+    trusted report_records_pop(std.memory.address_of_mut<ReportRecords>(&mut remaining), pointer);
+    primary = trusted read_primary(pointer);
+    return trusted consume_primary(primary, remaining, 0, reporting);
+}
+
+trusted internal func consume_primary(
+    pos mut primary: ReportPrimary,
+    pos mut remaining: ReportRecords,
+    pos reserved: usize,
+    pos reporting: u32
+) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted native_primary_callbacks(primary = &primary)
+    )
+    uses(intrinsic, foreign_call)
+{
     let mut callback: PanicMessageRelease? = trusted primary_release(&primary);
 
     trusted recycle_reservation(reserved);

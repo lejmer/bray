@@ -340,6 +340,10 @@ impl RefinementUniverse {
         occurrence: impl Into<bray_bound_tree::BoundExecutionSite>,
         storage: &StoragePlan,
         invalidation: Option<&StorageInvalidation>,
+        discriminants: &BTreeMap<
+            bray_bound_tree::StorageIdentityId,
+            Vec<bray_bound_tree::StoragePath>,
+        >,
     ) {
         let Some(mutations) =
             invalidation.or_else(|| self.invalidating_accesses.get(&occurrence.into()))
@@ -349,6 +353,31 @@ impl RefinementUniverse {
 
         set.retain(|index| {
             self.refinements.get(index).is_none_or(|refinement| {
+                let descriptor = match refinement.kind() {
+                    RefinementKind::Pattern {
+                        access,
+                        predicate:
+                            PatternPredicate::NullableAbsent
+                            | PatternPredicate::NullablePresent
+                            | PatternPredicate::ActiveUnionVariant(_),
+                        ..
+                    } => Some(access),
+                    RefinementKind::NullablePresence { expression, .. } => storage
+                        .expression_plans(expression)
+                        .find(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Read)
+                        .map(|plan| plan.access()),
+                    _ => None,
+                };
+
+                if let Some(path) = descriptor.and_then(|access| storage.logical_path(access)) {
+                    return !crate::analysis::storage_invalidation::discriminant_invalidated(
+                        mutations,
+                        path,
+                        storage,
+                        discriminants,
+                    );
+                }
+
                 refinement
                     .dependencies()
                     .iter()

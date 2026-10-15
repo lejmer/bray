@@ -1,12 +1,14 @@
 use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use bray_runtime_abi::{NativeProductHostObservation, NativeProductIdentity};
+use bray_runtime_abi::{
+    NativeProductHostObservation, NativeProductHostStatus, NativeProductIdentity,
+};
 
 use super::super::cleanup::run_static_cleanup;
 
 use super::model::{THREAD_STATICS, ThreadStaticEntry, product_hosts};
-use super::operations::{release_thread_attachment, report_incidents};
+use super::operations::{observation_with_status, release_thread_attachment, report_incidents};
 
 pub(super) extern "C" fn thread_exit_cleanup(identity: u64) -> u32 {
     catch_unwind(AssertUnwindSafe(|| {
@@ -28,11 +30,15 @@ fn drain_thread_statics() {
 
     entries.sort_unstable_by_key(|entry| (entry.product_identity, entry.product, entry.order));
 
-    run_thread_cleanups(entries);
+    // Retirement already supplies the exact-thread cleanup borrow. No new attachment is needed.
+    assert!(
+        run_thread_cleanups(entries).is_empty(),
+        "retained terminal cleanup must reuse its established attachment"
+    );
 
     for (product, attachment) in products {
         if attachment.acquired {
-            let _ = release_attachment(product, attachment.worker);
+            let _ = release_thread_attachment(product, attachment.worker);
         }
     }
 }
@@ -53,18 +59,33 @@ pub(crate) fn drain_product_thread_statics(product: usize) -> Option<NativeProdu
 
     entries.sort_unstable_by_key(|entry| entry.order);
 
-    run_thread_cleanups(entries);
+    let pending = run_thread_cleanups(entries);
+
+    if !pending.is_empty() {
+        THREAD_STATICS.with_borrow_mut(|registry| {
+            registry.entries.extend(pending);
+
+            if let Some(attachment) = attachment {
+                registry.products.insert(product, attachment);
+            }
+        });
+
+        return Some(observation_with_status(
+            product,
+            NativeProductHostStatus::RUNTIME_FAILURE,
+        ));
+    }
 
     if let Some(attachment) = attachment
         && attachment.acquired
     {
-        return release_attachment(product, attachment.worker);
+        return Some(release_thread_attachment(product, attachment.worker));
     }
 
     None
 }
 
-fn run_thread_cleanups(entries: Vec<ThreadStaticEntry>) {
+fn run_thread_cleanups(entries: Vec<ThreadStaticEntry>) -> Vec<ThreadStaticEntry> {
     let mut products = BTreeMap::<(NativeProductIdentity, usize), Vec<ThreadStaticEntry>>::new();
 
     for entry in entries {
@@ -74,23 +95,37 @@ fn run_thread_cleanups(entries: Vec<ThreadStaticEntry>) {
             .push(entry);
     }
 
+    let mut pending = Vec::new();
+
     for ((_, product), entries) in products {
-        run_product_thread_cleanups(product, entries);
+        if let Err(entries) = run_product_thread_cleanups(product, entries) {
+            pending.extend(entries);
+        }
     }
+
+    pending
 }
 
-fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) {
-    let owner = entries
+fn run_product_thread_cleanups(
+    product: usize,
+    mut entries: Vec<ThreadStaticEntry>,
+) -> Result<(), Vec<ThreadStaticEntry>> {
+    let identity = entries
         .first()
-        .map(|entry| (entry.product, entry.static_identity));
+        .expect("grouped cleanup contains a static owner")
+        .static_identity;
 
+    // Cleanup runs outside the registry lock while retaining the selected runtime.
     let runtime = product_hosts()
         .lock()
-        .ok()
-        .and_then(|hosts| hosts.get(&product).map(|host| host.runtime.clone()));
+        .expect("thread cleanup registry remains available")
+        .get(&product)
+        .expect("thread cleanup retains its product host")
+        .runtime
+        .clone();
 
     let cleanup = || {
-        for mut entry in entries {
+        for entry in &mut entries {
             let incidents = run_static_cleanup(
                 &mut entry.admission,
                 entry.prepare,
@@ -109,14 +144,11 @@ fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) 
         }
     };
 
-    let (_, runtime_incidents) = match runtime.as_ref() {
-        Some(runtime) => crate::native::with_retained_static_cleanup_runtime(runtime, cleanup),
-        None => crate::native::with_static_cleanup_runtime(cleanup),
-    };
-
-    let Some(owner) = owner else {
-        return;
-    };
+    let (_, runtime_incidents) =
+        match crate::native::with_static_cleanup_context(runtime.as_ref(), cleanup) {
+            Ok(result) => result,
+            Err(_) => return Err(entries),
+        };
 
     let count = usize::from(runtime_incidents.is_some());
 
@@ -124,9 +156,7 @@ fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) 
         let _ = incident.report();
     }
 
-    report_incidents(owner.0, owner.1, count);
-}
+    report_incidents(product, identity, count);
 
-fn release_attachment(product: usize, worker: bool) -> Option<NativeProductHostObservation> {
-    Some(release_thread_attachment(product, worker))
+    Ok(())
 }

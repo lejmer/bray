@@ -124,6 +124,8 @@ pub enum TestPanicCause {
     RuntimePanic,
     /// Storage could not be admitted.
     AllocationFailure,
+    /// Native entry or its terminal cleanup failed.
+    EntryFailure,
 }
 
 /// Structured panic data crossing the native test-host boundary.

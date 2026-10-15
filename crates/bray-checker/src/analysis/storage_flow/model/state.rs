@@ -185,31 +185,21 @@ impl StorageFlowState {
                 return true;
             }
 
-            // Writing a payload cannot select a different union variant or make an absent
-            // nullable present. Those operations must replace its enclosing value.
-            match invalidation {
-                bray_bound_tree::StorageInvalidation::All {
-                    stable_descriptors, ..
-                } if stable_descriptors
-                    .contains(&bray_bound_tree::StoragePath::root(access.root))
-                    && discriminants.get(&access.root).is_some_and(|paths| {
-                        paths.iter().any(|path| {
-                            path.projections.len() + 1 == access.projections.len()
-                                && path.contains(access)
-                        })
-                    }) =>
-                {
-                    true
-                }
-                bray_bound_tree::StorageInvalidation::Observed { accesses, .. } => {
-                    !accesses.values().flatten().any(|changed| {
-                        changed.projections.len() < access.projections.len()
-                            && changed.relationship(access)
-                                != bray_bound_tree::StorageRelationship::Disjoint
-                    })
-                }
-                _ => !invalidation.invalidates_path(access, storage),
-            }
+            let Some((_, parent)) = access.projections.split_last() else {
+                return !invalidation.invalidates_path(access, storage);
+            };
+
+            let descriptor = bray_bound_tree::StoragePath {
+                root: access.root,
+                projections: parent.into(),
+            };
+
+            !crate::analysis::storage_invalidation::discriminant_invalidated(
+                invalidation,
+                &descriptor,
+                storage,
+                discriminants,
+            )
         });
     }
 

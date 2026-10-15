@@ -31,7 +31,16 @@ impl Compilation {
         >,
         target: &CodegenTarget,
     ) -> Result<Option<CodegenProductHostMapping>, NativeProductPlanningError> {
-        if entries.is_empty() && native_statics.is_empty() {
+        let foreign_entry = mappings
+            .iter()
+            .flat_map(CodegenMappings::symbols)
+            .any(|symbol| {
+                symbol.native_entry().is_some_and(|entry| {
+                    entry.kind() == bray_runtime_interface::NativeEntryKind::ForeignCallback
+                })
+            });
+
+        if entries.is_empty() && native_statics.is_empty() && !foreign_entry {
             return Ok(None);
         }
 

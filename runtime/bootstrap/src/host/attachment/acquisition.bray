@@ -5,8 +5,9 @@ using std.memory;
 using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.thread.destruction;
 
-// The native caller retains the successful acquisition until its paired leave.
-trusted internal predicate native_acquisition_transfer();
+// The trusted entry keeps acquisition on this native thread until retirement.
+// Only the native enter adapter may transfer it to a same-thread paired leave.
+trusted internal predicate native_acquisition();
 
 // Field mutation invalidates this whole-value witness, including identity changes.
 trusted internal predicate acquired(owner: &Owner);
@@ -23,27 +24,49 @@ internal struct Owner
             executes(total)
         }
     {
-        let exit_scope = trusted lambda(pos owner: &Owner) -> bray.runtime.bootstrap.thread.destruction.ExitScope
-            requires(trusted acquired(owner = owner), owner.status == bray.runtime.bootstrap.STATUS_SUCCESS)
-            ensures(trusted bray.runtime.bootstrap.thread.destruction.exit_scope_live(owner = &result))
-            executes(pure, total)
-        {
-            return
-            {
-                identity = owner.identity,
-                native = false
-            };
-        };
-
         if self.status == bray.runtime.bootstrap.STATUS_SUCCESS
         {
-            let scope = trusted exit_scope(&self);
+            let scope = trusted retire(&mut self);
             let _: u32 = trusted bray.runtime.bootstrap.host.finish_attachment(&scope);
         }
     }
 }
 
+// Consume the acquisition before arbitrary cleanup can reenter the host.
+trusted internal func retire(pos owner: &mut Owner) -> bray.runtime.bootstrap.thread.destruction.ExitScope
+    requires(trusted acquired(owner = &owner), owner.status == bray.runtime.bootstrap.STATUS_SUCCESS)
+    ensures(
+        trusted acquired(owner = &owner),
+        trusted bray.runtime.bootstrap.thread.destruction.exit_scope_live(owner = &result)
+    )
+    executes(total)
+{
+    let identity = owner.identity;
+
+    owner.status = bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+
+    return
+    {
+        identity = identity,
+        native = false,
+    };
+}
+
+trusted internal func finish(pos mut owner: Owner) -> u32
+    requires(trusted acquired(owner = &owner))
+{
+    if owner.status != bray.runtime.bootstrap.STATUS_SUCCESS
+    {
+        return owner.status;
+    }
+
+    let scope = trusted retire(&mut owner);
+
+    return trusted bray.runtime.bootstrap.host.finish_attachment(&scope);
+}
+
 trusted internal func acquire() -> Owner
+    requires(trusted native_acquisition())
     ensures(trusted acquired(owner = &result))
 {
     let inactive = trusted lambda() -> Owner

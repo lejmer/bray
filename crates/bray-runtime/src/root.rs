@@ -131,15 +131,18 @@ pub(crate) fn execute_synchronous_root<T>(
 
     on_started(RootCancellationHandle::new(cancellation.clone()));
 
-    with_run_cancellation_context(cancellation, || {
-        match catch_unwind(AssertUnwindSafe(root)) {
-            Ok(value) => RunOutcome::Completed(value),
-            Err(payload) if is_propagated_cancellation(payload.as_ref()) => RunOutcome::Cancelled,
-            Err(payload) => {
-                RunOutcome::Panicked(crate::RuntimePanic::from_payload(payload, outgoing))
-            }
-        }
-    })
+    with_run_cancellation_context(cancellation, || contain_callback(root, outgoing))
+}
+
+pub(crate) fn contain_callback<T>(
+    callback: impl FnOnce() -> T,
+    outgoing: &mut crate::outgoing::OutgoingRecords,
+) -> RunOutcome<T> {
+    match catch_unwind(AssertUnwindSafe(callback)) {
+        Ok(value) => RunOutcome::Completed(value),
+        Err(payload) if is_propagated_cancellation(payload.as_ref()) => RunOutcome::Cancelled,
+        Err(payload) => RunOutcome::Panicked(crate::RuntimePanic::from_payload(payload, outgoing)),
+    }
 }
 
 /// Transfers an async entry frame into a host-owned root task and drives it to completion.

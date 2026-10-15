@@ -789,6 +789,11 @@ pub(super) enum CommandError {
     BootstrapSmokeExecution(std::io::Error),
     BootstrapSmokeExecutionFailed(std::process::ExitStatus),
     ObservationSmoke(String),
+    EntrySmoke(String),
+    SmokeTimeout {
+        name: &'static str,
+        seconds: u64,
+    },
     CleanupReportMissing,
 }
 
@@ -941,6 +946,15 @@ impl fmt::Display for CommandError {
             }
             Self::ObservationSmoke(detail) => {
                 write!(formatter, "observation runtime smoke failed: {detail}")
+            }
+            Self::EntrySmoke(detail) => {
+                write!(formatter, "entry runtime smoke failed: {detail}")
+            }
+            Self::SmokeTimeout { name, seconds } => {
+                write!(
+                    formatter,
+                    "{name} exceeded the {seconds} second execution limit"
+                )
             }
             Self::CleanupReportMissing => {
                 formatter.write_str("runtime smoke did not report its cleanup incident")
@@ -1185,6 +1199,8 @@ mod tests {
                 RuntimeAbiRole::PerformanceIntervalBegin,
                 RuntimeAbiRole::PerformanceIntervalEnd,
                 RuntimeAbiRole::RootExecution,
+                RuntimeAbiRole::EntryContextRegistration,
+                RuntimeAbiRole::EntryContinuation,
                 RuntimeAbiRole::SynchronousRootExecution,
                 RuntimeAbiRole::ForeignCallbackExecution,
                 RuntimeAbiRole::NativeThreadExecution,

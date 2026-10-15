@@ -1,8 +1,7 @@
 use bray_runtime::native::implementation;
 use bray_runtime_abi::{
     NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostOperation,
-    NativeRootHandle, NativeRunOutcome, NativeRuntimeStatus, NativeSynchronousRootCallback,
-    NativeThreadStaticCleanupRegistration,
+    NativeRootHandle, NativeRunOutcome, NativeRuntimeStatus, NativeThreadStaticCleanupRegistration,
 };
 
 native_adapter! {
@@ -17,15 +16,6 @@ native_adapter! {
         timer_capacity: usize,
     ) -> NativeRuntimeStatus {
         implementation::bray_runtime_substrate_initialization(worker_capacity, timer_capacity)
-    }
-}
-
-native_adapter! {
-    pub extern "C" fn bray_runtime_synchronous_root_execution(
-        callback: NativeSynchronousRootCallback,
-        context: usize,
-    ) -> NativeRunOutcome {
-        implementation::bray_runtime_synchronous_root_execution(callback, context)
     }
 }
 

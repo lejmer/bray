@@ -184,23 +184,41 @@ macro_rules! runtime_role_catalog {
                 capabilities: [CooperativeExecution],
                 effects: [EstablishRootRun, TransferFrame]
             }
+            EntryContextRegistration {
+                "Exchange a scoped Rust context bridge under an owned thread attachment.", "entry_context_registration",
+                native: (ENTRY_CONTEXT_REGISTRATION_SYMBOL = "bray_runtime_entry_context_registration", [Pointer, Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> U32,
+                owner: Bootstrap, availability: All, bootstrap: ("entry.bridge.install"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            EntryContinuation {
+                "Continue an admitted native entry inside its scoped context bridge.", "entry_continuation",
+                native: (ENTRY_CONTINUATION_SYMBOL = "bray_runtime_entry_continuation", [Pointer, Usize, U32, Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Pointer, Usize, U32, Pointer] -> U32,
+                owner: Bootstrap, availability: All, bootstrap: ("entry.invoke"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
             SynchronousRootExecution {
                 "Execute one synchronous entry callback behind the product panic boundary.", "synchronous_root_execution",
-                native: (SYNCHRONOUS_ROOT_EXECUTION_SYMBOL = "bray_runtime_synchronous_root_execution", [Pointer, Usize] -> RunOutcome),
+                native: (SYNCHRONOUS_ROOT_EXECUTION_SYMBOL = "bray_runtime_synchronous_root_execution", [Pointer, Usize, Pointer] -> U32),
                 service: Host,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Host, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("entry.root"), host_control: false,
                 capabilities: [],
                 effects: [EstablishRootRun, ExecuteCallbackRoot]
             }
             ForeignCallbackExecution {
                 "Execute one foreign callback behind a thread-entry and panic boundary.", "foreign_callback_execution",
-                native: (FOREIGN_CALLBACK_EXECUTION_SYMBOL = "bray_runtime_foreign_callback_execution", [Pointer, Usize] -> RunOutcome),
+                native: (FOREIGN_CALLBACK_EXECUTION_SYMBOL = "bray_runtime_foreign_callback_execution", [Pointer, Usize, Pointer] -> U32),
                 service: Host,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Callback, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("entry.foreign"), host_control: false,
                 capabilities: [],
                 effects: [EstablishRootRun, ExecuteCallbackRoot]
             }

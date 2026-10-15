@@ -54,6 +54,22 @@ trusted internal func empty_panic_report() -> PanicReportData
     };
 }
 
+trusted internal func allocation_failure() -> ReportOutcome
+    executes(total)
+{
+    let mut failure = empty_panic_report();
+
+    failure.cause = PANIC_ALLOCATION_FAILURE;
+    failure.consumer = trusted consume_pointer();
+
+    return
+    {
+        state = RUN_PANICKED,
+        payload = 0,
+        report = failure,
+    };
+}
+
 @abi(c)
 trusted internal func panic_report_construction(
     pos cause: u32,

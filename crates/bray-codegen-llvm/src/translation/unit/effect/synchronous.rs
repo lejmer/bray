@@ -6,7 +6,8 @@ use inkwell::values::BasicValueEnum;
 
 use super::super::core::UnitTranslator;
 use super::super::support::{
-    int_value, llvm, native_run_outcome, native_run_state_is, pointer_value,
+    int_value, llvm, native_run_outcome, native_run_outcome_value, native_run_state_is,
+    pointer_value,
 };
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -52,6 +53,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let callback_type = self.types.context().void_type().fn_type(
             &[
                 usize.into(),
+                self.types
+                    .context()
+                    .ptr_type(inkwell::AddressSpace::default())
+                    .into(),
                 self.types
                     .context()
                     .ptr_type(inkwell::AddressSpace::default())
@@ -206,8 +211,40 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let callback = callback.as_global_value().as_pointer_value();
 
-        Ok(self
-            .invoke_native_runtime(runtime, &[callback.into(), destination_handle.into()])?
-            .expect("synchronous execution runtime must return its status"))
+        let outcome = self.allocate_temporary(outcome_type, "root.entry.outcome")?;
+
+        let initial = native_run_outcome_value(
+            self.types.context(),
+            &self.builder,
+            self.request.target(),
+            NativeRunState::RUNTIME_FAILURE,
+            usize.const_int(4, false).into(),
+        )?;
+
+        llvm(self.builder.build_store(outcome, initial))?;
+
+        let status = self
+            .invoke_native_runtime(
+                runtime,
+                &[callback.into(), destination_handle.into(), outcome.into()],
+            )?
+            .and_then(int_value)
+            .expect("source entry returns its terminal status");
+
+        let status = llvm(self.builder.build_int_z_extend(
+            status,
+            self.types.context().i64_type(),
+            "root.entry.status",
+        ))?;
+
+        self.host_status = Some(match self.host_status.take() {
+            Some(current) => llvm(self.builder.build_or(current, status, "host.status"))?,
+            None => status,
+        });
+
+        llvm(
+            self.builder
+                .build_load(outcome_type, outcome, "root.entry.result"),
+        )
     }
 }

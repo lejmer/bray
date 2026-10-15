@@ -145,9 +145,9 @@ Before source entry migration, repair these production authority boundaries:
 - Protect report-chain ownership independently of the copyable C transfer header. Numeric handles
   and initialized header memory do not authorize chain consumption. Paired mutable headers need
   non-overlap, and source owners need checked whole-state witnesses.
-- Scope the optional Rust bridge installation and restore the previous installation after nesting.
-  Retain provider/context through all entry teardown, invoke outside host locks, and avoid pointers
-  into the growable attachment array across callbacks.
+- Retain the optional Rust bridge provider through all entry teardown and restore the previous
+  execution context after nesting. Invoke outside host locks and avoid pointers into the growable
+  attachment array across callbacks. The continuation record below settles installation lifetime.
 - Populate Rust panic backing in the Bray-admitted records before arbitrary Rust callbacks. Transfer
   the chain exclusively instead of admitting a second chain. The bridge surrounds the complete Bray
   entry continuation, including admission and retirement, so teardown cannot observe the outer task.
@@ -314,3 +314,181 @@ reuse the owning analyses. Native report callback identities remain in the close
 Root creation reuses the existing task scope. Prepared-buffer publication now has one heap-module
 implementation shared by attachment and pool growth. The split pool root contains only its module
 declaration. No new language feature, downstream validator, allocator, or scheduler was added.
+
+## Entry ownership continuation
+
+Published review [5532070959](https://github.com/lejmer/bray/pull/609#pullrequestreview-5532070959)
+found no actionable defects in `bfb66419`. Its checkpoint-only scope was verified on GitHub.
+
+Attachment acquisition is being restricted to the native entry protocol. Its scalar identity is
+not an inferred exact-thread capability. The trusted synchronous implementation must keep the
+owner local, invoke the native continuation on that same thread, and retire before returning.
+Only the explicit native enter/leave protocol transfers that obligation to a native caller.
+General source code cannot acquire or escape this owner. No thread-local bootstrap marker or
+new dependency representation is needed for this closed entry implementation.
+
+Report-chain ownership is being represented by a noncopyable source owner with an unchanged
+whole-value witness. Raw copied headers remain unauthorized. Admission secures the owner cleanup
+obligation before publication and commits the actual returned chain without another fallible step.
+Disposal reuses the existing report consumer loop. A borrowed owner cannot be passed through a
+fallible mutating operation and then rely on normal-return postconditions for abnormal cleanup,
+so this source interface exposes admission and destruction, not a fallible mutating finish API.
+The owner implementation and production-declaration regressions are in progress.
+
+The 35 production host-contract tests passed in `bra-554-entry-owner-contracts.log`, including
+source report-owner admission/destruction and forged, copied, mutated and cross-paired headers.
+Subsequent attachment retirement and bridge edits still need their final checks.
+
+The process-lifetime bridge hypothesis was rejected during read-only design review. A stored
+function pointer and Rust `Once` do not retain a loaded provider. The replacement uses an optional
+callback on the existing exact-thread attachment. The native scope acquires an actual attachment
+depth, exchanges the callback, restores the previous callback, then releases that depth. Observing
+a current thread is insufficient. Different nonzero provider callbacks are rejected because their
+independent Rust TLS contexts have no established composition contract. Registration is confined
+to native provider scopes and copied code addresses never retain an attachment-array pointer.
+
+Source integration exposed inconsistent discriminant invalidation. Storage-flow absence already
+preserved an unexposed nullable/union descriptor across opaque writes, while positive pattern
+refinements discarded that same proof. A shared discriminant rule now consumes the existing
+prepared footprint and physical invalidation result. Arbitrary predicates over reached mutable
+contents keep their existing invalidation. The original raw-write-then-projected-assignment shape
+has a focused regression. This repair and the new entry integration remain under verification.
+
+Entry ABI integration will use `(callback, context, caller-owned outcome) -> terminal status`.
+The caller initializes the outcome to runtime failure, and the generated body callback publishes
+completion or panic directly into that destination. The result payload already stores the result
+address, so it cannot carry terminal status. Existing host status can account for terminal failure
+after normal result resolution. Keep completed body results intact. Append hidden entry cleanup
+panics after an existing body panic using the existing outcome merge operation; do not report the
+cleanup panic first. The foreign caller must report terminal incidents even when it returns a
+successful body result. Returned dependency survival still needs the acceptance audit.
+
+Current integration work is uncommitted. The new source entry roles and generated callbacks use
+caller-owned outcomes and return terminal status. The replaced synchronous/foreign Rust exports
+have been removed. Rust-only unwind probes now call the actual source providers through a test
+adapter, while native-thread execution remains in its existing owner. Scoped registration is wired
+to native task resume and retained cleanup execution. Test-host registration/timeout/output,
+product closure and synchronous cleanup without scheduler retention still require completion.
+Do not interpret this checkpoint as passing production acceptance or a completed BRA-554.
+
+## Integrated entry validation in progress
+
+The complete trusted-contract batch passes 226 tests in
+`bra-554-entry-contract-fixed.log`, including actual host/entry declarations and the
+nullable-borrow discriminant regression. Shared codegen tests pass 68 tests. The LLVM
+fixtures now declare the selected atomic wait/notify roles. The combined core batch
+passes 68 codegen, 93 LLVM, 44 IR, 39 lowering, 190 package-interface, 18 ABI,
+28 runtime-interface and 18 test-protocol tests in `bra-554-entry-core-batch.log`.
+
+Foreign export planning now supplies the existing product descriptor even when there
+are no statics. Generated entry acquires the product before calling source and releases
+it after outcome handling. Product-control emission is shared with root shutdown.
+The generated boundary implementation is split by foreign-call and closed runtime ABI
+responsibility. Completed results retain ownership independently of terminal status.
+A structured entry-failure report represents the otherwise unreturnable foreign terminal
+status. Its native consumer is explicit, rather than an inert copied report header.
+
+Cold synchronous product formation no longer creates or retains a scheduler. Async
+finalizers and exact-thread cleanup on an existing scheduler retain their required
+runtime. Attachment setup failure preserves pending cleanup owners for retry. Actual
+thread retirement uses its established cleanup borrow and rejects nested source entry.
+Full multi-runtime attachment membership remains BRA-557's existing ownership.
+The product-control implementation still references scheduler code for async consumers.
+Do not claim that this issue removes that machine code from every static product.
+
+The test session owns its bridge until cleanup and result publication. Runtime bindings
+distinguish the initialization owner from borrowed worker/cleanup bindings, so restoring
+an outer context does not leak an inner initialized runtime or release an outer owner.
+These runtime changes and generated native acceptance are still under validation.
+No Step 5 completion is claimed. BRA-558 remains next after BRA-554 review.
+
+
+## Product entry ordering
+
+The executable root previously materialized statics and ran source without holding a
+product entry. Concurrent closure could therefore start cleanup during root execution.
+Lowering now emits `BeginProductEntry` after required runtime initialization and before
+static materialization. The existing host sequence contract checks that order. Codegen
+holds the established product admission through result resolution and releases it before
+`FINISH_ROOT`. Products with no descriptor need no admission call. Shared product-control
+emission is reused by root and foreign entry. All closed MIR inventories include the new
+operation, with no additional semantic analysis pass.
+
+The generated scalar/indirect callback regression passes for local and imported source in
+`bra-554-foreign-native.log`. Root ordering passes in `bra-554-root-order.log`. Static
+libraries deliberately leave final-image descriptor ownership to the final host. The C
+acceptance driver supplies that descriptor, as a Bray executable host does for a Bray
+final image. Runtime and complete native fixture validation remain pending.
+
+
+## Terminal ownership audit
+
+The callback returns unused admitted records. Their empty Rust backing slots are not
+incidents, so they remain silently consumed. Rendering those records would invent
+panics. Source callback contracts already require returning only this unused chain.
+
+Entry adapters now distinguish a terminal panic already transferred or consumed from
+an unrepresented failure. The foreign wrapper emits no duplicate summary for the former.
+The optional Rust context bridge admits its retirement record before callback entry,
+retains exact shutdown panic details, and uses the shared outcome append operation.
+A completed result remains owned by its caller. Existing body panics precede appended
+retirement panics. Tests cover both direct scalar and indirect aggregate results.
+
+Existing product/TLS incident sinks still render during their own cleanup. Global output
+ordering and migration of those consumers belong to BRA-558, including its typed-error,
+formatter failure and denied-allocation acceptance. BRA-554's entry ownership evidence
+must not be described as completion of that report-output contract.
+
+The native bootstrap audit found five internal helpers incorrectly marked C ABI:
+`consume_pointer`, `recycle_reservation`, `take_report`, `heap.allocate`, and
+`heap.deallocate_bytes`. They have only direct Bray consumers. Their C annotations were
+removed, eliminating unused foreign-entry wrappers and their product-host dependency.
+This preserves actual native callback roles, including the report consumer and message
+copy/release callbacks. No fabricated final descriptor was added to the runtime tests.
+
+The generated C entry fixture warms 1,000 calls, then reports C clock seconds for
+100,000 checked `bray_entry_value` calls. The sample includes C/Bray boundary work,
+product admission/release, source attachment/report ownership, the tiny body and its
+identity assertion, and C result checking. It is an absolute smoke measurement, not a
+Rust comparison or an isolated instruction-cost benchmark. The workflow accepts only
+that measurement line, rejects stderr, and forwards the raw count/time to its log.
+The cold-product runtime test separately establishes that synchronous entry cleanup
+creates no scheduler. The retained Rust `ProductHostControl` graph still includes async
+cleanup support. This timing sample makes no scheduler-code-size elimination claim.
+
+The synchronous fixture also times 100,000 warmed source root entries with an unchanged
+callback and checks each outcome. Its Rust `Instant` sample is elapsed time. The foreign
+sample uses C `clock()`, whose interpretation depends on the platform CRT. Record it as
+`clock_seconds`, not a portable CPU-time claim. These are separate absolute observations,
+not an equivalent-program comparison or a throughput gate.
+
+
+## Final lifetime and retirement audit
+
+The complete runtime batch exposed a TLS teardown ordering defect. Foreign attachment
+storage now initializes the generic cancellation/task/output context, native context,
+selected host callbacks and thread-static registry before publishing an attachment owner.
+An owned runtime registers its retirement guard after that storage. Implicit thread exit
+therefore releases the runtime owner before its attachment and context dependencies.
+Repeated runtime initialization uses the same order. Existing task/frame admission backs
+cleanup failures; this change adds no report allocation or fallback error conversion.
+
+The first corrected runtime batch passed 163 tests and exposed two remaining cases.
+Product closure returned immediately from `CLOSING`, preventing a retained cleanup owner
+from being retried. Closure now resumes pending work in both open and closing states.
+The fresh-thread regression now uses an actual registered thread-static finalizer to
+inspect cleanup contexts, rather than attempting to replace the canonical exit callback.
+The final combined batch is pending below.
+
+The audit removed the obsolete optional-runtime cleanup path, its lazy initialization,
+owned shutdown guard and forwarding helper. Every caller already retains its required
+runtime. The remaining cleanup binding reports the actual bridge retirement status.
+Equivalent native product emission and bundle directory construction share their existing
+owners. Closed MIR, runtime-role, ABI, serialization and diagnostic inventories were
+searched across the repository. No new downstream analysis or source syntax was added.
+
+`bra-554-terminal-source.log` passes the generated EntryContinuation native regression.
+A cleanup panic preserves a completed result, or follows an existing body panic through
+the existing suppression adapter. Both cases return represented terminal status without
+duplicate output. An entry admission failure already carried by the body outcome now
+returns clean terminal status, as the Rust context bridge does.

@@ -618,6 +618,8 @@ pub enum MirHostOperation {
     },
     /// Close root selection and begin product-static cleanup.
     BeginStaticCleanup,
+    /// Retains product entry ownership until static cleanup begins.
+    BeginProductEntry,
     /// Report and destroy cleanup incidents transferred to the host.
     ReportCleanupIncidents {
         /// Selected private cleanup-reporting ABI role.

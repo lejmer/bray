@@ -126,10 +126,16 @@ impl NativeStringView {
     }
 }
 
-/// Callback invoking one synchronous source root with an initially completed outcome.
-/// The callback publishes cancellation or panic when execution does not complete normally.
-pub type NativeSynchronousRootCallback =
-    extern "C-unwind" fn(destination: usize, outcome: &mut NativeRunOutcome);
+/// Invoke a synchronous source root using caller-owned outcome and admitted report records.
+/// The callback publishes its body outcome, returns unused records, and contains native unwind.
+/// Entry returns SUCCESS on clean retirement, PANICKED when a terminal report was already
+/// transferred into the outcome or consumed, and another status for an unrepresented failure.
+/// Terminal status never revokes a completed result transferred to the caller.
+pub type NativeSynchronousRootCallback = extern "C" fn(
+    context: usize,
+    outcome: &mut NativeRunOutcome,
+    records: &mut crate::NativeReportRecords,
+);
 
 /// Callback invoking one synchronous Bray operation with an initially completed outcome.
 /// Successful source calls may leave this caller-owned failure header untouched.

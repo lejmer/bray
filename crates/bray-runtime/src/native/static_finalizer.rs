@@ -75,55 +75,35 @@ pub(crate) fn run_static_finalizer(
     incidents
 }
 
-pub(crate) fn with_static_cleanup_runtime<T>(
-    callback: impl FnOnce() -> T,
-) -> (T, Option<OwnedCleanupIncident>) {
-    with_selected_static_cleanup_runtime(None, callback)
-}
-
-pub(crate) fn with_retained_static_cleanup_runtime<T>(
-    runtime: &super::state::RetainedRuntime,
-    callback: impl FnOnce() -> T,
-) -> (T, Option<OwnedCleanupIncident>) {
-    with_selected_static_cleanup_runtime(Some(runtime), callback)
-}
-
-fn with_selected_static_cleanup_runtime<T>(
+pub(crate) fn with_static_cleanup_context<T>(
     runtime: Option<&super::state::RetainedRuntime>,
     callback: impl FnOnce() -> T,
-) -> (T, Option<OwnedCleanupIncident>) {
-    let mut callback = Some(callback);
-    let mut result = None;
+) -> Result<(T, Option<OwnedCleanupIncident>), bray_runtime_abi::NativeRuntimeStatus> {
+    let Some(runtime) = runtime else {
+        let bridge = (!crate::bootstrap::in_thread_cleanup())
+            .then(super::bridge::Scope::enter)
+            .transpose()?;
 
-    let runtime = super::state::with_cleanup_runtime(runtime, || {
-        let Some(callback) = callback.take() else {
-            return false;
-        };
+        let result = super::state::with_independent_execution_context(callback);
+        let incidents = bridge.map_or(0, super::bridge::Scope::finish);
+        let incident = (incidents != 0).then(OwnedCleanupIncident::runtime_failure);
 
-        result = Some(callback());
-
-        super::state::with_runtime(|runtime| runtime.report_cleanup_incidents())
-            .is_ok_and(|status| status.is_success())
-    });
-
-    let runtime_succeeded = match runtime {
-        Ok((reported, shutdown)) => reported && shutdown.is_success(),
-        Err(_) => false,
+        return Ok((result, incident));
     };
 
-    if result.is_none()
-        && let Some(callback) = callback.take()
-    {
-        result = Some(callback());
-    }
+    let ((result, reported), shutdown) = super::state::with_cleanup_runtime(runtime, || {
+        let result = callback();
 
-    let incident = (!runtime_succeeded).then(OwnedCleanupIncident::runtime_failure);
+        let reported = super::state::with_runtime(|runtime| runtime.report_cleanup_incidents())
+            .is_ok_and(|status| status.is_success());
 
-    let Some(result) = result else {
-        unreachable!("static cleanup callback must run exactly once")
-    };
+        (result, reported)
+    })?;
 
-    (result, incident)
+    let incident =
+        (!reported || !shutdown.is_success()).then(OwnedCleanupIncident::runtime_failure);
+
+    Ok((result, incident))
 }
 
 #[cfg(test)]
@@ -134,7 +114,149 @@ mod tests {
         NativeStaticFinalizerStatus,
     };
 
-    use super::{run_static_finalizer, with_static_cleanup_runtime};
+    use super::run_static_finalizer;
+
+    fn with_static_cleanup_runtime<T>(
+        callback: impl FnOnce() -> T,
+    ) -> (T, Option<crate::incident::OwnedCleanupIncident>) {
+        let runtime = super::super::state::retain_runtime().expect("cleanup runtime forms");
+        let result = super::with_static_cleanup_context(Some(&runtime), callback);
+
+        runtime.release();
+
+        result.expect("cleanup context attaches")
+    }
+
+    #[test]
+    fn synchronous_cleanup_is_attached_without_a_scheduler_and_restores_context() {
+        let _isolation = super::super::state::test_runtime_isolation();
+        let cancellation = crate::CancellationContext::root();
+
+        assert!(cancellation.request());
+
+        assert!(
+            super::super::state::retain_current_runtime()
+                .unwrap()
+                .is_none()
+        );
+
+        assert!(crate::bootstrap::current_runtime_thread().is_none());
+
+        crate::context::with_run_cancellation_context(cancellation, || {
+            let ((), incident) = super::with_static_cleanup_context(None, || {
+                assert!(crate::bootstrap::current_runtime_thread().is_some());
+
+                assert!(
+                    super::super::state::retain_current_runtime()
+                        .unwrap()
+                        .is_none()
+                );
+
+                assert!(!crate::current_run_cancellation_requested());
+            })
+            .unwrap();
+
+            assert!(incident.is_none());
+            assert!(crate::current_run_cancellation_requested());
+        });
+
+        assert!(crate::bootstrap::current_runtime_thread().is_none());
+
+        assert!(
+            super::super::state::retain_current_runtime()
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn synchronous_cleanup_bridge_isolates_nested_entry_from_a_body_installed_runtime() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
+        use super::super::entry::bray_runtime_foreign_callback_execution;
+
+        extern "C" fn nested(
+            _: usize,
+            outcome: &mut bray_runtime_abi::NativeRunOutcome,
+            _: &mut bray_runtime_abi::NativeReportRecords,
+        ) {
+            let isolated = super::super::state::with_runtime(|_| ()).is_err();
+
+            *outcome = bray_runtime_abi::NativeRunOutcome::new(
+                bray_runtime_abi::NativeRunState::COMPLETED,
+                usize::from(isolated),
+            );
+        }
+
+        let ((), incident) = super::with_static_cleanup_context(None, || {
+            assert!(
+                super::super::state::initialize(bray_runtime_abi::NativeRuntimeConfiguration::new(
+                    16, 16
+                ))
+                .is_success()
+            );
+
+            let mut outcome = bray_runtime_abi::NativeRunOutcome::new(
+                bray_runtime_abi::NativeRunState::RUNTIME_FAILURE,
+                0,
+            );
+
+            assert_eq!(
+                bray_runtime_foreign_callback_execution(nested, 0, &mut outcome),
+                0
+            );
+
+            assert_eq!(outcome.state(), bray_runtime_abi::NativeRunState::COMPLETED);
+            assert_eq!(outcome.payload(), 1);
+            assert!(super::super::state::with_runtime(|_| ()).is_ok());
+        })
+        .unwrap();
+
+        assert!(incident.is_none());
+        assert!(super::super::state::with_runtime(|_| ()).is_err());
+        assert!(crate::bootstrap::current_runtime_thread().is_none());
+    }
+
+    #[test]
+    fn retained_cleanup_borrows_a_retiring_attachment_without_reacquiring_it() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
+        extern "C" fn cleanup(identity: u64) -> u32 {
+            crate::bootstrap::with_thread_cleanup(identity, || {
+                let runtime = RETIRING_RUNTIME
+                    .with_borrow(|runtime| runtime.clone())
+                    .unwrap();
+
+                let ((), incident) = super::with_static_cleanup_context(Some(&runtime), || {
+                    assert_eq!(
+                        crate::bootstrap::current_runtime_thread()
+                            .unwrap()
+                            .id()
+                            .raw(),
+                        identity
+                    );
+                })
+                .expect("terminal cleanup borrows the established attachment");
+
+                assert!(incident.is_none());
+            });
+
+            0
+        }
+
+        thread_local! {
+            static RETIRING_RUNTIME: std::cell::RefCell<Option<super::super::state::RetainedRuntime>> = const { std::cell::RefCell::new(None) };
+        }
+
+        let runtime = super::super::state::retain_runtime().unwrap();
+        let attachment = crate::bootstrap::RuntimeThreadScope::enter().unwrap();
+
+        RETIRING_RUNTIME.set(Some(runtime.clone()));
+        assert!(crate::bootstrap::register_thread_cleanup(cleanup));
+        assert_eq!(attachment.finish(), 0);
+        RETIRING_RUNTIME.set(None);
+        runtime.release();
+    }
 
     #[test]
     fn admitted_finalizer_runs_after_further_outgoing_admission_is_rejected() {

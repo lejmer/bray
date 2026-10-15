@@ -673,11 +673,23 @@ fn foreign_callbacks_preserve_abnormal_outcomes_for_scalar_and_indirect_results(
         Report {suppress}(Report first, Report second) {{ (void)first; (void)second; _Exit(13); }}
         static unsigned reports;
         static unsigned cancelled;
-        Outcome {boundary}(void (*callback)(uintptr_t, Outcome*), uintptr_t context) {{
-            Outcome outcome = {{0}};
-            callback(context, &outcome);
-            if (outcome.state == {cancelled}) ++cancelled;
-            return outcome;
+        static unsigned terminal_status;
+        static unsigned reject_entry;
+        // The C final image supplies the descriptor consumed by this stubbed control.
+        const unsigned char bray_linked_product_host = 0;
+        typedef struct {{ uint32_t status, state; uintptr_t entries, external, threads, initialized, cleaned, incidents; unsigned char identity[32]; }} Observation;
+        void {control}(Observation* result, const void* descriptor, unsigned operation) {{
+            (void)descriptor; *result = (Observation){{0}};
+            if (operation == {acquire} && reject_entry) result->status = {closed};
+        }}
+        unsigned {consumer}(Report* value, unsigned reporting) {{
+            (void)value; (void)reporting; return 0;
+        }}
+        unsigned {boundary}(void (*callback)(uintptr_t, Outcome*, void*), uintptr_t context, Outcome* outcome) {{
+            callback(context, outcome, NULL);
+            if (outcome->state == {cancelled}) ++cancelled;
+            if (terminal_status == {represented}) ++reports;
+            return terminal_status;
         }}
         Report {construction}(uint32_t cause, uint32_t present, uint32_t identity,
             uint32_t start, uint32_t end, uint64_t version, uint64_t n0, uint64_t n1,
@@ -700,7 +712,19 @@ fn foreign_callbacks_preserve_abnormal_outcomes_for_scalar_and_indirect_results(
             if (nested(0) != 73 || nested(1) != 0 || nested(2) != 0) return 6;
             if (through_pointer(0) != 73 || through_pointer(1) != 0 || through_pointer(2) != 0) return 7;
             if (through_lambda(0) != 73 || through_lambda(1) != 0 || through_lambda(2) != 0) return 8;
-            return cancelled == 5 && reports == 5 && cleanups == 3 && shield_depth == 0 ? 0 : 5;
+            if (reports != 5 || cleanups != 3 || shield_depth != 0 || cancelled != 5) return 5;
+            terminal_status = {represented};
+            if (scalar(0) != 73 || reports != 6) return 14;
+            terminal_status = {unrepresented};
+            if (scalar(0) != 73 || reports != 7) return 15;
+            terminal_status = {represented};
+            normal = aggregate(0);
+            if (normal.first != 17 || normal.second != 29 || normal.third != 41 || reports != 8) return 16;
+            reject_entry = 1;
+            if (nested(0) != 0 || cleanups != 3) return 17;
+            failure = aggregate(0);
+            if (failure.first || failure.second || failure.third || reports != 8) return 18;
+            return 0;
         }}
     "#,
         shield_enter = RuntimeAbiRole::CleanupShieldEnter.native_symbol().unwrap(),
@@ -715,12 +739,18 @@ fn foreign_callbacks_preserve_abnormal_outcomes_for_scalar_and_indirect_results(
         suppress = RuntimeAbiRole::PanicReportSuppression
             .native_symbol()
             .unwrap(),
+        acquire = bray_runtime_abi::NativeProductHostOperation::ACQUIRE_ENTRY.code(),
+        closed = bray_runtime_abi::NativeProductHostStatus::CLOSED.code(),
+        represented = bray_runtime_abi::NativeRuntimeStatus::PANICKED.code(),
+        unrepresented = bray_runtime_abi::NativeRuntimeStatus::RUNTIME_FAILURE.code(),
         report_align = std::mem::align_of::<bray_runtime_abi::NativePanicReport>(),
         report_size = std::mem::size_of::<bray_runtime_abi::NativePanicReport>(),
         boundary = RuntimeAbiRole::ForeignCallbackExecution
             .native_symbol()
             .unwrap(),
         cancelled = bray_runtime_abi::NativeRunState::CANCELLED.code(),
+        control = RuntimeAbiRole::ProductHostControl.native_symbol().unwrap(),
+        consumer = RuntimeAbiRole::ReportConsumer.native_symbol().unwrap(),
         report = RuntimeAbiRole::PanicReporting.native_symbol().unwrap(),
     );
 
@@ -826,4 +856,96 @@ fn foreign_callbacks_preserve_abnormal_outcomes_for_scalar_and_indirect_results(
 
         super::support::linker::run_native_caller(&backend, &plan, &caller);
     }
+}
+
+#[test]
+#[cfg(all(windows, target_arch = "x86_64"))]
+fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
+    let source = r#"
+        trusted module app;
+        trusted internal predicate native_entry();
+        @abi(c)
+        trusted internal func invoke(pos callback: RawPointer<u8>, pos context: usize,
+            pos main: u32, pos outcome: RawPointer<u8>) -> u32
+            requires(trusted native_entry()) {
+            let _ = callback;
+            let _ = context;
+            let _ = main;
+            let _ = outcome;
+            panic("entry cleanup");
+        }
+    "#;
+
+    let role = RuntimeAbiRole::EntryContinuation;
+
+    let binding =
+        bray_runtime_interface::RuntimeRoleSourceBinding::try_new(role, "app.invoke").unwrap();
+
+    let (backend, plan) = runtime_native_plan_with_source_roles(
+        &[source],
+        ProductKind::Library,
+        SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc),
+        [binding],
+    );
+
+    let caller = format!(
+        r#"
+        #include <stdint.h>
+        #include <stdlib.h>
+        typedef struct {{ _Alignas({align}) unsigned char data[{size}]; }} Report;
+        typedef struct {{ uint32_t state; uintptr_t payload; Report report; }} Outcome;
+        static unsigned reported, merged, shield_depth;
+        void {shield_enter}(void) {{ ++shield_depth; }}
+        void {shield_leave}(void) {{ if (!shield_depth) _Exit(8); --shield_depth; }}
+        void {propagate_panic}(Report* report) {{ (void)report; _Exit(9); }}
+        void {propagate_cancellation}(void) {{ _Exit(10); }}
+        Report {construct}(uint32_t cause, uint32_t present, uint32_t identity,
+            uint32_t start, uint32_t end, uint64_t version, uint64_t n0,
+            uint64_t n1, uint64_t n2, uint64_t n3, const void* text, uintptr_t length) {{
+            Report result = {{0}};
+            result.data[0] = 22;
+            return result;
+        }}
+        unsigned {report}(Report value) {{ if (value.data[0] != 22) _Exit(1); ++reported; return 0; }}
+        Report {suppress}(Report* first, Report* second) {{
+            if (first->data[0] != 11 || second->data[0] != 22) _Exit(2);
+            Report result = *first;
+            *first = (Report){{0}}; *second = (Report){{0}};
+            result.data[1] = 22;
+            ++merged;
+            return result;
+        }}
+        extern unsigned {entry}(void*, uintptr_t, unsigned, Outcome*);
+        int main(void) {{
+            Outcome completed = {{0, 73, {{0}}}};
+            if ({entry}(0, 0, 0, &completed) != {represented}) return 3;
+            if (completed.state || completed.payload != 73 || reported != 1 || merged) return 4;
+            Outcome panicked = {{{panicked}, 0, {{0}}}};
+            panicked.report.data[0] = 11;
+            if ({entry}(0, 0, 0, &panicked) != {represented}) return 5;
+            if (panicked.state != {panicked} || panicked.report.data[0] != 11 || panicked.report.data[1] != 22) return 6;
+            return reported == 1 && merged == 1 && shield_depth == 0 ? 0 : 7;
+        }}
+    "#,
+        shield_enter = RuntimeAbiRole::CleanupShieldEnter.native_symbol().unwrap(),
+        shield_leave = RuntimeAbiRole::CleanupShieldLeave.native_symbol().unwrap(),
+        propagate_panic = RuntimeAbiRole::PanicPropagation.native_symbol().unwrap(),
+        propagate_cancellation = RuntimeAbiRole::CurrentRunCancellationPropagation
+            .native_symbol()
+            .unwrap(),
+        align = std::mem::align_of::<bray_runtime_abi::NativePanicReport>(),
+        size = std::mem::size_of::<bray_runtime_abi::NativePanicReport>(),
+        construct = RuntimeAbiRole::PanicReportConstruction
+            .native_symbol()
+            .unwrap(),
+        report = RuntimeAbiRole::PanicReporting.native_symbol().unwrap(),
+        suppress = RuntimeAbiRole::PanicReportSuppression
+            .native_symbol()
+            .unwrap(),
+        entry = role.native_symbol().unwrap(),
+        represented = bray_runtime_abi::NativeRuntimeStatus::PANICKED.code(),
+        panicked = bray_runtime_abi::NativeRunState::PANICKED.code(),
+    );
+
+    super::support::linker::run_native_caller(&backend, &plan, &caller);
 }

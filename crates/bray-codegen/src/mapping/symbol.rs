@@ -6,8 +6,10 @@ use bray_runtime_interface::{
 };
 
 /// Runtime roles required by every native entry that invokes a Bray callable.
-pub const FOREIGN_CALLBACK_RUNTIME_ROLES: [RuntimeAbiRole; 2] = [
+pub const FOREIGN_CALLBACK_RUNTIME_ROLES: [RuntimeAbiRole; 4] = [
     RuntimeAbiRole::ForeignCallbackExecution,
+    RuntimeAbiRole::ProductHostControl,
+    RuntimeAbiRole::ReportConsumer,
     RuntimeAbiRole::PanicReporting,
 ];
 

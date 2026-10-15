@@ -101,6 +101,13 @@ pub fn lower_executable_host(
         )?;
     }
 
+    builder.push_operation(
+        entry,
+        source.clone(),
+        MirOperationKind::Host(MirHostOperation::BeginProductEntry),
+        None,
+    )?;
+
     for static_instance in statics.into_iter().rev() {
         let storage = builder.push_storage(
             source.clone(),
@@ -268,7 +275,7 @@ mod tests {
         assert_eq!(unit.kind(), &MirUnitKind::ExecutableHost(host));
 
         assert!(matches!(
-            unit.operations().first().map(bray_ir::MirOperation::kind),
+            unit.operations().get(1).map(bray_ir::MirOperation::kind),
             Some(MirOperationKind::Host(
                 MirHostOperation::ExecuteRoot {
                     root: actual,
@@ -286,6 +293,7 @@ mod tests {
         assert!(matches!(
             host_operations.as_slice(),
             [
+                MirOperationKind::Host(MirHostOperation::BeginProductEntry),
                 MirOperationKind::Host(MirHostOperation::ExecuteRoot { .. }),
                 MirOperationKind::Host(MirHostOperation::ObserveRootTerminal { .. }),
                 MirOperationKind::Host(MirHostOperation::ResolveRootTerminal { .. }),
@@ -341,7 +349,7 @@ mod tests {
         assert_eq!(unit.kind(), &MirUnitKind::ExecutableHost(host));
 
         assert!(matches!(
-            unit.operations().first().map(bray_ir::MirOperation::kind),
+            unit.operations().get(1).map(bray_ir::MirOperation::kind),
             Some(MirOperationKind::Host(MirHostOperation::ExecuteRoot {
                 execution: RootExecution::Asynchronous { .. },
                 ..

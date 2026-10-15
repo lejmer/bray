@@ -63,6 +63,8 @@ pub enum NativeEntryKind {
     ThreadStorageExit,
     /// Contain bootstrap failures and return the native runtime failure status.
     RuntimeStatus,
+    /// Preserve the body outcome and return entry cleanup status independently.
+    EntryStatus,
 }
 
 impl NativeEntryKind {
@@ -70,7 +72,11 @@ impl NativeEntryKind {
     pub const fn for_runtime_role(role: RuntimeAbiRole) -> Option<Self> {
         match role {
             RuntimeAbiRole::ThreadStorageExit => Some(Self::ThreadStorageExit),
-            RuntimeAbiRole::RuntimeInitialization
+            RuntimeAbiRole::SynchronousRootExecution
+            | RuntimeAbiRole::ForeignCallbackExecution
+            | RuntimeAbiRole::EntryContinuation => Some(Self::EntryStatus),
+            RuntimeAbiRole::EntryContextRegistration
+            | RuntimeAbiRole::RuntimeInitialization
             | RuntimeAbiRole::ThreadAttachmentEnter
             | RuntimeAbiRole::ThreadAttachmentLeave
             | RuntimeAbiRole::ThreadAttachmentMarkMain

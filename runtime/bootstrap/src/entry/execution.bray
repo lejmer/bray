@@ -1,0 +1,142 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.entry;
+
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.host.attachment;
+using internal bray.runtime.bootstrap.report.chain;
+using internal bray.runtime.bootstrap.entry.bridge;
+
+internal callable Continuation = @abi(c) trusted func(
+    pos callback: RawPointer<u8>,
+    pos context: usize,
+    pos main: u32,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> u32
+    requires(trusted native_entry());
+
+@abi(c)
+trusted internal func root(
+    pos callback: RawPointer<u8>,
+    pos context: usize,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> u32
+    requires(trusted native_entry())
+{
+    return trusted dispatch(callback, context, 1, outcome);
+}
+
+@abi(c)
+trusted internal func foreign(
+    pos callback: RawPointer<u8>,
+    pos context: usize,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> u32
+    requires(trusted native_entry())
+{
+    return trusted dispatch(callback, context, 0, outcome);
+}
+
+trusted internal func dispatch(
+    pos callback: RawPointer<u8>,
+    pos context: usize,
+    pos main: u32,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> u32
+    requires(trusted native_entry())
+    uses(layout_reinterpret)
+{
+    let selected = trusted bray.runtime.bootstrap.entry.bridge.current();
+
+    let selected_bridge = match consume selected
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return status; }
+    };
+
+    if let ?active_bridge = selected_bridge
+    {
+        let continuation: Continuation = invoke;
+
+        let address = trusted std.memory.reinterpret<u8, Continuation>(
+            trusted std.memory.pointer_from_callable<Continuation>(continuation)
+        );
+
+        return trusted active_bridge(address, callback, context, main, outcome);
+    }
+
+    return trusted invoke(callback, context, main, outcome);
+}
+
+@abi(c)
+trusted internal func invoke(
+    pos callback: RawPointer<u8>,
+    pos context: usize,
+    pos main: u32,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> u32
+    requires(trusted native_entry())
+    uses(layout_reinterpret, raw_memory, unchecked_init)
+{
+    let address = trusted lambda(pos callback: RawPointer<u8>) -> RawPointer<Callback>
+        requires(trusted native_entry())
+        ensures(trusted core.memory.callable_address_valid<Callback>(pointer = result))
+        executes(pure, total)
+        uses(layout_reinterpret)
+    {
+        return trusted std.memory.reinterpret<Callback, u8>(callback);
+    };
+
+    let prepare = trusted lambda()
+        requires(trusted native_entry())
+        ensures(
+            trusted bray.runtime.bootstrap.host.attachment.native_acquisition(),
+            trusted bray.runtime.bootstrap.host.native_main_entry()
+        )
+        executes(pure, total) {};
+
+    trusted prepare();
+
+    let selected = trusted std.memory.callable_from_pointer<Callback>(trusted address(callback));
+    let admitted = trusted bray.runtime.bootstrap.report.chain.admit(2);
+
+    if admitted.status != 0
+    {
+        let destination = trusted bray.runtime.bootstrap.entry.output(outcome);
+
+        trusted std.memory.write<bray.runtime.bootstrap.ReportOutcome>(
+            destination,
+            trusted bray.runtime.bootstrap.allocation_failure()
+        );
+
+        return bray.runtime.bootstrap.STATUS_SUCCESS;
+    }
+
+    let attachment = trusted bray.runtime.bootstrap.host.attachment.acquire();
+
+    if attachment.status != bray.runtime.bootstrap.STATUS_SUCCESS
+    {
+        return attachment.status;
+    }
+
+    if main != 0
+    {
+        let status = trusted bray.runtime.bootstrap.host.thread_attachment_mark_main();
+
+        if status != bray.runtime.bootstrap.STATUS_SUCCESS
+        {
+            return status;
+        }
+    }
+
+    let records_status = trusted bray.runtime.bootstrap.report.chain.invoke(admitted, selected, context, outcome);
+    let attachment_status = trusted bray.runtime.bootstrap.host.attachment.finish(attachment);
+
+    if records_status != bray.runtime.bootstrap.STATUS_SUCCESS
+    {
+        return records_status;
+    }
+
+    return attachment_status;
+}

@@ -108,9 +108,14 @@ pub(super) fn runtime_source_contract_matches(
 ) -> Result<bool, FactQueryError> {
     if !matches!(
         role,
-        RuntimeAbiRole::ThreadStorageExit
+        RuntimeAbiRole::EntryContextRegistration
+            | RuntimeAbiRole::SynchronousRootExecution
+            | RuntimeAbiRole::ForeignCallbackExecution
+            | RuntimeAbiRole::EntryContinuation
+            | RuntimeAbiRole::ThreadStorageExit
             | RuntimeAbiRole::ThreadAttachmentLeave
             | RuntimeAbiRole::ThreadAttachmentEnter
+            | RuntimeAbiRole::ThreadAttachmentMarkMain
     ) {
         return Ok(true);
     }
@@ -264,6 +269,14 @@ mod tests {
     #[test]
     fn attachment_retirement_roles_require_one_opaque_entry_condition_independent_of_spelling() {
         for (role, function) in [
+            (RuntimeAbiRole::EntryContextRegistration, "install"),
+            (RuntimeAbiRole::SynchronousRootExecution, "root"),
+            (RuntimeAbiRole::ForeignCallbackExecution, "foreign"),
+            (RuntimeAbiRole::EntryContinuation, "invoke"),
+            (
+                RuntimeAbiRole::ThreadAttachmentMarkMain,
+                "thread_attachment_mark_main",
+            ),
             (RuntimeAbiRole::ThreadStorageExit, "thread_storage_exit"),
             (
                 RuntimeAbiRole::ThreadAttachmentLeave,

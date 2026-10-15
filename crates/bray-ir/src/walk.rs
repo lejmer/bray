@@ -196,6 +196,7 @@ impl MirOperationKind {
                 | crate::MirHostOperation::ExecuteRoot { .. }
                 | crate::MirHostOperation::ObserveRootTerminal { .. }
                 | crate::MirHostOperation::ResolveRootTerminal { .. }
+                | crate::MirHostOperation::BeginProductEntry
                 | crate::MirHostOperation::BeginStaticCleanup
                 | crate::MirHostOperation::ReportCleanupIncidents { .. }
                 | crate::MirHostOperation::StructuredShutdown { .. } => {}

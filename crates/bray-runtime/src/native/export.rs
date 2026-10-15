@@ -505,12 +505,17 @@ native_export! {
 pub(crate) extern "C" fn bray_runtime_structured_shutdown() -> NativeRuntimeStatus {
     contain_status(|| {
         let runtime_status = shutdown();
+        let selected_host = super::host::active();
 
         if super::host::finish().is_err() {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         }
 
-        runtime_status
+        if selected_host && runtime_status == NativeRuntimeStatus::NOT_INITIALIZED {
+            NativeRuntimeStatus::SUCCESS
+        } else {
+            runtime_status
+        }
     })
 }
 
@@ -599,8 +604,8 @@ mod tests {
         NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskHandle,
     };
 
-    use super::super::callback::{
-        bray_runtime_foreign_callback_execution, bray_runtime_synchronous_root_execution,
+    use super::super::entry::{
+        foreign as bray_runtime_foreign_callback_execution, root as bray_runtime_synchronous_root_execution,
     };
 
     use super::{

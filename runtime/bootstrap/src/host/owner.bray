@@ -4,6 +4,7 @@ trusted internal module bray.runtime.bootstrap.host;
 using std.memory;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.thread.destruction;
+using internal bray.runtime.bootstrap.entry.bridge;
 using internal std.platform;
 using internal std.memory;
 using internal std.thread;
@@ -17,6 +18,7 @@ internal struct Attachment
     mut depth: usize;
     mut closing: bool;
     mut cleanup: AttachmentExit?;
+    mut context_bridge: bray.runtime.bootstrap.entry.bridge.Callback?;
 }
 
 internal struct HostOwner
@@ -399,6 +401,7 @@ trusted internal func insert_attachment(
             native_thread = native_thread,
             depth = 1,
             closing = false,
+            context_bridge = none,
             cleanup = none
         }
     );

@@ -99,7 +99,7 @@ pub(super) fn validate_host_operation(
 
             validate_runtime_role(unit, *entry_failure, RuntimeAbiRole::EntryFailureReporting)
         }
-        MirHostOperation::BeginStaticCleanup => Some(()),
+        MirHostOperation::BeginProductEntry | MirHostOperation::BeginStaticCleanup => Some(()),
         MirHostOperation::ReportCleanupIncidents { runtime } => {
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::CleanupIncidentReporting)
         }

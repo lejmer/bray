@@ -728,6 +728,7 @@ where
             universe,
             self.storage,
             invalidation.as_ref(),
+            &self.input.discriminants,
         );
 
         state.refinements = refinements;

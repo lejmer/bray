@@ -29,6 +29,21 @@ fn production_host_nested_bodies_and_contracts_are_checked() {
         .syntax()
         .source_id();
 
+    let report_source = source_function_body_key(&compilation, "admit")
+        .source()
+        .syntax()
+        .source_id();
+
+    let bridge_source = source_function_body_key(&compilation, "install")
+        .source()
+        .syntax()
+        .source_id();
+
+    let entry_source = source_function_body_key(&compilation, "dispatch")
+        .source()
+        .syntax()
+        .source_id();
+
     let diagnostics = compilation.check_diagnostics();
 
     let failures = diagnostics
@@ -36,6 +51,9 @@ fn production_host_nested_bodies_and_contracts_are_checked() {
         .filter(|diagnostic| {
             diagnostic.primary_span().is_some_and(|span| {
                 span.source_id() == acquisition_source
+                    || span.source_id() == report_source
+                    || span.source_id() == bridge_source
+                    || span.source_id() == entry_source
                     || owners.iter().any(|owner| {
                         span.source_id() == owner.source_id()
                             && span.start() >= owner.full_range().start()
@@ -211,7 +229,19 @@ fn native_exit_authority_is_required_by_actual_production_operations() {
         ),
         (
             "let owner = trusted bray.runtime.bootstrap.host.attachment.acquire();",
-            true,
+            false,
+        ),
+        (
+            "let _ = trusted bray.runtime.bootstrap.host.thread_attachment_mark_main();",
+            false,
+        ),
+        (
+            "let _ = trusted bray.runtime.bootstrap.entry.bridge.install(std.memory.null<u8>(), std.memory.null<usize>());",
+            false,
+        ),
+        (
+            "let _ = trusted bray.runtime.bootstrap.entry.bridge.current();",
+            false,
         ),
         (
             "let owner: bray.runtime.bootstrap.host.attachment.Owner = { status = 0, identity = 1 };",
@@ -235,7 +265,7 @@ fn native_exit_authority_is_required_by_actual_production_operations() {
         ),
     ] {
         let source = format!(
-            "module app; using internal bray.runtime.bootstrap.host; using internal bray.runtime.bootstrap.thread.destruction; using internal bray.runtime.bootstrap.host.attachment; func production_probe() {{ {operation} }}"
+            "module app; using internal bray.runtime.bootstrap.host; using internal bray.runtime.bootstrap.thread.destruction; using internal bray.runtime.bootstrap.host.attachment; using internal bray.runtime.bootstrap.entry.bridge; func production_probe() {{ {operation} }}"
         );
 
         let compilation = production_host_compilation(&source);
@@ -248,6 +278,101 @@ fn native_exit_authority_is_required_by_actual_production_operations() {
             !checked.diagnostics().has_errors(),
             valid,
             "{operation}: {checked:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn source_attachment_owner_requires_the_native_thread_protocol() {
+    for (body, valid) in [
+        ("let owner = trusted acquire();", true),
+        (
+            "let owner = trusted acquire(); let _ = trusted finish(owner);",
+            true,
+        ),
+        (
+            "let mut owner = trusted acquire(); owner.identity = 1;",
+            false,
+        ),
+        (
+            "let owner = trusted acquire(); let copied: Owner = { status = owner.status, identity = owner.identity };",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap.host.attachment;
+            func production_probe() requires(trusted native_acquisition()) {{ {body} }}
+        "#
+        );
+
+        let compilation = production_host_compilation(&source);
+
+        let checked = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{body}: {checked:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn source_report_chain_requires_unchanged_exclusive_ownership() {
+    for (body, valid) in [
+        ("let owner = trusted admit(2);", true),
+        (
+            "let owner: Owner = { records = bray.runtime.bootstrap.ReportRecords { head = 1, tail = 1, count = 1 }, status = 0 };",
+            false,
+        ),
+        (
+            "let owner = trusted admit(2); let copied: Owner = { records = owner.records, status = owner.status };",
+            false,
+        ),
+        (
+            "let mut owner = trusted admit(2); owner.records.head = 1;",
+            false,
+        ),
+        (
+            "let mut owner = trusted admit(2); let other = trusted admit(2); owner.records = other.records;",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap.report.chain;
+            using internal bray.runtime.bootstrap;
+            func production_probe() {{ {body} }}
+        "#
+        );
+
+        let compilation = production_host_compilation(&source);
+
+        let checked = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{body}: {checked:#?}"
         );
 
         if !valid {
@@ -1267,6 +1392,10 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
         include_str!("../../../../../standard-library/std/src/memory.bray"),
         include_str!("../../../../../standard-library/std/src/platform.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/entry.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/entry/protocol.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/entry/execution.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/entry/bridge.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/owner.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/access.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/attachment.bray"),
@@ -1282,6 +1411,8 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
         include_str!("../../../../../runtime/bootstrap/src/records.bray"),
         include_str!("../../../../../runtime/bootstrap/src/panic.bray"),
         include_str!("../../../../../runtime/bootstrap/src/report/transfer.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/report.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/report/chain.bray"),
         include_str!("../../../../../runtime/bootstrap/src/report_consumer.bray"),
         include_str!("../../../../../standard-library/std/src/sync.bray"),
         include_str!("../../../../../standard-library/std/src/sync/spin_lock.bray"),

@@ -219,6 +219,7 @@ fn encode_outcome(encoder: &mut Encoder, outcome: &TestOutcome) -> Result<(), Te
                 TestPanicCause::Assertion => 1,
                 TestPanicCause::RuntimePanic => 3,
                 TestPanicCause::AllocationFailure => 4,
+                TestPanicCause::EntryFailure => 5,
             });
 
             match report.source() {
@@ -296,6 +297,7 @@ fn decode_outcome(decoder: &mut Decoder<'_>) -> Result<TestOutcome, TestProtocol
                 1 => TestPanicCause::Assertion,
                 3 => TestPanicCause::RuntimePanic,
                 4 => TestPanicCause::AllocationFailure,
+                5 => TestPanicCause::EntryFailure,
                 _ => return Err(TestProtocolError::Malformed),
             };
 
@@ -584,6 +586,7 @@ mod tests {
             TestPanicCause::Assertion,
             TestPanicCause::RuntimePanic,
             TestPanicCause::AllocationFailure,
+            TestPanicCause::EntryFailure,
         ] {
             let result = TestHostResult::after_cleanup(
                 TestHostCommandId::from_bytes([3; 32]),

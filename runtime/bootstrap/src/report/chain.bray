@@ -1,0 +1,125 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.report.chain;
+
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.pool;
+using internal bray.runtime.bootstrap.entry;
+
+trusted internal predicate owned(owner: &Owner);
+
+internal struct Owner
+{
+    mut records: bray.runtime.bootstrap.ReportRecords;
+    mut status: u32;
+
+    trusted destruct()
+        requires(trusted owned(owner = &self))
+        when(self.records.count == 0)
+        {
+            executes(total)
+        }
+    {
+        let finish = trusted lambda(pos owner: &mut Owner) -> u32
+            requires(trusted owned(owner = &owner))
+            ensures(trusted owned(owner = &owner))
+        {
+            let permit = trusted lambda(pos owner: &Owner)
+                requires(trusted owned(owner = owner))
+                ensures(trusted bray.runtime.bootstrap.pool.protocol_access())
+                executes(pure, total) {};
+
+            trusted permit(&owner);
+
+            let records = trusted take(owner);
+
+            return trusted bray.runtime.bootstrap.consume_record_values(records, 0);
+        };
+
+        if self.records.count != 0
+        {
+            let _: u32 = trusted finish(&mut self);
+        }
+    }
+}
+
+trusted internal func admit(pos count: usize) -> Owner
+    ensures(trusted owned(owner = &result))
+{
+    let inactive = trusted lambda() -> Owner
+        ensures(trusted owned(owner = &result))
+    {
+        return
+        {
+            records = bray.runtime.bootstrap.empty_records(),
+            status = 1
+        };
+    };
+
+    let permit = trusted lambda(pos owner: &Owner)
+        requires(trusted owned(owner = owner))
+        ensures(trusted bray.runtime.bootstrap.pool.protocol_access())
+        executes(pure, total) {};
+
+    let commit = trusted lambda(
+        pos owner: &mut Owner,
+        pos status: u32,
+        pos records: bray.runtime.bootstrap.ReportRecords
+    )
+        ensures(trusted owned(owner = &owner))
+        executes(total)
+    {
+        owner.records = records;
+        owner.status = status;
+    };
+
+    // Establish the cleanup obligation before publishing any admitted records.
+    let mut owner = trusted inactive();
+
+    trusted permit(&owner);
+
+    let mut destination = bray.runtime.bootstrap.empty_records();
+    let pointer = std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut destination);
+    let (status, records) = trusted bray.runtime.bootstrap.admit_record_values(count, destination, pointer);
+
+    trusted commit(&mut owner, status, records);
+    return owner;
+}
+
+trusted internal func invoke(
+    pos mut owner: Owner,
+    pos callback: bray.runtime.bootstrap.entry.Callback,
+    pos context: usize,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> u32
+    requires(trusted owned(owner = &owner), trusted bray.runtime.bootstrap.entry.native_entry())
+    uses(raw_memory)
+{
+    let permit = trusted lambda(pos owner: &Owner)
+        requires(trusted owned(owner = owner))
+        ensures(trusted bray.runtime.bootstrap.pool.protocol_access())
+        executes(pure, total) {};
+
+    trusted permit(&owner);
+
+    let mut remaining = trusted take(&mut owner);
+    let pointer = std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut remaining);
+
+    let output = trusted bray.runtime.bootstrap.entry.output(outcome);
+
+    trusted callback(context, output, pointer);
+    remaining = trusted std.memory.read<bray.runtime.bootstrap.ReportRecords>(pointer);
+    return trusted bray.runtime.bootstrap.consume_record_values(remaining, 0);
+}
+
+// Raw transfer requires the pool protocol as well as the exact source owner.
+trusted internal func take(pos owner: &mut Owner) -> bray.runtime.bootstrap.ReportRecords
+    requires(trusted owned(owner = &owner), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted owned(owner = &owner))
+    executes(total)
+{
+    let records = owner.records;
+
+    owner.records = bray.runtime.bootstrap.empty_records();
+    return records;
+}

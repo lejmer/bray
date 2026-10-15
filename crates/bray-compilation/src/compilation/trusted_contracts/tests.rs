@@ -3535,3 +3535,46 @@ fn established_observation_free_predicates_survive_opaque_execution() {
         }
     }
 }
+
+#[test]
+fn nullable_borrow_descriptor_survives_unrelated_opaque_write() {
+    let compilation = compilation(
+        r#"
+        trusted module app;
+        trusted predicate destination_owned();
+        trusted func destination_pointer(pos pointer: RawPointer<u8>) -> RawPointer<u8>
+            requires(trusted destination_owned())
+            ensures(
+                trusted core.memory.valid_write<u8>(pointer = result, count = 1),
+                trusted core.memory.aligned_for<u8>(pointer = result)
+            )
+            executes(pure, total)
+        { return pointer; }
+        struct Payload { mut value: u32; }
+        func selected(pos value: &mut Payload) -> (&mut Payload)?
+            executes(total)
+        {
+            let mut result: (&mut Payload)? = none;
+            result = value;
+            return result;
+        }
+        trusted func update(pos value: &mut Payload, pos destination: RawPointer<u8>)
+            requires(trusted destination_owned())
+            uses(raw_memory, unchecked_init)
+        {
+            let found = selected(value);
+            if let ?payload = found
+            {
+                trusted core.memory.write<u8>(trusted destination_pointer(destination), 0);
+                payload.value = 17;
+            }
+        }
+        "#,
+    );
+
+    assert!(
+        !compilation.check_diagnostics().has_errors(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+}

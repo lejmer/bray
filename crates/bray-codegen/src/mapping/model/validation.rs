@@ -139,8 +139,16 @@ pub fn mapped_symbol_runtime_roles(
                 bray_runtime_interface::NativeEntryKind::ThreadStorageExit
                 | bray_runtime_interface::NativeEntryKind::RuntimeStatus,
             ) => *role == RuntimeAbiRole::PanicReporting,
+            Some(bray_runtime_interface::NativeEntryKind::EntryStatus) => {
+                *role == RuntimeAbiRole::PanicReporting
+            }
             None => false,
         })
+        .chain(
+            std::iter::once(RuntimeAbiRole::PanicReportSuppression).filter(move |_| {
+                native_entry == Some(bray_runtime_interface::NativeEntryKind::EntryStatus)
+            }),
+        )
         .chain(
             [
                 RuntimeAbiRole::PanicPropagation,
@@ -282,7 +290,9 @@ fn operation_runtime_references(
         | MirOperationKind::Destroy(_)
         | MirOperationKind::Cleanup { .. }
         | MirOperationKind::Host(
-            MirHostOperation::MaterializeStatic { .. } | MirHostOperation::BeginStaticCleanup,
+            MirHostOperation::MaterializeStatic { .. }
+            | MirHostOperation::BeginProductEntry
+            | MirHostOperation::BeginStaticCleanup,
         )
         | MirOperationKind::Async(
             MirAsyncOperation::CreateFrame {
@@ -410,6 +420,23 @@ mod tests {
 
             assert_eq!(roles, BTreeSet::from([RuntimeAbiRole::PanicReporting]));
         }
+    }
+
+    #[test]
+    fn entry_cleanup_preserves_body_reports_without_recursive_entry() {
+        let roles: BTreeSet<_> = super::mapped_symbol_runtime_roles(
+            Some(bray_runtime_interface::NativeEntryKind::EntryStatus),
+            false,
+        )
+        .collect();
+
+        assert_eq!(
+            roles,
+            BTreeSet::from([
+                RuntimeAbiRole::PanicReporting,
+                RuntimeAbiRole::PanicReportSuppression,
+            ])
+        );
     }
 
     #[test]

@@ -19,6 +19,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 Ok(None)
             }
+            MirHostOperation::BeginProductEntry => {
+                self.begin_product_entry()?;
+
+                Ok(None)
+            }
             MirHostOperation::MaterializeStatic { place } => {
                 let _ = self.place(place)?;
 
@@ -381,50 +386,82 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.finish_performance_interval_iteration(None, successful)
     }
 
-    fn finish_product_statics(&mut self) -> Result<(), CodegenFailure> {
-        let Some(host) = self.request.mappings().product_host() else {
+    fn begin_product_entry(&mut self) -> Result<(), CodegenFailure> {
+        if self.request.mappings().product_host().is_none() {
             return Ok(());
-        };
-
-        let descriptor = self
-            .module
-            .get_global(host.descriptor_symbol().as_str())
-            .expect("checked MIR effect translation requires an established mapping or value");
+        }
 
         let context = self.types.context();
-        let role = bray_runtime_interface::RuntimeAbiRole::ProductHostControl;
 
-        let function = crate::native::declare_runtime_function(
-            self.module,
+        let observation = crate::translation::product::control(
             context,
-            self.request.target(),
-            role,
+            self.module,
+            self.request,
+            &self.builder,
+            bray_runtime_abi::NativeProductHostOperation::ACQUIRE_ENTRY,
         )?;
 
-        let key = bray_codegen::CodegenSymbolKey::Runtime(bray_ir::MirRuntimeReference::new(
-            role,
-            self.unit.target().runtime_abi(),
-        ));
+        let status =
+            super::super::support::extract_value(&self.builder, observation, 0)?.into_int_value();
 
-        let observation = crate::native::invoke_function(
+        let accepted = llvm(self.builder.build_int_compare(
+            IntPredicate::EQ,
+            status,
+            status.get_type().const_zero(),
+            "product.entry.accepted",
+        ))?;
+
+        let continuation = context.append_basic_block(self.function, "product.entry.accepted");
+        let rejection = context.append_basic_block(self.function, "product.entry.rejected");
+
+        llvm(
+            self.builder
+                .build_conditional_branch(accepted, continuation, rejection),
+        )?;
+
+        self.builder.position_at_end(rejection);
+        self.translate_compiler_shutdown(context.i64_type().const_int(1, false))?;
+        llvm(self.builder.build_unreachable())?;
+        self.builder.position_at_end(continuation);
+
+        Ok(())
+    }
+
+    fn finish_product_statics(&mut self) -> Result<(), CodegenFailure> {
+        if self.request.mappings().product_host().is_none() {
+            return Ok(());
+        }
+
+        let context = self.types.context();
+
+        let released = crate::translation::product::control(
             context,
+            self.module,
+            self.request,
             &self.builder,
-            self.request.target(),
-            &key,
-            function,
-            &[
-                descriptor.as_pointer_value().into(),
-                context
-                    .i32_type()
-                    .const_int(
-                        u64::from(bray_runtime_abi::NativeProductHostOperation::FINISH_ROOT.code()),
-                        false,
-                    )
-                    .into(),
-            ],
-            "product.cleanup",
-        )?
-        .expect("checked MIR effect translation requires an established mapping or value");
+            bray_runtime_abi::NativeProductHostOperation::RELEASE_ENTRY,
+        )?;
+
+        let release_status =
+            super::super::support::extract_value(&self.builder, released, 0)?.into_int_value();
+
+        let release_failed = llvm(self.builder.build_int_compare(
+            IntPredicate::EQ,
+            release_status,
+            release_status.get_type().const_int(
+                u64::from(bray_runtime_abi::NativeProductHostStatus::RUNTIME_FAILURE.code()),
+                false,
+            ),
+            "product.entry.release_failed",
+        ))?;
+
+        let observation = crate::translation::product::control(
+            context,
+            self.module,
+            self.request,
+            &self.builder,
+            bray_runtime_abi::NativeProductHostOperation::FINISH_ROOT,
+        )?;
 
         let status = int_value(super::super::support::extract_value(
             &self.builder,
@@ -477,6 +514,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.builder
                 .build_or(failed, pending, "product.cleanup.incomplete"),
         )?;
+
+        let failed = llvm(self.builder.build_or(
+            failed,
+            release_failed,
+            "product.cleanup.or_release_failed",
+        ))?;
 
         let failed = llvm(self.builder.build_int_z_extend(
             failed,

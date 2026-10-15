@@ -467,6 +467,7 @@ trusted internal func complete_attachment_exit_locked(pos completed: &HostLease,
             native_thread = native_thread,
             depth = 0,
             closing = true,
+            context_bridge = none,
             cleanup = none
         }
     );

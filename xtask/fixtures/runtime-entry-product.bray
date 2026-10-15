@@ -1,0 +1,96 @@
+trusted module runtime_entry_product;
+
+@abi(c)
+@symbol(name = "bray_entry_record")
+extern trusted func record(pos event: u32)
+    executes(total)
+    uses(foreign_call);
+
+@abi(c)
+@symbol(name = "bray_entry_count")
+extern trusted func count(pos event: u32) -> u64
+    executes(total)
+    uses(foreign_call);
+
+@abi(c)
+@symbol(name = "bray_entry_reenter")
+extern trusted func reenter(pos value: u64) -> u64
+    uses(foreign_call);
+
+@abi(c)
+@symbol(name = "bray_entry_close_inside")
+extern trusted func close_inside() -> u64
+    uses(foreign_call);
+
+@layout(c)
+public struct Owner
+{
+    value: u64;
+
+    trusted destruct()
+    {
+        trusted record(2);
+        assert(self.value == 73);
+    }
+}
+
+internal callable MakeOwner = @abi(c) trusted func() -> Owner;
+
+@abi(c)
+@symbol(name = "bray_entry_value")
+public func value(pos input: u64) -> u64
+{
+    trusted record(1);
+    return input + 1;
+}
+
+@abi(c)
+@symbol(name = "bray_entry_nested")
+public func nested(pos input: u64) -> u64
+{
+    return trusted reenter(input);
+}
+
+@abi(c)
+@symbol(name = "bray_entry_create")
+public func create() -> Owner
+{
+    trusted record(3);
+
+    return
+    {
+        value = 73
+    };
+}
+
+@abi(c)
+@symbol(name = "bray_entry_dispose")
+public func dispose(pos owner: Owner)
+{
+    assert(owner.value == 73);
+}
+
+@abi(c)
+@symbol(name = "bray_entry_returned_owner")
+public func returned_owner() -> u64
+{
+    let before = trusted count(2);
+
+    {
+        let callback: MakeOwner = create;
+        let owner = trusted callback();
+
+        assert(owner.value == 73);
+        assert(trusted count(2) == before);
+    }
+
+    assert(trusted count(2) == before + 1);
+    return 73;
+}
+
+@abi(c)
+@symbol(name = "bray_entry_closing")
+public func closing() -> u64
+{
+    return trusted close_inside();
+}

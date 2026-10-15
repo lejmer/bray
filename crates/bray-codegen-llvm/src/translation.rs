@@ -1,6 +1,7 @@
 mod allocation;
 mod frame;
 mod panic;
+mod product;
 mod string;
 mod unit;
 

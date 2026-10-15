@@ -1,6 +1,11 @@
 #[macro_use]
 mod macros;
+pub(crate) mod bridge;
 mod callback;
+#[cfg(test)]
+mod entry;
+#[cfg(test)]
+pub(crate) use entry::bray_runtime_foreign_callback_execution;
 mod event;
 mod export;
 mod frame;
@@ -16,7 +21,7 @@ mod static_finalizer;
 mod task_observation;
 mod workers;
 
-pub(crate) use state::{RetainedRuntime, retain_runtime};
+pub(crate) use state::{RetainedRuntime, initialize_thread_context, retain_current_runtime, retain_runtime};
 pub(crate) use static_finalizer::{
-    run_static_finalizer, with_retained_static_cleanup_runtime, with_static_cleanup_runtime,
+    run_static_finalizer, with_static_cleanup_context,
 };
