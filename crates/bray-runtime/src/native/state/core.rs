@@ -304,10 +304,12 @@ mod tests {
                             }));
 
                             assert_eq!(result.is_err(), unwind);
+
                             assert!(std::rc::Rc::ptr_eq(
                                 &super::current_runtime().unwrap(),
                                 &runtime
                             ));
+
                             assert_eq!(super::current_task(), Some(native_task));
                             assert_eq!(crate::context::current_task_execution_lane(), Some(lane));
                             assert!(crate::current_run_cancellation_requested());

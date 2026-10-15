@@ -128,16 +128,16 @@ pub fn frame_creation_runtime_role(initializer: &MirFrameInitializer) -> Option<
 
 /// Returns runtime roles required by a mapped callable symbol.
 pub fn mapped_symbol_runtime_roles(
-    native_entry: Option<crate::CodegenNativeEntryKind>,
+    native_entry: Option<bray_runtime_interface::NativeEntryKind>,
     panic_report_context: bool,
 ) -> impl Iterator<Item = RuntimeAbiRole> {
     FOREIGN_CALLBACK_RUNTIME_ROLES
         .into_iter()
         .filter(move |role| match native_entry {
-            Some(crate::CodegenNativeEntryKind::ForeignCallback) => true,
+            Some(bray_runtime_interface::NativeEntryKind::ForeignCallback) => true,
             Some(
-                crate::CodegenNativeEntryKind::ThreadStorageExit
-                | crate::CodegenNativeEntryKind::RuntimeStatus,
+                bray_runtime_interface::NativeEntryKind::ThreadStorageExit
+                | bray_runtime_interface::NativeEntryKind::RuntimeStatus,
             ) => *role == RuntimeAbiRole::PanicReporting,
             None => false,
         })
@@ -402,8 +402,8 @@ mod tests {
     #[test]
     fn terminal_thread_callbacks_report_panics_without_recursive_attachment() {
         for kind in [
-            crate::CodegenNativeEntryKind::ThreadStorageExit,
-            crate::CodegenNativeEntryKind::RuntimeStatus,
+            bray_runtime_interface::NativeEntryKind::ThreadStorageExit,
+            bray_runtime_interface::NativeEntryKind::RuntimeStatus,
         ] {
             let roles: BTreeSet<_> =
                 super::mapped_symbol_runtime_roles(Some(kind), false).collect();

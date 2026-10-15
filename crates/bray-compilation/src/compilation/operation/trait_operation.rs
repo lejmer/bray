@@ -772,6 +772,7 @@ impl Compilation {
             )),
             parameters,
             result,
-        ))
+        )
+        .with_invocation(template.value().invocation()))
     }
 }

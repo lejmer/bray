@@ -1,7 +1,8 @@
 use crate::{CodegenCallableSignature, CodegenInstanceKey, CodegenLinkage, CodegenUnitKey};
 use bray_ir::MirRuntimeReference;
 use bray_runtime_interface::{
-    BinarySymbolName, ProtectedAsyncFrameId, ProtectedFrameOperation, RuntimeAbiRole,
+    BinarySymbolName, NativeEntryKind, ProtectedAsyncFrameId, ProtectedFrameOperation,
+    RuntimeAbiRole,
 };
 
 /// Runtime roles required by every native entry that invokes a Bray callable.
@@ -10,39 +11,12 @@ pub const FOREIGN_CALLBACK_RUNTIME_ROLES: [RuntimeAbiRole; 2] = [
     RuntimeAbiRole::PanicReporting,
 ];
 
-/// The authority and execution boundary established by a generated native entry.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum CodegenNativeEntryKind {
-    /// Enter an ordinary foreign callback through the runtime attachment service.
-    ForeignCallback,
-    /// Finish an existing exact-thread owner without recursively attaching.
-    ThreadStorageExit,
-    /// Contain bootstrap failures and return the native runtime failure status.
-    RuntimeStatus,
-}
-
-impl CodegenNativeEntryKind {
-    /// Selects the non-attaching entry boundary required by a bootstrap role.
-    pub const fn for_runtime_role(role: RuntimeAbiRole) -> Option<Self> {
-        match role {
-            RuntimeAbiRole::ThreadStorageExit => Some(Self::ThreadStorageExit),
-            RuntimeAbiRole::RuntimeInitialization
-            | RuntimeAbiRole::ThreadAttachmentEnter
-            | RuntimeAbiRole::ThreadAttachmentLeave
-            | RuntimeAbiRole::ThreadAttachmentMarkMain
-            | RuntimeAbiRole::ThreadAttachmentCleanup
-            | RuntimeAbiRole::StructuredShutdown => Some(Self::RuntimeStatus),
-            _ => None,
-        }
-    }
-}
-
 /// Exact binary spelling, linkage, and entry contract for one native callback.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenNativeEntryMapping {
     name: BinarySymbolName,
     linkage: CodegenLinkage,
-    kind: CodegenNativeEntryKind,
+    kind: NativeEntryKind,
 }
 
 impl CodegenNativeEntryMapping {
@@ -51,19 +25,19 @@ impl CodegenNativeEntryMapping {
         Self {
             name,
             linkage,
-            kind: CodegenNativeEntryKind::ForeignCallback,
+            kind: NativeEntryKind::ForeignCallback,
         }
     }
 
     /// Selects the validated native entry contract.
-    pub const fn with_kind(mut self, kind: CodegenNativeEntryKind) -> Self {
+    pub const fn with_kind(mut self, kind: NativeEntryKind) -> Self {
         self.kind = kind;
 
         self
     }
 
     /// Returns the validated native entry contract.
-    pub const fn kind(&self) -> CodegenNativeEntryKind {
+    pub const fn kind(&self) -> NativeEntryKind {
         self.kind
     }
 

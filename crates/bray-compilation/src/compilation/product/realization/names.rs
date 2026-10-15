@@ -85,3 +85,9 @@ pub(super) fn binary_symbol_name(
 
     BinarySymbolName::try_new(name).ok_or(CodegenPreparationError::InvalidSymbolName)
 }
+
+/// Native address paired with an unnamed Bray body, including imported native bodies.
+pub(super) fn native_entry_name(body: &BinarySymbolName) -> BinarySymbolName {
+    BinarySymbolName::try_new(format!("{}.native", body.as_str()))
+        .expect("generated body symbol supports a native entry suffix")
+}

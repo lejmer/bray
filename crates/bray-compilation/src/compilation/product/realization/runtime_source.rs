@@ -147,7 +147,7 @@ pub(super) fn runtime_source_signature_matches(
     if signature.abi() != runtime_role_abi(compilation, role, CallableAbi::C)
         || signature.is_variadic()
         || signature.has_panic_report_context()
-            != bray_codegen::CodegenNativeEntryKind::for_runtime_role(role).is_some()
+            != bray_runtime_interface::NativeEntryKind::for_runtime_role(role).is_some()
         || signature.parameters().len() != parameters.len()
     {
         return Ok(Some(false));

@@ -39,9 +39,9 @@ pub(in crate::compilation::product::realization) fn native_boundary_mapping(
     Ok(match direction {
         ForeignCallableDirection::Import => NativeBoundaryMapping::Direct { name, linkage },
         ForeignCallableDirection::Export => NativeBoundaryMapping::Callback {
-            name,
+            name: Some(name),
             linkage,
-            kind: bray_codegen::CodegenNativeEntryKind::ForeignCallback,
+            kind: bray_runtime_interface::NativeEntryKind::ForeignCallback,
         },
     })
 }

@@ -574,3 +574,81 @@ fn native_fixture_payloads(
         )
         .map(|(_, payloads)| payloads)
 }
+
+#[test]
+fn reused_native_c_body_retains_its_distinct_callable_address() {
+    let dependency = dependency_from_fixture_with_native(
+        true,
+        false,
+        GenericDependencyFixture {
+            source: r#"
+                module templates;
+                @abi(c)
+                public func hot(pos value: i32) -> i32 { return value + 1; }
+            "#,
+            runtime_frames: None,
+            executable_templates: 1,
+            platform_service: None,
+        },
+        Some((CodegenOptions::default(), false, false, None)),
+    );
+
+    let compilation = native_fixture_compilation(dependency, ProductKind::Library, None);
+    let cancellation = CancellationToken::new();
+    let target = compilation
+        .selected_target()
+        .target()
+        .codegen_target()
+        .unwrap();
+    let semantic = compilation.product_semantics().unwrap();
+    let roots = compilation
+        .product_root_instances(semantic.value(), None, &target, &cancellation)
+        .unwrap();
+
+    let reachability = compilation
+        .codegen_reachability(
+            roots,
+            None,
+            &target,
+            CodegenOptions::default(),
+            false,
+            &cancellation,
+        )
+        .unwrap();
+
+    let key = reachability
+        .graph()
+        .external_instances()
+        .iter()
+        .find(|key| matches!(key.template(), MirUnitKey::ImportedExecutable(_)))
+        .unwrap();
+
+    let selected = reachability
+        .selected_native(key)
+        .expect("exact C body uses its native artifact");
+    let realization = reachability.instance(key).unwrap();
+
+    let (name, linkage, entry) = compilation
+        .codegen_selected_native_boundary(selected, realization, &cancellation)
+        .unwrap();
+
+    let entry =
+        entry.expect("native callable address must not expose the body's hidden outcome argument");
+
+    assert_eq!(name.as_str(), "bray_test_precompiled");
+    assert_eq!(linkage, bray_codegen::CodegenLinkage::Import);
+    assert_eq!(entry.name().as_str(), "bray_test_precompiled.native");
+    assert_eq!(entry.linkage(), bray_codegen::CodegenLinkage::Import);
+    assert!(
+        compilation
+            .codegen_instance_signature(realization, &cancellation)
+            .unwrap()
+            .has_panic_report_context()
+    );
+    super::support::mappings::realize_codegen_mappings(
+        &compilation,
+        &target,
+        &reachability,
+        &cancellation,
+    );
+}

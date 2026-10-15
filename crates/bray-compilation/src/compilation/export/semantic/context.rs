@@ -186,7 +186,8 @@ impl<'a> SemanticExporter<'a> {
             self.type_id(result)?,
             self.dependency_contract_id(result_dependencies)?,
         )
-        .with_body(template.has_body()))
+        .with_body(template.has_body())
+        .with_invocation(template.invocation()))
     }
 
     pub(super) fn generic_declaration(

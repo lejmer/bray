@@ -78,12 +78,32 @@ impl ReceiverParameterSignature {
     }
 }
 
+/// The invocation mechanism selected independently of a callable's native address ABI.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CallableInvocation {
+    /// Invoke a Bray body through its explicit panic and cancellation outcome.
+    Bray,
+    /// Invoke a native ABI entry without a hidden Bray outcome parameter.
+    Native,
+}
+
+impl CallableInvocation {
+    /// Selects the mechanism used by a callable value with this ABI.
+    pub const fn for_abi(abi: crate::CallableAbi) -> Self {
+        match abi {
+            crate::CallableAbi::Bray => Self::Bray,
+            crate::CallableAbi::C | crate::CallableAbi::System => Self::Native,
+        }
+    }
+}
+
 /// The immutable checked declaration signature of one callable symbol.
 ///
 /// The canonical callable type carries caller-visible type identity. The entries retained here
 /// preserve the exact declaration parameter identities needed by binding and diagnostics.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableSignature {
+    invocation: CallableInvocation,
     callable_type: TypeId,
     receiver: Option<ReceiverParameterSignature>,
     parameters: Arc<[CallableParameterSignature]>,
@@ -93,6 +113,7 @@ pub struct CallableSignature {
 /// The immutable declaration signature template of one callable symbol.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableSignatureTemplate {
+    invocation: CallableInvocation,
     callable_type: TypeExpressionTemplate,
     receiver: Option<ReceiverParameterSignature>,
     parameters: Arc<[CallableParameterSymbolId]>,
@@ -112,6 +133,18 @@ pub enum CallableSignatureTemplateError {
 }
 
 impl CallableSignatureTemplate {
+    /// Retains the declaration's selected body or native invocation mechanism.
+    pub const fn with_invocation(mut self, invocation: CallableInvocation) -> Self {
+        self.invocation = invocation;
+
+        self
+    }
+
+    /// Returns the selected mechanism for a direct call to this declaration.
+    pub const fn invocation(&self) -> CallableInvocation {
+        self.invocation
+    }
+
     /// Creates a callable signature template in declaration order.
     pub fn new(
         callable_type: TypeExpressionTemplate,
@@ -120,6 +153,7 @@ impl CallableSignatureTemplate {
         result: TypeExpressionTemplate,
     ) -> Self {
         Self {
+            invocation: CallableInvocation::Bray,
             callable_type,
             receiver,
             parameters: shared_slice(parameters),
@@ -320,6 +354,18 @@ impl CallableSignatureTemplate {
 }
 
 impl CallableSignature {
+    /// Retains the declaration's selected body or native invocation mechanism.
+    pub const fn with_invocation(mut self, invocation: CallableInvocation) -> Self {
+        self.invocation = invocation;
+
+        self
+    }
+
+    /// Returns the selected mechanism for a direct call to this declaration.
+    pub const fn invocation(&self) -> CallableInvocation {
+        self.invocation
+    }
+
     /// Creates a checked callable signature in declaration order.
     pub fn new(
         callable_type: TypeId,
@@ -328,6 +374,7 @@ impl CallableSignature {
         result: TypeId,
     ) -> Self {
         Self {
+            invocation: CallableInvocation::Bray,
             callable_type,
             receiver,
             parameters: shared_slice(parameters),
@@ -415,7 +462,7 @@ impl CallableSignature {
 
         let result = transform(self.result)?;
 
-        Ok(Self::new(callable_type, receiver, parameters, result))
+        Ok(Self::new(callable_type, receiver, parameters, result).with_invocation(self.invocation))
     }
 
     /// Returns the canonical callable type.

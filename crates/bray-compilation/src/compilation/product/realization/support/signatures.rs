@@ -31,6 +31,7 @@ pub(in crate::compilation::product::realization) fn signature_types(
 pub(in crate::compilation::product::realization) fn callable_type_signature(
     compilation: &Compilation,
     callable: &bray_symbols::CallableTypeData,
+    invocation: bray_symbols::CallableInvocation,
 ) -> Result<CodegenCallableSignature, CodegenPreparationError> {
     let result_type = if callable.execution() == CallableExecution::Asynchronous {
         compilation
@@ -70,19 +71,21 @@ pub(in crate::compilation::product::realization) fn callable_type_signature(
         false,
     );
 
-    Ok(synchronous_bray_signature(
+    Ok(invocation_signature(
         signature,
-        callable.abi(),
+        invocation,
         callable.execution(),
     ))
 }
 
-pub(in crate::compilation::product::realization) fn synchronous_bray_signature(
+pub(in crate::compilation::product::realization) fn invocation_signature(
     signature: CodegenCallableSignature,
-    abi: CallableAbi,
+    invocation: bray_symbols::CallableInvocation,
     execution: CallableExecution,
 ) -> CodegenCallableSignature {
-    if abi == CallableAbi::Bray && execution == CallableExecution::Synchronous {
+    if invocation == bray_symbols::CallableInvocation::Bray
+        && execution == CallableExecution::Synchronous
+    {
         signature.with_panic_report_context()
     } else {
         signature

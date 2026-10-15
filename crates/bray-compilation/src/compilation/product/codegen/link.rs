@@ -321,14 +321,9 @@ impl Compilation {
         let target = bray_target::NativeTarget::for_identity(target.identity())
             .expect("native selection requires a supported native target");
 
-        let demands = imported_symbols.iter().map(|name| {
-            bray_symbols::NativeSymbolContract::required_name(
-                bray_base::NonEmptySharedStr::try_new(
-                    target.object_symbol_name(name.as_ref()).as_ref(),
-                )
-                .expect("mapped imported symbol must be nonempty"),
-            )
-        });
+        let demands = imported_symbols
+            .iter()
+            .map(|name| required_native_symbol(&target, name.as_ref()));
 
         let provided = provided_symbols.iter().map(|(name, &binding)| {
             (
@@ -602,4 +597,14 @@ pub(super) fn native_link_input(
             },
         )
     })
+}
+
+pub(super) fn required_native_symbol(
+    target: &bray_target::NativeTarget,
+    name: &str,
+) -> bray_symbols::NativeSymbolContract {
+    bray_symbols::NativeSymbolContract::required_name(
+        bray_base::NonEmptySharedStr::try_new(target.object_symbol_name(name).as_ref())
+            .expect("mapped native symbol must be nonempty"),
+    )
 }

@@ -187,7 +187,8 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
                 receiver,
                 signature_parameters,
                 signature_result,
-            ),
+            )
+            .with_invocation(bray_symbols::CallableInvocation::for_abi(qualifiers.abi)),
             self.diagnostics,
         ))
     }

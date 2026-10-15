@@ -16,8 +16,8 @@ use super::super::super::checker::CompilationCheckerContext;
 use super::super::specialization::ConcreteCodegenInstance;
 use super::contextual_self::{codegen_instance_contextual_self, substitute_contextual_self};
 use super::support::{
-    callable_type_signature, codegen_checker_error, is_void_result, receiver_codegen_type,
-    synchronous_bray_signature, void_signature,
+    callable_type_signature, codegen_checker_error, invocation_signature, is_void_result,
+    receiver_codegen_type, void_signature,
 };
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::{CancellationToken, FactQueryError};
@@ -58,7 +58,7 @@ impl Compilation {
                 .into());
             };
 
-            return callable_type_signature(self, callable);
+            return callable_type_signature(self, callable, bray_symbols::CallableInvocation::Bray);
         }
 
         if let Some(provider) =
@@ -243,20 +243,9 @@ impl Compilation {
             callable.is_variadic(),
         );
 
-        if matches!(
-            self.codegen_native_boundary(
-                instance.key(),
-                &std::collections::BTreeSet::new(),
-                cancellation
-            )?,
-            Some(super::symbols::NativeBoundaryMapping::Callback { .. })
-        ) {
-            return Ok(signature.with_panic_report_context());
-        }
-
-        Ok(synchronous_bray_signature(
+        Ok(invocation_signature(
             signature,
-            callable.abi(),
+            template.value().invocation(),
             callable.execution(),
         ))
     }

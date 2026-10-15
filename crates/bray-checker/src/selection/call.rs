@@ -319,6 +319,10 @@ where
                     selected_arguments,
                     witnesses,
                 )
+                .with_invocation(candidate.declaration_signature().map_or_else(
+                    || bray_symbols::CallableInvocation::for_abi(abi),
+                    bray_symbols::CallableSignature::invocation,
+                ))
                 .with_contract(candidate.contract().cloned())
                 .with_implementation_hook(implementation_hook),
             }))

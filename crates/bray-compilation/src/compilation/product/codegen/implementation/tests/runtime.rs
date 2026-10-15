@@ -274,7 +274,7 @@ fn bootstrap_status_entries_contain_body_failures_without_attaching() {
 
             assert_eq!(
                 mapping.native_entry().unwrap().kind(),
-                bray_codegen::CodegenNativeEntryKind::RuntimeStatus
+                bray_runtime_interface::NativeEntryKind::RuntimeStatus
             );
 
             assert!(mapping.signature().has_panic_report_context());
@@ -600,7 +600,17 @@ fn native_atomic_word_production_source_bindings_export() {
 #[cfg(all(windows, target_arch = "x86_64"))]
 fn foreign_callbacks_preserve_abnormal_outcomes_for_scalar_and_indirect_results() {
     let source = r#"
-        module app;
+        trusted module app;
+        @link(name = "native")
+        @symbol(name = "record_cleanup")
+        @abi(c)
+        extern trusted func record_cleanup() executes(total) uses(foreign_call);
+        struct Local {
+            tag: u32;
+            trusted destruct() executes(total) uses(foreign_call) {
+                trusted record_cleanup();
+            }
+        }
         @layout(c)
         struct Aggregate { first: u64; second: u64; third: u64; }
         @symbol(name = "scalar")
@@ -623,14 +633,28 @@ fn foreign_callbacks_preserve_abnormal_outcomes_for_scalar_and_indirect_results(
             if mode == 2 { panic("aggregate"); }
             return { first = 17, second = 29, third = 41 };
         }
+        @abi(c)
+        func plain(pos mode: u32) -> u32 { return scalar(mode); }
+        callable Callback = @abi(c) func(pos mode: u32) -> u32;
+        @symbol(name = "through_pointer")
+        @abi(c)
+        func through_pointer(pos mode: u32) -> u32 {
+            let callback: Callback = plain;
+            return callback(mode);
+        }
+        @symbol(name = "through_lambda")
+        @abi(c)
+        func through_lambda(pos mode: u32) -> u32 {
+            let callback = @abi(c) lambda(pos value: u32) -> u32 { return scalar(value); };
+            return callback(mode);
+        }
+        @symbol(name = "nested")
+        @abi(c)
+        func nested(pos mode: u32) -> u32 {
+            let local: Local = { tag = 1 };
+            return plain(mode);
+        }
     "#;
-
-    let (backend, plan) = super::support::runtime::runtime_native_plan_for_sources_target(
-        &[source],
-        ProductKind::Library,
-        SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc),
-        &[],
-    );
 
     let caller = format!(
         r#"
@@ -639,11 +663,14 @@ fn foreign_callbacks_preserve_abnormal_outcomes_for_scalar_and_indirect_results(
         typedef struct {{ _Alignas({report_align}) unsigned char data[{report_size}]; }} Report;
         typedef struct {{ uint32_t state; uintptr_t payload; Report report; }} Outcome;
         typedef struct {{ uint64_t first, second, third; }} Aggregate;
+        static unsigned cleanups;
+        void record_cleanup(void) {{ ++cleanups; }}
         static unsigned shield_depth;
         void {shield_enter}(void) {{ ++shield_depth; }}
         void {shield_leave}(void) {{ if (!shield_depth) _Exit(10); --shield_depth; }}
         void {propagate_panic}(Report report) {{ (void)report; _Exit(11); }}
         void {propagate_cancellation}(void) {{ _Exit(12); }}
+        Report {suppress}(Report first, Report second) {{ (void)first; (void)second; _Exit(13); }}
         static unsigned reports;
         static unsigned cancelled;
         Outcome {boundary}(void (*callback)(uintptr_t, Outcome*), uintptr_t context) {{
@@ -660,6 +687,9 @@ fn foreign_callbacks_preserve_abnormal_outcomes_for_scalar_and_indirect_results(
         }}
         unsigned {report}(Report value) {{ (void)value; ++reports; return 0; }}
         extern uint32_t scalar(uint32_t mode);
+        extern uint32_t nested(uint32_t mode);
+        extern uint32_t through_pointer(uint32_t mode);
+        extern uint32_t through_lambda(uint32_t mode);
         extern Aggregate aggregate(uint32_t mode);
         int main(void) {{
             if (scalar(0) != 73 || scalar(1) != 0 || scalar(2) != 0) return 1;
@@ -667,7 +697,10 @@ fn foreign_callbacks_preserve_abnormal_outcomes_for_scalar_and_indirect_results(
             if (normal.first != 17 || normal.second != 29 || normal.third != 41) return 2;
             if (failure.first || failure.second || failure.third) return 3;
             if (panic.first || panic.second || panic.third) return 4;
-            return cancelled == 2 && reports == 2 && shield_depth == 0 ? 0 : 5;
+            if (nested(0) != 73 || nested(1) != 0 || nested(2) != 0) return 6;
+            if (through_pointer(0) != 73 || through_pointer(1) != 0 || through_pointer(2) != 0) return 7;
+            if (through_lambda(0) != 73 || through_lambda(1) != 0 || through_lambda(2) != 0) return 8;
+            return cancelled == 5 && reports == 5 && cleanups == 3 && shield_depth == 0 ? 0 : 5;
         }}
     "#,
         shield_enter = RuntimeAbiRole::CleanupShieldEnter.native_symbol().unwrap(),
@@ -679,6 +712,9 @@ fn foreign_callbacks_preserve_abnormal_outcomes_for_scalar_and_indirect_results(
         construction = RuntimeAbiRole::PanicReportConstruction
             .native_symbol()
             .unwrap(),
+        suppress = RuntimeAbiRole::PanicReportSuppression
+            .native_symbol()
+            .unwrap(),
         report_align = std::mem::align_of::<bray_runtime_abi::NativePanicReport>(),
         report_size = std::mem::size_of::<bray_runtime_abi::NativePanicReport>(),
         boundary = RuntimeAbiRole::ForeignCallbackExecution
@@ -688,5 +724,106 @@ fn foreign_callbacks_preserve_abnormal_outcomes_for_scalar_and_indirect_results(
         report = RuntimeAbiRole::PanicReporting.native_symbol().unwrap(),
     );
 
-    super::support::linker::run_native_caller(&backend, &plan, &caller);
+    use super::support::dependencies::{
+        GenericDependencyFixture, dependency_from_fixture_for_target,
+    };
+
+    use bray_codegen::{CodeGenerator, CodeGeneratorRegistry, CodegenConfiguration};
+
+    let backend = std::sync::Arc::new(bray_codegen_llvm::LlvmCodeGenerator::try_new().unwrap());
+
+    let registry = CodeGeneratorRegistry::try_new([
+        std::sync::Arc::clone(&backend) as std::sync::Arc<dyn CodeGenerator>
+    ])
+    .unwrap();
+
+    let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone()).unwrap();
+    let target = SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc);
+
+    for imported in [false, true] {
+        let mut dependencies = vec![crate::test_support::runtime_standard_library_dependency(
+            &target,
+        )];
+
+        let source = if imported {
+            dependencies.push(dependency_from_fixture_for_target(
+                true,
+                false,
+                GenericDependencyFixture {
+                    source: r#"
+                    module templates;
+                    @abi(c)
+                    func leaf(pos mode: u32) -> u32 {
+                        if mode == 1 {
+                            let outcome: RunResult<unit> = Cancelled;
+                            try outcome;
+                        }
+                        if mode == 2 { panic("imported"); }
+                        return 73;
+                    }
+                    @abi(c)
+                    public func forwarded(pos mode: u32) -> u32 { return leaf(mode); }
+                "#,
+                    runtime_frames: None,
+                    executable_templates: 2,
+                    platform_service: None,
+                },
+                None,
+                target.clone(),
+            ));
+
+            source
+                .replace(
+                    "trusted module app;",
+                    "trusted module app; using example.dependency.templates.forwarded;",
+                )
+                .replace(
+                    "return scalar(mode);",
+                    "return example.dependency.templates.forwarded(mode);",
+                )
+        } else {
+            source.to_owned()
+        };
+
+        let request = crate::CompilationRequest::with_options(
+            crate::test_support::package_identity(),
+            vec![crate::test_support::source_input(&source, 0)],
+            crate::CompilationOptions::new(
+                crate::WorkerBudget::serial(),
+                ProductKind::Library,
+                target.clone(),
+            )
+            .with_native_link_inputs([bray_symbols::NativeLinkRequirement::new(
+                bray_base::NonEmptySharedStr::try_new("native").unwrap(),
+                bray_symbols::NativeLinkKind::Static,
+            )]),
+        )
+        .with_dependency_interfaces(dependencies);
+
+        let compilation = crate::Compilation::load_with_codegen(request, codegen.clone()).unwrap();
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let archive = bray_testing::TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
+        let runtime = super::support::runtime::runtime_artifact(&compilation, archive.path());
+
+        let plan = compilation
+            .native_product_plan(
+                super::support::compilation::test_product_identity(),
+                crate::BuildConfiguration::Development,
+                Some(runtime),
+                [],
+                Some((
+                    &super::support::linker::test_linker(),
+                    super::support::linker::test_linked_product(ProductKind::Library),
+                )),
+            )
+            .unwrap();
+
+        super::support::linker::run_native_caller(&backend, &plan, &caller);
+    }
 }

@@ -181,6 +181,7 @@ impl MirCallArgument {
 /// One explicit call with ordered inputs and retained checked behavior.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirCall {
+    invocation: bray_symbols::CallableInvocation,
     cleanup: bool,
     target: MirCallTarget,
     result: BoundCallResult,
@@ -214,6 +215,18 @@ pub enum MirCallIntrinsic {
 }
 
 impl MirCall {
+    /// Retains the declaration's selected body or native invocation mechanism.
+    pub const fn with_invocation(mut self, invocation: bray_symbols::CallableInvocation) -> Self {
+        self.invocation = invocation;
+
+        self
+    }
+
+    /// Returns the selected mechanism for a direct call to this declaration.
+    pub const fn invocation(&self) -> bray_symbols::CallableInvocation {
+        self.invocation
+    }
+
     pub(crate) fn remap_local_ids(
         &mut self,
         mappings: &impl crate::unit::local_id_remap::MirLocalIdMapping,
@@ -244,17 +257,9 @@ impl MirCall {
 
     /// Returns whether this call can propagate a panic through the synchronous Bray ABI.
     pub fn may_propagate_panic(&self) -> bool {
-        matches!(
-            &self.target,
-            MirCallTarget::Direct(MirCallableReference {
-                abi: CallableAbi::Bray,
-                ..
-            }) | MirCallTarget::DefaultValue { .. }
-                | MirCallTarget::Indirect {
-                    abi: CallableAbi::Bray,
-                    ..
-                }
-        ) && matches!(self.result, BoundCallResult::Immediate(_))
+        self.invocation == bray_symbols::CallableInvocation::Bray
+            && !matches!(self.target, MirCallTarget::Runtime(_))
+            && matches!(self.result, BoundCallResult::Immediate(_))
             && self.intrinsic.is_none()
             && !self.phase_behaviors().is_some_and(|behavior| {
                 !behavior.invocation().may_unwind()
@@ -282,6 +287,7 @@ impl MirCall {
     ) -> Self {
         Self {
             cleanup: false,
+            invocation: bray_symbols::CallableInvocation::for_abi(target.abi()),
             target,
             result,
             arguments: shared_slice(arguments),
@@ -303,6 +309,7 @@ impl MirCall {
     ) -> Self {
         Self {
             cleanup: false,
+            invocation: bray_symbols::CallableInvocation::for_abi(target.abi()),
             target,
             result,
             arguments: shared_slice(arguments.into_iter().enumerate().map(|(ordinal, value)| {
@@ -351,6 +358,7 @@ impl MirCall {
     ) -> Self {
         Self {
             cleanup: false,
+            invocation: bray_symbols::CallableInvocation::for_abi(target.abi()),
             target,
             result,
             arguments: shared_slice(arguments),

@@ -119,6 +119,7 @@ pub(super) fn member_callable_signature(
         signature.parameters().iter().copied(),
         signature.result(),
     )
+    .with_invocation(signature.invocation())
 }
 
 pub(super) fn normalize_callable_type_equalities(

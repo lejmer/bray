@@ -942,7 +942,8 @@ mod tests {
             signature.result(),
             signature.result_dependencies(),
         )
-        .with_body(signature.has_body());
+        .with_body(signature.has_body())
+        .with_invocation(signature.invocation());
 
         let invalid_signature_semantics = base.clone().with_declarations(
             [invalid_signature],

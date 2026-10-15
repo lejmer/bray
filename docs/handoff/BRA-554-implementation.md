@@ -117,3 +117,61 @@ or test-host context. That bridge must contain only Rust context management and 
 conversion, with admission and attachment policy owned by Bray. It must be absent from ordinary
 synchronous products. Production authority, returned-owner, closure, report-order and cost evidence
 remain outstanding. BRA-558 follows after this issue and Step 5 remains active.
+
+## Direct invocation review repair
+
+Published review 5529042829 identified that C-ABI source bodies received an explicit outcome but
+source callers still excluded them from abnormal cleanup edges. Invocation mechanism now belongs
+to the bound declaration signature, independently of the callable value's native ABI. Selection,
+MIR and exported semantic/executable records retain that result. Code generation consumes it.
+Native runtime/platform bodies and foreign imports retain their native convention, even when their
+semantic contract can fail. The shared native-entry role classification lives in runtime-interface.
+
+Unnamed C bodies and C lambdas receive native-address adapters as well. An anonymous body must not
+inherit the enclosing declaration's export or platform role. The native regression exercises source
+and imported nested calls, native callable values, anonymous bodies, scalar and aggregate results,
+panic/cancellation ABI zero, and exactly-once caller destruction. Its C providers isolate invocation
+and cleanup transport. They do not establish production report ownership or entry completion.
+
+The audit also found ordinary runtime requirements lack executable lowering. That independent
+operation-emission work is [BRA-623](https://linear.app/bray-lang/issue/BRA-623), an explicit BRA-608
+blocker. Do not equate semantic fallibility with a hidden native argument or remove fallibility to
+conceal this missing implementation.
+
+Before source entry migration, repair these production authority boundaries:
+
+- Replace unrestricted identity-to-exit construction with an acquisition owner. Native attachment
+  retirement needs its explicit opaque boundary contract. Reentrant code must not retire an outer
+  entry merely by observing its thread identity.
+- Protect report-chain ownership independently of the copyable C transfer header. Numeric handles
+  and initialized header memory do not authorize chain consumption. Paired mutable headers need
+  non-overlap, and source owners need checked whole-state witnesses.
+- Scope the optional Rust bridge installation and restore the previous installation after nesting.
+  Retain provider/context through all entry teardown, invoke outside host locks, and avoid pointers
+  into the growable attachment array across callbacks.
+- Populate Rust panic backing in the Bray-admitted records before arbitrary Rust callbacks. Transfer
+  the chain exclusively instead of admitting a second chain. The bridge surrounds the complete Bray
+  entry continuation, including admission and retirement, so teardown cannot observe the outer task.
+
+These are BRA-554 implementation obligations, not completion claims or new language proposals.
+
+
+### Invocation repair verification
+
+The full product-codegen group passed 116 tests, with only the retained BRA-619 failure.
+The checker, codegen, lowering and package-interface groups passed 321, 67, 39 and 190 tests.
+Logs are `bra-554-invocation-codegen.log` and `bra-554-invocation-core.log` in the shared
+`target/bra-620-authority` directory. The final source/imported native regression passed after
+signature consolidation. Its current expectations include five panic observations and three
+caller destructor executions, with cancellation and balanced shielding checked separately.
+
+The native-reuse mapping regression passed and retains distinct body and callable addresses.
+Its artifact bytes are a planning fixture, so it establishes symbol contracts and does not claim
+native-reuse execution coverage. Imported native adapters now contribute native symbol roots.
+Native name conversion is shared by demand, link and static-host selection.
+
+The audit traced declaration classification through call selection, MIR, semantic/executable
+serialization, named/anonymous realizations, native callable values, and imported native reuse.
+No new language syntax or runtime state was introduced. The additional stored enum records the
+invocation distinction that native ABI alone cannot express. Required style and format passed,
+and the installed Rust formatter and `git diff --check` completed without errors.

@@ -3,7 +3,7 @@ use bray_bound_tree::{
     SemanticSelection,
 };
 use bray_compiler_known::ImplementationHook;
-use bray_symbols::CallableAbi;
+use bray_symbols::CallableInvocation;
 
 use crate::CheckerRequestContext;
 
@@ -216,7 +216,7 @@ where
                             .invocation()
                             .execution_properties()
                             .contains(&bray_symbols::ExecutionProperty::Total)
-                        && selection.abi() == CallableAbi::Bray
+                        && selection.invocation() == CallableInvocation::Bray
                         && matches!(
                             selection.resolution().result(),
                             BoundCallResult::Immediate(_)

@@ -84,6 +84,7 @@ pub(in super::super) fn run_native_caller(
         "{}",
         String::from_utf8_lossy(&linked.stderr)
     );
+
     assert_eq!(
         std::process::Command::new(executable)
             .status()

@@ -485,7 +485,11 @@ impl Compilation {
                 }
             }
             TypeData::Callable(callable) => {
-                let signature = callable_type_signature(self, callable)?;
+                let signature = callable_type_signature(
+                    self,
+                    callable,
+                    bray_symbols::CallableInvocation::for_abi(callable.abi()),
+                )?;
 
                 CodegenTypeMapping::new(
                     ty,

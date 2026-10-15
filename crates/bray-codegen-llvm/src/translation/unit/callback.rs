@@ -43,10 +43,9 @@ pub(super) fn translate<'context, 'request>(
     trampoline: FunctionValue<'context>,
     types: &mut LlvmTypeMappings<'context, 'request>,
 ) -> Result<(), CodegenFailure> {
-    if symbol
-        .native_entry()
-        .is_some_and(|entry| entry.kind() != bray_codegen::CodegenNativeEntryKind::ForeignCallback)
-    {
+    if symbol.native_entry().is_some_and(|entry| {
+        entry.kind() != bray_runtime_interface::NativeEntryKind::ForeignCallback
+    }) {
         return translate_runtime_boundary(
             context, module, request, symbol, body, trampoline, types,
         );
@@ -200,7 +199,7 @@ fn translate_runtime_boundary<'context>(
 
     if symbol
         .native_entry()
-        .is_some_and(|entry| entry.kind() == bray_codegen::CodegenNativeEntryKind::RuntimeStatus)
+        .is_some_and(|entry| entry.kind() == bray_runtime_interface::NativeEntryKind::RuntimeStatus)
     {
         let (state, _) = native_run_outcome(&builder, result)?;
 
@@ -402,6 +401,7 @@ fn declare_callback<'context>(
         NativeRunState::COMPLETED,
         "callback.completed",
     )?;
+
     let publish = context.append_basic_block(callback, "callback.publish");
     let finish = context.append_basic_block(callback, "callback.finish");
 

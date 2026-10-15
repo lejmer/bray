@@ -1192,7 +1192,8 @@ impl Lowerer<'_> {
                 .copied(),
             selection.resolution().trait_dispatch(),
             selection.witnesses().iter().copied(),
-        );
+        )
+        .with_invocation(selection.invocation());
 
         match self.compiler_known_direct_call_intrinsic(selection) {
             Some(intrinsic) => call.with_intrinsic(intrinsic),
