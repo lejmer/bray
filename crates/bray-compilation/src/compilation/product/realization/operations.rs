@@ -361,11 +361,11 @@ impl Compilation {
         let query = (instance.clone(), unit);
         let cell = self.state.generated_lifecycle.cell(query.clone())?;
 
-        let result = cell.get_or_compute(
+        let result = cell.get_or_compute_requested(
             &self.state.fact_runtime,
             crate::fact::CompilationFactKey::GeneratedLifecycle(query.0, query.1),
             cancellation,
-            || {
+            |cancellation| {
                 Ok(
                     super::synthetic::CompilationSyntheticLoweringContext::new(self, cancellation)
                         .and_then(|context| {
