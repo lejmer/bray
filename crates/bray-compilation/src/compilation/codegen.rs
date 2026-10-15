@@ -394,6 +394,17 @@ fn codegen_mappings(
             continue;
         };
 
+        symbols.push(symbol_mapping(
+            CodegenSymbolKey::CleanupStorage(instance.key().clone()),
+            super::product::generated_symbol_name(
+                target,
+                CodegenLinkage::LinkOnce,
+                "cleanup_storage",
+                instance.key(),
+            )?,
+            CodegenLinkage::LinkOnce,
+        ));
+
         for operation in ProtectedFrameOperation::ALL {
             symbols.push(symbol_mapping(
                 CodegenSymbolKey::ProtectedFrame { frame, operation },

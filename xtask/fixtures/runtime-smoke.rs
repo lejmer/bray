@@ -124,6 +124,13 @@ struct InactiveFrame {
 #[repr(transparent)]
 struct ProtectedFrameTransfer(usize);
 
+#[repr(C)]
+struct CleanupBundle {
+    records: usize,
+    descriptors: *const u8,
+    count: usize,
+}
+
 unsafe extern "C" {
     safe fn bray_runtime_report_consumer() -> extern "C" fn(&mut PanicReport, bool) -> u32;
     safe fn bray_runtime_initialization(worker_capacity: usize, timer_capacity: usize) -> Status;
@@ -149,10 +156,14 @@ unsafe extern "C" {
         message_data: *const u8,
         message_length: usize,
     ) -> PanicReport;
-    safe fn bray_runtime_outgoing_admission(count: usize, outcome: &mut RunOutcome);
-    safe fn bray_runtime_outgoing_activation() -> usize;
-    safe fn bray_runtime_outgoing_retirement(record: usize, outcome: &mut RunOutcome);
-    safe fn bray_runtime_outgoing_discharge(count: usize);
+    safe fn bray_runtime_outgoing_admission(bundle: &CleanupBundle, outcome: &mut RunOutcome);
+    safe fn bray_runtime_outgoing_activation(descriptor: *const u8, lease: *mut u8) -> usize;
+    safe fn bray_runtime_outgoing_retirement(
+        record: usize,
+        lease: *const u8,
+        outcome: &mut RunOutcome,
+    );
+    safe fn bray_runtime_outgoing_discharge(bundle: &CleanupBundle);
     safe fn bray_runtime_panic_report_suppression(
         primary: &mut PanicReport,
         incident: &mut PanicReport,
@@ -488,12 +499,20 @@ fn admitted_reports_survive_failed_reservation() {
         report: PanicReport::empty(),
     };
 
-    bray_runtime_outgoing_admission(2, &mut admission);
+    bray_runtime_outgoing_admission(
+        &CleanupBundle {
+            records: 2,
+            descriptors: std::ptr::null(),
+            count: 0,
+        },
+        &mut admission,
+    );
+
     assert!(admission.state == RunState::COMPLETED);
 
     let records = [
-        bray_runtime_outgoing_activation(),
-        bray_runtime_outgoing_activation(),
+        bray_runtime_outgoing_activation(std::ptr::null(), std::ptr::null_mut()),
+        bray_runtime_outgoing_activation(std::ptr::null(), std::ptr::null_mut()),
     ];
 
     let mut reports = records.into_iter().enumerate().map(|(index, record)| {
@@ -512,7 +531,7 @@ fn admitted_reports_survive_failed_reservation() {
             report,
         };
 
-        bray_runtime_outgoing_retirement(record, &mut outcome);
+        bray_runtime_outgoing_retirement(record, std::ptr::null(), &mut outcome);
 
         outcome.report
     });
@@ -520,14 +539,26 @@ fn admitted_reports_survive_failed_reservation() {
     let mut primary = reports.next().unwrap();
     let mut incident = reports.next().unwrap();
 
-    bray_runtime_outgoing_discharge(2);
+    bray_runtime_outgoing_discharge(&CleanupBundle {
+        records: 2,
+        descriptors: std::ptr::null(),
+        count: 0,
+    });
 
     // This valid-layout request exceeds the address space on supported 64-bit hosts.
     // It exercises actual reservation failure, not a test-only runtime switch.
     let impossible = usize::MAX / 4096;
 
     for _ in 0..2 {
-        bray_runtime_outgoing_admission(impossible, &mut admission);
+        bray_runtime_outgoing_admission(
+            &CleanupBundle {
+                records: impossible,
+                descriptors: std::ptr::null(),
+                count: 0,
+            },
+            &mut admission,
+        );
+
         assert!(admission.state == RunState::PANICKED);
         assert_eq!(admission.report.cause, 4);
         assert!(bray_runtime_panic_report_destruction(&mut admission.report) == Status::SUCCESS);

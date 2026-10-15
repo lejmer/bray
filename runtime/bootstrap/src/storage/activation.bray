@@ -1,0 +1,213 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.storage;
+
+using std.memory;
+using internal bray.runtime.bootstrap;
+
+trusted internal func slot(pos shape: &mut Shape, pos ordinal: usize) -> &mut Slot
+    uses(intrinsic, raw_memory)
+{
+    if let ?storage = shape.slabs
+    {
+        let slabs = trusted std.memory.initialized_slice_mut<Slab>(&mut storage);
+        let mut low: usize = 0;
+        let mut high: usize = slabs.length();
+
+        while low + 1 < high
+        {
+            let middle: usize = low + (high - low) / 2;
+
+            if slabs[middle].first <= ordinal
+            {
+                low = middle;
+            }
+            else
+            {
+                high = middle;
+            }
+        }
+
+        let first: usize = slabs[low].first;
+        let entries = trusted std.memory.initialized_slice_mut<Slot>(&mut slabs[low].slots);
+
+        return &mut entries[ordinal - first];
+    }
+
+    trusted core.target.abort();
+}
+
+trusted internal func reserve_lease(pos pool: &mut bray.runtime.bootstrap.ReportPool, pos index: usize) -> Lease
+    uses(intrinsic)
+{
+    let epoch: u64 = pool.next_epoch;
+    let maximum: u64 = ~0;
+
+    if epoch == maximum
+    {
+        trusted core.target.abort();
+    }
+
+    let lease: Lease =
+    {
+        let values = trusted shapes(pool);
+
+        if index == 0 || index > values.length()
+        {
+            trusted core.target.abort();
+        }
+
+        let shape: &mut Shape = &mut values[index - 1];
+        let head: usize = shape.free;
+
+        if head == 0
+        {
+            trusted core.target.abort();
+        }
+
+        let (next, address) =
+        {
+            let entry = trusted slot(shape, head);
+
+            entry.epoch = epoch;
+            entry.state = RESERVED;
+
+            let next: usize = entry.next;
+
+            entry.next = 0;
+            yield(next, entry.address);
+        };
+
+        shape.free = next;
+        shape.available -= 1;
+
+        yield
+        {
+            domain = trusted bray.runtime.bootstrap.pool.identity(),
+            shape = index,
+            slot = head,
+            epoch = epoch,
+            address = address
+        };
+    };
+
+    pool.next_epoch += 1;
+    return lease;
+}
+
+trusted internal func matches_lease(pos pool: &mut bray.runtime.bootstrap.ReportPool, pos lease: &Lease) -> bool
+{
+    let domain: usize = trusted bray.runtime.bootstrap.pool.identity();
+
+    if lease.domain != domain || lease.shape == 0 || lease.slot == 0 || (pool.storage matches none)
+    {
+        return false;
+    }
+
+    let values = trusted shapes(pool);
+
+    if lease.shape > values.length()
+    {
+        return false;
+    }
+
+    let shape = &mut values[lease.shape - 1];
+
+    if lease.slot > shape.total
+    {
+        return false;
+    }
+
+    let entry = trusted slot(shape, lease.slot);
+
+    return entry.state != FREE && entry.epoch == lease.epoch && entry.address == lease.address;
+}
+
+trusted internal func activate_value(
+    pos pool: &mut bray.runtime.bootstrap.ReportPool,
+    pos lease: &Lease,
+    pos descriptor: &Descriptor
+) -> RawPointer<u8>
+    uses(intrinsic)
+{
+    if !trusted matches_lease(pool, lease)
+    {
+        return std.memory.null<u8>();
+    }
+
+    let values = trusted shapes(pool);
+    let shape = &mut values[lease.shape - 1];
+
+    if !same_shape(&shape.descriptor, descriptor)
+    {
+        return std.memory.null<u8>();
+    }
+
+    let entry = trusted slot(shape, lease.slot);
+
+    if entry.state != RESERVED
+    {
+        return std.memory.null<u8>();
+    }
+
+    entry.state = ACTIVE;
+    return trusted core.target.from_exposed_address<u8>(address = entry.address);
+}
+
+trusted internal func release_value(pos pool: &mut bray.runtime.bootstrap.ReportPool, pos lease: &Lease) -> bool
+{
+    if !trusted matches_lease(pool, lease)
+    {
+        return false;
+    }
+
+    let values = trusted shapes(pool);
+    let shape = &mut values[lease.shape - 1];
+    let head: usize = shape.free;
+
+    {
+        let entry = trusted slot(shape, lease.slot);
+
+        entry.state = FREE;
+        entry.next = head;
+    }
+
+    shape.free = lease.slot;
+    shape.available += 1;
+    return true;
+}
+
+// Called only after the generated owner has admitted its concrete bundle.
+trusted internal func claim_value(pos pool: &mut bray.runtime.bootstrap.ReportPool, pos descriptor: Descriptor) -> Lease
+    uses(intrinsic)
+{
+    if descriptor.bytes == 0
+    {
+        return empty_lease();
+    }
+
+    let index = trusted find(pool, &descriptor);
+
+    if index == 0
+    {
+        trusted core.target.abort();
+    }
+
+    {
+        let values = trusted shapes(pool);
+
+        if values[index - 1].credits == 0
+        {
+            trusted core.target.abort();
+        }
+    }
+
+    let lease = trusted reserve_lease(pool, index);
+    let address = trusted activate_value(pool, &lease, &descriptor);
+
+    if std.memory.is_null<u8>(address)
+    {
+        trusted core.target.abort();
+    }
+
+    return lease;
+}

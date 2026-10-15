@@ -43,7 +43,7 @@ impl Compilation {
             for (operation, data) in instance.mir().operations_with_ids() {
                 let references = data.kind().helper_references();
 
-                let outgoing = self.operation_outgoing_capacity(
+                let outgoing = self.operation_outgoing_requirements(
                     realization,
                     data.kind(),
                     target,
@@ -72,7 +72,7 @@ impl Compilation {
 
                 mappings.push(
                     CodegenOperationMapping::new(instance.key().clone(), operation, helpers)
-                        .with_outgoing_capacity(outgoing),
+                        .with_outgoing_requirements(outgoing),
                 );
             }
         }

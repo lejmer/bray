@@ -1,0 +1,142 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.outgoing;
+
+using std.memory;
+using internal bray.runtime.bootstrap;
+
+@abi(c)
+trusted internal func activation(
+    pos descriptor: RawPointer<bray.runtime.bootstrap.storage.Descriptor>,
+    pos destination: RawPointer<bray.runtime.bootstrap.storage.Lease>
+) -> usize
+    requires(
+        std.memory.is_null<bray.runtime.bootstrap.storage.Descriptor>(descriptor) || trusted core.memory.valid_read<
+            bray.runtime.bootstrap.storage.Descriptor
+        >(pointer = descriptor, count = 1),
+        std.memory.is_null<bray.runtime.bootstrap.storage.Descriptor>(descriptor) || trusted core.memory.initialized_as<
+            bray.runtime.bootstrap.storage.Descriptor
+        >(pointer = descriptor),
+        std.memory.is_null<bray.runtime.bootstrap.storage.Descriptor>(descriptor) || trusted core.memory.aligned_for<
+            bray.runtime.bootstrap.storage.Descriptor
+        >(pointer = descriptor),
+        std.memory.is_null<bray.runtime.bootstrap.storage.Descriptor>(descriptor) || trusted core.memory.valid_write<
+            bray.runtime.bootstrap.storage.Lease
+        >(pointer = destination, count = 1),
+        std.memory.is_null<bray.runtime.bootstrap.storage.Descriptor>(descriptor) || trusted core.memory.aligned_for<
+            bray.runtime.bootstrap.storage.Lease
+        >(pointer = destination),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    if std.memory.is_null<bray.runtime.bootstrap.storage.Descriptor>(descriptor)
+    {
+        let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+
+        return trusted bray.runtime.bootstrap.activate_record(guard.get());
+    }
+
+    let value = trusted std.memory.read<bray.runtime.bootstrap.storage.Descriptor>(descriptor);
+    let (handle, lease) = trusted acquire(value, destination);
+
+    trusted std.memory.write<bray.runtime.bootstrap.storage.Lease>(destination, lease);
+    return handle;
+}
+
+trusted internal func acquire(
+    pos descriptor: bray.runtime.bootstrap.storage.Descriptor,
+    pos destination: RawPointer<bray.runtime.bootstrap.storage.Lease>
+) -> (usize, bray.runtime.bootstrap.storage.Lease)
+    requires(
+        trusted core.memory.valid_write<bray.runtime.bootstrap.storage.Lease>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.storage.Lease>(pointer = destination),
+    )
+    ensures(
+        trusted core.memory.valid_write<bray.runtime.bootstrap.storage.Lease>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.storage.Lease>(pointer = destination),
+    )
+{
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+    let pool = guard.get();
+    let lease = trusted bray.runtime.bootstrap.storage.claim_value(pool, descriptor);
+
+    return (trusted bray.runtime.bootstrap.activate_record(pool), lease);
+}
+
+@abi(c)
+trusted internal func retirement(
+    pos handle: usize,
+    pos backing: RawPointer<bray.runtime.bootstrap.storage.Lease>,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+)
+    requires(
+        std.memory.is_null<bray.runtime.bootstrap.storage.Lease>(backing) || trusted core.memory.valid_read<
+            bray.runtime.bootstrap.storage.Lease
+        >(pointer = backing, count = 1),
+        std.memory.is_null<bray.runtime.bootstrap.storage.Lease>(backing) || trusted core.memory.initialized_as<
+            bray.runtime.bootstrap.storage.Lease
+        >(pointer = backing),
+        std.memory.is_null<bray.runtime.bootstrap.storage.Lease>(backing) || trusted core.memory.aligned_for<
+            bray.runtime.bootstrap.storage.Lease
+        >(pointer = backing),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome)
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let lease: bray.runtime.bootstrap.storage.Lease = if std.memory.is_null<bray.runtime.bootstrap.storage.Lease>(
+        backing
+    )
+    {
+        yield bray.runtime.bootstrap.storage.empty_lease();
+    }
+    else
+    {
+        yield trusted std.memory.read<bray.runtime.bootstrap.storage.Lease>(backing);
+    };
+
+    let mut result: bray.runtime.bootstrap.ReportOutcome = trusted std.memory.read<
+        bray.runtime.bootstrap.ReportOutcome
+    >(outcome);
+
+    trusted release_payload(lease, outcome);
+
+    if result.state == bray.runtime.bootstrap.RUN_PANICKED && result.report.reserved == 0
+    {
+        result.report.reserved = handle;
+        trusted std.memory.write<bray.runtime.bootstrap.ReportOutcome>(outcome, result);
+    }
+    else
+    {
+        trusted std.memory.write<bray.runtime.bootstrap.ReportOutcome>(outcome, result);
+        trusted bray.runtime.bootstrap.recycle_reservation(handle);
+    }
+}
+
+trusted internal func release_payload(
+    pos lease: bray.runtime.bootstrap.storage.Lease,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+)
+    requires(
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+    )
+    ensures(
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+    )
+    uses(intrinsic)
+{
+    if lease.slot == 0
+    {
+        return;
+    }
+
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+
+    if !trusted bray.runtime.bootstrap.storage.release_value(guard.get(), &lease)
+    {
+        trusted core.target.abort();
+    }
+}

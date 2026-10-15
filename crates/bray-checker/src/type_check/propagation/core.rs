@@ -419,7 +419,13 @@ fn infer_borrow<C>(
         };
 
         if !is_reborrow {
-            inference.add_expectation(operand_variable, *expected_target, operand);
+            add_operand_expectation(
+                request,
+                Some(operand),
+                Some(*expected_target),
+                variables,
+                inference,
+            );
         }
 
         inference.add_evidence(variable, expected, expression_id);
@@ -600,8 +606,13 @@ fn add_transfer_value<C>(
         return;
     }
 
-    match operand.and_then(|operand| variables.get(&operand).copied()) {
-        Some(operand) => {
+    match operand.and_then(|expression| {
+        variables
+            .get(&expression)
+            .copied()
+            .map(|variable| (expression, variable))
+    }) {
+        Some((expression, operand)) => {
             // A yielded value contributes to the join; the join cannot change its type.
             // In particular, a never-valued operand stays never when another arm yields.
             if let Some(actual) = inference.evidence(operand) {
@@ -613,7 +624,12 @@ fn add_transfer_value<C>(
                 .filter(|expected| *expected != types.never && *expected != types.error)
                 .or_else(|| inference.unique_expectation(target))
             {
-                inference.add_expectation(operand, expected, transfer);
+                add_expectations(
+                    request,
+                    [ExpressionTypeExpectation::new(expression, expected)],
+                    variables,
+                    inference,
+                );
             }
 
             if inference.is_recovered(operand) {
@@ -666,7 +682,7 @@ fn propagate_assignment<C>(
 
     if assignment.operator().binary_operator().is_some() {
         if actual.is_none() {
-            add_operand_expectation(Some(*value), Some(expected), variables, inference);
+            add_operand_expectation(request, Some(*value), Some(expected), variables, inference);
         }
 
         return;
@@ -676,5 +692,5 @@ fn propagate_assignment<C>(
         return;
     }
 
-    add_operand_expectation(Some(*value), Some(expected), variables, inference);
+    add_operand_expectation(request, Some(*value), Some(expected), variables, inference);
 }

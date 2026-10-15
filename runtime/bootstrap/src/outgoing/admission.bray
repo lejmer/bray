@@ -1,0 +1,101 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.outgoing;
+
+using std.memory;
+using internal bray.runtime.bootstrap;
+
+@abi(c)
+trusted internal func admission(
+    pos pointer: RawPointer<bray.runtime.bootstrap.storage.Bundle>,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+)
+    requires(
+        trusted core.memory.valid_read<bray.runtime.bootstrap.storage.Bundle>(pointer = pointer, count = 1),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.storage.Bundle>(pointer = pointer),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.storage.Bundle>(pointer = pointer),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let bundle = trusted std.memory.read<bray.runtime.bootstrap.storage.Bundle>(pointer);
+
+    if trusted accept(bundle, outcome)
+    {
+        return;
+    }
+
+    let mut failure = bray.runtime.bootstrap.empty_panic_report();
+
+    failure.cause = bray.runtime.bootstrap.PANIC_ALLOCATION_FAILURE;
+    failure.consumer = trusted bray.runtime.bootstrap.consume_pointer();
+
+    trusted std.memory.write<bray.runtime.bootstrap.ReportOutcome>(
+        outcome,
+        {
+            state = bray.runtime.bootstrap.RUN_PANICKED,
+            payload = 0,
+            report = failure
+        }
+    );
+}
+
+trusted internal func accept(
+    pos bundle: bray.runtime.bootstrap.storage.Bundle,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> bool
+    requires(
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+    )
+    ensures(
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+    )
+{
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+    let pool = guard.get();
+    let maximum: usize = ~0;
+
+    if bundle.records > maximum - pool.credits
+    {
+        return false;
+    }
+
+    let requested = pool.credits + bundle.records;
+
+    if !trusted bray.runtime.bootstrap.reserve_records(pool, requested)
+    {
+        return false;
+    }
+
+    if !trusted bray.runtime.bootstrap.storage.reserve_bundle(pool, bundle.descriptors)
+    {
+        return false;
+    }
+
+    pool.credits += bundle.records;
+    return true;
+}
+
+@abi(c)
+trusted internal func discharge(pos pointer: RawPointer<bray.runtime.bootstrap.storage.Bundle>)
+    requires(
+        trusted core.memory.valid_read<bray.runtime.bootstrap.storage.Bundle>(pointer = pointer, count = 1),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.storage.Bundle>(pointer = pointer),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.storage.Bundle>(pointer = pointer),
+    )
+    uses(raw_memory, intrinsic)
+{
+    let bundle = trusted std.memory.read<bray.runtime.bootstrap.storage.Bundle>(pointer);
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+    let pool = guard.get();
+
+    if bundle.records > pool.credits
+    {
+        trusted core.target.abort();
+    }
+
+    trusted bray.runtime.bootstrap.storage.discharge_bundle(pool, bundle.descriptors, bundle.descriptors.length());
+    pool.credits -= bundle.records;
+}

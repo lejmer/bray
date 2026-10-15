@@ -600,14 +600,9 @@ fn read_descriptor(
         let finalizer = entry.finalizer();
         let execution = finalizer.execution();
 
-        let valid_result_layout = finalizer.result_alignment().is_power_of_two()
-            && (execution != bray_runtime_abi::NativeStaticFinalizerExecution::NONE
-                || (finalizer.result_size() == 0 && finalizer.result_alignment() == 1));
-
         if entry.abi_version() != PRODUCT_HOST_ABI_VERSION
             || !entry.duration().is_known()
             || !execution.is_known()
-            || !valid_result_layout
             || !identities.insert(entry.identity())
             || !orders.insert(entry.order())
             || entry.dependency_count() > MAXIMUM_STATIC_ENTRIES
@@ -794,7 +789,6 @@ mod tests {
 
     extern "C-unwind" fn cleanup(
         _: usize,
-        _backing: usize,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus {
         CLEANUPS.fetch_add(1, Ordering::SeqCst);
@@ -804,7 +798,6 @@ mod tests {
 
     extern "C-unwind" fn first_thread_cleanup(
         _: usize,
-        _backing: usize,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus {
         append_thread_cleanup(1);
@@ -814,7 +807,6 @@ mod tests {
 
     extern "C-unwind" fn second_thread_cleanup(
         _: usize,
-        _backing: usize,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus {
         append_thread_cleanup(2);
@@ -824,7 +816,6 @@ mod tests {
 
     extern "C-unwind" fn panicking_thread_cleanup(
         _: usize,
-        _backing: usize,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus {
         panic_from_provider();
@@ -832,7 +823,6 @@ mod tests {
 
     extern "C-unwind" fn panicking_product_cleanup(
         _: usize,
-        _backing: usize,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus {
         record_product_phase(1);
@@ -841,7 +831,6 @@ mod tests {
 
     extern "C-unwind" fn continuing_product_cleanup(
         _: usize,
-        _backing: usize,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus {
         record_product_phase(1);
@@ -853,18 +842,17 @@ mod tests {
     extern "C-unwind" fn resolve_success(
         _: usize,
         _: usize,
-        _backing: usize,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus {
         NativeStaticFinalizerStatus::SUCCESS
     }
 
+    extern "C" fn admit_no_backing(_: u32, _: &mut bray_runtime_abi::NativeRunOutcome) {}
+
     const fn finalizer(start: NativeStaticFinalizerStartCallback) -> NativeStaticFinalizer {
         NativeStaticFinalizer::new(
             NativeStaticFinalizerExecution::SYNCHRONOUS,
-            0,
-            0,
-            1,
+            admit_no_backing,
             start,
             resolve_success,
         )

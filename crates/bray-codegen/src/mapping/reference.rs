@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_ir::{MirBlockId, MirCallableReference, MirHelperReference, MirOperationId};
-use bray_symbols::ConstantValueId;
+use bray_symbols::{CallableExecution, ConstantValueId, TypeId};
 
 use crate::{CodegenInstanceKey, CodegenSymbolKey};
 
@@ -135,13 +135,60 @@ impl CodegenCallableMapping {
     }
 }
 
+/// One selected local cleanup invocation with concrete completion and callable identity.
+/// Repeated entries represent distinct obligations, even when they have the same layout.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CodegenCleanupRequirement {
+    identity: [u8; 32],
+    callable: CodegenInstanceKey,
+    completion: TypeId,
+    execution: CallableExecution,
+}
+
+impl CodegenCleanupRequirement {
+    /// Retains a specialized invocation before its backend frame layout is demanded.
+    pub const fn new(
+        identity: [u8; 32],
+        callable: CodegenInstanceKey,
+        completion: TypeId,
+        execution: CallableExecution,
+    ) -> Self {
+        Self {
+            identity,
+            callable,
+            completion,
+            execution,
+        }
+    }
+
+    /// Returns the identity shared by admission and activation descriptors.
+    pub const fn identity(&self) -> [u8; 32] {
+        self.identity
+    }
+
+    /// Returns the selected concrete callable, including target and implementation witnesses.
+    pub const fn callable(&self) -> &CodegenInstanceKey {
+        &self.callable
+    }
+
+    /// Returns the completion payload type, including a fallible result's error alternative.
+    pub const fn completion(&self) -> TypeId {
+        self.completion
+    }
+
+    /// Returns whether activation needs a protected frame.
+    pub const fn execution(&self) -> CallableExecution {
+        self.execution
+    }
+}
+
 /// Ordered generated helpers required to realize one MIR operation.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenOperationMapping {
     owner: CodegenInstanceKey,
     operation: MirOperationId,
     helpers: Arc<[CodegenHelperMapping]>,
-    outgoing_capacity: Option<u32>,
+    outgoing_requirements: Option<Arc<[CodegenCleanupRequirement]>>,
 }
 
 /// Extra realization inputs required by one MIR terminator.
@@ -193,20 +240,23 @@ impl CodegenOperationMapping {
             owner,
             operation,
             helpers: shared_slice(helpers),
-            outgoing_capacity: None,
+            outgoing_requirements: None,
         }
     }
 
-    /// Retains the concrete number of outgoing records used by this operation.
-    pub const fn with_outgoing_capacity(mut self, capacity: Option<u32>) -> Self {
-        self.outgoing_capacity = capacity;
+    /// Retains local requirements, with an empty slice representing a proven empty allowance.
+    pub fn with_outgoing_requirements(
+        mut self,
+        requirements: Option<Vec<CodegenCleanupRequirement>>,
+    ) -> Self {
+        self.outgoing_requirements = requirements.map(Arc::from);
 
         self
     }
 
-    /// Returns the selected outgoing requirement, including a proven empty requirement.
-    pub const fn outgoing_capacity(&self) -> Option<u32> {
-        self.outgoing_capacity
+    /// Returns the selected local requirements in execution order, preserving multiplicity.
+    pub fn outgoing_requirements(&self) -> Option<&[CodegenCleanupRequirement]> {
+        self.outgoing_requirements.as_deref()
     }
 
     /// Returns the concrete definition containing the operation.

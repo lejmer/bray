@@ -18,6 +18,9 @@ internal struct ReportPool
     mut available: usize;
     mut total: usize;
     mut credits: usize;
+    mut storage: std.memory.RawBuffer<bray.runtime.bootstrap.storage.Shape>?;
+    mut next_epoch: u64;
+    mut remaining_epochs: u64;
 }
 
 trusted internal func slab_index(pos pool: &mut ReportPool) -> &mut std.memory.RawBuffer<ReportSlab>
@@ -29,58 +32,6 @@ trusted internal func slab_index(pos pool: &mut ReportPool) -> &mut std.memory.R
     }
 
     trusted core.target.abort();
-}
-
-trusted internal func reserve_slab_index(pos pool: &mut ReportPool) -> bool
-    uses(manual_alloc, raw_memory, unchecked_init)
-{
-    if pool.slabs matches none
-    {
-        let allocation: std.memory.RawBuffer<ReportSlab>? = trusted internal bray.runtime.bootstrap.heap.try_buffer<
-            ReportSlab
-        >(1);
-
-        if allocation matches none
-        {
-            return false;
-        }
-
-        pool.slabs = allocation;
-        return true;
-    }
-
-    let index: &mut std.memory.RawBuffer<ReportSlab> = trusted slab_index(pool);
-    let count: usize = std.memory.initialized_count<ReportSlab>(&index);
-    let capacity: usize = std.memory.capacity<ReportSlab>(&index);
-
-    if count < capacity
-    {
-        return true;
-    }
-
-    let maximum: usize = ~0;
-
-    if capacity > maximum / 2
-    {
-        return false;
-    }
-
-    let allocation: std.memory.RawBuffer<ReportSlab>? = trusted internal bray.runtime.bootstrap.heap.try_buffer<
-        ReportSlab
-    >(capacity * 2);
-
-    return match consume allocation
-    {
-        case ?replacement
-        {
-            let mut storage: std.memory.RawBuffer<ReportSlab> = replacement;
-
-            trusted internal std.memory.raw_buffer_relocate<ReportSlab>(index, &mut storage);
-            trusted internal std.memory.raw_buffer_replace<ReportSlab>(index, &mut storage);
-            yield true;
-        }
-        case none { yield false; }
-    };
 }
 
 trusted internal func reserve_records(pos pool: &mut ReportPool, pos count: usize) -> bool
@@ -116,7 +67,7 @@ trusted internal func reserve_records(pos pool: &mut ReportPool, pos count: usiz
         {
             let mut slab: std.memory.RawBuffer<ReportRecord> = storage;
 
-            if !trusted reserve_slab_index(pool)
+            if !trusted internal bray.runtime.bootstrap.heap.reserve<ReportSlab>(&mut pool.slabs)
             {
                 return false;
             }

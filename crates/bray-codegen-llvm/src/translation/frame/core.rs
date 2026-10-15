@@ -30,6 +30,27 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
 
     let context_type = frame_context_type(context, instance, types)?;
 
+    let storage = request
+        .mappings()
+        .symbol(&CodegenSymbolKey::CleanupStorage(instance.key().clone()))
+        .expect("protected frame must publish its cleanup storage descriptor");
+
+    let completion = types.map(descriptor.result_type())?;
+    let backing = context.struct_type(&[context_type.into(), completion], false);
+
+    let value = crate::mapping::cleanup::descriptor_value(
+        context,
+        request.target(),
+        descriptor.frame().digest(),
+        types.target_data().get_store_size(&backing),
+        types.target_data().get_abi_alignment(&backing),
+    );
+
+    module
+        .get_global(storage.name().as_str())
+        .expect("cleanup descriptor must have been declared")
+        .set_initializer(&value);
+
     translate_constructor(module, request, instance, context_type, types)?;
     translate_frame_adapter(module, request, instance, context_type, types)?;
     translate_state_callback(context, module, request, instance)?;

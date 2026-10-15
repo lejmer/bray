@@ -1,4 +1,5 @@
 mod attribute;
+pub(crate) mod cleanup;
 mod debug;
 mod static_storage;
 mod symbol;

@@ -43,7 +43,8 @@ pub(super) fn set_native_codegen_plan(
             bray_codegen::CodegenSymbolKey::Instance(instance) => {
                 Some((instance.clone(), mapping.name().as_str().to_owned()))
             }
-            bray_codegen::CodegenSymbolKey::Runtime(_)
+            bray_codegen::CodegenSymbolKey::CleanupStorage(_)
+            | bray_codegen::CodegenSymbolKey::Runtime(_)
             | bray_codegen::CodegenSymbolKey::ProtectedFrame { .. } => None,
         })
         .collect::<BTreeMap<_, _>>();

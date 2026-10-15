@@ -11,15 +11,18 @@ use bray_runtime_abi::{
 )]
 unsafe extern "C" {
     pub(crate) safe fn bray_runtime_cleanup_storage_admission(
-        bytes: usize,
-        align: usize,
+        descriptor: &bray_runtime_abi::NativeCleanupStorageShape,
+        destination: &mut bray_runtime_abi::NativeCleanupStorageLease,
+    ) -> u32;
+
+    pub(crate) safe fn bray_runtime_cleanup_storage_activation(
+        lease: &bray_runtime_abi::NativeCleanupStorageLease,
+        descriptor: &bray_runtime_abi::NativeCleanupStorageShape,
     ) -> *mut u8;
 
     pub(crate) safe fn bray_runtime_cleanup_storage_release(
-        pointer: *mut u8,
-        bytes: usize,
-        align: usize,
-    );
+        lease: &mut bray_runtime_abi::NativeCleanupStorageLease,
+    ) -> u32;
 
     pub(crate) safe fn bray_runtime_report_records_admit(
         count: usize,
@@ -61,18 +64,24 @@ unsafe extern "C" {
     pub(crate) safe fn bray_runtime_report_consumer() -> NativePanicReportConsumer;
 
     pub(crate) safe fn bray_runtime_outgoing_admission(
-        count: usize,
+        bundle: &bray_runtime_abi::NativeCleanupStorageBundle<'_>,
         outcome: &mut NativeRunOutcome,
     );
 
-    pub(crate) safe fn bray_runtime_outgoing_discharge(count: usize);
+    pub(crate) safe fn bray_runtime_outgoing_discharge(
+        bundle: &bray_runtime_abi::NativeCleanupStorageBundle<'_>,
+    );
 
     #[cfg(test)]
-    pub(crate) safe fn bray_runtime_outgoing_activation() -> usize;
+    pub(crate) safe fn bray_runtime_outgoing_activation(
+        descriptor: *const bray_runtime_abi::NativeCleanupStorageShape,
+        lease: *mut bray_runtime_abi::NativeCleanupStorageLease,
+    ) -> usize;
 
     #[cfg(test)]
     pub(crate) safe fn bray_runtime_outgoing_retirement(
         record: usize,
+        lease: *const bray_runtime_abi::NativeCleanupStorageLease,
         outcome: &mut NativeRunOutcome,
     );
 

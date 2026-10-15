@@ -30,7 +30,7 @@ pub(super) struct ConcreteStaticRealization {
     pub(super) initializer: ConcreteCodegenInstance,
     initial_value: bray_symbols::ConstantValueId,
     relocations: Vec<CodegenStaticRelocation>,
-    outgoing_capacity: u32,
+    pub(super) outgoing_requirements: Vec<bray_codegen::CodegenCleanupRequirement>,
     pub(super) finalization: Option<ConcreteStaticFinalization>,
     pub(super) destroy: Option<ConcreteCodegenInstance>,
     pub(super) reference: StaticReferenceSelection,
@@ -41,7 +41,7 @@ pub(super) struct ConcreteStaticRealization {
 impl ConcreteStaticRealization {
     pub(super) fn requires_host(&self) -> bool {
         self.key.duration() == bray_symbols::StaticStorageDuration::ExactThread
-            || self.outgoing_capacity != 0
+            || !self.outgoing_requirements.is_empty()
             || self.finalization.is_some()
             || self.destroy.is_some()
     }
@@ -54,7 +54,7 @@ pub(super) struct ConcreteStaticFinalization {
     error_type_identity: Option<[u8; 32]>,
     source: Option<bray_ir::MirSourceAnchor>,
     incident_cleanup: Option<ConcreteCodegenInstance>,
-    incident_release: Option<ConcreteCodegenInstance>,
+    selected: Option<bray_codegen::CodegenInstanceKey>,
 }
 
 impl Compilation {
@@ -191,6 +191,24 @@ impl Compilation {
         for (operation_id, operation) in mir.operations_with_ids() {
             let result_type = operation_result_type(mir, operation);
 
+            if let bray_ir::MirOperationKind::AdmitOutgoing { ty, .. } = operation.kind() {
+                let ty = self.concrete_codegen_type(
+                    *ty,
+                    owner.substitution(),
+                    Some(owner),
+                    cancellation,
+                )?;
+
+                for (callee, _, execution) in self.owner_outgoing_calls(ty, cancellation)? {
+                    if execution == CallableExecution::Asynchronous {
+                        dependencies.push(ConcreteCodegenDemand::definition(
+                            callee,
+                            NativeDemandReason::GeneratedHelper,
+                        ));
+                    }
+                }
+            }
+
             for reference in operation.kind().helper_references() {
                 if let Some(dependency) = self.concrete_codegen_helper_dependency(
                     owner,
@@ -231,10 +249,6 @@ impl Compilation {
 
                 if let Some(cleanup) = finalization.incident_cleanup {
                     dependencies.push(ConcreteCodegenDemand::static_lifecycle(cleanup));
-                }
-
-                if let Some(release) = finalization.incident_release {
-                    dependencies.push(ConcreteCodegenDemand::static_lifecycle(release));
                 }
             }
 
@@ -283,6 +297,7 @@ impl Compilation {
             product,
             unit,
             &operations,
+            &static_storages,
             executable_host,
             platform_overrides,
             target,
@@ -346,6 +361,21 @@ impl Compilation {
         let mut demanded = BTreeSet::new();
 
         demanded.extend(constants.iter().map(|constant| constant.data().ty()));
+
+        demanded.extend(
+            operations
+                .iter()
+                .filter_map(bray_codegen::CodegenOperationMapping::outgoing_requirements)
+                .flatten()
+                .map(bray_codegen::CodegenCleanupRequirement::completion),
+        );
+
+        demanded.extend(
+            static_storages
+                .iter()
+                .flat_map(CodegenStaticStorageMapping::outgoing_requirements)
+                .map(bray_codegen::CodegenCleanupRequirement::completion),
+        );
 
         demanded.extend(
             native_storages
@@ -458,20 +488,18 @@ impl Compilation {
                     defines_storage,
                     realization.initial_value,
                     realization.relocations,
-                    realization.outgoing_capacity,
+                    realization.outgoing_requirements,
                     realization.finalization.map(|finalization| {
                         CodegenStaticFinalization::new(
                             finalization.execution,
                             finalization.instance.key().clone(),
                             finalization.result,
+                            finalization.selected,
                             finalization.error_type_identity,
                             finalization.source,
                             finalization
                                 .incident_cleanup
                                 .map(|cleanup| cleanup.key().clone()),
-                            finalization
-                                .incident_release
-                                .map(|release| release.key().clone()),
                         )
                     }),
                     realization.destroy.map(|destroy| destroy.key().clone()),
@@ -611,7 +639,7 @@ impl Compilation {
                 },
             )?;
 
-            let (incident_cleanup, incident_release) = match result {
+            let incident_cleanup = match result {
                 ExecutableEntryResult::Fallible { error, .. } => {
                     let cleanup = self.concrete_codegen_lifecycle(
                         bray_ir::MirHelperReference::Cleanup {
@@ -621,15 +649,9 @@ impl Compilation {
                         target,
                     )?;
 
-                    let release = self.concrete_standard_library_helper(
-                        bray_ir::MirStandardLibraryHelper::MemoryDeallocate,
-                        target,
-                        cancellation,
-                    )?;
-
-                    (Some(cleanup), Some(release))
+                    Some(cleanup)
                 }
-                ExecutableEntryResult::Unit => (None, None),
+                ExecutableEntryResult::Unit => None,
                 ExecutableEntryResult::I32 => {
                     return Err(CodegenPreparationError::from(
                         ProductQueryFailure::UnexpectedEntryResult {
@@ -639,17 +661,31 @@ impl Compilation {
                 }
             };
 
+            let instance = self.concrete_codegen_lifecycle(
+                bray_ir::MirHelperReference::StaticFinalize(ty),
+                target,
+            )?;
+
+            let selected = callable
+                .map(|callable| {
+                    self.concrete_codegen_callable_data(
+                        &instance,
+                        &callable.callable,
+                        target,
+                        cancellation,
+                    )
+                    .map(|selected| selected.key().clone())
+                })
+                .transpose()?;
+
             Ok(ConcreteStaticFinalization {
                 execution,
-                instance: self.concrete_codegen_lifecycle(
-                    bray_ir::MirHelperReference::StaticFinalize(ty),
-                    target,
-                )?,
+                instance,
+                selected,
                 result,
                 error_type_identity,
                 source,
                 incident_cleanup,
-                incident_release,
             })
         })
         .transpose()?;
@@ -676,7 +712,7 @@ impl Compilation {
             ));
         }
 
-        let (relocations, outgoing_capacity) = self.codegen_static_initial_value(
+        let (relocations, outgoing_requirements) = self.codegen_static_initial_value(
             &initializer,
             evaluated.value().value(),
             target,
@@ -689,7 +725,7 @@ impl Compilation {
             initializer,
             initial_value: evaluated.value().value(),
             relocations,
-            outgoing_capacity,
+            outgoing_requirements,
             finalization,
             destroy,
             reference: StaticReferenceSelection::Closed(instance),
@@ -704,26 +740,31 @@ impl Compilation {
         root: bray_symbols::ConstantValueId,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<(Vec<CodegenStaticRelocation>, u32), CodegenPreparationError> {
+    ) -> Result<
+        (
+            Vec<CodegenStaticRelocation>,
+            Vec<bray_codegen::CodegenCleanupRequirement>,
+        ),
+        CodegenPreparationError,
+    > {
         let values = self.semantic_value_store()?;
         let mut pending = vec![root];
-        let mut outgoing_capacity = 0u32;
-        let mut capacities = BTreeMap::new();
+        let mut outgoing_requirements = Vec::new();
+        let mut requirements = BTreeMap::new();
         let mut relocations = BTreeMap::new();
 
         while let Some(value) = pending.pop() {
             let data = values.constant_value_data(value);
 
-            let capacity = match capacities.entry(data.ty()) {
-                std::collections::btree_map::Entry::Occupied(entry) => *entry.get(),
+            let local = match requirements.entry(data.ty()) {
+                std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
                 std::collections::btree_map::Entry::Vacant(entry) => {
-                    *entry.insert(self.owner_outgoing_capacity(data.ty(), cancellation)?)
+                    entry.insert(self.owner_outgoing_requirements(data.ty(), cancellation)?)
                 }
             };
 
-            outgoing_capacity = outgoing_capacity
-                .checked_add(capacity)
-                .ok_or(ProductQueryFailure::OutgoingCapacityOverflow { value: root })?;
+            // Each initialized constant child owns its local allowance independently.
+            outgoing_requirements.extend(local.iter().cloned());
 
             match data.kind() {
                 bray_symbols::ConstantValueKind::StaticAddress(reference) => {
@@ -766,6 +807,6 @@ impl Compilation {
             }
         }
 
-        Ok((relocations.into_values().collect(), outgoing_capacity))
+        Ok((relocations.into_values().collect(), outgoing_requirements))
     }
 }

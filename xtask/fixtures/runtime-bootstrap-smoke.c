@@ -277,10 +277,12 @@ extern PanicReport bray_runtime_panic_report_construction(
 );
 
 extern uint32_t bray_runtime_structured_shutdown(void);
-extern void bray_runtime_outgoing_admission(uintptr_t count, RunOutcome* outcome);
-extern uintptr_t bray_runtime_outgoing_activation(void);
-extern void bray_runtime_outgoing_retirement(uintptr_t record, RunOutcome* outcome);
-extern void bray_runtime_outgoing_discharge(uintptr_t count);
+typedef struct { uintptr_t records; const void* descriptors; uintptr_t count; } CleanupBundle;
+
+extern void bray_runtime_outgoing_admission(const CleanupBundle* bundle, RunOutcome* outcome);
+extern uintptr_t bray_runtime_outgoing_activation(const void* descriptor, void* lease);
+extern void bray_runtime_outgoing_retirement(uintptr_t record, const void* lease, RunOutcome* outcome);
+extern void bray_runtime_outgoing_discharge(const CleanupBundle* bundle);
 extern PanicReport bray_runtime_panic_report_suppression(PanicReport* primary, PanicReport* incident);
 
 typedef uint32_t (*ReportConsumer)(PanicReport*, _Bool);
@@ -303,15 +305,15 @@ static void reentrant_release(uintptr_t message, uintptr_t length, RunOutcome* o
 
     RunOutcome admitted = {0};
 
-    bray_runtime_outgoing_admission(1, &admitted);
+    bray_runtime_outgoing_admission(&(CleanupBundle){ 1, NULL, 0 }, &admitted);
 
     if (admitted.state != 0)
         abort();
 
-    uintptr_t record = bray_runtime_outgoing_activation();
+    uintptr_t record = bray_runtime_outgoing_activation(NULL, NULL);
 
-    bray_runtime_outgoing_retirement(record, &admitted);
-    bray_runtime_outgoing_discharge(1);
+    bray_runtime_outgoing_retirement(record, NULL, &admitted);
+    bray_runtime_outgoing_discharge(&(CleanupBundle){ 1, NULL, 0 });
 }
 
 static PanicReport panic_report(void)
@@ -345,13 +347,13 @@ static int consume_after_allocator_failure(void)
 {
     RunOutcome admission = {0};
 
-    bray_runtime_outgoing_admission(2, &admission);
+    bray_runtime_outgoing_admission(&(CleanupBundle){ 2, NULL, 0 }, &admission);
 
     if (admission.state != 0)
         return 10;
 
-    uintptr_t first = bray_runtime_outgoing_activation();
-    uintptr_t second = bray_runtime_outgoing_activation();
+    uintptr_t first = bray_runtime_outgoing_activation(NULL, NULL);
+    uintptr_t second = bray_runtime_outgoing_activation(NULL, NULL);
 
     atomic_store(&reject_allocations, 1);
 
@@ -359,7 +361,7 @@ static int consume_after_allocator_failure(void)
     {
         RunOutcome rejected = {0};
 
-        bray_runtime_outgoing_admission(64, &rejected);
+        bray_runtime_outgoing_admission(&(CleanupBundle){ 64, NULL, 0 }, &rejected);
 
         if (rejected.state != 2 || rejected.report.cause != 4)
             return 11;
@@ -375,9 +377,9 @@ static int consume_after_allocator_failure(void)
 
     unsigned before = atomic_load(&allocation_attempts);
 
-    bray_runtime_outgoing_retirement(first, &primary);
-    bray_runtime_outgoing_retirement(second, &incident);
-    bray_runtime_outgoing_discharge(2);
+    bray_runtime_outgoing_retirement(first, NULL, &primary);
+    bray_runtime_outgoing_retirement(second, NULL, &incident);
+    bray_runtime_outgoing_discharge(&(CleanupBundle){ 2, NULL, 0 });
 
     PanicReport report = bray_runtime_panic_report_suppression(&primary.report, &incident.report);
 
@@ -735,12 +737,12 @@ static int check_pool_retirement(void)
 
     RunOutcome outcome = {0};
 
-    bray_runtime_outgoing_admission(1, &outcome);
+    bray_runtime_outgoing_admission(&(CleanupBundle){ 1, NULL, 0 }, &outcome);
 
     if (outcome.state != 0)
         return 43;
 
-    uintptr_t record = bray_runtime_outgoing_activation();
+    uintptr_t record = bray_runtime_outgoing_activation(NULL, NULL);
     unsigned before = atomic_load(&allocation_attempts);
 
     atomic_store(&reject_allocations, 1);
@@ -748,8 +750,8 @@ static int check_pool_retirement(void)
     if (bray_runtime_structured_shutdown() != 4)
         return 44;
 
-    bray_runtime_outgoing_retirement(record, &outcome);
-    bray_runtime_outgoing_discharge(1);
+    bray_runtime_outgoing_retirement(record, NULL, &outcome);
+    bray_runtime_outgoing_discharge(&(CleanupBundle){ 1, NULL, 0 });
 
     if (bray_runtime_structured_shutdown() != 1 ||
         atomic_load(&allocation_attempts) != before || atomic_load(&live_allocations) != 0)
@@ -761,14 +763,14 @@ static int check_pool_retirement(void)
     if (bray_runtime_initialization(1, 1) != 0)
         return 46;
 
-    bray_runtime_outgoing_admission(1, &outcome);
+    bray_runtime_outgoing_admission(&(CleanupBundle){ 1, NULL, 0 }, &outcome);
 
     if (outcome.state != 0)
         return 47;
 
-    record = bray_runtime_outgoing_activation();
-    bray_runtime_outgoing_retirement(record, &outcome);
-    bray_runtime_outgoing_discharge(1);
+    record = bray_runtime_outgoing_activation(NULL, NULL);
+    bray_runtime_outgoing_retirement(record, NULL, &outcome);
+    bray_runtime_outgoing_discharge(&(CleanupBundle){ 1, NULL, 0 });
 
     if (bray_runtime_structured_shutdown() != 0 || atomic_load(&live_allocations) != 0)
         return 48;
@@ -776,52 +778,143 @@ static int check_pool_retirement(void)
     return 0;
 }
 
-extern void* bray_runtime_cleanup_storage_admission(uintptr_t bytes, uintptr_t alignment);
-extern void bray_runtime_cleanup_storage_release(void* pointer, uintptr_t bytes, uintptr_t alignment);
+typedef struct {
+    unsigned char identity[32];
+    uintptr_t bytes;
+    uintptr_t alignment;
+} CleanupShape;
+
+typedef struct {
+    uintptr_t domain;
+    uintptr_t shape;
+    uintptr_t slot;
+    uint64_t epoch;
+    uintptr_t address;
+} CleanupLease;
+
+extern uint32_t bray_runtime_cleanup_storage_admission(const CleanupShape*, CleanupLease*);
+extern unsigned char* bray_runtime_cleanup_storage_activation(const CleanupLease*, const CleanupShape*);
+extern uint32_t bray_runtime_cleanup_storage_release(CleanupLease*);
+extern void bray_runtime_cleanup_storage_claim(const CleanupShape*, CleanupLease*);
 
 static int check_cleanup_backing(void)
 {
-    unsigned live = atomic_load(&live_allocations);
-    unsigned char* backing = bray_runtime_cleanup_storage_admission(65537, 8);
+    CleanupShape shape = { { 1 }, 65537, 4096 };
+    CleanupShape wrong = { { 2 }, 65537, 4096 };
+    CleanupLease lease = { 0 };
 
-    if (backing == NULL || (uintptr_t)backing % 8 != 0)
+    if (bray_runtime_cleanup_storage_admission(&shape, &lease) != 0)
         return 60;
+
+    CleanupLease occupied = lease;
+    if (bray_runtime_cleanup_storage_admission(&shape, &lease) != 3 ||
+        memcmp(&occupied, &lease, sizeof(lease)) != 0)
+        return 67;
+
+    atomic_store(&reject_allocations, 1);
+    unsigned attempts = atomic_load(&allocation_attempts);
+
+    if (bray_runtime_cleanup_storage_activation(&lease, &wrong) != NULL)
+        return 61;
+
+    unsigned char* backing = bray_runtime_cleanup_storage_activation(&lease, &shape);
+
+    if (backing == NULL || (uintptr_t)backing % 4096 != 0 ||
+        bray_runtime_cleanup_storage_activation(&lease, &shape) != NULL)
+        return 62;
 
     backing[0] = 7;
     backing[65536] = 9;
-    atomic_store(&reject_allocations, 1);
+    CleanupLease stale = lease;
 
-    if (bray_runtime_cleanup_storage_admission(64, 8) != NULL)
-        return 61;
-
-    unsigned attempts = atomic_load(&allocation_attempts);
-
-    if (backing[0] != 7 || backing[65536] != 9)
-        return 62;
-
-    bray_runtime_cleanup_storage_release(backing, 65537, 8);
-    atomic_store(&reject_allocations, 0);
-
-    if (atomic_load(&allocation_attempts) != attempts)
+    if (bray_runtime_cleanup_storage_release(&lease) != 0 ||
+        bray_runtime_cleanup_storage_release(&lease) != 3 ||
+        bray_runtime_cleanup_storage_admission(&shape, &lease) != 0)
         return 63;
 
-#ifdef _WIN32
-    if (atomic_load(&live_allocations) != live)
+    if (bray_runtime_cleanup_storage_activation(&stale, &shape) != NULL ||
+        bray_runtime_cleanup_storage_release(&stale) != 3)
         return 64;
-#else
-    (void)live;
-#endif
 
+    backing = bray_runtime_cleanup_storage_activation(&lease, &shape);
+
+    if (backing == NULL || backing[0] != 7 || backing[65536] != 9 ||
+        bray_runtime_cleanup_storage_release(&lease) != 0 ||
+        atomic_load(&allocation_attempts) != attempts)
+        return 65;
+
+    CleanupLease preserved = lease;
+
+    if (bray_runtime_cleanup_storage_admission(&wrong, &lease) == 0 ||
+        memcmp(&preserved, &lease, sizeof(lease)) != 0)
+        return 66;
+
+    atomic_store(&reject_allocations, 0);
+    return 0;
+}
+
+static int check_cleanup_bundle(void)
+{
+    unsigned admission_attempts = atomic_load(&allocation_attempts);
+    size_t admission_bytes = atomic_load(&allocated_bytes);
+    CleanupShape shapes[2] = { { { 3 }, 65537, 4096 }, { { 3 }, 65537, 4096 } };
+    CleanupBundle bundle = { 2, shapes, 2 };
+    RunOutcome outcome = { 0 };
+    bray_runtime_outgoing_admission(&bundle, &outcome);
+    if (outcome.state != 0)
+        return 68;
+
+    printf("cleanup bundle: allocations=%u bytes=%zu payload_bytes=%zu alignment=%zu\n",
+        atomic_load(&allocation_attempts) - admission_attempts,
+        atomic_load(&allocated_bytes) - admission_bytes, 2 * shapes[0].bytes, shapes[0].alignment);
+    atomic_store(&reject_allocations, 1);
+    unsigned attempts = atomic_load(&allocation_attempts);
+    CleanupLease first = { 0 };
+    uintptr_t record = bray_runtime_outgoing_activation(&shapes[0], &first);
+    unsigned char* bytes = (unsigned char*)first.address;
+    bytes[0] = 11;
+    bytes[65536] = 17;
+    bray_runtime_outgoing_discharge(&bundle);
+
+    CleanupLease other = { 0 };
+    if (bray_runtime_cleanup_storage_admission(&shapes[0], &other) != 0 || other.address == first.address)
+        return 69;
+    if (bytes[0] != 11 || bytes[65536] != 17 || bray_runtime_cleanup_storage_release(&other) != 0)
+        return 70;
+
+    bray_runtime_outgoing_retirement(record, &first, &outcome);
+    if (bray_runtime_cleanup_storage_release(&first) != 3 || atomic_load(&allocation_attempts) != attempts)
+        return 71;
+
+    bray_runtime_outgoing_admission(&bundle, &outcome);
+    if (outcome.state != 0)
+        return 73;
+    CleanupLease retained = { 0 };
+    bray_runtime_cleanup_storage_claim(&shapes[0], &retained);
+    bytes = (unsigned char*)retained.address;
+    bytes[0] = 23;
+    bytes[65536] = 29;
+    bray_runtime_outgoing_discharge(&bundle);
+    if (bray_runtime_cleanup_storage_release(&first) != 3 || bytes[0] != 23 || bytes[65536] != 29 ||
+        bray_runtime_cleanup_storage_release(&retained) != 0 || atomic_load(&allocation_attempts) != attempts)
+        return 74;
+
+    CleanupShape invalid[2] = { shapes[0], { { 4 }, 64, 3 } };
+    CleanupBundle rejected = { 2, invalid, 2 };
+    bray_runtime_outgoing_admission(&rejected, &outcome);
+    if (outcome.state != 2 || outcome.report.cause != 4)
+        return 72;
+    outcome = (RunOutcome){ 0 };
+    bray_runtime_outgoing_admission(&bundle, &outcome);
+    if (outcome.state != 0)
+        return 75;
+    bray_runtime_outgoing_discharge(&bundle);
+    atomic_store(&reject_allocations, 0);
     return 0;
 }
 
 int main(void)
 {
-    int backing_status = check_cleanup_backing();
-
-    if (backing_status != 0)
-        return backing_status;
-
     int attachment_status = check_primitive_attachment();
 
     if (attachment_status != 0)
@@ -882,6 +975,19 @@ int main(void)
 
     if (retirement_status != 0)
         return retirement_status;
+
+    if (bray_runtime_initialization(1, 1) != 0)
+        return 76;
+
+    int bundle_status = check_cleanup_bundle();
+    if (bundle_status != 0) return bundle_status;
+    int backing_status = check_cleanup_backing();
+
+    if (backing_status != 0)
+        return backing_status;
+
+    if (bray_runtime_structured_shutdown() != 0 || atomic_load(&live_allocations) != 0)
+        return 77;
 
     if (atomic_load_explicit(&cleanup_shield_balance, memory_order_relaxed) != 0)
         return 7;

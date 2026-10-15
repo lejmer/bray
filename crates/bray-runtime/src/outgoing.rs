@@ -1,8 +1,6 @@
 use crate::TaskStartError;
 
-use bray_runtime_abi::{
-    NativePanicPrimary, NativeReportRecords, NativeReportSegment, NativeRunOutcome, NativeRunState,
-};
+use bray_runtime_abi::{NativePanicPrimary, NativeReportRecords, NativeReportSegment};
 
 use crate::report_provider as provider;
 
@@ -27,27 +25,6 @@ impl OutgoingRecords {
             .map_err(|_| TaskStartError::OutgoingStorageUnavailable)?;
 
         Ok(admitted)
-    }
-
-    pub(crate) fn admit_source(count: usize) -> Result<(), TaskStartError> {
-        #[cfg(test)]
-        if tests::admission_failure() {
-            return Err(TaskStartError::OutgoingStorageUnavailable);
-        }
-
-        let mut outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
-
-        provider::bray_runtime_outgoing_admission(count, &mut outcome);
-
-        if outcome.state() != NativeRunState::COMPLETED {
-            return Err(TaskStartError::OutgoingStorageUnavailable);
-        }
-
-        Ok(())
-    }
-
-    pub(crate) fn discharge_source(count: usize) {
-        provider::bray_runtime_outgoing_discharge(count);
     }
 
     pub(crate) fn take(&mut self, count: usize) -> Self {

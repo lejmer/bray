@@ -1,0 +1,196 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.storage;
+
+using std.memory;
+using internal bray.runtime.bootstrap;
+
+trusted internal predicate lease_slot(pointer: RawPointer<Lease>);
+
+@abi(c)
+trusted internal func admit(pos descriptor: RawPointer<Descriptor>, pos destination: RawPointer<Lease>) -> u32
+    requires(
+        trusted core.memory.valid_read<Descriptor>(pointer = descriptor, count = 1),
+        trusted core.memory.initialized_as<Descriptor>(pointer = descriptor),
+        trusted core.memory.aligned_for<Descriptor>(pointer = descriptor),
+        trusted core.memory.valid_read<Lease>(pointer = destination, count = 1),
+        trusted core.memory.initialized_as<Lease>(pointer = destination),
+        trusted core.memory.valid_write<Lease>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<Lease>(pointer = destination),
+    )
+    ensures(
+        result != 0 || trusted lease_slot(pointer = destination),
+        result != 0 || trusted core.memory.valid_read<Lease>(pointer = destination, count = 1),
+        result != 0 || trusted core.memory.initialized_as<Lease>(pointer = destination),
+        trusted core.memory.valid_write<Lease>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<Lease>(pointer = destination),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let previous: Lease = trusted std.memory.read<Lease>(destination);
+
+    if previous.domain != 0 || previous.shape != 0 || previous.slot != 0 || previous.epoch != 0 || previous.address != 0
+    {
+        return 3;
+    }
+
+    let value: Descriptor = trusted std.memory.read<Descriptor>(descriptor);
+
+    if !valid_layout(&value)
+    {
+        return 3;
+    }
+
+    let lease: Lease = trusted admit_value(value, destination);
+
+    if lease.slot == 0
+    {
+        return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+    }
+
+    trusted std.memory.write<Lease>(destination, lease);
+    return bray.runtime.bootstrap.STATUS_SUCCESS;
+}
+
+trusted internal func admit_value(pos descriptor: Descriptor, pos destination: RawPointer<Lease>) -> Lease
+    requires(
+        trusted core.memory.valid_write<Lease>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<Lease>(pointer = destination),
+    )
+    ensures(
+        trusted core.memory.valid_write<Lease>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<Lease>(pointer = destination),
+    )
+{
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+    let pool = guard.get();
+
+    if pool.remaining_epochs == 0
+    {
+        return empty_lease();
+    }
+
+    let index: usize = trusted register(pool, descriptor);
+
+    if index == 0
+    {
+        return empty_lease();
+    }
+
+    {
+        let values = trusted shapes(pool);
+        let shape = &mut values[index - 1];
+        let limit: usize = ~0;
+
+        if shape.credits == limit
+        {
+            return empty_lease();
+        }
+
+        let requested: usize = shape.credits + 1;
+
+        if !trusted reserve(shape, requested)
+        {
+            return empty_lease();
+        }
+    }
+
+    pool.remaining_epochs -= 1;
+    return trusted reserve_lease(pool, index);
+}
+
+@abi(c)
+trusted internal func activate(pos pointer: RawPointer<Lease>, pos descriptor: RawPointer<Descriptor>) -> RawPointer<u8>
+    requires(
+        trusted lease_slot(pointer = pointer),
+        trusted core.memory.valid_read<Lease>(pointer = pointer, count = 1),
+        trusted core.memory.initialized_as<Lease>(pointer = pointer),
+        trusted core.memory.aligned_for<Lease>(pointer = pointer),
+        trusted core.memory.valid_read<Descriptor>(pointer = descriptor, count = 1),
+        trusted core.memory.initialized_as<Descriptor>(pointer = descriptor),
+        trusted core.memory.aligned_for<Descriptor>(pointer = descriptor),
+    )
+    ensures(trusted lease_slot(pointer = pointer))
+    uses(raw_memory)
+{
+    let lease: Lease = trusted std.memory.read<Lease>(pointer);
+    let value: Descriptor = trusted std.memory.read<Descriptor>(descriptor);
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+
+    return trusted activate_value(guard.get(), &lease, &value);
+}
+
+@abi(c)
+trusted internal func retire(pos pointer: RawPointer<Lease>) -> u32
+    requires(
+        trusted lease_slot(pointer = pointer),
+        trusted core.memory.valid_read<Lease>(pointer = pointer, count = 1),
+        trusted core.memory.valid_write<Lease>(pointer = pointer, count = 1),
+        trusted core.memory.initialized_as<Lease>(pointer = pointer),
+        trusted core.memory.aligned_for<Lease>(pointer = pointer),
+    )
+    ensures(result == 0 || trusted lease_slot(pointer = pointer))
+    uses(raw_memory, unchecked_init)
+{
+    let lease: Lease = trusted std.memory.read<Lease>(pointer);
+
+    if !trusted retire_value(&lease, pointer)
+    {
+        return 3;
+    }
+
+    trusted std.memory.write<Lease>(pointer, empty_lease());
+    return bray.runtime.bootstrap.STATUS_SUCCESS;
+}
+
+trusted internal func retire_value(pos lease: &Lease, pos pointer: RawPointer<Lease>) -> bool
+    requires(
+        trusted core.memory.valid_write<Lease>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<Lease>(pointer = pointer),
+    )
+    ensures(
+        trusted core.memory.valid_write<Lease>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<Lease>(pointer = pointer),
+    )
+{
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+
+    return trusted release_value(guard.get(), lease);
+}
+
+@abi(c)
+trusted internal func claim(pos descriptor: RawPointer<Descriptor>, pos destination: RawPointer<Lease>)
+    requires(
+        trusted core.memory.valid_read<Descriptor>(pointer = descriptor, count = 1),
+        trusted core.memory.initialized_as<Descriptor>(pointer = descriptor),
+        trusted core.memory.aligned_for<Descriptor>(pointer = descriptor),
+        trusted core.memory.valid_write<Lease>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<Lease>(pointer = destination),
+    )
+    ensures(
+        trusted core.memory.valid_read<Lease>(pointer = destination, count = 1),
+        trusted core.memory.initialized_as<Lease>(pointer = destination),
+        trusted core.memory.valid_write<Lease>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<Lease>(pointer = destination),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let value = trusted std.memory.read<Descriptor>(descriptor);
+    let lease = trusted claim_locked(value, destination);
+
+    trusted std.memory.write<Lease>(destination, lease);
+}
+
+trusted internal func claim_locked(pos descriptor: Descriptor, pos destination: RawPointer<Lease>) -> Lease
+    requires(
+        trusted core.memory.valid_write<Lease>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<Lease>(pointer = destination),
+    )
+    ensures(
+        trusted core.memory.valid_write<Lease>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<Lease>(pointer = destination),
+    )
+{
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+
+    return trusted claim_value(guard.get(), descriptor);
+}

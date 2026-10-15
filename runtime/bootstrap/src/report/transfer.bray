@@ -1,0 +1,147 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap;
+
+using std.memory;
+using internal bray.runtime.bootstrap.pool;
+using internal bray.runtime.bootstrap.storage;
+
+@abi(c)
+trusted internal func take_report(pos pointer: RawPointer<PanicReportData>) -> PanicReportData
+    requires(
+        trusted native_report_slot_callbacks(pointer = pointer),
+        trusted core.memory.valid_write<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<PanicReportData>(pointer = pointer),
+        trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.initialized_as<PanicReportData>(pointer = pointer)
+    )
+    ensures(
+        trusted native_report_callbacks(report = &result),
+        trusted native_report_slot_callbacks(pointer = pointer),
+        trusted core.memory.valid_write<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<PanicReportData>(pointer = pointer),
+        trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.initialized_as<PanicReportData>(pointer = pointer)
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let owned: PanicReportData = trusted std.memory.read<PanicReportData>(pointer);
+
+    trusted std.memory.write<PanicReportData>(pointer, empty_panic_report());
+    return owned;
+}
+
+// Moving the primary header leaves the disjoint incident slot untouched.
+trusted internal func take_primary_report(
+    pos primary: RawPointer<PanicReportData>,
+    pos incident: RawPointer<PanicReportData>
+) -> PanicReportData
+    requires(
+        trusted native_report_slot_callbacks(pointer = primary),
+        trusted native_report_slot_callbacks(pointer = incident),
+        trusted core.memory.non_overlapping<PanicReportData>(
+            left = primary,
+            left_count = 1,
+            right = incident,
+            right_count = 1
+        ),
+        trusted core.memory.valid_write<PanicReportData>(pointer = primary, count = 1),
+        trusted core.memory.aligned_for<PanicReportData>(pointer = primary),
+        trusted core.memory.valid_read<PanicReportData>(pointer = primary, count = 1),
+        trusted core.memory.initialized_as<PanicReportData>(pointer = primary),
+        trusted core.memory.valid_write<PanicReportData>(pointer = incident, count = 1),
+        trusted core.memory.aligned_for<PanicReportData>(pointer = incident),
+        trusted core.memory.valid_read<PanicReportData>(pointer = incident, count = 1),
+        trusted core.memory.initialized_as<PanicReportData>(pointer = incident)
+    )
+    ensures(
+        trusted native_report_callbacks(report = &result),
+        trusted native_report_slot_callbacks(pointer = incident),
+        trusted core.memory.valid_read<PanicReportData>(pointer = incident, count = 1),
+        trusted core.memory.valid_write<PanicReportData>(pointer = incident, count = 1),
+        trusted core.memory.aligned_for<PanicReportData>(pointer = incident),
+        trusted core.memory.initialized_as<PanicReportData>(pointer = incident),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let owned: PanicReportData = trusted std.memory.read<PanicReportData>(primary);
+
+    trusted std.memory.write<PanicReportData>(primary, empty_panic_report());
+    return owned;
+}
+
+@abi(c)
+trusted internal func panic_report_suppression(
+    pos primary: RawPointer<PanicReportData>,
+    pos incident: RawPointer<PanicReportData>
+) -> PanicReportData
+    requires(
+        trusted native_report_slot_callbacks(pointer = primary),
+        trusted native_report_slot_callbacks(pointer = incident),
+        trusted core.memory.non_overlapping<PanicReportData>(
+            left = primary,
+            left_count = 1,
+            right = incident,
+            right_count = 1
+        ),
+        trusted core.memory.valid_write<PanicReportData>(pointer = primary, count = 1),
+        trusted core.memory.aligned_for<PanicReportData>(pointer = primary),
+        trusted core.memory.valid_read<PanicReportData>(pointer = primary, count = 1),
+        trusted core.memory.initialized_as<PanicReportData>(pointer = primary),
+        trusted core.memory.valid_write<PanicReportData>(pointer = incident, count = 1),
+        trusted core.memory.aligned_for<PanicReportData>(pointer = incident),
+        trusted core.memory.valid_read<PanicReportData>(pointer = incident, count = 1),
+        trusted core.memory.initialized_as<PanicReportData>(pointer = incident)
+    )
+    uses(intrinsic)
+{
+    let mut report: PanicReportData = trusted take_primary_report(primary, incident);
+    let suppressed: PanicReportData = trusted take_report(incident);
+    let handle: usize = suppressed.reserved;
+
+    let mut incident_records: ReportRecords =
+    {
+        head = handle,
+        tail = handle,
+        count = 1
+    };
+
+    let mut later: ReportRecords =
+    {
+        head = suppressed.outgoing_head,
+        tail = suppressed.outgoing_tail,
+        count = suppressed.outgoing_count
+    };
+
+    let mut value: ReportPrimary = report_primary_value(suppressed);
+
+    value = trusted exchange_primary(handle, value);
+
+    let (released, _) = trusted release_primary(&value, trusted primary_release(&value));
+
+    if released != RUN_COMPLETED
+    {
+        trusted core.target.abort();
+    }
+
+    trusted report_records_append(
+        std.memory.address_of_mut<ReportRecords>(&mut incident_records),
+        std.memory.address_of_mut<ReportRecords>(&mut later)
+    );
+
+    let mut chain: ReportRecords =
+    {
+        head = report.outgoing_head,
+        tail = report.outgoing_tail,
+        count = report.outgoing_count
+    };
+
+    trusted report_records_append(
+        std.memory.address_of_mut<ReportRecords>(&mut chain),
+        std.memory.address_of_mut<ReportRecords>(&mut incident_records)
+    );
+
+    report.outgoing_head = chain.head;
+    report.outgoing_tail = chain.tail;
+    report.outgoing_count = chain.count;
+    return report;
+}

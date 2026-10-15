@@ -65,7 +65,7 @@ or incident ownership. Native frame completion no longer allocates after executi
 alignment. Task observation reuses that bridge instead of maintaining a separate Rust allocator.
 Static finalizer callbacks receive payload backing admitted with their static owner; generated error
 capture no longer allocates. The generated destructor releases the same admitted layout. Product
-host ABI version 2 covers the changed callback arguments. The obsolete paired allocation mapping
+host ABI uses its current version 1 with the changed callback arguments, with no compatibility shim. The obsolete paired allocation mapping
 and allocation-failure cleanup branch were removed.
 
 Evidence so far:
@@ -149,3 +149,134 @@ cancels the initiating request, and verifies successful reuse by the waiter and 
 The product test batch finished with 249 passes and the existing BRA-619
 MissingRole(CleanupIncidentTransfer) failure in scoped_selected_calls_emit_native_artifacts.
 That failure remains enabled and owned by plan Step 6. This is not a clean whole-product test claim.
+
+
+## Physical lease work in progress
+
+The current uncommitted batch replaces raw payload allocation with shaped slabs owned by the
+existing ReportPool. Each native lease carries the service identity, shape ordinal, slot ordinal,
+monotone epoch and payload address. Admission reserves bytes. Activation checks the descriptor
+and RESERVED state. Release checks the live epoch before returning a slot. Retained incidents
+carry the original lease through their final destructor. Slabs amortize allocation and alignment
+padding without attaching runtime tokens to ordinary source moves.
+
+This batch is not accepted yet. The first integrated Rust/runtime build is running with its log
+at target/bra-620-authority/bra-502-storage-tests.log in the shared repository target. The C smoke
+fixture now covers wrong-shape activation, repeated activation, stale leases after slot reuse,
+over-alignment, allocation denial after admission and unchanged output on failed admission.
+Those new cases have not run yet.
+
+Outstanding integration remains concrete source allowance descriptors and atomic admission,
+shared protected-frame layout emission, epoch availability secured at fallible admission,
+physical activation consumers, native ABI role retention, production declaration authority tests,
+full acceptance, the required audit/style/format passes and a fresh published review. The
+BRA-554 and BRA-558 branches must wait for this contract. Step 5 remains incomplete.
+
+
+### Concrete descriptor integration in progress
+
+The uncommitted source allowance now carries a typed borrowed descriptor slice and record count.
+Admission reserves the complete bundle under the existing pool lock and rolls back acquired
+credits on failure. Lease activation and release use the same shape/epoch checks as independent
+native backing. Async descriptors use the backend's existing protected-frame layout rather than
+reconstructing its fields in the frontend. The static error resolver selects the admitted requirement of its source finalizer after
+the generated helper retires its temporary activation. It transfers the claimed lease directly
+into the incident instead of allocating a second payload region.
+
+The integrated runtime check exposed a borrow conflict in an admission helper and unused
+capability declarations. Those are corrected. The production declaration regression now checks
+all function bodies in the storage and outgoing modules, including helpers, because checking
+only native entry bodies missed those errors. The contextual yielded-construction fix has a
+passing five-variant regression. None of this uncommitted batch has passed full native acceptance.
+
+Remaining: verify the generated static activation and retained incident path, connect actual
+cleanup frame/result consumers, establish rejection/retention and cost evidence, run the audit,
+style/format and batched tests, then push and request a fresh PR review. Step 5 is still incomplete.
+
+Zero-byte synchronous completions require their report record but no payload region. Bundle
+reservation, activation and discharge skip payload slots for these descriptors. Nonzero payloads
+and asynchronous frame descriptors retain the shape/epoch path.
+
+The all-body production contract test and lease-forgery test both passed after qualifying the
+moved bootstrap names. The source fixture keeps the original source ordering so existing
+source-identity assertions retain their meaning. The current runtime build began before the
+final static resolver change, so its result alone cannot validate that change.
+
+Each bundle secures epoch budget for activation and one retained-result transfer per requirement.
+The slots can be reused between those disjoint lifetimes without reserving a second payload.
+The static callback's temporary activation runs inside StaticFinalize, so claiming an incident
+lease before invoking that helper would double-charge it. Capture now occurs in the generated
+resolver after the helper returns. The abandoned early-claim callback mode was removed.
+
+
+### Observed large-aggregate compilation cost
+
+The first large generic error fixture used a repeated 4,097-element byte array. Its focused
+compilation test exceeded 60 seconds and reached approximately 7.4 GB working set before it was
+stopped. A reduced 17-element aligned array also exceeded 60 seconds at approximately 1.1 GB.
+A single-field, 131,072-byte-aligned aggregate reached approximately 42.7 GB before it was stopped.
+The latter rules out attributing this solely to source array expansion. LLVM aggregate lowering
+represents padding as byte arrays, which is a candidate for the native-emission cost. Attribution
+still needs profiling under existing BRA-542. No production workaround or unsupported claim of
+large aggregate object-emission performance is included here.
+
+The regression covers generic selected requirements with a 64-byte-aligned emitted object and
+a 4,096-byte-aligned backend IR artifact. The native allocation-denial case separately retains
+65,537 bytes at 4,096-byte alignment. These establish different boundaries, not a completed
+large-aggregate native compiler performance result. Automatic approval review blocked the
+attempted Linear performance comment. This tracked document retains the finding and its owner.
+
+
+### Current validation and audit checkpoint
+
+The contextual propagation repair passed all 321 checker unit tests. The current runtime and ABI
+suites passed 147 and 18 tests respectively. The generic selected-requirement regression passed
+with a native object at alignment 64 and backend IR at alignment 4096. Production storage bodies
+and forged lease evidence passed their two regressions. Five outgoing regressions cover the source
+fixture ordering repair. Previous product coverage remains 249 passing cases plus the enabled
+BRA-619 missing-role failure, before this final native integration batch.
+
+The production native smoke reached all storage retention/epoch checks under allocation denial.
+The rejected bundle test used the wrong expected tag, 1 instead of the ABI panic tag 2. The
+assertion now also checks the allocation-failure cause. Its first two-payload admission measured
+9 allocations and 148,280 bytes for 131,074 payload bytes at alignment 4096. Final smoke completion
+is still required. Generated native static cleanup execution and fresh PR review remain required.
+
+Repo-wide searches covered concrete descriptors and leases, allowance accounting, layout emission,
+incident transfer/destruction, callback signatures, contextual expectation propagation and buffer
+growth. Buffer growth reuses heap.reserve. Frame layouts reuse the backend frame type. Static
+incident capture reuses the outgoing requirement and backing service. The obsolete scalar source
+admit/discharge Rust helpers and static result-layout metadata are removed: generated callbacks
+now own their storage and Rust no longer allocates from those sizes. ABI fixtures must be checked
+after that removal. No new language feature or downstream authority check was added.
+
+
+The corrected native bootstrap fixture passed against the retained production archive. Both new
+storage checks run after the original cold-start tests, because warming the shared pool first
+invalidated the existing deliberate cleanup-registration allocation failure. Final shutdown
+asserts zero live allocations. The corrected executable and map are retained under
+`target/bra-620-authority/bray-runtime-artifact-smoke-9nTWAk/runtime-bootstrap-smoke-corrected.*`
+in the shared target. This run reused the original package's extracted inputs and native links.
+The production bootstrap source was unchanged. The 13 static-lifecycle compilation tests passed
+again after removing unused native result-layout fields. Runtime tests, style/format, the complete
+artifact smoke workflow, generated static execution and independent review remain in progress.
+
+Storage choice: ordinary synchronous result destinations stay in their enclosing call. A retained
+incident can outlive that call and its source owner, so its bytes require independent ownership.
+The existing pool owns geometrically grown slabs rather than one allocation per move or error.
+The backend uses its actual protected-frame type plus completion layout for asynchronous
+requirements. Full async frame activation remains with BRA-505/BRA-560 and is not claimed here.
+
+
+The final ABI cleanup batch passed 13 static-lifecycle tests, 147 runtime tests and 18 ABI tests.
+`cargo xtask style` and `cargo xtask format` passed, followed by Rust formatting and diff whitespace
+validation. The corrected bootstrap map retains all four Bray storage symbols and excludes Rust
+allocator/personality symbols and host/callback/scheduler archives. Before final formatting, the
+branch relative to develop contained approximately +1,851 net production-file lines, +804 test/
+fixture lines and +270 documentation lines, separating inline test modules. Production growth
+implements physical slab ownership, lease epochs, requirement realization and native consumer
+transfer. Moved implementation is included in gross additions/deletions, not counted as a benefit.
+
+This is a recovery checkpoint, not BRA-502 completion. Still required: full artifact smoke after
+fixture corrections, generated static execution using the updated ABI, independent PR review and
+its fixes. Then continue BRA-554 and BRA-558 without waiting for merges.

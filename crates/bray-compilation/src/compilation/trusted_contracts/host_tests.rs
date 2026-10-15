@@ -1200,7 +1200,7 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
         include_str!("../../../../../runtime/bootstrap/src/record_pool.bray"),
         include_str!("../../../../../runtime/bootstrap/src/records.bray"),
         include_str!("../../../../../runtime/bootstrap/src/panic.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/outgoing.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/report/transfer.bray"),
         include_str!("../../../../../runtime/bootstrap/src/report_consumer.bray"),
         include_str!("../../../../../standard-library/std/src/sync.bray"),
         include_str!("../../../../../standard-library/std/src/sync/spin_lock.bray"),
@@ -1254,6 +1254,13 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
             "../../../../../standard-library/std/src/os/generated/aarch64_apple_darwin.bray"
         ),
         caller,
+        include_str!("../../../../../runtime/bootstrap/src/storage/data.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/storage/admission.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/storage/activation.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/storage/boundary.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/storage/bundle.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/outgoing/admission.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/outgoing/activation.bray"),
     ];
 
     let request = CompilationRequest::with_options(
@@ -1343,4 +1350,104 @@ fn cleanup_backing_requires_the_live_allocation_and_its_exact_layout() {
             );
         }
     }
+}
+
+#[test]
+fn production_storage_lease_requires_admission_evidence() {
+    for (admission, body, valid) in [
+        (true, "let status = trusted retire(pointer);", true),
+        (false, "let status = trusted retire(pointer);", false),
+        (
+            false,
+            "let address = trusted activate(pointer, description);",
+            false,
+        ),
+        (
+            false,
+            "trusted claim(description, pointer); let status = trusted retire(pointer);",
+            false,
+        ),
+        (
+            true,
+            "lease = empty_lease(); let status = trusted retire(pointer);",
+            false,
+        ),
+        (
+            true,
+            "let address = trusted activate(pointer, description); trusted std.memory.write<u8>(address, 1);",
+            false,
+        ),
+    ] {
+        let caller = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap.storage;
+            func probe() {{
+                let descriptor: Descriptor = {{ identity = [0; 32], bytes = 64, align = 32 }};
+                let mut lease: Lease = empty_lease();
+                let pointer = std.memory.address_of_mut<Lease>(&mut lease);
+                let description = std.memory.address_of<Descriptor>(&descriptor);
+                {admission}
+                {{ {body} }}
+            }}
+            "#,
+            admission = if admission {
+                "if trusted admit(description, pointer) == 0"
+            } else {
+                ""
+            },
+        );
+
+        let compilation = production_host_compilation(&caller);
+
+        let lowered = compilation
+            .lowered_unit(crate::test_support::source_function_body_key(
+                &compilation,
+                "probe",
+            ))
+            .unwrap();
+
+        assert_eq!(
+            !lowered.diagnostics().has_errors(),
+            valid,
+            "{caller}: {lowered:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                lowered.diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn production_storage_boundaries_prove_their_declared_memory_effects() {
+    let compilation = production_host_compilation("module probe;");
+    let mut failures = Vec::new();
+
+    for key in compilation.declared_unit_keys_for_test().unwrap() {
+        if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody {
+            continue;
+        }
+
+        let source = compilation
+            .source(key.source().syntax().source_id())
+            .unwrap()
+            .text();
+
+        if !source.contains("module bray.runtime.bootstrap.storage;")
+            && !source.contains("module bray.runtime.bootstrap.outgoing;")
+        {
+            continue;
+        }
+
+        let lowered = compilation.lowered_unit(key.clone()).unwrap();
+
+        if lowered.diagnostics().has_errors() {
+            failures.push(format!("{key:?}: {:?}", lowered.diagnostics()));
+        }
+    }
+
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

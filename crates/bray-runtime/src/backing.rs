@@ -1,44 +1,54 @@
 use std::alloc::Layout;
 
-use bray_runtime_abi::NativeRuntimeStatus;
+use bray_runtime_abi::{NativeCleanupStorageLease, NativeCleanupStorageShape, NativeRuntimeStatus};
 
-/// An allocation retained by an unfinished native consumer of the Bray backing service.
-/// It owns bytes only. Its consumer resolves initialized values before releasing it.
+/// A byte lease retained by an unfinished native consumer of the Bray backing service.
+/// Its consumer resolves initialized values before releasing it.
 pub(crate) struct Backing {
+    lease: NativeCleanupStorageLease,
     address: usize,
-    layout: Layout,
 }
 
 impl Backing {
     pub(crate) fn admit(size: usize, alignment: usize) -> Result<Self, NativeRuntimeStatus> {
-        let layout = Layout::from_size_align(size, alignment)
+        Layout::from_size_align(size, alignment)
             .map_err(|_| NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
         if size == 0 {
             return Ok(Self {
+                lease: NativeCleanupStorageLease::empty(),
                 address: alignment,
-                layout,
             });
         }
 
-        let pointer =
-            crate::report_provider::bray_runtime_cleanup_storage_admission(size, alignment);
+        let descriptor = NativeCleanupStorageShape::new([0; 32], size, alignment);
+        let mut lease = NativeCleanupStorageLease::empty();
 
-        if pointer.is_null() {
+        let status =
+            crate::report_provider::bray_runtime_cleanup_storage_admission(&descriptor, &mut lease);
+
+        if status != NativeRuntimeStatus::SUCCESS.code() {
             return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
         }
 
-        // Native callbacks pass addresses across the C ABI. Retain the allocation owner
-        // separately so exposing the address cannot transfer or duplicate its release duty.
+        let pointer =
+            crate::report_provider::bray_runtime_cleanup_storage_activation(&lease, &descriptor);
+
+        assert!(
+            !pointer.is_null(),
+            "newly admitted cleanup storage must activate with its exact descriptor"
+        );
+
         Ok(Self {
+            lease,
             address: pointer.expose_provenance(),
-            layout,
         })
     }
 
-    /// Transfers release responsibility to a generated incident destructor.
-    pub(crate) fn transfer(self) {
-        std::mem::forget(self);
+    #[cfg(test)]
+    /// Transfers the exact lease to the generated incident's final release callback.
+    pub(crate) fn transfer(mut self) -> NativeCleanupStorageLease {
+        std::mem::replace(&mut self.lease, NativeCleanupStorageLease::empty())
     }
 
     pub(crate) const fn address(&self) -> usize {
@@ -52,14 +62,16 @@ impl Backing {
 
 impl Drop for Backing {
     fn drop(&mut self) {
-        if self.layout.size() == 0 {
+        if self.lease == NativeCleanupStorageLease::empty() {
             return;
         }
 
-        crate::report_provider::bray_runtime_cleanup_storage_release(
-            self.pointer(),
-            self.layout.size(),
-            self.layout.align(),
+        let status = crate::report_provider::bray_runtime_cleanup_storage_release(&mut self.lease);
+
+        assert_eq!(
+            status,
+            NativeRuntimeStatus::SUCCESS.code(),
+            "owned cleanup storage must release exactly once"
         );
     }
 }

@@ -5,6 +5,7 @@ use bray_compiler_known::RepresentationRole;
 use bray_symbols::{GenericArgument, TypeData, TypeId};
 
 use super::super::array::array_length;
+use super::super::constraints::add_operand_expectation;
 use super::super::dependencies::ExpressionTypeDependencies;
 use super::super::inference::{InferenceTypeId, TypeInferenceContext};
 use super::super::region::{ExpressionTypeRegions, ResultRegionKind};
@@ -55,10 +56,8 @@ pub(super) fn infer_array<C>(
     let expected = contextual_container_element(request, variable, inference, array_element);
 
     if let Some((_, element)) = expected {
-        for operand in operands {
-            if let Some(operand) = variables.get(operand).copied() {
-                inference.add_expectation(operand, element, expression_id);
-            }
+        for &operand in operands {
+            add_operand_expectation(request, Some(operand), Some(element), variables, inference);
         }
     }
 
@@ -76,10 +75,8 @@ pub(super) fn infer_array<C>(
         return;
     };
 
-    for operand in operands.iter().skip(1) {
-        if let Some(variable) = variables.get(operand).copied() {
-            inference.add_expectation(variable, element, *operand);
-        }
+    for &operand in operands.iter().skip(1) {
+        add_operand_expectation(request, Some(operand), Some(element), variables, inference);
     }
 
     if remaining.iter().any(|candidate| *candidate != element) {
@@ -124,9 +121,7 @@ pub(super) fn infer_repeated_array<C>(
         return;
     };
 
-    if let Some(value) = variables.get(value).copied() {
-        inference.add_expectation(value, element, expression_id);
-    }
+    add_operand_expectation(request, Some(*value), Some(element), variables, inference);
 
     inference.add_evidence(variable, ty, expression_id);
 }

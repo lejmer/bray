@@ -673,3 +673,36 @@ fn constant_false_assertions_terminate_non_unit_callables() {
             .all(|block| !matches!(block.terminator().kind(), MirTerminatorKind::Return(None)))
     );
 }
+
+#[test]
+fn contextual_constructions_in_yielded_values_retain_checked_selections() {
+    for initializer in [
+        "{ yield { value = 1 }; }",
+        "if flag { yield { value = 1 }; } else { yield { value = 2 }; }",
+        "{ let pair: (Item, Item) = { yield ({ value = 1 }, { value = 2 }); }; yield pair.0; }",
+        "{ let mut value: Item = { value = 1 }; value = { value = 2 }; yield value; }",
+        "{ let values: [Item; 2] = { yield [{ value = 1 }, { value = 2 }]; }; yield values[0]; }",
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            struct Item {{ value: i32; }}
+            func make(pos flag: bool) -> Item {{
+                let value: Item = {initializer};
+                return value;
+            }}
+        "#
+        );
+
+        let compilation = compilation(&source);
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "make"))
+            .unwrap();
+
+        assert!(
+            !lowered.diagnostics().has_errors(),
+            "{source}: {lowered:#?}"
+        );
+    }
+}

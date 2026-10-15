@@ -87,7 +87,13 @@ pub(super) fn add_semantic_context_constraints<C>(
         (
             SemanticUnitContext::PredicateDefinition(_) | SemanticUnitContext::TargetGate(_),
             CheckerUnitRoot::Expression(expression),
-        ) => add_operand_expectation(Some(expression), Some(boolean), variables, inference),
+        ) => add_operand_expectation(
+            request,
+            Some(expression),
+            Some(boolean),
+            variables,
+            inference,
+        ),
         (
             SemanticUnitContext::Constraint(_) | SemanticUnitContext::ContractClause(_),
             CheckerUnitRoot::ExpressionSequence(block),
@@ -97,7 +103,13 @@ pub(super) fn add_semantic_context_constraints<C>(
             };
 
             for expression in block.items().iter().filter_map(|item| item.expression()) {
-                add_operand_expectation(Some(expression), Some(boolean), variables, inference);
+                add_operand_expectation(
+                    request,
+                    Some(expression),
+                    Some(boolean),
+                    variables,
+                    inference,
+                );
             }
         }
         (
@@ -168,7 +180,13 @@ where
             }
             BoundExpression::Match(expression) => {
                 for arm in expression.arms() {
-                    add_operand_expectation(arm.guard(), Some(types.boolean), variables, inference);
+                    add_operand_expectation(
+                        request,
+                        arm.guard(),
+                        Some(types.boolean),
+                        variables,
+                        inference,
+                    );
 
                     if let Some(block_variable) = block_variables.get(&arm.body()).copied() {
                         inference.unify(variable, block_variable, expression_id);
@@ -189,6 +207,7 @@ where
             {
                 for condition in structured.operands() {
                     add_operand_expectation(
+                        request,
                         Some(*condition),
                         Some(types.boolean),
                         variables,
@@ -210,6 +229,7 @@ where
                 if structured.kind() == BoundStructuredExpressionKind::While =>
             {
                 add_operand_expectation(
+                    request,
                     structured.operands().first().copied(),
                     Some(types.boolean),
                     variables,
@@ -264,6 +284,7 @@ where
                 if structured.kind() == BoundStructuredExpressionKind::Assertion =>
             {
                 add_operand_expectation(
+                    request,
                     structured.operands().first().copied(),
                     Some(types.boolean),
                     variables,
@@ -271,6 +292,7 @@ where
                 );
 
                 add_operand_expectation(
+                    request,
                     structured.operands().get(1).copied(),
                     Some(types.string),
                     variables,
@@ -281,6 +303,7 @@ where
                 if structured.kind() == BoundStructuredExpressionKind::Panic =>
             {
                 add_operand_expectation(
+                    request,
                     structured.operands().first().copied(),
                     Some(types.string),
                     variables,
@@ -294,25 +317,25 @@ where
     true
 }
 
-pub(super) fn add_operand_expectation(
+pub(super) fn add_operand_expectation<C>(
+    request: CheckerUnitView<'_, C>,
     expression: Option<BoundExpressionId>,
     expected: Option<TypeId>,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
-) {
-    let Some(expected) = expected else {
+) where
+    C: CheckerRequestContext + ?Sized,
+{
+    let (Some(expression), Some(expected)) = (expression, expected) else {
         return;
     };
 
-    let Some(expression) = expression else {
-        return;
-    };
-
-    let Some(variable) = variables.get(&expression).copied() else {
-        return;
-    };
-
-    inference.add_expectation(variable, expected, expression);
+    add_expectations(
+        request,
+        [ExpressionTypeExpectation::new(expression, expected)],
+        variables,
+        inference,
+    );
 }
 
 pub(super) fn block_expectations<C>(
@@ -383,9 +406,10 @@ pub(super) fn add_expectations<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut pending = expectations.into_iter().collect::<Vec<_>>();
+    let mut initial = expectations.into_iter();
+    let mut pending = Vec::new();
 
-    while let Some(expectation) = pending.pop() {
+    while let Some(expectation) = pending.pop().or_else(|| initial.next()) {
         if request.is_cancelled() {
             return None;
         }

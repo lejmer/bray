@@ -25,8 +25,8 @@ pub use product_host::{
     CodegenProductHostMapping, CodegenProductHostStatic, LINKED_PRODUCT_HOST_SYMBOL,
 };
 pub use reference::{
-    CodegenCallSite, CodegenCallableMapping, CodegenCallableTarget, CodegenHelperMapping,
-    CodegenOperationMapping, CodegenTerminatorMapping, IntrinsicCall,
+    CodegenCallSite, CodegenCallableMapping, CodegenCallableTarget, CodegenCleanupRequirement,
+    CodegenHelperMapping, CodegenOperationMapping, CodegenTerminatorMapping, IntrinsicCall,
 };
 pub use static_storage::{
     CodegenStaticFinalization, CodegenStaticInstanceKey, CodegenStaticRelocation,

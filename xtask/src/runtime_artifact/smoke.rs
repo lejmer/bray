@@ -422,6 +422,10 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
     let contents = fs::read_to_string(map).map_err(|error| CommandError::read(map, error))?;
 
     let required = [
+        bray_runtime_abi::symbols::CLEANUP_STORAGE_ADMISSION_SYMBOL,
+        bray_runtime_abi::symbols::CLEANUP_STORAGE_ACTIVATION_SYMBOL,
+        bray_runtime_abi::symbols::CLEANUP_STORAGE_CLAIM_SYMBOL,
+        bray_runtime_abi::symbols::CLEANUP_STORAGE_RELEASE_SYMBOL,
         bray_runtime_abi::symbols::RUNTIME_INITIALIZATION_SYMBOL,
         bray_runtime_abi::symbols::PANIC_REPORT_CONSTRUCTION_SYMBOL,
         bray_runtime_abi::symbols::PANIC_REPORTING_SYMBOL,

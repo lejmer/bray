@@ -93,7 +93,7 @@ pub struct CodegenStaticStorageMapping {
     defines_storage: bool,
     initial_value: ConstantValueId,
     relocations: Arc<[CodegenStaticRelocation]>,
-    outgoing_capacity: u32,
+    outgoing_requirements: Arc<[crate::CodegenCleanupRequirement]>,
     finalization: Option<CodegenStaticFinalization>,
     destroy: Option<CodegenInstanceKey>,
 }
@@ -104,10 +104,10 @@ pub struct CodegenStaticFinalization {
     execution: CallableExecution,
     instance: CodegenInstanceKey,
     result: ExecutableEntryResult,
+    selected: Option<CodegenInstanceKey>,
     error_type_identity: Option<[u8; 32]>,
     source: Option<bray_ir::MirSourceAnchor>,
     incident_cleanup: Option<CodegenInstanceKey>,
-    incident_release: Option<CodegenInstanceKey>,
 }
 
 impl CodegenStaticFinalization {
@@ -116,19 +116,19 @@ impl CodegenStaticFinalization {
         execution: CallableExecution,
         instance: CodegenInstanceKey,
         result: ExecutableEntryResult,
+        selected: Option<CodegenInstanceKey>,
         error_type_identity: Option<[u8; 32]>,
         source: Option<bray_ir::MirSourceAnchor>,
         incident_cleanup: Option<CodegenInstanceKey>,
-        incident_release: Option<CodegenInstanceKey>,
     ) -> Self {
         Self {
             execution,
             instance,
             result,
+            selected,
             error_type_identity,
             source,
             incident_cleanup,
-            incident_release,
         }
     }
 
@@ -140,6 +140,11 @@ impl CodegenStaticFinalization {
     /// Returns the generated static-finalizer instance.
     pub const fn instance(&self) -> &CodegenInstanceKey {
         &self.instance
+    }
+
+    /// Returns the selected source finalizer whose allowance supplies retained errors.
+    pub const fn selected(&self) -> Option<&CodegenInstanceKey> {
+        self.selected.as_ref()
     }
 
     /// Returns the permitted finalizer completion shape.
@@ -161,11 +166,6 @@ impl CodegenStaticFinalization {
     pub const fn incident_cleanup(&self) -> Option<&CodegenInstanceKey> {
         self.incident_cleanup.as_ref()
     }
-
-    /// Returns the release helper for admitted incident backing.
-    pub const fn incident_release(&self) -> Option<&CodegenInstanceKey> {
-        self.incident_release.as_ref()
-    }
 }
 
 impl CodegenStaticStorageMapping {
@@ -180,7 +180,7 @@ impl CodegenStaticStorageMapping {
         defines_storage: bool,
         initial_value: ConstantValueId,
         relocations: impl IntoIterator<Item = CodegenStaticRelocation>,
-        outgoing_capacity: u32,
+        outgoing_requirements: impl IntoIterator<Item = crate::CodegenCleanupRequirement>,
         finalization: Option<CodegenStaticFinalization>,
         destroy: Option<CodegenInstanceKey>,
     ) -> Self {
@@ -194,15 +194,15 @@ impl CodegenStaticStorageMapping {
             defines_storage,
             initial_value,
             relocations: bray_base::shared_slice(relocations),
-            outgoing_capacity,
+            outgoing_requirements: bray_base::shared_slice(outgoing_requirements),
             finalization,
             destroy,
         }
     }
 
-    /// Returns the outgoing record allowance for every owner in the static initializer.
-    pub const fn outgoing_capacity(&self) -> u32 {
-        self.outgoing_capacity
+    /// Returns concrete local obligations for every initialized owner in this static.
+    pub fn outgoing_requirements(&self) -> &[crate::CodegenCleanupRequirement] {
+        &self.outgoing_requirements
     }
 
     /// Returns the concrete MIR instance containing the use.

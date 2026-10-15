@@ -223,9 +223,9 @@ impl CodegenMappings {
         self.symbols
             .binary_search_by(|mapping| match mapping.key() {
                 CodegenSymbolKey::Instance(candidate) => candidate.cmp(instance),
-                CodegenSymbolKey::Runtime(_) | CodegenSymbolKey::ProtectedFrame { .. } => {
-                    std::cmp::Ordering::Greater
-                }
+                CodegenSymbolKey::CleanupStorage(_)
+                | CodegenSymbolKey::Runtime(_)
+                | CodegenSymbolKey::ProtectedFrame { .. } => std::cmp::Ordering::Greater,
             })
             .ok()
             .map(|index| &self.symbols[index])
