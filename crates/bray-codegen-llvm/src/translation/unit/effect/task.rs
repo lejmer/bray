@@ -2,7 +2,6 @@ use super::super::core::UnitTranslator;
 use super::super::support::{extract_value, int_value, llvm};
 use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenSymbolKey, CodegenTypeKind};
 use bray_ir::MirRunResultVariants;
-use inkwell::IntPredicate;
 use inkwell::values::{BasicValueEnum, PointerValue};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -16,7 +15,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let status = extract_value(&self.builder, allocation, 0)?;
 
-        self.require_runtime_success(status, "task.allocation")?;
+        crate::translation::require_runtime_success(
+            self.module,
+            self.types.context(),
+            &self.builder,
+            status,
+            "task.allocation",
+        )?;
 
         Ok(int_value(extract_value(&self.builder, allocation, 1)?)
             .expect("task allocation runtime must return an integer task handle"))
@@ -32,7 +37,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .invoke_native_runtime(runtime, &[task.into(), frame])?
             .expect("checked MIR effect translation requires an established mapping or value");
 
-        self.require_runtime_success(status, "task.start")?;
+        crate::translation::require_runtime_success(
+            self.module,
+            self.types.context(),
+            &self.builder,
+            status,
+            "task.start",
+        )?;
 
         Ok(())
     }
@@ -113,7 +124,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .invoke_native_runtime(runtime, &[task.into(), storage.into(), layout.into()])?
             .expect("checked MIR effect translation requires an established mapping or value");
 
-        self.require_runtime_success(status, "task.resolve")?;
+        crate::translation::require_runtime_success(
+            self.module,
+            self.types.context(),
+            &self.builder,
+            status,
+            "task.resolve",
+        )?;
 
         llvm(
             self.builder
@@ -221,50 +238,5 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         llvm(self.builder.build_store(storage, value))?;
 
         Ok(storage)
-    }
-
-    pub(super) fn require_runtime_success(
-        &mut self,
-        status: BasicValueEnum<'context>,
-        name: &str,
-    ) -> Result<(), CodegenFailure> {
-        let status = int_value(status)
-            .expect("checked MIR effect translation requires an established mapping or value");
-
-        let function = self
-            .builder
-            .get_insert_block()
-            .and_then(|block| block.get_parent())
-            .expect("checked MIR effect translation requires an established mapping or value");
-
-        let failed = self
-            .types
-            .context()
-            .append_basic_block(function, &format!("{name}.failed"));
-
-        let succeeded = self
-            .types
-            .context()
-            .append_basic_block(function, &format!("{name}.succeeded"));
-
-        let success = llvm(self.builder.build_int_compare(
-            IntPredicate::EQ,
-            status,
-            status.get_type().const_zero(),
-            &format!("{name}.success"),
-        ))?;
-
-        llvm(
-            self.builder
-                .build_conditional_branch(success, succeeded, failed),
-        )?;
-
-        self.builder.position_at_end(failed);
-        self.call_void_intrinsic("llvm.trap")?;
-        llvm(self.builder.build_unreachable())?;
-
-        self.builder.position_at_end(succeeded);
-
-        Ok(())
     }
 }

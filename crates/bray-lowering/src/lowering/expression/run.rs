@@ -125,6 +125,14 @@ impl Lowerer<'_> {
                     .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
                 let cancellation = self.suspension_cleanup_edge(&source, expression.into())?;
+
+                let dispatch = self
+                    .builder
+                    .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+                // Suspension and dispatch retain the same immutable cleanup edge.
+                self.branch_frame_cancellation(dispatch, &source, resume, cancellation.clone())?;
+
                 let state = self.next_frame_state()?;
 
                 let suspension = self
@@ -150,7 +158,7 @@ impl Lowerer<'_> {
                         },
                         payload,
                         resume_state: state,
-                        resume: MirEdge::new(resume, []),
+                        resume: MirEdge::new(dispatch, []),
                         cancellation,
                         registration: self
                             .runtime_reference(RuntimeAbiRole::SuspensionRegistration),
@@ -164,7 +172,7 @@ impl Lowerer<'_> {
                 self.frame_states.push(
                     MirFrameState::new(
                         state,
-                        resume,
+                        dispatch,
                         self.execution_lane_requirements(),
                         initialized_storages,
                     )

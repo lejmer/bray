@@ -737,3 +737,190 @@ fn cleanup_materializes_every_verified_lifecycle_storage() {
 
     assert_eq!(cleanup_storages.len(), required.len(), "{cleanup_places:?}");
 }
+
+#[test]
+fn frame_admission_failure_retains_initialized_capture_cleanup() {
+    let compilation = compilation(
+        r#"
+        module app;
+        struct Guard { destruct() {} }
+        async func consume_guard(pos guard: Guard) {}
+        func create(pos guard: Guard) {
+            let outcome = catch { let pending = consume_guard(guard); yield unit; };
+        }
+    "#,
+    );
+
+    let lowered = compilation
+        .lowered_unit(source_function_body_key(&compilation, "create"))
+        .unwrap();
+
+    let mir = lowered_mir(&lowered);
+
+    let admission = mir
+        .blocks()
+        .iter()
+        .find(|block| {
+            block.operations().last().is_some_and(|id| {
+                matches!(
+                    mir.operation(*id).unwrap().kind(),
+                    MirOperationKind::AdmitOutgoing {
+                        owner: bray_ir::MirOutgoingOwner::Invocation { .. },
+                        ..
+                    }
+                )
+            })
+        })
+        .expect("frame backing is secured before capture transfer");
+
+    let MirTerminatorKind::CheckCallOutcome {
+        completed,
+        panicked,
+        ..
+    } = admission.terminator().kind()
+    else {
+        panic!("admission requires a cleanup edge");
+    };
+
+    let capture = mir
+        .block(completed.target())
+        .unwrap()
+        .operations()
+        .iter()
+        .find_map(|id| {
+            let MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                initializer: bray_ir::MirFrameInitializer::Callable(call),
+                ..
+            }) = mir.operation(*id).unwrap().kind()
+            else {
+                return None;
+            };
+
+            let bray_ir::MirOperand::Move(place) = call.arguments()[0].value() else {
+                panic!("constructor moves the guarded input");
+            };
+
+            Some(place)
+        })
+        .expect("only admitted construction transfers captures");
+
+    let mut pending = vec![panicked.target()];
+    let mut seen = BTreeSet::new();
+    let mut resolves_capture = false;
+
+    while let Some(id) = pending.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+
+        let block = mir.block(id).unwrap();
+
+        for id in block.operations() {
+            let kind = mir.operation(*id).unwrap().kind();
+
+            assert!(
+                !matches!(
+                    kind,
+                    MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
+                ),
+                "failed admission never constructs a frame"
+            );
+
+            resolves_capture |= matches!(kind, MirOperationKind::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution, place
+            } if place == capture);
+        }
+
+        block
+            .terminator()
+            .kind()
+            .for_each_successor(|target| pending.push(target));
+    }
+
+    assert!(
+        resolves_capture,
+        "failed admission resolves the exact retained input"
+    );
+}
+
+#[test]
+fn inactive_frame_cancellation_cleans_captures_without_entering_body() {
+    let compilation = compilation(
+        r#"
+        module app;
+        struct Guard { destruct() {} }
+        func entered() {}
+        async func consume_guard(pos guard: Guard) { entered(); }
+    "#,
+    );
+
+    let lowered = compilation
+        .lowered_unit(source_function_body_key(&compilation, "consume_guard"))
+        .unwrap();
+
+    let mir = lowered_mir(&lowered);
+
+    let entry = mir
+        .block(mir.frame_descriptor().unwrap().states()[0].entry())
+        .unwrap();
+
+    let MirTerminatorKind::Branch {
+        condition,
+        then_edge,
+        else_edge,
+    } = entry.terminator().kind()
+    else {
+        panic!("initial frame state selects cancellation before source execution");
+    };
+
+    assert!(entry.operations().iter().any(|id| {
+        let operation = mir.operation(*id).unwrap();
+        matches!(
+            operation.kind(),
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::ObserveFrameCancellation)
+        ) && operation.result().map(bray_ir::MirOperand::Value).as_ref() == Some(condition)
+    }));
+
+    let mut pending = vec![then_edge.target()];
+    let mut seen = BTreeSet::new();
+    let mut cleans_capture = false;
+
+    while let Some(id) = pending.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+
+        assert_ne!(
+            id,
+            else_edge.target(),
+            "cancellation never enters the source body"
+        );
+
+        let block = mir.block(id).unwrap();
+
+        for id in block.operations() {
+            let kind = mir.operation(*id).unwrap().kind();
+
+            if let MirOperationKind::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                place,
+            } = kind
+            {
+                cleans_capture |= matches!(
+                    mir.storage(place.storage()).unwrap().kind(),
+                    bray_ir::MirStorageKind::Parameter(_)
+                );
+            }
+        }
+
+        block
+            .terminator()
+            .kind()
+            .for_each_successor(|target| pending.push(target));
+    }
+
+    assert!(
+        cleans_capture,
+        "inactive cancellation resolves initialized captures"
+    );
+}

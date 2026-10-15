@@ -16,6 +16,37 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .expect("checked MIR translation requires outgoing requirements")
     }
 
+    pub(super) fn admit_root_frame(
+        &mut self,
+        root: &bray_ir::BoundUnitKey,
+        outcome: PointerValue<'context>,
+    ) -> Result<PointerValue<'context>, CodegenFailure> {
+        let descriptor = crate::mapping::cleanup::storage_descriptor(
+            self.module,
+            self.request.mappings(),
+            self.request.unit().executable_root_instance(root),
+        );
+
+        let count = self.pointer_integer_type().const_int(1, false);
+
+        let bundle = crate::mapping::cleanup::bundle(
+            &self.builder,
+            descriptor.as_pointer_value(),
+            count,
+            self.types,
+        )?;
+
+        self.invoke_native_runtime(
+            MirRuntimeReference::new(
+                RuntimeAbiRole::OutgoingAdmission,
+                self.unit.target().runtime_abi(),
+            ),
+            &[bundle.into(), outcome.into()],
+        )?;
+
+        Ok(bundle)
+    }
+
     pub(super) fn outgoing_capacity(&self, operation: MirOperationId) -> u32 {
         u32::try_from(self.outgoing_requirements(operation).len())
             .expect("outgoing requirement count must fit native ABI")

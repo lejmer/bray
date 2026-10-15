@@ -113,6 +113,8 @@ fn frame_context_type<'context>(
         fields.push(types.map(storage.ty())?);
     }
 
+    fields.push(crate::mapping::cleanup::lease_type(context, types.target()).into());
+
     Ok(context.struct_type(&fields, false))
 }
 
@@ -138,32 +140,7 @@ fn translate_constructor<'context>(
 
     builder.position_at_end(block);
 
-    let pointer = context.ptr_type(AddressSpace::default());
-    let usize = crate::native::pointer_integer_type(types.context(), request.target());
-    let calloc_type = pointer.fn_type(&[usize.into(), usize.into()], false);
-
-    let calloc = module
-        .get_function("calloc")
-        .unwrap_or_else(|| module.add_function("calloc", calloc_type, None));
-
-    let size = types.target_data().get_store_size(&context_type);
-
-    let call = builder
-        .build_call(
-            calloc,
-            &[
-                usize.const_int(1, false).into(),
-                usize.const_int(size, false).into(),
-            ],
-            "frame.storage",
-        )
-        .map_err(CodegenFailure::backend_library)?;
-
-    let storage = call
-        .try_as_basic_value()
-        .basic()
-        .and_then(pointer_value)
-        .expect("protected-frame translation requires an established mapping or value");
+    let storage = super::storage::claim(module, request, instance, context_type, &builder, types)?;
 
     initialize_parameters(
         &builder,

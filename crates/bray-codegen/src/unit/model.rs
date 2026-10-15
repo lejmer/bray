@@ -355,6 +355,14 @@ impl CodegenUnit {
         self.instances.iter().map(CodegenInstance::mir)
     }
 
+    /// Returns the concrete nongeneric executable root retained by this unit.
+    pub fn executable_root_instance(&self, root: &bray_ir::BoundUnitKey) -> &CodegenInstanceKey {
+        self.instances().iter().map(CodegenInstance::key)
+            .chain(self.external_instances())
+            .find(|instance| matches!(instance.template(), bray_ir::MirUnitKey::Bound(candidate) if candidate == root))
+            .unwrap_or_else(|| panic!("executable host unit does not retain root {root:?}"))
+    }
+
     /// Returns generated definitions referenced outside this unit.
     pub fn external_instances(&self) -> &[CodegenInstanceKey] {
         &self.external_instances

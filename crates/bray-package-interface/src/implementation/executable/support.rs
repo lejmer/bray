@@ -2,7 +2,7 @@ use crate::implementation::map_wire_error;
 use crate::wire::{WireEncoder, WireReader};
 use crate::{InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits};
 
-pub(super) const FORMAT_VERSION: u32 = 1;
+pub(super) const FORMAT_VERSION: u32 = 2;
 
 pub(super) fn write_bool(encoder: &mut WireEncoder, value: bool) {
     encoder.write_u32(u32::from(value));
@@ -136,7 +136,7 @@ mod tests {
     }
 
     #[test]
-    fn current_executable_template_format_is_version_one() {
-        assert_eq!(FORMAT_VERSION, 1);
+    fn current_executable_template_format_includes_outgoing_owner_tags() {
+        assert_eq!(FORMAT_VERSION, 2);
     }
 }

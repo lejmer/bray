@@ -100,7 +100,7 @@ pub(crate) fn descriptors<'context>(
     requirements: &[bray_codegen::CodegenCleanupRequirement],
     types: &mut super::LlvmTypeMappings<'context, '_>,
 ) -> Result<inkwell::values::PointerValue<'context>, bray_codegen::CodegenFailure> {
-    use bray_codegen::{CodegenFailure, CodegenSymbolKey};
+    use bray_codegen::CodegenFailure;
 
     let context = types.context();
     let descriptor = descriptor_type(context, types.target());
@@ -113,16 +113,7 @@ pub(crate) fn descriptors<'context>(
 
     for (index, requirement) in requirements.iter().enumerate() {
         let element = if requirement.execution() == bray_symbols::CallableExecution::Asynchronous {
-            let mapping = types
-                .mappings()
-                .symbol(&CodegenSymbolKey::CleanupStorage(
-                    requirement.callable().clone(),
-                ))
-                .expect("asynchronous cleanup must retain its emitted storage layout");
-
-            let global = module
-                .get_global(mapping.name().as_str())
-                .expect("cleanup descriptor must have been declared");
+            let global = storage_descriptor(module, types.mappings(), requirement.callable());
 
             builder
                 .build_load(descriptor, global.as_pointer_value(), "cleanup.descriptor")
@@ -211,4 +202,21 @@ pub(crate) fn bundle<'context>(
         .map_err(CodegenFailure::backend_library)?;
 
     Ok(pointer)
+}
+
+/// Returns the immutable concrete backing descriptor emitted with its callable.
+pub(crate) fn storage_descriptor<'context>(
+    module: &Module<'context>,
+    mappings: &bray_codegen::CodegenMappings,
+    instance: &bray_codegen::CodegenInstanceKey,
+) -> GlobalValue<'context> {
+    let mapping = mappings
+        .symbol(&bray_codegen::CodegenSymbolKey::CleanupStorage(
+            instance.clone(),
+        ))
+        .expect("concrete frame backing must have a mapped descriptor");
+
+    module
+        .get_global(mapping.name().as_str())
+        .expect("concrete frame backing descriptor must have been declared")
 }

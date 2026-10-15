@@ -93,6 +93,24 @@ impl Lowerer<'_> {
 
         self.active_scopes.push(id);
 
+        if self.active_scopes.len() == 1 && self.input.unit_kind().protected_frame().is_some() {
+            let body = match self.input.unit().root() {
+                bray_bound_tree::BoundUnitRoot::CallableBody { body, .. }
+                | bray_bound_tree::BoundUnitRoot::AnonymousCallable { body, .. } => body,
+                _ => panic!("protected source frame has a callable body"),
+            };
+
+            let cancellation = self.suspension_cleanup_edge(&source, body.into())?;
+
+            let resume = self.builder.push_block(
+                Self::retained_source(&source),
+                bray_ir::MirBlockKind::Ordinary,
+            )?;
+
+            self.branch_frame_cancellation(current, &source, resume, cancellation)?;
+            current = resume;
+        }
+
         let result = (|| {
             for item in block.items() {
                 let lowered = match item {

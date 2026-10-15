@@ -280,6 +280,7 @@ fn remap_async_operation(operation: &mut MirAsyncOperation, mappings: &impl MirL
             incident.remap_local_ids(mappings);
         }
         MirAsyncOperation::CommitAwaitedCompletion { .. }
+        | MirAsyncOperation::ObserveFrameCancellation
         | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
         | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
         | MirAsyncOperation::ExecuteLifecycleResolution { .. } => {}

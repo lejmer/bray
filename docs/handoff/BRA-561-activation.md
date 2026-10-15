@@ -75,7 +75,59 @@ root identity and current execution metadata. This checkpoint does not complete
 BRA-561: frame admission, capture rollback, Bray activation ownership, cancellation
 and artifact/cost evidence remain outstanding. No completion review is claimed.
 
-Next: establish admission before capture transfer. Current lowering disarms input
-guards before CreateFrame and the generated constructor calls unchecked calloc.
-Admission failure must follow the owning cleanup edge while those guards remain
-live; an LLVM-only null check cannot establish that ownership contract.
+## Admission and cancellation checkpoint (2026-10-16)
+
+Frame construction uses outgoing admission to reserve concrete aligned backing
+before capture transfer. MIR names either a value owner or a selected invocation,
+shared with cleanup admission. Constructors claim the reserved slot, retain its
+lease and release through the same storage provider. Rejected release traps
+because compiler-created ownership must establish it. Root admission failure
+retains the ordinary root outcome, skips construction and observation, and still
+runs host teardown.
+
+Cancellation selection is explicit in MIR. Each resumed state checks delivered
+cancellation before its continuation. State zero initializes guards, then can
+clean captured parameters without entering source statements. The owning CFG
+models that exit. LLVM no longer searches suspension terminators for cleanup
+edges. Initial metadata contains initialized input storage identities.
+
+Validation passes 321 checker, 1,683 compilation, 44 MIR, 39 lowering and 190
+package-interface tests, plus doctests. The sole failure is
+`scoped_selected_calls_emit_native_artifacts`, with
+`MissingRole(CleanupIncidentTransfer)` owned by the pending BRA-505/BRA-619 work.
+All nine focused regressions pass again after the final audit refactors. Rustfmt,
+`cargo xtask style`, `cargo xtask format` and `git diff --check` pass. They
+cover frame admission, inactive capture cancellation, imported generics, started
+tasks, root host construction, callback outcome consumption and scalar facts.
+
+The audit shares runtime-status traps, void intrinsic emission and executable-root
+lookup. It constructs state zero once and splits the host module into a thin root
+with root-execution and host-lifecycle implementations. Obsolete recoverable
+cleanup-target errors are removed. Native callback regression assertions now
+check outcomes already consumed before boundary release, with distinct failure
+codes for report, destruction, shield and cancellation counts.
+
+## Remaining implementation
+
+Replace NativeFrame/NativeRun ownership, including Box/Arc activation links,
+activation-time completion allocation and six-record admission during composition.
+The source-frame allocation currently reserves a completion tail which the Rust
+consumer does not yet use. One admitted owner must retain that backing through
+result dependencies. Do not introduce another graph or a replacement allocation
+inside a transition.
+
+Validate backing epoch, concrete shape, provider and inherited execution authority
+before committing activation. Rejection retains the inactive owner. Keep trusted
+native ownership contracts explicit. Numeric fields or pointer equality alone
+cannot establish that contract, and Bray fields have no privacy guarantee.
+
+Complete indirect factories, inactive Future lifecycle, initialized-state broadcast
+and iterative resolution. Setting a cancellation byte alone does not visit captured
+task obligations. Calling resume once and ignoring suspension does not resolve
+cleanup. Migrate task-observation and static-finalizer consumers through the same
+driver, retaining only bounded scheduler/task bridges for their separate issues.
+
+Finish native allocation, deep-await, alignment, affinity, retained-result,
+imported/erased and failure acceptance. Record artifact and cost evidence, then
+push a draft PR and conduct its independent review before BRA-505 and BRA-619.
+This checkpoint does not complete BRA-561 and has not had a completion review.

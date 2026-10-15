@@ -2,7 +2,6 @@ use crate::mapping::LlvmTypeMappings;
 use crate::native::frame_operation_function;
 use bray_codegen::{CodegenFailure, CodegenInstance, CodegenRequest, CodegenSymbolKey};
 use bray_runtime_interface::ProtectedFrameOperation;
-use inkwell::AddressSpace;
 use inkwell::module::Module;
 use inkwell::types::StructType;
 use inkwell::values::BasicValueEnum;
@@ -19,7 +18,7 @@ pub(super) fn translate_action_callbacks<'context>(
     translate_failure_cleanup(module, request, instance, context_type, types)?;
 
     translate_completion_move(module, request, instance, context_type, types)?;
-    translate_destruction(module, request, instance)?;
+    super::storage::translate_destruction(module, request, instance, context_type, types)?;
 
     Ok(())
 }
@@ -198,57 +197,6 @@ fn translate_completion_move<'context>(
 
     builder
         .build_store(destination, completion)
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder
-        .build_return(None)
-        .map_err(CodegenFailure::backend_library)?;
-
-    Ok(())
-}
-
-fn translate_destruction(
-    module: &Module<'_>,
-    request: CodegenRequest<'_>,
-    instance: &CodegenInstance,
-) -> Result<(), CodegenFailure> {
-    let function = frame_operation_function(
-        module,
-        request,
-        instance,
-        ProtectedFrameOperation::Destruction,
-    );
-
-    let context = module.get_context();
-    let builder = context.create_builder();
-    let block = context.append_basic_block(function, "frame.destroy");
-
-    builder.position_at_end(block);
-
-    let pointer = context.ptr_type(AddressSpace::default());
-
-    let free = module.get_function("free").unwrap_or_else(|| {
-        module.add_function(
-            "free",
-            context.void_type().fn_type(&[pointer.into()], false),
-            None,
-        )
-    });
-
-    let storage = function
-        .get_first_param()
-        .and_then(|value| match value {
-            BasicValueEnum::IntValue(value) => Some(value),
-            _ => None,
-        })
-        .expect("protected-frame translation requires an established mapping or value");
-
-    let storage = builder
-        .build_int_to_ptr(storage, pointer, "frame.storage")
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder
-        .build_call(free, &[storage.into()], "")
         .map_err(CodegenFailure::backend_library)?;
 
     builder

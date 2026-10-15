@@ -516,6 +516,8 @@ pub enum MirAsyncOperation {
         /// Selected private cancellation ABI role.
         runtime: MirRuntimeReference,
     },
+    /// Read the cancellation delivery flag of this protected frame.
+    ObserveFrameCancellation,
     /// Observe whether cancellation was requested for the current run.
     ObserveCurrentRunCancellation {
         /// Selected private cancellation-observation ABI role.
@@ -562,6 +564,20 @@ pub enum MirAsyncOperation {
     DestroyTerminalTask {
         /// Terminal task control state.
         task: MirOperand,
+    },
+}
+
+/// Local cleanup obligations secured by one outgoing reservation.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum MirOutgoingOwner {
+    /// The selected lifecycle actions of a concrete value.
+    Value(TypeId),
+    /// One concrete invocation, independent of represented child obligations.
+    Invocation {
+        /// Selected callable declaration and substitutions.
+        callable: crate::MirCallableReference,
+        /// Immediate result or inactive asynchronous frame.
+        result: bray_bound_tree::BoundCallResult,
     },
 }
 
@@ -715,14 +731,14 @@ pub enum MirOperationKind {
     /// Admit this owner's local outgoing records before ownership commits.
     AdmitOutgoing {
         /// Owner whose selected local actions determine the requirement.
-        ty: TypeId,
+        owner: MirOutgoingOwner,
         /// Runtime admission boundary.
         runtime: MirRuntimeReference,
     },
     /// Discharge a consumed owner's credits without reclaiming transferred reports.
     DischargeOutgoing {
         /// Owner whose local credits are no longer live.
-        ty: TypeId,
+        owner: MirOutgoingOwner,
         /// Runtime discharge boundary.
         runtime: MirRuntimeReference,
     },

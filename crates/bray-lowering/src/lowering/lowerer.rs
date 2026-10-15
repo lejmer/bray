@@ -138,18 +138,6 @@ impl<'unit> Lowerer<'unit> {
             )?;
         }
 
-        if self.input.unit_kind().protected_frame().is_some() {
-            self.frame_states.push(
-                MirFrameState::new(
-                    MirFrameStateId::new(0),
-                    entry,
-                    self.execution_lane_requirements(),
-                    [],
-                )
-                .with_affinity(self.frame_affinity()),
-            );
-        }
-
         let completion = match root {
             BoundUnitRoot::CallableBody { body, .. }
             | BoundUnitRoot::AnonymousCallable { body, .. } => {
@@ -249,6 +237,23 @@ impl<'unit> Lowerer<'unit> {
                     )
                 });
 
+            let initial_storages = self.storages.iter().filter_map(|(identity, storage)| {
+                self.input
+                    .storage_plan()
+                    .identity(*identity)
+                    .expect("lowered storage retains its checked identity")
+                    .is_initialized_at_entry()
+                    .then_some(*storage)
+            });
+
+            let initial = MirFrameState::new(
+                MirFrameStateId::new(0),
+                entry,
+                self.execution_lane_requirements(),
+                initial_storages,
+            )
+            .with_affinity(self.frame_affinity());
+
             let runtime_abi = self.input.target().runtime_abi();
 
             let descriptor = MirFrameDescriptor::new(
@@ -256,7 +261,7 @@ impl<'unit> Lowerer<'unit> {
                 runtime_abi,
                 ProtectedFrameAbiVersions::uniform(runtime_abi),
                 result_type,
-                self.frame_states,
+                std::iter::once(initial).chain(self.frame_states),
             )?;
 
             self.builder.set_frame_descriptor(descriptor);

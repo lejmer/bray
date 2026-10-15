@@ -545,7 +545,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "checked MIR effect translation requires an established mapping or value",
                 );
 
-                self.require_runtime_success(status, "task.cancellation")?;
+                crate::translation::require_runtime_success(
+                    self.module,
+                    self.types.context(),
+                    &self.builder,
+                    status,
+                    "task.cancellation",
+                )?;
 
                 Ok(None)
             }
@@ -562,6 +568,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.resolve_native_task(*runtime, task, result, *variants)
                     .map(Some)
+            }
+            MirAsyncOperation::ObserveFrameCancellation => {
+                self.observe_frame_cancellation().map(Some)
             }
             MirAsyncOperation::ObserveCurrentRunCancellation { runtime } => {
                 let value = self
@@ -607,7 +616,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         "checked MIR effect translation requires an established mapping or value",
                     );
 
-                self.require_runtime_success(status, "task.destruction")?;
+                crate::translation::require_runtime_success(
+                    self.module,
+                    self.types.context(),
+                    &self.builder,
+                    status,
+                    "task.destruction",
+                )?;
 
                 Ok(None)
             }

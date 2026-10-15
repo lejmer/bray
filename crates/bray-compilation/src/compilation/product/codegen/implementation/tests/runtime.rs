@@ -599,7 +599,7 @@ fn native_atomic_word_production_source_bindings_export() {
 
 #[test]
 #[cfg(all(windows, target_arch = "x86_64"))]
-fn foreign_callbacks_preserve_abnormal_outcomes_for_scalar_and_indirect_results() {
+fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
     let source = r#"
         trusted module app;
         @link(name = "native")
@@ -713,7 +713,11 @@ fn foreign_callbacks_preserve_abnormal_outcomes_for_scalar_and_indirect_results(
             if (nested(0) != 73 || nested(1) != 0 || nested(2) != 0) return 6;
             if (through_pointer(0) != 73 || through_pointer(1) != 0 || through_pointer(2) != 0) return 7;
             if (through_lambda(0) != 73 || through_lambda(1) != 0 || through_lambda(2) != 0) return 8;
-            if (reports != 5 || cleanups != 3 || shield_depth != 0 || cancelled != 5) return 5;
+            if (reports != 5) return 31;
+            if (cleanups != 3) return 32;
+            if (shield_depth != 0) return 33;
+            // The callback resolves its body outcome before releasing the entry.
+            if (cancelled != 0) return 34;
             terminal_status = {represented};
             if (scalar(0) != 73 || reports != 6) return 14;
             terminal_status = {unrepresented};

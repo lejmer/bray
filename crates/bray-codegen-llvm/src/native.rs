@@ -1,7 +1,7 @@
 mod abi;
 mod core;
 
-pub(crate) use abi::runtime_attributes;
+pub(crate) use abi::{call_void_intrinsic, runtime_attributes};
 
 pub(crate) use core::{
     declare_runtime_function, frame_operation_function, frame_operation_type,

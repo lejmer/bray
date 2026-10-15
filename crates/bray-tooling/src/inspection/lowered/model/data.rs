@@ -766,9 +766,16 @@ fn operation_parts(
 
             "panic_report"
         }
-        MirOperationKind::AdmitOutgoing { ty, runtime }
-        | MirOperationKind::DischargeOutgoing { ty, runtime } => {
-            parts.r#type("owner", *ty, context)?;
+        MirOperationKind::AdmitOutgoing { owner, runtime }
+        | MirOperationKind::DischargeOutgoing { owner, runtime } => {
+            match owner {
+                bray_ir::MirOutgoingOwner::Value(ty) => parts.r#type("owner", *ty, context)?,
+                bray_ir::MirOutgoingOwner::Invocation { callable, result } => {
+                    callable_reference("callable", *callable, parts, context);
+                    parts.r#type("result", result.ty(), context)?;
+                }
+            }
+
             runtime_reference("runtime", *runtime, parts);
 
             if matches!(operation, MirOperationKind::AdmitOutgoing { .. }) {
@@ -1466,6 +1473,7 @@ fn async_operation(
 
             "request_task_cancellation"
         }
+        MirAsyncOperation::ObserveFrameCancellation => "observe_frame_cancellation",
         MirAsyncOperation::ObserveCurrentRunCancellation { runtime } => {
             runtime_reference("runtime", *runtime, parts);
 

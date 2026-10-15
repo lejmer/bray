@@ -18,11 +18,26 @@ impl Lowerer<'_> {
             return Ok(block);
         }
 
+        self.admit_outgoing(
+            expression,
+            block,
+            source,
+            bray_ir::MirOutgoingOwner::Value(ty),
+        )
+    }
+
+    pub(in crate::lowering) fn admit_outgoing(
+        &mut self,
+        expression: BoundExpressionId,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        owner: bray_ir::MirOutgoingOwner,
+    ) -> Result<MirBlockId, LoweringError> {
         self.push_operation(
             block,
             Self::retained_source(source),
             MirOperationKind::AdmitOutgoing {
-                ty,
+                owner,
                 runtime: self
                     .runtime_reference(bray_runtime_interface::RuntimeAbiRole::OutgoingAdmission),
             },
@@ -55,11 +70,20 @@ impl Lowerer<'_> {
             return Ok(());
         }
 
+        self.discharge_outgoing(block, source, bray_ir::MirOutgoingOwner::Value(ty))
+    }
+
+    pub(in crate::lowering) fn discharge_outgoing(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        owner: bray_ir::MirOutgoingOwner,
+    ) -> Result<(), LoweringError> {
         self.push_operation(
             block,
             Self::retained_source(source),
             MirOperationKind::DischargeOutgoing {
-                ty,
+                owner,
                 runtime: self
                     .runtime_reference(bray_runtime_interface::RuntimeAbiRole::OutgoingDischarge),
             },

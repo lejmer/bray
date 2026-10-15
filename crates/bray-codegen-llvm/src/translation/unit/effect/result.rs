@@ -173,7 +173,25 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             if self.host_role_implementation(completion)
                 != RuntimeRoleImplementation::CompilerLowering
             {
+                let context = self.types.context();
+                let release = context.append_basic_block(self.function, "root.release");
+                let released = context.append_basic_block(self.function, "root.released");
+
+                let present = super::super::support::nonzero_integer(
+                    &self.builder,
+                    root.into_int_value(),
+                    "root.present",
+                )?;
+
+                llvm(
+                    self.builder
+                        .build_conditional_branch(present, release, released),
+                )?;
+
+                self.builder.position_at_end(release);
                 self.invoke_native_runtime(completion, &[root])?;
+                llvm(self.builder.build_unconditional_branch(released))?;
+                self.builder.position_at_end(released);
             }
         }
 

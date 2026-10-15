@@ -13,11 +13,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let key = CodegenSymbolKey::Runtime(runtime);
 
-        let symbol = self
-            .request
-            .mappings()
-            .symbol(&key)
-            .expect("checked MIR call translation requires an established mapping or value");
+        let symbol = self.request.mappings().symbol(&key).unwrap_or_else(|| {
+            panic!(
+                "runtime call {runtime:?} lacks its established symbol or declaration in {:?}",
+                self.unit.key()
+            )
+        });
 
         if runtime.role().native_signature().is_some() {
             let result = self.invoke_native_runtime(runtime, arguments)?;
@@ -34,7 +35,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let function = self
             .module
             .get_function(symbol.name().as_str())
-            .expect("checked MIR call translation requires an established mapping or value");
+            .unwrap_or_else(|| {
+                panic!(
+                    "runtime call {runtime:?} lacks its established symbol or declaration in {:?}",
+                    self.unit.key()
+                )
+            });
 
         self.invoke_function(
             function,

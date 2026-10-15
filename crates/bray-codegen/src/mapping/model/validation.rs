@@ -35,6 +35,13 @@ pub fn demanded_runtime_references_for_mir(
     mir: &bray_ir::MirUnit,
 ) -> BTreeSet<MirRuntimeReference> {
     let runtime_abi = mir.target().runtime_abi();
+    let boundary_panic = boundary_panic_propagation_is_demanded(mir);
+
+    let asynchronous_root = mir.operations().iter().any(|operation| matches!(operation.kind(),
+        MirOperationKind::Host(MirHostOperation::ExecuteRoot {
+            execution: bray_runtime_interface::RootExecution::Asynchronous { .. }, ..
+        })
+    ));
 
     mir.operations()
         .iter()
@@ -63,7 +70,7 @@ pub fn demanded_runtime_references_for_mir(
                 })
                 .map(|role| Some(MirRuntimeReference::new(role, runtime_abi))),
         )
-        .chain(boundary_panic_propagation_is_demanded(mir).then_some(Some(
+        .chain(boundary_panic.then_some(Some(
             MirRuntimeReference::new(
                 bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
                 runtime_abi,
@@ -71,11 +78,29 @@ pub fn demanded_runtime_references_for_mir(
         )))
         .chain(
             (checked_call_cancellation_propagation_is_demanded(mir)
-                || boundary_panic_propagation_is_demanded(mir))
+                || boundary_panic)
             .then_some(Some(MirRuntimeReference::new(
                 bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
                 runtime_abi,
             ))),
+        )
+        .chain(
+            [
+                RuntimeAbiRole::CleanupStorageClaim,
+                RuntimeAbiRole::CleanupStorageRelease,
+            ]
+            .into_iter()
+            .filter(|_| mir.frame_descriptor().is_some())
+            .map(|role| Some(MirRuntimeReference::new(role, runtime_abi))),
+        )
+        .chain(
+            [
+                RuntimeAbiRole::OutgoingAdmission,
+                RuntimeAbiRole::OutgoingDischarge,
+            ]
+            .into_iter()
+            .filter(|_| asynchronous_root)
+            .map(|role| Some(MirRuntimeReference::new(role, runtime_abi))),
         )
         .flatten()
         .collect()
@@ -303,6 +328,7 @@ fn operation_runtime_references(
             | MirAsyncOperation::MoveInactiveFrame { .. }
             | MirAsyncOperation::ComposeAwaitedFrame { .. }
             | MirAsyncOperation::CommitAwaitedCompletion { .. }
+            | MirAsyncOperation::ObserveFrameCancellation
             | MirAsyncOperation::DestroyTerminalTask { .. },
         ) => [None, None, None],
     }

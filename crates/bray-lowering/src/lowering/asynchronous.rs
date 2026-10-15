@@ -118,6 +118,13 @@ impl Lowerer<'_> {
             _ => self.suspension_cleanup_edge(&source, occurrence.node())?,
         };
 
+        let dispatch = self
+            .builder
+            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+        // Suspension and dispatch retain the same immutable cleanup edge.
+        self.branch_frame_cancellation(dispatch, &source, resume, cancellation.clone())?;
+
         let state = self.next_frame_state()?;
 
         self.set_terminator(
@@ -127,7 +134,7 @@ impl Lowerer<'_> {
                 kind: MirSuspensionKind::Awaited,
                 payload: None,
                 resume_state: state,
-                resume: MirEdge::new(resume, []),
+                resume: MirEdge::new(dispatch, []),
                 cancellation,
                 registration: self.runtime_reference(RuntimeAbiRole::SuspensionRegistration),
                 wake: self.runtime_reference(RuntimeAbiRole::Wake),
@@ -139,7 +146,7 @@ impl Lowerer<'_> {
         self.frame_states.push(
             MirFrameState::new(
                 state,
-                resume,
+                dispatch,
                 self.execution_lane_requirements(),
                 initialized_storages,
             )
@@ -161,6 +168,51 @@ impl Lowerer<'_> {
             Some(MirOperand::Value(value)),
             source,
         ))
+    }
+
+    pub(in crate::lowering) fn branch_frame_cancellation(
+        &mut self,
+        current: MirBlockId,
+        source: &MirSourceAnchor,
+        resume: MirBlockId,
+        cancellation: bray_ir::MirCleanupEdge,
+    ) -> Result<(), LoweringError> {
+        let cancelled = self
+            .builder
+            .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
+
+        self.set_terminator(
+            cancelled,
+            Self::retained_source(source),
+            MirTerminatorKind::CancelCurrentRun {
+                cleanup: cancellation,
+            },
+        )?;
+
+        let boolean =
+            self.representation_type(bray_compiler_known::RepresentationRole::ScalarBool)?;
+
+        let requested = self
+            .push_operation(
+                current,
+                Self::retained_source(source),
+                MirOperationKind::Async(MirAsyncOperation::ObserveFrameCancellation),
+                Some(boolean),
+            )?
+            .result()
+            .expect("frame cancellation observation returns a boolean");
+
+        self.set_terminator(
+            current,
+            Self::retained_source(source),
+            MirTerminatorKind::Branch {
+                condition: MirOperand::Value(requested),
+                then_edge: MirEdge::new(cancelled, []),
+                else_edge: MirEdge::new(resume, []),
+            },
+        )?;
+
+        Ok(())
     }
 
     pub(super) fn lower_call_operation(
@@ -222,7 +274,40 @@ impl Lowerer<'_> {
 
         let result_type = self.expression_type(expression);
 
-        self.push_checked_value_operation(expression, block, source, operation, result_type)
+        let admission = match &operation {
+            MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+                initializer: MirFrameInitializer::Callable(call),
+                ..
+            }) => match call.target() {
+                bray_ir::MirCallTarget::Direct(callable) => {
+                    Some(bray_ir::MirOutgoingOwner::Invocation {
+                        callable: *callable,
+                        result: call.result(),
+                    })
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+
+        let block = match admission {
+            Some(owner) => self.admit_outgoing(expression, block, &source, owner)?,
+            None => block,
+        };
+
+        let (block, value) = self.push_checked_value_operation(
+            expression,
+            block,
+            Self::retained_source(&source),
+            operation,
+            result_type,
+        )?;
+
+        if let Some(owner) = admission {
+            self.discharge_outgoing(block, &source, owner)?;
+        }
+
+        Ok((block, value))
     }
 
     pub(super) fn runtime_reference(&self, role: RuntimeAbiRole) -> MirRuntimeReference {
@@ -256,9 +341,15 @@ impl Lowerer<'_> {
     }
 
     pub(super) fn next_frame_state(&self) -> Result<MirFrameStateId, LoweringError> {
-        let state = u32::try_from(self.frame_states.len()).map_err(|_| {
-            LoweringError::MirCapacity(bray_ir::MirCapacityError::IdentityCapacityExceeded)
-        })?;
+        // State zero describes initial captures and is assembled after body lowering.
+        let state = self
+            .frame_states
+            .len()
+            .checked_add(1)
+            .and_then(|state| u32::try_from(state).ok())
+            .ok_or(LoweringError::MirCapacity(
+                bray_ir::MirCapacityError::IdentityCapacityExceeded,
+            ))?;
 
         Ok(MirFrameStateId::new(state))
     }

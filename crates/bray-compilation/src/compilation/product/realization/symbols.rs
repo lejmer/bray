@@ -318,6 +318,23 @@ impl Compilation {
                 .map(|requirement| requirement.callable().clone()),
         );
 
+        for operation in unit
+            .instances()
+            .iter()
+            .flat_map(|instance| instance.mir().operations())
+        {
+            if let bray_ir::MirOperationKind::Host(bray_ir::MirHostOperation::ExecuteRoot {
+                root,
+                execution: bray_runtime_interface::RootExecution::Asynchronous { .. },
+                ..
+            }) = operation.kind()
+            {
+                let instance = unit.executable_root_instance(root);
+
+                storage.insert(instance.clone());
+            }
+        }
+
         for instance in storage {
             let linkage = if unit
                 .instances()

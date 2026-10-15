@@ -1,5 +1,5 @@
 use super::edge::{checked_call_operations, create_blocks, reachable_blocks};
-use super::support::{llvm, nonzero_integer, physical_aggregate_element, pointer_value};
+use super::support::{llvm, physical_aggregate_element, pointer_value};
 use crate::mapping::{LlvmDebugInfo, LlvmTypeMappings, apply_instance_optimization_attributes};
 use crate::translation::frame::frame_storage_field_index;
 use bray_codegen::{
@@ -8,8 +8,7 @@ use bray_codegen::{
     CodegenTypeMapping,
 };
 use bray_ir::{
-    MirBlockId, MirOperationId, MirPlace, MirStorageId, MirStorageKind, MirTerminatorKind, MirUnit,
-    MirValueId,
+    MirBlockId, MirOperationId, MirPlace, MirStorageId, MirStorageKind, MirUnit, MirValueId,
 };
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
@@ -496,63 +495,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ))?
         .into_int_value();
 
-        let cancellation_pointer = llvm(self.builder.build_struct_gep(
-            frame_context,
-            pointer,
-            2,
-            "frame.cancellation.pointer",
-        ))?;
-
-        let cancellation = llvm(self.builder.build_load(
-            self.types.context().i8_type(),
-            cancellation_pointer,
-            "frame.cancellation",
-        ))?
-        .into_int_value();
-
         let mut cases = Vec::with_capacity(descriptor.states().len());
 
         for state in descriptor.states() {
             let entry = self.block(state.entry());
-
-            let cancellation_entry =
-                self.unit
-                    .blocks()
-                    .iter()
-                    .find_map(|block| match block.terminator().kind() {
-                        MirTerminatorKind::Suspend {
-                            resume_state,
-                            cancellation,
-                            ..
-                        } if *resume_state == state.state() => Some(cancellation.edge()),
-                        _ => None,
-                    });
-
-            let entry = if let Some(cancellation_entry) = cancellation_entry {
-                if !cancellation_entry.arguments().is_empty() {
-                    panic!("checked MIR translation violated an established compiler contract");
-                }
-
-                let state_dispatch = self
-                    .types
-                    .context()
-                    .append_basic_block(self.function, "frame.state.dispatch");
-
-                self.builder.position_at_end(state_dispatch);
-
-                let requested =
-                    nonzero_integer(&self.builder, cancellation, "frame.cancellation.requested")?;
-
-                llvm(self.builder.build_conditional_branch(
-                    requested,
-                    self.block(cancellation_entry.target()),
-                    entry,
-                ))?;
-
-                state_dispatch
-            } else {
-                entry
-            };
 
             cases.push((
                 self.types

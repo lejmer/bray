@@ -228,6 +228,7 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
                 MirAsyncOperation::CreateFrame { .. }
                     | MirAsyncOperation::CommitAwaitedCompletion { .. }
                     | MirAsyncOperation::StartTask { .. }
+                    | MirAsyncOperation::ObserveFrameCancellation
                     | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
                     | MirAsyncOperation::ResolveTask { .. }
             )
@@ -849,6 +850,9 @@ fn validate_async_operation(
         MirAsyncOperation::RequestTaskCancellation { task, runtime } => {
             validate_operand(unit, task, block, Some(operation_id))?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::TaskCancellationRequest)?;
+        }
+        MirAsyncOperation::ObserveFrameCancellation => {
+            unit.frame_descriptor()?;
         }
         MirAsyncOperation::ObserveCurrentRunCancellation { runtime } => {
             validate_runtime_role(

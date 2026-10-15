@@ -420,3 +420,24 @@ fn timed_synchronous_entries_repeat_inside_one_runtime_root() {
 
     assert_eq!(root_executions, 1);
 }
+
+#[test]
+fn frame_constructors_claim_admitted_aligned_backing() {
+    let (backend, plan) = runtime_native_plan(
+        "module app; async func child() -> i32 { return 7; } async func main() -> i32 { return await child(); }",
+    );
+
+    let artifacts = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+
+    let ir = artifacts
+        .iter()
+        .map(|bytes| std::str::from_utf8(bytes).unwrap())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(ir.contains("bray_runtime_cleanup_storage_claim"));
+    assert!(ir.contains("bray_runtime_cleanup_storage_release"));
+    assert!(ir.contains("bray_runtime_outgoing_admission"));
+    assert!(!ir.contains("@calloc("));
+    assert!(!ir.contains("@free("));
+}

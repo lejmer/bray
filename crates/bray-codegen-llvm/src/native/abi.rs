@@ -568,3 +568,20 @@ mod tests {
         }
     }
 }
+
+pub(crate) fn call_void_intrinsic<'context>(
+    module: &inkwell::module::Module<'context>,
+    context: &'context Context,
+    builder: &Builder<'context>,
+    name: &str,
+) -> Result<(), CodegenFailure> {
+    let function = module.get_function(name).unwrap_or_else(|| {
+        module.add_function(name, context.void_type().fn_type(&[], false), None)
+    });
+
+    builder
+        .build_call(function, &[], "")
+        .map_err(CodegenFailure::backend_library)?;
+
+    Ok(())
+}
