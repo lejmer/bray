@@ -350,9 +350,28 @@ fn declare_callback<'context>(
         "callback.state",
     ))?;
 
-    let mut arguments = Vec::with_capacity(body.count_params() as usize);
+    assert!(symbol.signature().has_panic_report_context());
 
-    for (field, parameter) in body.get_params().iter().copied().enumerate() {
+    let parameter_count = body.count_params() as usize - 1;
+
+    let outcome = callback
+        .get_nth_param(1)
+        .and_then(pointer_value)
+        .expect("native callback receives its admitted outcome destination");
+
+    let outcome_type = crate::native::run_outcome_type(context, target);
+
+    llvm(builder.build_store(outcome, outcome_type.const_zero()))?;
+
+    let mut arguments = Vec::with_capacity(parameter_count + 1);
+
+    for (field, parameter) in body
+        .get_params()
+        .iter()
+        .copied()
+        .take(parameter_count)
+        .enumerate()
+    {
         let source = field_pointer(
             &builder,
             state_type,
@@ -366,14 +385,31 @@ fn declare_callback<'context>(
         arguments.push(argument.into());
     }
 
+    arguments.push(outcome.into());
+
     let call = llvm(builder.build_call(body, &arguments, "callback.body"))?;
 
     call.set_call_convention(body.get_call_conventions());
     apply_signature_call_attributes(call, symbol.signature(), types)?;
 
+    let returned = llvm(builder.build_load(outcome_type, outcome, "callback.outcome"))?;
+
+    let (run_state, _) = native_run_outcome(&builder, returned)?;
+
+    let completed = native_run_state_is(
+        &builder,
+        run_state,
+        NativeRunState::COMPLETED,
+        "callback.completed",
+    )?;
+    let publish = context.append_basic_block(callback, "callback.publish");
+    let finish = context.append_basic_block(callback, "callback.finish");
+
+    llvm(builder.build_conditional_branch(completed, publish, finish))?;
+    builder.position_at_end(publish);
+
     if let Some(result) = call.try_as_basic_value().basic() {
-        let field =
-            crate::conversion::resource_limit(body.count_params(), "callback_parameter_count")?;
+        let field = parameter_count;
 
         let destination = field_pointer(
             &builder,
@@ -386,11 +422,6 @@ fn declare_callback<'context>(
         llvm(builder.build_store(destination, result))?;
     }
 
-    let outcome = callback
-        .get_nth_param(1)
-        .and_then(pointer_value)
-        .expect("checked MIR translation requires an established mapping or value");
-
     let completed = native_run_outcome_value(
         context,
         &builder,
@@ -400,6 +431,8 @@ fn declare_callback<'context>(
     )?;
 
     llvm(builder.build_store(outcome, completed))?;
+    llvm(builder.build_unconditional_branch(finish))?;
+    builder.position_at_end(finish);
     llvm(builder.build_return(None))?;
 
     Ok(callback)

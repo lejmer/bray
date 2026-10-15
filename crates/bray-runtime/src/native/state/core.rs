@@ -65,12 +65,12 @@ pub(in crate::native) fn with_bound_runtime<T>(
 
     let _scope = NativeExecutionContextScope(Some(previous));
 
-    with_independent_execution_context(callback)
+    crate::context::with_independent_execution_context(callback)
 }
 
 pub(in crate::native) fn with_independent_execution_context<T>(callback: impl FnOnce() -> T) -> T {
-    let task = NATIVE_CONTEXT.with_borrow_mut(|context| context.task.take());
-    let _scope = NativeTaskScope(task);
+    let previous = NATIVE_CONTEXT.replace(NativeExecutionContext::empty());
+    let _scope = NativeExecutionContextScope(Some(previous));
 
     crate::context::with_independent_execution_context(callback)
 }
@@ -288,6 +288,30 @@ mod tests {
 
                         #[cfg(feature = "test-output")]
                         assert!(crate::context::current_task_output().is_some());
+
+                        for unwind in [false, true] {
+                            let result = catch_unwind(AssertUnwindSafe(|| {
+                                super::with_independent_execution_context(|| {
+                                    assert!(super::current_runtime().is_none());
+                                    assert_eq!(super::current_task(), None);
+                                    assert!(crate::current_task_execution_context().is_none());
+                                    assert!(!crate::current_run_cancellation_requested());
+
+                                    if unwind {
+                                        panic!("exercise complete entry restoration");
+                                    }
+                                });
+                            }));
+
+                            assert_eq!(result.is_err(), unwind);
+                            assert!(std::rc::Rc::ptr_eq(
+                                &super::current_runtime().unwrap(),
+                                &runtime
+                            ));
+                            assert_eq!(super::current_task(), Some(native_task));
+                            assert_eq!(crate::context::current_task_execution_lane(), Some(lane));
+                            assert!(crate::current_run_cancellation_requested());
+                        }
 
                         let result = catch_unwind(AssertUnwindSafe(|| {
                             super::super::binding::with_cleanup_runtime(Some(&retained), || {

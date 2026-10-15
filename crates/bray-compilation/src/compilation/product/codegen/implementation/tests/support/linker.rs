@@ -42,3 +42,53 @@ impl LinkerDriver for TestLinkerDriver {
         )
     }
 }
+
+#[cfg(all(windows, target_arch = "x86_64"))]
+pub(in super::super) fn run_native_caller(
+    backend: &bray_codegen_llvm::LlvmCodeGenerator,
+    plan: &crate::compilation::product::codegen::NativeProductPlan,
+    caller: &str,
+) {
+    let directory = tempfile::tempdir().unwrap();
+    let mut objects = Vec::new();
+
+    for (index, bytes) in super::artifacts::generated_artifacts(backend, plan)
+        .into_iter()
+        .enumerate()
+    {
+        let path = directory.path().join(format!("unit-{index}.obj"));
+
+        std::fs::write(&path, bytes).unwrap();
+        objects.push(path);
+    }
+
+    let source = directory.path().join("caller.c");
+    let executable = directory.path().join("caller.exe");
+
+    std::fs::write(&source, caller).unwrap();
+
+    let compiler = std::path::Path::new(bray_codegen_llvm::COMPILED_LLVM_PREFIX.unwrap())
+        .join("bin/clang.exe");
+
+    let linked = std::process::Command::new(compiler)
+        .args(["--target=x86_64-pc-windows-msvc", "-fuse-ld=lld"])
+        .arg(&source)
+        .args(objects)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .unwrap();
+
+    assert!(
+        linked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&linked.stderr)
+    );
+    assert_eq!(
+        std::process::Command::new(executable)
+            .status()
+            .unwrap()
+            .code(),
+        Some(0)
+    );
+}

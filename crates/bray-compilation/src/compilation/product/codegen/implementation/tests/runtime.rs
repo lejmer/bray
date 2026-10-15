@@ -335,16 +335,6 @@ fn bootstrap_status_cancellation_returns_native_failure_without_reporting_a_pani
         [binding],
     );
 
-    let directory = tempfile::tempdir().unwrap();
-    let mut objects = Vec::new();
-
-    for (index, bytes) in generated_artifacts(&backend, &plan).into_iter().enumerate() {
-        let path = directory.path().join(format!("unit-{index}.obj"));
-
-        std::fs::write(&path, bytes).unwrap();
-        objects.push(path);
-    }
-
     let caller = format!(
         r#"
         static unsigned reports;
@@ -360,32 +350,7 @@ fn bootstrap_status_cancellation_returns_native_failure_without_reporting_a_pani
         failure = bray_runtime_abi::NativeRuntimeStatus::RUNTIME_FAILURE.code(),
     );
 
-    let source = directory.path().join("caller.c");
-    let executable = directory.path().join("caller.exe");
-
-    std::fs::write(&source, caller).unwrap();
-
-    let compiler = std::path::Path::new(bray_codegen_llvm::COMPILED_LLVM_PREFIX.unwrap())
-        .join("bin/clang.exe");
-
-    let linked = std::process::Command::new(compiler)
-        .args(["--target=x86_64-pc-windows-msvc", "-fuse-ld=lld"])
-        .arg(&source)
-        .args(objects)
-        .arg("-o")
-        .arg(&executable)
-        .output()
-        .unwrap();
-
-    assert!(
-        linked.status.success(),
-        "{}",
-        String::from_utf8_lossy(&linked.stderr)
-    );
-
-    let result = std::process::Command::new(executable).status().unwrap();
-
-    assert_eq!(result.code(), Some(0));
+    super::support::linker::run_native_caller(&backend, &plan, &caller);
 }
 
 #[test]
@@ -629,4 +594,99 @@ fn native_atomic_word_production_source_bindings_export() {
             "{target:?}"
         );
     }
+}
+
+#[test]
+#[cfg(all(windows, target_arch = "x86_64"))]
+fn foreign_callbacks_preserve_abnormal_outcomes_for_scalar_and_indirect_results() {
+    let source = r#"
+        module app;
+        @layout(c)
+        struct Aggregate { first: u64; second: u64; third: u64; }
+        @symbol(name = "scalar")
+        @abi(c)
+        func scalar(pos mode: u32) -> u32 {
+            if mode == 1 {
+                let outcome: RunResult<unit> = Cancelled;
+                try outcome;
+            }
+            if mode == 2 { panic("scalar"); }
+            return 73;
+        }
+        @symbol(name = "aggregate")
+        @abi(c)
+        func aggregate(pos mode: u32) -> Aggregate {
+            if mode == 1 {
+                let outcome: RunResult<unit> = Cancelled;
+                try outcome;
+            }
+            if mode == 2 { panic("aggregate"); }
+            return { first = 17, second = 29, third = 41 };
+        }
+    "#;
+
+    let (backend, plan) = super::support::runtime::runtime_native_plan_for_sources_target(
+        &[source],
+        ProductKind::Library,
+        SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc),
+        &[],
+    );
+
+    let caller = format!(
+        r#"
+        #include <stdint.h>
+        #include <stdlib.h>
+        typedef struct {{ _Alignas({report_align}) unsigned char data[{report_size}]; }} Report;
+        typedef struct {{ uint32_t state; uintptr_t payload; Report report; }} Outcome;
+        typedef struct {{ uint64_t first, second, third; }} Aggregate;
+        static unsigned shield_depth;
+        void {shield_enter}(void) {{ ++shield_depth; }}
+        void {shield_leave}(void) {{ if (!shield_depth) _Exit(10); --shield_depth; }}
+        void {propagate_panic}(Report report) {{ (void)report; _Exit(11); }}
+        void {propagate_cancellation}(void) {{ _Exit(12); }}
+        static unsigned reports;
+        static unsigned cancelled;
+        Outcome {boundary}(void (*callback)(uintptr_t, Outcome*), uintptr_t context) {{
+            Outcome outcome = {{0}};
+            callback(context, &outcome);
+            if (outcome.state == {cancelled}) ++cancelled;
+            return outcome;
+        }}
+        Report {construction}(uint32_t cause, uint32_t present, uint32_t identity,
+            uint32_t start, uint32_t end, uint64_t version, uint64_t n0, uint64_t n1,
+            uint64_t n2, uint64_t n3, const void* message, uintptr_t length) {{
+            Report report = {{0}};
+            return report;
+        }}
+        unsigned {report}(Report value) {{ (void)value; ++reports; return 0; }}
+        extern uint32_t scalar(uint32_t mode);
+        extern Aggregate aggregate(uint32_t mode);
+        int main(void) {{
+            if (scalar(0) != 73 || scalar(1) != 0 || scalar(2) != 0) return 1;
+            Aggregate normal = aggregate(0), failure = aggregate(1), panic = aggregate(2);
+            if (normal.first != 17 || normal.second != 29 || normal.third != 41) return 2;
+            if (failure.first || failure.second || failure.third) return 3;
+            if (panic.first || panic.second || panic.third) return 4;
+            return cancelled == 2 && reports == 2 && shield_depth == 0 ? 0 : 5;
+        }}
+    "#,
+        shield_enter = RuntimeAbiRole::CleanupShieldEnter.native_symbol().unwrap(),
+        shield_leave = RuntimeAbiRole::CleanupShieldLeave.native_symbol().unwrap(),
+        propagate_panic = RuntimeAbiRole::PanicPropagation.native_symbol().unwrap(),
+        propagate_cancellation = RuntimeAbiRole::CurrentRunCancellationPropagation
+            .native_symbol()
+            .unwrap(),
+        construction = RuntimeAbiRole::PanicReportConstruction
+            .native_symbol()
+            .unwrap(),
+        report_align = std::mem::align_of::<bray_runtime_abi::NativePanicReport>(),
+        report_size = std::mem::size_of::<bray_runtime_abi::NativePanicReport>(),
+        boundary = RuntimeAbiRole::ForeignCallbackExecution
+            .native_symbol()
+            .unwrap(),
+        cancelled = bray_runtime_abi::NativeRunState::CANCELLED.code(),
+        report = RuntimeAbiRole::PanicReporting.native_symbol().unwrap(),
+    );
+
+    super::support::linker::run_native_caller(&backend, &plan, &caller);
 }

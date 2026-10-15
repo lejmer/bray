@@ -243,11 +243,14 @@ impl Compilation {
             callable.is_variadic(),
         );
 
-        if self
-            .codegen_runtime_source_role(instance.key())?
-            .and_then(bray_codegen::CodegenNativeEntryKind::for_runtime_role)
-            .is_some()
-        {
+        if matches!(
+            self.codegen_native_boundary(
+                instance.key(),
+                &std::collections::BTreeSet::new(),
+                cancellation
+            )?,
+            Some(super::symbols::NativeBoundaryMapping::Callback { .. })
+        ) {
             return Ok(signature.with_panic_report_context());
         }
 
