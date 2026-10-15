@@ -89,6 +89,7 @@ pub(in crate::compilation::product::realization) fn direct_helper_symbol(
         | MirHelperReference::FinishGenerator
         | MirHelperReference::PanicReport
         | MirHelperReference::StandardLibrary(_)
+        | MirHelperReference::Quiesce(_)
         | MirHelperReference::Finalize(_)
         | MirHelperReference::StaticFinalize(_)
         | MirHelperReference::Destroy(_)

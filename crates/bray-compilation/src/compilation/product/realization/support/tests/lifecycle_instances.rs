@@ -33,6 +33,7 @@ fn lifecycle_helpers_use_distinct_type_aware_instance_dependencies() {
 
     let references = [
         MirHelperReference::Finalize(aggregate),
+        MirHelperReference::Quiesce(aggregate),
         MirHelperReference::Destroy(aggregate),
         MirHelperReference::Cleanup {
             phase: MirCleanupPhase::TaskCancellation,

@@ -214,7 +214,8 @@ impl Compilation {
             MirHelperReference::StandardLibrary(helper) => {
                 self.concrete_standard_library_helper(*helper, target, cancellation)?
             }
-            MirHelperReference::Finalize(_)
+            MirHelperReference::Quiesce(_)
+            | MirHelperReference::Finalize(_)
             | MirHelperReference::StaticFinalize(_)
             | MirHelperReference::Destroy(_)
             | MirHelperReference::Cleanup { .. } => {
@@ -247,6 +248,9 @@ impl Compilation {
         let substitution = owner.substitution();
 
         Ok(match reference {
+            MirHelperReference::Quiesce(ty) => MirHelperReference::Quiesce(
+                self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
+            ),
             MirHelperReference::Finalize(ty) => MirHelperReference::Finalize(
                 self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
             ),

@@ -728,6 +728,8 @@ pub enum MirOperationKind {
     },
     /// Run checked finalization for a storage place.
     Finalize(MirPlace),
+    /// Resolve child runs without finalizing or destroying the retained incident payload.
+    Quiesce(MirPlace),
     /// Destroy a storage place after its value is no longer live.
     Destroy(MirPlace),
     /// Perform one checked cleanup phase for a storage place.

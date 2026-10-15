@@ -85,7 +85,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 borrow,
                 teardown,
             } => self.push_owned_indirection_lifecycle_operations(
-                builder, block, source, place, storage, target, borrow, teardown,
+                builder, block, source, role, place, storage, target, borrow, teardown,
             ),
             LifecycleAction::Generator(element) => {
                 let operation = match role {
@@ -289,6 +289,9 @@ pub(super) fn child_lifecycle_operations(
     child: MirPlace,
 ) -> [Option<MirOperationKind>; 2] {
     match role {
+        bray_ir::MirGeneratedLifecycleRole::Quiesce => {
+            [Some(MirOperationKind::Quiesce(child)), None]
+        }
         bray_ir::MirGeneratedLifecycleRole::Destroy => {
             // Both lifecycle stages operate on the same represented child.
             [

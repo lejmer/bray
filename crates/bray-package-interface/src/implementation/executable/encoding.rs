@@ -596,6 +596,10 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(14);
                 self.panic_cause(cause)?;
             }
+            MirOperationKind::Quiesce(place) => {
+                self.wire.write_u32(25);
+                self.place(place)?;
+            }
             MirOperationKind::Finalize(place) => {
                 self.wire.write_u32(15);
                 self.place(place)?;

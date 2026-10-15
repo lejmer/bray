@@ -4,7 +4,8 @@ pub(super) fn lifecycle_operation_block_kind(
     role: bray_ir::MirGeneratedLifecycleRole,
 ) -> MirBlockKind {
     match role {
-        bray_ir::MirGeneratedLifecycleRole::Destroy => MirBlockKind::Ordinary,
+        bray_ir::MirGeneratedLifecycleRole::Destroy
+        | bray_ir::MirGeneratedLifecycleRole::Quiesce => MirBlockKind::Ordinary,
         bray_ir::MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::TaskCancellation) => {
             MirBlockKind::CleanupBroadcast
         }
@@ -29,6 +30,7 @@ pub(super) fn lifecycle_phase(
             LifecyclePhase::Finalize
         }
         MirGeneratedLifecycleRole::Destroy => LifecyclePhase::Destroy,
+        MirGeneratedLifecycleRole::Quiesce => LifecyclePhase::Quiesce,
         MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
             LifecyclePhase::Cancel
         }

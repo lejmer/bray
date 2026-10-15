@@ -319,6 +319,7 @@ fn validate_call_panic_check(
             crate::MirOperationKind::Memory(memory) => memory.kind().requires_checked_outcome(),
             crate::MirOperationKind::AdmitOutgoing { .. }
             | crate::MirOperationKind::Cleanup { .. }
+            | crate::MirOperationKind::Quiesce(_)
             | crate::MirOperationKind::Finalize(_)
             | crate::MirOperationKind::Destroy(_) => true,
             _ => false,

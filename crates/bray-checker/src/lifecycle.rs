@@ -104,6 +104,11 @@ pub fn select_lifecycle_action<C: LifecycleSelectionContext + ?Sized>(
                 });
             }
             Some(RepresentationRole::Task) => return Ok(LifecycleAction::Task),
+            Some(RepresentationRole::Future) if phase == LifecyclePhase::Quiesce => {
+                panic!(
+                    "inactive future {ty:?} quiescence requires its admitted capture-cleanup activation"
+                );
+            }
             _ => {}
         }
     }
@@ -111,7 +116,7 @@ pub fn select_lifecycle_action<C: LifecycleSelectionContext + ?Sized>(
     let slot = match phase {
         LifecyclePhase::Finalize => Some(TypeAssociatedLifecycleSlot::Finalizer),
         LifecyclePhase::Destroy => Some(TypeAssociatedLifecycleSlot::Destructor),
-        LifecyclePhase::Cancel | LifecyclePhase::Resolve => None,
+        LifecyclePhase::Cancel | LifecyclePhase::Quiesce | LifecyclePhase::Resolve => None,
     };
 
     if let Some(slot) = slot
@@ -123,7 +128,7 @@ pub fn select_lifecycle_action<C: LifecycleSelectionContext + ?Sized>(
     match phase {
         LifecyclePhase::Finalize => Ok(LifecycleAction::None),
         LifecyclePhase::Resolve => Ok(LifecycleAction::Resolve),
-        LifecyclePhase::Destroy | LifecyclePhase::Cancel => {
+        LifecyclePhase::Destroy | LifecyclePhase::Cancel | LifecyclePhase::Quiesce => {
             select_represented_action(context, ty, phase, &data)
         }
     }
@@ -302,10 +307,12 @@ mod tests {
             LifecycleAction::Members([leaf, leaf, leaf].into())
         );
 
-        assert_eq!(
-            select_lifecycle_action(&context, ty, LifecyclePhase::Cancel).unwrap(),
-            LifecycleAction::Members([leaf, leaf, leaf].into())
-        );
+        for phase in [LifecyclePhase::Cancel, LifecyclePhase::Quiesce] {
+            assert_eq!(
+                select_lifecycle_action(&context, ty, phase).unwrap(),
+                LifecycleAction::Members([leaf, leaf, leaf].into())
+            );
+        }
     }
 
     #[test]

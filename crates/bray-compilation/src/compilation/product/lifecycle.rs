@@ -23,11 +23,13 @@ impl CodegenLifecycleNeeds {
     const DESTROY: Self = Self(1 << 1);
     const TASK_CANCELLATION: Self = Self(1 << 2);
     const LIFECYCLE_RESOLUTION: Self = Self(1 << 3);
+    const QUIESCE: Self = Self(1 << 4);
     const ALL: Self = Self(
         Self::FINALIZE.0
             | Self::DESTROY.0
             | Self::TASK_CANCELLATION.0
-            | Self::LIFECYCLE_RESOLUTION.0,
+            | Self::LIFECYCLE_RESOLUTION.0
+            | Self::QUIESCE.0,
     );
 
     const fn contains(self, other: Self) -> bool {
@@ -40,6 +42,7 @@ impl CodegenLifecycleNeeds {
                 Self::FINALIZE
             }
             MirGeneratedLifecycleRole::Destroy => Self::DESTROY,
+            MirGeneratedLifecycleRole::Quiesce => Self::QUIESCE,
             MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
                 Self::TASK_CANCELLATION
             }
@@ -64,6 +67,10 @@ impl CodegenLifecycleNeeds {
 
         if children.contains(Self::TASK_CANCELLATION) {
             represented = represented.with(Self::TASK_CANCELLATION);
+        }
+
+        if children.contains(Self::QUIESCE) {
+            represented = represented.with(Self::QUIESCE);
         }
 
         if represented.contains(Self::DESTROY) {
@@ -209,9 +216,11 @@ impl Compilation {
             }
             TypeData::Generator(_) => CodegenLifecycleNeeds::DESTROY
                 .with(CodegenLifecycleNeeds::TASK_CANCELLATION)
+                .with(CodegenLifecycleNeeds::QUIESCE)
                 .with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION),
             TypeData::OwnedIndirection { .. } => CodegenLifecycleNeeds::DESTROY
                 .with(CodegenLifecycleNeeds::TASK_CANCELLATION)
+                .with(CodegenLifecycleNeeds::QUIESCE)
                 .with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION),
             TypeData::FlexibleArray(_) | TypeData::Borrow { .. } | TypeData::Callable(_) => {
                 CodegenLifecycleNeeds::NONE
@@ -370,6 +379,7 @@ impl Compilation {
                 CodegenLifecycleNeeds::DESTROY.with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION),
             ),
             RepresentationRole::Task => Some(CodegenLifecycleNeeds::ALL),
+            RepresentationRole::Future => Some(CodegenLifecycleNeeds::QUIESCE),
             _ if super::super::representation::target_scalar(role).is_some()
                 || matches!(
                     role,
@@ -379,7 +389,6 @@ impl Compilation {
                         | RepresentationRole::RawPointer
                         | RepresentationRole::DevicePointer
                         | RepresentationRole::Uninit
-                        | RepresentationRole::Future
                 ) =>
             {
                 Some(CodegenLifecycleNeeds::NONE)
