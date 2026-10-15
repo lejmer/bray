@@ -1,15 +1,14 @@
+@link(name = "entry_driver")
 trusted module runtime_entry_product;
 
 @abi(c)
 @symbol(name = "bray_entry_record")
 extern trusted func record(pos event: u32)
-    executes(total)
     uses(foreign_call);
 
 @abi(c)
 @symbol(name = "bray_entry_count")
 extern trusted func count(pos event: u32) -> u64
-    executes(total)
     uses(foreign_call);
 
 @abi(c)
@@ -28,6 +27,7 @@ public struct Owner
     value: u64;
 
     trusted destruct()
+        uses(foreign_call)
     {
         trusted record(2);
         assert(self.value == 73);
@@ -38,7 +38,8 @@ internal callable MakeOwner = @abi(c) trusted func() -> Owner;
 
 @abi(c)
 @symbol(name = "bray_entry_value")
-public func value(pos input: u64) -> u64
+public trusted func value(pos input: u64) -> u64
+    uses(foreign_call)
 {
     trusted record(1);
     return input + 1;
@@ -46,14 +47,16 @@ public func value(pos input: u64) -> u64
 
 @abi(c)
 @symbol(name = "bray_entry_nested")
-public func nested(pos input: u64) -> u64
+public trusted func nested(pos input: u64) -> u64
+    uses(foreign_call)
 {
     return trusted reenter(input);
 }
 
 @abi(c)
 @symbol(name = "bray_entry_create")
-public func create() -> Owner
+public trusted func create() -> Owner
+    uses(foreign_call)
 {
     trusted record(3);
 
@@ -72,7 +75,8 @@ public func dispose(pos owner: Owner)
 
 @abi(c)
 @symbol(name = "bray_entry_returned_owner")
-public func returned_owner() -> u64
+public trusted func returned_owner() -> u64
+    uses(foreign_call)
 {
     let before = trusted count(2);
 
@@ -90,7 +94,8 @@ public func returned_owner() -> u64
 
 @abi(c)
 @symbol(name = "bray_entry_closing")
-public func closing() -> u64
+public trusted func closing() -> u64
+    uses(foreign_call)
 {
     return trusted close_inside();
 }

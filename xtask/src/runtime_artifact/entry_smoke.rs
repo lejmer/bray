@@ -120,7 +120,11 @@ fn emit_product(
             WorkerBudget::default(),
             ProductKind::Library,
             SelectedTarget::for_native(target),
-        ),
+        )
+        .with_native_link_inputs([bray_symbols::NativeLinkRequirement::new(
+            bray_base::NonEmptySharedStr::try_new("entry_driver").expect("fixture link name is valid"),
+            bray_symbols::NativeLinkKind::Static,
+        )]),
     )
     .with_standard_library_root(standard_library(target)?);
 

@@ -492,3 +492,36 @@ A cleanup panic preserves a completed result, or follows an existing body panic 
 the existing suppression adapter. Both cases return represented terminal status without
 duplicate output. An entry admission failure already carried by the body outcome now
 returns clean terminal status, as the Rust context bridge does.
+
+
+## Completed native acceptance at 02c46994 plus fixture contract corrections
+
+The complete runtime library batch passes 165 tests in `bra-554-runtime-complete.log`.
+The complete native artifact workflow passes in `bra-554-native-complete.log`, including
+archive export ownership, synchronous and bootstrap link-map checks, async execution,
+observed products and the generated C entry driver. The driver checks cold/nested entry,
+returned owners and indirect factory calls, exact destruction counts, closure during an
+active entry, rejection before body execution, and final product closure.
+
+The fixture now declares its C driver as a native link input and declares `foreign_call`
+only on bodies that use it. Its callable type matches the trusted factory. These are
+fixture contract corrections; no compiler acceptance rule was relaxed.
+
+On x86_64 Windows with the selected LLVM 22 toolchain and release runtime, the final run
+reported 100,000 synchronous entries in 0.158797500 elapsed seconds and 100,000 foreign
+entries in 0.162000000 C-clock seconds after 1,000 warmup calls. These are approximately
+1.59 and 1.62 microseconds per checked entry on this machine, with different clock APIs
+and bodies. They do not establish a Rust/C++ performance comparison. Bootstrap startup
+reported six allocations and 688 bytes. The retained large/aligned cleanup bundle probe
+reported nine allocations, 148,280 bytes and 131,074 payload bytes at alignment 4,096.
+
+The ordinary source entry checks one optional native bridge, admits two reusable report
+records and acquires/releases its exact-thread attachment. Root entry additionally marks
+the main attachment. Foreign code also acquires/releases its product entry. Attachment,
+bridge and pool access use the existing host synchronization and TLS operations; retries
+under contention and cold pool growth are not fixed per-call instruction counts. A cold
+source-only entry installs no Rust bridge and performs no Rust context save/restore. The
+optional Rust bridge saves/restores the native and generic contexts and admits its own
+single retirement record before invoking source. The native tests prove synchronous
+cleanup does not create a scheduler. Product-control code still retains async support,
+whose provider migration remains in the existing downstream issues.
