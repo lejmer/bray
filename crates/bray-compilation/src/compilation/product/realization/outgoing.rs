@@ -1,12 +1,9 @@
-use bray_bound_tree::{LifecycleAction, LifecycleCallable, LifecyclePhase};
 use bray_codegen::CodegenTarget;
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirCallTarget, MirCleanupPhase, MirHelperReference, MirOperationKind};
-use bray_lowering::SyntheticLoweringContext;
 use bray_symbols::{CallableExecution, CallableInstanceData, TypeId};
 
 use super::super::specialization::ConcreteCodegenInstance;
-use super::synthetic::CompilationSyntheticLoweringContext;
 use crate::compilation::{
     CodegenPreparationError, Compilation, ProductDataKind, ProductQueryContext, ProductQueryFailure,
 };
@@ -80,48 +77,42 @@ impl Compilation {
         ty: TypeId,
         cancellation: &CancellationToken,
     ) -> Result<u32, CodegenPreparationError> {
-        let context = CompilationSyntheticLoweringContext::new(self, cancellation)?;
+        let target = self
+            .selected_target()
+            .target()
+            .codegen_target()
+            .expect("selected target must support concrete cleanup realization");
+
         let mut capacity = 0;
 
-        for (phase, helper) in [
-            (LifecyclePhase::Finalize, MirHelperReference::Finalize(ty)),
-            (LifecyclePhase::Destroy, MirHelperReference::Destroy(ty)),
-            (
-                LifecyclePhase::Cancel,
-                MirHelperReference::Cleanup {
-                    phase: MirCleanupPhase::TaskCancellation,
-                    ty,
-                },
-            ),
+        for helper in [
+            MirHelperReference::Finalize(ty),
+            MirHelperReference::Destroy(ty),
+            MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::TaskCancellation,
+                ty,
+            },
         ] {
             if self.codegen_lifecycle_is_trivial(&helper, cancellation)? {
                 continue;
             }
 
-            let mut add = |call: LifecycleCallable| -> Result<(), CodegenPreparationError> {
+            let instance = self.concrete_codegen_lifecycle(helper.clone(), &target)?;
+
+            let lowered = self.codegen_generated_lifecycle(
+                instance.key(),
+                &helper,
+                bray_ir::MirUnitId::new(0),
+                cancellation,
+            )?;
+
+            for call in lowered.local_calls() {
                 capacity += self.call_outgoing_capacity(
                     call.callable,
                     call.execution,
                     call.result,
                     cancellation,
                 )?;
-
-                Ok(())
-            };
-
-            match context.lifecycle_action(ty, phase)? {
-                LifecycleAction::Call(call) => add(call)?,
-                LifecycleAction::Owned {
-                    borrow, teardown, ..
-                } => {
-                    add(borrow)?;
-
-                    for call in teardown.into_iter().flatten() {
-                        add(call)?;
-                    }
-                }
-                // Structural forwarding uses the child owner's existing allowance.
-                _ => {}
             }
         }
 

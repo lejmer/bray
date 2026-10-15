@@ -104,3 +104,32 @@ while payload destruction remains with each initialized-value consumer. The sele
 helper now stands alone; no paired allocation wrapper remains. Product host ABI versioning, generated
 callbacks and in-repo callback fixtures agree. No source-language or compiler authority rule changed.
 Required style and format passes succeeded; existing structural-size warnings remain unchanged.
+
+## Shared expansion checkpoint
+
+Local invocation requirements are now recorded at `push_selected_call`, the point that emits
+execution. `LoweredLifecycle` retains that list with the raw MIR. A demand-driven fact caches
+both by concrete lifecycle identity, target and MIR unit identity; admission and code emission
+consume the same result. The old independent `LifecycleAction` capacity match is removed.
+Requirements retain selected callable, receiver, completion and execution kind, with repeated
+local calls preserved and structural children excluded. Concrete byte descriptors and their
+allowance-service consumers still need implementation.
+
+Evidence: the five outgoing-capacity/production-host tests passed; the owned-indirection test
+compares all three actual emitted calls with the requirements and verifies cache reuse across
+admission and emission; all four synthetic lifecycle tests passed, including constant-size array
+traversal and no repeated child allowance. A new production-declaration authority test accepts
+exact allocation release and rejects wrong byte size, wrong alignment, duplicate release through
+a pointer copy, and stale pointer use after release followed by another allocation.
+
+The behavior audit covered shared expansion, query identity/reuse, source diagnostic proofs and
+profiling/error context. Searches found the existing FactCellMap mechanism and selected-call
+emission point, which are reused; no second action selector or downstream validation was added.
+The new retained result buys reuse of execution plus requirements; the empty local-call vector
+on heap-only lowering does not allocate. Existing immutable query dependency tracking provides
+invalidation. Required structural style and source format passes completed. This remains a
+checkpoint, not BRA-502 acceptance or completion of Step 5.
+
+Broader checkpoint verification: all 42 realization support tests and 12 static-lifecycle tests
+passed, covering imported/generic storage, repeated constant owners and asynchronous fallible
+static finalizers. This batch changes no native calling convention or execution body semantics.

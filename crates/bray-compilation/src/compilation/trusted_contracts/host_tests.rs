@@ -1295,3 +1295,52 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
 
     compilation
 }
+
+#[test]
+fn cleanup_backing_requires_the_live_allocation_and_its_exact_layout() {
+    for (body, valid) in [
+        ("trusted deallocate_bytes(pointer, 64, align = 32);", true),
+        ("trusted deallocate_bytes(pointer, 65, align = 32);", false),
+        ("trusted deallocate_bytes(pointer, 64, align = 16);", false),
+        (
+            "let copied = pointer; trusted deallocate_bytes(pointer, 64, align = 32); trusted deallocate_bytes(copied, 64, align = 32);",
+            false,
+        ),
+        (
+            "trusted deallocate_bytes(pointer, 64, align = 32); let next = trusted allocate(64, align = 32); if !std.memory.is_null<u8>(next) { trusted deallocate_bytes(pointer, 64, align = 32); trusted deallocate_bytes(next, 64, align = 32); }",
+            false,
+        ),
+    ] {
+        let caller = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap.heap;
+            func probe() {{
+                let pointer = trusted allocate(64, align = 32);
+                if !std.memory.is_null<u8>(pointer) {{ {body} }}
+            }}
+            "#,
+        );
+
+        let compilation = production_host_compilation(&caller);
+
+        let lowered = compilation
+            .lowered_unit(crate::test_support::source_function_body_key(
+                &compilation,
+                "probe",
+            ))
+            .unwrap();
+
+        assert_eq!(
+            !lowered.diagnostics().has_errors(),
+            valid,
+            "{body}: {lowered:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                lowered.diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}

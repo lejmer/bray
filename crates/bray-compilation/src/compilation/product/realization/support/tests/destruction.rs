@@ -383,6 +383,77 @@ fn owned_indirection_uses_storage_policy_teardown() {
         3
     );
 
+    let reference = MirHelperReference::Destroy(owned);
+
+    let instance = compilation
+        .concrete_codegen_lifecycle(reference.clone(), &target)
+        .unwrap();
+
+    let cancellation = crate::CancellationToken::new();
+
+    let expanded = compilation
+        .codegen_generated_lifecycle(
+            instance.key(),
+            &reference,
+            bray_ir::MirUnitId::new(0),
+            &cancellation,
+        )
+        .unwrap();
+
+    let calls = expanded
+        .mir()
+        .operations()
+        .iter()
+        .filter_map(|operation| {
+            let MirOperationKind::Call(call) = operation.kind() else {
+                return None;
+            };
+
+            if !call.is_cleanup() {
+                return None;
+            }
+
+            let MirCallTarget::Direct(reference) = call.target() else {
+                panic!("local cleanup has a selected target");
+            };
+
+            Some((reference.instance(), call.result().ty()))
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        calls,
+        expanded
+            .local_calls()
+            .iter()
+            .map(|call| (call.callable, call.result))
+            .collect::<Vec<_>>()
+    );
+
+    assert_eq!(
+        calls.len(),
+        3,
+        "projection, target destruction and release each retain their requirement"
+    );
+
+    compilation
+        .owner_outgoing_capacity(owned, &cancellation)
+        .unwrap();
+
+    let reused = compilation
+        .codegen_generated_lifecycle(
+            instance.key(),
+            &reference,
+            bray_ir::MirUnitId::new(0),
+            &cancellation,
+        )
+        .unwrap();
+
+    assert!(
+        std::sync::Arc::ptr_eq(&expanded, &reused),
+        "admission and emission must reuse the same expansion"
+    );
+
     assert!(generated.operations().iter().any(|operation| {
         match operation.kind() {
             MirOperationKind::Borrow { place, .. } | MirOperationKind::Finalize(place) => place

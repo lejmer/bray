@@ -278,6 +278,7 @@ impl Compilation {
                 source_outputs: crate::compilation::source_output::SourceOutputs::new(),
                 codegen,
                 codegen_artifacts: FactCellMap::new(),
+                generated_lifecycle: FactCellMap::new(),
                 optimized_mir: FactCellMap::new(),
                 native_products: FactCellMap::new(),
                 declared_units: FactCell::new(),
