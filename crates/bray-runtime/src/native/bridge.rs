@@ -49,8 +49,7 @@ extern "C" fn observe(
         1 => super::host::record_returned_error(),
         _ => panic!("unknown host report observation kind {kind}"),
     }
-
-    NativeRuntimeStatus::SUCCESS.code()
+    .code()
 }
 
 /// Registration cannot leave this thread or outlive its enclosing native provider call.
@@ -413,6 +412,8 @@ mod tests {
 
                 MESSAGES
                     .with_borrow_mut(|messages| messages.push(String::from_utf8(message).unwrap()));
+
+                bray_runtime_abi::NativeRuntimeStatus::SUCCESS
             },
             || panic!("retirement panic is not a returned error"),
             |_| {},

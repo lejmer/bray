@@ -8,7 +8,7 @@ in [contract reasoning](../language/contracts-and-trust/contract-reasoning.md),
 [trusted callers](../language/contracts-and-trust/trusted-caller-obligations.md) and
 [witnesses](../language/contracts-and-trust/trusted-witness-values.md).
 
-Continue on `feature/trusted-storage-integration`, the published combined branch. The implementation baseline is `e3f56424`, with proof checkpoint `7f300ef2`.
+The Steps 1-4 integration used `feature/trusted-storage-integration`, baseline `e3f56424` and proof checkpoint `7f300ef2`. Its squash merge is the base of the current per-issue stack below.
 Steps 1 and 2 are complete. Shared authority analysis and its required removals passed published review at
 `5144e732`. Step 3 production migration is complete at `a3de1083` with clean published review.
 Step 4 dependency retirement and cleanup composition is complete at `246c4db3` with [clean published review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5526458884).
@@ -22,11 +22,20 @@ current implementation contract. No chat transcript is needed.
 
 ## Current implementation checkpoint
 
-Steps 1-4 are complete on `feature/trusted-storage-integration` in [PR #607](https://github.com/lejmer/bray/pull/607).
-Step 3 is published at `a3de1083` with [clean review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5526203497).
-Its native acceptance passes all 160 API cases, seven API plans and 25 outcome cases. All five original PR histories
-are included and their branches are preserved. Follow [BRA-620 remaining work](BRA-620-remaining-work.md) and the
-[Step 4 map](BRA-620-step4.md) for current work and evidence.
+Steps 1-4 landed through [PR #607](https://github.com/lejmer/bray/pull/607), squash commit
+`f188b2b6226b0457211e16f092369c8e2570003a`. The five original branches remain historical.
+
+Step 5 is the following stack, reviewed against each direct predecessor:
+
+| Issue | PR | Status and evidence |
+| --- | --- | --- |
+| BRA-502 | [#608](https://github.com/lejmer/bray/pull/608) | Ready, In Review. See [physical backing record](BRA-502-implementation.md). |
+| BRA-554 | [#609](https://github.com/lejmer/bray/pull/609) | Ready, In Review at `5b4831a0`, [clean review](https://github.com/lejmer/bray/pull/609#pullrequestreview-5534605036). |
+| BRA-558 | [#610](https://github.com/lejmer/bray/pull/610) | Published at `812b4122`. [Incident record](BRA-558-implementation.md) retains acceptance. Independent review found callback-time capture allocation that must be repaired before readying. |
+
+Continue from the head of BRA-558, not an old BRA-619 branch. Step 6 completes BRA-619's retained
+selected-scope implementation and native transfer acceptance. Then follow the Step 7 order below.
+Do not replay prerequisite commits or wait for their merges. Retarget dependent PRs as predecessors land.
 
 ## Delivery decision, 2026-10-15
 
@@ -96,7 +105,7 @@ of this plan. If the model cannot express a required rule, discuss that specific
 2. Keep BRA-619 open and retain its failing native regression. Its included partial implementation is the starting point.
 3. Deliver BRA-502 physical backing, BRA-554 entry and BRA-558 incident consumption in dependency order, one PR per issue.
 4. Finish BRA-619 in its own PR using those shared contracts, including sync/async native scope outcomes.
-5. Continue the remaining protocol issues from updated develop, one issue and one PR at a time. Each consumer migration
+5. Stack the remaining protocol issues on their actual prerequisites, one issue and one PR at a time. Each consumer migration
    switches real callers and removes replaced Rust policy in that issue.
 6. Complete packaging, native conformance and numerical cost gates through their existing issue owners.
 

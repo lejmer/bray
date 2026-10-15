@@ -163,3 +163,20 @@ Optional source serialization now uses one helper shared by returned errors, exp
 panics. There is no additional observer registry or persistent attachment field.
 
 Final verification passes 170 feature-enabled runtime tests, 9 adapter tests and 19 protocol tests in bra-558-capture-final.log. The focused production contract check passes after the typed-observation correction. Mutating cargo xtask style and cargo xtask format pass. The final native artifact smoke passes in bra-558-native-current.log after the capture correction and the move to report/consumer.bray. All four generated executable fixtures pass again against the matching retained runtime archive in bra-558-runtime. Synchronous entry cleanup output matches the exact three-line primary/finalizer/destructor order. Publication and independent PR review remain pending.
+
+
+## Published review repair
+
+[PR #610](https://github.com/lejmer/bray/pull/610) contains implementation checkpoint `812b4122`.
+[Review 5536829559](https://github.com/lejmer/bray/pull/610#pullrequestreview-5536829559)
+identified callback-time allocation in optional capture before mandatory original disposal.
+
+The repair retains fallibly allocated owned bytes and scalar type/source metadata during cleanup.
+Shared protocol strings and digest formatting are constructed only after cleanup. Message buffer
+and history growth use the same fallible reservation helper. Observation returns its status through
+the existing native callback and records capture failure for final protocol publication. Copy
+failure also returns normally. Capture does not borrow session state while invoking the provider.
+The audit includes cancellation insertion and typed identities, not only message allocation.
+No source runtime ABI or ordinary output implementation changes for this repair.
+
+Review repair verification passes 171 runtime, 11 adapter and 19 protocol tests in bra-558-capture-review.log. It covers denied message/history allocation, failed provider copy, and actual source consumption of ordinary and typed reports after observer rejection, with all four original owners released once. Mutating style, format and the native artifact smoke pass in bra-558-review-style.log, bra-558-review-format.log and bra-558-review-native.log. The latter retains six startup allocations and 704 bytes. Published re-review remains pending.
