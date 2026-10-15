@@ -30,9 +30,76 @@ impl InternState {
                 continue;
             };
 
-            self.dependency_contracts[index] = Some(store.intern_dependency_contract_template(
-                DependencyContractTemplateData::new(requirements),
-            )?);
+            let mut borrows = Vec::with_capacity(input.borrows.len());
+
+            for relation in input.borrows.iter() {
+                let (Some(entry), Some(exit)) = (
+                    self.convert_dependency_subject(relation.entry(), symbols)?,
+                    self.convert_dependency_subject(relation.exit(), symbols)?,
+                ) else {
+                    break;
+                };
+
+                let Some(projections) =
+                    self.convert_dependency_projections(relation.target_projections(), symbols)?
+                else {
+                    break;
+                };
+
+                borrows.push(
+                    bray_symbols::DependencyBorrowRelation::new(entry, exit, relation.kind())
+                        .with_dereferences(relation.dereferences())
+                        .with_target_projections(projections),
+                );
+            }
+
+            if borrows.len() != input.borrows.len() {
+                continue;
+            }
+
+            let mut carriers = Vec::with_capacity(input.carriers.len());
+
+            for carrier in &*input.carriers {
+                let Some(path) = self.convert_dependency_projections(carrier.path(), symbols)?
+                else {
+                    break;
+                };
+
+                let Some(condition) = self.constant_term_id(carrier.guarantee()) else {
+                    break;
+                };
+
+                carriers.push(bray_symbols::DependencyWitnessCarrier::new(condition, path));
+            }
+
+            if carriers.len() != input.carriers.len() {
+                continue;
+            }
+
+            let Some(effects) = self.convert_dependency_effects(&input.effects, symbols)? else {
+                continue;
+            };
+
+            let returned_input = if let Some(input) = input.returned_input {
+                let Some(input) = self.constant_term_id(input) else {
+                    continue;
+                };
+
+                Some(input)
+            } else {
+                None
+            };
+
+            self.dependency_contracts[index] = Some(
+                store.intern_dependency_contract_template(
+                    DependencyContractTemplateData::new(requirements)
+                        .with_borrows(borrows)
+                        .with_carriers(carriers)
+                        .with_returned_input(returned_input)
+                        .with_effects(effects)
+                        .with_normal_completion(input.normal_completion),
+                )?,
+            );
         }
 
         Ok(())
@@ -204,9 +271,22 @@ impl InternState {
             }
         };
 
-        let mut projections = Vec::with_capacity(input.projections.len());
+        let Some(projections) = self.convert_dependency_projections(&input.projections, symbols)?
+        else {
+            return Ok(None);
+        };
 
-        for projection in &*input.projections {
+        Ok(Some(DependencySubject::new(root, projections)))
+    }
+
+    fn convert_dependency_projections(
+        &self,
+        input: &[InterfaceDependencyProjection],
+        symbols: &impl InterfaceSymbolResolver,
+    ) -> Result<Option<Vec<DependencyProjection>>, InterfaceSemanticInternError> {
+        let mut projections = Vec::with_capacity(input.len());
+
+        for projection in input {
             let projection = match projection {
                 InterfaceDependencyProjection::ProductField(field) => {
                     DependencyProjection::ProductField(resolve_exact(symbols, field)?)
@@ -226,12 +306,72 @@ impl InternState {
                     DependencyProjection::UnionPayloadField(resolve_exact(symbols, field)?)
                 }
                 InterfaceDependencyProjection::OwnedTarget => DependencyProjection::OwnedTarget,
+                InterfaceDependencyProjection::UninitPayload => DependencyProjection::UninitPayload,
             };
 
             projections.push(projection);
         }
 
-        Ok(Some(DependencySubject::new(root, projections)))
+        Ok(Some(projections))
+    }
+
+    fn convert_dependency_effects(
+        &self,
+        input: &[bray_symbols::DependencyStorageEffect<
+            InterfaceDependencySubject,
+            InterfaceDependencyProjection,
+            crate::InterfaceTypeId,
+        >],
+        symbols: &impl InterfaceSymbolResolver,
+    ) -> Result<Option<Vec<bray_symbols::DependencyStorageEffect>>, InterfaceSemanticInternError>
+    {
+        use bray_symbols::DependencyStorageEffect;
+
+        let mut effects = Vec::with_capacity(input.len());
+
+        for effect in input {
+            effects.push(match effect {
+                DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
+                DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
+                DependencyStorageEffect::Cleanup(ty) => {
+                    let Some(ty) = self.type_id(*ty) else {
+                        return Ok(None);
+                    };
+
+                    DependencyStorageEffect::Cleanup(ty)
+                }
+                DependencyStorageEffect::Direct { subject, kind } => {
+                    let Some(subject) = self.convert_dependency_subject(subject, symbols)? else {
+                        return Ok(None);
+                    };
+
+                    DependencyStorageEffect::Direct {
+                        subject,
+                        kind: *kind,
+                    }
+                }
+                DependencyStorageEffect::Indirect {
+                    reference,
+                    projections,
+                    kind,
+                } => {
+                    let (Some(reference), Some(projections)) = (
+                        self.convert_dependency_subject(reference, symbols)?,
+                        self.convert_dependency_projections(projections, symbols)?,
+                    ) else {
+                        return Ok(None);
+                    };
+
+                    DependencyStorageEffect::Indirect {
+                        reference,
+                        projections: projections.into(),
+                        kind: *kind,
+                    }
+                }
+            });
+        }
+
+        Ok(Some(effects))
     }
 
     pub(super) fn convert_dependency_guard(

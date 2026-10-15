@@ -22,9 +22,7 @@ impl ProductEmissionError {
         product: &ProductIdentity,
         target: &TargetIdentity,
     ) -> Self {
-        let diagnostics = diagnostics.merged(&product_emission_failure_diagnostics(
-            &kind, product, target,
-        ));
+        let diagnostics = diagnostics.merged(&kind.diagnostics(product, target));
 
         Self { kind, diagnostics }
     }
@@ -106,4 +104,11 @@ pub enum ProductEmissionErrorKind {
     LinkPlan(LinkPlanConstructionError),
     /// Lazy input or bounded operation scheduling failed.
     Query(FactQueryError),
+}
+
+impl ProductEmissionErrorKind {
+    /// Renders the exact failure for the selected product and target.
+    pub fn diagnostics(&self, product: &ProductIdentity, target: &TargetIdentity) -> DiagnosticBag {
+        product_emission_failure_diagnostics(self, product, target)
+    }
 }

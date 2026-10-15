@@ -54,6 +54,18 @@ scope StandardTask at std.task {
     }
 }
 scope StandardThread at std.thread {
+    declaration StandardThreadTransferredSharedValue {
+        identity name transferred_shared_value;
+        implementation TransferredValueBorrow;
+
+        surface {
+            trusted internal func transferred_shared_value<T>(
+                pos pointer: RawPointer<T>,
+            ) -> &T
+                uses(raw_memory);
+        }
+    }
+
     declaration StandardThreadTransferredValue {
         identity name transferred_value;
         implementation TransferredValueBorrow;

@@ -6,36 +6,56 @@ use super::build::ControlFlowGraphBuilder;
 use super::id::AnalysisBlockId;
 use super::model::{AnalysisEdgeKind, AnalysisExitKind};
 
-pub(super) type CleanupFreeExits = std::collections::BTreeSet<(BoundBlockId, AnyBoundNodeId)>;
-
-pub(super) fn record_cleanup_free_exits(
-    exits: &mut CleanupFreeExits,
+pub(crate) fn exclude_cleanup_free_edges(
+    graph: &super::model::ControlFlowGraph,
     asynchronous: &bray_bound_tree::CheckedAsync,
+    excluded: &mut std::collections::BTreeSet<super::id::AnalysisEdgeId>,
 ) -> bool {
-    let possible = asynchronous
+    let cleanup_free = asynchronous
         .scope_exits()
         .iter()
-        .filter(|plan| plan.is_recovered() || plan.has_cleanup())
+        .filter(|plan| !plan.is_recovered() && !plan.has_cleanup())
         .map(|plan| (plan.scope(), plan.exit()))
-        .collect::<CleanupFreeExits>();
+        .collect::<std::collections::BTreeSet<_>>();
 
-    let previous = exits.len();
+    let previous = excluded.len();
 
-    exits.extend(
-        asynchronous
-            .scope_exits()
-            .iter()
-            .map(|plan| (plan.scope(), plan.exit()))
-            .filter(|exit| !possible.contains(exit)),
-    );
+    excluded.extend(graph.edges().iter().filter_map(|edge| {
+        let super::model::AnalysisRefinement::CleanupRequired { scope, exit } =
+            edge.refinement()?
+        else {
+            return None;
+        };
 
-    exits.len() != previous
+        cleanup_free.contains(&(scope, exit)).then_some(edge.id())
+    }));
+
+    excluded.len() != previous
 }
 
 impl<C> ControlFlowGraphBuilder<'_, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    fn scoped_exit(
+        &self,
+        scope: BoundBlockId,
+    ) -> Option<(
+        bray_bound_tree::BoundExpressionId,
+        bray_bound_tree::BoundCallResult,
+    )> {
+        let expression = *self.scoped_uses.get(&scope)?;
+
+        let Some(bray_bound_tree::SemanticSelection::ScopedUse(scoped)) = self
+            .selections()
+            .and_then(|selections| selections.expression(expression))
+        else {
+            panic!("scoped cleanup inventory retains its selected exit");
+        };
+
+        Some((expression, scoped.exit_result()))
+    }
+
     pub(super) fn push_scope_exit(
         &mut self,
         current: AnalysisBlockId,
@@ -52,7 +72,8 @@ where
         self.push_cleanup_failures(current, self.scopes.len().saturating_sub(1), exit);
         self.scopes.truncate(retained_depth);
 
-        self.storage.push_scope_exit(current, block, exit)
+        self.storage
+            .push_scope_exit(current, block, exit, true, self.scoped_exit(block))
     }
 
     pub(super) fn push_exit(
@@ -61,20 +82,22 @@ where
         kind: AnalysisExitKind,
         exit: AnyBoundNodeId,
     ) {
-        if matches!(
+        let preserves_exit_value = matches!(
             kind,
             AnalysisExitKind::Return
                 | AnalysisExitKind::ResultErrorPropagation
                 | AnalysisExitKind::Yield
                 | AnalysisExitKind::NormalFallthrough
-        ) {
+        );
+
+        if preserves_exit_value {
             self.push_cleanup_failures(block, 0, exit);
         }
 
         if kind == AnalysisExitKind::Panic
             && let Some(catch) = self.catches.last().copied()
         {
-            let block = self.resolve_scopes(block, catch.scope_depth, exit);
+            let block = self.resolve_scopes(block, catch.scope_depth, exit, false);
 
             self.push_edge(block, catch.target, AnalysisEdgeKind::Catch, None);
 
@@ -83,10 +106,30 @@ where
 
         let block = match kind {
             AnalysisExitKind::Divergence => block,
-            _ => self.resolve_scopes(block, 0, exit),
+            _ => self.resolve_scopes(block, 0, exit, preserves_exit_value),
         };
 
         self.storage.push_exit(block, kind);
+    }
+
+    pub(super) fn push_dependency_failures(
+        &mut self,
+        block: AnalysisBlockId,
+        invocation: bray_bound_tree::BoundExecutionSite,
+    ) {
+        let failure = self.push_block();
+
+        self.push_edge(
+            block,
+            failure,
+            AnalysisEdgeKind::Sequential,
+            Some(super::model::AnalysisRefinement::InvocationFailure(
+                invocation,
+            )),
+        );
+
+        self.push_exit(failure, AnalysisExitKind::Panic, invocation.node());
+        self.push_exit(failure, AnalysisExitKind::Cancellation, invocation.node());
     }
 
     pub(super) fn push_cleanup_failures(
@@ -95,14 +138,24 @@ where
         retained_depth: usize,
         exit: AnyBoundNodeId,
     ) {
-        let mut can_fail = false;
+        let mut cancellation = None;
 
         for index in (retained_depth..self.scopes.len()).rev() {
-            if !self.scope_cleanup_can_fail(self.scopes[index], exit) {
+            if !self.cleanup_scopes.contains(&self.scopes[index]) {
                 continue;
             }
 
-            can_fail = true;
+            let failure_entry = self.push_block();
+
+            self.push_edge(
+                block,
+                failure_entry,
+                AnalysisEdgeKind::Sequential,
+                Some(super::model::AnalysisRefinement::CleanupRequired {
+                    scope: self.scopes[index],
+                    exit,
+                }),
+            );
 
             let catch = self
                 .catches
@@ -112,31 +165,23 @@ where
                 .copied();
 
             if let Some(catch) = catch {
-                let failure = self.resolve_scopes(block, catch.scope_depth, exit);
+                let failure = self.resolve_scopes(failure_entry, catch.scope_depth, exit, false);
 
                 self.push_edge(failure, catch.target, AnalysisEdgeKind::Catch, None);
             } else {
-                let failure = self.resolve_scopes(block, 0, exit);
+                let failure = self.resolve_scopes(failure_entry, 0, exit, false);
 
                 self.storage.push_exit(failure, AnalysisExitKind::Panic);
             }
+
+            let target = *cancellation.get_or_insert_with(|| self.push_block());
+
+            self.push_edge(failure_entry, target, AnalysisEdgeKind::Sequential, None);
         }
 
-        if can_fail {
-            self.push_exit(block, AnalysisExitKind::Cancellation, exit);
+        if let Some(cancellation) = cancellation {
+            self.push_exit(cancellation, AnalysisExitKind::Cancellation, exit);
         }
-    }
-
-    fn scope_cleanup_can_fail(&self, scope: BoundBlockId, exit: AnyBoundNodeId) -> bool {
-        if !self.cleanup_scopes.contains(&scope) {
-            return false;
-        }
-
-        let Some((_, _, cleanup_free)) = self.completion_semantics else {
-            return true;
-        };
-
-        !cleanup_free.contains(&(scope, exit))
     }
 
     pub(super) fn resolve_scopes(
@@ -144,11 +189,18 @@ where
         mut current: AnalysisBlockId,
         retained_depth: usize,
         exit: AnyBoundNodeId,
+        preserves_exit_value: bool,
     ) -> AnalysisBlockId {
         for index in (retained_depth..self.scopes.len()).rev() {
             let scope = self.scopes[index];
 
-            current = self.storage.push_scope_exit(current, scope, exit);
+            current = self.storage.push_scope_exit(
+                current,
+                scope,
+                exit,
+                preserves_exit_value,
+                self.scoped_exit(scope),
+            );
         }
 
         current

@@ -70,7 +70,7 @@ impl NativeActivation {
             deferred_progress: None,
             retained_lanes: [false; ExecutionLaneRequirement::ALL.len()],
             retained_affinity: ProtectedFrameAffinity::Movable,
-            origin: bray_platform::current_runtime_thread().map(|thread| thread.id()),
+            origin: crate::bootstrap::current_runtime_thread().map(|thread| thread.id()),
             retained_origin: None,
         }
     }
@@ -794,7 +794,7 @@ fn lane_allows(current: ExecutionLane, required: ExecutionLane) -> bool {
             | ExecutionLanePlacement::PinnedWorker(current) => current == required,
             ExecutionLanePlacement::Migratable => {
                 !matches!(required_placement, ExecutionLanePlacement::MainThread(_))
-                    && bray_platform::current_runtime_thread()
+                    && crate::bootstrap::current_runtime_thread()
                         .is_some_and(|thread| thread.id() == required)
             }
         },

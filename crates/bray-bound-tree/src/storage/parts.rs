@@ -190,6 +190,29 @@ impl StorageCleanupPart {
         self.phases
     }
 
+    /// Locates a fixed represented component beneath the selected cleanup owner.
+    /// Element families and storage-policy traversal have no single inline path.
+    pub fn storage_path(
+        &self,
+        storage: &crate::StoragePlan,
+        access: crate::StorageAccessId,
+    ) -> Option<crate::StoragePath> {
+        let mut path = storage.logical_path(access)?.clone();
+
+        let suffix = self
+            .projections
+            .iter()
+            .map(|projection| match projection.projection() {
+                StorageCleanupProjectionKind::Component(projection) => Some(projection),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()?;
+
+        path.projections = path.projections.iter().copied().chain(suffix).collect();
+
+        Some(path)
+    }
+
     /// Returns whether moving one concrete storage path removes this entire cleanup part.
     /// Moving one array element does not remove its whole element family.
     pub fn is_fully_moved_by(&self, path: &[StorageProjection]) -> bool {

@@ -62,6 +62,15 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
         } => Kind::CodegenInvalidAbiMapping(Some(runtime_role_signature_failure_detail(
             *role, expected, actual,
         ))),
+        CodegenPreparationError::InvalidRuntimeRoleSourceContract { role, instance } => {
+            Kind::CodegenInvalidAbiMapping(Some(failure_detail(
+                "codegen_invalid_runtime_role_source_contract",
+                [
+                    text_failure_field("role", role.as_str()),
+                    crate::fact::diagnostic_context::identity_field("instance", instance),
+                ],
+            )))
+        }
         CodegenPreparationError::OpenConstantTerm(term) => Kind::CodegenOpenConstantTerm(
             identity_failure_detail("codegen_open_constant_term", "constant_term", term),
         ),

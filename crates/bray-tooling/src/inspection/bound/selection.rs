@@ -105,6 +105,12 @@ enum InspectionSelectionTarget {
         #[serde(flatten)]
         iteration: Box<InspectionIteration>,
     },
+    ScopedUse {
+        enter: InspectionSymbolIdentity,
+        exit: InspectionSymbolIdentity,
+        source_type: InspectionType,
+        capability_type: InspectionType,
+    },
     Propagation {
         boundary: &'static str,
         result_type: Option<InspectionType>,
@@ -165,6 +171,9 @@ impl InspectionSelectionTarget {
                 iteration.iterate.fulfillment.text(),
                 iteration.next.fulfillment.text()
             ),
+            Self::ScopedUse { enter, exit, .. } => {
+                format!("enter {} then exit {}", enter.text(), exit.text())
+            }
             Self::Propagation {
                 boundary,
                 result_type,
@@ -297,6 +306,7 @@ pub(super) const fn selection_kind(selection: &SemanticSelection) -> &'static st
         SemanticSelection::Predicate(_) => "predicate",
         SemanticSelection::Operation(operation) => operation.kind().as_str(),
         SemanticSelection::Iteration(_) => "iteration",
+        SemanticSelection::ScopedUse(_) => "scoped_use",
         SemanticSelection::Propagation(_) => "propagation",
     }
 }
@@ -342,6 +352,20 @@ fn selection_target(
         SemanticSelection::Iteration(iteration) => {
             iteration_target(iteration, symbols, semantic_values).map(Some)
         }
+        SemanticSelection::ScopedUse(selection) => Ok(Some(InspectionSelectionTarget::ScopedUse {
+            enter: callable_identity(symbols, selection.enter().0),
+            exit: callable_identity(symbols, selection.exit().0),
+            source_type: InspectionType::from_type(
+                semantic_values,
+                symbols,
+                selection.source_type(),
+            )?,
+            capability_type: InspectionType::from_type(
+                semantic_values,
+                symbols,
+                selection.capability_type(),
+            )?,
+        })),
         SemanticSelection::Propagation(propagation) => {
             propagation_target(propagation, symbols, semantic_values).map(Some)
         }

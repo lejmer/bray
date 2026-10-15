@@ -1,9 +1,8 @@
 use bray_bound_tree::{
     BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, BoundCallResult,
-    BoundCallableTarget, CheckedAsync, CheckedControlFlow, CheckedSemanticSelections,
-    ConstructionTarget, ConversionTarget, DefaultValueProvider, IndexTarget, OperatorTarget,
-    SelectedArgument, SelectedConstructionInput, SelectedConversion, SelectedOperation,
-    SemanticSelection,
+    BoundCallableTarget, CheckedControlFlow, CheckedSemanticSelections, ConstructionTarget,
+    ConversionTarget, DefaultValueProvider, IndexTarget, OperatorTarget, SelectedArgument,
+    SelectedConstructionInput, SelectedConversion, SelectedOperation, SemanticSelection,
 };
 use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -12,11 +11,10 @@ use bray_symbols::CurrentRunCancellation;
 use crate::unit::assert_unit_inputs;
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
-pub(crate) fn collect_body_behavior<C>(
+pub(crate) fn collect_selected_behavior<C>(
     request: CheckerUnitView<'_, C>,
     control_flow: &CheckedControlFlow,
     selections: &CheckedSemanticSelections,
-    async_analysis: &CheckedAsync,
 ) -> CheckerOutcome<BodyBehaviorContributions>
 where
     C: CheckerRequestContext + ?Sized,
@@ -32,10 +30,6 @@ where
             (
                 "semantic selections",
                 (selections.unit(), selections.kind()),
-            ),
-            (
-                "async analysis",
-                (async_analysis.unit(), async_analysis.kind()),
             ),
         ],
     );
@@ -102,6 +96,35 @@ where
             SemanticSelection::Operation(operation) => {
                 collect_operation_behavior(operation, source, &mut calls, &mut defaults);
             }
+            SemanticSelection::ScopedUse(selection) => {
+                for (target, signature) in [selection.enter(), selection.exit()] {
+                    let mut contribution = BodyBehaviorCall::new(
+                        BoundCallableTarget::Declaration(*target),
+                        BodyBehaviorPhase::Invocation,
+                    );
+
+                    if let Some(source) = source {
+                        contribution = contribution.with_source(source);
+                    }
+
+                    calls.push(contribution);
+
+                    if matches!(request.semantic_values().type_data(signature.callable_type()).as_ref(),
+                        bray_symbols::TypeData::Callable(callable) if callable.execution() == bray_symbols::CallableExecution::Asynchronous)
+                    {
+                        let mut contribution = BodyBehaviorCall::new(
+                            BoundCallableTarget::Declaration(*target),
+                            BodyBehaviorPhase::DeferredExecution,
+                        );
+
+                        if let Some(source) = source {
+                            contribution = contribution.with_source(source);
+                        }
+
+                        calls.push(contribution);
+                    }
+                }
+            }
             SemanticSelection::Iteration(selection) => {
                 calls.extend([selection.iterate(), selection.next()].map(|target| {
                     let contribution = BodyBehaviorCall::new(
@@ -123,10 +146,6 @@ where
             | SemanticSelection::Predicate(_)
             | SemanticSelection::Propagation(_) => {}
         }
-    }
-
-    for suspension in async_analysis.suspensions() {
-        calls.extend(suspension.deferred_calls().iter().cloned());
     }
 
     let current_run_cancellation = if enters_current_run_cancellation
@@ -380,21 +399,29 @@ mod tests {
 
         let request = CheckerUnitView::new(&unit, &semantic_context, &context);
 
-        let result = DefaultBodyBehaviorCollector.collect_body_behavior(
+        let result = DefaultBodyBehaviorCollector.collect_selected_behavior(
             request,
             &control_flow,
             &selections,
-            &async_analysis,
         );
 
         let crate::CheckerOutcome::Complete(result) = result else {
             panic!("behavior collection must complete");
         };
 
-        assert_eq!(result.value().calls().len(), 2);
+        assert_eq!(result.value().calls().len(), 1);
+
+        let completed = result.into_parts().0.with_deferred_calls(
+            async_analysis
+                .suspensions()
+                .iter()
+                .flat_map(|suspension| suspension.deferred_calls().iter().cloned()),
+        );
+
+        assert_eq!(completed.calls().len(), 2);
 
         assert_eq!(
-            result.value().current_run_cancellation(),
+            completed.current_run_cancellation(),
             CurrentRunCancellation::MayEnter
         );
     }

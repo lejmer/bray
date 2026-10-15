@@ -133,6 +133,28 @@ fn selection_internal_dependency(
             dependencies.push(*symbol);
         }
         SemanticSelection::Reference(BoundReferenceTarget::Local(_)) => {}
+        SemanticSelection::ScopedUse(selection) => {
+            for (callable, _) in [selection.enter(), selection.exit()] {
+                dependencies.push(callable.definition().symbol());
+
+                if let Some(internal) = callable_instance_internal_dependency(
+                    *callable,
+                    semantic_values,
+                    symbols,
+                    declarations,
+                )? {
+                    return Ok(Some(internal));
+                }
+            }
+
+            for ty in [selection.source_type(), selection.capability_type()] {
+                if let Some(internal) =
+                    resolved_type_internal_dependency(ty, semantic_values, symbols, declarations)?
+                {
+                    return Ok(Some(internal));
+                }
+            }
+        }
         SemanticSelection::CallableReference(callable) => {
             dependencies.push(callable.definition().symbol());
 

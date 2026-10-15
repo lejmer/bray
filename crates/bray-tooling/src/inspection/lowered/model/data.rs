@@ -886,6 +886,9 @@ fn memory_operation_parts(
     }
 
     let (name, types) = match memory.kind() {
+        CheckedMemoryOperationKind::UninitFrom { element } => {
+            ("uninit_from", vec![("element", element)])
+        }
         CheckedMemoryOperationKind::UninitNew { element } => {
             ("uninit_new", vec![("element", element)])
         }
@@ -941,6 +944,13 @@ fn memory_operation_parts(
         CheckedMemoryOperationKind::RawDeallocate | CheckedMemoryOperationKind::Deallocate => {
             ("deallocate", Vec::new())
         }
+        CheckedMemoryOperationKind::RawBufferPush { element } => {
+            ("raw_buffer_push", vec![("type", element)])
+        }
+        CheckedMemoryOperationKind::RawBufferPop { element } => {
+            ("raw_buffer_pop", vec![("type", element)])
+        }
+        CheckedMemoryOperationKind::RawBufferAllocate => ("raw_buffer_allocate", Vec::new()),
         CheckedMemoryOperationKind::RawBufferCapacity => ("raw_buffer_capacity", Vec::new()),
         CheckedMemoryOperationKind::RawBufferInitializedCount => {
             ("raw_buffer_initialized_count", Vec::new())
@@ -968,7 +978,6 @@ fn memory_operation_parts(
             ("raw_buffer_relocate", vec![("element", element)])
         }
         CheckedMemoryOperationKind::ByteBufferFill => ("byte_buffer_fill", Vec::new()),
-        CheckedMemoryOperationKind::ByteBufferCopy => ("byte_buffer_copy", Vec::new()),
         CheckedMemoryOperationKind::ByteBufferRead => ("byte_buffer_read", Vec::new()),
         CheckedMemoryOperationKind::SequenceLength => ("sequence_length", Vec::new()),
         CheckedMemoryOperationKind::CallbackState { state } => {

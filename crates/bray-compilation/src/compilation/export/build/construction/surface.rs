@@ -107,8 +107,7 @@ pub(in crate::compilation::export::build) fn build_identity_surface(
         .iter()
         .copied()
         .filter_map(|symbol| {
-            export_relationship(graph, symbol, &selected, &keys, &relationship_ordinals)
-                .transpose()
+            export_relationship(graph, symbol, &selected, &keys, &relationship_ordinals).transpose()
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -482,7 +481,9 @@ fn export_relationship(
         return Ok(None);
     };
 
-    let ordinal = ordinals.get(&(owner, member)).copied()
+    let ordinal = ordinals
+        .get(&(owner, member))
+        .copied()
         .map(SymbolOrdinal::raw)
         .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationSemantics(member.kind()))?;
 
@@ -761,7 +762,12 @@ mod tests {
 
         assert_eq!(ordinals.get(&(module, first)), Some(&SymbolOrdinal::new(0)));
         assert_eq!(ordinals.get(&(module, last)), Some(&SymbolOrdinal::new(2)));
-        assert_eq!(ordinals.get(&(last, parameters[2])), Some(&SymbolOrdinal::new(1)));
+
+        assert_eq!(
+            ordinals.get(&(last, parameters[2])),
+            Some(&SymbolOrdinal::new(1))
+        );
+
         assert!(!ordinals.contains_key(&(module, omitted)));
     }
 }

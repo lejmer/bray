@@ -311,7 +311,6 @@ impl Compilation {
             template.value(),
             constants.value(),
         )
-        .map_err(FactQueryError::from)?
         .ok_or_else(|| {
             SemanticQueryFailure::contract(
                 SemanticQueryContext::Symbol(definition.into_any()),
@@ -492,7 +491,8 @@ impl Compilation {
             cancellation,
         )?;
 
-        let resolver = CompilationConstantCallResolver::new(self, cancellation);
+        let resolver = CompilationConstantCallResolver::new(self, cancellation)
+            .with_substitution(instance.substitution());
 
         let input = ConstantEvaluationInput::new(&types, semantics.result().value().selections())
             .with_references(references)
@@ -1364,15 +1364,18 @@ mod tests {
 
     #[test]
     fn constant_calls_propagate_closed_result_values() {
-        let compilation = compilation(concat!(
-            "module app;\n",
-            "const func forward(pos value: Result<i32, i32>) -> Result<i32, i32>\n",
-            "{\n",
-            "    const unwrapped: i32 = try value;\n",
-            "\n",
-            "    return value;\n",
-            "}\n",
-        ));
+        let compilation = compilation(
+            r#"
+            module app;
+
+            const func forward(pos value: Result<i32, i32>) -> Result<i32, i32>
+            {
+                const unwrapped: i32 = try value;
+
+                return Ok(unwrapped);
+            }
+        "#,
+        );
 
         let integer_type = i32_type(&compilation);
         let result_type = result_type(&compilation, integer_type, integer_type);
@@ -1820,6 +1823,53 @@ mod tests {
         }));
 
         assert!(matches!(
+            constant_value(&compilation, result.value().value()).kind(),
+            ConstantValueKind::Error
+        ));
+    }
+
+    #[test]
+    fn generic_constant_callables_substitute_nested_calls() {
+        let compilation = compilation(
+            r#"module app;
+struct Holder<T> {
+    marker: i32;
+    static const func make() -> Self { return make_holder<T>(); }
+}
+const func make_holder<T>() -> Holder<T> { return { marker = 7 }; }
+const RESULT: Holder<i32> = Holder<i32>.make();
+"#,
+        );
+
+        let diagnostics = compilation.check_diagnostics();
+
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+
+        let definitions = source_constant_definitions(&compilation);
+
+        let [definition] = definitions.as_slice() else {
+            panic!("test source has one constant");
+        };
+
+        let result = compilation.constant_definition(*definition).unwrap();
+
+        assert!(
+            !result.diagnostics().has_errors(),
+            "{:?}",
+            result.diagnostics()
+        );
+
+        let result = compilation
+            .constant_instance(instance_key(&compilation, *definition))
+            .unwrap();
+
+        assert!(
+            !result.diagnostics().has_errors(),
+            "{:?}",
+            result.diagnostics()
+        );
+
+        assert!(!matches!(
             constant_value(&compilation, result.value().value()).kind(),
             ConstantValueKind::Error
         ));

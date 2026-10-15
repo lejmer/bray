@@ -44,6 +44,13 @@ pub struct CallableExecutionDomain<T> {
     pub postconditions: Arc<[(SymbolOrdinal, T)]>,
 }
 
+impl<T: Ord> CallableExecutionDomain<T> {
+    /// Whether the domain adds no entry condition beyond the supplied requirements.
+    pub fn requires_only(&self, requirements: &std::collections::BTreeSet<T>) -> bool {
+        self.entry.iter().all(|term| requirements.contains(term))
+    }
+}
+
 /// The authority supplying a declared execution promise.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CallableExecutionOrigin {

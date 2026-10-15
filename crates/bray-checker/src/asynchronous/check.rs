@@ -17,78 +17,19 @@ use bray_symbols::{AnyLocalSymbolId, CallableExecution, CallableSignatureQuery, 
 use super::cleanup::scope_exit_plans;
 use super::diagnostic::{add_unavailable_await_dependency_diagnostic, await_dependency_failure};
 
-use crate::analysis::{
-    AnalysisOperationKind, AnalysisSuspensionKind, AnalysisTaskOperationKind,
-    ControlFlowGraphBuildOutcome, build_storage_control_flow_graph,
-};
+use crate::analysis::{AnalysisOperationKind, AnalysisSuspensionKind, AnalysisTaskOperationKind};
 use crate::diagnostic::{diagnostic_id, expression_span};
-use crate::unit::assert_unit_inputs;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerStorageFlowFailure, CheckerUnitView,
+    CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider,
+    CheckerUnitView,
 };
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "async checking consumes independently materialized semantic analysis sets explicitly"
-)]
-pub(crate) fn check_async_analysis<C>(
-    request: CheckerUnitView<'_, C>,
-    types: &CheckedExpressionTypes,
-    selections: &CheckedSemanticSelections,
-    liveness: &Liveness,
-    dependencies: &CheckedDependencyContracts,
-    storage: &StoragePlan,
-    refinements: &CheckedRefinements,
-    flow: &StorageFlow,
-) -> CheckerOutcome<CheckedAsync, C::UpstreamError>
-where
-    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
-{
-    if request.is_cancelled() {
-        return CheckerOutcome::Cancelled;
-    }
-
-    assert_inputs(
-        request,
-        types,
-        selections,
-        liveness,
-        dependencies,
-        storage,
-        refinements,
-        flow,
-    );
-
-    let graph = match build_storage_control_flow_graph(request, storage, selections, None) {
-        ControlFlowGraphBuildOutcome::Complete(graph) => graph,
-        ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
-        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
-    };
-
-    check_async_analysis_with_graph(
-        request,
-        types,
-        selections,
-        liveness,
-        dependencies,
-        storage,
-        refinements,
-        flow,
-        &graph,
-    )
-}
 
 #[expect(
     clippy::too_many_arguments,
     reason = "async checking consumes correlated durable inputs and one shared control-flow graph"
 )]
 pub(crate) fn check_async_analysis_with_graph<C>(
+    cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     selections: &CheckedSemanticSelections,
@@ -109,9 +50,6 @@ where
     let execution = match containing_execution(request).map_err(CheckerQueryError::with_upstream) {
         Ok(execution) => execution,
         Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         Err(CheckerQueryError::Upstream(error)) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
@@ -121,7 +59,10 @@ where
     let mut deferred_calls = BTreeMap::new();
     let mut active = BTreeSet::new();
     let mut diagnostics = DiagnosticBag::new();
-    let mut suspensions = Vec::new();
+
+    let mut suspensions =
+        BTreeMap::<bray_bound_tree::BoundExecutionSite, AsyncSuspensionPoint>::new();
+
     let mut task_operations = BTreeMap::new();
     let mut frame_dependencies = BTreeSet::new();
 
@@ -133,35 +74,34 @@ where
         }
 
         match operation.kind() {
-            AnalysisOperationKind::Suspension { expression, kind } => {
+            AnalysisOperationKind::Suspension { occurrence, kind } => {
+                let expression = occurrence
+                    .expression()
+                    .expect("checked suspension has an expression owner");
+
+                {
+                    add_suspension_context_diagnostic(
+                        request,
+                        execution,
+                        expression,
+                        kind,
+                        &mut diagnostics,
+                    );
+                }
+
                 let (kind, dependency_contract, calls, syntax_recovered) = match kind {
                     AnalysisSuspensionKind::Await => {
                         let Some(BoundExpression::Await(await_expression)) =
                             request.view().expression(expression)
                         else {
-                            is_recovered = true;
-
-                            continue;
+                            panic!(
+                                "await suspension retains its bound await expression: {expression:?}"
+                            );
                         };
-
-                        if execution == Some(CallableExecution::Synchronous) {
-                            let span = match expression_span(request, expression) {
-                                Ok(span) => span,
-                                Err(error) => {
-                                    return CheckerOutcome::InfrastructureFailure(error);
-                                }
-                            };
-
-                            diagnostics.add(invalid_async_operation_diagnostic(
-                                diagnostic_id(diagnostics.len()),
-                                DiagnosticKind::CheckingAwaitOutsideAsyncCallable,
-                                span,
-                            ));
-                        }
 
                         let operand = await_expression.operand();
 
-                        let calls = match expression_deferred_calls(
+                        let calls = expression_deferred_calls(
                             request,
                             selections,
                             types,
@@ -169,12 +109,7 @@ where
                             operand,
                             &mut deferred_calls,
                             &mut active,
-                        ) {
-                            Ok(calls) => calls,
-                            Err(error) => {
-                                return CheckerOutcome::InfrastructureFailure(error);
-                            }
-                        };
+                        );
 
                         (
                             AsyncSuspensionKind::Await { operand },
@@ -187,77 +122,85 @@ where
                                 .is_none_or(BoundExpression::is_recovered),
                         )
                     }
+                    AnalysisSuspensionKind::ScopedCall => (
+                        AsyncSuspensionKind::ScopedCall,
+                        dependencies.deferred_expression(occurrence),
+                        BTreeSet::from([scoped_deferred_call(selections, occurrence)]),
+                        false,
+                    ),
                     AnalysisSuspensionKind::Yield => {
                         (AsyncSuspensionKind::Yield, None, BTreeSet::new(), false)
                     }
                 };
 
+                let suspension_state = flow.suspension(occurrence);
+
                 let retained = liveness.retained_suspension_subjects(
                     dependencies,
                     storage,
-                    expression,
+                    occurrence,
                     dependency_contract,
+                    suspension_state,
                 );
 
                 frame_dependencies.extend(retained.iter().copied());
 
-                let suspension_state = flow.suspension(expression);
-
                 let dependency_failure = match &kind {
-                    AsyncSuspensionKind::Await { .. } => match await_dependency_failure(
-                        request,
-                        dependencies,
-                        storage,
-                        refinements,
-                        expression,
-                        dependency_contract,
-                        suspension_state,
-                        syntax_recovered,
-                    ) {
-                        Ok(failure) => failure,
-                        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-                    },
+                    AsyncSuspensionKind::Await { .. } | AsyncSuspensionKind::ScopedCall => {
+                        await_dependency_failure(
+                            request,
+                            dependencies,
+                            storage,
+                            refinements,
+                            expression,
+                            dependency_contract,
+                            suspension_state,
+                            syntax_recovered,
+                        )
+                    }
                     AsyncSuspensionKind::Yield => None,
                 };
 
-                if let Some(failure) = dependency_failure.as_ref()
-                    && let Err(error) = add_unavailable_await_dependency_diagnostic(
+                if let Some(failure) = dependency_failure.as_ref() {
+                    add_unavailable_await_dependency_diagnostic(
                         request,
                         storage,
                         expression,
                         failure,
                         &mut diagnostics,
-                    )
-                {
-                    return CheckerOutcome::InfrastructureFailure(error);
+                    );
                 }
 
                 let suspension_recovered = syntax_recovered || suspension_state.is_none();
 
                 is_recovered |= suspension_recovered;
 
-                suspensions.push(AsyncSuspensionPoint::new(
-                    expression,
+                let suspension = AsyncSuspensionPoint::new(
+                    occurrence,
                     kind,
                     dependency_contract,
                     calls,
                     retained,
                     suspension_recovered,
-                ));
+                );
+
+                // Deferred calls share immutable checked contracts across the exit paths.
+                suspensions
+                    .entry(occurrence)
+                    .and_modify(|previous| previous.merge_path(&suspension))
+                    .or_insert(suspension);
             }
             AnalysisOperationKind::TaskOperation { expression, kind } => {
                 let operation = AsyncTaskOperation::new(expression, task_operation_kind(kind));
 
-                if task_operations.insert(expression, operation).is_none()
-                    && let Err(error) = add_task_context_diagnostic(
+                if task_operations.insert(expression, operation).is_none() {
+                    add_task_context_diagnostic(
                         request,
                         execution,
                         expression,
                         kind,
                         &mut diagnostics,
-                    )
-                {
-                    return CheckerOutcome::InfrastructureFailure(error);
+                    );
                 }
             }
             AnalysisOperationKind::Recovery(_) => is_recovered = true,
@@ -268,23 +211,28 @@ where
         }
     }
 
-    if let Err(error) = add_selected_task_operations(
-        request,
-        selections,
-        execution,
-        &mut task_operations,
-        &mut diagnostics,
-    ) {
-        return CheckerOutcome::InfrastructureFailure(error);
+    {
+        add_selected_task_operations(
+            request,
+            selections,
+            execution,
+            &mut task_operations,
+            &mut diagnostics,
+        );
     }
 
     let (storage_requirements, cleanup_types, scope_exits, replacements, cleanup_diagnostics) =
-        match scope_exit_plans(request, storage, flow, dependencies, selections, types) {
+        match scope_exit_plans(
+            cleanup_shapes,
+            request,
+            storage,
+            flow,
+            dependencies,
+            selections,
+            types,
+        ) {
             Ok(plans) => plans,
             Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Infrastructure(error)) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
             Err(CheckerQueryError::Upstream(error)) => {
                 return CheckerOutcome::UpstreamFailure(error);
             }
@@ -298,7 +246,7 @@ where
         request.unit().unit(),
         request.unit().key().kind(),
         frame_dependencies,
-        suspensions,
+        suspensions.into_values(),
         task_operations.into_values(),
         storage_requirements,
         cleanup_types,
@@ -309,9 +257,10 @@ where
     {
         Ok(analysis) => analysis,
         Err(error) => {
-            return CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::StorageFlow(
-                CheckerStorageFlowFailure::AsyncConstruction(error),
-            ));
+            panic!(
+                "Durable async-analysis construction rejected an exact invariant. in check_async_analysis_with_graph, value0: {:?}",
+                error
+            );
         }
     };
 
@@ -324,8 +273,7 @@ fn add_selected_task_operations<C>(
     execution: Option<CallableExecution>,
     task_operations: &mut BTreeMap<BoundExpressionId, AsyncTaskOperation>,
     diagnostics: &mut DiagnosticBag,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
     for entry in selections.entries() {
@@ -346,43 +294,9 @@ where
                 entry.expression(),
                 analysis_kind,
                 diagnostics,
-            )?;
+            );
         }
     }
-
-    Ok(())
-}
-
-fn assert_inputs<C>(
-    request: CheckerUnitView<'_, C>,
-    types: &CheckedExpressionTypes,
-    selections: &CheckedSemanticSelections,
-    liveness: &Liveness,
-    dependencies: &CheckedDependencyContracts,
-    storage: &StoragePlan,
-    refinements: &CheckedRefinements,
-    flow: &StorageFlow,
-) where
-    C: CheckerRequestContext + ?Sized,
-{
-    assert_unit_inputs(
-        request,
-        [
-            ("expression types", (types.unit(), types.kind())),
-            (
-                "semantic selections",
-                (selections.unit(), selections.kind()),
-            ),
-            ("liveness", (liveness.unit(), liveness.kind())),
-            (
-                "dependency contracts",
-                (dependencies.unit(), dependencies.kind()),
-            ),
-            ("storage plan", (storage.unit(), storage.kind())),
-            ("refinements", (refinements.unit(), refinements.kind())),
-            ("storage flow", (flow.unit(), flow.kind())),
-        ],
-    )
 }
 
 fn containing_execution<C>(
@@ -444,17 +358,17 @@ fn expression_deferred_calls<C>(
     expression: BoundExpressionId,
     memoized: &mut BTreeMap<BoundExpressionId, BTreeSet<BodyBehaviorCall>>,
     active: &mut BTreeSet<BoundExpressionId>,
-) -> Result<BTreeSet<BodyBehaviorCall>, CheckerInfrastructureError>
+) -> BTreeSet<BodyBehaviorCall>
 where
     C: CheckerRequestContext + ?Sized,
 {
     if let Some(calls) = memoized.get(&expression) {
         // The cached set remains available while each caller combines an independent result.
-        return Ok(calls.clone());
+        return calls.clone();
     }
 
     if !active.insert(expression) {
-        return Ok(BTreeSet::new());
+        return BTreeSet::new();
     }
 
     let mut calls = BTreeSet::new();
@@ -497,7 +411,7 @@ where
                 *initializer,
                 memoized,
                 active,
-            )?);
+            ));
         }
 
         if let BoundExpression::PatternReference(reference) = node
@@ -512,7 +426,7 @@ where
                 *initializer,
                 memoized,
                 active,
-            )?);
+            ));
         }
 
         for child in node.child_expressions() {
@@ -524,7 +438,7 @@ where
                 child,
                 memoized,
                 active,
-            )?);
+            ));
         }
 
         for block in node.child_blocks() {
@@ -542,7 +456,7 @@ where
                     result,
                     memoized,
                     active,
-                )?);
+                ));
             }
         }
     }
@@ -552,7 +466,7 @@ where
     // The cached set remains available while this caller takes ownership of its result.
     memoized.insert(expression, calls.clone());
 
-    Ok(calls)
+    calls
 }
 
 fn is_future_expression<C>(
@@ -617,24 +531,21 @@ fn add_task_context_diagnostic<C>(
     expression: BoundExpressionId,
     kind: AnalysisTaskOperationKind,
     diagnostics: &mut DiagnosticBag,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
     if kind != AnalysisTaskOperationKind::Start || execution != Some(CallableExecution::Synchronous)
     {
-        return Ok(());
+        return;
     }
 
-    let span = expression_span(request, expression)?;
+    let span = expression_span(request, expression);
 
     diagnostics.add(invalid_async_operation_diagnostic(
         diagnostic_id(diagnostics.len()),
         DiagnosticKind::CheckingTaskStartOutsideAsyncCallable,
         span,
     ));
-
-    Ok(())
 }
 
 fn invalid_async_operation_diagnostic(
@@ -675,7 +586,7 @@ mod tests {
     use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::{
-        AnalysisTaskOperationKind, add_task_context_diagnostic, check_async_analysis,
+        AnalysisTaskOperationKind, add_task_context_diagnostic, check_async_analysis_with_graph,
         selected_task_operation,
     };
     use crate::test_support::{
@@ -746,8 +657,7 @@ mod tests {
             expressions[0],
             AnalysisTaskOperationKind::Start,
             &mut diagnostics,
-        )
-        .unwrap_or_else(|error| panic!("test expression span must resolve: {error:?}"));
+        );
 
         assert_eq!(
             diagnostics
@@ -764,16 +674,9 @@ mod tests {
     }
 
     #[test]
-    fn non_recovered_await_without_an_inferred_dependency_contract_is_infrastructure_failure() {
-        let CheckerOutcome::InfrastructureFailure(crate::CheckerInfrastructureError::StorageFlow(
-            crate::CheckerStorageFlowFailure::MissingAwaitDependencyContract { expression },
-        )) = await_outcome(false, true)
-        else {
-            panic!("missing await dependencies must retain the exact expression")
-        };
-
-        assert_eq!(expression.unit(), BoundUnitId::new(72));
-        assert_eq!(expression.ordinal(), 1);
+    #[should_panic(expected = "selected dependency contract")]
+    fn non_recovered_await_requires_its_inferred_dependency_contract() {
+        await_outcome(false, true);
     }
 
     #[test]
@@ -967,7 +870,7 @@ mod tests {
         let mut storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
 
         let deferred = build_contract(&unit, &expressions, &mut storage)
-            .map(|contract| (expressions[0], contract));
+            .map(|contract| (expressions[0].into(), contract));
 
         let storage = storage.finish();
 
@@ -980,11 +883,17 @@ mod tests {
         let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
             .unwrap_or_else(|error| panic!("empty test liveness must validate: {error:?}"));
 
-        let refinements = CheckedRefinements::try_new(unit.unit(), unit.key().kind(), [], false)
-            .unwrap_or_else(|error| panic!("empty test refinements must validate: {error:?}"));
+        let refinements = CheckedRefinements::try_new(
+            unit.unit(),
+            unit.key().kind(),
+            [],
+            Default::default(),
+            false,
+        )
+        .unwrap_or_else(|error| panic!("empty test refinements must validate: {error:?}"));
 
         let suspension = include_suspension_state
-            .then(|| StorageSuspensionState::new(expressions[1], [], [], [], []));
+            .then(|| StorageSuspensionState::new(expressions[1], [], [], [], [], []));
 
         let flow = StorageFlow::try_new(
             unit.unit(),
@@ -993,11 +902,35 @@ mod tests {
             suspension,
             [],
             [],
+            [],
             false,
         )
         .unwrap_or_else(|error| panic!("test storage flow must validate: {error:?}"));
 
-        check_async_analysis(
+        let patterns =
+            bray_bound_tree::CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], []);
+
+        let mut cleanup_shapes = crate::asynchronous::CleanupShapeResolver::new(request);
+
+        let graph = match crate::analysis::build_storage_control_flow_graph(
+            &mut cleanup_shapes,
+            request,
+            &storage,
+            &selections,
+            Some(&patterns),
+            None,
+        ) {
+            crate::analysis::ControlFlowGraphBuildOutcome::Complete(graph) => graph,
+            crate::analysis::ControlFlowGraphBuildOutcome::Cancelled => {
+                return CheckerOutcome::Cancelled;
+            }
+            crate::analysis::ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
+                return CheckerOutcome::UpstreamFailure(error);
+            }
+        };
+
+        check_async_analysis_with_graph(
+            &mut cleanup_shapes,
             request,
             &types,
             &selections,
@@ -1006,6 +939,7 @@ mod tests {
             &storage,
             &refinements,
             &flow,
+            &graph,
         )
     }
 
@@ -1029,4 +963,40 @@ mod tests {
             argument.value() == &DiagnosticArgValue::DependencyRequirementKind(expected_requirement)
         }));
     }
+}
+
+fn add_suspension_context_diagnostic<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    execution: Option<CallableExecution>,
+    expression: BoundExpressionId,
+    kind: AnalysisSuspensionKind,
+    diagnostics: &mut DiagnosticBag,
+) {
+    if kind != AnalysisSuspensionKind::Yield && execution == Some(CallableExecution::Synchronous) {
+        let span = expression_span(request, expression);
+
+        diagnostics.add(invalid_async_operation_diagnostic(
+            diagnostic_id(diagnostics.len()),
+            DiagnosticKind::CheckingAwaitOutsideAsyncCallable,
+            span,
+        ));
+    }
+}
+
+fn scoped_deferred_call(
+    selections: &CheckedSemanticSelections,
+    occurrence: bray_bound_tree::BoundExecutionSite,
+) -> BodyBehaviorCall {
+    let expression = occurrence
+        .expression()
+        .expect("scoped suspension retains its with occurrence");
+
+    let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(expression) else {
+        panic!("checked scoped suspension retains its lifecycle pair");
+    };
+
+    BodyBehaviorCall::new(
+        BoundCallableTarget::Declaration(scoped.invocation(occurrence).0),
+        BodyBehaviorPhase::DeferredExecution,
+    )
 }

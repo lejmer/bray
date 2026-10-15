@@ -1,14 +1,14 @@
 use bray_bound_tree::{
     BoundDependencyGuard, BoundDependencySubject, BoundExpressionId,
     DependencyContractInstantiationContext, SelectedArgument, SelectedCall, StorageAccessId,
-    StorageIdentity, StoragePlan, StorageProjection,
+    StorageIdentity, StoragePlan,
 };
 use bray_symbols::{
     DependencyGuard, DependencyProjection, DependencyRequirementKind, DependencySubject,
     DependencySubjectRoot, ReceiverMode, SymbolOrdinal,
 };
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerQueryError, CheckerQueryResult, CheckerRequestContext, CheckerUnitView};
 
 enum CallInstantiationInput<'check> {
     Selected {
@@ -16,8 +16,9 @@ enum CallInstantiationInput<'check> {
         call: &'check SelectedCall,
     },
     Hidden {
-        receiver: StorageAccessId,
-        result: StorageAccessId,
+        input: (DependencySubjectRoot, StorageAccessId),
+        result: Option<StorageAccessId>,
+        expression: Option<BoundExpressionId>,
     },
 }
 
@@ -54,13 +55,18 @@ where
     pub(super) const fn hidden(
         request: CheckerUnitView<'check, C>,
         storage: &'check StoragePlan,
-        receiver: StorageAccessId,
-        result: StorageAccessId,
+        input: (DependencySubjectRoot, StorageAccessId),
+        result: Option<StorageAccessId>,
+        expression: Option<BoundExpressionId>,
     ) -> Self {
         Self {
             request,
             storage,
-            input: CallInstantiationInput::Hidden { receiver, result },
+            input: CallInstantiationInput::Hidden {
+                input,
+                result,
+                expression,
+            },
             deferred: false,
             result_values: None,
         }
@@ -77,7 +83,7 @@ where
     fn resolve_guard_access(
         &mut self,
         subject: &DependencySubject,
-    ) -> Result<StorageAccessId, CheckerInfrastructureError> {
+    ) -> CheckerQueryResult<StorageAccessId, C::UpstreamError> {
         match self.resolve_subject(subject, DependencyRequirementKind::StorageAlive)? {
             BoundDependencySubject::StorageAccess(access) => Ok(access),
             BoundDependencySubject::Storage(_)
@@ -87,14 +93,21 @@ where
             | BoundDependencySubject::ProductStatic(_)
             | BoundDependencySubject::ExactThreadStatic(_)
             | BoundDependencySubject::LifecycleObligation(_) => {
-                Err(CheckerInfrastructureError::InvalidSemanticSelectionInput)
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in resolve_guard_access"
+                )
             }
         }
     }
 
     fn selected_expression(&self, root: DependencySubjectRoot) -> Option<BoundExpressionId> {
-        let CallInstantiationInput::Selected { expression, call } = self.input else {
-            return None;
+        let (expression, call) = match self.input {
+            CallInstantiationInput::Selected { expression, call } => (expression, call),
+            CallInstantiationInput::Hidden {
+                input, expression, ..
+            } => {
+                return (root == input.0).then_some(expression).flatten();
+            }
         };
 
         match root {
@@ -103,20 +116,40 @@ where
         }
     }
 
-    fn hidden_access(&self, root: DependencySubjectRoot) -> Option<StorageAccessId> {
-        let CallInstantiationInput::Hidden { receiver, result } = self.input else {
+    fn receiver_access(&self, root: DependencySubjectRoot) -> Option<StorageAccessId> {
+        if root != DependencySubjectRoot::Receiver {
+            return None;
+        }
+
+        let CallInstantiationInput::Selected { call, .. } = self.input else {
             return None;
         };
 
-        match root {
-            DependencySubjectRoot::Receiver => Some(receiver),
-            DependencySubjectRoot::Result => Some(result),
-            DependencySubjectRoot::Parameter(_)
-            | DependencySubjectRoot::EvaluationStorage
-            | DependencySubjectRoot::ScopedCapability(_)
-            | DependencySubjectRoot::ImplementationWitness(_)
-            | DependencySubjectRoot::ProductStatic(_)
-            | DependencySubjectRoot::ExactThreadStatic(_) => None,
+        let receiver = call.receiver()?;
+
+        let kind = match receiver.mode() {
+            ReceiverMode::Shared => bray_symbols::BorrowKind::Shared,
+            ReceiverMode::Mutable => bray_symbols::BorrowKind::Mutable,
+            _ => return None,
+        };
+
+        self.storage
+            .expression_plans(receiver.expression())
+            .find(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Borrow(kind))
+            .map(bray_bound_tree::StorageAccessPlan::access)
+    }
+
+    fn hidden_access(&self, root: DependencySubjectRoot) -> Option<StorageAccessId> {
+        let CallInstantiationInput::Hidden { input, result, .. } = self.input else {
+            return None;
+        };
+
+        if root == input.0 {
+            Some(input.1)
+        } else if root == DependencySubjectRoot::Result {
+            result
+        } else {
+            None
         }
     }
 
@@ -212,7 +245,7 @@ impl<C> DependencyContractInstantiationContext for CallInstantiationContext<'_, 
 where
     C: CheckerRequestContext + ?Sized,
 {
-    type Error = CheckerInfrastructureError;
+    type Error = CheckerQueryError<C::UpstreamError>;
 
     fn unit(&self) -> bray_bound_tree::BoundUnitId {
         self.request.unit().unit()
@@ -266,16 +299,15 @@ where
         let frame_access = self.deferred_frame_access(root);
 
         let base = frame_access
+            .or_else(|| (requirement != DependencyRequirementKind::ValueDependencies).then(|| self.receiver_access(root)).flatten())
             .or_else(|| {
                 expression.and_then(|expression| expression_access(self.storage, expression))
             })
-            .or_else(|| self.hidden_access(root))
-            .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            .or_else(|| self.hidden_access(root)).unwrap_or_else(|| panic!("resolve_subject requires dependency storage access, root: {root:?}, expression: {expression:?}, requirement: {requirement:?}"));
 
         if let DependencyRequirementKind::BorrowCapabilityActive(kind) = requirement {
             let capability = self
-                .borrow_capability(expression, base, kind)
-                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+                .borrow_capability(expression, base, kind).unwrap_or_else(|| panic!("resolve_subject requires planned borrow capability, subject: {subject:?}, expression: {expression:?}, requirement: {requirement:?}"));
 
             return Ok(BoundDependencySubject::BorrowCapability(capability));
         }
@@ -283,7 +315,7 @@ where
         let access = if frame_access.is_some() {
             base
         } else {
-            projected_access(self.storage, base, projections).unwrap_or(base)
+            projected_access(self.request, self.storage, base, projections)?.unwrap_or(base)
         };
 
         Ok(BoundDependencySubject::StorageAccess(access))
@@ -333,47 +365,15 @@ pub(super) fn identity_access(
     storage.root_access(identity)
 }
 
-fn projected_access(
+fn projected_access<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     base: StorageAccessId,
     projections: &[DependencyProjection],
-) -> Option<StorageAccessId> {
-    let root = storage.root_identity(base)?;
-    let base_projections = storage.resolved_projections(base)?;
+) -> CheckerQueryResult<Option<StorageAccessId>, C::UpstreamError> {
+    let Some(projected) = crate::storage::resolve_storage_projections(request, projections)? else {
+        return Ok(None);
+    };
 
-    storage.access_entries().find_map(|(id, _)| {
-        let candidate = storage.resolved_projections(id)?;
-
-        (storage.root_identity(id) == Some(root)
-            && candidate.len() == base_projections.len() + projections.len()
-            && candidate.starts_with(base_projections)
-            && projections
-                .iter()
-                .zip(&candidate[base_projections.len()..])
-                .all(|(expected, actual)| projection_matches(*expected, *actual)))
-        .then_some(id)
-    })
-}
-
-fn projection_matches(expected: DependencyProjection, actual: StorageProjection) -> bool {
-    match (expected, actual) {
-        (DependencyProjection::ProductField(expected), StorageProjection::ProductField(actual)) => {
-            expected == actual
-        }
-        (DependencyProjection::TupleElement(expected), StorageProjection::TupleElement(actual)) => {
-            expected == actual
-        }
-        (
-            DependencyProjection::UnionPayloadField(expected),
-            StorageProjection::ActiveUnionPayloadField { field: actual, .. },
-        ) => expected == actual,
-        (DependencyProjection::NullableValue, StorageProjection::NullableValue)
-        | (DependencyProjection::OwnedTarget, StorageProjection::OwnedTarget) => true,
-        (DependencyProjection::Element(_), _)
-        | (_, StorageProjection::ElementFromStart(_))
-        | (_, StorageProjection::ElementFromEnd(_))
-        | (_, StorageProjection::Element(_))
-        | (_, StorageProjection::SliceRange { .. }) => false,
-        _ => false,
-    }
+    Ok(storage.projected_access(base, &projected))
 }

@@ -1,6 +1,7 @@
+use bray_binder::SymbolQueryProvider;
 use bray_checker::{ExecutionCallEvidence, ExecutionObligation, ExecutionProperty};
 use bray_diagnostics::DiagnosticBag;
-use bray_symbols::CallableInstanceData;
+use bray_symbols::{CallableContractsQuery, CallableInstanceData, SymbolQueryRequest};
 
 use super::imported::ExecutionProofGraph;
 use crate::compilation::Compilation;
@@ -96,7 +97,7 @@ impl Compilation {
                 .verified_execution_obligation(
                     callable,
                     ExecutionObligation::Postcondition(dependency.source),
-                    candidate.call_evidence(dependency.node),
+                    candidate.call_evidence(dependency.node.into()),
                     cancellation,
                 )?
                 .is_none()
@@ -204,6 +205,7 @@ impl Compilation {
                 ExecutionObligation::Property(property, _) => self
                     .applicable_execution_obligation(
                         &body,
+                        callable,
                         declaration.value(),
                         property,
                         evidence,
@@ -250,6 +252,16 @@ impl Compilation {
             return Ok(None);
         };
 
+        self.verified_imported_execution_obligation(callable, selected, diagnostics, cancellation)
+    }
+
+    fn verified_imported_execution_obligation(
+        &self,
+        callable: CallableInstanceData,
+        selected: ExecutionObligation,
+        mut diagnostics: DiagnosticBag,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<ExecutionObligation>, FactQueryError> {
         let mut graph = ExecutionProofGraph::new();
 
         let valid = self.append_imported_execution_proof(
@@ -264,6 +276,78 @@ impl Compilation {
             && !diagnostics.has_errors()
             && bray_symbols::check_execution_proof_dependencies(&graph).is_empty())
         .then_some(selected))
+    }
+
+    /// Certifies a property on every legal input, without authorizing any invocation.
+    pub(in crate::compilation) fn certified_entry_property(
+        &self,
+        callable: CallableInstanceData,
+        property: ExecutionProperty,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, FactQueryError> {
+        if let Some(body) = self.callable_body_key(callable.definition())? {
+            let certified = self.certified_execution_with_cancellation(body, cancellation)?;
+
+            return Ok(!certified.result().diagnostics().has_errors()
+                && certified.result().value().properties.contains(&property));
+        }
+
+        let context = self.binding_context(cancellation)?;
+
+        let contract = context
+            .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(
+                callable.definition().callable_symbol(),
+            ))
+            .map_err(crate::compilation::binder::binding_query_error)?;
+
+        if contract.diagnostics().has_errors()
+            || !contract
+                .value()
+                .phase_behaviors()
+                .deferred_execution()
+                .unwrap_or_else(|| contract.value().invocation_behavior())
+                .execution_properties()
+                .contains(&property)
+        {
+            return Ok(false);
+        }
+
+        let requirements = contract
+            .value()
+            .invocation_preconditions()
+            .iter()
+            .filter_map(|clause| {
+                clause
+                    .predicate()
+                    .and_then(|predicate| predicate.condition())
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+
+        // Compare terms in the declaration's own domain. A guarded promise applies only
+        // when its entire entry follows from the callable's required inputs.
+        let Some(domain) = contract
+            .value()
+            .execution_contract()
+            .domains
+            .iter()
+            .find(|domain| {
+                domain.properties.contains(&property) && domain.requires_only(&requirements)
+            })
+        else {
+            return Ok(false);
+        };
+
+        Ok(self
+            .verified_imported_execution_obligation(
+                callable,
+                ExecutionObligation::Property(
+                    property,
+                    Some(bray_checker::ExecutionClauseId::Imported(domain.ordinal)),
+                ),
+                DiagnosticBag::new(),
+                cancellation,
+            )?
+            .is_some())
     }
 
     pub(in crate::compilation) fn pure_total_execution(
@@ -298,6 +382,42 @@ mod tests {
     use crate::CancellationToken;
     use crate::test_support::{compilation, source_function_body_key};
     use bray_ir::MirOperationKind;
+
+    #[test]
+    fn destructor_guarantees_require_the_current_receiver() {
+        for (requirements, body, valid) in [
+            ("value.ready", "", true),
+            ("!value.ready", "", false),
+            ("value.ready", "value.ready = false;", false),
+            ("!value.ready", "value.ready = true;", true),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+                struct Value {{
+                    mut ready: bool;
+                    destruct() when(self.ready) {{ executes(total) }}
+                    {{ if !self.ready {{ panic("unfinished"); }} }}
+                }}
+                func root(pos mut value: Value)
+                    requires({requirements}) executes(total)
+                {{ {body} }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+
+            let checked = compilation
+                .execution_properties(source_function_body_key(&compilation, "root"))
+                .unwrap();
+
+            assert_eq!(
+                !checked.diagnostics().has_errors(),
+                valid,
+                "{source}: {checked:#?}"
+            );
+        }
+    }
 
     #[test]
     fn current_value_selects_cleanup_after_mutation() {

@@ -45,7 +45,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(storage)
     }
 
-    pub(super) fn translate_assume_initialized(
+    pub(super) fn translate_protected_value(
         &mut self,
         memory: &MirMemoryOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {

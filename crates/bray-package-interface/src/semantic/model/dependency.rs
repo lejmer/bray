@@ -42,6 +42,8 @@ pub enum InterfaceDependencyProjection {
     UnionPayloadField(InterfaceSymbolReference),
     /// Target reached through owned indirection.
     OwnedTarget,
+    /// Inline protected storage. This projection establishes neither initialization nor access authority.
+    UninitPayload,
 }
 
 /// One formal dependency subject and its ordered projections.
@@ -238,15 +240,102 @@ pub enum InterfaceDependencyRequirementKind {
 /// One normalized portable dependency contract.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceDependencyContract {
+    pub(crate) returned_input: Option<super::InterfaceConstantTermId>,
+    pub(crate) carriers: Arc<
+        [bray_symbols::DependencyWitnessCarrier<
+            InterfaceDependencyProjection,
+            super::InterfaceConstantTermId,
+        >],
+    >,
+    pub(crate) normal_completion: bool,
     pub(crate) requirements: Arc<[InterfaceDependencyRequirement]>,
+    pub(crate) effects: Arc<
+        [bray_symbols::DependencyStorageEffect<
+            InterfaceDependencySubject,
+            InterfaceDependencyProjection,
+            crate::InterfaceTypeId,
+        >],
+    >,
+    pub(crate) borrows: Arc<
+        [bray_symbols::DependencyBorrowRelation<
+            InterfaceDependencySubject,
+            InterfaceDependencyProjection,
+        >],
+    >,
 }
 
 impl InterfaceDependencyContract {
+    /// Records an unchanged owned input returned as the complete result on every normal exit.
+    /// The term contains only a formal input and owned projections, never an equality or dereference.
+    pub fn with_returned_input(mut self, input: Option<super::InterfaceConstantTermId>) -> Self {
+        self.returned_input = input;
+
+        self
+    }
+
     /// Creates a dependency contract in canonical requirement order.
     pub fn new(requirements: impl IntoIterator<Item = InterfaceDependencyRequirement>) -> Self {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
+            normal_completion: true,
+            returned_input: None,
+            carriers: Arc::new([]),
+            borrows: Arc::new([]),
+            effects: Arc::new([bray_symbols::DependencyStorageEffect::Unknown]),
         }
+    }
+
+    /// Attaches the complete returned carriers of declared trusted guarantees.
+    pub fn with_carriers(
+        mut self,
+        carriers: impl IntoIterator<
+            Item = bray_symbols::DependencyWitnessCarrier<
+                InterfaceDependencyProjection,
+                super::InterfaceConstantTermId,
+            >,
+        >,
+    ) -> Self {
+        self.carriers = sorted_unique_shared_slice(carriers);
+
+        self
+    }
+
+    /// Records whether execution can complete normally.
+    pub fn with_normal_completion(mut self, possible: bool) -> Self {
+        self.normal_completion = possible;
+
+        self
+    }
+
+    /// Attaches the complete checked mutation summary.
+    pub fn with_effects(
+        mut self,
+        effects: impl IntoIterator<
+            Item = bray_symbols::DependencyStorageEffect<
+                InterfaceDependencySubject,
+                InterfaceDependencyProjection,
+                crate::InterfaceTypeId,
+            >,
+        >,
+    ) -> Self {
+        self.effects = bray_symbols::DependencyStorageEffect::normalize(effects);
+
+        self
+    }
+
+    /// Attaches checked borrow identities across normal completion.
+    pub fn with_borrows(
+        mut self,
+        borrows: impl IntoIterator<
+            Item = bray_symbols::DependencyBorrowRelation<
+                InterfaceDependencySubject,
+                InterfaceDependencyProjection,
+            >,
+        >,
+    ) -> Self {
+        self.borrows = sorted_unique_shared_slice(borrows);
+
+        self
     }
 }
 

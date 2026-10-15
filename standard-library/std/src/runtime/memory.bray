@@ -5,6 +5,7 @@ trusted func allocate(pos bytes: usize, pos align: usize) -> RawPointer<u8>
     let allocation: RawPointer<u8> = trusted try_allocate(bytes, align);
 
     assert(!std.memory.is_null<u8>(allocation), "memory allocation failed");
+
     return allocation;
 }
 
@@ -19,7 +20,10 @@ trusted internal func try_allocate(pos bytes: usize, pos align: usize) -> RawPoi
     let padding_bytes: usize = effective_alignment - 1;
     let maximum_bytes: usize = ~0;
 
-    assert(padding_bytes <= maximum_bytes - payload_bytes, "memory allocation size exceeds the target address range");
+    if padding_bytes > maximum_bytes - payload_bytes
+    {
+        return std.memory.null<u8>();
+    }
 
     let allocation_bytes: usize = (payload_bytes + padding_bytes) & ~padding_bytes;
 

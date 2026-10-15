@@ -11,7 +11,7 @@ use crate::compilation::operation::OperationSubject;
 use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
 use crate::fact::{CancellationToken, FactQueryError};
 
-use super::model::{ConversionPlan, OperationResolution, TraitOperation};
+use super::model::{ConversionPlan, SemanticResolution, TraitOperation};
 use super::query::{expression_type, operation_contract_failure, unit_contract_failure};
 
 impl Compilation {
@@ -23,7 +23,7 @@ impl Compilation {
         types: &bray_bound_tree::CheckedExpressionTypes,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<OperationResolution>, FactQueryError> {
+    ) -> Result<Option<SemanticResolution>, FactQueryError> {
         let Some(BoundExpression::Conversion(conversion)) =
             unit.view().expression(key.expression())
         else {
@@ -88,14 +88,11 @@ impl Compilation {
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<ConversionPlan>, FactQueryError> {
-        if let Some(conversion) = bray_checker::built_in_conversion_plan(request, source, target)
-            .map_err(FactQueryError::from)?
-        {
+        if let Some(conversion) = bray_checker::built_in_conversion_plan(request, source, target) {
             return Ok(Some(ConversionPlan::built_in(conversion)));
         }
 
         if let Some(children) = bray_checker::composite_conversion_children(request, source, target)
-            .map_err(FactQueryError::from)?
         {
             let mut plans = Vec::with_capacity(children.len());
 

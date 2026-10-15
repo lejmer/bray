@@ -54,6 +54,8 @@ define_callable_requirement!(
 /// Caller-visible behavior and execution promises of one callable contract phase.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallablePhaseBehavior {
+    predicate_requirements: Arc<[crate::PredicateSemanticSummary]>,
+    predicate_guarantees: Arc<[crate::PredicateSemanticSummary]>,
     execution_properties: Arc<[crate::ExecutionProperty]>,
     effects: Arc<[CallableEffectRequirement]>,
     capabilities: Arc<[CallableCapabilityRequirement]>,
@@ -62,6 +64,7 @@ pub struct CallablePhaseBehavior {
     lifecycle_obligations: Arc<[LifecycleObligationKind]>,
     dependency_contract: DependencyContractTemplateId,
     current_run_cancellation: CurrentRunCancellation,
+    may_unwind: bool,
 }
 
 impl CallablePhaseBehavior {
@@ -76,6 +79,8 @@ impl CallablePhaseBehavior {
         current_run_cancellation: CurrentRunCancellation,
     ) -> Self {
         Self {
+            predicate_requirements: Arc::new([]),
+            predicate_guarantees: Arc::new([]),
             execution_properties: Arc::new([]),
             effects: sorted_unique_shared_slice(effects),
             capabilities: sorted_unique_shared_slice(capabilities),
@@ -84,7 +89,30 @@ impl CallablePhaseBehavior {
             lifecycle_obligations: sorted_unique_shared_slice(lifecycle_obligations),
             dependency_contract,
             current_run_cancellation,
+            may_unwind: true,
         }
+    }
+
+    /// Attaches checked predicates in portable callable input coordinates.
+    pub fn with_predicates(
+        mut self,
+        requirements: impl IntoIterator<Item = crate::PredicateSemanticSummary>,
+        guarantees: impl IntoIterator<Item = crate::PredicateSemanticSummary>,
+    ) -> Self {
+        self.predicate_requirements = sorted_unique_shared_slice(requirements);
+        self.predicate_guarantees = sorted_unique_shared_slice(guarantees);
+
+        self
+    }
+
+    /// Returns obligations incurred before this phase begins.
+    pub fn predicate_requirements(&self) -> &[crate::PredicateSemanticSummary] {
+        &self.predicate_requirements
+    }
+
+    /// Returns guarantees established by normal completion of this phase.
+    pub fn predicate_guarantees(&self) -> &[crate::PredicateSemanticSummary] {
+        &self.predicate_guarantees
     }
 
     /// Attaches execution promises that supplied implementations must establish separately.
@@ -145,6 +173,18 @@ impl CallablePhaseBehavior {
         self.dependency_contract
     }
 
+    /// Attaches inferred abnormal-exit behavior on valid inputs, independent of termination.
+    pub const fn with_may_unwind(mut self, may_unwind: bool) -> Self {
+        self.may_unwind = may_unwind;
+
+        self
+    }
+
+    /// Returns whether panic or cancellation can escape this phase.
+    pub const fn may_unwind(&self) -> bool {
+        self.may_unwind
+    }
+
     /// Returns whether execution can enter cancellation for its current run.
     pub const fn current_run_cancellation(&self) -> CurrentRunCancellation {
         self.current_run_cancellation
@@ -169,6 +209,30 @@ pub struct CallablePhaseBehaviors {
 }
 
 impl CallablePhaseBehaviors {
+    /// Preserves caller obligations through invocation and lazy body execution.
+    pub fn with_predicates(
+        mut self,
+        requirements: impl IntoIterator<Item = crate::PredicateSemanticSummary>,
+        guarantees: impl IntoIterator<Item = crate::PredicateSemanticSummary>,
+    ) -> Self {
+        let requirements = sorted_unique_shared_slice(requirements);
+        let guarantees = sorted_unique_shared_slice(guarantees);
+
+        Arc::make_mut(&mut self.invocation).predicate_requirements = Arc::clone(&requirements);
+
+        match &mut self.deferred_execution {
+            Some(body) => {
+                let body = Arc::make_mut(body);
+
+                body.predicate_requirements = requirements;
+                body.predicate_guarantees = guarantees;
+            }
+            None => Arc::make_mut(&mut self.invocation).predicate_guarantees = guarantees,
+        }
+
+        self
+    }
+
     /// Attaches promises to ordinary body execution, including deferred async execution.
     pub fn with_execution_properties(
         mut self,
@@ -218,6 +282,13 @@ impl CallablePhaseBehaviors {
     /// Returns behavior incurred while invoking the callable.
     pub fn invocation(&self) -> &CallablePhaseBehavior {
         &self.invocation
+    }
+
+    /// Replaces the invocation's inferred unwind behavior while retaining its other contracts.
+    pub fn with_invocation_may_unwind(mut self, may_unwind: bool) -> Self {
+        Arc::make_mut(&mut self.invocation).may_unwind = may_unwind;
+
+        self
     }
 
     /// Returns behavior retained until deferred async execution.

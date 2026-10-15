@@ -322,13 +322,20 @@ impl InterfaceSemantics {
             .as_ref()
             .unwrap_or(&contract.invocation_behavior);
 
+        let requirements = contract
+            .invocation_preconditions
+            .iter()
+            .filter_map(|clause| {
+                clause
+                    .predicate()
+                    .and_then(|predicate| predicate.condition())
+            })
+            .collect::<BTreeSet<_>>();
+
         for property in &*behavior.execution_properties {
-            if !contract
-                .execution_contract
-                .domains
-                .iter()
-                .any(|domain| domain.entry.is_empty() && domain.properties.contains(property))
-            {
+            if !contract.execution_contract.domains.iter().any(|domain| {
+                domain.properties.contains(property) && domain.requires_only(&requirements)
+            }) {
                 return Err(invalid());
             }
         }
@@ -336,7 +343,37 @@ impl InterfaceSemantics {
         Ok(())
     }
 
-    fn validate_execution_term(
+    pub(in crate::semantic::validation) fn validate_returned_input(
+        &self,
+        mut term: InterfaceConstantTermId,
+        inputs: usize,
+        surface: &PackageInterfaceSurface,
+    ) -> Result<(), InterfaceValidationError> {
+        for _ in 0..bray_symbols::EXECUTION_CONDITION_WORK_LIMIT {
+            match term
+                .to_index()
+                .and_then(|index| self.constant_terms.get(index))
+                .ok_or_else(invalid)?
+            {
+                InterfaceConstantTerm::CallableArgument(ordinal) => {
+                    return if usize::try_from(ordinal.raw()).is_ok_and(|index| index < inputs) {
+                        Ok(())
+                    } else {
+                        Err(invalid())
+                    };
+                }
+                InterfaceConstantTerm::Projection { subject, kind } => {
+                    validate_projection(kind, surface)?;
+                    term = *subject;
+                }
+                _ => return Err(invalid()),
+            }
+        }
+
+        Err(invalid())
+    }
+
+    pub(in crate::semantic::validation) fn validate_execution_term(
         &self,
         term: InterfaceConstantTermId,
         inputs: usize,
@@ -364,9 +401,42 @@ impl InterfaceSemantics {
                         return Err(invalid());
                     }
                 }
+                InterfaceConstantTerm::VariantTest { subject, variant } => {
+                    if validate_symbol_kind(variant, surface)?
+                        != bray_symbols::SymbolKind::UnionVariant
+                    {
+                        return Err(invalid());
+                    }
+
+                    pending.push(*subject);
+                }
                 InterfaceConstantTerm::Unary { operand, .. } => pending.push(*operand),
                 InterfaceConstantTerm::Binary { left, right, .. } => {
                     pending.extend([*left, *right])
+                }
+                InterfaceConstantTerm::Call {
+                    callable,
+                    selected_implementation: None,
+                    arguments,
+                } => {
+                    let instance = callable
+                        .to_index()
+                        .and_then(|index| self.callable_instances.get(index))
+                        .ok_or_else(invalid)?;
+
+                    let substitution = instance
+                        .substitution
+                        .to_index()
+                        .and_then(|index| self.substitutions.get(index))
+                        .ok_or_else(invalid)?;
+
+                    if !validate_symbol_kind(&instance.definition, surface)?.is_callable()
+                        || substitution.owner != instance.definition
+                    {
+                        return Err(invalid());
+                    }
+
+                    pending.extend(arguments.iter().copied());
                 }
                 InterfaceConstantTerm::PredicateCall {
                     predicate: definition,
@@ -394,19 +464,7 @@ impl InterfaceSemantics {
                     pending.extend(arguments.iter().copied())
                 }
                 InterfaceConstantTerm::Projection { subject, kind } => {
-                    let (field, expected) = match kind {
-                        crate::InterfaceConstantProjection::ProductField(field) => {
-                            (field, bray_symbols::SymbolKind::StructField)
-                        }
-                        crate::InterfaceConstantProjection::UnionPayloadField(field) => {
-                            (field, bray_symbols::SymbolKind::UnionPayloadField)
-                        }
-                        _ => return Err(invalid()),
-                    };
-
-                    if validate_symbol_kind(field, surface)? != expected {
-                        return Err(invalid());
-                    }
+                    validate_projection(kind, surface)?;
 
                     pending.push(*subject);
                 }
@@ -420,4 +478,83 @@ impl InterfaceSemantics {
 
 fn invalid() -> InterfaceValidationError {
     crate::semantic::codec::invalid_value(InterfaceValidationField::Reference)
+}
+
+fn validate_projection(
+    kind: &crate::InterfaceConstantProjection,
+    surface: &PackageInterfaceSurface,
+) -> Result<(), InterfaceValidationError> {
+    match kind {
+        crate::InterfaceConstantProjection::ProductField(field) => {
+            if validate_symbol_kind(field, surface)? != bray_symbols::SymbolKind::StructField {
+                return Err(invalid());
+            }
+        }
+        crate::InterfaceConstantProjection::UnionPayloadField(field) => {
+            if validate_symbol_kind(field, surface)? != bray_symbols::SymbolKind::UnionPayloadField
+            {
+                return Err(invalid());
+            }
+        }
+        crate::InterfaceConstantProjection::NullableValue
+        | crate::InterfaceConstantProjection::TupleElement(_)
+        | crate::InterfaceConstantProjection::ArrayElementOrdinal(_) => {}
+        _ => return Err(invalid()),
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{InterfaceConstantTerm, InterfaceConstantTermId, InterfaceSemantics};
+    use bray_symbols::{ConstantBinaryOperation, SymbolOrdinal};
+
+    #[test]
+    fn returned_input_metadata_rejects_computation_results_and_cycles() {
+        let bundle = crate::test_support::package_interface_export_bundle();
+        let first = InterfaceConstantTermId::new(0);
+        let second = InterfaceConstantTermId::new(1);
+        let input = InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(0));
+
+        for (term, valid) in [
+            (input.clone(), true),
+            (
+                InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(1)),
+                false,
+            ),
+            (
+                InterfaceConstantTerm::Projection {
+                    subject: first,
+                    kind: crate::InterfaceConstantProjection::NullableValue,
+                },
+                true,
+            ),
+            (
+                InterfaceConstantTerm::Projection {
+                    subject: second,
+                    kind: crate::InterfaceConstantProjection::NullableValue,
+                },
+                false,
+            ),
+            (
+                InterfaceConstantTerm::Binary {
+                    operation: ConstantBinaryOperation::Equal,
+                    left: first,
+                    right: first,
+                },
+                false,
+            ),
+        ] {
+            let semantics =
+                InterfaceSemantics::new().with_values([], [], [], [input.clone(), term]);
+
+            assert_eq!(
+                semantics
+                    .validate_returned_input(second, 1, bundle.surface())
+                    .is_ok(),
+                valid
+            );
+        }
+    }
 }

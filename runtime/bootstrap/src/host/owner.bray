@@ -1,0 +1,607 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host;
+
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.thread.destruction;
+using internal std.platform;
+using internal std.memory;
+using internal std.thread;
+
+internal callable AttachmentCleanup = @abi(c) func(pos identity: u64) -> u32;
+
+internal struct Attachment
+{
+    mut identity: u64;
+    mut native_thread: u64;
+    mut depth: usize;
+    mut closing: bool;
+    mut cleanup: AttachmentExit?;
+}
+
+internal struct HostOwner
+{
+    mut storage: HostStorage?;
+    mut next_identity: u64;
+    mut transitioning: bool;
+}
+
+internal struct HostStorage
+{
+    key: u64;
+    mut released: bool;
+    mut attachments: std.memory.RawBuffer<Attachment>;
+    mut active: usize;
+}
+
+// The owner holds its backing and no active attachment. Its key is either live
+// or recorded as released. Only a live key may return to resident storage.
+trusted internal predicate prepared_host_storage(owner: &(HostStorage?));
+
+// Resident storage owns the key and every initialized attachment epoch. TLS contains
+// an opaque ordinal, never an address from which storage authority is reconstructed.
+internal static HOST_OWNER: Uninit<HostOwner> = core.memory.uninit_from<HostOwner>(
+    {
+        storage = none,
+        next_identity = 1,
+        transitioning = false
+    }
+);
+
+trusted internal func initialize_host() -> u32
+{
+    let begin_host_formation_locked = trusted lambda(pos lease: &HostLease, pos anchor: &mut HostAnchor) -> Result<
+        bool,
+        u32
+    >
+        requires(
+            lease.active,
+            trusted host_access_idle(owner = lease),
+            trusted host_access_live(owner = &lease.acquisition),
+            trusted host_anchor_matches(anchor = &anchor, lease = lease)
+        )
+        ensures(
+            trusted host_access_live(owner = &lease.acquisition),
+            trusted host_access_idle(owner = lease),
+            trusted attachment_cleanup_completed(owner = lease)
+        )
+        executes(total)
+    {
+        let host: &mut HostOwner = trusted host_value(lease, anchor);
+
+        if host.transitioning
+        {
+            return Error(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+        }
+
+        if host.storage matches ?_
+        {
+            return Ok(false);
+        }
+
+        host.transitioning = true;
+        return Ok(true);
+    };
+
+    let prepare_host_storage = trusted lambda() -> HostStorage?
+        ensures(trusted prepared_host_storage(owner = &result))
+        uses(foreign_call, raw_memory, unchecked_init)
+    {
+        let backing: std.memory.RawBuffer<Attachment>? = trusted internal bray.runtime.bootstrap.heap.try_buffer<
+            Attachment
+        >(1);
+
+        let buffer: std.memory.RawBuffer<Attachment> = match consume backing
+        {
+            case ?buffer { yield buffer; }
+            case none { return none; }
+        };
+
+        let mut key: u64 = 0;
+
+        let status: std.platform.PlatformStatus = trusted internal std.thread.platform_thread_storage_create(
+            trusted internal bray.runtime.bootstrap.thread.destruction.attachment_destructor_address(),
+            std.memory.address_of_mut<u64>(&mut key),
+        );
+
+        if status.category != 0
+        {
+            return none;
+        }
+
+        if key == ~0
+        {
+            let _: std.platform.PlatformStatus = trusted internal std.thread.platform_thread_storage_destroy(key);
+
+            return none;
+        }
+
+        let storage: HostStorage =
+        {
+            key = key,
+            released = false,
+            attachments = buffer,
+            active = 0
+        };
+
+        return storage;
+    };
+
+    let empty_host_storage = trusted lambda() -> HostStorage?
+        ensures(trusted prepared_host_storage(owner = &result))
+        executes(pure, total)
+    {
+        return none;
+    };
+
+    let complete_host_formation = trusted lambda(pos mut prepared: HostStorage?) -> u32
+        requires(trusted prepared_host_storage(owner = &prepared))
+    {
+        let finish_host_formation_locked = trusted lambda(
+            pos lease: &HostLease,
+            pos anchor: &mut HostAnchor,
+            pos prepared: &mut(HostStorage?)
+        ) -> u32
+            requires(
+                trusted prepared_host_storage(owner = &prepared),
+                lease.active,
+                trusted host_access_idle(owner = lease),
+                trusted host_access_live(owner = &lease.acquisition),
+                trusted host_anchor_matches(anchor = &anchor, lease = lease)
+            )
+            ensures(
+                trusted host_access_live(owner = &lease.acquisition),
+                trusted host_access_idle(owner = lease),
+                trusted attachment_cleanup_completed(owner = lease)
+            )
+            executes(total)
+            uses(raw_memory, unchecked_alias)
+        {
+            let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
+                lease.synchronization,
+                trusted lease_synchronization_pointer(lease)
+            );
+
+            let host: &mut HostOwner = trusted host_value(lease, anchor);
+
+            host.transitioning = false;
+
+            if let ?storage = prepared
+            {
+                let key: u64 = storage.key;
+
+                trusted internal std.memory.swap_values<(HostStorage?)>(&mut host.storage, prepared);
+                core.atomic.store<u64, 2>(&synchronization.key, key + 1);
+                return bray.runtime.bootstrap.STATUS_SUCCESS;
+            }
+
+            return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+        };
+
+        let lease: HostLease = trusted access_prepared_host(&prepared);
+        let mut anchor: HostAnchor = trusted host_anchor(&lease);
+
+        return trusted finish_host_formation_locked(&lease, &mut anchor, &mut prepared);
+    };
+
+    if trusted initialized()
+    {
+        return bray.runtime.bootstrap.STATUS_SUCCESS;
+    }
+
+    let started: Result<bool, u32> =
+    {
+        let lease: HostLease = trusted host_access();
+        let mut anchor: HostAnchor = trusted host_anchor(&lease);
+
+        if !lease.active
+        {
+            return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+        }
+
+        yield trusted begin_host_formation_locked(&lease, &mut anchor);
+    };
+
+    let forming: bool = match consume started
+    {
+        case Ok(forming) { yield forming; }
+        case Error(status) { return status; }
+    };
+
+    if !forming
+    {
+        return bray.runtime.bootstrap.STATUS_SUCCESS;
+    }
+
+    // Preparation has no cancellation point. Keep a caught report alive until the
+    // transition is reset, so even report destruction runs outside formation.
+    let preparation: Result<u32, PanicReport> = catch
+    {
+        let prepared = trusted prepare_host_storage();
+
+        yield trusted complete_host_formation(prepared);
+    };
+
+    return match consume preparation
+    {
+        case Ok(status) { yield status; }
+        case Error(incident)
+        {
+            let empty = trusted empty_host_storage();
+
+            yield trusted complete_host_formation(empty);
+        }
+    };
+}
+
+@abi(c)
+trusted internal func current_native_thread_identity() -> u64
+{
+    let lease: HostLease = trusted host_access();
+    let anchor: HostAnchor = trusted host_anchor(&lease);
+
+    if !lease.active
+    {
+        return 0;
+    }
+
+    return trusted current_attachment_locked(&lease);
+}
+
+trusted internal func current_attachment_locked(pos lease: &HostLease) -> u64
+    requires(
+        lease.active,
+        trusted host_access_idle(owner = lease),
+        trusted host_access_live(owner = &lease.acquisition)
+    )
+    ensures(
+        trusted host_access_live(owner = &lease.acquisition),
+        trusted host_access_idle(owner = lease),
+        trusted attachment_cleanup_completed(owner = lease)
+    )
+    executes(total)
+    uses(raw_memory, unchecked_alias)
+{
+    let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
+        lease.synchronization,
+        trusted lease_synchronization_pointer(lease)
+    );
+
+    let observed: u64 = core.atomic.load<u64, 1>(&synchronization.key);
+
+    if observed == 0
+    {
+        return 0;
+    }
+
+    return trusted load_attachment_identity(observed - 1);
+}
+
+trusted internal func load_attachment_identity(pos key: u64) -> u64
+    executes(total)
+    uses(intrinsic, raw_memory, unchecked_init)
+{
+    let mut value: RawPointer<u8> = std.memory.null<u8>();
+
+    let status: std.platform.PlatformStatus = trusted internal std.thread.platform_thread_storage_load(
+        key,
+        std.memory.address_of_mut<RawPointer<u8>>(&mut value),
+    );
+
+    if status.category != 0
+    {
+        return 0;
+    }
+
+    return trusted core.target.expose_address<u8>(value) as u64;
+}
+
+@abi(c)
+trusted internal func main_native_thread_identity() -> u64
+    uses(raw_memory, unchecked_alias)
+{
+    let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
+        &SYNCHRONIZATION,
+        trusted synchronization_pointer()
+    );
+
+    return core.atomic.load<u64, 1>(&synchronization.main);
+}
+
+trusted internal func find_attachment(
+    pos host: &mut HostStorage,
+    pos identity: u64,
+    pos native_thread: u64
+) -> (&mut Attachment)?
+    executes(total)
+    uses(raw_memory)
+{
+    let entries: &mut [Attachment] = trusted std.memory.initialized_slice_mut<Attachment>(&mut host.attachments);
+
+    let mut index: usize = 0;
+    let count: usize = entries.length();
+
+    while index < count
+    {
+        if entries[index].identity != 0 && (entries[index].identity == identity || (native_thread != 0 && entries[
+            index
+        ].native_thread == native_thread))
+        {
+            let mut result: (&mut Attachment)? = none;
+
+            result = &mut entries[index];
+            return result;
+        }
+
+        index += 1;
+    }
+
+    return none;
+}
+
+trusted internal func insert_attachment(
+    pos host: &mut HostStorage,
+    pos identity: u64,
+    pos native_thread: u64,
+    pos prepared: &mut(std.memory.RawBuffer<Attachment>?)
+) -> Result<bool, usize>
+    executes(total)
+    uses(raw_memory, unchecked_init)
+{
+    {
+        let existing = trusted find_attachment(host, 0, native_thread);
+
+        if existing matches ?_
+        {
+            return Ok(false);
+        }
+    }
+
+    {
+        let entries: &mut [Attachment] = trusted std.memory.initialized_slice_mut<Attachment>(&mut host.attachments);
+        let mut index: usize = 0;
+        let count: usize = entries.length();
+
+        while index < count
+        {
+            if entries[index].identity == 0
+            {
+                entries[index].identity = identity;
+                entries[index].native_thread = native_thread;
+                entries[index].depth = 1;
+                entries[index].closing = false;
+                return Ok(true);
+            }
+
+            index += 1;
+        }
+    }
+
+    let buffer: &mut std.memory.RawBuffer<Attachment> = &mut host.attachments;
+
+    if buffer.initialized == buffer.capacity
+    {
+        let maximum: usize = ~0;
+
+        if buffer.capacity > maximum - buffer.capacity
+        {
+            return Ok(false);
+        }
+
+        let required: usize = buffer.capacity * 2;
+
+        if let ?replacement = prepared
+        {
+            if replacement.capacity < required || replacement.initialized != 0
+            {
+                return Error(required);
+            }
+
+            let backing: &mut std.memory.RawBuffer<Attachment> = &mut replacement;
+
+            trusted internal std.memory.raw_buffer_relocate<Attachment>(buffer, backing);
+            trusted internal std.memory.swap_values<(std.memory.RawBuffer<Attachment>)>(buffer, backing);
+        }
+        else
+        {
+            return Error(required);
+        }
+    }
+
+    trusted internal std.memory.raw_buffer_push<Attachment>(
+        buffer,
+        Attachment
+        {
+            identity = identity,
+            native_thread = native_thread,
+            depth = 1,
+            closing = false,
+            cleanup = none
+        }
+    );
+
+    return Ok(true);
+}
+
+trusted internal func shutdown_host() -> u32
+{
+    let retire_storage = trusted lambda() -> (u32, HostStorage?, Result<std.platform.PlatformStatus, PanicReport>)
+        ensures(trusted prepared_host_storage(owner = &result.1))
+        uses(foreign_call)
+    {
+        let succeeded: Result<std.platform.PlatformStatus, PanicReport> = Ok(internal std.platform.success_status());
+
+        let empty_host_storage = trusted lambda() -> HostStorage?
+            ensures(trusted prepared_host_storage(owner = &result))
+            executes(pure, total)
+        {
+            return none;
+        };
+
+        let begin_host_shutdown_locked = trusted lambda(
+            pos lease: &HostLease,
+            pos anchor: &mut HostAnchor,
+            pos retired: &mut(HostStorage?)
+        ) -> u32
+            requires(
+                trusted prepared_host_storage(owner = &retired),
+                lease.active,
+                trusted host_access_idle(owner = lease),
+                trusted host_access_live(owner = &lease.acquisition),
+                trusted host_anchor_matches(anchor = &anchor, lease = lease)
+            )
+            ensures(
+                trusted prepared_host_storage(owner = &retired),
+                trusted host_access_live(owner = &lease.acquisition),
+                trusted host_access_idle(owner = lease),
+                trusted attachment_cleanup_completed(owner = lease)
+            )
+            executes(total)
+            uses(raw_memory, unchecked_alias)
+        {
+            let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
+                lease.synchronization,
+                trusted lease_synchronization_pointer(lease)
+            );
+
+            let host: &mut HostOwner = trusted host_value(lease, anchor);
+
+            if host.transitioning || retired matches ?_
+            {
+                return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+            }
+
+            if let ?storage = host.storage
+            {
+                if storage.active != 0
+                {
+                    return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+                }
+
+                host.transitioning = true;
+                core.atomic.store<u64, 2>(&synchronization.key, 0);
+                trusted internal std.memory.swap_values<(HostStorage?)>(&mut host.storage, retired);
+            }
+
+            return bray.runtime.bootstrap.STATUS_SUCCESS;
+        };
+
+        let (selected, mut retired) =
+        {
+            let lease: HostLease = trusted host_access();
+            let mut anchor: HostAnchor = trusted host_anchor(&lease);
+            let mut empty = trusted empty_host_storage();
+
+            if !lease.active
+            {
+                return (bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE, empty, succeeded);
+            }
+
+            let selected = trusted begin_host_shutdown_locked(&lease, &mut anchor, &mut empty);
+
+            yield(selected, empty);
+        };
+
+        if selected != bray.runtime.bootstrap.STATUS_SUCCESS
+        {
+            return (selected, retired, succeeded);
+        }
+
+        let key: u64 = if let ?storage = retired
+        {
+            if storage.released
+            {
+                return (selected, retired, succeeded);
+            }
+
+            yield storage.key;
+        }
+        else
+        {
+            return (selected, retired, succeeded);
+        };
+
+        // No attachment remains, so key destruction cannot run a local callback.
+        // A panic before release restores the resident owner before report cleanup.
+        let destroyed: Result<std.platform.PlatformStatus, PanicReport> =
+            catch trusted internal std.thread.platform_thread_storage_destroy(key);
+
+        let released: bool = match destroyed
+        {
+            case Ok(status) { yield status.category == 0; }
+            case Error(_) { yield false; }
+        };
+
+        if released
+        {
+            if let ?storage = retired
+            {
+                storage.released = true;
+            }
+        }
+
+        return (selected, retired, destroyed);
+    };
+
+    let finish_host_shutdown_locked = trusted lambda(
+        pos lease: &HostLease,
+        pos anchor: &mut HostAnchor,
+        pos retired: &mut(HostStorage?)
+    ) -> u32
+        requires(
+            trusted prepared_host_storage(owner = &retired),
+            lease.active,
+            trusted host_access_idle(owner = lease),
+            trusted host_access_live(owner = &lease.acquisition),
+            trusted host_anchor_matches(anchor = &anchor, lease = lease)
+        )
+        ensures(
+            trusted host_access_live(owner = &lease.acquisition),
+            trusted host_access_idle(owner = lease),
+            trusted attachment_cleanup_completed(owner = lease)
+        )
+        executes(total)
+        uses(raw_memory, unchecked_alias)
+    {
+        let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
+            lease.synchronization,
+            trusted lease_synchronization_pointer(lease)
+        );
+
+        let host: &mut HostOwner = trusted host_value(lease, anchor);
+
+        if let ?storage = retired
+        {
+            if !storage.released
+            {
+                let key: u64 = storage.key;
+
+                trusted internal std.memory.swap_values<(HostStorage?)>(&mut host.storage, retired);
+                core.atomic.store<u64, 2>(&synchronization.key, key + 1);
+                host.transitioning = false;
+                return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+            }
+        }
+
+        host.transitioning = false;
+        return bray.runtime.bootstrap.STATUS_SUCCESS;
+    };
+
+    let (selected, mut retired, destroyed) = trusted retire_storage();
+
+    if selected != bray.runtime.bootstrap.STATUS_SUCCESS
+    {
+        return selected;
+    }
+
+    if retired matches none
+    {
+        return bray.runtime.bootstrap.STATUS_SUCCESS;
+    }
+
+    let lease: HostLease = trusted access_prepared_host(&retired);
+    let mut anchor: HostAnchor = trusted host_anchor(&lease);
+
+    // The caught report remains owned until the transition has been resolved.
+    return trusted finish_host_shutdown_locked(&lease, &mut anchor, &mut retired);
+}

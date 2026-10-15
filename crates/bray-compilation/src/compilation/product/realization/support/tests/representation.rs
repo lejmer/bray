@@ -412,3 +412,46 @@ fn union_realization_uses_checked_tags_and_payload_layouts() {
 
     assert_eq!(mapping.layout().map(TargetValueLayout::size), Some(24));
 }
+
+#[test]
+fn empty_acquisition_permit_does_not_enlarge_guard_layout() {
+    let compilation = compilation(
+        r#"
+        module app;
+        struct Permit {}
+        struct Baseline { owner: &u32; }
+        struct Guard { owner: &u32; permit: Permit; }
+    "#,
+    );
+
+    let target = baseline_codegen_target();
+    let symbols = compilation.symbol_graph().unwrap();
+    let values = compilation.semantic_value_store().unwrap();
+
+    let source_type = |name: &str| {
+        let symbol = symbols
+            .structures()
+            .iter()
+            .find(|symbol| {
+                symbol.origin() == SymbolOrigin::Source
+                    && symbols
+                        .member_name(symbol.id().into())
+                        .is_some_and(|actual| actual.as_str() == name)
+            })
+            .expect("fixture declares named type");
+
+        named_type(values, NamedTypeSymbolId::Struct(symbol.id())).unwrap()
+    };
+
+    let permit = source_type("Permit");
+    let baseline = source_type("Baseline");
+    let guard = source_type("Guard");
+    let mappings = realized_types(&compilation, &target, [permit, baseline, guard]);
+    let permit_layout = mappings[&permit].layout().unwrap();
+    let baseline_layout = mappings[&baseline].layout().unwrap();
+    let guard_layout = mappings[&guard].layout().unwrap();
+
+    assert_eq!(permit_layout.size(), 0);
+    assert_eq!(permit_layout.alignment().get(), 1);
+    assert_eq!(baseline_layout, guard_layout);
+}

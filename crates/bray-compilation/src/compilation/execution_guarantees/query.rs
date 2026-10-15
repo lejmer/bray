@@ -18,7 +18,7 @@ use crate::compilation::{
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult};
 
 impl Compilation {
-    pub(super) fn execution_declaration(
+    pub(in crate::compilation) fn execution_declaration(
         &self,
         anchor: SyntaxAnchor,
     ) -> Result<DiagnosticResult<ExecutionDeclaration>, FactQueryError> {
@@ -27,7 +27,7 @@ impl Compilation {
         ))
     }
 
-    pub(super) fn execution_declaration_node(
+    pub(in crate::compilation) fn execution_declaration_node(
         &self,
         anchor: SyntaxAnchor,
     ) -> Result<bray_syntax::SyntaxNodeView<'_>, FactQueryError> {
@@ -95,6 +95,9 @@ impl Compilation {
                 let expressions =
                     self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
 
+                let prepared =
+                    self.prepared_body_analysis_with_cancellation(key.clone(), cancellation)?;
+
                 let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
                 let body = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
                 let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
@@ -104,19 +107,30 @@ impl Compilation {
                 let semantic_context =
                     semantic_unit_context(context.symbols(), bound.result().value());
 
+                let trusted = self.trusted_contract_inputs(
+                    &key,
+                    bound.result().value(),
+                    expressions.result().value(),
+                    cancellation,
+                )?;
+
                 let unit = bray_checker::CheckerUnitView::new(
                     bound.result().value(),
                     &semantic_context,
                     &context,
-                );
+                )
+                .with_trusted_contracts(trusted.value())
+                .with_unwind(body.result().value().unwind());
 
                 let mut diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),
                     expressions.result().diagnostics(),
+                    prepared.result().diagnostics(),
                     storage.result().diagnostics(),
                     body.result().diagnostics(),
                     memory.result().diagnostics(),
                     flow.result().diagnostics(),
+                    trusted.diagnostics(),
                 ]);
 
                 let declaration = self.execution_declaration(key.source().syntax())?;
@@ -152,6 +166,7 @@ impl Compilation {
                 )]| {
                     checker_result(check_execution_candidate(
                         unit,
+                        prepared.result().value(),
                         property,
                         assumptions,
                         postconditions,
@@ -180,7 +195,7 @@ impl Compilation {
                     let guards =
                         self.execution_condition_inputs(&key, &domain.guards, cancellation)?;
 
-                    let posts = self.execution_condition_inputs(
+                    let posts = self.predicate_condition_inputs(
                         &key,
                         &domain.postconditions,
                         cancellation,
@@ -188,6 +203,26 @@ impl Compilation {
 
                     diagnostics.add_range(guards.diagnostics().iter().cloned());
                     diagnostics.add_range(posts.diagnostics().iter().cloned());
+
+                    let trusted_producer = self.trusted_predicate_producer(&key)?;
+
+                    // Trusted predicate guarantees are declared sources of authority. Execution
+                    // properties and ordinary postconditions still require their independent proofs.
+                    let posts = posts
+                        .into_parts()
+                        .0
+                        .into_iter()
+                        .map(|(condition, trusted, span)| {
+                            (
+                                if trusted && trusted_producer {
+                                    bray_checker::ExecutionCondition::Boolean(true)
+                                } else {
+                                    condition
+                                },
+                                span,
+                            )
+                        })
+                        .collect::<Vec<_>>();
 
                     // Each domain owns its entry assumptions while sharing immutable condition operands.
                     let mut assumptions = requirements.clone();
@@ -217,14 +252,12 @@ impl Compilation {
                     }
 
                     for source in posts
-                        .value()
                         .iter()
                         .map(|(_, source)| *source)
                         .collect::<std::collections::BTreeSet<_>>()
                     {
                         // Each clause proof owns shared immutable condition terms from this normalized domain.
                         let conditions = posts
-                            .value()
                             .iter()
                             .filter(|(_, span)| *span == source)
                             .cloned()
@@ -255,43 +288,56 @@ mod tests {
 
     #[test]
     fn certified_dependencies_preserve_selected_generic_arguments() {
-        let compilation = compilation(
-            r#"
-            module app;
-            func helper<T>() -> bool executes(total) { return true; }
-            func root() -> bool executes(total) { return helper<bool>(); }
-        "#,
-        );
+        for required in ["bool", "u32"] {
+            let compilation = compilation(&format!(
+                r#"
+            trusted module app;
+            trusted predicate ready<T>();
+            trusted func helper<T>() -> bool requires(trusted ready<T>()) executes(total) {{ return true; }}
+            trusted func root() -> bool requires(trusted ready<{required}>()) executes(total) {{ return trusted helper<bool>(); }}
+        "#
+            ));
 
-        assert!(
-            compilation.check_diagnostics().is_empty(),
-            "{:?}",
-            compilation.check_diagnostics()
-        );
+            if required != "bool" {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    compilation.check_diagnostics(),
+                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
 
-        let proof = compilation
-            .execution_properties(source_function_body_key(&compilation, "root"))
-            .unwrap();
+                continue;
+            }
 
-        let values = compilation.semantic_value_store().unwrap();
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{:?}",
+                compilation.check_diagnostics()
+            );
 
-        assert!(
-            proof
-                .value()
-                .dependencies
-                .iter()
-                .any(|(_, _, target, obligation)| {
-                    let bray_bound_tree::BoundCallableTarget::Declaration(instance) = target else {
-                        return false;
-                    };
-                    *obligation == bray_checker::ExecutionObligation::Property(Total, None)
-                        && values
-                            .generic_substitution_data(instance.substitution())
-                            .bindings()
-                            .len()
-                            == 1
-                })
-        );
+            let proof = compilation
+                .execution_properties(source_function_body_key(&compilation, "root"))
+                .unwrap();
+
+            let values = compilation.semantic_value_store().unwrap();
+
+            assert!(
+                proof
+                    .value()
+                    .dependencies
+                    .iter()
+                    .any(|(_, _, target, obligation)| {
+                        let bray_bound_tree::BoundCallableTarget::Declaration(instance) = target
+                        else {
+                            return false;
+                        };
+                        *obligation == bray_checker::ExecutionObligation::Property(Total, None)
+                            && values
+                                .generic_substitution_data(instance.substitution())
+                                .bindings()
+                                .len()
+                                == 1
+                    })
+            );
+        }
     }
 
     #[test]
@@ -775,24 +821,29 @@ mod tests {
 
     #[test]
     fn opaque_foreign_assertions_retain_their_provenance() {
-        let options = crate::CompilationOptions::new(
-            crate::WorkerBudget::serial(),
-            bray_symbols::ProductKind::Library,
-            crate::SelectedTarget::baseline(),
-        )
-        .with_native_link_inputs([bray_symbols::NativeLinkRequirement::new(
-            bray_base::NonEmptySharedStr::try_new("c").unwrap(),
-            bray_symbols::NativeLinkKind::Dynamic,
-        )]);
+        for (requirement, argument, valid) in [
+            ("", "0", true),
+            ("requires(value > 0)", "1", true),
+            ("requires(value > 0)", "0", false),
+        ] {
+            let options = crate::CompilationOptions::new(
+                crate::WorkerBudget::serial(),
+                bray_symbols::ProductKind::Library,
+                crate::SelectedTarget::baseline(),
+            )
+            .with_native_link_inputs([bray_symbols::NativeLinkRequirement::new(
+                bray_base::NonEmptySharedStr::try_new("c").unwrap(),
+                bray_symbols::NativeLinkKind::Dynamic,
+            )]);
 
-        let compilation = crate::test_support::compilation_with_options(
-            r#"
+            let source = r#"
                 trusted module app;
 
                 @link(name = "c")
                 @symbol(name = "native_value")
                 @abi(c)
-                extern trusted func native_value() -> i32
+                extern trusted func native_value(pos value: i32) -> i32
+                    REQUIREMENT
                     uses(foreign_call)
                     executes(total);
 
@@ -800,28 +851,36 @@ mod tests {
                     uses(foreign_call)
                     executes(total)
                 {
-                    return native_value();
+                    return native_value(ARGUMENT);
                 }
-            "#,
-            options,
-        );
+            "#
+            .replace("REQUIREMENT", requirement)
+            .replace("ARGUMENT", argument);
 
-        assert!(
-            compilation.check_diagnostics().is_empty(),
-            "{:?}",
-            compilation.check_diagnostics()
-        );
+            let compilation = crate::test_support::compilation_with_options(&source, options);
 
-        let evidence = compilation
-            .execution_properties(source_function_body_key(&compilation, "wrapper"))
-            .unwrap();
+            assert_eq!(
+                !compilation.check_diagnostics().has_errors(),
+                valid,
+                "{:?}",
+                compilation.check_diagnostics()
+            );
 
-        assert_eq!(
-            evidence.value().properties,
-            std::collections::BTreeSet::from([Total])
-        );
+            if !valid {
+                continue;
+            }
 
-        assert_eq!(evidence.value().foreign_assertions.len(), 1);
+            let evidence = compilation
+                .execution_properties(source_function_body_key(&compilation, "wrapper"))
+                .unwrap();
+
+            assert_eq!(
+                evidence.value().properties,
+                std::collections::BTreeSet::from([Total])
+            );
+
+            assert_eq!(evidence.value().foreign_assertions.len(), 1);
+        }
     }
 
     #[test]
@@ -926,6 +985,108 @@ mod tests {
             std::collections::BTreeSet::from([Total])
         );
     }
+    #[test]
+    fn nullable_match_execution_proofs_respect_payload_conditions() {
+        for (parameter, requirement, arms, valid) in [
+            (
+                "value: bool",
+                "value",
+                "case true { return; } case false { panic(\"false\"); }",
+                true,
+            ),
+            (
+                "value: u32?",
+                "value matches ?_",
+                "case ?held { return; } case none { panic(\"absent\"); }",
+                true,
+            ),
+            (
+                "value: &(u32?)",
+                "value matches ?_",
+                "case ?held { return; } case none { panic(\"absent\"); }",
+                true,
+            ),
+            (
+                "value: u32?",
+                "value matches none",
+                "case ?held { panic(\"present\"); } case none { return; }",
+                true,
+            ),
+            (
+                "value: u32?",
+                "value matches ?_",
+                "case ?1 { return; } case _ { panic(\"other payload\"); }",
+                false,
+            ),
+            (
+                "value: u32?",
+                "true",
+                "case ?held { return; } case none { panic(\"absent\"); }",
+                false,
+            ),
+        ] {
+            let source = format!(
+                "module app; func root(pos {parameter}) requires({requirement}) executes(pure, total) {{ match value {{ {arms} }} }}"
+            );
+
+            let application = compilation(&source);
+
+            let evidence = application
+                .execution_properties(source_function_body_key(&application, "root"))
+                .unwrap();
+
+            assert_eq!(
+                !evidence.diagnostics().has_errors(),
+                valid,
+                "{source}: {:?}",
+                evidence.diagnostics()
+            );
+        }
+    }
+
+    #[test]
+    fn local_callable_targets_keep_checked_termination_dependencies() {
+        for (setup, valid) in [
+            (
+                "let action = lambda() executes(pure, total) {}; action();",
+                true,
+            ),
+            (
+                "let action = lambda() executes(pure, total) {}; let forwarded = action; forwarded();",
+                true,
+            ),
+            ("let action = lambda() { while true {} }; action();", false),
+            (
+                "let action = lambda() executes(total) { root(flag); }; action();",
+                false,
+            ),
+            (
+                "let mut action: func() -> unit = lambda() executes(total) {}; action = lambda() { while true {} }; action();",
+                false,
+            ),
+            (
+                "let mut action: func() -> unit = lambda() executes(total) {}; if flag { action = lambda() { while true {} }; } action();",
+                false,
+            ),
+        ] {
+            let source =
+                format!("module app; func root(pos flag: bool) executes(total) {{ {setup} }}");
+
+            let application = compilation(&source);
+
+            let evidence = application
+                .execution_properties(source_function_body_key(&application, "root"))
+                .unwrap();
+
+            assert_eq!(
+                !evidence.diagnostics().has_errors(),
+                valid,
+                "{source}: {:?}",
+                evidence.diagnostics()
+            );
+        }
+    }
+
     #[test]
     fn methods_constructors_and_lambda_bodies_establish_their_own_evidence() {
         let compilation = compilation(

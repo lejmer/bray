@@ -141,8 +141,8 @@ impl ConstantDiagnostic {
                 None
             }
             Self::InvalidExpression(None) | Self::Literal(ConstantLiteralError::Invalid) => {
-                return Err(
-                    crate::CheckerInfrastructureError::InvalidConstantEvaluationInput.into(),
+                panic!(
+                    "Constant-evaluation inputs do not describe the requested bound unit. in render"
                 );
             }
             Self::Literal(ConstantLiteralError::NotRepresentable)

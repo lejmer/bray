@@ -6,6 +6,7 @@ use bray_bound_tree::{
     BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, BoundCallableTarget,
     BoundSourceAnchor, BoundUnitKey, CheckedBodyBehavior, TrustedCapabilityUse,
 };
+use bray_checker::CheckerRequestContext;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, CallableCapabilityRequirement, CallableContractsQuery, CallableEffectRequirement,
@@ -219,10 +220,7 @@ impl Compilation {
 
             // A Bray implementation owns its uses clause even across an interface or catalog.
             // Intrinsics and foreign ABI calls remain direct uses of trusted authority.
-            if matches!(
-                origin,
-                Some(SymbolOrigin::Imported | SymbolOrigin::CompilerKnown)
-            ) && self
+            if self
                 .available_compiler_known_symbols()
                 .symbol_implementation(callable.into_any())
                 .is_none()
@@ -242,7 +240,13 @@ impl Compilation {
 
                     diagnostics = diagnostics.merged(foreign.diagnostics());
 
-                    if foreign.value().is_none() {
+                    if foreign.value().is_none()
+                        && self
+                            .checker_context(cancellation)?
+                            .implementation_hook(callable.into_any())
+                            .map_err(FactQueryError::from)?
+                            .is_none()
+                    {
                         continue;
                     }
 

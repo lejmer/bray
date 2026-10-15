@@ -5,7 +5,7 @@ use bray_symbols::TypeData;
 
 use super::super::dependencies::ExpressionTypeDependencies;
 use super::super::inference::{InferenceTypeId, TypeInferenceContext};
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitView};
 
 pub(super) fn infer_box<C>(
     request: CheckerUnitView<'_, C>,
@@ -14,12 +14,11 @@ pub(super) fn infer_box<C>(
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(variable) = variables.get(&expression).copied() else {
-        return Ok(());
+        return;
     };
 
     let Some(operand) = construction
@@ -27,11 +26,11 @@ where
         .first()
         .map(|argument| argument.expression())
     else {
-        return Ok(());
+        return;
     };
 
     let Some(operand_variable) = variables.get(&operand).copied() else {
-        return Ok(());
+        return;
     };
 
     let values = request.semantic_values();
@@ -44,7 +43,7 @@ where
             TypeData::OwnedIndirection { target, .. } => Some(*target),
             _ => None,
         },
-    )?;
+    );
 
     let expected = expected.map(|(ty, _)| values.type_data(ty));
 
@@ -61,12 +60,12 @@ where
         .map(|(_, target)| target)
         .or_else(|| inference.evidence(operand_variable))
     else {
-        return Ok(());
+        return;
     };
 
     let storage = if construction.policy().is_some() {
         let Some(storage) = types.box_storage_policies.get(&expression).copied() else {
-            return Ok(());
+            return;
         };
 
         storage
@@ -78,24 +77,20 @@ where
             .compiler_known_provider()
             .heap_storage_policy()
         else {
-            return Ok(());
+            return;
         };
 
         let Some(heap) = values
-            .intern_open_named_type(request.symbols(), heap.into())
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?
+            .intern_open_named_type(request.symbols(), heap.into()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in infer_box: {error:?}"))
         else {
-            return Ok(());
+            return ;
         };
 
         heap
     };
 
     let ty = values
-        .intern_type(TypeData::OwnedIndirection { storage, target })
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .intern_type(TypeData::OwnedIndirection { storage, target }).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in infer_box: {error:?}"));
 
     inference.add_evidence(variable, ty, expression);
-
-    Ok(())
 }

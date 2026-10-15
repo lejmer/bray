@@ -20,7 +20,7 @@ pub enum DeclaredStorageMemberIdentity {
     UnionPayloadField(UnionPayloadFieldSymbolId),
 }
 
-use crate::{CheckerInfrastructureError, CheckerQueryResult, CheckerSource};
+use crate::{CheckerQueryResult, CheckerSource};
 
 /// A resolved integer type and the representation used to validate tag values.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -320,8 +320,7 @@ pub trait TypeRepresentationContext: Sync {
     >;
 
     /// Resolves one directive expression to its exact source text.
-    fn source(&self, syntax: SyntaxAnchor)
-    -> Result<CheckerSource<'_>, CheckerInfrastructureError>;
+    fn source(&self, syntax: SyntaxAnchor) -> CheckerSource<'_>;
 
     /// Evaluates one layout-size expression as a nonnegative integer.
     fn unsigned_integer(

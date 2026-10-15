@@ -103,7 +103,7 @@ func fill_entropy(pos destination: &mut [u8]) -> Result<unit, EntropyError>
     requires(blocking_execution())
 {
     let count: usize = destination.length();
-    let pointer: RawPointer<u8> = std.memory.byte_slice_pointer_mut(destination);
+    let pointer: RawPointer<u8> = std.memory.slice_pointer_mut(destination, count = count);
 
     return trusted fill_entropy_from_platform(destination = pointer, count = count);
 }
@@ -112,7 +112,7 @@ trusted internal func fill_entropy_from_platform(
     destination: RawPointer<u8>,
     count: usize
 ) -> Result<unit, EntropyError>
-    requires(blocking_execution())
+    requires(blocking_execution(), trusted core.memory.valid_write<u8>(pointer = destination, count = count))
 {
     let mut transferred: u64 = 0;
 

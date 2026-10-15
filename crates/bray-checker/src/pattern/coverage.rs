@@ -21,8 +21,7 @@ use super::check::{PatternChecker, available_dependency, effective_pattern_kind}
 use crate::constant::constant_values_equal;
 use crate::diagnostic::{diagnostic_id, diagnostic_type, expression_span, pattern_span};
 use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitView,
+    CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 impl<C> PatternChecker<'_, '_, C>
@@ -118,7 +117,7 @@ where
         let exhaustive = covered.is_exhaustive(self.request, subject_data.as_ref())?;
 
         if !exhaustive && !recovered && !matches!(subject_data.as_ref(), TypeData::Error) {
-            let span = expression_span(self.request, expression_id)?;
+            let span = expression_span(self.request, expression_id);
 
             let (missing, omitted_count) =
                 covered.missing_cases(self.request, subject_data.as_ref())?;
@@ -238,7 +237,7 @@ where
         reason: DiagnosticPatternUnreachability,
         covering: Option<&BTreeSet<BoundPatternId>>,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
-        let span = pattern_span(self.request, pattern)?;
+        let span = pattern_span(self.request, pattern);
 
         let mut diagnostic = Diagnostic::new(
             diagnostic_id(self.diagnostics.len()),
@@ -253,7 +252,7 @@ where
         .with_arg(DiagnosticArg::pattern_unreachability(reason));
 
         for covering in covering.into_iter().flatten().copied() {
-            let related = pattern_span(self.request, covering)?;
+            let related = pattern_span(self.request, covering);
 
             if related != span {
                 diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
@@ -339,7 +338,7 @@ where
         origin: BoundNodeOrigin,
         range: TextRange,
     ) -> Result<Option<bool>, CheckerQueryError<C::UpstreamError>> {
-        let source = self.request.source(origin.source_anchor())?;
+        let source = self.request.source(origin.source_anchor());
 
         Ok(match source.text_for_range(range) {
             Some("true") => Some(true),
@@ -493,7 +492,7 @@ impl Coverage {
 
         for (other, _) in &other.constants {
             for (current, origin) in &self.constants {
-                if constant_values_equal(request.semantic_values(), *current, *other)? {
+                if constant_values_equal(request.semantic_values(), *current, *other) {
                     origins.insert(*origin);
 
                     break;
@@ -573,10 +572,9 @@ impl Coverage {
                             .member_name((*variant).into())
                             .map(|name| {
                                 DiagnosticPatternMissingCase::UnionVariant(name.as_str().to_owned())
-                            })
-                            .ok_or(CheckerInfrastructureError::SemanticValueUnavailable)
+                            }).unwrap_or_else(|| panic!("checked union variant {variant:?} must have a source member name"))
                     })
-                    .collect::<Result<Vec<_>, _>>()?
+                    .collect::<Vec<_>>()
             }
             TypeData::Named { definition, .. }
                 if request
@@ -701,7 +699,7 @@ where
         let mut contained = false;
 
         for (current, _) in current {
-            if constant_values_equal(request.semantic_values(), *current, *other)? {
+            if constant_values_equal(request.semantic_values(), *current, *other) {
                 contained = true;
 
                 break;

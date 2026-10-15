@@ -712,6 +712,13 @@ fn constant_term_exposes_internal(
             pending.push(SemanticValueDependency::ConstantTerm(*operand));
             pending.push(SemanticValueDependency::Type(*target));
         }
+        ConstantTermData::VariantTest { subject, variant } => {
+            if source_symbol_is_not_publicly_reachable((*variant).into(), declarations, symbols) {
+                return Some((*variant).into());
+            }
+
+            pending.push(SemanticValueDependency::ConstantTerm(*subject));
+        }
         ConstantTermData::NullablePresent(value) => {
             pending.push(SemanticValueDependency::ConstantTerm(*value));
         }
@@ -838,8 +845,9 @@ fn constant_term_exposes_internal(
                     )
                     .then_some(field.into());
                 }
-                ConstantProjectionKind::TupleElement(_) | ConstantProjectionKind::NullableValue => {
-                }
+                ConstantProjectionKind::TupleElement(_)
+                | ConstantProjectionKind::ArrayElementOrdinal(_)
+                | ConstantProjectionKind::NullableValue => {}
             }
         }
     }

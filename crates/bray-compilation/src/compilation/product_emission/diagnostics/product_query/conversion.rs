@@ -188,14 +188,6 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
             "product_query_invalid_compiler_known_declaration_key",
             vec![text_field("declaration_key", key)],
         ),
-        Failure::InvalidRecognizedStandardLibraryDeclarationKey { key } => (
-            "product_query_invalid_recognized_standard_library_declaration_key",
-            vec![text_field("declaration_key", key)],
-        ),
-        Failure::InvalidPackageIdentity { identity } => (
-            "product_query_invalid_package_identity",
-            vec![text_field("package_identity", identity)],
-        ),
         Failure::UnexpectedEntryResult { actual } => (
             "product_query_unexpected_entry_result",
             vec![text_field(

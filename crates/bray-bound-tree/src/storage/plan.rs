@@ -1,6 +1,7 @@
 mod contracts;
 mod model;
 mod relationships;
+mod resolve;
 
 pub use contracts::{
     BorrowCapabilityOrigin, PlannedBorrowCapability, StorageAccessPlan, StorageAccessPurpose,

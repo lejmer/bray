@@ -161,12 +161,6 @@ pub enum PackageInterfaceExportError {
     Bundle(PackageInterfaceExportBuildError),
 }
 
-pub(in crate::compilation::export) const fn semantic_value_export_error(
-    error: SemanticValueStoreError,
-) -> PackageInterfaceExportError {
-    PackageInterfaceExportError::SemanticValueStore(error)
-}
-
 pub(in crate::compilation::export) fn constant_callable_evaluation_export_error(
     declaration: DiagnosticInterfaceSymbolIdentity,
     cause: FactQueryError,
@@ -207,12 +201,6 @@ pub(in crate::compilation::export) fn callable_signature_export_error(
     fact_query_export_error(error.into())
 }
 
-pub(in crate::compilation::export) fn checker_infrastructure_export_error(
-    error: bray_checker::CheckerInfrastructureError,
-) -> PackageInterfaceExportError {
-    fact_query_export_error(error.into())
-}
-
 pub(in crate::compilation::export) fn fact_query_export_error(
     error: FactQueryError,
 ) -> PackageInterfaceExportError {
@@ -249,7 +237,7 @@ where
 #[cfg(test)]
 mod tests {
     use bray_binder::BoundUnitBindingError;
-    use bray_checker::CheckerInfrastructureError;
+
     use bray_symbols::{SemanticValueKind, SemanticValueStoreCreateError, SemanticValueStoreError};
 
     use super::{
@@ -272,21 +260,9 @@ mod tests {
             expected(FactQueryError::SemanticValueStore(semantic))
         );
 
-        let checker = FactQueryError::CheckerInfrastructure(
-            CheckerInfrastructureError::SemanticValueStore(semantic),
-        );
-
-        assert_eq!(fact_query_export_error(checker.clone()), expected(checker));
-
         let binding = FactQueryError::Binding(BoundUnitBindingError::SemanticValue(semantic));
 
         assert_eq!(fact_query_export_error(binding.clone()), expected(binding));
-
-        let nested = FactQueryError::Binding(BoundUnitBindingError::CheckerInfrastructure(
-            CheckerInfrastructureError::SemanticValueStore(semantic),
-        ));
-
-        assert_eq!(fact_query_export_error(nested.clone()), expected(nested));
 
         let create = FactQueryError::SemanticValueStoreCreate(
             SemanticValueStoreCreateError::IdentitySpaceExhausted,

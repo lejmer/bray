@@ -4,12 +4,7 @@ use bray_bound_tree::{
     AnyBoundNodeId, CheckedBodySemantics, CheckedExpressionSemantics, CheckedMemoryOperations,
     StoragePlan,
 };
-use bray_diagnostics::DiagnosticBag;
 
-use super::super::build::{
-    ControlFlowGraphBuildOutcome, build_execution_control_flow_graph,
-    build_storage_control_flow_graph,
-};
 use super::super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind};
 use super::flow::analyze_execution_flow;
 use crate::execution_guarantees::{ExecutionCandidate, ExecutionProperty};
@@ -18,6 +13,7 @@ use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 /// Checks body-local operations and records selected dependencies without certifying them.
 pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
+    prepared: &crate::PreparedBodyAnalysis,
     property: Option<ExecutionProperty>,
     assumptions: &[crate::ExecutionCondition],
     postconditions: &[(crate::ExecutionCondition, bray_source::SourceSpan)],
@@ -32,81 +28,118 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
 ) -> CheckerOutcome<ExecutionCandidate, C::UpstreamError> {
     assert_execution_inputs(request, expressions, storage, body, memory);
 
-    // Purity alone does not discharge cleanup on a dependency's abnormal completion.
-    let graph = match property {
-        Some(ExecutionProperty::Pure) => {
-            build_storage_control_flow_graph(request, storage, expressions.selections(), None)
-        }
-        Some(ExecutionProperty::Total) | None => {
-            build_execution_control_flow_graph(request, storage, expressions.selections())
-        }
-    };
+    let graph = &prepared.graph;
+    let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
 
-    let graph = match graph {
-        ControlFlowGraphBuildOutcome::Complete(graph) => graph,
-        ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
-        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
-    };
+    let disposal = super::cleanup::Cleanup::new(&prepared.cleanup, body.dependencies())
+        .with_selection(body.asynchronous(), body.storage_flow());
 
-    let literals =
-        crate::execution_guarantees::condition_literals(expressions, request.semantic_values());
+    let mut excluded = graph
+        .edges()
+        .iter()
+        .filter(|edge| property != Some(ExecutionProperty::Pure) && edge.is_dependency_failure())
+        .map(|edge| edge.id())
+        .collect();
+
+    crate::analysis::exclude_non_unwinding_edges(graph, request, &mut excluded);
 
     let reachable = match analyze_execution_flow(
-        &graph,
+        prepared,
+        excluded,
         request,
         expressions,
         assumptions,
-        &literals,
         storage,
+        memory,
+        body,
+        body.refinements().invalidations(),
         contracts,
-        body.asynchronous(),
+        &disposal,
+        body.dependencies(),
     ) {
-        super::super::fixed_point::FixedPointOutcome::Complete(flow) => flow,
-        super::super::fixed_point::FixedPointOutcome::Cancelled => {
+        CheckerOutcome::Complete(flow) => {
+            let (flow, additional) = flow.into_parts();
+
+            diagnostics.add_range(additional);
+
+            flow
+        }
+        CheckerOutcome::Cancelled => {
             return CheckerOutcome::Cancelled;
         }
-        super::super::fixed_point::FixedPointOutcome::ConvergenceInvariantViolated => {
-            let mut candidate = ExecutionCandidate::default();
-
-            record_failure(request, &mut candidate, request.unit().root().into());
-
-            return CheckerOutcome::complete(candidate, DiagnosticBag::new());
-        }
+        CheckerOutcome::UpstreamFailure(error) => return CheckerOutcome::UpstreamFailure(error),
     };
 
-    let mut diagnostics = DiagnosticBag::new();
-
-    macro_rules! checked {
-        ($result:expr) => {
-            match $result {
-                Ok(value) => value,
-                Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-                Err(crate::CheckerQueryError::Infrastructure(error)) => {
-                    return CheckerOutcome::InfrastructureFailure(error)
-                }
-                Err(crate::CheckerQueryError::Upstream(error)) => {
-                    return CheckerOutcome::UpstreamFailure(error)
-                }
-            }
-        };
-    }
-
-    let mut candidate = checked!(reachable.candidate(
-        body.asynchronous(),
-        property == Some(ExecutionProperty::Total)
-    ));
+    let mut candidate = reachable.candidate(memory, property == Some(ExecutionProperty::Total));
 
     super::operation::collect_preservation_dependencies(
         candidate.calls.keys().copied(),
         expressions.selections(),
         memory,
+        request.semantic_values(),
         &mut candidate.dependencies,
     );
+
+    if let Some(property) = property {
+        match check_operations(
+            &reachable,
+            property,
+            body,
+            memory,
+            &mut candidate,
+            &mut diagnostics,
+        ) {
+            Ok(()) => {}
+            Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(crate::CheckerQueryError::Upstream(error)) => {
+                return CheckerOutcome::UpstreamFailure(error);
+            }
+        }
+    }
+
+    let bounded_loops = if property == Some(ExecutionProperty::Total)
+        && graph
+            .edges()
+            .iter()
+            .any(|edge| edge.kind() == AnalysisEdgeKind::LoopBack)
+    {
+        super::termination::bounded_loop_headers(
+            request,
+            graph,
+            expressions,
+            storage,
+            &prepared.literals,
+        )
+    } else {
+        BTreeSet::new()
+    };
+
+    check_completion(
+        request,
+        graph,
+        &reachable,
+        property,
+        &bounded_loops,
+        &mut candidate,
+    );
+
+    check_postconditions(&reachable, postconditions, &mut candidate);
+
+    CheckerOutcome::complete(candidate, diagnostics)
+}
+
+fn check_operations<C: CheckerRequestContext + ?Sized>(
+    reachable: &super::flow::ExecutionFlow<'_, '_, C>,
+    property: ExecutionProperty,
+    body: &CheckedBodySemantics,
+    memory: &CheckedMemoryOperations,
+    candidate: &mut ExecutionCandidate,
+    diagnostics: &mut bray_diagnostics::DiagnosticBag,
+) -> Result<(), crate::CheckerQueryError<C::UpstreamError>> {
+    let request = reachable.domain.request;
+    let graph = reachable.domain.graph;
+    let expressions = reachable.domain.semantics;
+    let storage = reachable.domain.storage;
 
     let mut visited = BTreeSet::new();
 
@@ -115,13 +148,21 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         .iter()
         .filter(|block| reachable.is_block_reachable(block.id()))
     {
-        let Some(property) = property else {
-            break;
-        };
-
         if request.is_cancelled() {
-            return CheckerOutcome::Cancelled;
+            return Err(crate::CheckerQueryError::Cancelled);
         }
+
+        let mut state = (property == ExecutionProperty::Total
+            && !reachable.domain.sequence_lengths.is_empty())
+        .then(|| {
+            // Replay operations on a copy without changing the solved block entry.
+            reachable
+                .states
+                .state(block.id())
+                .and_then(Option::as_ref)
+                .expect("reachable block retains its execution state")
+                .clone()
+        });
 
         for operation in block
             .operations()
@@ -131,93 +172,78 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
             let node = operation.kind().node();
 
             let preserves = match operation.kind() {
-                AnalysisOperationKind::ScopeExit { block, exit, phase } => {
-                    checked!(super::cleanup::check_scope_cleanup(
-                        request,
-                        storage,
-                        body.asynchronous(),
-                        block,
-                        exit,
-                        phase,
-                        property,
-                        &mut candidate.dependencies,
-                        &mut diagnostics
-                    ))
-                }
+                AnalysisOperationKind::ScopeExit {
+                    block, exit, phase, ..
+                } => super::cleanup::check_scope_cleanup(
+                    request,
+                    storage,
+                    body.asynchronous(),
+                    block,
+                    exit,
+                    phase,
+                    property,
+                    &mut candidate.dependencies,
+                    diagnostics,
+                )?,
                 AnalysisOperationKind::Recovery(_)
                 | AnalysisOperationKind::Suspension { .. }
                 | AnalysisOperationKind::TaskOperation { .. } => false,
-                AnalysisOperationKind::Call { expression, .. }
-                | AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => {
-                    let mut valid = true;
-
-                    if visited.insert(expression) {
-                        valid &= super::operation::check_expression(
-                            request,
-                            expression,
-                            property,
+                AnalysisOperationKind::Call {
+                    invocation: bray_bound_tree::BoundExecutionSite::Node(_),
+                    ..
+                } if !matches!(node, AnyBoundNodeId::Expression(_)) => {
+                    panic!("selected call invocation retains an actual expression owner");
+                }
+                AnalysisOperationKind::Call {
+                    invocation:
+                        invocation @ (bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+                        | bray_bound_tree::BoundExecutionSite::ScopedExit(_)),
+                    ..
+                } => {
+                    if visited.insert(invocation) {
+                        super::operation::collect_scoped_dependency(
                             expressions.selections(),
-                            storage,
-                            memory,
+                            invocation,
+                            property,
                             &mut candidate.dependencies,
                         );
 
-                        for replacement in body
-                            .asynchronous()
-                            .replacements()
-                            .iter()
-                            .filter(|replacement| replacement.expression() == expression)
-                        {
-                            valid &= checked!(super::cleanup::check_cleanup(
-                                request,
-                                storage,
-                                replacement.access(),
-                                replacement.parts(),
-                                property,
-                                node,
-                                &mut candidate.dependencies,
-                                &mut diagnostics
-                            ));
-                        }
+                        super::operation::check_storage_accesses(
+                            request,
+                            invocation,
+                            storage,
+                            property,
+                            &mut candidate.dependencies,
+                        )
+                    } else {
+                        true
+                    }
+                }
+                AnalysisOperationKind::Call {
+                    invocation:
+                        bray_bound_tree::BoundExecutionSite::Node(
+                            bray_bound_tree::AnyBoundNodeId::Expression(expression),
+                        ),
+                    ..
+                }
+                | AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => {
+                    let mut valid = true;
 
-                        let constructed = matches!(expressions.selections().expression(expression), Some(bray_bound_tree::SemanticSelection::Operation(operation)) if matches!(operation, bray_bound_tree::SelectedOperation::Construction(_)) || matches!(operation, bray_bound_tree::SelectedOperation::Member(member) if matches!(member.member(), bray_symbols::AnySymbolId::UnionVariant(_))));
-
-                        let republished =
-                            bray_bound_tree::storage_expression_republishes_destructor_receiver(
-                                request.unit(),
-                                storage,
-                                expression,
-                            );
-
-                        if constructed || republished.is_some() {
-                            if let Some(ty) = republished.or_else(|| {
-                                expressions
-                                    .types()
-                                    .expression(expression)
-                                    .map(|entry| entry.ty())
-                            }) {
-                                let admission =
-                                    checked!(crate::asynchronous::execution_cleanup_dependencies(
-                                        request,
-                                        ty,
-                                        property,
-                                        crate::asynchronous::ExecutionCleanupMode::Admission,
-                                        node
-                                    ));
-
-                                let (dependencies, admission_diagnostics) = admission.into_parts();
-
-                                valid &= dependencies.is_some();
-
-                                candidate
-                                    .dependencies
-                                    .extend(dependencies.into_iter().flatten());
-
-                                diagnostics.add_range(admission_diagnostics);
-                            } else {
-                                valid = false;
-                            }
-                        }
+                    if visited.insert(expression.into()) {
+                        valid &= check_expression_execution(
+                            request,
+                            expression,
+                            property,
+                            expressions,
+                            storage,
+                            body,
+                            memory,
+                            state.as_ref().is_some_and(|state| {
+                                reachable.domain.index_in_bounds(state, expression)
+                            }),
+                            &mut candidate.dependencies,
+                            diagnostics,
+                        )?;
                     }
 
                     valid
@@ -225,24 +251,77 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
                 AnalysisOperationKind::PatternObservation(_) | AnalysisOperationKind::Bound(_) => {
                     super::operation::check_storage_accesses(
                         request,
-                        node,
+                        node.into(),
                         storage,
                         property,
                         &mut candidate.dependencies,
                     )
                 }
+                AnalysisOperationKind::Call { .. } => {
+                    unreachable!("all selected invocation occurrences are handled above")
+                }
             };
 
             if !preserves {
-                record_failure(request, &mut candidate, node);
+                record_failure(request, candidate, node);
+            }
+
+            if let Some(state) = &mut state {
+                reachable.domain.operation(state, operation.kind(), None);
             }
         }
     }
 
-    check_completion(request, &graph, &reachable, property, &mut candidate);
-    check_postconditions(&graph, &reachable, postconditions, &mut candidate);
+    Ok(())
+}
 
-    CheckerOutcome::complete(candidate, diagnostics)
+fn check_expression_execution<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    expression: bray_bound_tree::BoundExpressionId,
+    property: ExecutionProperty,
+    expressions: &CheckedExpressionSemantics,
+    storage: &StoragePlan,
+    body: &CheckedBodySemantics,
+    memory: &CheckedMemoryOperations,
+    index_in_bounds: bool,
+    dependencies: &mut Vec<crate::execution_guarantees::ExecutionDependency>,
+    diagnostics: &mut bray_diagnostics::DiagnosticBag,
+) -> Result<bool, crate::CheckerQueryError<C::UpstreamError>> {
+    let mut valid = super::operation::check_expression(
+        request,
+        expression,
+        super::operation::ExecutionGoal::Property(property),
+        expressions.selections(),
+        storage,
+        memory,
+        index_in_bounds,
+        dependencies,
+    );
+
+    for replacement in body.asynchronous().replacement(expression).into_iter() {
+        valid &= super::cleanup::check_cleanup(
+            request,
+            storage,
+            replacement.access(),
+            replacement.parts(),
+            property,
+            expression.into(),
+            dependencies,
+            diagnostics,
+        )?;
+    }
+
+    valid &= super::operation::check_construction_admission(
+        request,
+        expression,
+        property,
+        expressions,
+        storage,
+        dependencies,
+        diagnostics,
+    )?;
+
+    Ok(valid)
 }
 
 fn check_completion<C: CheckerRequestContext + ?Sized>(
@@ -250,6 +329,7 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
     graph: &super::super::model::ControlFlowGraph,
     reachable: &super::flow::ExecutionFlow<'_, '_, C>,
     property: Option<ExecutionProperty>,
+    bounded_loops: &BTreeSet<super::super::id::AnalysisBlockId>,
     candidate: &mut ExecutionCandidate,
 ) {
     if property == Some(ExecutionProperty::Total) {
@@ -271,10 +351,9 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
 
         if graph.edges().iter().any(|edge| {
             reachable.is_edge_reachable(edge.id())
-                && matches!(
-                    edge.kind(),
-                    AnalysisEdgeKind::LoopBack | AnalysisEdgeKind::LoopContinue
-                )
+                && (edge.kind() == AnalysisEdgeKind::LoopContinue
+                    || (edge.kind() == AnalysisEdgeKind::LoopBack
+                        && !bounded_loops.contains(&edge.target())))
         }) {
             record_failure(request, candidate, request.unit().root().into());
         }
@@ -302,46 +381,14 @@ fn record_failure<C: CheckerRequestContext + ?Sized>(
 }
 
 fn check_postconditions<C: CheckerRequestContext + ?Sized>(
-    graph: &super::super::model::ControlFlowGraph,
     flow: &super::flow::ExecutionFlow<'_, '_, C>,
     postconditions: &[(crate::ExecutionCondition, bray_source::SourceSpan)],
     candidate: &mut ExecutionCandidate,
 ) {
-    for (condition, source) in postconditions {
-        let proven = graph
-            .exits()
-            .iter()
-            .filter(|exit| {
-                matches!(
-                    exit.kind(),
-                    AnalysisExitKind::Return
-                        | AnalysisExitKind::NormalFallthrough
-                        | AnalysisExitKind::ResultErrorPropagation
-                )
-            })
-            .all(|exit| {
-                let Some(state) = flow.output(exit.block()) else {
-                    return true;
-                };
-
-                let condition = condition.substitute(
-                    &|input| {
-                        input
-                            .value_in(&state.current)
-                            .unwrap_or_else(|| crate::ExecutionCondition::Input(input.clone()))
-                    },
-                    &state.result,
-                    &mut { crate::ExecutionCondition::WORK_LIMIT },
-                );
-
-                condition.prove(&state.assumptions, &mut {
-                    crate::ExecutionCondition::WORK_LIMIT
-                }) == Some(true)
-            });
-
-        if !proven {
-            candidate.failure.get_or_insert(*source);
-        }
+    if let Some(source) =
+        super::postcondition::unproven_postconditions(flow, postconditions).first()
+    {
+        candidate.failure.get_or_insert(*source);
     }
 }
 

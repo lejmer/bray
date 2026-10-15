@@ -11,6 +11,10 @@ trusted predicate initialized_as<T>(pointer: RawPointer<T>);
 
 trusted predicate initialized_range_as<T>(pointer: RawPointer<T>, count: usize);
 
+trusted predicate nul_terminated_read(pointer: RawPointer<u8>);
+
+trusted predicate wide_nul_terminated_read(pointer: RawPointer<u16>);
+
 trusted predicate aligned_for<T>(pointer: RawPointer<T>);
 
 trusted predicate non_overlapping<T>(
@@ -34,6 +38,14 @@ trusted predicate callable_address_valid<F>(pointer: RawPointer<F>);
 `initialized_as` means the pointed-to storage contains an initialized value of type `T`.
 
 `initialized_range_as` means the pointed-to range contains `count` initialized values of type `T`.
+
+`nul_terminated_read` means the pointer reaches a finite, live byte sequence that is readable and initialized through
+its first NUL byte. It describes storage, without granting ownership or extending the storage's lifetime. A bounded
+native string measurement can expose the exact readable and initialized prefix through ordinary range conditions.
+
+`wide_nul_terminated_read` describes the corresponding finite, live sequence of aligned, initialized `u16` code units
+through its first zero code unit. Its extent is measured in code units; a native UTF-16 byte view includes two bytes
+per code unit, including the terminator. It does not grant ownership or extend the storage's lifetime.
 
 `aligned_for` means the pointer satisfies the alignment requirements of `T`.
 

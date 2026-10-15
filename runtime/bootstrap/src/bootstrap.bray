@@ -2,8 +2,12 @@
 trusted internal module bray.runtime.bootstrap;
 
 using std.memory;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.pool;
 
 internal const STATUS_SUCCESS: u32 = 0;
+
+internal const STATUS_NOT_INITIALIZED: u32 = 1;
 
 internal const STATUS_RUNTIME_FAILURE: u32 = 4;
 
@@ -50,7 +54,22 @@ internal static CONSUMED_REPORTS: core.atomic.Atomic<u64> = core.atomic.initiali
 trusted internal func runtime_initialization(pos worker_capacity: usize, pos timer_capacity: usize) -> u32
     uses(foreign_call)
 {
-    return trusted substrate_initialization(worker_capacity, timer_capacity);
+    let existing_host: bool = trusted bray.runtime.bootstrap.host.initialized();
+    let status: u32 = trusted bray.runtime.bootstrap.host.initialize_host();
+
+    if status != STATUS_SUCCESS
+    {
+        return status;
+    }
+
+    let initialized: u32 = trusted substrate_initialization(worker_capacity, timer_capacity);
+
+    if initialized != STATUS_SUCCESS && !existing_host
+    {
+        let _: u32 = trusted bray.runtime.bootstrap.host.shutdown_host();
+    }
+
+    return initialized;
 }
 
 @abi(c)
@@ -60,6 +79,23 @@ trusted internal func structured_shutdown() -> u32
     let status: u32 = trusted substrate_shutdown();
 
     if core.atomic.load<u64, 1>(&CONSTRUCTED_REPORTS) != core.atomic.load<u64, 1>(&CONSUMED_REPORTS)
+    {
+        return STATUS_RUNTIME_FAILURE;
+    }
+
+    if status != STATUS_SUCCESS && status != STATUS_NOT_INITIALIZED
+    {
+        return status;
+    }
+
+    let shutdown: u32 = trusted bray.runtime.bootstrap.host.shutdown_host();
+
+    if shutdown != STATUS_SUCCESS
+    {
+        return shutdown;
+    }
+
+    if !trusted bray.runtime.bootstrap.pool.release()
     {
         return STATUS_RUNTIME_FAILURE;
     }

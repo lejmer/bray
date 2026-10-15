@@ -510,7 +510,10 @@ mod tests {
         records.extend(records.clone());
         records.sort();
 
-        let mut kinds = records.iter().map(|record| record.kind()).collect::<BTreeSet<_>>();
+        let mut kinds = records
+            .iter()
+            .map(|record| record.kind())
+            .collect::<BTreeSet<_>>();
 
         kinds.insert(InterfaceSemanticRecordKind::PredicateDefinition);
 
@@ -524,7 +527,9 @@ mod tests {
                 let expected = if present {
                     Ok(())
                 } else {
-                    Err(PackageInterfaceExportBuildError::MissingSemantics(symbol.key().clone()))
+                    Err(PackageInterfaceExportBuildError::MissingSemantics(
+                        symbol.key().clone(),
+                    ))
                 };
 
                 assert_eq!(

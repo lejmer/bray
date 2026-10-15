@@ -1,6 +1,5 @@
 mod artifacts;
 mod catalog;
-mod checker_failures;
 mod contracts;
 mod guarantees_and_patterns;
 mod managed_storage;

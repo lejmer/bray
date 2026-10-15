@@ -52,9 +52,30 @@ here.
 The compiler-known raw pointer creation declarations are under `core.memory`.
 
 ```bray
-func address_of<T>(pos value: &T) -> RawPointer<T>;
+func address_of<T>(pos value: &T) -> RawPointer<T>
+    ensures(
+        trusted core.memory.valid_read<T>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = result),
+        trusted core.memory.initialized_as<T>(pointer = result),
+        trusted core.memory.shared_alias_valid<T>(pointer = result),
+        trusted core.memory.epoch_current<T>(pointer = result),
+        trusted core.memory.synchronized_access<T>(pointer = result),
+        trusted core.memory.movement_stable<T>(pointer = result),
+        trusted core.memory.finalization_pending<T>(pointer = result),
+    );
 
-func address_of_mut<T>(pos value: &mut T) -> RawPointer<T>;
+func address_of_mut<T>(pos value: &mut T) -> RawPointer<T>
+    ensures(
+        trusted core.memory.valid_read<T>(pointer = result, count = 1),
+        trusted core.memory.valid_write<T>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = result),
+        trusted core.memory.initialized_as<T>(pointer = result),
+        trusted core.memory.exclusive_alias_valid<T>(pointer = result),
+        trusted core.memory.epoch_current<T>(pointer = result),
+        trusted core.memory.synchronized_access<T>(pointer = result),
+        trusted core.memory.movement_stable<T>(pointer = result),
+        trusted core.memory.finalization_pending<T>(pointer = result),
+    );
 
 func null<T>() -> RawPointer<T>;
 
@@ -69,6 +90,7 @@ trusted func callable_from_pointer<F>(pos pointer: RawPointer<F>) -> F
     uses(layout_reinterpret);
 
 trusted func pointer_from_callable<F>(pos value: F) -> RawPointer<F>
+    ensures(trusted core.memory.callable_address_valid<F>(pointer = result))
     uses(layout_reinterpret);
 ```
 
@@ -81,6 +103,10 @@ Creating a raw pointer from a borrow does not extend the borrow lifetime.
 Creating a raw pointer from a borrow does not transfer ownership.
 
 Creating a raw pointer from a borrow does not create ordinary borrow protection for later raw pointer use.
+
+The declared guarantees observe the reached storage at normal completion. They remain available only while the
+source storage and the named access conditions remain valid. Copying the pointer does not extend that storage lifetime
+or preserve conditions invalidated by mutation, movement, finalization, destruction, or an intervening opaque operation.
 
 `null<T>()` produces a raw pointer value that carries no validity conditions.
 

@@ -164,7 +164,9 @@ fn write_time_breakdown(output: &mut String, report: &CompilationProfileReport) 
         output,
         "{:<LABEL_WIDTH$} {}",
         "Summed worker self time",
-        duration(Duration::from_nanos(report.time.same_thread_self_nanoseconds))
+        duration(Duration::from_nanos(
+            report.time.same_thread_self_nanoseconds
+        ))
     );
 
     for (label, nanoseconds) in [
@@ -177,7 +179,11 @@ fn write_time_breakdown(output: &mut String, report: &CompilationProfileReport) 
         ("  External tools", report.time.external_work_nanoseconds),
     ] {
         if nanoseconds > 0 {
-            let _ = writeln!(output, "{label:<LABEL_WIDTH$} {}", duration(Duration::from_nanos(nanoseconds)));
+            let _ = writeln!(
+                output,
+                "{label:<LABEL_WIDTH$} {}",
+                duration(Duration::from_nanos(nanoseconds))
+            );
         }
     }
 
@@ -238,7 +244,9 @@ fn write_scheduler_summary(output: &mut String, report: &CompilationProfileRepor
     let _ = writeln!(
         output,
         "Query critical path          {}",
-        duration(Duration::from_nanos(scheduler.query_critical_path_nanoseconds))
+        duration(Duration::from_nanos(
+            scheduler.query_critical_path_nanoseconds
+        ))
     );
 
     if scheduler.ready_waves > 0 {
@@ -343,8 +351,12 @@ fn write_query_table(output: &mut String, summary: CompilationProfileSummary<'_>
             grouped(statistics.evaluations),
             duration(Duration::from_nanos(statistics.evaluation_nanoseconds)),
             duration(Duration::from_nanos(statistics.evaluation_self_nanoseconds)),
-            duration(Duration::from_nanos(statistics.evaluation_latency.median_upper_bound_nanoseconds)),
-            duration(Duration::from_nanos(statistics.evaluation_latency.p95_upper_bound_nanoseconds))
+            duration(Duration::from_nanos(
+                statistics.evaluation_latency.median_upper_bound_nanoseconds
+            )),
+            duration(Duration::from_nanos(
+                statistics.evaluation_latency.p95_upper_bound_nanoseconds
+            ))
         );
     }
 
@@ -377,7 +389,9 @@ fn write_ready_query_table(output: &mut String, summary: CompilationProfileSumma
             grouped(statistics.cache_hits),
             percentage_ratio(statistics.cache_hits, statistics.requests),
             duration(Duration::from_nanos(statistics.ready_value_nanoseconds)),
-            duration(Duration::from_nanos(statistics.ready_value_maximum_nanoseconds))
+            duration(Duration::from_nanos(
+                statistics.ready_value_maximum_nanoseconds
+            ))
         );
     }
 }

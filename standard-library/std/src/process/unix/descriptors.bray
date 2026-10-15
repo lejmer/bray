@@ -59,12 +59,14 @@ trusted internal func child_descriptors(
         }
         case 2
         {
-            let mut pair: [i32; 2] = [-1, -1];
+            let observed: (i32, [i32; 2]) = trusted std.os.unix.socket_pair();
 
-            if trusted std.os.unix.socket_pair(std.memory.address_of_mut<i32>(&mut pair[0])) != 0
+            if observed.0 != 0
             {
                 return Error(trusted internal std.platform.unix_error_status());
             }
+
+            let mut pair: [i32; 2] = observed.1;
 
             pair[0] = match trusted internal normalized_descriptor(pair[0])
             {

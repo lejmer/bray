@@ -5,10 +5,8 @@ use bray_binder::BindingQueryContext;
 use bray_codegen::{CodegenGenericArgument, CodegenValueKey};
 use bray_symbols::{
     AnySymbolId, CallableInstanceId, CallablePhaseBehavior, ConstantTermData, ConstantTermId,
-    ConstantValueId, ConstantValueKind, DependencyContractTemplateId, DependencyGuard,
-    DependencyProjection, DependencyRequirement, DependencySubject, DependencySubjectRoot,
-    GenericArgument, GenericSubstitutionId, ImplementationInstanceId, SemanticValueStore,
-    TraitApplicationId, TypeData, TypeId,
+    ConstantValueId, ConstantValueKind, GenericArgument, GenericSubstitutionId,
+    ImplementationInstanceId, SemanticValueStore, TraitApplicationId, TypeData, TypeId,
 };
 
 use crate::compilation::binder::{CompilationBindingContext, binding_query_error};
@@ -251,6 +249,11 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
                 self.constant_term(*operand)?;
                 self.ty(*target)?;
             }
+            ConstantTermData::VariantTest { subject, variant } => {
+                self.tag(18);
+                self.symbol((*variant).into())?;
+                self.constant_term(*subject)?;
+            }
             ConstantTermData::NullablePresent(value) => {
                 self.tag(7);
                 self.constant_term(*value)?;
@@ -437,7 +440,10 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         self.substitution(data.substitution())
     }
 
-    fn callable_instance(&mut self, id: CallableInstanceId) -> Result<(), FactQueryError> {
+    pub(super) fn callable_instance(
+        &mut self,
+        id: CallableInstanceId,
+    ) -> Result<(), FactQueryError> {
         let data = self.values.callable_instance_data(id);
 
         self.symbol(data.definition().symbol())?;
@@ -520,187 +526,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
 
         self.dependency_contract(behavior.dependency_contract())?;
         self.current_run_cancellation(behavior.current_run_cancellation());
-
-        Ok(())
-    }
-
-    pub(super) fn dependency_contract(
-        &mut self,
-        id: DependencyContractTemplateId,
-    ) -> Result<(), FactQueryError> {
-        let data = self.values.dependency_contract_template_data(id);
-
-        self.dependency_requirements(data.requirements())
-    }
-
-    fn dependency_requirements(
-        &mut self,
-        requirements: &[DependencyRequirement],
-    ) -> Result<(), FactQueryError> {
-        let mut identities = Vec::with_capacity(requirements.len());
-
-        for requirement in requirements {
-            let mut encoder = StructuralValueEncoder {
-                values: self.values,
-                binding_context: self.binding_context,
-                digest: StableDigestHasher::new(),
-                allow_static_address: self.allow_static_address,
-            };
-
-            encoder.dependency_requirement(requirement)?;
-            identities.push(encoder.digest.finalize());
-        }
-
-        // Requirement sets must not inherit store-local allocation order.
-        identities.sort_unstable();
-        self.length(identities.len());
-
-        for identity in identities {
-            self.digest.write(&identity);
-        }
-
-        Ok(())
-    }
-
-    fn dependency_requirement(
-        &mut self,
-        requirement: &DependencyRequirement,
-    ) -> Result<(), FactQueryError> {
-        match requirement {
-            DependencyRequirement::Variable { depth, ordinal } => {
-                self.tag(4);
-                self.length(*depth as usize);
-                self.length(ordinal.raw() as usize);
-            }
-            DependencyRequirement::FixedPoint {
-                definitions,
-                result,
-            } => {
-                self.tag(5);
-                self.length(definitions.len());
-
-                for requirements in definitions
-                    .iter()
-                    .map(|definition| definition.as_ref())
-                    .chain([result.as_ref()])
-                {
-                    self.dependency_requirements(requirements)?;
-                }
-            }
-            DependencyRequirement::ResultCall {
-                callable,
-                requirement,
-                inputs,
-            } => {
-                self.tag(if requirement.is_some() { 2 } else { 3 });
-                self.callable_instance(*callable)?;
-
-                if let Some(requirement) = requirement {
-                    self.ty(requirement.subject())?;
-                    self.trait_application(requirement.trait_application())?;
-                }
-
-                self.dependency_call_inputs(inputs)?;
-            }
-            DependencyRequirement::Direct { subject, kind } => {
-                self.tag(0);
-                self.dependency_subject(subject)?;
-                self.dependency_requirement_kind(*kind);
-            }
-            DependencyRequirement::Guarded(guarded) => {
-                self.tag(1);
-                self.dependency_guard(guarded.guard())?;
-                self.dependency_requirements(guarded.requirements())?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn dependency_call_inputs(
-        &mut self,
-        inputs: &[bray_symbols::DependencyCallInput],
-    ) -> Result<(), FactQueryError> {
-        self.length(inputs.len());
-
-        for input in inputs {
-            self.dependency_subject(&DependencySubject::root(input.root()))?;
-
-            for requirements in [input.values(), input.storage()] {
-                self.dependency_requirements(requirements)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn dependency_guard(&mut self, guard: &DependencyGuard) -> Result<(), FactQueryError> {
-        match guard {
-            DependencyGuard::NullablePresent(subject) => {
-                self.tag(0);
-                self.dependency_subject(subject)?;
-            }
-            DependencyGuard::ActiveUnionVariant { subject, variant } => {
-                self.tag(1);
-                self.dependency_subject(subject)?;
-                self.symbol((*variant).into())?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn dependency_subject(&mut self, subject: &DependencySubject) -> Result<(), FactQueryError> {
-        match subject.subject_root() {
-            DependencySubjectRoot::Receiver => self.tag(0),
-            DependencySubjectRoot::Parameter(ordinal) => {
-                self.tag(1);
-                self.ordinal(ordinal);
-            }
-            DependencySubjectRoot::Result => self.tag(2),
-            DependencySubjectRoot::EvaluationStorage => self.tag(7),
-            DependencySubjectRoot::ScopedCapability(ordinal) => {
-                self.tag(3);
-                self.ordinal(ordinal);
-            }
-            DependencySubjectRoot::ImplementationWitness(instance) => {
-                self.tag(4);
-                self.implementation_instance(instance)?;
-            }
-            DependencySubjectRoot::ProductStatic(id) => {
-                self.tag(5);
-                self.symbol(id.into())?;
-            }
-            DependencySubjectRoot::ExactThreadStatic(id) => {
-                self.tag(6);
-                self.symbol(id.into())?;
-            }
-        }
-
-        self.length(subject.projections().len());
-
-        for projection in subject.projections() {
-            match projection {
-                DependencyProjection::ProductField(field) => {
-                    self.tag(0);
-                    self.symbol((*field).into())?;
-                }
-                DependencyProjection::TupleElement(ordinal) => {
-                    self.tag(1);
-                    self.ordinal(*ordinal);
-                }
-                DependencyProjection::Element(index) => {
-                    self.tag(2);
-                    self.constant_term(*index)?;
-                }
-                DependencyProjection::NullableValue => self.tag(3),
-                DependencyProjection::UnionPayloadField(field) => {
-                    self.tag(4);
-                    self.symbol((*field).into())?;
-                }
-                DependencyProjection::OwnedTarget => self.tag(5),
-            }
-        }
+        self.tag(u8::from(behavior.may_unwind()));
 
         Ok(())
     }

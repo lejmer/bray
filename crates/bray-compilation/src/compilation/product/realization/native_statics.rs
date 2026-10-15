@@ -29,11 +29,11 @@ impl Compilation {
     ) -> Result<(bool, [u8; 32]), CodegenPreparationError> {
         // Owned static accessors and string constants use weak ODR helpers.
         // MachO cannot give those helpers exact COMDAT selection.
-        let helpers_without_comdat = instance.key().target().machine().object_format()
-            == bray_target::ObjectFormat::MachO;
+        let helpers_without_comdat =
+            instance.key().target().machine().object_format() == bray_target::ObjectFormat::MachO;
 
-        let mut independent = helpers_without_comdat
-            && self.codegen_has_string_constants(instance, realization)?;
+        let mut independent =
+            helpers_without_comdat && self.codegen_has_string_constants(instance, realization)?;
 
         let mut dependencies = BTreeSet::new();
 
@@ -47,7 +47,8 @@ impl Compilation {
                     contract.symbol.identity().hash(&mut hasher);
                     dependencies.insert(hasher.finalize());
 
-                    independent |= contract.symbol.presence() == bray_symbols::NativeSymbolPresence::Optional
+                    independent |= contract.symbol.presence()
+                        == bray_symbols::NativeSymbolPresence::Optional
                         || contract.symbol.binding() == bray_symbols::NativeSymbolBinding::Weak;
 
                     (contract.direction == ForeignCallableDirection::Export).then_some(reference)
@@ -57,7 +58,8 @@ impl Compilation {
             };
 
             if let Some(reference) = owned_reference {
-                let (selected, _, _) = self.concrete_codegen_static_selection(realization, reference, cancellation)?;
+                let (selected, _, _) =
+                    self.concrete_codegen_static_selection(realization, reference, cancellation)?;
 
                 let mut hasher = StableDigestHasher::new();
 

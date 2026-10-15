@@ -52,10 +52,7 @@ where
             evaluator.diagnostics,
         ),
         Err(TemplateEvaluationFailure::Diagnostic(problem)) => {
-            let value = match recovery_value(context.semantic_values(), request.result_type()) {
-                Ok(value) => value,
-                Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-            };
+            let value = recovery_value(context.semantic_values(), request.result_type());
 
             let diagnostic = match template_failure_diagnostic(
                 context,
@@ -65,9 +62,6 @@ where
             ) {
                 Ok(diagnostic) => diagnostic,
                 Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-                Err(CheckerQueryError::Infrastructure(error)) => {
-                    return CheckerOutcome::InfrastructureFailure(error);
-                }
                 Err(CheckerQueryError::Upstream(error)) => {
                     return CheckerOutcome::UpstreamFailure(error);
                 }
@@ -81,9 +75,6 @@ where
             )
         }
         Err(TemplateEvaluationFailure::Cancelled) => CheckerOutcome::Cancelled,
-        Err(TemplateEvaluationFailure::Infrastructure(error)) => {
-            CheckerOutcome::InfrastructureFailure(error)
-        }
         Err(TemplateEvaluationFailure::Upstream) => {
             CheckerOutcome::UpstreamFailure(evaluator.take_upstream_failure())
         }
@@ -116,9 +107,6 @@ where
             result.map(|evaluated| evaluated.map(EvaluatedConstantCall::value)),
         ),
         CheckerOutcome::Cancelled => CheckerOutcome::Cancelled,
-        CheckerOutcome::InfrastructureFailure(error) => {
-            CheckerOutcome::InfrastructureFailure(error)
-        }
         CheckerOutcome::UpstreamFailure(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
@@ -167,8 +155,8 @@ where
         CheckedTemplateKind::ProductStaticInitializer
             | CheckedTemplateKind::ThreadLocalStaticInitializer
     ) {
-        return CheckerOutcome::InfrastructureFailure(
-            crate::CheckerInfrastructureError::InvalidConstantEvaluationInput,
+        panic!(
+            "Constant-evaluation inputs do not describe the requested bound unit. in evaluate_static_initializer_template"
         );
     }
 
@@ -232,9 +220,6 @@ where
                 match template_failure_diagnostic(context, result_type, problem, diagnostic_span) {
                     Ok(diagnostic) => diagnostic,
                     Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-                    Err(CheckerQueryError::Infrastructure(error)) => {
-                        return CheckerOutcome::InfrastructureFailure(error);
-                    }
                     Err(CheckerQueryError::Upstream(error)) => {
                         return CheckerOutcome::UpstreamFailure(error);
                     }
@@ -245,9 +230,6 @@ where
             CheckerOutcome::complete(None, evaluator.diagnostics)
         }
         Err(TemplateEvaluationFailure::Cancelled) => CheckerOutcome::Cancelled,
-        Err(TemplateEvaluationFailure::Infrastructure(error)) => {
-            CheckerOutcome::InfrastructureFailure(error)
-        }
         Err(TemplateEvaluationFailure::Upstream) => {
             CheckerOutcome::UpstreamFailure(evaluator.take_upstream_failure())
         }

@@ -1,4 +1,5 @@
-use super::super::storage_invalidation::{StorageInvalidation, invalidating_operation_accesses};
+use super::super::storage_invalidation::invalidating_operation_accesses;
+use bray_bound_tree::StorageInvalidation;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
@@ -16,34 +17,53 @@ use super::evidence::{
 };
 use super::set::RefinementSet;
 
-pub(super) const MAX_REFINEMENT_REFINEMENTS: usize = 1 << 20;
-pub(super) const MAX_REFINEMENT_CELLS: usize = 1 << 24;
+pub(crate) const MAX_REFINEMENT_REFINEMENTS: usize = 1 << 20;
+pub(crate) const MAX_REFINEMENT_CELLS: usize = 1 << 24;
 
-pub(super) struct RefinementUniverse {
+#[derive(Default)]
+pub(crate) struct RefinementUniverse {
+    pub(crate) is_recovered: bool,
     refinements: Vec<Refinement>,
     indexes: BTreeMap<Refinement, usize>,
     pattern_indexes: BTreeMap<(StorageAccessId, PatternPredicate, bool), usize>,
     equivalent_accesses: BTreeMap<StorageAccessId, StorageAccessId>,
     edge_refinements: BTreeMap<AnalysisRefinement, Box<[usize]>>,
     trust_boundaries: BTreeMap<BoundExpressionId, usize>,
-    invalidating_accesses: BTreeMap<AnyBoundNodeId, StorageInvalidation>,
+    pub(crate) invalidating_accesses:
+        BTreeMap<bray_bound_tree::BoundExecutionSite, StorageInvalidation>,
 }
 
 impl RefinementUniverse {
-    pub(super) fn new<C>(
+    pub(crate) fn invalidation_at(
+        &self,
+        site: bray_bound_tree::BoundExecutionSite,
+    ) -> Option<&StorageInvalidation> {
+        self.invalidating_accesses.get(&site)
+    }
+
+    pub(crate) fn is_recovered(&self) -> bool {
+        self.is_recovered
+    }
+
+    pub(crate) fn new<C>(
         graph: &ControlFlowGraph,
         request: CheckerUnitView<'_, C>,
         patterns: &CheckedPatterns,
-        selections: &bray_bound_tree::CheckedSemanticSelections,
+        expressions: &bray_bound_tree::CheckedExpressionSemantics,
         storage: &StoragePlan,
+        memory: &bray_bound_tree::CheckedMemoryOperations,
+        copied_types: &BTreeSet<bray_symbols::TypeId>,
     ) -> Result<Self, RefinementUniverseError>
     where
         C: CheckerRequestContext + ?Sized,
     {
         let direct_dependencies = direct_expression_dependencies(storage);
-        let invalidating_accesses = invalidating_operation_accesses(request, selections, storage);
+
+        let invalidating_accesses =
+            invalidating_operation_accesses(request, expressions, storage, memory, copied_types);
 
         let mut universe = Self {
+            is_recovered: false,
             refinements: Vec::new(),
             indexes: BTreeMap::new(),
             pattern_indexes: BTreeMap::new(),
@@ -66,6 +86,7 @@ impl RefinementUniverse {
                 refinement,
                 request.view(),
                 patterns,
+                expressions,
                 storage,
                 &direct_dependencies,
             )?;
@@ -84,11 +105,11 @@ impl RefinementUniverse {
             .blocks()
             .len()
             .checked_add(graph.operations().len())
-            .ok_or(RefinementUniverseError::CountUnrepresentable)?;
+            .expect("refinement state counts must fit the host address space");
 
         let bitset_cells = words
             .checked_mul(retained_states)
-            .ok_or(RefinementUniverseError::CountUnrepresentable)?;
+            .expect("refinement state counts must fit the host address space");
 
         if bitset_cells > MAX_REFINEMENT_CELLS {
             return Err(capacity_error(
@@ -106,10 +127,65 @@ impl RefinementUniverse {
         refinement: AnalysisRefinement,
         view: bray_bound_tree::BoundUnitView<'_>,
         patterns: &CheckedPatterns,
+        expressions: &bray_bound_tree::CheckedExpressionSemantics,
         storage: &StoragePlan,
         dependencies: &BTreeMap<BoundExpressionId, BTreeSet<StorageAccessId>>,
     ) -> Result<Vec<Refinement>, RefinementUniverseError> {
         Ok(match refinement {
+            AnalysisRefinement::CleanupRequired { .. }
+            | AnalysisRefinement::InvocationFailure(_)
+            | AnalysisRefinement::InvocationCompletion(_) => Vec::new(),
+            AnalysisRefinement::PropagationOutcome {
+                expression,
+                succeeded,
+            } => {
+                let Some(bray_bound_tree::SemanticSelection::Propagation(selection)) =
+                    expressions.selections().expression(expression)
+                else {
+                    unreachable!("checked propagation edge retains its selection");
+                };
+
+                let (variant, _) = selection
+                    .success()
+                    .expect("union propagation retains its success case");
+
+                let Some(bray_bound_tree::BoundExpression::Structured(operation)) =
+                    view.expression(expression)
+                else {
+                    unreachable!("checked propagation retains its structured expression");
+                };
+
+                let subject = *operation
+                    .operands()
+                    .first()
+                    .expect("propagation retains its operand");
+
+                let ty = expressions
+                    .types()
+                    .expression(subject)
+                    .expect("propagation operand retains its type")
+                    .ty();
+
+                storage
+                    .expression_plans(subject)
+                    .filter(|plan| {
+                        storage
+                            .access(plan.access())
+                            .is_some_and(|access| access.reached_type() == ty)
+                    })
+                    .map(|plan| {
+                        Refinement::new(
+                            RefinementKind::Pattern {
+                                subject,
+                                access: plan.access(),
+                                predicate: PatternPredicate::ActiveUnionVariant(variant),
+                                value: succeeded,
+                            },
+                            [plan.access()],
+                        )
+                    })
+                    .collect()
+            }
             AnalysisRefinement::Condition { expression, value } => {
                 condition_refinements(view, patterns, storage, dependencies, expression, value)
             }
@@ -145,7 +221,6 @@ impl RefinementUniverse {
     fn intern(&mut self, mut refinement: Refinement) -> Result<usize, RefinementUniverseError> {
         let pattern_key = if let RefinementKind::Pattern {
             subject,
-            pattern,
             predicate,
             access,
             value,
@@ -166,7 +241,6 @@ impl RefinementUniverse {
             refinement = Refinement::new(
                 RefinementKind::Pattern {
                     subject,
-                    pattern,
                     predicate,
                     access,
                     value,
@@ -195,7 +269,7 @@ impl RefinementUniverse {
 
         self.refinements
             .try_reserve(1)
-            .map_err(|_| RefinementUniverseError::AllocationFailed)?;
+            .unwrap_or_else(|error| panic!("failed to reserve refinement storage: {error}"));
 
         if let Some(key) = pattern_key {
             self.pattern_indexes.insert(key, index);
@@ -207,19 +281,33 @@ impl RefinementUniverse {
         Ok(index)
     }
 
-    pub(super) fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.refinements.len()
     }
 
-    pub(super) fn active_refinements<'refinements>(
+    pub(crate) fn active_refinements<'refinements>(
         &'refinements self,
         set: &'refinements RefinementSet,
-    ) -> impl Iterator<Item = Refinement> + 'refinements {
-        set.indexes()
-            .filter_map(|index| self.refinements.get(index).cloned())
+    ) -> impl Iterator<Item = &'refinements Refinement> + Clone + 'refinements {
+        set.indexes().map(|index| {
+            self.refinements
+                .get(index)
+                .expect("active refinement index belongs to the prepared universe")
+        })
     }
 
-    pub(super) fn insert_refinement(
+    pub(crate) fn edge_facts(
+        &self,
+        refinement: AnalysisRefinement,
+    ) -> impl Iterator<Item = &Refinement> {
+        self.edge_refinements
+            .get(&refinement)
+            .into_iter()
+            .flatten()
+            .map(|index| &self.refinements[*index])
+    }
+
+    pub(crate) fn insert_refinement(
         &self,
         set: &mut RefinementSet,
         refinement: AnalysisRefinement,
@@ -246,13 +334,16 @@ impl RefinementUniverse {
         });
     }
 
-    pub(super) fn invalidate_for_operation(
+    pub(crate) fn invalidate_for_operation(
         &self,
         set: &mut RefinementSet,
-        node: AnyBoundNodeId,
+        occurrence: impl Into<bray_bound_tree::BoundExecutionSite>,
         storage: &StoragePlan,
+        invalidation: Option<&StorageInvalidation>,
     ) {
-        let Some(mutations) = self.invalidating_accesses.get(&node) else {
+        let Some(mutations) =
+            invalidation.or_else(|| self.invalidating_accesses.get(&occurrence.into()))
+        else {
             return;
         };
 
@@ -266,7 +357,7 @@ impl RefinementUniverse {
         });
     }
 
-    pub(super) fn finish_operation(&self, set: &mut RefinementSet, node: AnyBoundNodeId) {
+    pub(crate) fn finish_operation(&self, set: &mut RefinementSet, node: AnyBoundNodeId) {
         let AnyBoundNodeId::Expression(expression) = node else {
             return;
         };
@@ -278,29 +369,24 @@ impl RefinementUniverse {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) enum RefinementUniverseError {
+pub(crate) enum RefinementUniverseError {
     CapacityExceeded(DiagnosticRefinementCapacity),
-    CountUnrepresentable,
-    AllocationFailed,
     Cancelled,
 }
 
-pub(super) fn capacity_error(
+pub(crate) fn capacity_error(
     surface: DiagnosticRefinementCapacitySurface,
     actual: usize,
     maximum: usize,
 ) -> RefinementUniverseError {
-    let Ok(actual) = u64::try_from(actual) else {
-        return RefinementUniverseError::CountUnrepresentable;
-    };
+    let actual = u64::try_from(actual)
+        .expect("refinement demand must fit the diagnostic count representation");
 
-    let Ok(maximum) = u64::try_from(maximum) else {
-        return RefinementUniverseError::CountUnrepresentable;
-    };
+    let maximum = u64::try_from(maximum)
+        .expect("refinement limit must fit the diagnostic count representation");
 
-    let Some(capacity) = DiagnosticRefinementCapacity::try_new(surface, actual, maximum) else {
-        return RefinementUniverseError::CountUnrepresentable;
-    };
+    let capacity = DiagnosticRefinementCapacity::try_new(surface, actual, maximum)
+        .unwrap_or_else(|| panic!("refinement capacity rejection requires demand {actual} to exceed limit {maximum} for {surface:?}"));
 
     RefinementUniverseError::CapacityExceeded(capacity)
 }

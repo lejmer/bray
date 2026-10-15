@@ -121,6 +121,13 @@ pub enum InterfaceConstantTerm {
     },
     /// Nullable presence around an open or closed child term.
     NullablePresent(InterfaceConstantTermId),
+    /// Tests a checked union variant without reading its payload.
+    VariantTest {
+        /// Union subject.
+        subject: InterfaceConstantTermId,
+        /// Selected variant.
+        variant: crate::InterfaceSymbolReference,
+    },
     /// An ordered tuple whose elements may remain open.
     Tuple(Arc<[InterfaceConstantTermId]>),
     /// An ordered array whose elements may remain open.

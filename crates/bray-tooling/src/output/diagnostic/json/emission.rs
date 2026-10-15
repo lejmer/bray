@@ -1,11 +1,9 @@
-mod checker;
 mod context;
 mod failure;
 mod foreign_query;
 mod native_link;
 mod product_query;
 
-pub(super) use checker::checker_failure_context;
 pub(super) use context::{
     diagnostic_failure_context, fact_runtime_failure_context, push_source_span,
     semantic_value_failure_context,

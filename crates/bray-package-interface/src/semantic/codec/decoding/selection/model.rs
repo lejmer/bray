@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 
 use crate::semantic::model::{
-    InterfaceCallableInstance, InterfaceCallableParameterDefault, InterfaceCallableSignature,
-    InterfaceCoherenceRecord, InterfaceConstantTerm, InterfaceConstantValue, InterfaceConstraint,
-    InterfaceDeclaredType, InterfaceDependencyContract, InterfaceGenericDeclaration,
-    InterfaceGenericSubstitution, InterfaceImplementationInstance, InterfaceImplementationRecord,
-    InterfaceRuntimeRequirement, InterfaceTargetPropertyDependency, InterfaceTraitApplication,
-    InterfaceType,
+    InterfaceCallableContract, InterfaceCallableInstance, InterfaceCallableParameterDefault,
+    InterfaceCallableSignature, InterfaceCoherenceRecord, InterfaceConstantTerm,
+    InterfaceConstantValue, InterfaceConstraint, InterfaceDeclaredType,
+    InterfaceDependencyContract, InterfaceGenericDeclaration, InterfaceGenericSubstitution,
+    InterfaceImplementationInstance, InterfaceImplementationRecord, InterfaceRuntimeRequirement,
+    InterfaceTargetPropertyDependency, InterfaceTraitApplication, InterfaceType,
 };
 
 pub(super) struct RecordSet<T> {
@@ -44,6 +44,7 @@ pub(super) struct SelectedRecords {
     pub(super) dependency_contracts: RecordSet<InterfaceDependencyContract>,
     pub(super) constraints: RecordSet<InterfaceConstraint>,
     pub(super) callable_signatures: RecordSet<InterfaceCallableSignature>,
+    pub(super) callable_contracts: RecordSet<InterfaceCallableContract>,
     pub(super) generic_declarations: RecordSet<InterfaceGenericDeclaration>,
     pub(super) callable_parameter_defaults: RecordSet<InterfaceCallableParameterDefault>,
     pub(super) declared_types: RecordSet<InterfaceDeclaredType>,
@@ -66,6 +67,7 @@ impl SelectedRecords {
             dependency_contracts: RecordSet::new(),
             constraints: RecordSet::new(),
             callable_signatures: RecordSet::new(),
+            callable_contracts: RecordSet::new(),
             generic_declarations: RecordSet::new(),
             callable_parameter_defaults: RecordSet::new(),
             declared_types: RecordSet::new(),

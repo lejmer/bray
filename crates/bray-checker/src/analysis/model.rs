@@ -8,11 +8,11 @@ pub(crate) enum AnalysisOperationKind {
     Bound(AnyBoundNodeId),
     PatternObservation(BoundPatternId),
     Call {
-        expression: BoundExpressionId,
+        invocation: bray_bound_tree::BoundExecutionSite,
         phase: AnalysisCallPhase,
     },
     Suspension {
-        expression: BoundExpressionId,
+        occurrence: bray_bound_tree::BoundExecutionSite,
         kind: AnalysisSuspensionKind,
     },
     TaskOperation {
@@ -23,18 +23,27 @@ pub(crate) enum AnalysisOperationKind {
         block: bray_bound_tree::BoundBlockId,
         exit: AnyBoundNodeId,
         phase: AnalysisScopeExitPhase,
+        preserves_exit_value: bool,
     },
     Recovery(AnyBoundNodeId),
 }
 
 impl AnalysisOperationKind {
+    pub(crate) const fn occurrence(self) -> bray_bound_tree::BoundExecutionSite {
+        match self {
+            Self::Call { invocation, .. } => invocation,
+            Self::Suspension { occurrence, .. } => occurrence,
+            _ => bray_bound_tree::BoundExecutionSite::Node(self.node()),
+        }
+    }
+
     pub(crate) const fn node(self) -> AnyBoundNodeId {
         match self {
             Self::Bound(node) | Self::Recovery(node) => node,
             Self::PatternObservation(pattern) => AnyBoundNodeId::Pattern(pattern),
-            Self::Call { expression, .. }
-            | Self::Suspension { expression, .. }
-            | Self::TaskOperation { expression, .. } => AnyBoundNodeId::Expression(expression),
+            Self::Call { invocation, .. } => invocation.node(),
+            Self::Suspension { occurrence, .. } => occurrence.node(),
+            Self::TaskOperation { expression, .. } => AnyBoundNodeId::Expression(expression),
             Self::ScopeExit { block, .. } => AnyBoundNodeId::Block(block),
         }
     }
@@ -50,6 +59,7 @@ pub(crate) enum AnalysisCallPhase {
 pub(crate) enum AnalysisSuspensionKind {
     Await,
     Yield,
+    ScopedCall,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -157,6 +167,10 @@ pub(crate) enum AnalysisRefinement {
         expression: BoundExpressionId,
         value: bool,
     },
+    PropagationOutcome {
+        expression: BoundExpressionId,
+        succeeded: bool,
+    },
     NullablePresence {
         expression: BoundExpressionId,
         is_present: bool,
@@ -167,6 +181,12 @@ pub(crate) enum AnalysisRefinement {
         value: bool,
     },
     TrustBoundary(BoundExpressionId),
+    InvocationFailure(bray_bound_tree::BoundExecutionSite),
+    InvocationCompletion(bray_bound_tree::BoundExecutionSite),
+    CleanupRequired {
+        scope: bray_bound_tree::BoundBlockId,
+        exit: AnyBoundNodeId,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -211,12 +231,22 @@ impl AnalysisEdge {
         self.kind
     }
 
+    pub(crate) const fn is_dependency_failure(self) -> bool {
+        matches!(
+            self.refinement,
+            Some(
+                AnalysisRefinement::InvocationFailure(_)
+                    | AnalysisRefinement::CleanupRequired { .. }
+            )
+        )
+    }
+
     pub(crate) const fn refinement(self) -> Option<AnalysisRefinement> {
         self.refinement
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct AnalysisBlock {
     id: AnalysisBlockId,
     operations: Box<[AnalysisOperationId]>,
@@ -288,7 +318,7 @@ impl AnalysisExit {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct ControlFlowGraph {
     unit: BoundUnitId,
     entry: AnalysisBlockId,
@@ -296,6 +326,7 @@ pub(crate) struct ControlFlowGraph {
     edges: Box<[AnalysisEdge]>,
     operations: Box<[AnalysisOperation]>,
     exits: Box<[AnalysisExit]>,
+    component_order: Box<[usize]>,
 }
 
 impl ControlFlowGraph {
@@ -307,14 +338,50 @@ impl ControlFlowGraph {
         operations: impl Into<Box<[AnalysisOperation]>>,
         exits: impl Into<Box<[AnalysisExit]>>,
     ) -> Self {
-        Self {
+        let mut graph = Self {
             unit,
             entry,
             blocks: blocks.into(),
             edges: edges.into(),
             operations: operations.into(),
             exits: exits.into(),
+            component_order: Box::new([]),
+        };
+
+        assert!(
+            graph.is_well_formed(),
+            "control-flow graph construction violated its invariants for {unit:?}"
+        );
+
+        let components = bray_base::strongly_connected_components(
+            graph.blocks.iter().map(|block| block.id()),
+            |id| {
+                graph
+                    .block(id)
+                    .expect("graph member exists")
+                    .successors()
+                    .iter()
+                    .map(|edge| graph.edge(*edge).expect("successor exists").target())
+                    .collect::<Vec<_>>()
+            },
+        );
+
+        let mut order = vec![0; graph.blocks.len()];
+
+        for (rank, component) in components.into_iter().enumerate() {
+            for block in component {
+                order[block.to_index().expect("component block has an index")] = rank;
+            }
         }
+
+        graph.component_order = order.into();
+
+        graph
+    }
+
+    /// Components precede every successor outside their own cycle.
+    pub(crate) fn component_order(&self, block: AnalysisBlockId) -> usize {
+        self.component_order[block.to_index().expect("graph block has an index")]
     }
 
     pub(crate) const fn unit(&self) -> BoundUnitId {
@@ -339,6 +406,46 @@ impl ControlFlowGraph {
 
     pub(crate) fn exits(&self) -> &[AnalysisExit] {
         &self.exits
+    }
+
+    /// Exits that publish a normal result, including the error variant of a Result.
+    pub(crate) fn completion_exits(&self) -> impl Iterator<Item = &AnalysisExit> {
+        self.exits.iter().filter(|exit| {
+            matches!(
+                exit.kind(),
+                AnalysisExitKind::Return
+                    | AnalysisExitKind::NormalFallthrough
+                    | AnalysisExitKind::ResultErrorPropagation
+            )
+        })
+    }
+
+    /// Blocks that can lead to a normal function completion.
+    pub(crate) fn completion_predecessors(&self) -> std::collections::BTreeSet<AnalysisBlockId> {
+        let mut pending = self
+            .completion_exits()
+            .map(|exit| exit.block())
+            .collect::<Vec<_>>();
+
+        let mut blocks = std::collections::BTreeSet::new();
+
+        while let Some(block) = pending.pop() {
+            if blocks.insert(block) {
+                pending.extend(
+                    self.block(block)
+                        .expect("completion path belongs to graph")
+                        .predecessors()
+                        .iter()
+                        .map(|edge| {
+                            self.edge(*edge)
+                                .expect("predecessor belongs to graph")
+                                .source()
+                        }),
+                );
+            }
+        }
+
+        blocks
     }
 
     pub(crate) fn block(&self, id: AnalysisBlockId) -> Option<&AnalysisBlock> {
@@ -395,8 +502,16 @@ impl ControlFlowGraph {
 
         let refinements_are_valid = self.edges().iter().all(|edge| match edge.refinement() {
             Some(
+                AnalysisRefinement::InvocationFailure(invocation)
+                | AnalysisRefinement::InvocationCompletion(invocation),
+            ) => invocation.node().unit() == self.unit,
+            Some(AnalysisRefinement::CleanupRequired { scope, exit }) => {
+                scope.unit() == self.unit && exit.unit() == self.unit
+            }
+            Some(
                 AnalysisRefinement::Condition { expression, .. }
                 | AnalysisRefinement::NullablePresence { expression, .. }
+                | AnalysisRefinement::PropagationOutcome { expression, .. }
                 | AnalysisRefinement::TrustBoundary(expression),
             ) => expression.unit() == self.unit,
             Some(AnalysisRefinement::PatternOutcome {

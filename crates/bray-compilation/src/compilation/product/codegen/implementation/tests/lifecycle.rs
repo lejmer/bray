@@ -9,6 +9,48 @@ use bray_ir::{MirOperationKind, MirTerminatorKind, MirUnitKey};
 use bray_symbols::ProductKind;
 
 #[test]
+fn scoped_selected_calls_emit_native_artifacts() {
+    for (enter, exit, result, returned) in [
+        (
+            "enter() -> bool { return true; }",
+            "exit(pos lease: bool) {}",
+            "bool",
+            "value",
+        ),
+        (
+            "enter() -> Result<bool, i32> { return Ok(true); }",
+            "exit(pos lease: bool) -> Result<unit, i32> { return Ok(unit); }",
+            "Result<bool, i32>",
+            "try value",
+        ),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            struct Resource {{ tag: bool; }}
+            impl Resource {{ {enter} {exit} }}
+            func scoped(pos resource: Resource) -> {result}
+            {{
+                return with lease = resource {{ yield lease; }};
+            }}
+            func main() -> Result<unit, i32>
+            {{
+                let resource: Resource = {{ tag = true }};
+                let value = scoped(resource);
+                let _ = {returned};
+
+                return Ok(unit);
+            }}
+        "#
+        );
+
+        let (backend, plan) = runtime_native_plan(&source);
+
+        assert!(!generated_artifacts(&backend, &plan).is_empty());
+    }
+}
+
+#[test]
 fn nested_cleanup_native_fixture_emits() {
     let (backend, plan) = runtime_native_plan_for_product(
         include_str!(concat!(

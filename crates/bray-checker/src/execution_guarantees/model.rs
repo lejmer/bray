@@ -57,13 +57,20 @@ pub struct ExecutionDependency {
     pub target: BoundCallableTarget,
     /// The independently required execution property.
     pub property: ExecutionProperty,
-    /// The source operation that selected this dependency.
-    pub node: AnyBoundNodeId,
+    /// The exact source operation or implicit invocation that selected this dependency.
+    pub occurrence: bray_bound_tree::BoundExecutionSite,
 }
 
 /// Locally checked behavior whose dependencies still require certification.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ExecutionCandidate {
+    pub(crate) disposal: std::collections::BTreeMap<
+        (
+            bray_bound_tree::BoundExecutionSite,
+            bray_symbols::CallableInstanceData,
+        ),
+        ExecutionCallEvidence,
+    >,
     pub(crate) cleanup: std::collections::BTreeMap<
         (AnyBoundNodeId, bray_bound_tree::StorageAccessId),
         (
@@ -74,12 +81,28 @@ pub struct ExecutionCandidate {
     >,
     pub(crate) result_variant: Option<bray_symbols::UnionVariantSymbolId>,
     pub(crate) completion_dependencies: Vec<ExecutionCompletionDependency>,
-    pub(crate) calls: std::collections::BTreeMap<AnyBoundNodeId, ExecutionCallEvidence>,
+    pub(crate) calls:
+        std::collections::BTreeMap<bray_bound_tree::BoundExecutionSite, ExecutionCallEvidence>,
     pub(crate) failure: Option<SourceSpan>,
     pub(crate) dependencies: Vec<ExecutionDependency>,
 }
 
 impl ExecutionCandidate {
+    /// Returns the receiver evidence for an implicit lifecycle invocation, or the explicit call evidence.
+    pub fn dependency_evidence(
+        &self,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        target: BoundCallableTarget,
+    ) -> Option<&ExecutionCallEvidence> {
+        if let BoundCallableTarget::Declaration(callable) = target
+            && let Some(evidence) = self.disposal.get(&(occurrence, callable))
+        {
+            return Some(evidence);
+        }
+
+        self.call_evidence(occurrence)
+    }
+
     /// Returns finalizers and the value evidence available at their cleanup sites.
     /// Each candidate still requires execution and completion-dependency certification.
     pub fn cleanup_candidates(
@@ -111,8 +134,11 @@ impl ExecutionCandidate {
     }
 
     /// Returns captured entry evidence for a selected call operation.
-    pub fn call_evidence(&self, node: AnyBoundNodeId) -> Option<&ExecutionCallEvidence> {
-        self.calls.get(&node)
+    pub fn call_evidence(
+        &self,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+    ) -> Option<&ExecutionCallEvidence> {
+        self.calls.get(&occurrence)
     }
 
     /// Returns the first operation preventing a local proof, if any.
@@ -159,25 +185,113 @@ pub struct ExecutionDomain {
     pub postconditions: Vec<bray_declarations::SyntaxAnchor>,
 }
 
+/// Authority carried by an unchanged owned input across a checked forwarding call.
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub(crate) struct ExecutionValueEvidence {
+    pub(crate) carriers: std::collections::BTreeMap<
+        super::ExecutionCondition,
+        std::collections::BTreeSet<super::ExecutionCondition>,
+    >,
+    pub(crate) dependencies: std::collections::BTreeMap<
+        super::ExecutionCondition,
+        std::collections::BTreeSet<super::ExecutionPlace>,
+    >,
+    pub(crate) allocations:
+        std::collections::BTreeMap<super::ExecutionCondition, super::ExecutionCondition>,
+}
+
 /// Values captured at a selected call's entry, before callee mutation can occur.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ExecutionCallEvidence {
+    pub(crate) returned: ExecutionValueEvidence,
+    pub(crate) anonymous_target: Option<bray_bound_tree::BoundUnitKey>,
+    pub(crate) trusted_boundary: bool,
+    pub(crate) pending_execution: bool,
     pub(crate) arguments:
         std::collections::BTreeMap<super::ExecutionPlace, super::ExecutionCondition>,
     pub(crate) assumptions: std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
+    pub(crate) trusted_assumptions: std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
 }
 
 impl ExecutionCallEvidence {
-    pub(crate) fn intersect(&mut self, other: &Self) {
+    /// Exact local callable body established by the entry value flow, if known.
+    pub fn anonymous_target(&self) -> Option<&bray_bound_tree::BoundUnitKey> {
+        self.anonymous_target.as_ref()
+    }
+
+    pub(crate) fn intersect(&mut self, other: &Self) -> bool {
+        let before = (
+            self.anonymous_target.is_some(),
+            self.trusted_boundary,
+            self.pending_execution,
+            self.assumptions.len(),
+            self.trusted_assumptions.len(),
+            self.arguments.len(),
+        );
+
+        let returned_changed =
+            self.returned != other.returned && self.returned != ExecutionValueEvidence::default();
+
+        if returned_changed {
+            self.returned = ExecutionValueEvidence::default();
+        }
+
+        if self.anonymous_target != other.anonymous_target {
+            self.anonymous_target = None;
+        }
+
+        self.trusted_boundary &= other.trusted_boundary;
+        self.pending_execution |= other.pending_execution;
+
         self.assumptions
             .retain(|condition| other.assumptions.contains(condition));
 
+        self.trusted_assumptions
+            .retain(|condition| other.trusted_assumptions.contains(condition));
+
         self.arguments
             .retain(|place, value| other.arguments.get(place) == Some(value));
+
+        returned_changed
+            || before
+                != (
+                    self.anonymous_target.is_some(),
+                    self.trusted_boundary,
+                    self.pending_execution,
+                    self.assumptions.len(),
+                    self.trusted_assumptions.len(),
+                    self.arguments.len(),
+                )
     }
 
     /// Whether every callee-entry condition follows from the captured argument values.
     pub fn proves(&self, conditions: &[super::ExecutionCondition]) -> bool {
+        self.proves_from(conditions, &self.assumptions)
+    }
+
+    /// Whether live trusted evidence supplies every selected caller obligation.
+    pub fn proves_trusted(&self, conditions: &[super::ExecutionCondition]) -> bool {
+        self.proves_from(conditions, &self.trusted_assumptions)
+    }
+
+    fn proves_from(
+        &self,
+        conditions: &[super::ExecutionCondition],
+        assumptions: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
+    ) -> bool {
+        if conditions.is_empty() {
+            return true;
+        }
+
+        let equalities = super::ExecutionCondition::equalities(&self.assumptions, None);
+
+        let known = assumptions
+            .iter()
+            .map(|(condition, value)| (condition.with_equalities(&equalities), *value))
+            .collect();
+
+        let known = super::trusted_condition_closure(known, &self.assumptions);
+
         conditions.iter().all(|condition| {
             let condition = condition.substitute(
                 &|input| {
@@ -189,8 +303,10 @@ impl ExecutionCallEvidence {
                 &mut { crate::ExecutionCondition::WORK_LIMIT },
             );
 
-            condition.prove(&self.assumptions, &mut {
-                crate::ExecutionCondition::WORK_LIMIT
+            let condition = condition.with_equalities(&equalities);
+
+            condition.prove_mixed(&known, &self.assumptions, &mut {
+                super::ExecutionCondition::WORK_LIMIT
             }) == Some(true)
         })
     }

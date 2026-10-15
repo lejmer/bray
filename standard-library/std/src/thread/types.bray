@@ -90,30 +90,40 @@ internal struct ThreadStorage<T>
     mut report: Uninit<PanicReport>;
 }
 
+// The allocation travels with its initialized value. Moving the value out of
+// this owner leaves the exact allocation to be released by ordinary cleanup.
+@layout(stable)
+internal struct TransferredThreadValue<T>
+{
+    mut value: T;
+    allocation: std.memory.RawAllocation;
+}
+
 internal struct ThreadStart<State, T>
 {
     entry: Entry<State, T>;
     state: State;
-    storage: RawPointer<ThreadStorage<T>>;
+    storage: RawPointer<TransferredThreadValue<ThreadStorage<T>>>;
 }
 
 @copy
+@layout(stable)
 internal struct NativeThreadDispatch
 {
     operation: ThreadOperation;
 }
 
+@layout(stable)
 internal struct NativeThreadStart<State, T>
 {
     // The non-generic OS entry reads this prefix to reach the typed owner.
     dispatch: NativeThreadDispatch;
-    mut work: RawPointer<ThreadStart<State, T>>;
-    control: RawPointer<ThreadControl>;
-    report: RawPointer<PanicReport>;
+    mut work: RawPointer<TransferredThreadValue<ThreadStart<State, T>>>;
+    storage: RawPointer<TransferredThreadValue<ThreadStorage<T>>>;
 
     trusted destruct()
     {
-        if !std.memory.is_null<ThreadStart<State, T>>(self.work)
+        if !std.memory.is_null<TransferredThreadValue<ThreadStart<State, T>>>(self.work)
         {
             let _: ThreadStart<State, T> = trusted internal take_transferred_value<ThreadStart<State, T>>(self.work);
         }
@@ -122,19 +132,19 @@ internal struct NativeThreadStart<State, T>
 
 internal struct ThreadConstruction<State, T>
 {
-    mut storage: RawPointer<ThreadStorage<T>>;
-    mut native: RawPointer<NativeThreadStart<State, T>>;
+    mut storage: RawPointer<TransferredThreadValue<ThreadStorage<T>>>;
+    mut native: RawPointer<TransferredThreadValue<NativeThreadStart<State, T>>>;
 
     trusted destruct()
     {
-        if !std.memory.is_null<NativeThreadStart<State, T>>(self.native)
+        if !std.memory.is_null<TransferredThreadValue<NativeThreadStart<State, T>>>(self.native)
         {
             let _: NativeThreadStart<State, T> = trusted internal take_transferred_value<NativeThreadStart<State, T>>(
                 self.native
             );
         }
 
-        if !std.memory.is_null<ThreadStorage<T>>(self.storage)
+        if !std.memory.is_null<TransferredThreadValue<ThreadStorage<T>>>(self.storage)
         {
             let _: ThreadStorage<T> = trusted internal take_transferred_value<ThreadStorage<T>>(self.storage);
         }
@@ -144,7 +154,7 @@ internal struct ThreadConstruction<State, T>
 struct Thread<T>
 {
     internal owner: u64;
-    internal storage: RawPointer<ThreadStorage<T>>;
+    internal storage: RawPointer<TransferredThreadValue<ThreadStorage<T>>>;
     internal identity: Id;
     internal mut active: bool;
 
@@ -155,7 +165,7 @@ struct Thread<T>
 
     func wake()
     {
-        let control: &ThreadControl = trusted internal thread_control<Thread<T>, T>(&self, self.storage);
+        let control: &ThreadControl = trusted internal thread_control<T>(self.storage);
 
         control.park_token.store(1, order = std.atomic.StoreOrder.Release);
         control.park_token.notify_one();

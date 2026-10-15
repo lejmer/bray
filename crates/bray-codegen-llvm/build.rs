@@ -1,7 +1,5 @@
 use std::env;
 use std::error::Error;
-#[cfg(windows)]
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -120,13 +118,13 @@ fn configure_linkage(prefix: &Path) -> io::Result<()> {
         .nth(3)
         .ok_or_else(|| io::Error::other("Cargo OUT_DIR has no profile directory"))?;
 
-    copy_dynamic_library(&dynamic_library, profile_directory)?;
-    copy_dynamic_library(&dynamic_library, &profile_directory.join("deps"))?;
+    layout::copy_dynamic_library(&dynamic_library, profile_directory)?;
+    layout::copy_dynamic_library(&dynamic_library, &profile_directory.join("deps"))?;
 
     let artifact_directory = cargo_artifact_profile_directory(profile_directory)?;
 
     if artifact_directory != profile_directory {
-        copy_dynamic_library(&dynamic_library, &artifact_directory)?;
+        layout::copy_dynamic_library(&dynamic_library, &artifact_directory)?;
     }
 
     Ok(())
@@ -154,15 +152,4 @@ fn cargo_artifact_profile_directory(build_profile_directory: &Path) -> io::Resul
         target.as_ref(),
         profile.as_ref(),
     ))
-}
-
-#[cfg(windows)]
-fn copy_dynamic_library(source: &Path, destination_directory: &Path) -> io::Result<()> {
-    fs::create_dir_all(destination_directory)?;
-
-    let destination = destination_directory.join("LLVM-C.dll");
-
-    fs::copy(source, destination)?;
-
-    Ok(())
 }

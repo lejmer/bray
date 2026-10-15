@@ -45,6 +45,10 @@ pub enum DiagnosticSelectionKind {
     Implementation,
     /// An iterable and iterator protocol pair for one source expression.
     IterationSource,
+    /// The lifecycle declaration that enters a with expression.
+    ScopeEnter,
+    /// The matching lifecycle declaration that leaves a with expression.
+    ScopeExit,
 }
 
 impl DiagnosticSelectionKind {
@@ -59,6 +63,8 @@ impl DiagnosticSelectionKind {
             Self::Conversion => "conversion",
             Self::Implementation => "implementation",
             Self::IterationSource => "iteration_source",
+            Self::ScopeEnter => "scope_enter",
+            Self::ScopeExit => "scope_exit",
         }
     }
 }

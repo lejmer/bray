@@ -308,3 +308,71 @@ func read(pos owner: &Owner) -> i32
         "{mir:#?}"
     );
 }
+#[test]
+fn returned_nullable_borrow_outlives_argument_evaluation() {
+    let compilation = crate::test_support::compilation(
+        r#"
+        module app;
+        struct Receipt {
+            mut value: (&mut u32)?;
+            destruct() {
+                if let ?value = self.value { value = 1; }
+            }
+        }
+        func receipt(pos value: &mut u32) -> Receipt {
+            let mut result: Receipt = { value = none };
+            result.value = value;
+            return result;
+        }
+        func probe() {
+            let mut value: u32 = 0;
+            let returned: Receipt = {
+                yield receipt(&mut value);
+            };
+        }
+    "#,
+    );
+
+    let key = crate::test_support::source_function_body_key(&compilation, "probe");
+    let lowered = compilation.lowered_unit(key).unwrap();
+
+    assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
+}
+
+#[test]
+fn returned_nullable_borrow_cannot_outlive_local_storage() {
+    for body in [
+        "let mut value: u32 = 0; return receipt(&mut value);",
+        "let returned: Receipt = { let mut value: u32 = 0; yield receipt(&mut value); }; return returned;",
+    ] {
+        let compilation = crate::test_support::compilation(&format!(
+            r#"
+            module app;
+            struct Receipt {{
+                mut value: (&mut u32)?;
+                destruct() {{
+                    if let ?value = self.value {{ value = 1; }}
+                }}
+            }}
+            func receipt(pos value: &mut u32) -> Receipt {{
+                let mut result: Receipt = {{ value = none }};
+                result.value = value;
+                return result;
+            }}
+            func probe() -> Receipt {{ {body} }}
+        "#
+        ));
+
+        let lowered = compilation
+            .lowered_unit(crate::test_support::source_function_body_key(
+                &compilation,
+                "probe",
+            ))
+            .unwrap();
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            lowered.diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
+        );
+    }
+}

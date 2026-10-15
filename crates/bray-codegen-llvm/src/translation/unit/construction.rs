@@ -7,8 +7,8 @@ use super::support::{
 use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenTypeKind};
 use bray_ir::{
     ConstructionInputId, ConstructionTarget, ConversionTarget, MirAggregate, MirAggregateKind,
-    MirConstruction, MirHelperReference, MirOperation, PatternOperation, PatternProjection,
-    SelectedConversion,
+    MirConstruction, MirHelperReference, MirOperation, MirProjectionKind, PatternOperation,
+    PatternProjection, SelectedConversion,
 };
 use inkwell::values::BasicValueEnum;
 
@@ -372,7 +372,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 subject_type,
                 bray_ir::MirFieldReference::Struct(field),
             )?,
-            PatternProjection::TupleElement(index) | PatternProjection::ElementFromStart(index) => {
+            PatternProjection::TupleElement(index) => {
+                let element = self.projection_element(
+                    subject_type,
+                    &MirProjectionKind::TupleField(index.raw()),
+                )?;
+
+                extract_value(&self.builder, subject, element)?
+            }
+            PatternProjection::ElementFromStart(index) => {
                 extract_value(&self.builder, subject, index.raw())?
             }
             PatternProjection::ElementFromEnd(index) => {

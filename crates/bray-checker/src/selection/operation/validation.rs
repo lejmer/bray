@@ -9,14 +9,12 @@ use bray_symbols::{
 };
 
 use crate::representation::named_type;
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitView};
 
 use super::super::{CompilerKnownOperationEvidence, ImplementationSelectionEvidence};
 use super::role::compiler_known_operation_role;
 
-pub(super) fn validate_operation_instances(
-    operation: &SelectedOperation,
-) -> Result<(), CheckerInfrastructureError> {
+pub(super) fn validate_operation_instances(operation: &SelectedOperation) {
     if let Some(target) = operation.operator_target() {
         match target {
             OperatorTarget::Trait {
@@ -24,16 +22,16 @@ pub(super) fn validate_operation_instances(
                 fulfillment,
                 ..
             } => {
-                validate_trait_callable_instance(member)?;
-                validate_trait_callable_fulfillment(fulfillment)?;
+                validate_trait_callable_instance(member);
+                validate_trait_callable_fulfillment(fulfillment);
             }
             OperatorTarget::TraitConstraint { member, .. } => {
-                validate_trait_callable_instance(member)?;
+                validate_trait_callable_instance(member);
             }
             OperatorTarget::BuiltIn(_) => {}
         }
 
-        return Ok(());
+        return;
     }
 
     match operation {
@@ -46,15 +44,15 @@ pub(super) fn validate_operation_instances(
                 },
             ..
         } => {
-            validate_trait_callable_instance(*member)?;
-            validate_trait_callable_fulfillment(*fulfillment)?;
+            validate_trait_callable_instance(*member);
+            validate_trait_callable_fulfillment(*fulfillment);
         }
         SelectedOperation::Index {
             target: IndexTarget::TraitConstraint { member, .. },
             ..
-        } => validate_trait_callable_instance(*member)?,
+        } => validate_trait_callable_instance(*member),
         SelectedOperation::Conversion(conversion) => {
-            validate_conversion_instances(conversion)?;
+            validate_conversion_instances(conversion);
         }
         SelectedOperation::Construction(_)
         | SelectedOperation::Member(_)
@@ -63,13 +61,9 @@ pub(super) fn validate_operation_instances(
         | SelectedOperation::Index { .. }
         | SelectedOperation::Implementation(_) => {}
     }
-
-    Ok(())
 }
 
-fn validate_conversion_instances(
-    conversion: &SelectedConversion,
-) -> Result<(), CheckerInfrastructureError> {
+fn validate_conversion_instances(conversion: &SelectedConversion) {
     let mut pending = vec![conversion];
 
     while let Some(conversion) = pending.pop() {
@@ -79,11 +73,11 @@ fn validate_conversion_instances(
                 fulfillment,
                 ..
             } => {
-                validate_trait_callable_instance(*member)?;
-                validate_trait_callable_fulfillment(*fulfillment)?;
+                validate_trait_callable_instance(*member);
+                validate_trait_callable_fulfillment(*fulfillment);
             }
             ConversionTarget::TraitConstraint { member, .. } => {
-                validate_trait_callable_instance(*member)?;
+                validate_trait_callable_instance(*member);
             }
             ConversionTarget::Composite(children) => pending.extend(children.iter()),
             ConversionTarget::Identity
@@ -93,34 +87,28 @@ fn validate_conversion_instances(
             | ConversionTarget::CVariadicPromotion => {}
         }
     }
-
-    Ok(())
 }
 
-fn validate_trait_callable_instance(
-    callable: CallableInstanceData,
-) -> Result<(), CheckerInfrastructureError> {
+fn validate_trait_callable_instance(callable: CallableInstanceData) {
     if callable.definition().symbol().kind() != bray_symbols::SymbolKind::TraitCallableMember {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in validate_trait_callable_instance"
+        );
     }
-
-    Ok(())
 }
 
-fn validate_trait_callable_fulfillment(
-    callable: CallableInstanceData,
-) -> Result<(), CheckerInfrastructureError> {
+fn validate_trait_callable_fulfillment(callable: CallableInstanceData) {
     if callable.definition().symbol().kind() != bray_symbols::SymbolKind::TraitCallableFulfillment {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in validate_trait_callable_fulfillment"
+        );
     }
-
-    Ok(())
 }
 
 pub(super) fn implementation_selections_match(
     operation: &SelectedOperation,
     evidence: &[ImplementationSelectionEvidence],
-) -> Result<bool, CheckerInfrastructureError> {
+) -> bool {
     let mut evidence = evidence.iter().collect::<Vec<_>>();
 
     evidence.sort_unstable_by_key(|item| item.requirement());
@@ -129,7 +117,9 @@ pub(super) fn implementation_selections_match(
         .windows(2)
         .any(|pair| pair[0].requirement() == pair[1].requirement())
     {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in implementation_selections_match"
+        );
     }
 
     let mut required = operation.witnesses();
@@ -137,20 +127,24 @@ pub(super) fn implementation_selections_match(
     required.sort_unstable();
 
     if required.len() != evidence.len() {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in implementation_selections_match"
+        );
     }
 
     for (required, evidence) in required.iter().zip(evidence) {
         if required.requirement() != evidence.requirement() {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in implementation_selections_match"
+            );
         }
 
         if evidence.selection() != &ImplementationSelection::Selected(required.witness()) {
-            return Ok(false);
+            return false;
         }
     }
 
-    Ok(true)
+    true
 }
 
 pub(super) fn compiler_known_operations_match<C>(
@@ -159,13 +153,13 @@ pub(super) fn compiler_known_operations_match<C>(
     expression: &BoundExpression,
     actual_types: &[ExpressionTypeResult],
     evidence: &[CompilerKnownOperationEvidence],
-) -> Result<bool, CheckerInfrastructureError>
+) -> bool
 where
     C: CheckerRequestContext + ?Sized,
 {
     let mut required = Vec::new();
 
-    collect_compiler_known_operations(request, operation, expression, actual_types, &mut required)?;
+    collect_compiler_known_operations(request, operation, expression, actual_types, &mut required);
 
     required.sort_unstable_by_key(|operation| operation.requirement());
     required.dedup();
@@ -178,20 +172,24 @@ where
         .windows(2)
         .any(|pair| pair[0].requirement() == pair[1].requirement())
     {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in compiler_known_operations_match"
+        );
     }
 
     if required.len() != evidence.len() {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in compiler_known_operations_match"
+        );
     }
 
     for (required, evidence) in required.into_iter().zip(evidence) {
-        if !trait_operation_matches(request, required, evidence)? {
-            return Ok(false);
+        if !trait_operation_matches(request, required, evidence) {
+            return false;
         }
     }
 
-    Ok(true)
+    true
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -242,8 +240,7 @@ fn collect_compiler_known_operations<C>(
     expression: &BoundExpression,
     actual_types: &[ExpressionTypeResult],
     required: &mut Vec<RequiredTraitOperation>,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
     if let (Some(target), Some(result_type)) =
@@ -263,11 +260,12 @@ where
         } = target
         {
             let Some((receiver, parameter_types)) = actual_types.split_first() else {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in collect_compiler_known_operations"
+                );
             };
 
-            let role = compiler_known_operation_role(expression, operator)
-                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            let role = compiler_known_operation_role(expression, operator).unwrap_or_else(|| panic!("collect_compiler_known_operations requires compiler-known operation role, expression: {expression:?}, operator: {operator:?}"));
 
             let callable_result = if role == CompilerKnownOperationRole::Comparison {
                 RequiredCallableResult::FixedContractType
@@ -286,7 +284,7 @@ where
             });
         }
 
-        return Ok(());
+        return;
     }
 
     match operation {
@@ -307,7 +305,9 @@ where
             result_type,
         } => {
             let Some((receiver, parameter_types)) = actual_types.split_first() else {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in collect_compiler_known_operations"
+                );
             };
 
             let role = match expression {
@@ -329,16 +329,20 @@ where
                         bray_symbols::BorrowKind::Mutable,
                     ) => CompilerKnownOperationRole::MutableSliceIndex,
                     _ => {
-                        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                        panic!(
+                            "Semantic-selection inputs do not describe the requested bound unit or operation category. in collect_compiler_known_operations"
+                        );
                     }
                 },
-                _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput),
+                _ => panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in collect_compiler_known_operations"
+                ),
             };
 
             let parameter_types = match role {
                 CompilerKnownOperationRole::SliceIndex
                 | CompilerKnownOperationRole::MutableSliceIndex => {
-                    custom_slice_parameter_types(request, *requirement)?
+                    custom_slice_parameter_types(request, *requirement)
                 }
                 _ => parameter_types.iter().map(|result| result.ty()).collect(),
             };
@@ -348,8 +352,7 @@ where
                 .intern_type(TypeData::Borrow {
                     kind: *borrow_kind,
                     target: *result_type,
-                })
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                }).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in collect_compiler_known_operations: {error:?}"));
 
             let mut receiver_type = receiver.ty();
 
@@ -382,8 +385,6 @@ where
         | SelectedOperation::Construction(_)
         | SelectedOperation::Implementation(_) => {}
     }
-
-    Ok(())
 }
 
 fn collect_conversion_operations(
@@ -424,7 +425,7 @@ fn trait_operation_matches<C>(
     request: CheckerUnitView<'_, C>,
     required: RequiredTraitOperation,
     evidence: &CompilerKnownOperationEvidence,
-) -> Result<bool, CheckerInfrastructureError>
+) -> bool
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -436,14 +437,16 @@ where
                 | RequiredTraitOperation::Conversion { callable, .. } => callable,
             }
     {
-        return Ok(false);
+        return false;
     }
 
     let Some(contract) = request
         .available_compiler_known_symbols()
         .operation_contract(required.role())
     else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in trait_operation_matches"
+        );
     };
 
     let application = request
@@ -455,10 +458,10 @@ where
     if application.definition() != contract.trait_definition()
         || Some(callable_symbol) != contract.callable().map(Into::into)
     {
-        return Ok(false);
+        return false;
     }
 
-    Ok(match required {
+    match required {
         RequiredTraitOperation::Callable {
             receiver,
             parameter_types,
@@ -470,10 +473,12 @@ where
                 RequiredCallableResult::Expression(result) => result,
                 RequiredCallableResult::FixedContractType => {
                     let Some(definition) = contract.fixed_callable_result_type() else {
-                        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                        panic!(
+                            "Semantic-selection inputs do not describe the requested bound unit or operation category. in trait_operation_matches"
+                        );
                     };
 
-                    named_type(request, definition)?
+                    named_type(request, definition)
                 }
             };
 
@@ -492,7 +497,7 @@ where
             target,
             ReceiverMode::Consuming,
         ),
-    })
+    }
 }
 
 fn signature_matches(
@@ -516,7 +521,7 @@ fn signature_matches(
 fn custom_slice_parameter_types<C>(
     request: CheckerUnitView<'_, C>,
     requirement: ImplementationRequirementKey,
-) -> Result<Vec<TypeId>, CheckerInfrastructureError>
+) -> Vec<TypeId>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -529,19 +534,22 @@ where
         .generic_substitution_data(application.substitution());
 
     let [binding] = substitution.bindings() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in custom_slice_parameter_types"
+        );
     };
 
     let GenericArgument::Type(bound) = binding.argument() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in custom_slice_parameter_types"
+        );
     };
 
     let nullable = request
         .semantic_values()
-        .intern_type(TypeData::Nullable(bound))
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .intern_type(TypeData::Nullable(bound)).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in custom_slice_parameter_types: {error:?}"));
 
-    Ok(vec![nullable, nullable])
+    vec![nullable, nullable]
 }
 
 #[cfg(test)]
@@ -584,7 +592,7 @@ mod tests {
                 &fixture.operation,
                 std::slice::from_ref(&fixture.implementation)
             ),
-            Ok(true)
+            true
         );
 
         assert_eq!(
@@ -598,7 +606,7 @@ mod tests {
                 )],
                 std::slice::from_ref(&fixture.contract)
             ),
-            Ok(true)
+            true
         );
 
         let wrong_witness = ImplementationSelectionEvidence::new(
@@ -608,7 +616,7 @@ mod tests {
 
         assert_eq!(
             implementation_selections_match(&fixture.operation, &[wrong_witness]),
-            Ok(false)
+            false
         );
 
         let wrong_signature = CallableSignature::new(
@@ -642,7 +650,7 @@ mod tests {
                 )],
                 &[wrong_contract]
             ),
-            Ok(false)
+            false
         );
 
         let wrong_role = CompilerKnownOperationEvidence::new(
@@ -663,7 +671,7 @@ mod tests {
                 )],
                 &[wrong_role]
             ),
-            Ok(false)
+            false
         );
     }
 

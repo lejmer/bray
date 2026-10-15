@@ -34,7 +34,6 @@ pub(super) struct ProductStatic {
 pub(super) struct ProductCleanup {
     pub(super) admission: super::super::cleanup::StaticAdmission,
     pub(super) entry: ProductStatic,
-    pub(super) incidents: [Option<crate::incident::OwnedCleanupIncident>; 8],
 }
 
 pub(super) struct ProductHost {
@@ -161,9 +160,7 @@ impl ThreadStaticRegistry {
             return true;
         }
 
-        if !bray_platform::register_runtime_thread_exit_callback(
-            super::thread::drain_thread_statics,
-        ) {
+        if !crate::bootstrap::register_thread_cleanup(super::thread::thread_exit_cleanup) {
             return false;
         }
 

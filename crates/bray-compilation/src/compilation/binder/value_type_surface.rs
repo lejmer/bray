@@ -142,7 +142,7 @@ impl DeclaredValueTypeBinding<'_> {
             let subject = self.implementation_subject_type(implementation)?;
 
             if let TypeExpressionTemplate::Resolved(subject) = subject {
-                return self
+                return Ok(self
                     .context
                     .semantic_values()
                     .substitute_contextual_self(
@@ -150,8 +150,7 @@ impl DeclaredValueTypeBinding<'_> {
                         bray_symbols::SelfTypeContext::Implementation(implementation),
                         subject,
                     )
-                    .map(TypeExpressionTemplate::Resolved)
-                    .map_err(super::semantic_value_binding_error);
+                    .map(TypeExpressionTemplate::Resolved).unwrap_or_else(|error| panic!("callable_body_type must satisfy its checked construction contract: {error:?}")));
             }
         }
 
@@ -180,7 +179,9 @@ impl DeclaredValueTypeBinding<'_> {
                 .context
                 .semantic_values()
                 .substitute_type(*ty, *substitution)
-                .map_err(super::semantic_value_binding_error)?;
+                .unwrap_or_else(|error| {
+                    panic!("semantic_value_binding_error in callable_body_type: {error:?}")
+                });
 
             return Ok(TypeExpressionTemplate::Resolved(result));
         }

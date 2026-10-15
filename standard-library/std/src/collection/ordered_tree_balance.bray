@@ -9,7 +9,8 @@ internal func ordered_tree_node_height(pos nodes: &[OrderedTreeNode], pos index:
     };
 }
 
-internal func ordered_tree_height<Item>(pos tree: &OrderedTree<Item>) -> usize
+trusted internal func ordered_tree_height<Item>(pos tree: &OrderedTree<Item>) -> usize
+    uses(raw_memory)
 {
     let nodes: &[OrderedTreeNode] = trusted std.memory.initialized_slice<OrderedTreeNode>(&tree.nodes);
 
@@ -277,6 +278,7 @@ internal func ordered_tree_rebalance_nodes(
 }
 
 trusted internal func ordered_tree_rebalance<Item>(pos tree: &mut OrderedTree<Item>, pos start: usize?)
+    uses(raw_memory)
 {
     let root: usize? = tree.root;
 

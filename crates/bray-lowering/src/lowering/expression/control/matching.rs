@@ -104,6 +104,7 @@ impl Lowerer<'_> {
                 join,
                 result_type,
                 self.active_scopes.len(),
+                None,
             )?;
 
             self.finish_result_edge(body, join, result_type)?;
@@ -119,21 +120,7 @@ impl Lowerer<'_> {
 
         self.set_terminator(candidate, Self::retained_source(&source), terminator)?;
 
-        if !self.builder.has_incoming_edge(join) {
-            self.set_terminator(
-                join,
-                Self::retained_source(&source),
-                MirTerminatorKind::Unreachable,
-            )?;
-
-            return Ok(LoweredExpression::terminated(source));
-        }
-
-        Ok(LoweredExpression::continuing(
-            join,
-            Some(MirOperand::Value(result)),
-            source,
-        ))
+        self.finish_result_join(current, join, result, source)
     }
 
     fn lower_match_guard(

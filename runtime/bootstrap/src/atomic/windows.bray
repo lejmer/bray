@@ -1,0 +1,60 @@
+@target(target.identity.NAME == "x86_64-pc-windows-msvc" || target.identity.NAME == "aarch64-pc-windows-msvc")
+trusted internal module bray.runtime.bootstrap.atomic;
+
+using std.os.windows;
+
+@abi(c)
+trusted internal func wait(pos address: RawPointer<u32>, pos expected: u32)
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = address, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = address),
+        trusted core.memory.epoch_current<u32>(pointer = address),
+        trusted core.memory.movement_stable<u32>(pointer = address),
+        trusted core.memory.finalization_pending<u32>(pointer = address),
+    )
+    requires(blocking_execution())
+    uses(foreign_call, layout_reinterpret)
+{
+    let bytes = trusted core.memory.reinterpret<u8, u32>(address);
+    let expected_pointer: RawPointer<u32> = core.memory.address_of<u32>(&expected);
+    let expected_bytes: RawPointer<u8> = trusted core.memory.reinterpret<u8, u32>(expected_pointer);
+
+    let _: i32 = trusted std.os.windows.wait_on_address(
+        bytes,
+        expected = expected_bytes,
+        size = 4,
+        timeout = std.os.windows.INFINITE,
+    );
+}
+
+@abi(c)
+trusted internal func notify_one(pos address: RawPointer<u32>)
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = address, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = address),
+        trusted core.memory.epoch_current<u32>(pointer = address),
+        trusted core.memory.movement_stable<u32>(pointer = address),
+        trusted core.memory.finalization_pending<u32>(pointer = address),
+    )
+    uses(foreign_call, layout_reinterpret)
+{
+    let bytes = trusted core.memory.reinterpret<u8, u32>(address);
+
+    trusted std.os.windows.wake_by_address_single(bytes);
+}
+
+@abi(c)
+trusted internal func notify_all(pos address: RawPointer<u32>)
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = address, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = address),
+        trusted core.memory.epoch_current<u32>(pointer = address),
+        trusted core.memory.movement_stable<u32>(pointer = address),
+        trusted core.memory.finalization_pending<u32>(pointer = address),
+    )
+    uses(foreign_call, layout_reinterpret)
+{
+    let bytes = trusted core.memory.reinterpret<u8, u32>(address);
+
+    trusted std.os.windows.wake_by_address_all(bytes);
+}

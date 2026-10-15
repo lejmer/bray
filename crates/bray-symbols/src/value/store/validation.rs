@@ -127,7 +127,8 @@ pub(super) fn validate_constant_term_data(
             tables.constant_terms.get(store, *operand);
             tables.types.get(store, *target);
         }
-        ConstantTermData::NullablePresent(value) => {
+        ConstantTermData::VariantTest { subject: value, .. }
+        | ConstantTermData::NullablePresent(value) => {
             tables.constant_terms.get(store, *value);
         }
         ConstantTermData::Tuple(values) | ConstantTermData::Array(values) => {
@@ -284,6 +285,43 @@ pub(super) fn validate_dependency_template_data(
     store: SemanticValueStoreId,
     data: &DependencyContractTemplateData,
 ) {
+    if let Some(input) = data.returned_input() {
+        tables.constant_terms.get(store, input);
+    }
+
+    for carrier in data.carriers() {
+        tables.constant_terms.get(store, carrier.guarantee());
+        validate_dependency_projections(tables, store, carrier.path());
+    }
+
+    for relation in data.borrows() {
+        validate_dependency_subject(tables, store, relation.entry());
+        validate_dependency_subject(tables, store, relation.exit());
+        validate_dependency_projections(tables, store, relation.target_projections());
+    }
+
+    for effect in data.effects() {
+        use crate::DependencyStorageEffect;
+
+        match effect {
+            DependencyStorageEffect::Atomic | DependencyStorageEffect::Unknown => {}
+            DependencyStorageEffect::Cleanup(ty) => {
+                tables.types.get(store, *ty);
+            }
+            DependencyStorageEffect::Direct { subject, .. } => {
+                validate_dependency_subject(tables, store, subject)
+            }
+            DependencyStorageEffect::Indirect {
+                reference,
+                projections,
+                ..
+            } => {
+                validate_dependency_subject(tables, store, reference);
+                validate_dependency_projections(tables, store, projections);
+            }
+        }
+    }
+
     validate_dependency_variables(data.requirements(), &mut Vec::new());
 
     let mut pending: Vec<_> = data.requirements().iter().collect();
@@ -397,7 +435,15 @@ fn validate_dependency_subject(
         tables.implementation_instances.get(store, instance);
     }
 
-    for projection in subject.projections() {
+    validate_dependency_projections(tables, store, subject.projections());
+}
+
+fn validate_dependency_projections(
+    tables: &SemanticTables,
+    store: SemanticValueStoreId,
+    projections: &[DependencyProjection],
+) {
+    for projection in projections {
         if let DependencyProjection::Element(index) = projection {
             tables.constant_terms.get(store, *index);
         }

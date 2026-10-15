@@ -2,9 +2,11 @@ use bray_compiler_known::{NumericRepresentationKind, RepresentationRole};
 use bray_symbols::{TypeData, TypeId};
 
 use crate::representation::{representation_type, type_representation};
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitView};
 
 pub(super) struct ExpressionTypeDependencies {
+    pub(super) scoped_failures:
+        std::collections::BTreeMap<bray_bound_tree::BoundExpressionId, TypeId>,
     pub(super) box_storage_policies:
         std::collections::BTreeMap<bray_bound_tree::BoundExpressionId, TypeId>,
     pub(super) error: TypeId,
@@ -21,25 +23,34 @@ pub(super) struct ExpressionTypeDependencies {
 impl ExpressionTypeDependencies {
     pub(super) fn new<C>(
         request: CheckerUnitView<'_, C>,
-    ) -> Result<Self, CheckerInfrastructureError>
+        selections: &[bray_bound_tree::SemanticSelectionEntry],
+    ) -> Self
     where
         C: CheckerRequestContext + ?Sized,
     {
         let error = request
             .semantic_values()
-            .intern_type(TypeData::Error)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            .intern_type(TypeData::Error).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in new: {error:?}"));
 
-        let unit = representation_type(request, RepresentationRole::Unit)?;
-        let never = representation_type(request, RepresentationRole::Never)?;
-        let boolean = representation_type(request, RepresentationRole::ScalarBool)?;
-        let character = representation_type(request, RepresentationRole::ScalarChar)?;
-        let string = representation_type(request, RepresentationRole::String)?;
-        let i32 = representation_type(request, RepresentationRole::ScalarI32)?;
-        let r64 = representation_type(request, RepresentationRole::ScalarR64)?;
-        let c128 = representation_type(request, RepresentationRole::ScalarC128)?;
+        let unit = representation_type(request, RepresentationRole::Unit);
+        let never = representation_type(request, RepresentationRole::Never);
+        let boolean = representation_type(request, RepresentationRole::ScalarBool);
+        let character = representation_type(request, RepresentationRole::ScalarChar);
+        let string = representation_type(request, RepresentationRole::String);
+        let i32 = representation_type(request, RepresentationRole::ScalarI32);
+        let r64 = representation_type(request, RepresentationRole::ScalarR64);
+        let c128 = representation_type(request, RepresentationRole::ScalarC128);
 
-        Ok(Self {
+        Self {
+            scoped_failures: selections
+                .iter()
+                .filter_map(|entry| match entry.selection() {
+                    bray_bound_tree::SemanticSelection::ScopedUse(scoped) => scoped
+                        .failure_type()
+                        .map(|failure| (scoped.expression(), failure)),
+                    _ => None,
+                })
+                .collect(),
             box_storage_policies: std::collections::BTreeMap::new(),
             error,
             unit,
@@ -50,16 +61,16 @@ impl ExpressionTypeDependencies {
             i32,
             r64,
             c128,
-        })
+        }
     }
 }
 
 pub(super) fn numeric_kind<C>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
-) -> Result<Option<NumericRepresentationKind>, CheckerInfrastructureError>
+) -> Option<NumericRepresentationKind>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    Ok(type_representation(request, ty).and_then(RepresentationRole::numeric_kind))
+    type_representation(request, ty).and_then(RepresentationRole::numeric_kind)
 }

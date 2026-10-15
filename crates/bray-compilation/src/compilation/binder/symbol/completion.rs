@@ -4,17 +4,18 @@ use bray_symbols::{
     AnySymbolId, CallableContractSymbolId, CallableContractTemplateQuery,
     CallableContractTypeQuery, CallableContractsQuery, CallableOverloadTemplateQuery,
     CallableParameterDefaultQuery, CallableParameterDefaultTemplateQuery,
-    CallableParameterSymbolId, CallableSignatureQuery, CallableSymbolId, ConstantDeclaredTypeQuery,
-    ConstantDefinitionQuery, DeclarationDirectivesQuery, ExactSymbolId,
-    GenericConstParameterDeclaredTypeQuery, GenericConstraintsQuery,
-    GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationCoherenceQuery,
-    ImplementationHeadTemplateQuery, ImplementationOverloadTemplateQuery,
-    ImplementationSubjectQuery, ImplementationSymbolId, ImplementedTraitApplicationQuery,
-    InherentTypeMemberValueQuery, ModuleSurfaceQuery, ModuleSymbolId, PredicateDefinitionQuery,
-    PredicateDefinitionSymbolId, PredicateSignatureTemplateQuery, StaticDeclaredTypeQuery,
-    StaticInstanceTemplateQuery, StructFieldDefaultQuery, StructFieldDefaultTemplateQuery,
-    StructFieldSymbolId, StructFieldTypeQuery, SymbolCompletionEvaluator, SymbolCompletionLevel,
-    SymbolCompletionQuery, SymbolQueryContract, SymbolQueryKind, SymbolQueryRequest,
+    CallableParameterSymbolId, CallablePredicateContractsQuery, CallableSignatureQuery,
+    CallableSymbolId, ConstantDeclaredTypeQuery, ConstantDefinitionQuery,
+    DeclarationDirectivesQuery, ExactSymbolId, GenericConstParameterDeclaredTypeQuery,
+    GenericConstraintsQuery, GenericDeclarationTemplateQuery, GenericOwnerId,
+    ImplementationCoherenceQuery, ImplementationHeadTemplateQuery,
+    ImplementationOverloadTemplateQuery, ImplementationSubjectQuery, ImplementationSymbolId,
+    ImplementedTraitApplicationQuery, InherentTypeMemberValueQuery, ModuleSurfaceQuery,
+    ModuleSymbolId, PredicateDefinitionQuery, PredicateDefinitionSymbolId,
+    PredicateSignatureTemplateQuery, StaticDeclaredTypeQuery, StaticInstanceTemplateQuery,
+    StructFieldDefaultQuery, StructFieldDefaultTemplateQuery, StructFieldSymbolId,
+    StructFieldTypeQuery, SymbolCompletionEvaluator, SymbolCompletionLevel, SymbolCompletionQuery,
+    SymbolQueryContract, SymbolQueryKind, SymbolQueryRequest,
     TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantFulfillmentDefinitionQuery,
     TraitConstantMemberDeclaredTypeQuery, TraitConstantMemberDefinitionQuery,
     TraitPredicateFulfillmentDefinitionQuery, TraitPredicateMemberDefinitionQuery,
@@ -72,6 +73,13 @@ impl SymbolCompletionEvaluator for CompilationBindingContext<'_> {
                 })?;
 
                 evaluate_typed::<CallableContractsQuery>(self, owner)
+            }
+            SymbolQueryKind::CallablePredicateContracts => {
+                let owner = CallableSymbolId::try_from_any(request.symbol()).ok_or_else(|| {
+                    unexpected_symbol_category(request, SemanticSymbolCategory::Callable)
+                })?;
+
+                evaluate_typed::<CallablePredicateContractsQuery>(self, owner)
             }
             SymbolQueryKind::CallableResultDependencies => {
                 let owner = CallableSymbolId::try_from_any(request.symbol()).ok_or_else(|| {

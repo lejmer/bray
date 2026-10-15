@@ -311,7 +311,7 @@ trusted internal func write_standard_output_unlocked(pos source: &[u8]) -> Resul
     requires(blocking_execution())
 {
     let requested: usize = source.length();
-    let source_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer(source);
+    let source_pointer: RawPointer<u8> = internal std.memory.slice_pointer(source, count = requested);
     let mut transferred: u64 = 0;
     let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
 
@@ -332,7 +332,7 @@ trusted func write_standard_error_unlocked(pos source: &[u8]) -> Result<usize, I
     let mut transferred: u64 = 0;
 
     let status: std.platform.PlatformStatus = trusted platform_standard_error_write(
-        source = internal std.memory.byte_slice_pointer(source),
+        source = internal std.memory.slice_pointer(source, count = requested),
         length = requested as u64,
         transferred = std.memory.address_of_mut<u64>(&mut transferred),
     );
@@ -393,7 +393,7 @@ trusted internal func read_standard_input(pos destination: &mut [u8]) -> Result<
 {
     let lock: StandardInputLock = try trusted acquire_standard_input();
     let capacity: usize = destination.length();
-    let destination_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(destination);
+    let destination_pointer: RawPointer<u8> = internal std.memory.slice_pointer_mut(destination, count = capacity);
     let mut transferred: u64 = 0;
     let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
 

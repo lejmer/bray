@@ -510,12 +510,11 @@ fn resolve_template_type(
     let constants = compilation
         .checked_constant_terms_for_templates_with_cancellation([template], cancellation)?;
 
-    bray_checker::resolve_type_expression_template(
+    Ok(bray_checker::resolve_type_expression_template(
         compilation.semantic_value_store()?,
         template,
         constants.value(),
-    )
-    .map_err(FactQueryError::from)
+    ))
 }
 
 fn type_has_representation(

@@ -414,6 +414,10 @@ pub(super) struct CallbackDescription {
     pub(super) parameters: Vec<ParameterDescription>,
     pub(super) result: String,
     pub(super) native_result: String,
+    #[serde(default)]
+    pub(super) trusted: bool,
+    #[serde(default)]
+    pub(super) requires: Vec<String>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -440,6 +444,8 @@ pub(super) struct FunctionDescription {
     pub(super) requires: Vec<String>,
     #[serde(default)]
     pub(super) ensures: Vec<String>,
+    #[serde(default)]
+    pub(super) executes: Vec<String>,
     #[serde(default)]
     pub(super) dependencies: Vec<String>,
 }

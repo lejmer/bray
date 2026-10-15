@@ -2,34 +2,102 @@ trusted module std.channel;
 
 struct Sender<T>
 {
-    internal core: RawPointer<ChannelCore<T>>;
-    internal mut active: bool;
+    owner: std.channel.owner.Owner<T>;
 
-    trusted destruct()
+    static const func result_marker(
+        pos value: &Result<(Sender<T>, Receiver<T>), ChannelError>
+    ) -> &std.channel.owner.Marker
+        requires(value matches Ok(_))
+        executes(pure, total)
     {
-        if self.active
+        match value
         {
-            trusted internal release_sender<T, Sender<T>>(&self, self.core);
+            case Ok((endpoint, _)) { return &endpoint.owner.instance; }
+            case Error(_) { panic("missing channel endpoints"); }
         }
     }
 
-    func duplicate() -> Sender<T>
+    trusted destruct()
+        requires(
+            trusted std.channel.owner.live(&self.owner.instance),
+            trusted std.channel.owner.sender(&self.owner.instance)
+        )
+        ensures(trusted std.channel.owner.live(&self.owner.instance))
     {
-        let shared: &ChannelCore<T> = trusted internal channel_core<T, Sender<T>>(&self, self.core);
+        let authorize = trusted lambda(pos marker: &std.channel.owner.Marker)
+            ensures(trusted std.channel.owner.access(marker))
+            executes(pure, total) {};
+
+        authorize(&self.owner.instance);
+
+        let shared = trusted internal channel_core<T>(&self.owner);
+
+        trusted internal release_sender<T>(shared);
+    }
+
+    trusted func duplicate() -> Sender<T>
+        ensures(
+            trusted std.channel.owner.live(&result.owner.instance),
+            trusted std.channel.owner.sender(&result.owner.instance)
+        )
+        requires(
+            trusted std.channel.owner.live(&self.owner.instance),
+            trusted std.channel.owner.sender(&self.owner.instance)
+        )
+        ensures(
+            trusted std.channel.owner.live(&self.owner.instance),
+            trusted std.channel.owner.sender(&self.owner.instance)
+        )
+    {
+        let authorize = trusted lambda(pos marker: &std.channel.owner.Marker)
+            ensures(trusted std.channel.owner.access(marker))
+            executes(pure, total) {};
+
+        authorize(&self.owner.instance);
+
+        let shared: &ChannelCore<T> = trusted internal channel_core<T>(&self.owner);
 
         trusted internal retain_counter(&shared.owners);
+
+        let make_owner = trusted lambda(pos pointer: RawPointer<ChannelCore<T>>) -> std.channel.owner.Owner<T>
+            ensures(trusted std.channel.owner.live(&result.instance))
+        {
+            return
+            {
+                instance = std.channel.owner.Marker
+                {
+                },
+                core = pointer
+            };
+        };
+
+        let owner = make_owner(self.owner.core);
+
         trusted internal retain_counter(&shared.senders);
 
         return
         {
-            core = self.core,
-            active = true,
+            owner = owner,
         };
     }
 
-    async func send(pos value: T) -> Result<unit, SendError<T>>
+    trusted async func send(pos value: T) -> Result<unit, SendError<T>>
+        requires(
+            trusted std.channel.owner.live(&self.owner.instance),
+            trusted std.channel.owner.sender(&self.owner.instance)
+        )
+        ensures(
+            trusted std.channel.owner.live(&self.owner.instance),
+            trusted std.channel.owner.sender(&self.owner.instance)
+        )
     {
-        let shared: &ChannelCore<T> = trusted internal channel_core<T, Sender<T>>(&self, self.core);
+        let authorize = trusted lambda(pos marker: &std.channel.owner.Marker)
+            ensures(trusted std.channel.owner.access(marker))
+            executes(pure, total) {};
+
+        authorize(&self.owner.instance);
+
+        let shared: &ChannelCore<T> = trusted internal channel_core<T>(&self.owner);
         let mut pending: PendingValue<T> = trusted PendingValue<T>(value);
         let mut registration: WaitRegistration<T> = trusted internal register_waiter<T>(shared, WaiterKind.Sender);
 
@@ -39,6 +107,12 @@ struct Sender<T>
             {
                 let mut state = shared.state.lock();
                 let channel: &mut ChannelState<T> = state.get();
+
+                let authorize_state = trusted lambda(pos marker: &std.channel.owner.Marker)
+                    ensures(trusted std.channel.owner.valid(marker))
+                    executes(pure, total) {};
+
+                authorize_state(&channel.instance);
 
                 if !channel.receiver_open
                 {
@@ -100,10 +174,19 @@ struct Sender<T>
 
             trusted internal retain_counter(&shared.owners);
 
-            let owner: WaitOwner<T> =
+            let make_owner = trusted lambda(pos pointer: RawPointer<ChannelCore<T>>) -> std.channel.owner.Owner<T>
+                ensures(trusted std.channel.owner.live(&result.instance))
             {
-                core = self.core,
+                return
+                {
+                    instance = std.channel.owner.Marker
+                    {
+                    },
+                    core = pointer
+                };
             };
+
+            let owner = make_owner(self.owner.core);
 
             let mut wake: ChannelWaitWake<T> = trusted internal ChannelWaitWake<T>(shared);
 
@@ -119,11 +202,31 @@ struct Sender<T>
         return Error(unreachable_failure);
     }
 
-    func try_send(pos value: T) -> Result<unit, TrySendError<T>>
+    trusted func try_send(pos value: T) -> Result<unit, TrySendError<T>>
+        requires(
+            trusted std.channel.owner.live(&self.owner.instance),
+            trusted std.channel.owner.sender(&self.owner.instance)
+        )
+        ensures(
+            trusted std.channel.owner.live(&self.owner.instance),
+            trusted std.channel.owner.sender(&self.owner.instance)
+        )
     {
-        let shared: &ChannelCore<T> = trusted internal channel_core<T, Sender<T>>(&self, self.core);
+        let authorize = trusted lambda(pos marker: &std.channel.owner.Marker)
+            ensures(trusted std.channel.owner.access(marker))
+            executes(pure, total) {};
+
+        authorize(&self.owner.instance);
+
+        let shared: &ChannelCore<T> = trusted internal channel_core<T>(&self.owner);
         let mut state = shared.state.lock();
         let channel: &mut ChannelState<T> = state.get();
+
+        let authorize_state = trusted lambda(pos marker: &std.channel.owner.Marker)
+            ensures(trusted std.channel.owner.valid(marker))
+            executes(pure, total) {};
+
+        authorize_state(&channel.instance);
 
         if !channel.receiver_open
         {
@@ -145,29 +248,69 @@ struct Sender<T>
         return Ok(unit);
     }
 
-    consume mut func close()
-    {
-        trusted internal release_sender<T, Sender<T>>(&self, self.core);
-        self.active = false;
-    }
+    trusted consume func close()
+        requires(
+            trusted std.channel.owner.live(&self.owner.instance),
+            trusted std.channel.owner.sender(&self.owner.instance)
+        )
+        ensures(
+            trusted std.channel.owner.live(&self.owner.instance),
+            trusted std.channel.owner.sender(&self.owner.instance)
+        ) {}
 }
 
 struct Receiver<T>
 {
-    internal core: RawPointer<ChannelCore<T>>;
-    internal mut active: bool;
+    owner: std.channel.owner.Owner<T>;
 
-    trusted destruct()
+    static const func result_marker(
+        pos value: &Result<(Sender<T>, Receiver<T>), ChannelError>
+    ) -> &std.channel.owner.Marker
+        requires(value matches Ok(_))
+        executes(pure, total)
     {
-        if self.active
+        match value
         {
-            trusted internal release_receiver<T, Receiver<T>>(&self, self.core);
+            case Ok((_, endpoint)) { return &endpoint.owner.instance; }
+            case Error(_) { panic("missing channel endpoints"); }
         }
     }
 
-    async func receive() -> ReceiveResult<T>
+    trusted destruct()
+        requires(
+            trusted std.channel.owner.live(&self.owner.instance),
+            trusted std.channel.owner.receiver(&self.owner.instance)
+        )
+        ensures(trusted std.channel.owner.live(&self.owner.instance))
     {
-        let shared: &ChannelCore<T> = trusted internal channel_core<T, Receiver<T>>(&self, self.core);
+        let authorize = trusted lambda(pos marker: &std.channel.owner.Marker)
+            ensures(trusted std.channel.owner.access(marker))
+            executes(pure, total) {};
+
+        authorize(&self.owner.instance);
+
+        let shared = trusted internal channel_core<T>(&self.owner);
+
+        trusted internal release_receiver<T>(shared);
+    }
+
+    trusted async func receive() -> ReceiveResult<T>
+        requires(
+            trusted std.channel.owner.live(&self.owner.instance),
+            trusted std.channel.owner.receiver(&self.owner.instance)
+        )
+        ensures(
+            trusted std.channel.owner.live(&self.owner.instance),
+            trusted std.channel.owner.receiver(&self.owner.instance)
+        )
+    {
+        let authorize = trusted lambda(pos marker: &std.channel.owner.Marker)
+            ensures(trusted std.channel.owner.access(marker))
+            executes(pure, total) {};
+
+        authorize(&self.owner.instance);
+
+        let shared: &ChannelCore<T> = trusted internal channel_core<T>(&self.owner);
         let mut registration: WaitRegistration<T> = trusted internal register_waiter<T>(shared, WaiterKind.Receiver);
 
         while true
@@ -177,11 +320,17 @@ struct Receiver<T>
                 let mut state = shared.state.lock();
                 let channel: &mut ChannelState<T> = state.get();
 
+                let authorize_state = trusted lambda(pos marker: &std.channel.owner.Marker)
+                    ensures(trusted std.channel.owner.valid(marker))
+                    executes(pure, total) {};
+
+                authorize_state(&channel.instance);
+
                 if channel.receive_waiters.is_head(registration.ticket) && channel.length > 0
                 {
-                    channel.receive_waiters.pop_head();
-
                     let message: T = trusted channel.take_received_message();
+
+                    channel.receive_waiters.pop_head();
 
                     trusted registration.complete();
 
@@ -209,10 +358,19 @@ struct Receiver<T>
 
             trusted internal retain_counter(&shared.owners);
 
-            let owner: WaitOwner<T> =
+            let make_owner = trusted lambda(pos pointer: RawPointer<ChannelCore<T>>) -> std.channel.owner.Owner<T>
+                ensures(trusted std.channel.owner.live(&result.instance))
             {
-                core = self.core,
+                return
+                {
+                    instance = std.channel.owner.Marker
+                    {
+                    },
+                    core = pointer
+                };
             };
+
+            let owner = make_owner(self.owner.core);
 
             let mut wake: ChannelWaitWake<T> = trusted internal ChannelWaitWake<T>(shared);
 
@@ -225,11 +383,31 @@ struct Receiver<T>
         return ReceiveResult.Closed;
     }
 
-    func try_receive() -> TryReceiveResult<T>
+    trusted func try_receive() -> TryReceiveResult<T>
+        requires(
+            trusted std.channel.owner.live(&self.owner.instance),
+            trusted std.channel.owner.receiver(&self.owner.instance)
+        )
+        ensures(
+            trusted std.channel.owner.live(&self.owner.instance),
+            trusted std.channel.owner.receiver(&self.owner.instance)
+        )
     {
-        let shared: &ChannelCore<T> = trusted internal channel_core<T, Receiver<T>>(&self, self.core);
+        let authorize = trusted lambda(pos marker: &std.channel.owner.Marker)
+            ensures(trusted std.channel.owner.access(marker))
+            executes(pure, total) {};
+
+        authorize(&self.owner.instance);
+
+        let shared: &ChannelCore<T> = trusted internal channel_core<T>(&self.owner);
         let mut state = shared.state.lock();
         let channel: &mut ChannelState<T> = state.get();
+
+        let authorize_state = trusted lambda(pos marker: &std.channel.owner.Marker)
+            ensures(trusted std.channel.owner.valid(marker))
+            executes(pure, total) {};
+
+        authorize_state(&channel.instance);
 
         if channel.receive_waiters.is_empty() && channel.length > 0
         {
@@ -249,9 +427,13 @@ struct Receiver<T>
         return TryReceiveResult.Empty;
     }
 
-    consume mut func close()
-    {
-        trusted internal release_receiver<T, Receiver<T>>(&self, self.core);
-        self.active = false;
-    }
+    trusted consume func close()
+        requires(
+            trusted std.channel.owner.live(&self.owner.instance),
+            trusted std.channel.owner.receiver(&self.owner.instance)
+        )
+        ensures(
+            trusted std.channel.owner.live(&self.owner.instance),
+            trusted std.channel.owner.receiver(&self.owner.instance)
+        ) {}
 }

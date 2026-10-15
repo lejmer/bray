@@ -1,0 +1,87 @@
+trusted module std.sync;
+
+using internal std.sync.spin_lock;
+
+struct SpinLockGuard<T>
+{
+    lock: &SpinLock<T>;
+    acquisition: std.sync.spin_lock.Marker;
+
+    trusted destruct()
+        requires(trusted std.sync.spin_lock.acquired(&self.acquisition))
+        executes(total)
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.lock.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.spin_lock.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.spin_lock.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.spin_lock.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
+        let state = trusted std.memory.borrow_from<std.sync.spin_lock.State<T>, SpinLock<T>>(self.lock, pointer);
+        let _: u32 = core.atomic.fetch_add<u32, 3>(&state.tickets, 65536);
+    }
+
+    internal trusted func pointer() -> RawPointer<T>
+        requires(trusted std.sync.spin_lock.acquired(&self.acquisition))
+        ensures(
+            trusted core.memory.valid_write<T>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<T>(pointer = result),
+            trusted core.memory.initialized_as<T>(pointer = result),
+            trusted core.memory.exclusive_alias_valid<T>(pointer = result),
+            trusted core.memory.epoch_current<T>(pointer = result),
+            trusted core.memory.synchronized_access<T>(pointer = result),
+            trusted core.memory.movement_stable<T>(pointer = result),
+            trusted core.memory.finalization_pending<T>(pointer = result),
+        )
+        executes(pure, total)
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.lock.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.spin_lock.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.spin_lock.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.spin_lock.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
+        let state = trusted std.memory.borrow_from<std.sync.spin_lock.State<T>, SpinLock<T>>(self.lock, pointer);
+        let value = std.memory.uninit_pointer<T>(&state.value);
+
+        return value;
+    }
+
+    trusted mut func get() -> &mut T
+        requires(trusted std.sync.spin_lock.acquired(&self.acquisition))
+        ensures(trusted std.sync.spin_lock.acquired(&self.acquisition))
+        executes(pure, total)
+        uses(raw_memory, unchecked_alias)
+    {
+        let value = self.pointer();
+
+        return trusted std.memory.borrow_mut_from<T, SpinLockGuard<T>>(&mut self, value);
+    }
+
+    consume func unlock()
+        requires(trusted std.sync.spin_lock.acquired(&self.acquisition)) {}
+}

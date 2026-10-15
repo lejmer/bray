@@ -3,6 +3,7 @@ mod iteration;
 mod operation;
 mod predicate;
 mod propagation;
+mod scoped_use;
 mod table;
 mod template;
 
@@ -17,6 +18,7 @@ pub use operation::{
 };
 pub use predicate::{SelectedPredicateApplication, SelectedPredicateArgument};
 pub use propagation::{SelectedPropagation, SelectedPropagationBoundary};
+pub use scoped_use::SelectedScopedUse;
 pub use table::{
     CheckedSemanticSelections, SemanticSelection, SemanticSelectionEntry,
     SemanticSelectionTableBuildError,

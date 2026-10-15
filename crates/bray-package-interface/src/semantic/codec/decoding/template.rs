@@ -342,6 +342,14 @@ fn decode_operation(
             lower: read_optional_u32(reader)?.map(CheckedTemplateNodeId::new),
             upper: read_optional_u32(reader)?.map(CheckedTemplateNodeId::new),
         }),
+        19 => Ok(InterfaceCheckedTemplateOperation::VariantTest {
+            subject: CheckedTemplateNodeId::new(read_u32(reader)?),
+            variant: decode_template_reference(reader, context)?,
+        }),
+        18 => Ok(InterfaceCheckedTemplateOperation::TupleElement {
+            subject: CheckedTemplateNodeId::new(read_u32(reader)?),
+            index: bray_symbols::SymbolOrdinal::new(read_u32(reader)?),
+        }),
         17 => {
             let count = read_count(reader, limits, InterfaceLimit::TemplateGraphSize)?;
             let mut fields = context.allocate_items(reader, count)?;
@@ -802,6 +810,47 @@ mod tests {
     }
 
     #[test]
+    fn template_validation_rejects_invalid_tuple_projections() {
+        let (surface, semantics) = operation_fixture();
+
+        let template = &semantics.checked_templates()[0];
+
+        for (subject, index, ty) in [(0, 0, 0), (5, 2, 0), (5, 0, 1)] {
+            let mut nodes = template.nodes().to_vec();
+
+            nodes[7] = InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::TupleElement {
+                    subject: CheckedTemplateNodeId::new(subject),
+                    index: SymbolOrdinal::new(index),
+                },
+                InterfaceTypeId::new(ty),
+            );
+
+            let invalid = InterfaceCheckedTemplate::new(
+                template.kind(),
+                template.inputs().iter().cloned(),
+                nodes,
+                template.temporaries().iter().copied(),
+                template.result(),
+                template.behavior().clone(),
+            );
+
+            let semantics = semantics.clone().with_templates(
+                [invalid],
+                semantics.declaration_templates().iter().cloned(),
+                semantics.support_entities().iter().cloned(),
+            );
+
+            assert_eq!(
+                encode_semantics(&semantics, &surface, InterfaceValidationLimits::default()),
+                Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template
+                ))
+            );
+        }
+    }
+
+    #[test]
     fn template_validation_rejects_missing_and_uninitialized_temporaries() {
         let (surface, semantics) = operation_fixture();
 
@@ -1111,49 +1160,37 @@ mod tests {
             )
         };
 
-        let kind_mismatch = invalid_semantics(
-            13,
-            InterfaceCheckedTemplateNode::new(
-                InterfaceCheckedTemplateOperation::Borrow {
-                    kind: bray_symbols::BorrowKind::Shared,
-                    operand: CheckedTemplateNodeId::new(0),
-                },
-                InterfaceTypeId::new(4),
-            ),
-        );
+        for (node_index, kind, operand, ty, valid) in [
+            (13, bray_symbols::BorrowKind::Shared, 0, 4, false),
+            (14, bray_symbols::BorrowKind::Mutable, 5, 4, false),
+            (14, bray_symbols::BorrowKind::Mutable, 13, 4, false),
+            (14, bray_symbols::BorrowKind::Shared, 13, 3, true),
+        ] {
+            let candidate = invalid_semantics(
+                node_index,
+                InterfaceCheckedTemplateNode::new(
+                    InterfaceCheckedTemplateOperation::Borrow {
+                        kind,
+                        operand: CheckedTemplateNodeId::new(operand),
+                    },
+                    InterfaceTypeId::new(ty),
+                ),
+            );
 
-        assert_eq!(
-            encode_semantics(
-                &kind_mismatch,
-                &surface,
-                InterfaceValidationLimits::default()
-            ),
-            Err(crate::semantic::codec::invalid_value(
-                crate::InterfaceValidationField::Template
-            ))
-        );
+            let result =
+                encode_semantics(&candidate, &surface, InterfaceValidationLimits::default());
 
-        let target_mismatch = invalid_semantics(
-            14,
-            InterfaceCheckedTemplateNode::new(
-                InterfaceCheckedTemplateOperation::Borrow {
-                    kind: bray_symbols::BorrowKind::Mutable,
-                    operand: CheckedTemplateNodeId::new(5),
-                },
-                InterfaceTypeId::new(4),
-            ),
-        );
-
-        assert_eq!(
-            encode_semantics(
-                &target_mismatch,
-                &surface,
-                InterfaceValidationLimits::default()
-            ),
-            Err(crate::semantic::codec::invalid_value(
-                crate::InterfaceValidationField::Template
-            ))
-        );
+            if valid {
+                assert!(result.is_ok(), "shared reborrow must encode: {result:?}");
+            } else {
+                assert_eq!(
+                    result,
+                    Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Template
+                    ))
+                );
+            }
+        }
 
         for (operation, ty) in [
             (
@@ -1623,6 +1660,13 @@ mod tests {
                     upper: Some(CheckedTemplateNodeId::new(1)),
                 },
                 InterfaceTypeId::new(5),
+            ),
+            InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::TupleElement {
+                    subject: CheckedTemplateNodeId::new(5),
+                    index: SymbolOrdinal::new(1),
+                },
+                InterfaceTypeId::new(0),
             ),
         ];
 

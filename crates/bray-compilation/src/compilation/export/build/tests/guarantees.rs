@@ -19,6 +19,60 @@ use super::fixtures::{
 };
 
 #[test]
+fn imported_execution_domains_require_live_authority_and_ordinary_conditions() {
+    let provider = compilation(
+        r#"
+        trusted module api;
+        struct Owner { mut value: u64; }
+        trusted predicate live(owner: &Owner);
+        trusted func produce(pos value: u64) -> Owner
+            ensures(result.value == value, trusted live(owner = &result)) executes(total)
+        { return { value = value }; }
+        trusted func observe(pos owner: &Owner) -> u64
+            requires(trusted live(owner = owner), owner.value == 1) executes(total)
+        { return owner.value; }
+        func change(pos owner: &mut Owner) executes(total) { owner.value = 2; }
+        "#,
+    );
+
+    for (body, valid) in [
+        (
+            "let owner = trusted produce(1); return trusted observe(&owner);",
+            true,
+        ),
+        (
+            "let owner = trusted produce(2); return trusted observe(&owner);",
+            false,
+        ),
+        (
+            "let owner: Owner = { value = 1 }; return trusted observe(&owner);",
+            false,
+        ),
+        (
+            "let mut owner = trusted produce(1); change(&mut owner); return trusted observe(&owner);",
+            false,
+        ),
+    ] {
+        let source = format!(
+            "module app; using example.package.api; func root() -> u64 executes(total) {{ {} }}",
+            body.replace("Owner", "example.package.api.Owner")
+                .replace("produce(", "example.package.api.produce(")
+                .replace("observe(", "example.package.api.observe(")
+                .replace("change(", "example.package.api.change(")
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(
+            !consumer.check_diagnostics().has_errors(),
+            valid,
+            "{body}: {:?}",
+            consumer.check_diagnostics()
+        );
+    }
+}
+
+#[test]
 fn execution_guarantees_reject_malformed_interface_evidence() {
     use bray_symbols::{CallableExecutionOrigin, SymbolOrdinal};
 
@@ -376,6 +430,26 @@ fn execution_guarantees_round_trip_and_reject_result_as_an_entry_guard() {
             {
                 return true;
             }
+
+            func required(pos flag: bool) -> bool
+                requires(flag)
+                executes(pure, total)
+            {
+                return flag;
+            }
+
+            func caller() -> bool
+            {
+                return required(true);
+            }
+
+            func required_components(pos flags: (bool, [bool; 2])) -> (bool, [bool; 2])
+                requires(flags.0, flags.1[0])
+                executes(pure, total)
+                ensures(result.0, result.1[0])
+            {
+                return flags;
+            }
         "#,
     );
 
@@ -617,6 +691,693 @@ fn execution_guarantees_follow_transitive_provider_dependencies() {
             include_provider,
             "{:?}",
             consumer.check_diagnostics()
+        );
+    }
+}
+
+#[test]
+fn imported_trusted_contracts_preserve_requirements_and_live_witnesses() {
+    let provider = compilation(
+        r#"
+        trusted module api;
+        public struct Owner { public mut epoch: u64; }
+        @copy public struct NegativeOwner { public epoch: u64; }
+        public trusted predicate dangerous(owner: &NegativeOwner);
+        public trusted func negative_owner() -> NegativeOwner
+            ensures(!(trusted dangerous(&result))) { return { epoch = 1 }; }
+        public trusted predicate live(owner: &Owner);
+        public trusted func owner() -> Owner
+            ensures(trusted live(&result)) { return { epoch = 1 }; }
+        public trusted func conditional_owner(pos ready: bool) -> Owner
+            when(ready) { ensures(trusted live(&result)) } { return { epoch = 1 }; }
+        public trusted func observe(pos value: &Owner)
+            requires(trusted live(value)) {}
+        public callable Observer = func(pos value: &Owner)
+            requires(trusted live(value));
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+    let artifact = encode_package_interface(bundle).unwrap();
+
+    let validated = ValidatedPackageInterface::try_new(
+        artifact.bytes(),
+        InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+    )
+    .unwrap();
+
+    let decoded = validated.decode_semantics(bundle.surface()).unwrap();
+
+    assert_eq!(&decoded, bundle.semantics());
+
+    for (body, valid) in [
+        (
+            "let value = example.package.api.negative_owner(); let copied = value;",
+            false,
+        ),
+        (
+            "let value = example.package.api.owner(); example.package.api.observe(&value);",
+            true,
+        ),
+        (
+            "let value = example.package.api.conditional_owner(true); example.package.api.observe(&value);",
+            true,
+        ),
+        (
+            "let value = example.package.api.conditional_owner(false); example.package.api.observe(&value);",
+            false,
+        ),
+        (
+            "let value = example.package.api.owner(); let moved = value; example.package.api.observe(&moved);",
+            true,
+        ),
+        (
+            "let value: example.package.api.Owner = { epoch = 1 }; example.package.api.observe(&value);",
+            false,
+        ),
+        (
+            "let mut value = example.package.api.owner(); value.epoch = 2; example.package.api.observe(&value);",
+            false,
+        ),
+        (
+            "let erased: func(pos value: &example.package.api.Owner) = example.package.api.observe;",
+            false,
+        ),
+    ] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            trusted module app;
+            using example.package.api;
+            func caller() {{ {body} }}
+        "#
+            ),
+        );
+
+        assert_eq!(
+            !consumer.check_diagnostics().has_errors(),
+            valid,
+            "{body}: {:?}",
+            consumer.check_diagnostics()
+        );
+    }
+}
+
+#[test]
+fn imported_mixed_predicate_conditions_preserve_trusted_occurrences() {
+    let provider = compilation(
+        r#"
+        trusted module api;
+        public trusted predicate live(value: u64);
+        public trusted predicate ready(value: u64);
+        public trusted predicate live_bool(value: &bool);
+        public trusted predicate live_byte(value: &u8);
+        public func observe_array(pos value: &[u8; 1]) requires(trusted live_byte(&value[0])) {}
+        public func observe_component(pos value: &(bool, bool)) requires(trusted live_bool(&value.0)) {}
+        public func observe(pos value: u64, pos flag: bool)
+            requires((trusted live(value)) || flag) {}
+        public func observe_guarded(pos value: u64)
+            requires(ready(value) || trusted live(value)) {}
+        public trusted func make(pos value: u64) -> u64
+            when(ready(value)) { ensures(trusted live(result)) } { return value; }
+        public trusted predicate borrow_ready(value: &u8);
+        public trusted func make_borrowed(pos value: &u8) -> u64
+            when(borrow_ready(value)) { ensures(trusted live(result)) } { return 0; }
+        public trusted func make_borrowed_pure(pos value: &u8) -> u64 executes(pure, total)
+            when(borrow_ready(value)) { ensures(trusted live(result)) } { return 0; }
+        public func observe_live(pos value: u64) requires(trusted live(value)) {}
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+    let artifact = encode_package_interface(bundle).unwrap();
+
+    let validated = ValidatedPackageInterface::try_new(
+        artifact.bytes(),
+        InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+    )
+    .unwrap();
+
+    assert_eq!(
+        &validated.decode_semantics(bundle.surface()).unwrap(),
+        bundle.semantics()
+    );
+
+    for (precondition, body, valid) in [
+        ("requires(live(value))", "observe(value, flag);", false),
+        (
+            "requires(trusted live(value))",
+            "observe(value, flag);",
+            true,
+        ),
+        ("requires(flag)", "observe(value, flag);", true),
+        ("requires(ready(value))", "observe_guarded(value);", true),
+        ("requires(live(value))", "observe_guarded(value);", false),
+        ("requires(ready(value))", "observe_live(make(value));", true),
+        ("", "observe_live(make(value));", false),
+    ] {
+        let precondition = precondition
+            .replace("live(", "example.package.api.live(")
+            .replace("ready(", "example.package.api.ready(");
+
+        let body = body
+            .replace("observe(", "example.package.api.observe(")
+            .replace("observe_guarded(", "example.package.api.observe_guarded(")
+            .replace("observe_live(", "example.package.api.observe_live(")
+            .replace("make(", "example.package.api.make(");
+
+        let source = format!(
+            r#"
+            trusted module app;
+            using example.package.api;
+            func caller(pos value: u64, pos flag: bool) {precondition} {{ {body} }}
+        "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        if valid {
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{source}: {:?}",
+                consumer.check_diagnostics()
+            );
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                consumer.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+
+    for (body, valid) in [
+        (
+            "example.package.api.observe_live(example.package.api.make_borrowed(&value));",
+            true,
+        ),
+        (
+            "example.package.api.observe_live(example.package.api.make_borrowed_pure(&value));",
+            true,
+        ),
+        (
+            "value = 1; example.package.api.observe_live(example.package.api.make_borrowed_pure(&value));",
+            false,
+        ),
+        (
+            "value = 1; example.package.api.observe_live(example.package.api.make_borrowed(&value));",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            using example.package.api;
+            func caller(pos mut value: u8) requires(example.package.api.borrow_ready(&value)) {{ {body} }}
+        "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        if valid {
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{source}: {:?}",
+                consumer.check_diagnostics()
+            );
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                consumer.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+
+    for (precondition, valid) in [
+        (
+            "requires(trusted example.package.api.live_bool(&value.0))",
+            true,
+        ),
+        ("requires(example.package.api.live_bool(&value.0))", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            using example.package.api;
+            func caller(pos value: &(bool, bool)) {precondition} {{ example.package.api.observe_component(value); }}
+        "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        if valid {
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{source}: {:?}",
+                consumer.check_diagnostics()
+            );
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                consumer.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+
+    for (precondition, valid) in [
+        (
+            "requires(trusted example.package.api.live_byte(&value[0]))",
+            true,
+        ),
+        ("requires(example.package.api.live_byte(&value[0]))", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            using example.package.api;
+            func caller(pos value: &[u8; 1]) {precondition} {{ example.package.api.observe_array(value); }}
+        "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        if valid {
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{source}: {:?}",
+                consumer.check_diagnostics()
+            );
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                consumer.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn nullable_pattern_contracts_survive_interface_transport() {
+    for (parameter, argument) in [("u32?", "value"), ("&(u32?)", "&value")] {
+        for pattern in ["none", "?_"] {
+            let provider = compilation(&format!(
+                r#"
+        module api;
+        func selected(pos value: {parameter}) requires(value matches {pattern}) executes(total) {{}}
+    "#,
+            ));
+
+            assert!(
+                !provider.check_diagnostics().has_errors(),
+                "{:?}",
+                provider.check_diagnostics()
+            );
+
+            for (value, valid) in [("none", pattern == "none"), ("1", pattern == "?_")] {
+                let source = format!(
+                    "module app; using example.package.api; func root() executes(total) {{ let value: u32? = {value}; example.package.api.selected({argument}); }}"
+                );
+
+                let consumer = execution_consumer(&provider, &source);
+
+                assert_eq!(
+                    !consumer.check_diagnostics().has_errors(),
+                    valid,
+                    "{source}: {:?}",
+                    consumer.check_diagnostics()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn imported_cleanup_guarantees_reach_following_calls() {
+    let provider = compilation(
+        r#"
+        trusted module api;
+        trusted predicate ready();
+        struct Producer {
+            tag: u8;
+            trusted destruct() ensures(trusted ready()) executes(total) {}
+        }
+        func observe() requires(trusted ready()) executes(pure, total) {}
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for (interference, valid) in [
+        ("", true),
+        ("{ let other: Interference = { tag = 0 }; }", true),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            using example.package.api;
+            struct Interference {{ tag: u8; destruct() executes(total) {{}} }}
+            func caller() {{
+                {{ let value: example.package.api.Producer = {{ tag = 0 }}; }}
+                {interference}
+                example.package.api.observe();
+            }}
+        "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_cleanup_postconditions_follow_the_updated_borrowed_storage() {
+    let provider = compilation(
+        r#"
+        trusted module api;
+        struct Owner { mut epoch: u64; }
+        trusted predicate live(value: &Owner);
+        struct Writer {
+            slot: &mut Owner;
+            trusted destruct() ensures(trusted live(&self.slot)) { self.slot.epoch = 1; }
+        }
+        func observe(pos owner: &Owner) requires(trusted live(owner)) {}
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for (mutation, observed, valid) in [
+        ("", "first", true),
+        ("", "second", false),
+        ("first.epoch = 2;", "first", false),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            using example.package.api;
+            func caller() {{
+                let mut first: example.package.api.Owner = {{ epoch = 0 }};
+                let second: example.package.api.Owner = {{ epoch = 0 }};
+                {{ let writer: example.package.api.Writer = {{ slot = &mut first }}; }}
+                {mutation}
+                example.package.api.observe(&{observed});
+            }}
+        "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_union_variant_contracts_preserve_checked_tags() {
+    let provider = compilation(
+        r#"
+        module api;
+        func create() -> Result<u32, u32> ensures(result matches Ok(_)) executes(total) { return Ok(7); }
+        const func observe(pos value: &Result<u32, u32>) -> u32
+            requires(value matches Ok(_)) executes(pure, total)
+        {
+            match value {
+                case Ok(_) { return 7; }
+                case Error(_) { panic("unreachable"); }
+            }
+        }
+    "#,
+    );
+
+    for (body, valid) in [
+        (
+            "let value = example.package.api.create(); let _ = example.package.api.observe(&value);",
+            true,
+        ),
+        (
+            "let value: Result<u32, u32> = Error(7); let _ = example.package.api.observe(&value);",
+            false,
+        ),
+    ] {
+        let source = format!(
+            "module app; using example.package.api; func root() executes(total) {{ {body} }}"
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(
+            !consumer.check_diagnostics().has_errors(),
+            valid,
+            "{body}: {:?}",
+            consumer.check_diagnostics()
+        );
+    }
+}
+
+#[test]
+fn imported_forwarded_carrier_preserves_its_original_boundary() {
+    let provider = compilation(
+        r#"
+        trusted module api;
+        struct Marker {}
+        struct Guard { marker: Marker; }
+        struct Wrapper { guard: Guard; }
+        trusted predicate held(marker: &Marker);
+        trusted func acquire() -> Guard
+            ensures(trusted held(&result.marker)) executes(pure, total)
+        { return { marker = Marker {} }; }
+        func wrap() -> Wrapper
+            ensures(trusted held(&result.guard.marker)) executes(pure, total)
+        { return { guard = acquire() }; }
+        func observe(pos guard: &Guard)
+            requires(trusted held(&guard.marker)) executes(pure, total) {}
+    "#,
+    );
+
+    for (body, valid) in [
+        (
+            "let wrapper = example.package.api.wrap(); let guard = wrapper.guard; example.package.api.observe(&guard);",
+            true,
+        ),
+        (
+            "let marker = example.package.api.wrap().guard.marker;",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            using example.package.api;
+            func root() {{ {body} }}
+        "#
+        );
+
+        let application = execution_consumer(&provider, &source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn imported_static_owner_retains_initializer_authority() {
+    let provider = compilation(
+        r#"
+        trusted module api;
+        struct Marker {}
+        struct Owner { marker: Marker; }
+        trusted predicate held(marker: &Marker);
+        trusted const func create() -> Owner
+            ensures(trusted held(&result.marker)) executes(pure, total)
+        { return { marker = Marker {} }; }
+        static OWNER: Owner = create();
+        extern func opaque();
+        func observe(pos owner: &Owner) requires(trusted held(&owner.marker)) {}
+    "#,
+    );
+
+    for (body, valid) in [
+        (
+            "example.package.api.observe(&example.package.api.OWNER); example.package.api.opaque(); example.package.api.observe(&example.package.api.OWNER);",
+            true,
+        ),
+        (
+            "let owner = example.package.api.Owner { marker = example.package.api.Marker {} }; example.package.api.observe(&owner);",
+            false,
+        ),
+    ] {
+        let source = format!("module app; using example.package.api; func root() {{ {body} }}");
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(
+            !consumer.check_diagnostics().has_errors(),
+            valid,
+            "{body}: {:?}",
+            consumer.check_diagnostics()
+        );
+    }
+}
+
+#[test]
+fn imported_total_cleanup_certification_preserves_the_entry_domain() {
+    for (guarantee, body, total) in [
+        ("executes(total)", "", true),
+        (
+            "when(self.ready) { executes(total) }",
+            "if !self.ready { panic(\"not ready\"); }",
+            false,
+        ),
+    ] {
+        let declarations = format!(
+            r#"
+            trusted module api;
+            trusted predicate live<T>(owner: &Owner<T>);
+            struct Owner<T> {{
+                value: bool;
+                ready: bool;
+                trusted destruct() requires(trusted live<T>(owner = &self)) {guarantee} {{ {body} }}
+            }}
+            func dispose(pos owner: Owner<bool>) requires(trusted live<bool>(owner = &owner)) {{}}
+        "#
+        );
+
+        let provider = compilation(&declarations);
+
+        assert!(
+            !provider.check_diagnostics().has_errors(),
+            "{declarations}: {:#?}",
+            provider.check_diagnostics()
+        );
+
+        let consumer = execution_consumer(
+            &provider,
+            r#"
+            module app;
+            using example.package.api;
+            func dispose(pos owner: example.package.api.Owner<bool>)
+                requires(trusted example.package.api.live<bool>(owner = &owner)) {}
+            func forged() { let owner: example.package.api.Owner<bool> = { value = false, ready = true }; }
+        "#,
+        );
+
+        for application in [&provider, &consumer] {
+            let key = crate::test_support::source_function_body_key(application, "dispose");
+            let bound = application.bound_unit(key).unwrap();
+
+            assert!(!bound.diagnostics().has_errors(), "{bound:#?}");
+
+            let lowered = application
+                .lowered_unit(crate::test_support::source_function_body_key(
+                    application,
+                    "dispose",
+                ))
+                .unwrap();
+
+            assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
+
+            let ty = lowered
+                .value()
+                .as_ref()
+                .unwrap()
+                .mir()
+                .unwrap()
+                .storages()
+                .iter()
+                .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
+                .unwrap()
+                .ty();
+
+            let cancellation = crate::CancellationToken::new();
+
+            let selected = application
+                .selected_lifecycle_signature(
+                    ty,
+                    bray_symbols::TypeAssociatedLifecycleSlot::Destructor,
+                    &cancellation,
+                )
+                .unwrap();
+
+            let (callable, _) = selected.value().as_ref().unwrap();
+
+            assert_eq!(
+                application
+                    .certified_entry_property(
+                        *callable,
+                        bray_checker::ExecutionProperty::Total,
+                        &cancellation
+                    )
+                    .unwrap(),
+                total
+            );
+
+            assert!(
+                application
+                    .verified_execution_obligation(
+                        *callable,
+                        bray_checker::ExecutionObligation::Property(
+                            bray_checker::ExecutionProperty::Total,
+                            None
+                        ),
+                        None,
+                        &cancellation
+                    )
+                    .unwrap()
+                    .is_none(),
+                "a capacity certificate must not authorize a caller"
+            );
+        }
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            consumer.check_diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
         );
     }
 }

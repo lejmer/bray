@@ -254,3 +254,35 @@ fn named_arguments_share_selection_mapping_with_type_inference() {
         RepresentationRole::ScalarI64,
     );
 }
+
+#[test]
+fn dependent_pattern_bindings_wait_for_numeric_context_before_defaulting() {
+    let compilation = compilation(
+        r#"
+        module app;
+        func pair(pos value: u32) -> (u32, bool) { return (value, true); }
+        func probe() -> u32 {
+            let seed: u32 = 7;
+            let low = seed & 65535;
+            let high = seed >> 16;
+            let next = (high & 4294901760) | ((low + 1) & 65535);
+            let (value, available) = pair(next);
+            if available { return value; }
+            return 0;
+        }
+    "#,
+    );
+
+    let diagnostics = compilation.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+
+    let key = source_function_body_key(&compilation, "probe");
+    let lowered = compilation.lowered_unit(key).unwrap();
+
+    assert!(
+        !lowered.diagnostics().has_errors(),
+        "{:?}",
+        lowered.diagnostics()
+    );
+}

@@ -14,7 +14,7 @@ use bray_symbols::{
     DirectiveArgumentName, DirectiveKind, IntegerConstant, IntegerSign, NamedTypeSymbolId,
 };
 
-use crate::{CheckerQueryResult, CheckerSource};
+use crate::CheckerQueryResult;
 
 use super::check::{Copyability, MemberRepresentation, RepresentationChecker};
 use super::model::{DeclaredTypeDefinition, RepresentationIntegerType, TypeRepresentationContext};
@@ -639,10 +639,7 @@ where
         &self,
         expression: DeclarationExpressionTemplate,
     ) -> RepresentationQueryResult<C, &str> {
-        self.context
-            .source(expression.syntax())
-            .map(CheckerSource::text)
-            .map_err(crate::CheckerQueryError::Infrastructure)
+        Ok(self.context.source(expression.syntax()).text())
     }
 }
 

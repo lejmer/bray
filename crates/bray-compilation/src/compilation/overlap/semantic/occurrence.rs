@@ -128,6 +128,9 @@ impl SemanticUnifier<'_> {
             ConstantTermData::Parameter(candidate) => *candidate == parameter,
             ConstantTermData::Unary { operand, .. }
             | ConstantTermData::Conversion { operand, .. }
+            | ConstantTermData::VariantTest {
+                subject: operand, ..
+            }
             | ConstantTermData::NullablePresent(operand) => {
                 self.constant_contains_parameter(*operand, parameter, visited)
             }

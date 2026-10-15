@@ -74,7 +74,7 @@ impl Lowerer<'_> {
                 boundary,
                 result_type,
             } => (*boundary, *result_type),
-            SelectedPropagation::Result { .. } | SelectedPropagation::CurrentRun => {
+            SelectedPropagation::Result { .. } | SelectedPropagation::CurrentRun { .. } => {
                 panic!(
                     "lowering contract violation: MissingSemanticSelection {value:?}",
                     value = id
@@ -171,27 +171,17 @@ impl Lowerer<'_> {
         operand_type: TypeId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        let arguments = self.named_type_arguments(operand_type);
-
-        let [success_type, error_type] = arguments.as_slice() else {
-            panic!(
-                "lowering contract violation: UnsupportedExpression {value:?}",
-                value = id
-            );
-        };
-
-        let representation = self.result_representation();
-
         let (boundary, result_type, error_conversion) = match self.selected_propagation(id) {
             SelectedPropagation::Result {
                 boundary,
                 result_type,
                 error_conversion,
+                ..
             } => {
                 // MIR owns the selected conversion independently of the checked selection table.
                 (*boundary, *result_type, error_conversion.clone())
             }
-            SelectedPropagation::Nullable { .. } | SelectedPropagation::CurrentRun => {
+            SelectedPropagation::Nullable { .. } | SelectedPropagation::CurrentRun { .. } => {
                 panic!(
                     "lowering contract violation: MissingSemanticSelection {value:?}",
                     value = id
@@ -216,44 +206,8 @@ impl Lowerer<'_> {
 
         let source = self.source(expression.origin());
 
-        let (success, success_operand) = self.propagation_branch(&source, operand_type)?;
-
-        let (error, error_operand) = self.propagation_branch(&source, operand_type)?;
-
-        self.set_terminator(
-            current,
-            Self::retained_source(&source),
-            MirTerminatorKind::PatternBranch {
-                subject: Self::retained_operand(&operand),
-                predicate: MirPatternPredicate::ActiveUnionVariant(representation.success_variant),
-                matched: MirEdge::new(success, [Self::retained_operand(&operand)]),
-                unmatched: MirEdge::new(error, [operand]),
-            },
-        )?;
-
-        let value = self.project_pattern_value(
-            id,
-            success,
-            &source,
-            success_operand,
-            PatternProjection::ActiveUnionPayloadField {
-                variant: representation.success_variant,
-                field: representation.success_field,
-            },
-            *success_type,
-        )?;
-
-        let error_value = self.project_pattern_value(
-            id,
-            error,
-            &source,
-            error_operand,
-            PatternProjection::ActiveUnionPayloadField {
-                variant: representation.error_variant,
-                field: representation.error_field,
-            },
-            *error_type,
-        )?;
+        let (success, value, error, error_value) =
+            self.branch_result_value(id, current, &source, operand, operand_type)?;
 
         let (error, error_value) = self.convert_operand(
             id,
@@ -264,11 +218,71 @@ impl Lowerer<'_> {
         )?;
 
         let propagated =
-            self.construct_result(id, error, &source, target.result_type, false, error_value)?;
+            self.construct_result(error, &source, target.result_type, false, error_value)?;
 
         self.finish_propagation(id, error, &source, target, propagated)?;
 
         Ok(LoweredExpression::continuing(success, Some(value), source))
+    }
+
+    pub(in crate::lowering) fn branch_result_value(
+        &mut self,
+        expression: BoundExpressionId,
+        current: MirBlockId,
+        source: &MirSourceAnchor,
+        value: MirOperand,
+        result_type: TypeId,
+    ) -> Result<(MirBlockId, MirOperand, MirBlockId, MirOperand), LoweringError> {
+        let arguments = self.named_type_arguments(result_type);
+
+        let [success_type, failure_type] = arguments.as_slice() else {
+            panic!("checked Result {result_type:?} retains its success and error types");
+        };
+
+        let representation = self.result_representation();
+
+        let (success, success_value) = self.propagation_branch(source, result_type)?;
+
+        let (error, error_value) = self.propagation_branch(source, result_type)?;
+
+        self.set_terminator(
+            current,
+            Self::retained_source(source),
+            bray_ir::MirTerminatorKind::PatternBranch {
+                subject: Self::retained_operand(&value),
+                predicate: bray_ir::MirPatternPredicate::ActiveUnionVariant(
+                    representation.success_variant,
+                ),
+                matched: bray_ir::MirEdge::new(success, [Self::retained_operand(&value)]),
+                unmatched: bray_ir::MirEdge::new(error, [value]),
+            },
+        )?;
+
+        let success_value = self.project_pattern_value(
+            expression,
+            success,
+            source,
+            success_value,
+            bray_bound_tree::PatternProjection::ActiveUnionPayloadField {
+                variant: representation.success_variant,
+                field: representation.success_field,
+            },
+            *success_type,
+        )?;
+
+        let error_value = self.project_pattern_value(
+            expression,
+            error,
+            source,
+            error_value,
+            bray_bound_tree::PatternProjection::ActiveUnionPayloadField {
+                variant: representation.error_variant,
+                field: representation.error_field,
+            },
+            *failure_type,
+        )?;
+
+        Ok((success, success_value, error, error_value))
     }
 
     fn lower_run_result_propagation(
@@ -279,7 +293,10 @@ impl Lowerer<'_> {
         operand_type: TypeId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        if self.selected_propagation(id) != &SelectedPropagation::CurrentRun {
+        if !matches!(
+            self.selected_propagation(id),
+            SelectedPropagation::CurrentRun { .. }
+        ) {
             panic!(
                 "lowering contract violation: MissingSemanticSelection {value:?}",
                 value = id
@@ -396,6 +413,7 @@ impl Lowerer<'_> {
                         block,
                         result_type: target_type,
                         scope_depth,
+                        ..
                     } = target
                     else {
                         continue;
@@ -432,7 +450,7 @@ impl Lowerer<'_> {
         }
     }
 
-    fn propagation_branch(
+    pub(in crate::lowering) fn propagation_branch(
         &mut self,
         source: &MirSourceAnchor,
         operand_type: TypeId,
@@ -476,7 +494,7 @@ impl Lowerer<'_> {
         }
     }
 
-    fn project_pattern_value(
+    pub(in crate::lowering) fn project_pattern_value(
         &mut self,
         id: BoundExpressionId,
         current: MirBlockId,

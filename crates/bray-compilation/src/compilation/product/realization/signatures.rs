@@ -127,8 +127,7 @@ impl Compilation {
             template.value(),
             substitution,
             constants.value(),
-        )
-        .map_err(FactQueryError::from)?;
+        );
 
         let Some(signature) = signature else {
             if constants.diagnostics().has_errors() {
@@ -152,9 +151,10 @@ impl Compilation {
 
         let mut diagnostics = DiagnosticBag::new();
 
-        let signature = bray_checker::normalize_callable_signature_type_valued_members(
+        let signature = bray_checker::normalize_callable_signature(
             &checker,
             signature,
+            Some(substitution),
             &mut diagnostics,
         )
         .map_err(codegen_checker_error)?;
@@ -242,6 +242,14 @@ impl Compilation {
             callable.abi(),
             callable.is_variadic(),
         );
+
+        if self
+            .codegen_runtime_source_role(instance.key())?
+            .and_then(bray_codegen::CodegenNativeEntryKind::for_runtime_role)
+            .is_some()
+        {
+            return Ok(signature.with_panic_report_context());
+        }
 
         Ok(synchronous_bray_signature(
             signature,
@@ -448,8 +456,7 @@ impl Compilation {
             template.value(),
             substitution,
             constants.value(),
-        )
-        .map_err(FactQueryError::from)?;
+        );
 
         let Some(signature) = signature else {
             if constants.diagnostics().has_errors() {

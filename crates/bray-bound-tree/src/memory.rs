@@ -786,6 +786,11 @@ pub enum CheckedMemoryOperationKind {
         /// Value type whose size and alignment govern the storage.
         element: TypeId,
     },
+    /// Move one initialized value into protected storage.
+    UninitFrom {
+        /// Value type whose ownership moves into the storage.
+        element: TypeId,
+    },
     /// Form a raw pointer to protected uninitialized storage.
     UninitPointer {
         /// Authority exposed by the source storage reference.
@@ -890,6 +895,12 @@ pub enum CheckedMemoryOperationKind {
     Allocate,
     /// Release an owned allocation and invalidate its dependent state.
     Deallocate,
+    /// Create an empty raw-buffer owner from its validated element layout.
+    RawBufferAllocate,
+    /// Transfers a value into the spare prefix slot and commits its ownership.
+    RawBufferPush { element: TypeId },
+    /// Transfers the last initialized value out and shortens the prefix.
+    RawBufferPop { element: TypeId },
     /// Read a raw buffer's capacity.
     RawBufferCapacity,
     /// Read a raw buffer's initialized element count.
@@ -924,8 +935,6 @@ pub enum CheckedMemoryOperationKind {
     },
     /// Initialize a byte-buffer range to one repeated byte.
     ByteBufferFill,
-    /// Copy an initialized byte range into distinct writable storage.
-    ByteBufferCopy,
     /// Read one initialized byte from byte-buffer storage.
     ByteBufferRead,
     /// Read the element count of a slice or fixed array.
@@ -1096,7 +1105,8 @@ impl CheckedMemoryOperationKind {
     /// Returns the exact number of runtime operands required by this operation.
     pub const fn operand_count(self) -> usize {
         match self {
-            Self::UninitPointer { .. }
+            Self::UninitFrom { .. }
+            | Self::UninitPointer { .. }
             | Self::UninitAssumeInitialized { .. }
             | Self::UninitMove { .. }
             | Self::Address { .. }
@@ -1107,6 +1117,7 @@ impl CheckedMemoryOperationKind {
             | Self::Read { .. }
             | Self::Allocate
             | Self::Deallocate
+            | Self::RawBufferPop { .. }
             | Self::RawBufferCapacity
             | Self::RawBufferInitializedCount
             | Self::RawBufferPointer
@@ -1127,6 +1138,7 @@ impl CheckedMemoryOperationKind {
             | Self::Offset { .. }
             | Self::Write { .. }
             | Self::RawAllocate
+            | Self::RawBufferPush { .. }
             | Self::RawBufferReplace { .. }
             | Self::RawBufferRelocate { .. }
             | Self::RawBufferSetInitializedCount
@@ -1138,8 +1150,8 @@ impl CheckedMemoryOperationKind {
             Self::VolatileWrite { .. } | Self::CompareAddress { .. } => 2,
             Self::Copy { .. }
             | Self::RawDeallocate
+            | Self::RawBufferAllocate
             | Self::ByteBufferFill
-            | Self::ByteBufferCopy
             | Self::AtomicCompareExchange { .. } => 3,
             Self::LayoutQuery {
                 kind: MemoryLayoutQueryKind::Layout | MemoryLayoutQueryKind::Trailing,
@@ -1161,7 +1173,8 @@ impl CheckedMemoryOperationKind {
     /// Maps a selected source-argument ordinal to its runtime MIR operand index.
     pub const fn runtime_argument_index(self, ordinal: usize) -> Option<usize> {
         match self {
-            Self::UninitPointer { .. }
+            Self::UninitFrom { .. }
+            | Self::UninitPointer { .. }
             | Self::UninitAssumeInitialized { .. }
             | Self::UninitMove { .. }
             | Self::Address { .. }
@@ -1172,6 +1185,7 @@ impl CheckedMemoryOperationKind {
             | Self::Read { .. }
             | Self::Allocate
             | Self::Deallocate
+            | Self::RawBufferPop { .. }
             | Self::RawBufferCapacity
             | Self::RawBufferInitializedCount
             | Self::RawBufferPointer
@@ -1202,6 +1216,7 @@ impl CheckedMemoryOperationKind {
             | Self::Offset { .. }
             | Self::Write { .. }
             | Self::RawAllocate
+            | Self::RawBufferPush { .. }
             | Self::RawBufferReplace { .. }
             | Self::RawBufferRelocate { .. }
             | Self::RawBufferSetInitializedCount
@@ -1220,8 +1235,8 @@ impl CheckedMemoryOperationKind {
             }
             Self::Copy { .. }
             | Self::RawDeallocate
+            | Self::RawBufferAllocate
             | Self::ByteBufferFill
-            | Self::ByteBufferCopy
             | Self::AtomicCompareExchange { .. } => {
                 if ordinal < 3 {
                     Some(ordinal)
@@ -1258,10 +1273,10 @@ impl CheckedMemoryOperationKind {
                 | Self::Deallocate
                 | Self::RawBufferSetInitializedCount
                 | Self::RawBufferRelease { .. }
+                | Self::RawBufferPush { .. }
                 | Self::RawBufferReplace { .. }
                 | Self::RawBufferRelocate { .. }
                 | Self::ByteBufferFill
-                | Self::ByteBufferCopy
                 | Self::VolatileWrite { .. }
                 | Self::Fence { .. }
                 | Self::CatastrophicAbort
@@ -1281,6 +1296,7 @@ impl CheckedMemoryOperationKind {
             self,
             Self::RawAllocate
                 | Self::RawDeallocate
+                | Self::RawBufferAllocate
                 | Self::Allocate
                 | Self::Deallocate
                 | Self::RawBufferRelease { .. }
@@ -1813,6 +1829,7 @@ mod tests {
 
         let cases = [
             (CheckedMemoryOperationKind::UninitNew { element }, 0, true),
+            (CheckedMemoryOperationKind::UninitFrom { element }, 1, true),
             (
                 CheckedMemoryOperationKind::UninitPointer {
                     kind: MemoryAddressKind::Shared,

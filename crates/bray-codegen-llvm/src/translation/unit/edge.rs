@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::CodegenFailure;
 use bray_ir::{
-    MirBlockId, MirCallPanicEdge, MirEdge, MirOperand, MirOperationId, MirPlace,
-    MirTerminatorKind, MirUnit,
+    MirBlockId, MirCallPanicEdge, MirEdge, MirOperand, MirOperationId, MirPlace, MirTerminatorKind,
+    MirUnit,
 };
 use inkwell::basic_block::BasicBlock;
 use inkwell::context::Context;
@@ -82,9 +82,16 @@ pub(super) fn direct_panic_propagation(unit: &MirUnit, edge: &MirCallPanicEdge) 
     let report = MirOperand::Move(edge.report().clone());
 
     match block.terminator().kind() {
-        MirTerminatorKind::PropagatePanic { report: propagated, .. } => propagated == &report,
-        MirTerminatorKind::Panic { report: propagated, cleanup } if propagated == &report => {
-            let Some((destination, report)) = empty_cleanup_destination(unit, cleanup, Some(report)) else {
+        MirTerminatorKind::PropagatePanic {
+            report: propagated, ..
+        } => propagated == &report,
+        MirTerminatorKind::Panic {
+            report: propagated,
+            cleanup,
+        } if propagated == &report => {
+            let Some((destination, report)) =
+                empty_cleanup_destination(unit, cleanup, Some(report))
+            else {
                 return false;
             };
 
@@ -113,7 +120,10 @@ pub(super) fn direct_cancellation_propagation(unit: &MirUnit, edge: &MirEdge) ->
         MirTerminatorKind::PropagateCancellation { .. } => true,
         MirTerminatorKind::CancelCurrentRun { cleanup } => {
             empty_cleanup_destination(unit, cleanup, None).is_some_and(|(destination, _)| {
-                matches!(destination.terminator().kind(), MirTerminatorKind::PropagateCancellation { .. })
+                matches!(
+                    destination.terminator().kind(),
+                    MirTerminatorKind::PropagateCancellation { .. }
+                )
             })
         }
         _ => false,
@@ -128,7 +138,10 @@ fn empty_cleanup_destination<'unit>(
     let mut edge = cleanup.edge();
 
     // MIR cleanup has exactly two phases. Neither may perform work beyond forwarding the outcome.
-    for phase in [bray_ir::MirCleanupPhase::TaskCancellation, bray_ir::MirCleanupPhase::LifecycleResolution] {
+    for phase in [
+        bray_ir::MirCleanupPhase::TaskCancellation,
+        bray_ir::MirCleanupPhase::LifecycleResolution,
+    ] {
         let block = unit.block(edge.target())?;
 
         if !block.operations().is_empty() {
@@ -234,9 +247,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         // An empty propagation path transfers this same report back to the caller.
         // Keep its ownership in the incoming context instead of materializing a temporary.
-        if self.panic_report_context == Some(context)
-            && direct_panic_propagation(self.unit, edge)
-        {
+        if self.panic_report_context == Some(context) && direct_panic_propagation(self.unit, edge) {
             self.clear_moved_places()?;
             self.return_propagated_outcome()?;
 
@@ -363,9 +374,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 #[cfg(test)]
 mod tests {
     use bray_ir::{
-        MirBlockKind, MirOperationKind, MirProjection,
-        MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirStorageKind,
-        MirUnitBuilder, MirUnitKind,
+        MirBlockKind, MirOperationKind, MirProjection, MirProjectionKind, MirRuntimeReference,
+        MirSourceAnchor, MirStorageKind, MirUnitBuilder, MirUnitKind,
     };
     use bray_runtime_interface::RuntimeAbiRole;
 
@@ -390,7 +400,8 @@ mod tests {
 
     #[test]
     fn propagation_targets_with_other_predecessors_remain_reachable() {
-        let (mut builder, source, [entry, completed, panicked, _], _) = propagation_builder(Some(1));
+        let (mut builder, source, [entry, completed, panicked, _], _) =
+            propagation_builder(Some(1));
 
         builder.set_terminator(
             completed,
@@ -400,7 +411,10 @@ mod tests {
 
         let unit = builder.finish(entry);
 
-        assert_eq!(reachable_blocks(&unit, true), [entry, completed, panicked].into());
+        assert_eq!(
+            reachable_blocks(&unit, true),
+            [entry, completed, panicked].into()
+        );
     }
 
     #[test]
@@ -433,9 +447,13 @@ mod tests {
 
     #[test]
     fn forwarding_requires_a_move_of_the_exact_report() {
-        let (mut builder, source, [entry, completed, panicked, _], report) = propagation_builder(Some(2));
+        let (mut builder, source, [entry, completed, panicked, _], report) =
+            propagation_builder(Some(2));
 
-        let runtime = MirRuntimeReference::new(RuntimeAbiRole::PanicPropagation, builder.target().runtime_abi());
+        let runtime = MirRuntimeReference::new(
+            RuntimeAbiRole::PanicPropagation,
+            builder.target().runtime_abi(),
+        );
 
         builder.set_terminator(
             panicked,
@@ -448,7 +466,10 @@ mod tests {
 
         let unit = builder.finish(entry);
 
-        assert_eq!(reachable_blocks(&unit, true), [entry, completed, panicked].into());
+        assert_eq!(
+            reachable_blocks(&unit, true),
+            [entry, completed, panicked].into()
+        );
     }
 
     #[test]
@@ -465,7 +486,10 @@ mod tests {
             report.ty(),
         );
 
-        let runtime = MirRuntimeReference::new(RuntimeAbiRole::PanicPropagation, builder.target().runtime_abi());
+        let runtime = MirRuntimeReference::new(
+            RuntimeAbiRole::PanicPropagation,
+            builder.target().runtime_abi(),
+        );
 
         builder.set_terminator(
             panicked,
@@ -478,46 +502,87 @@ mod tests {
 
         let unit = builder.finish(entry);
 
-        assert!(!direct_panic_propagation(&unit, &MirCallPanicEdge::new(panicked, projected)));
+        assert!(!direct_panic_propagation(
+            &unit,
+            &MirCallPanicEdge::new(panicked, projected)
+        ));
     }
 
     #[test]
     fn cancellation_arguments_preserve_their_transfer() {
-        let (mut builder, source, [entry, completed, panicked, cancelled], report) = propagation_builder(Some(0));
+        let (mut builder, source, [entry, completed, panicked, cancelled], report) =
+            propagation_builder(Some(0));
 
-        builder.push_block_parameter(cancelled, source.clone(), report.ty()).unwrap();
+        builder
+            .push_block_parameter(cancelled, source.clone(), report.ty())
+            .unwrap();
 
-        builder.set_terminator(entry, source, MirTerminatorKind::CheckCallOutcome {
-            completed: MirEdge::new(completed, []),
-            panicked: MirCallPanicEdge::new(panicked, report.clone()),
-            cancelled: MirEdge::new(cancelled, [MirOperand::Move(report)]),
-        });
+        builder.set_terminator(
+            entry,
+            source,
+            MirTerminatorKind::CheckCallOutcome {
+                completed: MirEdge::new(completed, []),
+                panicked: MirCallPanicEdge::new(panicked, report.clone()),
+                cancelled: MirEdge::new(cancelled, [MirOperand::Move(report)]),
+            },
+        );
 
         let unit = builder.finish(entry);
 
-        assert_eq!(reachable_blocks(&unit, true), [entry, completed, cancelled].into());
+        assert_eq!(
+            reachable_blocks(&unit, true),
+            [entry, completed, cancelled].into()
+        );
     }
 
-    fn propagation_builder(unterminated: Option<usize>) -> (MirUnitBuilder, MirSourceAnchor, [MirBlockId; 4], MirPlace) {
+    fn propagation_builder(
+        unterminated: Option<usize>,
+    ) -> (MirUnitBuilder, MirSourceAnchor, [MirBlockId; 4], MirPlace) {
         let bound = bray_testing::test_bound_unit(611);
         let source = MirSourceAnchor::from(bound.key().source());
         let target = bray_testing::test_mir_target();
-        let panic = MirRuntimeReference::new(RuntimeAbiRole::PanicPropagation, target.runtime_abi());
-        let cancellation = MirRuntimeReference::new(RuntimeAbiRole::CurrentRunCancellationPropagation, target.runtime_abi());
-        let mut builder = MirUnitBuilder::for_bound(bound.identity(), MirUnitKind::Synchronous, target);
 
-        let blocks = std::array::from_fn(|_| builder.push_block(source.clone(), MirBlockKind::Ordinary).unwrap());
+        let panic =
+            MirRuntimeReference::new(RuntimeAbiRole::PanicPropagation, target.runtime_abi());
+
+        let cancellation = MirRuntimeReference::new(
+            RuntimeAbiRole::CurrentRunCancellationPropagation,
+            target.runtime_abi(),
+        );
+
+        let mut builder =
+            MirUnitBuilder::for_bound(bound.identity(), MirUnitKind::Synchronous, target);
+
+        let blocks = std::array::from_fn(|_| {
+            builder
+                .push_block(source.clone(), MirBlockKind::Ordinary)
+                .unwrap()
+        });
 
         let [entry, completed, panicked, cancelled] = blocks;
 
         let ty = bray_testing::test_mir_type();
-        let storage = builder.push_storage(source.clone(), MirStorageKind::Temporary, ty).unwrap();
+
+        let storage = builder
+            .push_storage(source.clone(), MirStorageKind::Temporary, ty)
+            .unwrap();
+
         let report = MirPlace::new(storage, [], ty);
 
-        builder.push_operation(entry, source.clone(), MirOperationKind::AdmitOutgoing {
-            ty,
-            runtime: MirRuntimeReference::new(RuntimeAbiRole::OutgoingAdmission, builder.target().runtime_abi()),
-        }, None).unwrap();
+        builder
+            .push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::AdmitOutgoing {
+                    ty,
+                    runtime: MirRuntimeReference::new(
+                        RuntimeAbiRole::OutgoingAdmission,
+                        builder.target().runtime_abi(),
+                    ),
+                },
+                None,
+            )
+            .unwrap();
 
         let terminators = [
             MirTerminatorKind::CheckCallOutcome {

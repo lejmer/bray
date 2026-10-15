@@ -41,7 +41,8 @@ pub(in crate::semantic::validation) fn relationship_members(
     relationship_kind: bray_symbols::SymbolRelationshipKind,
     member_kind: SymbolKind,
 ) -> Vec<InterfaceSymbolReference> {
-    surface.relationships_for(owner, relationship_kind)
+    surface
+        .relationships_for(owner, relationship_kind)
         .iter()
         .filter_map(|relationship| {
             let member = surface.symbols().symbol(relationship.member())?;
@@ -143,4 +144,45 @@ pub(in crate::semantic::validation) fn validate_index(
     length: usize,
 ) -> Result<(), InterfaceValidationError> {
     super::super::checked_index(index, length).map(|_| ())
+}
+
+pub(in crate::semantic::validation) fn reference_has_owner(
+    reference: &InterfaceSymbolReference,
+    owner: &InterfaceSymbolReference,
+    surface: &PackageInterfaceSurface,
+) -> Result<bool, InterfaceValidationError> {
+    match (reference, owner) {
+        (
+            InterfaceSymbolReference::CompilerKnown(reference),
+            InterfaceSymbolReference::CompilerKnown(owner),
+        ) => {
+            let matches = match (reference.key().data(), owner.key().data()) {
+                (bray_symbols::SymbolKeyData::Synthesized(child), _) => {
+                    child.subject() == owner.key()
+                }
+                (
+                    bray_symbols::SymbolKeyData::CompilerKnownDeclaration { key, .. },
+                    bray_symbols::SymbolKeyData::CompilerKnownDeclaration { key: parent, .. },
+                ) => {
+                    let catalog = &bray_compiler_known::COMPILER_KNOWN_CATALOG;
+
+                    catalog
+                        .compiler_known_declaration_by_key(key)
+                        .and_then(|child| match child.owner() {
+                            bray_compiler_known::CompilerKnownDeclarationOwner::Declaration(
+                                owner,
+                            ) => catalog.compiler_known_declaration(owner),
+                            _ => None,
+                        })
+                        .is_some_and(|owner| owner.key() == parent)
+                }
+                _ => false,
+            };
+
+            Ok(matches)
+        }
+        (InterfaceSymbolReference::CompilerKnown(_), _)
+        | (_, InterfaceSymbolReference::CompilerKnown(_)) => Ok(false),
+        _ => Ok(reference_key(reference, surface)?.owner() == Some(reference_key(owner, surface)?)),
+    }
 }

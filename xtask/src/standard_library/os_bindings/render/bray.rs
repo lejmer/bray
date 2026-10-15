@@ -335,15 +335,23 @@ fn render_callback(source: &mut String, callback: &CallbackDescription) {
 
     write!(
         source,
-        "callable {} = @abi({}) func(",
+        "callable {} = @abi({}) {}func(",
         callback.name,
-        callback.abi.as_str()
+        callback.abi.as_str(),
+        if callback.trusted { "trusted " } else { "" },
     )
     .expect("writing to a string must succeed");
 
     render_parameters(source, &callback.parameters);
 
-    writeln!(source, ") -> {};", callback.result).expect("writing to a string must succeed");
+    write!(source, ") -> {}", callback.result).expect("writing to a string must succeed");
+
+    if !callback.requires.is_empty() {
+        source.push('\n');
+        render_predicate_clause(source, "requires", &callback.requires);
+    }
+
+    writeln!(source, ";").expect("writing to a string must succeed");
 }
 
 fn render_function(
@@ -388,6 +396,11 @@ fn render_function(
 
     render_predicate_clause(source, "requires", &function.requires);
     render_predicate_clause(source, "ensures", &function.ensures);
+
+    if !function.executes.is_empty() {
+        writeln!(source, "    executes({})", function.executes.join(", "))
+            .expect("writing to a string must succeed");
+    }
 
     writeln!(source, "    uses(foreign_call);").expect("writing to a string must succeed");
 }

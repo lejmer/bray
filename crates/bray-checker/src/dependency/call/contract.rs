@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    BoundCallableTarget, BoundDependencyContract, BoundExpressionId,
+    BoundCallDependencyContracts, BoundCallableTarget, BoundDependencyContract, BoundExpressionId,
     DependencyContractInstantiationError, SelectedCall, SelectedIterationSource, StorageIdentity,
     StoragePlan,
 };
@@ -12,30 +12,8 @@ use bray_symbols::{
 use super::instantiation::{CallInstantiationContext, expression_access, identity_access};
 use crate::dependency::implementation::implementation_dependency_source;
 use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitView,
+    CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
 };
-
-pub(crate) struct InstantiatedCallContracts {
-    invocation: BoundDependencyContract,
-    result: BoundDependencyContract,
-    deferred: Option<BoundDependencyContract>,
-    pub(crate) escaping_evaluation_inputs: Vec<DependencySubjectRoot>,
-}
-
-impl InstantiatedCallContracts {
-    pub(crate) const fn result(&self) -> &BoundDependencyContract {
-        &self.result
-    }
-
-    pub(crate) const fn invocation(&self) -> &BoundDependencyContract {
-        &self.invocation
-    }
-
-    pub(crate) const fn deferred(&self) -> Option<&BoundDependencyContract> {
-        self.deferred.as_ref()
-    }
-}
 
 pub(crate) fn selected_call_contracts<C>(
     request: CheckerUnitView<'_, C>,
@@ -44,13 +22,13 @@ pub(crate) fn selected_call_contracts<C>(
     call: &SelectedCall,
     values: &crate::dependency::ValueInputs,
 ) -> Result<
-    InstantiatedCallContracts,
+    (BoundCallDependencyContracts, Vec<DependencySubjectRoot>),
     DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
 >
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    let contracts = callable_dependency_contracts(request, call.target())
+    let (contracts, input_count) = callable_dependency_contracts(request, call.target())
         .map_err(DependencyContractInstantiationError::Resolution)?;
 
     let contracts =
@@ -59,10 +37,10 @@ where
 
     let mut context = CallInstantiationContext::new(request, storage, expression, call);
 
-    let mut instantiated = instantiate_callable_contracts(request, contracts, &mut context)?;
+    let instantiated = instantiate_callable_contracts(request, contracts, &mut context)?;
 
     let template = crate::dependency::call_result_template(request, call, |callable| {
-        request.context().callable_result_dependencies(callable)
+        request.callable_result_dependencies(callable)
     })
     .map_err(DependencyContractInstantiationError::Resolution)?;
 
@@ -86,26 +64,34 @@ where
             .cloned(),
     );
 
-    instantiated.result = BoundDependencyContract::try_instantiate(&concrete, &mut result_context)
-        .map_err(|error| error.map_resolution(CheckerQueryError::Infrastructure))?;
-
-    instantiated.escaping_evaluation_inputs = template.escaping_evaluation_inputs;
+    let mut result = BoundDependencyContract::try_instantiate(&concrete, &mut result_context)?;
 
     if crate::dependency::opaque_result(call)
         && let Some(bray_bound_tree::BoundExpression::Call(bound)) =
             request.view().expression(expression)
         && let Some(access) = expression_access(storage, bound.callee())
     {
-        instantiated.result =
-            BoundDependencyContract::new(instantiated.result.requirements().iter().cloned().chain(
-                [bray_bound_tree::BoundDependencyRequirement::Direct {
-                    subject: bray_bound_tree::BoundDependencySubject::StorageAccess(access),
-                    kind: bray_bound_tree::BoundDependencyRequirementKind::ValueDependencies,
-                }],
-            ));
+        result = BoundDependencyContract::new(result.requirements().iter().cloned().chain([
+            bray_bound_tree::BoundDependencyRequirement::Direct {
+                subject: bray_bound_tree::BoundDependencySubject::StorageAccess(access),
+                kind: bray_bound_tree::BoundDependencyRequirementKind::ValueDependencies,
+            },
+        ]));
     }
 
-    Ok(instantiated)
+    Ok((
+        super::references::with_references(
+            request,
+            expression,
+            call,
+            instantiated
+                .with_result(result)
+                .with_input_count(input_count),
+            &template,
+        )
+        .map_err(DependencyContractInstantiationError::Resolution)?,
+        template.escaping_evaluation_inputs,
+    ))
 }
 
 fn callable_dependencies_for_implementation<C>(
@@ -120,7 +106,7 @@ where
         return Ok(contracts);
     };
 
-    let Some((parameter, authority)) = implementation_dependency_source(implementation) else {
+    let Some((root, authority)) = implementation_dependency_source(implementation) else {
         return Ok(contracts);
     };
 
@@ -128,7 +114,7 @@ where
         .semantic_values()
         .dependency_contract_template_data(contracts.invocation());
 
-    let source = || DependencySubject::root(DependencySubjectRoot::Parameter(parameter));
+    let source = || DependencySubject::root(root);
 
     let mut dependencies = vec![DependencyRequirement::direct(
         source(),
@@ -158,8 +144,7 @@ where
         .semantic_values()
         .intern_dependency_contract_template(DependencyContractTemplateData::new(
             existing.requirements().iter().cloned().chain(dependencies),
-        ))
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        )).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in callable_dependencies_for_implementation: {error:?}"));
 
     Ok(match contracts.deferred_execution() {
         Some(deferred) => CallableDependencyContracts::asynchronous(invocation, deferred),
@@ -178,64 +163,178 @@ pub(in crate::dependency) fn selected_iteration_contract<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    let source = expression_access(storage, selection.source()).ok_or(
-        DependencyContractInstantiationError::Resolution(
-            CheckerInfrastructureError::InvalidSemanticSelectionInput.into(),
-        ),
-    )?;
+    let source = expression_access(storage, selection.source()).unwrap_or_else(|| {
+        panic!("selected_iteration_contract requires iteration source storage access")
+    });
 
     let cursor = identity_access(
         storage,
         StorageIdentity::IterationCursor(selection.expression()),
     )
-    .ok_or(DependencyContractInstantiationError::Resolution(
-        CheckerInfrastructureError::InvalidSemanticSelectionInput.into(),
-    ))?;
+    .unwrap_or_else(|| {
+        panic!("selected_iteration_contract requires checked expression type or node")
+    });
 
     let element = identity_access(
         storage,
         StorageIdentity::IterationElement(selection.expression()),
     )
-    .ok_or(DependencyContractInstantiationError::Resolution(
-        CheckerInfrastructureError::InvalidSemanticSelectionInput.into(),
-    ))?;
+    .unwrap_or_else(|| {
+        panic!("selected_iteration_contract requires checked expression type or node")
+    });
 
-    let iterate =
-        instantiate_hidden_iteration_call(request, storage, selection.iterate(), source, cursor)?;
+    let iterate = instantiate_hidden_call(
+        request,
+        storage,
+        selection.iterate(),
+        (DependencySubjectRoot::Receiver, source),
+        Some(cursor),
+    )?;
 
-    let next =
-        instantiate_hidden_iteration_call(request, storage, selection.next(), cursor, element)?;
+    let next = instantiate_hidden_call(
+        request,
+        storage,
+        selection.next(),
+        (DependencySubjectRoot::Receiver, cursor),
+        Some(element),
+    )?;
 
     Ok(BoundDependencyContract::new(
         iterate
+            .invocation()
             .requirements()
             .iter()
-            .chain(next.requirements())
+            .chain(next.invocation().requirements())
             .cloned(),
     ))
 }
 
-fn instantiate_hidden_iteration_call<C>(
+pub(crate) fn selected_scoped_contracts<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
-    callable: CallableInstanceData,
-    receiver: bray_bound_tree::StorageAccessId,
-    result: bray_bound_tree::StorageAccessId,
+    scoped: &bray_bound_tree::SelectedScopedUse,
+    occurrence: bray_bound_tree::BoundExecutionSite,
+    values: &crate::dependency::ValueInputs,
 ) -> Result<
-    BoundDependencyContract,
+    BoundCallDependencyContracts,
     DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
 >
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    let contracts =
+    let input = storage
+        .occurrence_plans(occurrence)
+        .next()
+        .expect("checked scoped invocation retains its sole input")
+        .access();
+
+    let (callable, root, result) = match occurrence {
+        bray_bound_tree::BoundExecutionSite::ScopedEnter(expression) => {
+            let bray_bound_tree::BoundExpression::Structured(bound) = request
+                .view()
+                .expression(expression)
+                .expect("scoped invocation retains its expression")
+            else {
+                panic!("selected scoped invocation must be a with expression");
+            };
+
+            let bray_bound_tree::StorageBinding::Access(capability) = storage
+                .binding(bray_bound_tree::StorageBindingTarget::PatternSubject(
+                    bound.patterns()[0],
+                ))
+                .expect("scoped pattern retains its capability storage")
+            else {
+                panic!("scoped pattern must observe its capability storage");
+            };
+
+            (
+                scoped.enter().0,
+                DependencySubjectRoot::Receiver,
+                Some(capability),
+            )
+        }
+        bray_bound_tree::BoundExecutionSite::ScopedExit(_) => (
+            scoped.exit().0,
+            DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
+            None,
+        ),
+        bray_bound_tree::BoundExecutionSite::Node(_) => {
+            panic!("scoped contract requires its enter or exit occurrence");
+        }
+    };
+
+    let mut instantiated =
+        instantiate_hidden_call(request, storage, callable, (root, input), result)?;
+
+    let template = request
+        .callable_result_dependencies(callable.definition().callable_symbol())
+        .map_err(DependencyContractInstantiationError::Resolution)?;
+
+    let template =
+        crate::dependency::returned::resolved_result_template(request, Some(callable), template)
+            .map_err(DependencyContractInstantiationError::Resolution)?;
+
+    instantiated = instantiated.with_normal_completion(template.normal_completion());
+
+    if result.is_some() {
+        let mut context = CallInstantiationContext::hidden(
+            request,
+            storage,
+            (root, input),
+            result,
+            Some(scoped.initializer()),
+        );
+
+        context.set_result_values(values);
+
+        let concrete = DependencyContractTemplateData::new(
+            template
+                .requirements()
+                .iter()
+                .filter(|requirement| {
+                    !matches!(
+                        requirement,
+                        DependencyRequirement::ResultCall { .. }
+                            | DependencyRequirement::FixedPoint { .. }
+                            | DependencyRequirement::Variable { .. }
+                    )
+                })
+                .cloned(),
+        );
+
+        instantiated = instantiated.with_result(BoundDependencyContract::try_instantiate(
+            &concrete,
+            &mut context,
+        )?);
+    }
+
+    super::references::with_scoped_references(request, scoped, occurrence, instantiated, &template)
+        .map_err(DependencyContractInstantiationError::Resolution)
+}
+
+fn instantiate_hidden_call<C>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+    callable: CallableInstanceData,
+    input: (DependencySubjectRoot, bray_bound_tree::StorageAccessId),
+    result: Option<bray_bound_tree::StorageAccessId>,
+) -> Result<
+    BoundCallDependencyContracts,
+    DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
+>
+where
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
+{
+    let (contracts, input_count) =
         callable_dependency_contracts(request, BoundCallableTarget::Declaration(callable))
             .map_err(DependencyContractInstantiationError::Resolution)?;
 
-    let mut context = CallInstantiationContext::hidden(request, storage, receiver, result);
+    let mut context = CallInstantiationContext::hidden(request, storage, input, result, None);
 
-    instantiate_callable_contracts(request, contracts, &mut context)
-        .map(|contracts| contracts.invocation)
+    Ok(
+        instantiate_callable_contracts(request, contracts, &mut context)?
+            .with_input_count(input_count),
+    )
 }
 
 fn instantiate_callable_contracts<C>(
@@ -243,7 +342,7 @@ fn instantiate_callable_contracts<C>(
     contracts: CallableDependencyContracts,
     context: &mut CallInstantiationContext<'_, C>,
 ) -> Result<
-    InstantiatedCallContracts,
+    BoundCallDependencyContracts,
     DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
 >
 where
@@ -253,8 +352,7 @@ where
         .semantic_values()
         .dependency_contract_template_data(contracts.invocation());
 
-    let invocation = BoundDependencyContract::try_instantiate(&invocation, context)
-        .map_err(|error| error.map_resolution(CheckerQueryError::Infrastructure))?;
+    let invocation = BoundDependencyContract::try_instantiate(&invocation, context)?;
 
     let deferred = contracts
         .deferred_execution()
@@ -266,22 +364,20 @@ where
                 .dependency_contract_template_data(deferred);
 
             BoundDependencyContract::try_instantiate(&deferred, context)
-                .map_err(|error| error.map_resolution(CheckerQueryError::Infrastructure))
         })
         .transpose()?;
 
-    Ok(InstantiatedCallContracts {
-        escaping_evaluation_inputs: Vec::new(),
+    Ok(BoundCallDependencyContracts::new(
         invocation,
-        result: BoundDependencyContract::new([]),
+        BoundDependencyContract::new([]),
         deferred,
-    })
+    ))
 }
 
 fn callable_dependency_contracts<C>(
     request: CheckerUnitView<'_, C>,
     target: BoundCallableTarget,
-) -> Result<CallableDependencyContracts, CheckerQueryError<C::UpstreamError>>
+) -> Result<(CallableDependencyContracts, usize), CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -297,8 +393,7 @@ where
 
             let invocation = request
                 .semantic_values()
-                .substitute_dependency_contract(dependencies.invocation(), instance.substitution())
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                .substitute_dependency_contract(dependencies.invocation(), instance.substitution()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in callable_dependency_contracts: {error:?}"));
 
             let deferred = dependencies
                 .deferred_execution()
@@ -307,28 +402,26 @@ where
                         .semantic_values()
                         .substitute_dependency_contract(contract, instance.substitution())
                 })
-                .transpose()
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                .transpose().unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in callable_dependency_contracts: {error:?}"));
 
-            Ok(match deferred {
+            Ok((match deferred {
                 Some(deferred) => CallableDependencyContracts::asynchronous(invocation, deferred),
                 None => CallableDependencyContracts::synchronous(invocation),
-            })
+            }, signature.value().parameters().len() + usize::from(signature.value().receiver().is_some())))
         }
         BoundCallableTarget::Indirect(ty) => {
             let data = request.semantic_values().type_data(ty);
 
             let TypeData::Callable(callable) = data.as_ref() else {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                panic!("Semantic-selection inputs do not describe the requested bound unit or operation category. in callable_dependency_contracts");
             };
 
-            Ok(callable.dependency_contracts())
+            Ok((callable.dependency_contracts(), callable.parameters().len()))
         }
-        BoundCallableTarget::Predicate(_) | BoundCallableTarget::Anonymous(_) => request
+        BoundCallableTarget::Predicate(_) | BoundCallableTarget::Anonymous(_) => Ok((request
             .semantic_values()
             .empty_dependency_contract_template()
-            .map(CallableDependencyContracts::synchronous)
-            .map_err(|error| CheckerInfrastructureError::SemanticValueStore(error).into()),
+            .map(CallableDependencyContracts::synchronous).unwrap_or_else(|error| panic!("callable_dependency_contracts must satisfy its checked construction contract: {error:?}")), 0)),
     }
 }
 
@@ -345,7 +438,9 @@ where
             let data = request.semantic_values().type_data(*ty);
 
             let TypeData::Callable(callable) = data.as_ref() else {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in callable_type_dependencies"
+                );
             };
 
             Ok(callable.dependency_contracts())
@@ -363,7 +458,9 @@ where
         | TypeExpressionTemplate::Borrow { .. }
         | TypeExpressionTemplate::TraitView(_)
         | TypeExpressionTemplate::OwnedIndirection { .. } => {
-            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in callable_type_dependencies"
+            )
         }
     }
 }
@@ -387,7 +484,7 @@ mod tests {
     };
 
     use super::{
-        InstantiatedCallContracts, callable_dependencies_for_implementation,
+        BoundCallDependencyContracts, callable_dependencies_for_implementation,
         instantiate_callable_contracts, selected_call_contracts,
     };
     use crate::CheckerUnitView;
@@ -501,6 +598,19 @@ mod tests {
     fn callable_address_conversions_retain_their_source_dependency() {
         assert_result_source_dependency(ImplementationHook::CallableFromPointer);
         assert_result_source_dependency(ImplementationHook::PointerFromCallable);
+    }
+
+    #[test]
+    fn storage_views_and_pointer_transforms_retain_source_dependencies() {
+        for hook in [
+            ImplementationHook::RawBufferInitializedSlice,
+            ImplementationHook::RawBufferInitializedSliceMut,
+            ImplementationHook::RawPointerOffset,
+            ImplementationHook::RawPointerByteOffset,
+            ImplementationHook::RawPointerReinterpret,
+        ] {
+            assert_result_source_dependency(hook);
+        }
     }
 
     #[test]
@@ -633,8 +743,16 @@ mod tests {
         );
 
         let capability_kind = match implementation {
-            ImplementationHook::BorrowFrom => Some(BorrowKind::Shared),
-            ImplementationHook::BorrowMutFrom => Some(BorrowKind::Mutable),
+            ImplementationHook::BorrowFrom
+            | ImplementationHook::AddressOf
+            | ImplementationHook::UninitPointer
+            | ImplementationHook::RawBufferPointer
+            | ImplementationHook::RawBufferInitializedSlice => Some(BorrowKind::Shared),
+            ImplementationHook::BorrowMutFrom
+            | ImplementationHook::AddressOfMut
+            | ImplementationHook::UninitPointerMut
+            | ImplementationHook::RawBufferInitializedSliceMut
+            | ImplementationHook::RawBufferSparePointer => Some(BorrowKind::Mutable),
             _ => None,
         };
 
@@ -711,7 +829,7 @@ mod tests {
             }));
         }
 
-        if implementation == ImplementationHook::BorrowMutFrom {
+        if capability_kind == Some(BorrowKind::Mutable) {
             assert!(contract.requirements().iter().any(|requirement| {
                 matches!(
                     requirement,
@@ -764,8 +882,13 @@ mod tests {
 
         let request = CheckerUnitView::new(&unit, &semantic_context, &context);
 
-        let mut context =
-            CallInstantiationContext::hidden(request, &storage, source_access, cursor_access);
+        let mut context = CallInstantiationContext::hidden(
+            request,
+            &storage,
+            (DependencySubjectRoot::Receiver, source_access),
+            Some(cursor_access),
+            None,
+        );
 
         let contracts = instantiate_callable_contracts(
             request,
@@ -879,7 +1002,7 @@ mod tests {
         storage: &bray_bound_tree::StoragePlan,
         expression: bray_bound_tree::BoundExpressionId,
         call: &SelectedCall,
-    ) -> InstantiatedCallContracts {
+    ) -> BoundCallDependencyContracts {
         let context = TestCheckerContext::new(false);
         let semantic_context = callable_entry(unit.key());
 
@@ -893,6 +1016,7 @@ mod tests {
             &crate::dependency::ValueInputs::default(),
         )
         .unwrap_or_else(|error| panic!("selected call contract must instantiate: {error:?}"))
+        .0
     }
 
     fn push_direct_storage(

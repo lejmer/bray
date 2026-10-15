@@ -4,14 +4,12 @@ use bray_syntax::{
 };
 
 /// Reads directly declared execution properties without certifying the callable.
-/// Guarded groups require their own input-domain checking and are not unconditional properties.
+/// Properties apply on the callable's required input domain. Guarded groups need
+/// separate domain proofs and are not part of this directly declared surface.
 pub fn callable_execution_properties(root: SyntaxNodeView<'_>) -> Vec<ExecutionProperty> {
     let mut properties = Vec::new();
-    let mut has_requirements = false;
 
     walk_direct_child_nodes(&root, |child| {
-        has_requirements |= child.kind() == bray_syntax::SyntaxKind::RequiresClause;
-
         if let Some(clause) = child.cast::<ExecutesClauseSyntax>() {
             for property in clause.properties() {
                 if let Some(name) = property.identifier_token().text(child.source().text())
@@ -25,10 +23,7 @@ pub fn callable_execution_properties(root: SyntaxNodeView<'_>) -> Vec<ExecutionP
         SyntaxWalkControl::Continue
     });
 
-    // A callable type without precondition evidence cannot expose a restricted promise.
-    if has_requirements {
-        Vec::new()
-    } else {
-        properties
-    }
+    // The callable type carries its requirements alongside these promises. Calls and
+    // conversions must establish or preserve those requirements before using a promise.
+    properties
 }

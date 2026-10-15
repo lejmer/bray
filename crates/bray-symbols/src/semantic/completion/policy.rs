@@ -36,6 +36,8 @@ pub enum SymbolQueryKind {
     CallableResultDependencies,
     /// Checked callable contracts, effects, and capabilities.
     CallableContracts,
+    /// Caller predicates independent of inferred body behavior.
+    CallablePredicateContracts,
     /// Unevaluated callable contract expressions and capability paths.
     CallableContractTemplate,
     /// A predicate declaration signature template.
@@ -80,7 +82,7 @@ pub enum SymbolQueryKind {
     OverloadSignatureTemplate,
 }
 
-pub(super) const SYMBOL_QUERY_KINDS: [SymbolQueryKind; 30] = [
+pub(super) const SYMBOL_QUERY_KINDS: [SymbolQueryKind; 31] = [
     SymbolQueryKind::Members,
     SymbolQueryKind::Imports,
     SymbolQueryKind::Directives,
@@ -90,6 +92,7 @@ pub(super) const SYMBOL_QUERY_KINDS: [SymbolQueryKind; 30] = [
     SymbolQueryKind::CallableSignature,
     SymbolQueryKind::CallableResultDependencies,
     SymbolQueryKind::CallableContracts,
+    SymbolQueryKind::CallablePredicateContracts,
     SymbolQueryKind::CallableContractTemplate,
     SymbolQueryKind::PredicateSignatureTemplate,
     SymbolQueryKind::CallableContractType,
@@ -126,6 +129,7 @@ impl SymbolQueryKind {
             Self::CallableSignature => "callable_signature",
             Self::CallableResultDependencies => "callable_result_dependencies",
             Self::CallableContracts => "callable_contracts",
+            Self::CallablePredicateContracts => "callable_predicate_contracts",
             Self::CallableContractTemplate => "callable_contract_template",
             Self::PredicateSignatureTemplate => "predicate_signature_template",
             Self::CallableContractType => "callable_contract_type",
@@ -159,6 +163,7 @@ impl SymbolQueryKind {
                 Self::GenericConstraints
                     | Self::CallableResultDependencies
                     | Self::CallableContracts
+                    | Self::CallablePredicateContracts
                     | Self::ConstantDefinition
                     | Self::StaticInstanceTemplate
                     | Self::CallableParameterDefault
@@ -188,6 +193,7 @@ impl SymbolQueryKind {
             Self::CallableSignature
             | Self::CallableResultDependencies
             | Self::CallableContracts
+            | Self::CallablePredicateContracts
             | Self::CallableContractTemplate => supports_callable_queries(kind),
             Self::PredicateSignatureTemplate => supports_predicate_queries(kind),
             Self::CallableContractType => matches!(kind, SymbolKind::CallableContract),

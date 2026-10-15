@@ -151,8 +151,6 @@ pub enum DiagnosticNativeProductFailureKind {
     EvaluationProduct(crate::DiagnosticProductQueryFailure),
     /// Foreign-boundary construction violated an exact retained contract.
     EvaluationForeign(crate::DiagnosticForeignQueryFailure),
-    CheckingInfrastructureFailure,
-    EvaluationChecker(crate::DiagnosticCheckerFailure),
     CodegenTargetUnsupportedProfile,
     CodegenTargetEmptyTriple,
     CodegenTargetEmptyCpu,
@@ -265,8 +263,6 @@ impl DiagnosticNativeProductFailureKind {
             Self::EvaluationSemanticQuery(failure) => failure.as_str(),
             Self::EvaluationProduct(failure) => failure.as_str(),
             Self::EvaluationForeign(failure) => failure.as_str(),
-            Self::CheckingInfrastructureFailure => "checking_infrastructure_failure",
-            Self::EvaluationChecker(failure) => failure.as_str(),
             Self::CodegenTargetUnsupportedProfile => "codegen_target_unsupported_profile",
             Self::CodegenTargetEmptyTriple => "codegen_target_empty_triple",
             Self::CodegenTargetEmptyCpu => "codegen_target_empty_cpu",
@@ -376,7 +372,6 @@ impl From<crate::DiagnosticEmissionEvaluationFailure> for DiagnosticNativeProduc
             Failure::SemanticQuery(failure) => Self::EvaluationSemanticQuery(failure),
             Failure::Product(failure) => Self::EvaluationProduct(failure),
             Failure::Foreign(failure) => Self::EvaluationForeign(failure),
-            Failure::Checker(failure) => Self::EvaluationChecker(failure),
         }
     }
 }

@@ -252,7 +252,9 @@ pub(super) fn generic_template_inputs(
                 let ty = export
                     .values
                     .intern_type(TypeData::TypeParameter(parameter))
-                    .map_err(super::super::semantic_value_export_error)?;
+                    .unwrap_or_else(|error| {
+                        panic!("semantic_value_export_error in generic_template_inputs: {error:?}")
+                    });
 
                 Ok(SourceTemplateInput::new(
                     InterfaceCheckedTemplateInputKind::GenericType(

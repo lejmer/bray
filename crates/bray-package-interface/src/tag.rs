@@ -3,8 +3,9 @@ use bray_runtime_interface::{ExecutionLaneRequirement, RuntimeCapability};
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableConstness, CallableExecution, CallableParameterMode,
     CallablePosition, CallableTrust, ConstantBinaryOperation, ConstantUnaryOperation,
-    CurrentRunCancellation, LifecycleObligationKind, ReceiverMode, SymbolKind,
-    SynthesizedSymbolRole, TargetSizedIntegerType,
+    CurrentRunCancellation, DependencyMutationKind, DependencyReferenceKind,
+    LifecycleObligationKind, ReceiverMode, SymbolKind, SynthesizedSymbolRole,
+    TargetSizedIntegerType,
 };
 
 use super::{
@@ -134,6 +135,18 @@ wire_tags!(SymbolKind {
     54 => SymbolKind::Static,
 });
 
+wire_tags!(DependencyMutationKind {
+    1 => DependencyMutationKind::Write,
+    2 => DependencyMutationKind::Consume,
+    3 => DependencyMutationKind::Retire,
+    4 => DependencyMutationKind::Atomic,
+});
+
+wire_tags!(DependencyReferenceKind {
+    1 => DependencyReferenceKind::Borrow,
+    2 => DependencyReferenceKind::Address,
+});
+
 wire_tags!(BorrowKind {
     1 => BorrowKind::Shared,
     2 => BorrowKind::Mutable,
@@ -182,6 +195,9 @@ wire_tags!(ConstantUnaryOperation {
     2 => ConstantUnaryOperation::Negate,
     3 => ConstantUnaryOperation::LogicalNot,
     4 => ConstantUnaryOperation::BitwiseNot,
+    5 => ConstantUnaryOperation::PredicateTrust,
+    6 => ConstantUnaryOperation::BorrowObservation,
+    7 => ConstantUnaryOperation::EntryCondition,
 });
 
 wire_tags!(TargetSizedIntegerType {
@@ -281,10 +297,26 @@ wire_tags!(CurrentRunCancellation {
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{CheckedTemplateKind, CheckedTemplateShortCircuitKind};
-    use bray_symbols::{CurrentRunCancellation, LifecycleObligationKind, SymbolKind};
+    use bray_symbols::{
+        CurrentRunCancellation, DependencyReferenceKind, LifecycleObligationKind, SymbolKind,
+    };
 
     use super::WireTag;
     use crate::{InterfacePredicateDefinitionState, SymbolRelationshipKind};
+
+    #[test]
+    fn dependency_reference_tags_are_exact_and_closed() {
+        for (raw, kind) in [
+            (1, DependencyReferenceKind::Borrow),
+            (2, DependencyReferenceKind::Address),
+        ] {
+            assert_eq!(kind.to_wire(), raw);
+            assert_eq!(DependencyReferenceKind::from_wire(raw), Some(kind));
+        }
+
+        assert_eq!(DependencyReferenceKind::from_wire(0), None);
+        assert_eq!(DependencyReferenceKind::from_wire(3), None);
+    }
 
     #[test]
     fn symbol_kind_tags_are_exact_and_closed() {

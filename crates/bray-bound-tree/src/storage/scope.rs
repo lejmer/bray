@@ -36,6 +36,7 @@ pub fn storage_identity_transfers_at_unit_exit(
             | StorageIdentity::CustomIndexBorrow(_)
             | StorageIdentity::IterationCursor(_)
             | StorageIdentity::IterationElement(_)
+            | StorageIdentity::ScopedCapability { .. }
             | StorageIdentity::Allocation(_)
             | StorageIdentity::CompilerCreated(_)
             | StorageIdentity::Alternative { .. }
@@ -91,6 +92,7 @@ pub fn storage_expression_republishes_destructor_receiver(
 /// Lexical owner scopes derived from one complete bound unit.
 pub struct StorageScopeOwners {
     nodes: BTreeMap<AnyBoundNodeId, BoundBlockId>,
+    scoped_capabilities: BTreeMap<BoundExpressionId, BoundBlockId>,
     root: Option<BoundBlockId>,
     unit: crate::BoundUnitKind,
 }
@@ -131,7 +133,9 @@ impl StorageScopeOwners {
             });
         }
 
-        for (_, expression) in unit.tree().expressions() {
+        let mut scoped_capabilities = BTreeMap::new();
+
+        for (id, expression) in unit.tree().expressions() {
             match expression {
                 BoundExpression::Match(expression) => {
                     for arm in expression.arms() {
@@ -151,6 +155,18 @@ impl StorageScopeOwners {
                     &mut nodes,
                 )?,
                 BoundExpression::Structured(expression) => {
+                    if expression.kind() == crate::BoundStructuredExpressionKind::With {
+                        let [scope] = expression.blocks() else {
+                            panic!("with occurrence {id:?} retains its sole body scope");
+                        };
+
+                        scoped_capabilities.insert(id, *scope);
+
+                        for pattern in expression.patterns() {
+                            assign_pattern_scope(unit.view(), *pattern, *scope, &mut nodes)?;
+                        }
+                    }
+
                     if matches!(
                         expression.kind(),
                         crate::BoundStructuredExpressionKind::PatternTest
@@ -193,6 +209,7 @@ impl StorageScopeOwners {
 
         Ok(Self {
             nodes,
+            scoped_capabilities,
             root,
             unit: unit.key().kind(),
         })
@@ -202,6 +219,9 @@ impl StorageScopeOwners {
     pub fn scope(&self, identity: Option<StorageIdentity>) -> Option<BoundBlockId> {
         match identity {
             Some(StorageIdentity::Static(_)) | None => None,
+            Some(StorageIdentity::ScopedCapability { expression, .. }) => {
+                self.scoped_capabilities.get(&expression).copied()
+            }
             Some(identity) if identity.is_borrowed_provider_input(self.unit) => None,
             Some(identity) => identity
                 .definition_node()

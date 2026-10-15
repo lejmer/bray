@@ -31,6 +31,12 @@ union ChannelError
 }
 
 func bounded<T>(capacity: usize) -> Result<(Sender<T>, Receiver<T>), ChannelError>
+    ensures(
+        !(result matches Ok(_)) || trusted std.channel.owner.live(Sender<T>.result_marker(&result)),
+        !(result matches Ok(_)) || trusted std.channel.owner.sender(Sender<T>.result_marker(&result)),
+        !(result matches Ok(_)) || trusted std.channel.owner.live(Receiver<T>.result_marker(&result)),
+        !(result matches Ok(_)) || trusted std.channel.owner.receiver(Receiver<T>.result_marker(&result)),
+    )
 {
     let storage_capacity: usize = if capacity == 0
     {
@@ -51,6 +57,9 @@ func bounded<T>(capacity: usize) -> Result<(Sender<T>, Receiver<T>), ChannelErro
 
     let state: ChannelState<T> =
     {
+        instance = std.channel.owner.Marker
+        {
+        },
         storage = storage,
         capacity = capacity,
         head = 0,
@@ -63,6 +72,9 @@ func bounded<T>(capacity: usize) -> Result<(Sender<T>, Receiver<T>), ChannelErro
 
     let shared: ChannelCore<T> =
     {
+        instance = std.channel.owner.Marker
+        {
+        },
         owners = core.atomic.initialize<usize>(2),
         senders = core.atomic.initialize<usize>(1),
         generation = core.atomic.initialize<u32>(0),
@@ -71,17 +83,44 @@ func bounded<T>(capacity: usize) -> Result<(Sender<T>, Receiver<T>), ChannelErro
 
     let pointer: RawPointer<ChannelCore<T>> = trusted std.memory.allocate_value<ChannelCore<T>>(shared);
 
-    let sender: Sender<T> =
+    let make_sender = trusted lambda(pos pointer: RawPointer<ChannelCore<T>>) -> Sender<T>
+        ensures(
+            trusted std.channel.owner.live(&result.owner.instance),
+            trusted std.channel.owner.sender(&result.owner.instance)
+        )
     {
-        core = pointer,
-        active = true,
+        return
+        {
+            owner =
+            {
+                instance = std.channel.owner.Marker
+                {
+                },
+                core = pointer
+            }
+        };
     };
 
-    let receiver: Receiver<T> =
+    let make_receiver = trusted lambda(pos pointer: RawPointer<ChannelCore<T>>) -> Receiver<T>
+        ensures(
+            trusted std.channel.owner.live(&result.owner.instance),
+            trusted std.channel.owner.receiver(&result.owner.instance)
+        )
     {
-        core = pointer,
-        active = true,
+        return
+        {
+            owner =
+            {
+                instance = std.channel.owner.Marker
+                {
+                },
+                core = pointer
+            }
+        };
     };
+
+    let sender = make_sender(pointer);
+    let receiver = make_receiver(pointer);
 
     return Ok((sender, receiver));
 }

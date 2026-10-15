@@ -8,9 +8,7 @@ use bray_diagnostics::{
 };
 use bray_symbols::{ConstantTermId, TypeData};
 
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 pub(super) struct UnprovenArrayGenerator {
     pub(super) expression: BoundExpressionId,
@@ -89,24 +87,30 @@ where
     };
 
     let Some(iteration_id) = expression.operands().first().copied() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in array_generator_problem"
+        );
     };
 
     let Some(BoundExpression::Generator(iteration)) = request.view().expression(iteration_id)
     else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in array_generator_problem"
+        );
     };
 
     let Some(selection) = iteration_sources
         .iter()
         .find(|selection| selection.expression() == iteration_id)
     else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in array_generator_problem"
+        );
     };
 
     let source = diagnostic_type(request, selection.source_type())?;
     let element = diagnostic_type(request, *element)?;
-    let required = diagnostic_array_length(request, *result_length)?;
+    let required = diagnostic_array_length(request, *result_length);
 
     let target = expression.origin().source_anchor().syntax();
     let summary = block_summary(request, iteration.body(), target);
@@ -115,7 +119,6 @@ where
         let source_length = selection
             .exact_count()
             .map(|length| diagnostic_array_length(request, length))
-            .transpose()?
             .unwrap_or(DiagnosticArrayLength::Symbolic);
 
         return Ok(Some(
@@ -138,7 +141,7 @@ where
         ));
     };
 
-    let diagnostic_source_length = diagnostic_array_length(request, source_length)?;
+    let diagnostic_source_length = diagnostic_array_length(request, source_length);
 
     if source_length != *result_length {
         return Ok(Some(
@@ -167,16 +170,16 @@ where
 fn diagnostic_array_length<C>(
     request: CheckerUnitView<'_, C>,
     term: ConstantTermId,
-) -> Result<DiagnosticArrayLength, CheckerInfrastructureError>
+) -> DiagnosticArrayLength
 where
     C: CheckerRequestContext + ?Sized,
 {
     let exact = request.semantic_values().constant_term_integer(term);
 
-    Ok(exact.and_then(|value| value.to_u64()).map_or(
+    exact.and_then(|value| value.to_u64()).map_or(
         DiagnosticArrayLength::Symbolic,
         DiagnosticArrayLength::Exact,
-    ))
+    )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

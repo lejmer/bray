@@ -1,0 +1,63 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host;
+
+using std.memory;
+
+internal struct Synchronization
+{
+    lock: core.atomic.Atomic<u64>;
+    key: core.atomic.Atomic<u64>;
+    main: core.atomic.Atomic<u64>;
+}
+
+// Protected storage prevents safe field projection from exposing the host lock.
+internal static SYNCHRONIZATION: Uninit<Synchronization> = core.memory.uninit_from<Synchronization>(
+    {
+        lock = core.atomic.initialize<u64>(0),
+        key = core.atomic.initialize<u64>(0),
+        main = core.atomic.initialize<u64>(0)
+    }
+);
+
+trusted internal func synchronization_pointer() -> RawPointer<Synchronization>
+    ensures(
+        trusted core.memory.valid_read<Synchronization>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<Synchronization>(pointer = result),
+        trusted core.memory.initialized_as<Synchronization>(pointer = result),
+        trusted core.memory.shared_alias_valid<Synchronization>(pointer = result),
+        trusted core.memory.epoch_current<Synchronization>(pointer = result),
+        trusted core.memory.synchronized_access<Synchronization>(pointer = result),
+        trusted core.memory.movement_stable<Synchronization>(pointer = result),
+        trusted core.memory.finalization_pending<Synchronization>(pointer = result)
+    )
+{
+    return std.memory.uninit_pointer<Synchronization>(&SYNCHRONIZATION);
+}
+
+trusted internal func initialized() -> bool
+    uses(raw_memory, unchecked_alias)
+{
+    let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
+        &SYNCHRONIZATION,
+        trusted synchronization_pointer()
+    );
+
+    return core.atomic.load<u64, 1>(&synchronization.key) != 0;
+}
+
+trusted internal func lease_synchronization_pointer(pos lease: &HostLease) -> RawPointer<Synchronization>
+    requires(trusted host_access_live(owner = &lease.acquisition))
+    ensures(
+        trusted core.memory.valid_read<Synchronization>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<Synchronization>(pointer = result),
+        trusted core.memory.initialized_as<Synchronization>(pointer = result),
+        trusted core.memory.shared_alias_valid<Synchronization>(pointer = result),
+        trusted core.memory.epoch_current<Synchronization>(pointer = result),
+        trusted core.memory.synchronized_access<Synchronization>(pointer = result),
+        trusted core.memory.movement_stable<Synchronization>(pointer = result),
+        trusted core.memory.finalization_pending<Synchronization>(pointer = result)
+    )
+    executes(pure, total)
+{
+    return std.memory.uninit_pointer<Synchronization>(lease.synchronization);
+}

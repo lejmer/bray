@@ -4,9 +4,7 @@ use bray_bound_tree::{
 };
 
 use crate::unit::assert_unit_inputs;
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 use super::super::{
     CandidateSelection, ImplementationSelectionEvidence, OperationCandidate,
@@ -49,10 +47,12 @@ where
     } = input;
 
     if !super::super::order::canonicalize_by_key(&mut candidates, OperationCandidate::key) {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in select"
+        );
     }
 
-    let actual_types = expression_types(types, &operands)?;
+    let actual_types = expression_types(types, &operands);
 
     if kind != SelectionKind::Construction
         && actual_types.iter().any(|result| result.is_recovered())
@@ -220,7 +220,9 @@ where
             operand_types,
         } => {
             if operation.kind() != kind || operand_types.len() != actual_types.len() {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in check_candidate"
+                );
             }
 
             if !operand_types
@@ -243,7 +245,9 @@ where
             inputs,
         } => {
             if kind != SelectionKind::Construction {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in check_candidate"
+                );
             }
 
             if let ConstructionTarget::Struct(structure) = target {
@@ -252,7 +256,6 @@ where
                     Err(crate::CheckerQueryError::Cancelled) => {
                         return Err(CheckerQueryError::Cancelled);
                     }
-                    Err(CheckerQueryError::Infrastructure(error)) => return Err(error.into()),
                     Err(CheckerQueryError::Upstream(error)) => {
                         return Err(CheckerQueryError::Upstream(error));
                     }
@@ -265,7 +268,7 @@ where
                 }
             }
 
-            let inputs = match map_construction_inputs(request, types, expression, target, &inputs)?
+            let inputs = match map_construction_inputs(request, types, expression, target, &inputs)
             {
                 ConstructionInputMapping::Mapped(inputs) => inputs,
                 ConstructionInputMapping::Rejected(reason) => {
@@ -288,20 +291,22 @@ where
     };
 
     let Some(source_expression) = request.view().expression(expression) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in check_candidate"
+        );
     };
 
     if !operation.matches_expression(source_expression)
-        || !operation_is_valid(request, types, expression, &operation)?
+        || !operation_is_valid(request, types, expression, &operation)
     {
         return Ok(CandidateCheck::Incompatible(
             SelectionCandidateRejectionReason::ExpressionForm,
         ));
     }
 
-    validate_operation_instances(&operation)?;
+    validate_operation_instances(&operation);
 
-    if !implementation_selections_match(&operation, evidence)? {
+    if !implementation_selections_match(&operation, evidence) {
         return Ok(CandidateCheck::Incompatible(
             SelectionCandidateRejectionReason::RequiredImplementation,
         ));
@@ -313,7 +318,7 @@ where
         source_expression,
         actual_types,
         compiler_known_operations,
-    )? {
+    ) {
         return Ok(CandidateCheck::Incompatible(
             SelectionCandidateRejectionReason::RequiredLanguageOperation,
         ));
@@ -325,13 +330,13 @@ where
 fn expression_types(
     types: &CheckedExpressionTypes,
     expressions: &[BoundExpressionId],
-) -> Result<Vec<ExpressionTypeResult>, CheckerInfrastructureError> {
+) -> Vec<ExpressionTypeResult> {
     expressions
         .iter()
         .map(|expression| {
-            types
-                .expression(*expression)
-                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)
+            types.expression(*expression).unwrap_or_else(|| {
+                panic!("operation selection requires a checked type for {expression:?}")
+            })
         })
         .collect()
 }
@@ -341,7 +346,7 @@ fn operation_is_valid<C>(
     types: &CheckedExpressionTypes,
     expression: BoundExpressionId,
     operation: &SelectedOperation,
-) -> Result<bool, CheckerInfrastructureError>
+) -> bool
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -349,27 +354,27 @@ where
         SelectedOperation::Conversion(conversion) => {
             let Some(BoundExpression::Conversion(source)) = request.view().expression(expression)
             else {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in operation_is_valid"
+                );
             };
 
             let source_type = types
-                .expression(source.operand())
-                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+                .expression(source.operand()).unwrap_or_else(|| panic!("operation_is_valid requires checked expression type or node, expression: {expression:?}"));
 
             if source_type.is_recovered() || conversion.source_type() != source_type.ty() {
-                return Ok(false);
+                return false;
             }
 
             validate_conversion(request, conversion)
         }
         SelectedOperation::Implementation(witness) => {
             let subject = types
-                .expression(expression)
-                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+                .expression(expression).unwrap_or_else(|| panic!("operation_is_valid requires checked expression type or node, expression: {expression:?}"));
 
-            Ok(!subject.is_recovered() && witness.requirement().subject() == subject.ty())
+            !subject.is_recovered() && witness.requirement().subject() == subject.ty()
         }
-        _ => Ok(true),
+        _ => true,
     }
 }
 

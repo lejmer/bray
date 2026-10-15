@@ -65,7 +65,8 @@ impl Compilation {
             cancellation,
         )?;
 
-        let resolver = CompilationConstantCallResolver::new(self, cancellation);
+        let resolver = CompilationConstantCallResolver::new(self, cancellation)
+            .with_substitution(instance.substitution());
 
         let input = ConstantEvaluationInput::new(&types, semantics.result().value().selections())
             .with_references(references)

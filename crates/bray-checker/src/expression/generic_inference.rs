@@ -6,9 +6,7 @@ use bray_symbols::{
     GenericSubstitutionId, TypeData, TypeId,
 };
 
-use crate::{
-    CallableCandidate, CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CallableCandidate, CheckerRequestContext, CheckerUnitView};
 
 pub(super) fn infer_call_generic_arguments<C>(
     request: CheckerUnitView<'_, C>,
@@ -16,12 +14,14 @@ pub(super) fn infer_call_generic_arguments<C>(
     candidate: &CallableCandidate,
     parameters: &[GenericParameterSymbolId],
     types: &CheckedExpressionTypes,
-) -> Result<Option<Vec<GenericArgument>>, CheckerInfrastructureError>
+) -> Option<Vec<GenericArgument>>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(BoundExpression::Call(call)) = request.view().expression(expression) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in infer_call_generic_arguments"
+        );
     };
 
     let callable = request
@@ -29,7 +29,9 @@ where
         .type_data(candidate.callable_type());
 
     let TypeData::Callable(callable) = callable.as_ref() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in infer_call_generic_arguments"
+        );
     };
 
     let Some(parameter_indices) = crate::selection::map_argument_parameter_indices(
@@ -37,7 +39,7 @@ where
         callable.parameters(),
         callable.is_variadic(),
     ) else {
-        return Ok(None);
+        return None;
     };
 
     let inferable = parameters.iter().copied().collect::<BTreeSet<_>>();
@@ -57,11 +59,13 @@ where
         }
 
         let Some(parameter) = callable.parameters().get(parameter_index) else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in infer_call_generic_arguments"
+            );
         };
 
         if !inference.infer_type(parameter.ty(), actual.ty()) {
-            return Ok(None);
+            return None;
         }
     }
 
@@ -70,7 +74,7 @@ where
         .map(|parameter| inference.arguments.get(parameter).copied())
         .collect::<Option<Vec<_>>>();
 
-    Ok(arguments)
+    arguments
 }
 
 pub(crate) fn infer_generic_arguments_from_type<C>(

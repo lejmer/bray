@@ -13,8 +13,9 @@ struct Directory
     internal mut first: u8;
     internal mut is_open: bool;
 
-    construct open(pos path: &std.path.Path) -> Result<Self, std.io.IoError>
+    trusted construct open(pos path: &std.path.Path) -> Result<Self, std.io.IoError>
         requires(blocking_execution())
+        uses(raw_memory)
     {
         let capacity: usize = trusted internal platform_directory_state_capacity();
 
@@ -28,9 +29,18 @@ struct Directory
             case Error(_) { return Error(internal std.io.buffer_allocation_error()); }
         };
 
-        let state_pointer: RawPointer<u8> = trusted std.memory.reinterpret<u8, u64>(std.memory.pointer<u64>(&state));
+        let mut initialized: usize = 0;
 
-        let handle: u64 = try trusted platform_directory_open(platform_path(path), state = state_pointer);
+        while initialized < capacity
+        {
+            trusted internal std.memory.initialize_spare<u64>(&mut state, 0);
+            initialized += 1;
+        }
+
+        let handle: u64 = try trusted platform_directory_open(
+            platform_path(path),
+            state = trusted std.memory.initialized_slice_mut<u64>(&mut state),
+        );
 
         return Ok(
             {
@@ -56,8 +66,9 @@ struct Directory
         }
     }
 
-    mut func next() -> Result<DirectoryEntry?, std.io.IoError>
+    trusted mut func next() -> Result<DirectoryEntry?, std.io.IoError>
         requires(blocking_execution())
+        uses(raw_memory)
     {
         if !self.is_open
         {
@@ -66,8 +77,8 @@ struct Directory
 
         return trusted platform_directory_next(
             handle = self.handle,
-            state = trusted std.memory.reinterpret<u8, u64>(std.memory.pointer<u64>(&self.state)),
-            first = std.memory.address_of_mut<u8>(&mut self.first),
+            state = trusted std.memory.initialized_slice_mut<u64>(&mut self.state),
+            first = &mut self.first,
         );
     }
 

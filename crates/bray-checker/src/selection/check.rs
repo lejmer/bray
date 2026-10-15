@@ -80,7 +80,6 @@ fn query_outcome<T, Upstream>(
 ) -> CheckerOutcome<T, Upstream> {
     match error.into() {
         CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-        CheckerQueryError::Infrastructure(error) => CheckerOutcome::InfrastructureFailure(error),
         CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
@@ -115,15 +114,12 @@ pub(crate) fn select_iteration_source<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    match super::iteration::select(input) {
-        Ok(selection) => complete(
-            request,
-            input.expression(),
-            DiagnosticSelectionKind::IterationSource,
-            selection,
-        ),
-        Err(error) => query_outcome(error),
-    }
+    complete(
+        request,
+        input.expression(),
+        DiagnosticSelectionKind::IterationSource,
+        super::iteration::select(input),
+    )
 }
 
 fn complete<C, T>(
@@ -143,10 +139,7 @@ where
         return CheckerOutcome::without_diagnostics(selection);
     };
 
-    let span = match expression_span(request, expression) {
-        Ok(span) => span,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-    };
+    let span = expression_span(request, expression);
 
     let mut diagnostic = Diagnostic::new(diagnostic_id(0), diagnostic_kind, SeverityKind::Error)
         .with_primary_span(span)
@@ -175,11 +168,10 @@ where
             Ok(candidates) => candidates,
             Err(_) => {
                 // rust-style: allow(context-erasing-failure-conversion, reason = "summary build error has no payload and the exact candidate count is retained")
-                return CheckerOutcome::InfrastructureFailure(
-                    crate::CheckerInfrastructureError::SelectionDiagnosticCapacityExceeded {
-                        kind: "candidates",
-                        count: candidates.len(),
-                    },
+                panic!(
+                    "A diagnostic selection summary cannot represent the complete candidate count. in complete, kind: {:?}, count: {:?}",
+                    "candidates",
+                    candidates.len()
                 );
             }
         };
@@ -216,19 +208,20 @@ where
             Err(error) => return query_outcome(error),
         };
 
-        let diagnostic_rejections =
-            match DiagnosticSelectionRejections::try_from_prefix(retained, rejections.len()) {
-                Ok(rejections) => rejections,
-                Err(_) => {
-                    // rust-style: allow(context-erasing-failure-conversion, reason = "summary build error has no payload and the exact rejection count is retained")
-                    return CheckerOutcome::InfrastructureFailure(
-                        crate::CheckerInfrastructureError::SelectionDiagnosticCapacityExceeded {
-                            kind: "rejections",
-                            count: rejections.len(),
-                        },
-                    );
-                }
-            };
+        let diagnostic_rejections = match DiagnosticSelectionRejections::try_from_prefix(
+            retained,
+            rejections.len(),
+        ) {
+            Ok(rejections) => rejections,
+            Err(_) => {
+                // rust-style: allow(context-erasing-failure-conversion, reason = "summary build error has no payload and the exact rejection count is retained")
+                panic!(
+                    "A diagnostic selection summary cannot represent the complete candidate count. in complete, kind: {:?}, count: {:?}",
+                    "rejections",
+                    rejections.len()
+                );
+            }
+        };
 
         diagnostic =
             diagnostic.with_arg(DiagnosticArg::selection_rejections(diagnostic_rejections));
@@ -490,8 +483,8 @@ where
             let callable = request.semantic_values().type_data(*callable_type);
 
             let bray_symbols::TypeData::Callable(callable) = callable.as_ref() else {
-                return Err(
-                    crate::CheckerInfrastructureError::InvalidSemanticSelectionInput.into(),
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in diagnostic_candidate"
                 );
             };
 
@@ -567,7 +560,9 @@ where
             DiagnosticSelectionCandidateIdentity::ExpressionValue
         }
         SelectionCandidateKey::Value(DeclaredValueTypeTerm::BoxStoragePolicy(_)) => {
-            return Err(crate::CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in diagnostic_candidate_identity"
+            );
         }
         SelectionCandidateKey::Value(DeclaredValueTypeTerm::Pattern(_)) => {
             DiagnosticSelectionCandidateIdentity::PatternValue
@@ -579,7 +574,9 @@ where
             BoundReferenceTarget::Surface(symbol),
         )) => {
             let Some(key) = request.symbols().symbol_key(*symbol) else {
-                return Err(crate::CheckerInfrastructureError::SemanticValueUnavailable.into());
+                panic!(
+                    "Canonical semantic value construction or lookup failed without an available store cause. in diagnostic_candidate_identity"
+                );
             };
 
             let identity = bray_symbols::diagnostic_symbol_identity(key);
@@ -606,9 +603,6 @@ where
     match request.member_name(symbol) {
         Ok(name) => Ok(name.map(|name| name.as_str().to_owned())),
         Err(crate::CheckerQueryError::Cancelled) => Ok(None),
-        Err(crate::CheckerQueryError::Infrastructure(error)) => {
-            Err(crate::CheckerQueryError::Infrastructure(error))
-        }
         Err(crate::CheckerQueryError::Upstream(error)) => {
             Err(crate::CheckerQueryError::Upstream(error))
         }
@@ -653,41 +647,43 @@ where
         }
         SelectionCandidateKey::Value(DeclaredValueTypeTerm::Expression(expression)) => {
             let Some(expression) = request.view().expression(*expression) else {
-                return Err(
-                    crate::CheckerInfrastructureError::InvalidSemanticSelectionInput.into(),
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in candidate_source_locations"
                 );
             };
 
-            locations.insert(request.source(expression.origin().source_anchor())?.span());
+            locations.insert(request.source(expression.origin().source_anchor()).span());
         }
         SelectionCandidateKey::Value(DeclaredValueTypeTerm::BoxStoragePolicy(_)) => {
-            return Err(crate::CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in candidate_source_locations"
+            );
         }
         SelectionCandidateKey::Value(DeclaredValueTypeTerm::Pattern(pattern)) => {
             let Some(pattern) = request.view().pattern(*pattern) else {
-                return Err(
-                    crate::CheckerInfrastructureError::InvalidSemanticSelectionInput.into(),
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in candidate_source_locations"
                 );
             };
 
-            locations.insert(request.source(pattern.origin().source_anchor())?.span());
+            locations.insert(request.source(pattern.origin().source_anchor()).span());
         }
         SelectionCandidateKey::Value(DeclaredValueTypeTerm::Value(
             BoundReferenceTarget::Local(symbol),
         )) => {
             let Some(anchor) = request.unit().local_symbols().syntax_anchor(*symbol) else {
-                return Err(
-                    crate::CheckerInfrastructureError::InvalidSemanticSelectionInput.into(),
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in candidate_source_locations"
                 );
             };
 
-            locations.insert(request.source_syntax(anchor)?.span());
+            locations.insert(request.source_syntax(anchor).span());
         }
         SelectionCandidateKey::Value(DeclaredValueTypeTerm::Value(
             BoundReferenceTarget::Surface(symbol),
         )) => {
             if let Some(anchor) = request.symbols().declaration_syntax_anchor(*symbol) {
-                locations.insert(request.source_syntax(anchor)?.span());
+                locations.insert(request.source_syntax(anchor).span());
             }
         }
     }
@@ -711,7 +707,7 @@ where
         return Ok(());
     };
 
-    locations.insert(request.source_syntax(anchor)?.span());
+    locations.insert(request.source_syntax(anchor).span());
 
     Ok(())
 }

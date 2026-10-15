@@ -17,10 +17,7 @@ use crate::constant::{
 use crate::diagnostic::{diagnostic_id, diagnostic_type, expression_span};
 use crate::representation::type_representation;
 use crate::unit::assert_unit_inputs;
-use crate::{
-    CheckerInfrastructureError, CheckerLiteralValueFailure, CheckerOutcome, CheckerQueryError,
-    CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 pub(crate) fn check_literal_values<C>(
     request: CheckerUnitView<'_, C>,
@@ -61,19 +58,15 @@ where
         let kind = if result.is_recovered() {
             ConstantValueKind::Error
         } else {
-            let source = match request.source(literal.origin().source_anchor()) {
-                Ok(source) => source,
-                Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-            };
+            let source = request.source(literal.origin().source_anchor());
 
             let Some(spelling) = source.text_for_range(literal.spelling_range()) else {
-                return CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::InvalidSourceRange {
-                        span: bray_source::SourceSpan::new(
-                            source.span().source_id(),
-                            literal.spelling_range(),
-                        ),
-                    },
+                panic!(
+                    "A bound anchor does not cover a valid UTF-8 range in its source revision. in check_literal_values, span: {:?}",
+                    bray_source::SourceSpan::new(
+                        source.span().source_id(),
+                        literal.spelling_range(),
+                    )
                 );
             };
 
@@ -83,17 +76,14 @@ where
                 Some(remaining) => {
                     remaining_bytes = remaining;
 
-                    match check_literal(
+                    check_literal(
                         request,
                         *literal,
                         spelling,
                         result.ty(),
                         target_width,
                         negated_operands.contains(&expression),
-                    ) {
-                        Ok(checked) => checked,
-                        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-                    }
+                    )
                 }
                 None => Err(ConstantLiteralError::SizeLimitExceeded {
                     actual: ConstantEvaluationLimits::default()
@@ -107,10 +97,7 @@ where
             match checked {
                 Ok(kind) => kind,
                 Err(error) => {
-                    let span = match expression_span(request, expression) {
-                        Ok(span) => span,
-                        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-                    };
+                    let span = expression_span(request, expression);
 
                     let mut produced = Diagnostic::new(
                         diagnostic_id(diagnostics.len()),
@@ -137,9 +124,6 @@ where
                                     Ok(ty) => ty,
                                     Err(CheckerQueryError::Cancelled) => {
                                         return CheckerOutcome::Cancelled;
-                                    }
-                                    Err(CheckerQueryError::Infrastructure(error)) => {
-                                        return CheckerOutcome::InfrastructureFailure(error);
                                     }
                                     Err(CheckerQueryError::Upstream(error)) => {
                                         return CheckerOutcome::UpstreamFailure(error);
@@ -168,8 +152,9 @@ where
         {
             Ok(value) => value,
             Err(error) => {
-                return CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
+                panic!(
+                    "The canonical semantic value store rejected a construction or lookup operation. in check_literal_values, value0: {:?}",
+                    error
                 );
             }
         };
@@ -181,85 +166,21 @@ where
         }
     }
 
-    let values = match CheckedLiteralValues::try_new(
+    let values = CheckedLiteralValues::try_new(
         request.unit(),
         types,
         request.semantic_values(),
         target_width,
         entries,
-    ) {
-        Ok(values) => values,
-        Err(error) => {
-            return CheckerOutcome::InfrastructureFailure(literal_value_table_error(error));
-        }
-    };
+    )
+    .unwrap_or_else(|error| {
+        panic!(
+            "literal values must agree with checked types for {:?}: {error:?}",
+            request.unit().unit()
+        )
+    });
 
     CheckerOutcome::complete(values, DiagnosticBag::from(diagnostics))
-}
-
-fn literal_value_table_error(
-    error: bray_bound_tree::CheckedLiteralValueTableBuildError,
-) -> CheckerInfrastructureError {
-    match error {
-        bray_bound_tree::CheckedLiteralValueTableBuildError::ForeignExpressionTypes => {
-            CheckerInfrastructureError::LiteralValue(
-                CheckerLiteralValueFailure::ForeignExpressionTypes,
-            )
-        }
-        bray_bound_tree::CheckedLiteralValueTableBuildError::InvalidLiteral(expression) => {
-            CheckerInfrastructureError::LiteralValue(CheckerLiteralValueFailure::InvalidLiteral {
-                expression,
-            })
-        }
-        bray_bound_tree::CheckedLiteralValueTableBuildError::MissingExpressionType(expression) => {
-            CheckerInfrastructureError::LiteralValue(
-                CheckerLiteralValueFailure::MissingExpressionType { expression },
-            )
-        }
-        bray_bound_tree::CheckedLiteralValueTableBuildError::MissingLiteralValue(expression) => {
-            CheckerInfrastructureError::LiteralValue(
-                CheckerLiteralValueFailure::MissingLiteralValue { expression },
-            )
-        }
-        bray_bound_tree::CheckedLiteralValueTableBuildError::ValueTypeMismatch(expression) => {
-            CheckerInfrastructureError::LiteralValue(
-                CheckerLiteralValueFailure::ValueTypeMismatch { expression },
-            )
-        }
-        bray_bound_tree::CheckedLiteralValueTableBuildError::DuplicateExpression(expression) => {
-            CheckerInfrastructureError::LiteralValue(
-                CheckerLiteralValueFailure::DuplicateExpression { expression },
-            )
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use bray_bound_tree::{BoundLiteralKind, BoundUnitId, CheckedLiteralValueTableBuildError};
-
-    use super::literal_value_table_error;
-    use crate::test_support::{expression_unit, literal_expression};
-    use crate::{CheckerInfrastructureError, CheckerLiteralValueFailure};
-
-    #[test]
-    fn literal_table_failures_preserve_expression_identity() {
-        let (_, expressions) = expression_unit(BoundUnitId::new(1), |tree, origin| {
-            vec![bray_bound_tree::testing::push_expression(
-                tree,
-                literal_expression(origin, BoundLiteralKind::Boolean, None),
-            )]
-        });
-
-        assert_eq!(
-            literal_value_table_error(CheckedLiteralValueTableBuildError::InvalidLiteral(
-                expressions[0]
-            )),
-            CheckerInfrastructureError::LiteralValue(CheckerLiteralValueFailure::InvalidLiteral {
-                expression: expressions[0],
-            })
-        );
-    }
 }
 
 fn check_literal<C>(
@@ -269,35 +190,29 @@ fn check_literal<C>(
     ty: bray_symbols::TypeId,
     target_width: std::num::NonZeroU16,
     is_negated_operand: bool,
-) -> Result<Result<ConstantValueKind, ConstantLiteralError>, CheckerInfrastructureError>
+) -> Result<ConstantValueKind, ConstantLiteralError>
 where
     C: CheckerRequestContext + ?Sized,
 {
     if literal.kind() == bray_bound_tree::BoundLiteralKind::ByteString {
-        return check_byte_string_literal(request.semantic_values(), ty, spelling)
-            .map_err(CheckerInfrastructureError::SemanticValueStore);
+        return check_byte_string_literal(request.semantic_values(), ty, spelling).unwrap_or_else(
+            |error| {
+                panic!("check_literal must satisfy its checked construction contract: {error:?}")
+            },
+        );
     }
 
     let representation = type_representation(request, ty);
 
     let Some(representation) = representation else {
-        return Ok(Err(ConstantLiteralError::Invalid));
+        return Err(ConstantLiteralError::Invalid);
     };
 
     if is_negated_operand && literal.kind() == bray_bound_tree::BoundLiteralKind::Integer {
-        return Ok(check_negated_integer_operand_literal(
-            spelling,
-            representation,
-            || target_width,
-        ));
+        return check_negated_integer_operand_literal(spelling, representation, || target_width);
     }
 
-    Ok(check_constant_literal(
-        literal.kind(),
-        spelling,
-        representation,
-        || target_width,
-    ))
+    check_constant_literal(literal.kind(), spelling, representation, || target_width)
 }
 
 fn negated_literal_operands<C>(request: CheckerUnitView<'_, C>) -> BTreeSet<BoundExpressionId>

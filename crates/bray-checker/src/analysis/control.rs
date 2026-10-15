@@ -20,6 +20,7 @@ where
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
         match expression.kind() {
+            BoundStructuredExpressionKind::With => self.build_scoped_use(id, expression, current),
             BoundStructuredExpressionKind::PatternTest => {
                 let [scope] = expression.blocks() else {
                     return None;
@@ -74,7 +75,7 @@ where
                 self.build_assertion(id, expression.operands(), current)
             }
             BoundStructuredExpressionKind::TrustBoundary => {
-                self.build_trust_boundary(id, expression.operands(), current)
+                self.build_trust_boundary(id, expression.operands(), expression.blocks(), current)
             }
             BoundStructuredExpressionKind::BooleanAllFold
             | BoundStructuredExpressionKind::BooleanAnyFold => {
@@ -89,8 +90,6 @@ where
             }
             BoundStructuredExpressionKind::ResultPropagation => {
                 let current = self.build_operands(expression.operands(), current)?;
-
-                self.push_bound(current, id.into());
 
                 self.build_result_or_run_result_propagation(id, expression, current)
             }
@@ -123,6 +122,152 @@ where
                 Some(Some(current))
             }
         }
+    }
+
+    fn build_scoped_use(
+        &mut self,
+        id: BoundExpressionId,
+        expression: &bray_bound_tree::BoundStructuredExpression,
+        current: AnalysisBlockId,
+    ) -> Option<Option<AnalysisBlockId>> {
+        let ([initializer], [pattern], [body]) = (
+            expression.operands(),
+            expression.patterns(),
+            expression.blocks(),
+        ) else {
+            panic!("with occurrence {id:?} retains its initializer, pattern and body");
+        };
+
+        let Some(mut current) = self.build_expression(*initializer, current)? else {
+            return Some(None);
+        };
+
+        let completion = self.push_block();
+
+        if self.scoped_uses.contains_key(body) {
+            let completed = self.push_block();
+
+            self.push_call(
+                current,
+                bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+                super::model::AnalysisCallPhase::Attempt,
+            );
+
+            let selected = self
+                .selections()
+                .and_then(|selections| selections.expression(id));
+
+            let Some(bray_bound_tree::SemanticSelection::ScopedUse(scoped)) = selected else {
+                panic!("checked scope entry retains its lifecycle selection");
+            };
+
+            let fallible = scoped.enter().1.result() != scoped.capability_type();
+
+            if matches!(
+                scoped.enter_result(),
+                bray_bound_tree::BoundCallResult::LazyFuture(_)
+            ) {
+                self.push_suspension(
+                    current,
+                    bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+                    super::model::AnalysisSuspensionKind::ScopedCall,
+                );
+
+                let suspended = self.push_block();
+                let cancellation = self.push_block();
+
+                self.push_edge(current, suspended, AnalysisEdgeKind::Suspension, None);
+
+                self.push_edge(
+                    suspended,
+                    completed,
+                    AnalysisEdgeKind::Resume,
+                    Some(super::model::AnalysisRefinement::InvocationCompletion(
+                        bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+                    )),
+                );
+
+                self.push_edge(
+                    suspended,
+                    cancellation,
+                    AnalysisEdgeKind::RunCancellation,
+                    None,
+                );
+
+                self.push_exit(cancellation, AnalysisExitKind::Cancellation, id.into());
+            } else {
+                self.push_edge(
+                    current,
+                    completed,
+                    AnalysisEdgeKind::Sequential,
+                    Some(super::model::AnalysisRefinement::InvocationCompletion(
+                        bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+                    )),
+                );
+            }
+
+            self.push_dependency_failures(
+                current,
+                bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+            );
+
+            let entered = if fallible {
+                let entered = self.push_block();
+
+                self.push_edge(completed, entered, AnalysisEdgeKind::ResultSuccess, None);
+
+                self.push_edge(
+                    completed,
+                    completion,
+                    AnalysisEdgeKind::ResultErrorPropagation,
+                    None,
+                );
+
+                entered
+            } else {
+                completed
+            };
+
+            self.push_call(
+                entered,
+                bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+                super::model::AnalysisCallPhase::Completion,
+            );
+
+            current = entered;
+        }
+
+        let current = self.build_pattern(*pattern, current)?;
+        let current = current.unwrap_or_else(|| self.push_block());
+
+        self.result_yields.push(super::build::ResultYieldContext {
+            target: self
+                .request()
+                .view()
+                .block(*body)?
+                .origin()
+                .source_anchor()
+                .syntax(),
+            completion,
+            scope_depth: self.scope_depth(),
+        });
+
+        let body_completion = self.build_block(*body, current);
+
+        self.result_yields.pop();
+
+        if let Some(body_completion) = body_completion? {
+            self.push_edge(
+                body_completion,
+                completion,
+                AnalysisEdgeKind::Sequential,
+                None,
+            );
+        }
+
+        self.push_bound(completion, id.into());
+
+        Some(Some(completion))
     }
 
     fn build_generator_region(
@@ -229,6 +374,7 @@ where
         &mut self,
         id: BoundExpressionId,
         operands: &[BoundExpressionId],
+        blocks: &[BoundBlockId],
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
         let entry = self.push_block();
@@ -240,7 +386,15 @@ where
             Some(AnalysisRefinement::TrustBoundary(id)),
         );
 
-        let current = self.build_operands(operands, entry)?;
+        let mut current = self.build_operands(operands, entry)?;
+
+        for block in blocks {
+            let Some(completion) = self.build_block(*block, current)? else {
+                return Some(None);
+            };
+
+            current = completion;
+        }
 
         self.push_bound(current, id.into());
 
@@ -396,8 +550,8 @@ where
         }
 
         let exhaustive = self
-            .completion_semantics
-            .and_then(|(_, patterns, _)| patterns.match_coverage(id))
+            .patterns
+            .and_then(|patterns| patterns.match_coverage(id))
             .is_some_and(|coverage| coverage.is_exhaustive() && !coverage.is_recovered());
 
         if !exhaustive {

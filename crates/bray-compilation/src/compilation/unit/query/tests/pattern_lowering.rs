@@ -138,10 +138,10 @@ fn singleton_member_moves_preserve_containing_lifecycle_obligations() {
                 );
             } else {
                 assert!(
-                    flow.value().exits().iter().any(|exit| exit
-                        .moved()
+                    flow.value()
+                        .exits()
                         .iter()
-                        .any(|access| storage.value().root_identity(*access) == Some(root))),
+                        .any(|exit| exit.moved().iter().any(|access| access.root == root)),
                     "{source}"
                 );
 
@@ -169,4 +169,47 @@ fn singleton_member_moves_preserve_containing_lifecycle_obligations() {
             }
         }
     }
+}
+
+#[test]
+fn cleanup_mutation_does_not_fold_branches_using_old_contents() {
+    let source = r#"
+        module example;
+        struct Counter { mut value: i32; }
+        struct Guard { counter: &mut Counter; destruct() { self.counter.value = 1; } }
+        func main() -> i32 {
+            let mut counter: Counter = { value = 0 };
+            { let guard: Guard = { counter = &mut counter }; }
+            if counter.value == 0 { return 1; }
+            counter.value = 2;
+            return 0;
+        }
+    "#;
+
+    let compilation = compilation(source);
+    let key = source_function_body_key(&compilation, "main");
+    let flow = compilation.storage_flow(key).unwrap();
+
+    let writes = flow
+        .value()
+        .operations()
+        .iter()
+        .filter(|operation| {
+            operation.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(writes.len(), 1);
+
+    assert_eq!(
+        writes[0].status(),
+        bray_bound_tree::StorageOperationStatus::Valid,
+        "{flow:?}"
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
 }

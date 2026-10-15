@@ -30,7 +30,17 @@ impl Lowerer<'_> {
                     && candidate == StorageAccessPurpose::Write
         });
 
-        self.lower_access_place(expression, decision.access(), current)
+        let lowered = self.lower_access_place(expression, decision.access(), current)?;
+
+        if matches!(lowered, LoweredPlace::Continuing { .. }) {
+            assert_eq!(
+                decision.status(),
+                StorageOperationStatus::Valid,
+                "executed access must be reachable: {expression:?}"
+            );
+        }
+
+        Ok(lowered)
     }
 
     pub(in crate::lowering) fn storage_decision(
@@ -67,7 +77,8 @@ impl Lowerer<'_> {
     ) -> Option<bray_bound_tree::StorageOperationDecision> {
         let plan = self
             .input
-            .expression_storage_plans(expression)
+            .storage_plan()
+            .expression_plans(expression)
             .find(|plan| accepts(*plan))?;
 
         let decision = self.input.storage_operation(plan).unwrap_or_else(|| {
@@ -77,10 +88,15 @@ impl Lowerer<'_> {
             )
         });
 
-        if decision.status() != StorageOperationStatus::Valid {
+        // A planned access can follow a non-returning initializer. Its metadata is
+        // needed to lower that initializer before deciding whether the access executes.
+        if !matches!(
+            decision.status(),
+            StorageOperationStatus::Valid | StorageOperationStatus::Unreachable
+        ) {
             panic!(
-                "lowering contract violation: RecoveredBoundNode {value:?}",
-                value = expression
+                "lowering contract violation: storage decision {decision:?} for {expression:?}, node: {:?}",
+                self.input.unit().view().expression(expression)
             );
         }
 

@@ -1,0 +1,13 @@
+internal module std.collection.ring;
+
+internal func index(head: usize, storage_capacity: usize, logical_index: usize) -> usize
+{
+    let contiguous: usize = storage_capacity - head;
+
+    if logical_index < contiguous
+    {
+        return head + logical_index;
+    }
+
+    return logical_index - contiguous;
+}

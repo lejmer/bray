@@ -80,6 +80,12 @@ impl<'a> SemanticExporter<'a> {
                             target: self.type_id(*target)?,
                         }
                     }
+                    ConstantTermData::VariantTest { subject, variant } => {
+                        InterfaceConstantTerm::VariantTest {
+                            subject: self.constant_term_id(*subject)?,
+                            variant: self.symbol_reference((*variant).into())?,
+                        }
+                    }
                     ConstantTermData::NullablePresent(value) => {
                         InterfaceConstantTerm::NullablePresent(self.constant_term_id(*value)?)
                     }
@@ -170,6 +176,9 @@ impl<'a> SemanticExporter<'a> {
                             ConstantProjectionKind::TupleElement(ordinal) => {
                                 InterfaceConstantProjection::TupleElement(ordinal)
                             }
+                            ConstantProjectionKind::ArrayElementOrdinal(index) => {
+                                InterfaceConstantProjection::ArrayElementOrdinal(index)
+                            }
                             ConstantProjectionKind::ArrayElement(index) => {
                                 InterfaceConstantProjection::ArrayElement(
                                     self.constant_term_id(index)?,
@@ -219,7 +228,9 @@ impl<'a> SemanticExporter<'a> {
         let term = self
             .values
             .intern_constant_term(ConstantTermData::Value(value))
-            .map_err(super::super::semantic_value_export_error)?;
+            .unwrap_or_else(|error| {
+                panic!("semantic_value_export_error in constant_value_term_id: {error:?}")
+            });
 
         self.constant_term_id(term)
     }
@@ -234,7 +245,9 @@ impl<'a> SemanticExporter<'a> {
                 ty,
                 ConstantValueKind::NullableAbsent,
             ))
-            .map_err(super::super::semantic_value_export_error)?;
+            .unwrap_or_else(|error| {
+                panic!("semantic_value_export_error in nullable_absence_term_id: {error:?}")
+            });
 
         self.constant_value_term_id(value)
     }

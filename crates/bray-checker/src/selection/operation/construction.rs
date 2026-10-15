@@ -7,7 +7,7 @@ use bray_bound_tree::{
 use bray_symbols::CallablePosition;
 
 use crate::type_check::numeric_literal_accepts_type;
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitView};
 
 use super::super::{ConstructionInputSurface, SelectionConstructionInputRejection};
 
@@ -33,17 +33,19 @@ pub(super) fn map_construction_inputs<C>(
     expression: BoundExpressionId,
     target: ConstructionTarget,
     surfaces: &[ConstructionInputSurface],
-) -> Result<ConstructionInputMapping, CheckerInfrastructureError>
+) -> ConstructionInputMapping
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let source = construction_inputs(request, expression)?;
+    let source = construction_inputs(request, expression);
     let mut surfaces = surfaces.iter().collect::<Vec<_>>();
 
     surfaces.sort_unstable_by_key(|surface| surface.ordinal());
 
     if !construction_surface_is_valid(target, &surfaces) {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in map_construction_inputs"
+        );
     }
 
     let mut supplied = vec![false; surfaces.len()];
@@ -53,14 +55,14 @@ where
     let mut recovered = false;
 
     for (source_ordinal, input) in source.into_iter().enumerate() {
-        let source_ordinal = super::super::capacity::selection_ordinal_u64(source_ordinal)?;
+        let source_ordinal = super::super::capacity::selection_ordinal_u64(source_ordinal);
 
         let surface_index = match input.name {
             Some(name) => {
                 saw_named = true;
 
                 let Some(index) = surfaces.iter().position(|surface| surface.name() == name) else {
-                    return Ok(ConstructionInputMapping::Rejected(
+                    return ConstructionInputMapping::Rejected(
                         SelectionConstructionInputRejection::UnknownName {
                             provided: name.as_str().to_owned(),
                             accepted: surfaces
@@ -68,15 +70,15 @@ where
                                 .map(|surface| surface.name().as_str().to_owned())
                                 .collect(),
                         },
-                    ));
+                    );
                 };
 
                 Some(index)
             }
             None if saw_named => {
-                return Ok(ConstructionInputMapping::Rejected(
+                return ConstructionInputMapping::Rejected(
                     SelectionConstructionInputRejection::PositionalAfterNamed,
-                ));
+                );
             }
             None => {
                 let index = positional_index;
@@ -90,25 +92,24 @@ where
         };
 
         let Some(surface_index) = surface_index else {
-            return Ok(ConstructionInputMapping::Rejected(
+            return ConstructionInputMapping::Rejected(
                 SelectionConstructionInputRejection::PositionalUnavailable {
                     ordinal: source_ordinal,
                 },
-            ));
+            );
         };
 
         if supplied[surface_index] {
-            return Ok(ConstructionInputMapping::Rejected(
+            return ConstructionInputMapping::Rejected(
                 SelectionConstructionInputRejection::Duplicate {
                     name: input.name.map(|name| name.as_str().to_owned()),
                     ordinal: source_ordinal,
                 },
-            ));
+            );
         }
 
         let actual = types
-            .expression(input.expression)
-            .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            .expression(input.expression).unwrap_or_else(|| panic!("map_construction_inputs requires checked expression type or node, expression: {expression:?}"));
 
         recovered |= input.is_recovered;
 
@@ -116,16 +117,14 @@ where
 
         if !actual.is_recovered()
             && actual.ty() != surface.ty()
-            && !numeric_literal_accepts_type(request, input.expression, surface.ty())?
+            && !numeric_literal_accepts_type(request, input.expression, surface.ty())
         {
-            return Ok(ConstructionInputMapping::Rejected(
-                SelectionConstructionInputRejection::Type {
-                    name: input.name.map(|name| name.as_str().to_owned()),
-                    ordinal: source_ordinal,
-                    expected: surface.ty(),
-                    actual: actual.ty(),
-                },
-            ));
+            return ConstructionInputMapping::Rejected(SelectionConstructionInputRejection::Type {
+                name: input.name.map(|name| name.as_str().to_owned()),
+                ordinal: source_ordinal,
+                expected: surface.ty(),
+                actual: actual.ty(),
+            });
         }
 
         supplied[surface_index] = true;
@@ -144,15 +143,15 @@ where
         }
 
         let Some(provider) = surface.default() else {
-            let ordinal = super::super::capacity::selection_ordinal_u64(index)?;
+            let ordinal = super::super::capacity::selection_ordinal_u64(index);
 
-            return Ok(ConstructionInputMapping::Rejected(
+            return ConstructionInputMapping::Rejected(
                 SelectionConstructionInputRejection::Missing {
                     name: surface.name().as_str().to_owned(),
                     ordinal,
                     expected: surface.ty(),
                 },
-            ));
+            );
         };
 
         values.push(SelectedConstructionInput::Default {
@@ -163,21 +162,20 @@ where
         });
     }
 
-    Ok(ConstructionInputMapping::Mapped(MappedConstructionInputs {
-        values,
-        recovered,
-    }))
+    ConstructionInputMapping::Mapped(MappedConstructionInputs { values, recovered })
 }
 
 fn construction_inputs<C>(
     request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
-) -> Result<Vec<SourceConstructionInput<'_>>, CheckerInfrastructureError>
+) -> Vec<SourceConstructionInput<'_>>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(expression) = request.view().expression(expression) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in construction_inputs"
+        );
     };
 
     let inputs = match expression {
@@ -211,10 +209,12 @@ where
         BoundExpression::LeadingDotVariant(_)
         | BoundExpression::UnqualifiedVariant(_)
         | BoundExpression::MemberAccess(_) => Vec::new(),
-        _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput),
+        _ => panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in construction_inputs"
+        ),
     };
 
-    Ok(inputs)
+    inputs
 }
 
 fn construction_surface_is_valid(

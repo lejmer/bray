@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::BTreeSet;
 
 use bray_base::Cancellation;
 use bray_bound_tree::BoundUnitId;
@@ -86,8 +86,7 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
         .map(|block| domain.initial(block))
         .collect::<Vec<_>>();
 
-    let mut queued = vec![false; graph.blocks().len()];
-    let mut worklist = VecDeque::new();
+    let mut worklist = BTreeSet::new();
 
     for boundary in boundary_blocks(graph, domain.direction()) {
         let Some(index) = boundary.to_index() else {
@@ -99,19 +98,21 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
         };
 
         domain.merge_boundary(state, &domain.boundary());
-        enqueue(boundary, &mut worklist, &mut queued);
+        enqueue(boundary, &mut worklist, graph, domain.direction());
     }
 
+    // Component order settles all acyclic predecessors before a block runs.
+    // Within a cycle, changed inputs requeue only the affected members.
     for block in graph.blocks() {
         if domain.should_seed(block) {
-            enqueue(block.id(), &mut worklist, &mut queued);
+            enqueue(block.id(), &mut worklist, graph, domain.direction());
         }
     }
 
     let mut updates = 0_usize;
     let convergence_bound = domain.convergence_bound(graph);
 
-    while let Some(block_id) = worklist.pop_front() {
+    while let Some((_, block_id)) = worklist.pop_first() {
         if cancellation.is_cancelled() {
             return FixedPointOutcome::Cancelled;
         }
@@ -119,12 +120,6 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
         let Some(block_index) = block_id.to_index() else {
             continue;
         };
-
-        let Some(marker) = queued.get_mut(block_index) else {
-            continue;
-        };
-
-        *marker = false;
 
         let Some(block) = graph.block(block_id) else {
             continue;
@@ -163,7 +158,7 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
                         return FixedPointOutcome::ConvergenceInvariantViolated;
                     }
 
-                    enqueue(target, &mut worklist, &mut queued);
+                    enqueue(target, &mut worklist, graph, domain.direction());
                 }
 
                 continue;
@@ -180,7 +175,7 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
                     return FixedPointOutcome::ConvergenceInvariantViolated;
                 }
 
-                enqueue(target, &mut worklist, &mut queued);
+                enqueue(target, &mut worklist, graph, domain.direction());
             }
         }
     }
@@ -218,22 +213,20 @@ const fn traversal_target(edge: &AnalysisEdge, direction: FlowDirection) -> Anal
     }
 }
 
-fn enqueue(block: AnalysisBlockId, worklist: &mut VecDeque<AnalysisBlockId>, queued: &mut [bool]) {
-    let Some(index) = block.to_index() else {
-        return;
+fn enqueue(
+    block: AnalysisBlockId,
+    worklist: &mut BTreeSet<(usize, AnalysisBlockId)>,
+    graph: &ControlFlowGraph,
+    direction: FlowDirection,
+) {
+    let rank = graph.component_order(block);
+
+    let priority = match direction {
+        FlowDirection::Forward => rank,
+        FlowDirection::Backward => usize::MAX - rank,
     };
 
-    let Some(marker) = queued.get_mut(index) else {
-        return;
-    };
-
-    if *marker {
-        return;
-    }
-
-    *marker = true;
-
-    worklist.push_back(block);
+    worklist.insert((priority, block));
 }
 
 #[cfg(test)]
@@ -246,14 +239,15 @@ mod tests {
         AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, AnalysisExit, AnalysisExitKind,
         ControlFlowGraph,
     };
-    use crate::analysis::reachability::ReachabilityDomain;
 
     #[test]
     fn forward_and_backward_domains_use_the_same_indexes() {
         let graph = linear_graph();
 
-        let forward = solve_fixed_point(&graph, &ReachabilityDomain::forward(&graph), &|| false);
-        let backward = solve_fixed_point(&graph, &ReachabilityDomain::backward(&graph), &|| false);
+        let forward = solve_fixed_point(&graph, &CounterDomain(FlowDirection::Forward), &|| false);
+
+        let backward =
+            solve_fixed_point(&graph, &CounterDomain(FlowDirection::Backward), &|| false);
 
         let FixedPointOutcome::Complete(forward) = forward else {
             panic!("forward analysis must complete");
@@ -266,20 +260,20 @@ mod tests {
         assert!(
             forward
                 .state(graph.entry())
-                .is_some_and(|state| state.is_clean())
+                .is_some_and(|state| *state == 1)
         );
 
         assert!(
             backward
                 .state(graph.entry())
-                .is_some_and(|state| state.is_clean())
+                .is_some_and(|state| *state == 1)
         );
     }
 
     #[test]
     fn cancellation_discards_fixed_point_state() {
         let graph = linear_graph();
-        let outcome = solve_fixed_point(&graph, &ReachabilityDomain::forward(&graph), &|| true);
+        let outcome = solve_fixed_point(&graph, &CounterDomain(FlowDirection::Forward), &|| true);
 
         assert_eq!(outcome, FixedPointOutcome::Cancelled);
     }
@@ -287,7 +281,7 @@ mod tests {
     #[test]
     fn fixed_point_results_reject_blocks_from_another_unit() {
         let graph = linear_graph();
-        let outcome = solve_fixed_point(&graph, &ReachabilityDomain::forward(&graph), &|| false);
+        let outcome = solve_fixed_point(&graph, &CounterDomain(FlowDirection::Forward), &|| false);
 
         let FixedPointOutcome::Complete(result) = outcome else {
             panic!("forward analysis must complete");
@@ -301,7 +295,7 @@ mod tests {
     #[test]
     fn cyclic_domains_converge_under_their_proven_finite_bound() {
         let graph = cyclic_graph();
-        let outcome = solve_fixed_point(&graph, &CounterDomain, &|| false);
+        let outcome = solve_fixed_point(&graph, &CounterDomain(FlowDirection::Forward), &|| false);
 
         let FixedPointOutcome::Complete(result) = outcome else {
             panic!("finite cyclic analysis must converge");
@@ -310,13 +304,138 @@ mod tests {
         assert_eq!(result.state(graph.entry()), Some(&3));
     }
 
-    struct CounterDomain;
+    #[test]
+    fn unequal_branch_lengths_settle_joins_once_in_both_directions() {
+        use std::cell::Cell;
+        use std::collections::BTreeSet;
+
+        struct Visits {
+            direction: FlowDirection,
+            transfers: Cell<usize>,
+        }
+
+        impl FixedPointDomain for Visits {
+            type State = BTreeSet<AnalysisBlockId>;
+            fn direction(&self) -> FlowDirection {
+                self.direction
+            }
+            fn bottom(&self) -> Self::State {
+                BTreeSet::new()
+            }
+            fn boundary(&self) -> Self::State {
+                BTreeSet::new()
+            }
+            fn should_seed(&self, _: &AnalysisBlock) -> bool {
+                true
+            }
+            fn merge_boundary(&self, _: &mut Self::State, _: &Self::State) -> bool {
+                false
+            }
+            fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
+                self.transfers.set(self.transfers.get() + 1);
+
+                source.iter().copied().chain([block.id()]).collect()
+            }
+            fn propagate(
+                &self,
+                source: &Self::State,
+                _: &AnalysisEdge,
+                target: &mut Self::State,
+            ) -> bool {
+                let before = target.len();
+
+                target.extend(source.iter().copied());
+
+                target.len() != before
+            }
+            fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {
+                graph.blocks().len() * graph.blocks().len()
+            }
+        }
+
+        let unit = BoundUnitId::new(22);
+        let block = |slot| AnalysisBlockId::from_slot(unit, slot);
+        let pairs = [(0, 1), (0, 2), (2, 3), (3, 1), (1, 4)];
+
+        let edges = pairs
+            .iter()
+            .enumerate()
+            .map(|(index, (source, target))| {
+                AnalysisEdge::new(
+                    AnalysisEdgeId::from_slot(unit, u32::try_from(index).unwrap()),
+                    block(*source),
+                    block(*target),
+                    AnalysisEdgeKind::Sequential,
+                    None,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let blocks = (0..5)
+            .map(|slot| {
+                AnalysisBlock::new(
+                    block(slot),
+                    [],
+                    edges
+                        .iter()
+                        .filter(|edge| edge.target() == block(slot))
+                        .map(|edge| edge.id())
+                        .collect::<Vec<_>>(),
+                    edges
+                        .iter()
+                        .filter(|edge| edge.source() == block(slot))
+                        .map(|edge| edge.id())
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let graph = ControlFlowGraph::new(
+            unit,
+            block(0),
+            blocks,
+            edges,
+            [],
+            [AnalysisExit::new(
+                block(4),
+                AnalysisExitKind::NormalFallthrough,
+            )],
+        );
+
+        for direction in [FlowDirection::Forward, FlowDirection::Backward] {
+            let domain = Visits {
+                direction,
+                transfers: Cell::new(0),
+            };
+
+            let FixedPointOutcome::Complete(result) = solve_fixed_point(&graph, &domain, &|| false)
+            else {
+                panic!("finite diamond must converge")
+            };
+
+            let (target, expected) = match direction {
+                FlowDirection::Forward => (
+                    block(4),
+                    BTreeSet::from([block(0), block(1), block(2), block(3)]),
+                ),
+                FlowDirection::Backward => (
+                    block(0),
+                    BTreeSet::from([block(1), block(2), block(3), block(4)]),
+                ),
+            };
+
+            assert_eq!(result.state(target), Some(&expected));
+            assert_eq!(domain.transfers.get(), 5);
+        }
+    }
+
+    struct CounterDomain(FlowDirection);
 
     impl FixedPointDomain for CounterDomain {
         type State = u8;
 
         fn direction(&self) -> FlowDirection {
-            FlowDirection::Forward
+            self.0
         }
 
         fn bottom(&self) -> Self::State {

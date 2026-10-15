@@ -10,10 +10,8 @@ struct CallbackContext<State>
         uses(manual_alloc, raw_memory, unchecked_init)
     {
         let mut storage: std.memory.RawBuffer<State> = try trusted std.memory.RawBuffer<State>(capacity = 1);
-        let pointer: RawPointer<State> = trusted std.memory.spare_pointer<State>(&mut storage);
 
-        trusted std.memory.write<State>(pointer, state);
-        trusted std.memory.set_initialized_count<State>(buffer = &mut storage, count = 1);
+        trusted internal std.memory.initialize_spare<State>(&mut storage, state);
 
         let context: CallbackContext<State> =
         {

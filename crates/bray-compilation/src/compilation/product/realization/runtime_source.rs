@@ -67,6 +67,73 @@ macro_rules! define_runtime_source_fields {
 
 bray_runtime_abi::runtime_role_catalog!(define_runtime_source_fields);
 
+pub(super) fn runtime_source_contract_matches(
+    compilation: &Compilation,
+    role: RuntimeAbiRole,
+    key: &bray_ir::MirUnitKey,
+    cancellation: &CancellationToken,
+) -> Result<bool, FactQueryError> {
+    if role != RuntimeAbiRole::ThreadStorageExit {
+        return Ok(true);
+    }
+
+    let bray_ir::MirUnitKey::Bound(body) = key else {
+        return Ok(false);
+    };
+
+    let declared = compilation.execution_declaration(body.source().syntax())?;
+
+    let conditions = compilation.predicate_condition_inputs(
+        body,
+        declared.value().requirements(),
+        cancellation,
+    )?;
+
+    if declared.diagnostics().has_errors() || conditions.diagnostics().has_errors() {
+        return Ok(false);
+    }
+
+    let [(condition, true, _)] = conditions.value().as_slice() else {
+        return Ok(false);
+    };
+
+    let condition = match condition {
+        bray_checker::ExecutionCondition::Trusted(condition) => condition.as_ref(),
+        condition => condition,
+    };
+
+    let bray_checker::ExecutionCondition::Predicate(
+        bray_symbols::PredicateDefinitionSymbolId::Predicate(predicate),
+        substitution,
+        arguments,
+    ) = condition
+    else {
+        return Ok(false);
+    };
+
+    if !arguments.is_empty()
+        || !compilation
+            .semantic_value_store()?
+            .generic_substitution_data(*substitution)
+            .bindings()
+            .is_empty()
+    {
+        return Ok(false);
+    }
+
+    let definition = compilation.predicate_definition(
+        bray_symbols::PredicateDefinitionSymbolId::Predicate(*predicate),
+    )?;
+
+    // The explicit runtime binding establishes this entry's opaque authority.
+    // Source spelling and visibility cannot select a role or prove the condition.
+    Ok(!definition.diagnostics().has_errors()
+        && matches!(
+            definition.value(),
+            bray_symbols::PredicateDefinitionState::OpaqueTrusted
+        ))
+}
+
 pub(super) fn runtime_source_signature_matches(
     compilation: &Compilation,
     role: RuntimeAbiRole,
@@ -77,9 +144,10 @@ pub(super) fn runtime_source_signature_matches(
         return Ok(None);
     };
 
-    if signature.abi() != CallableAbi::C
+    if signature.abi() != runtime_role_abi(compilation, role, CallableAbi::C)
         || signature.is_variadic()
         || signature.has_panic_report_context()
+            != bray_codegen::CodegenNativeEntryKind::for_runtime_role(role).is_some()
         || signature.parameters().len() != parameters.len()
     {
         return Ok(Some(false));
@@ -123,6 +191,27 @@ pub(super) fn runtime_source_signature_matches(
     ))
 }
 
+pub(super) fn runtime_role_abi(
+    compilation: &Compilation,
+    role: RuntimeAbiRole,
+    declared: CallableAbi,
+) -> CallableAbi {
+    if role == RuntimeAbiRole::ThreadStorageExit
+        && compilation
+            .selected_target()
+            .target()
+            .profile()
+            .properties()
+            .identity()
+            .system()
+            == "windows"
+    {
+        return CallableAbi::System;
+    }
+
+    declared
+}
+
 #[cfg(test)]
 mod tests {
     use bray_codegen::{CodegenCallableSignature, CodegenParameterMapping, CodegenResultMapping};
@@ -133,6 +222,104 @@ mod tests {
     use super::runtime_source_signature_matches;
     use crate::CancellationToken;
     use crate::test_support::compilation;
+
+    #[test]
+    fn native_exit_role_requires_one_opaque_entry_condition_independent_of_spelling() {
+        for (module, requirement, expected) in [
+            (
+                "bray.runtime.bootstrap.thread.destruction",
+                "requires(trusted native_attachment_exit())",
+                true,
+            ),
+            ("bray.runtime.bootstrap.thread.destruction", "", false),
+            (
+                "bray.runtime.bootstrap.thread.destruction",
+                "requires(trusted unrelated())",
+                true,
+            ),
+            (
+                "bray.runtime.bootstrap.thread.destruction",
+                "requires(trusted native_attachment_exit(), value != core.memory.null<u8>())",
+                false,
+            ),
+            ("app", "requires(trusted native_attachment_exit())", true),
+        ] {
+            let compilation = compilation(&format!(
+                r#"
+                trusted internal module {module};
+                trusted predicate native_attachment_exit();
+                trusted predicate unrelated();
+                @abi(c)
+                trusted internal func entry(pos value: RawPointer<u8>) {requirement} {{}}
+            "#
+            ));
+
+            let key = crate::test_support::source_function_body_key(&compilation, "entry");
+
+            assert_eq!(
+                super::runtime_source_contract_matches(
+                    &compilation,
+                    RuntimeAbiRole::ThreadStorageExit,
+                    &bray_ir::MirUnitKey::Bound(key),
+                    &CancellationToken::new()
+                )
+                .unwrap(),
+                expected,
+                "{module}: {requirement}"
+            );
+        }
+
+        for (declaration, requirement) in [
+            ("predicate available() = true;", "available()"),
+            (
+                "trusted predicate available<T>();",
+                "trusted available<u32>()",
+            ),
+            (
+                "trusted predicate available(value: u32);",
+                "trusted available(value = 0)",
+            ),
+        ] {
+            let compilation = compilation(&format!(
+                "trusted module app; {declaration} @abi(c) trusted func entry(pos value: RawPointer<u8>) requires({requirement}) {{}}"
+            ));
+
+            let key = crate::test_support::source_function_body_key(&compilation, "entry");
+
+            assert!(
+                !super::runtime_source_contract_matches(
+                    &compilation,
+                    RuntimeAbiRole::ThreadStorageExit,
+                    &bray_ir::MirUnitKey::Bound(key),
+                    &CancellationToken::new()
+                )
+                .unwrap(),
+                "{declaration}"
+            );
+        }
+
+        for target in bray_target::NativeTarget::ALL {
+            let compilation =
+                crate::compilation::trusted_contracts::production_host_compilation_for_target(
+                    "module app;",
+                    crate::SelectedTarget::for_native(target),
+                );
+
+            let key =
+                crate::test_support::source_function_body_key(&compilation, "thread_storage_exit");
+
+            assert!(
+                super::runtime_source_contract_matches(
+                    &compilation,
+                    RuntimeAbiRole::ThreadStorageExit,
+                    &bray_ir::MirUnitKey::Bound(key),
+                    &CancellationToken::new()
+                )
+                .unwrap(),
+                "{target:?}"
+            );
+        }
+    }
 
     #[test]
     fn source_initialization_requires_native_abi_and_pointer_width_parameters() {
@@ -146,10 +333,11 @@ mod tests {
             .codegen_representation_type(RepresentationRole::ScalarU32)
             .unwrap();
 
-        for (abi, parameter, expected) in [
-            (CallableAbi::C, usize, true),
-            (CallableAbi::C, u32, false),
-            (CallableAbi::Bray, usize, false),
+        for (abi, parameter, context, expected) in [
+            (CallableAbi::C, usize, true, true),
+            (CallableAbi::C, usize, false, false),
+            (CallableAbi::C, u32, true, false),
+            (CallableAbi::Bray, usize, true, false),
         ] {
             let signature = CodegenCallableSignature::new(
                 [
@@ -160,6 +348,12 @@ mod tests {
                 abi,
                 false,
             );
+
+            let signature = if context {
+                signature.with_panic_report_context()
+            } else {
+                signature
+            };
 
             assert_eq!(
                 runtime_source_signature_matches(
@@ -221,6 +415,137 @@ mod tests {
                 .unwrap(),
                 Some(expected)
             );
+        }
+    }
+
+    #[test]
+    fn production_bootstrap_operations_and_layouts_cover_every_target() {
+        for target in bray_target::NativeTarget::ALL {
+            let compilation =
+                crate::compilation::trusted_contracts::production_host_compilation_for_target(
+                    "module app;",
+                    crate::SelectedTarget::for_native(target),
+                );
+
+            for name in [
+                "initialize_host",
+                "shutdown_host",
+                "thread_attachment_enter",
+                "thread_attachment_leave",
+                "thread_storage_exit",
+                "attachment_destructor_address",
+                "finish_native_attachment",
+            ] {
+                let checked = compilation
+                    .lowered_unit(crate::test_support::source_function_body_key(
+                        &compilation,
+                        name,
+                    ))
+                    .unwrap();
+
+                assert!(
+                    !checked.diagnostics().has_errors(),
+                    "{target:?}, {name}: {checked:#?}"
+                );
+            }
+
+            let values = compilation.semantic_value_store().unwrap();
+            let symbols = compilation.symbol_graph().unwrap();
+
+            let types = symbols
+                .structures()
+                .iter()
+                .filter(|symbol| {
+                    symbols.member_name(symbol.id().into()).is_some_and(|name| {
+                        [
+                            "HostOwner",
+                            "HostStorage",
+                            "Attachment",
+                            "ExitScope",
+                            "Synchronization",
+                            "HostLease",
+                            "HostAnchor",
+                            "AttachmentExit",
+                        ]
+                        .contains(&name.as_str())
+                    })
+                })
+                .map(|symbol| {
+                    crate::compilation::substitution::named_type(
+                        values,
+                        bray_symbols::NamedTypeSymbolId::Struct(symbol.id()),
+                    )
+                    .unwrap()
+                })
+                .collect::<std::collections::BTreeSet<_>>();
+
+            assert_eq!(types.len(), 8);
+
+            let target = compilation
+                .selected_target()
+                .target()
+                .codegen_target()
+                .unwrap();
+
+            compilation
+                .codegen_types(types, None, &target, &CancellationToken::new())
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn thread_destructors_require_the_selected_native_callback_abi() {
+        for target in bray_target::NativeTarget::ALL {
+            let compilation = crate::test_support::compilation_with_options(
+                "module app;\n",
+                crate::CompilationOptions::new(
+                    crate::WorkerBudget::serial(),
+                    bray_symbols::ProductKind::Library,
+                    crate::SelectedTarget::for_native(target),
+                ),
+            );
+
+            let byte = compilation
+                .codegen_representation_type(RepresentationRole::ScalarU8)
+                .unwrap();
+
+            let pointer = compilation
+                .available_compiler_known_symbols()
+                .unary_representation_type(
+                    compilation.semantic_value_store().unwrap(),
+                    RepresentationRole::RawPointer,
+                    byte,
+                )
+                .unwrap()
+                .unwrap();
+
+            let expected = if target.as_str().contains("windows") {
+                CallableAbi::System
+            } else {
+                CallableAbi::C
+            };
+
+            for abi in [CallableAbi::C, CallableAbi::System, CallableAbi::Bray] {
+                let signature = CodegenCallableSignature::new(
+                    [CodegenParameterMapping::direct(pointer, None, [])],
+                    CodegenResultMapping::Void,
+                    abi,
+                    false,
+                )
+                .with_panic_report_context();
+
+                assert_eq!(
+                    runtime_source_signature_matches(
+                        &compilation,
+                        RuntimeAbiRole::ThreadStorageExit,
+                        &signature,
+                        &CancellationToken::new(),
+                    )
+                    .unwrap(),
+                    Some(abi == expected),
+                    "{target:?}, {abi:?}",
+                );
+            }
         }
     }
 }

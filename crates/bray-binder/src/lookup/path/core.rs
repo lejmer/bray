@@ -789,14 +789,6 @@ pub(super) fn bind_remaining_path<Upstream>(
             );
         }
 
-        if matches!(ordinary, MemberLookupResult::NotFound)
-            && let AnySymbolId::Module(module) = owner
-            && symbols.module(module).is_some()
-        {
-            ordinary = re_exports(module, references[consumed].text(), access)?
-                .map(ResolvedName::Surface, ResolvedName::Surface);
-        }
-
         let module_prefix = match owner {
             AnySymbolId::Module(module) => symbols
                 .module(module)
@@ -837,6 +829,17 @@ pub(super) fn bind_remaining_path<Upstream>(
             }),
             _ => None,
         };
+
+        // A declared module path is independent of that module's using declarations.
+        // Only missing names need the recursively resolved export surface.
+        if matches!(ordinary, MemberLookupResult::NotFound)
+            && module_prefix.is_none()
+            && let AnySymbolId::Module(module) = owner
+            && symbols.module(module).is_some()
+        {
+            ordinary = re_exports(module, references[consumed].text(), access)?
+                .map(ResolvedName::Surface, ResolvedName::Surface);
+        }
 
         let prefixes =
             std::iter::once((ordinary, 1)).chain(module_prefix.map(module_prefix_as_path_prefix));

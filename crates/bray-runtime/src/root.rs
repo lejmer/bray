@@ -243,7 +243,7 @@ where
 mod tests {
     use std::num::NonZeroUsize;
 
-    use bray_platform::RuntimeThreadScope;
+    use crate::bootstrap::RuntimeThreadScope;
     use bray_runtime_model::RuntimeCapability;
 
     use super::{
@@ -259,6 +259,8 @@ mod tests {
 
     #[test]
     fn synchronous_roots_execute_directly_and_capture_panics() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
 
         assert!(matches!(
@@ -274,6 +276,8 @@ mod tests {
 
     #[test]
     fn synchronous_roots_expose_host_cancellation_to_run_operations() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
 
         let outcome = execute_synchronous_root(
@@ -289,6 +293,8 @@ mod tests {
 
     #[test]
     fn synchronous_cancellation_entry_reaches_the_root_outcome() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
 
         let outcome =
@@ -299,6 +305,8 @@ mod tests {
 
     #[test]
     fn first_root_cancellation_source_is_stable() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let mut cancellation = None;
         let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
 
@@ -323,6 +331,8 @@ mod tests {
 
     #[test]
     fn async_roots_remain_on_the_cooperative_main_thread_lane() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("main runtime thread must initialize: {error:?}"));
 
@@ -360,6 +370,8 @@ mod tests {
 
     #[test]
     fn every_async_root_state_must_remain_on_the_main_thread_lane() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("main runtime thread must initialize: {error:?}"));
 
@@ -392,6 +404,8 @@ mod tests {
 
     #[test]
     fn runtime_failure_cleanup_panics_reach_the_mandatory_report_sink() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("main runtime thread must initialize: {error:?}"));
 
@@ -426,6 +440,8 @@ mod tests {
 
     #[test]
     fn host_cancellation_reaches_the_root_without_a_source_task_handle() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("main runtime thread must initialize: {error:?}"));
 
@@ -458,6 +474,8 @@ mod tests {
 
     #[test]
     fn async_root_driver_runs_main_thread_child_tasks() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("main runtime thread must initialize: {error:?}"));
 

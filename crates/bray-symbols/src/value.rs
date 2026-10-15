@@ -1,3 +1,5 @@
+mod effect;
+pub use effect::{DependencyMutationKind, DependencyStorageEffect};
 mod application;
 mod constant;
 mod contextual_self;
@@ -19,8 +21,9 @@ pub use constant::{
     ConstantValueKind, IntegerConstant, IntegerSign, RealConstantBits, TargetSizedIntegerType,
 };
 pub use dependency::{
-    DependencyCallInput, DependencyContractTemplateData, DependencyGuard, DependencyProjection,
-    DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot,
+    DependencyBorrowRelation, DependencyCallInput, DependencyContractTemplateData, DependencyGuard,
+    DependencyProjection, DependencyReferenceKind, DependencyRequirement,
+    DependencyRequirementKind, DependencySubject, DependencySubjectRoot, DependencyWitnessCarrier,
     GuardedDependencyRequirement, LifecycleObligationKind,
 };
 pub use error::{SemanticValueStoreCreateError, SemanticValueStoreError};

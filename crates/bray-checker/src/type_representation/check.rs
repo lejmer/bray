@@ -17,7 +17,7 @@ use bray_symbols::{
     TypeExpressionTemplate, TypeId,
 };
 
-use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerQueryResult};
+use crate::{CheckerOutcome, CheckerQueryError, CheckerQueryResult};
 
 use super::model::{
     DeclaredStorageMember, DeclaredStorageMemberIdentity, DeclaredTypeDefinition,
@@ -43,9 +43,6 @@ where
             checker.diagnostics,
         )),
         Err(CheckerQueryError::Cancelled) => CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            CheckerOutcome::InfrastructureFailure(error)
-        }
         Err(CheckerQueryError::Upstream(error)) => CheckerOutcome::UpstreamFailure(error),
     }
 }
@@ -565,11 +562,15 @@ where
             == Some(RepresentationRole::Uninit)
         {
             let [GenericParameterSymbolId::Type(_)] = parameters else {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in check_named_template"
+                );
             };
 
             let [argument] = arguments else {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in check_named_template"
+                );
             };
 
             let element = match argument {
@@ -579,7 +580,9 @@ where
                 GenericArgumentTemplate::Type(ty) => self.check_template(ty, origin)?,
                 GenericArgumentTemplate::Resolved(GenericArgument::Constant(_))
                 | GenericArgumentTemplate::Constant(_) => {
-                    return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                    panic!(
+                        "Semantic-selection inputs do not describe the requested bound unit or operation category. in check_named_template"
+                    );
                 }
             };
 
@@ -646,8 +649,7 @@ where
                                 self.context.semantic_values(),
                                 RepresentationRole::Range,
                                 ty,
-                            )
-                            .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+                            ).unwrap_or_else(|| panic!("check_type requires compiler-known unary type argument, ty: {ty:?}"));
 
                         self.validate_range_element_type(element, origin)?;
                     }
@@ -660,8 +662,7 @@ where
                                 self.context.semantic_values(),
                                 RepresentationRole::Uninit,
                                 ty,
-                            )
-                            .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+                            ).unwrap_or_else(|| panic!("check_type requires compiler-known unary type argument, ty: {ty:?}"));
 
                         return self.check_type(element, origin).map(uninit_representation);
                     }

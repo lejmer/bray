@@ -311,7 +311,7 @@ impl Drop for RunCancellationGuard {
 mod tests {
     use std::num::NonZeroUsize;
 
-    use bray_platform::RuntimeThreadScope;
+    use crate::bootstrap::RuntimeThreadScope;
     #[cfg(feature = "test-output")]
     use bray_platform::{
         CapturedRunStream, RunOutputContext, RunOutputStream, begin_current_run_output_operation,
@@ -332,6 +332,8 @@ mod tests {
 
     #[test]
     fn task_contexts_are_scoped_and_restore_the_previous_context() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 
@@ -400,6 +402,8 @@ mod tests {
     #[cfg(feature = "test-output")]
     #[test]
     fn task_contexts_inherit_their_root_output_sinks() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 
@@ -458,6 +462,8 @@ mod tests {
 
     #[test]
     fn requested_state_remains_visible_while_delivery_is_shielded() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let cancellation = CancellationContext::root();
         let shield = cancellation.shield();
 
@@ -473,6 +479,8 @@ mod tests {
 
     #[test]
     fn generated_cleanup_shields_nest_and_restore_delivery() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let cancellation = CancellationContext::root();
 
         super::with_run_cancellation_context(cancellation, || {

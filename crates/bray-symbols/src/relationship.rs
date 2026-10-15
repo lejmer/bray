@@ -756,8 +756,13 @@ mod tests {
         ] {
             index.add_symbol(child, owner);
 
-            for candidate in [first.into(), second.into(), missing.into(), ty.into(), constant.into()]
-            {
+            for candidate in [
+                first.into(),
+                second.into(),
+                missing.into(),
+                ty.into(),
+                constant.into(),
+            ] {
                 let expected = index.children.iter().find_map(|(owner, children)| {
                     children
                         .iter()
@@ -773,7 +778,12 @@ mod tests {
         assert_eq!(ordinal_within_kind(second.into(), &index), 0);
         assert_eq!(ordinal_within_kind(first.into(), &index), 1);
         assert_eq!(ordinal_within_generic_parameters(ty.into(), &index), 0);
-        assert_eq!(ordinal_within_generic_parameters(constant.into(), &index), 1);
+
+        assert_eq!(
+            ordinal_within_generic_parameters(constant.into(), &index),
+            1
+        );
+
         assert_eq!(owner_and_ordinal(missing.into(), &index), None);
 
         let parameter = CallableParameterRelationships::new(first, &index)

@@ -2,7 +2,7 @@ use bray_symbols::CallableParameterDefaultValue;
 
 use crate::test_support::source_function_body_key;
 
-use super::fixtures::{compilation, execution_consumer};
+use super::fixtures::{compilation, execution_consumer, export};
 
 #[test]
 fn runtime_defaults_reject_provider_owned_borrows_in_every_declaration_kind() {
@@ -12,6 +12,7 @@ fn runtime_defaults_reject_provider_owned_borrows_in_every_declaration_kind() {
         struct Flag
         {
             value: bool;
+            func borrow() -> &bool { return &self.value; }
         }
 
         struct Holder
@@ -37,6 +38,9 @@ fn runtime_defaults_reject_provider_owned_borrows_in_every_declaration_kind() {
     "#;
 
     for declaration in [
+        r#"func bad(value: &bool = make_flag().borrow()) {}"#,
+        r#"struct Bad { value: &bool = make_flag().borrow(); }"#,
+        r#"union Bad { Value(value: &bool = make_flag().borrow()); }"#,
         r#"
             func bad(value: &Flag = &make_flag())
             {
@@ -585,4 +589,29 @@ fn mutable_default_results_allow_field_writes() {
     }
 
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn predicate_contracts_export_reborrowed_inputs() {
+    let provider = compilation(
+        r#"
+        module api;
+        trusted predicate observed(value: &u32);
+        func inspect(pos value: &mut u32)
+            requires(trusted observed(&value))
+        {
+        }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+
+    bray_package_interface::encode_package_interface(bundle)
+        .expect("reborrowed contract must encode");
 }

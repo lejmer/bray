@@ -2,7 +2,7 @@ use super::bundle::section;
 use super::model::EncodedSemanticSection;
 use super::value::write_tagged_id;
 use crate::semantic::codec::common::{
-    write_count, write_symbol_reference, write_symbol_references,
+    write_count, write_optional_u32, write_symbol_reference, write_symbol_references,
 };
 use crate::semantic::codec::record::encode_record_table;
 use crate::semantic::model::{
@@ -24,10 +24,59 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
         &mut encoder,
         &semantics.dependency_contracts,
         |encoder, contract| {
+            encoder.write_u32(u32::from(contract.normal_completion));
             write_count(encoder, contract.requirements.len());
 
             for requirement in &*contract.requirements {
                 encode_dependency_requirement(encoder, requirement);
+            }
+
+            write_count(encoder, contract.borrows.len());
+
+            for relation in &*contract.borrows {
+                encode_dependency_subject(encoder, relation.entry());
+                encode_dependency_subject(encoder, relation.exit());
+                encoder.write_u32(relation.kind().to_wire());
+                encoder.write_u32(relation.dereferences());
+                encode_dependency_projections(encoder, relation.target_projections());
+            }
+
+            write_optional_u32(encoder, contract.returned_input.map(|input| input.raw()));
+            write_count(encoder, contract.carriers.len());
+
+            for carrier in &*contract.carriers {
+                encoder.write_u32(carrier.guarantee().raw());
+                encode_dependency_projections(encoder, carrier.path());
+            }
+
+            write_count(encoder, contract.effects.len());
+
+            for effect in &*contract.effects {
+                use bray_symbols::DependencyStorageEffect;
+
+                match effect {
+                    DependencyStorageEffect::Unknown => encoder.write_u32(0),
+                    DependencyStorageEffect::Atomic => encoder.write_u32(4),
+                    DependencyStorageEffect::Cleanup(ty) => {
+                        encoder.write_u32(3);
+                        encoder.write_u32(ty.raw());
+                    }
+                    DependencyStorageEffect::Direct { subject, kind } => {
+                        encoder.write_u32(1);
+                        encode_dependency_subject(encoder, subject);
+                        encoder.write_u32(kind.to_wire());
+                    }
+                    DependencyStorageEffect::Indirect {
+                        reference,
+                        projections,
+                        kind,
+                    } => {
+                        encoder.write_u32(2);
+                        encode_dependency_subject(encoder, reference);
+                        encode_dependency_projections(encoder, projections);
+                        encoder.write_u32(kind.to_wire());
+                    }
+                }
             }
         },
     );
@@ -43,6 +92,8 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                 InterfaceConstraintKind::Predicate(predicate) => {
                     encoder.write_u32(1);
                     encoder.write_u32(predicate.dependency_contract.raw());
+                    write_optional_u32(encoder, predicate.condition.map(|term| term.raw()));
+                    encoder.write_u32(u32::from(predicate.is_trusted));
                 }
                 InterfaceConstraintKind::TraitSatisfaction {
                     subject,
@@ -101,6 +152,8 @@ fn encode_callable_clauses(encoder: &mut WireEncoder, clauses: &[InterfaceCallab
             InterfaceCallableContractClauseValue::Predicate(predicate) => {
                 encoder.write_u32(1);
                 encoder.write_u32(predicate.dependency_contract.raw());
+                write_optional_u32(encoder, predicate.condition.map(|term| term.raw()));
+                encoder.write_u32(u32::from(predicate.is_trusted));
             }
             InterfaceCallableContractClauseValue::TraitSatisfaction {
                 subject,
@@ -118,6 +171,19 @@ pub(super) fn encode_callable_behavior(
     encoder: &mut WireEncoder,
     behavior: &InterfaceCallablePhaseBehavior,
 ) {
+    for predicates in [
+        &behavior.predicate_requirements,
+        &behavior.predicate_guarantees,
+    ] {
+        write_count(encoder, predicates.len());
+
+        for predicate in &**predicates {
+            encoder.write_u32(predicate.dependency_contract.raw());
+            write_optional_u32(encoder, predicate.condition.map(|term| term.raw()));
+            encoder.write_u32(u32::from(predicate.is_trusted));
+        }
+    }
+
     for requirements in [
         &behavior.effects,
         &behavior.capabilities,
@@ -141,6 +207,7 @@ pub(super) fn encode_callable_behavior(
 
     encoder.write_u32(behavior.dependency_contract.raw());
     encoder.write_u32(behavior.current_run_cancellation.to_wire());
+    encoder.write_u32(u32::from(behavior.may_unwind));
     write_count(encoder, behavior.execution_properties.len());
 
     for property in &*behavior.execution_properties {
@@ -259,9 +326,16 @@ pub(super) fn encode_dependency_subject(
         }
     }
 
-    write_count(encoder, subject.projections.len());
+    encode_dependency_projections(encoder, &subject.projections);
+}
 
-    for projection in &*subject.projections {
+fn encode_dependency_projections(
+    encoder: &mut WireEncoder,
+    projections: &[InterfaceDependencyProjection],
+) {
+    write_count(encoder, projections.len());
+
+    for projection in projections {
         match projection {
             InterfaceDependencyProjection::ProductField(field) => {
                 encoder.write_u32(1);
@@ -279,6 +353,7 @@ pub(super) fn encode_dependency_subject(
                 write_symbol_reference(encoder, field);
             }
             InterfaceDependencyProjection::OwnedTarget => encoder.write_u32(6),
+            InterfaceDependencyProjection::UninitPayload => encoder.write_u32(7),
         }
     }
 }

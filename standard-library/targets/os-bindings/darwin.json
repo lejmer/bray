@@ -139,6 +139,9 @@
           "error_state": "returns a POSIX error number",
           "ownership": "success creates one process-owned thread-storage key",
           "initialization": "success initializes the key output",
+          "executes": [
+            "total"
+          ],
           "dependencies": [
             "foreign_call",
             "native_thread",
@@ -162,6 +165,9 @@
           "error_state": "returns a POSIX error number",
           "ownership": "success releases one quiescent thread-storage key",
           "initialization": "existing thread values are not destroyed",
+          "executes": [
+            "total"
+          ],
           "dependencies": [
             "foreign_call",
             "native_thread"
@@ -184,6 +190,9 @@
           "error_state": "returns the current thread value or null when unset",
           "ownership": "the platform does not own the stored value",
           "initialization": "the returned address is opaque",
+          "executes": [
+            "total"
+          ],
           "dependencies": [
             "foreign_call",
             "native_thread",
@@ -212,6 +221,9 @@
           "error_state": "returns a POSIX error number",
           "ownership": "the platform stores but does not own the value",
           "initialization": "null clears the current thread value",
+          "executes": [
+            "total"
+          ],
           "dependencies": [
             "foreign_call",
             "native_thread",
@@ -259,6 +271,11 @@
           "dependencies": [
             "foreign_call",
             "raw_memory"
+          ],
+          "ensures": [
+            "trusted core.memory.valid_read<i32>(pointer = result, count = 1)",
+            "trusted core.memory.aligned_for<i32>(pointer = result)",
+            "trusted core.memory.initialized_as<i32>(pointer = result)"
           ]
         },
         {
@@ -275,6 +292,11 @@
           "dependencies": [
             "foreign_call",
             "raw_memory"
+          ],
+          "ensures": [
+            "trusted core.memory.valid_read<RawPointer<RawPointer<u8>>>(pointer = result, count = 1)",
+            "trusted core.memory.aligned_for<RawPointer<RawPointer<u8>>>(pointer = result)",
+            "trusted core.memory.initialized_as<RawPointer<RawPointer<u8>>>(pointer = result)"
           ]
         },
         {
@@ -290,6 +312,7 @@
           "initialization": "the returned storage contains the current error code",
           "ensures": [
             "trusted core.memory.valid_read<i32>(pointer = result, count = 1)",
+            "trusted core.memory.valid_write<i32>(pointer = result, count = 1)",
             "trusted core.memory.aligned_for<i32>(pointer = result)",
             "trusted core.memory.initialized_as<i32>(pointer = result)"
           ],

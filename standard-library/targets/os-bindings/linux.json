@@ -145,6 +145,9 @@
           "error_state": "returns a POSIX error number",
           "ownership": "success creates one process-owned thread-storage key",
           "initialization": "success initializes the key output",
+          "executes": [
+            "total"
+          ],
           "dependencies": [
             "foreign_call",
             "native_thread",
@@ -168,6 +171,9 @@
           "error_state": "returns a POSIX error number",
           "ownership": "success releases one quiescent thread-storage key",
           "initialization": "existing thread values are not destroyed",
+          "executes": [
+            "total"
+          ],
           "dependencies": [
             "foreign_call",
             "native_thread"
@@ -190,6 +196,9 @@
           "error_state": "returns the current thread value or null when unset",
           "ownership": "the platform does not own the stored value",
           "initialization": "the returned address is opaque",
+          "executes": [
+            "total"
+          ],
           "dependencies": [
             "foreign_call",
             "native_thread",
@@ -218,6 +227,9 @@
           "error_state": "returns a POSIX error number",
           "ownership": "the platform stores but does not own the value",
           "initialization": "null clears the current thread value",
+          "executes": [
+            "total"
+          ],
           "dependencies": [
             "foreign_call",
             "native_thread",

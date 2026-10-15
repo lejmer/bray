@@ -13,8 +13,8 @@ use bray_symbols::{
 use super::result::{effective_pattern_kind, symbol_ordinal};
 use super::state::{PatternChecker, PatternChildren, PatternSubject, available_dependency};
 use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, resolve_type_expression_template,
+    CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider,
+    resolve_type_expression_template,
 };
 
 impl<C> PatternChecker<'_, '_, C>
@@ -311,9 +311,6 @@ where
         let result = match self.request.resolve_symbol_query(request) {
             Ok(result) => result,
             Err(CheckerQueryError::Cancelled) => return Ok(self.recovered_subject()),
-            Err(CheckerQueryError::Infrastructure(error)) => {
-                return Err(CheckerQueryError::Infrastructure(error));
-            }
             Err(CheckerQueryError::Upstream(error)) => {
                 return Err(CheckerQueryError::Upstream(error));
             }
@@ -338,9 +335,6 @@ where
         let constants = match self.request.checked_constant_terms(template) {
             Ok(constants) => constants,
             Err(CheckerQueryError::Cancelled) => return Ok(self.recovered_subject()),
-            Err(CheckerQueryError::Infrastructure(error)) => {
-                return Err(CheckerQueryError::Infrastructure(error));
-            }
             Err(CheckerQueryError::Upstream(error)) => {
                 return Err(CheckerQueryError::Upstream(error));
             }
@@ -355,16 +349,14 @@ where
             self.request.semantic_values(),
             template,
             constants.value(),
-        )?
-        else {
+        ) else {
             return Ok(self.recovered_subject());
         };
 
         let ty = self
             .request
             .semantic_values()
-            .substitute_type(ty, substitution)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            .substitute_type(ty, substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in resolve_field_subject: {error:?}"));
 
         Ok(self.subject(ty, is_recovered))
     }

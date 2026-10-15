@@ -16,7 +16,7 @@ use bray_symbols::{
 use bray_target::TargetAtomicRepresentation;
 
 use crate::diagnostic::{diagnostic_id, expression_span};
-use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 pub(crate) const fn atomic_hook(hook: ImplementationHook) -> bool {
     matches!(
@@ -125,11 +125,7 @@ where
     use ImplementationHook as Hook;
 
     let operation =
-        crate::memory_diagnostics::diagnostic_memory_operation(hook).ok_or_else(|| {
-            CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
-            )
-        })?;
+        crate::memory_diagnostics::diagnostic_memory_operation(hook).unwrap_or_else(|| panic!("classify_atomic_operation requires memory operation diagnostic classification, expression: {expression:?}, hook: {hook:?}"));
 
     let parsed = match parse_atomic_arguments(request, arguments) {
         Some(parsed) => parsed,
@@ -252,12 +248,11 @@ where
             return Ok(None);
         }
         (hook, _) => {
-            return Err(CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidAtomicOperationInput {
-                    hook,
-                    argument_count: parsed.len(),
-                },
-            ));
+            panic!(
+                "Atomic classification received a hook outside the atomic operation catalog. in classify_atomic_operation, hook: {:?}, argument_count: {:?}",
+                hook,
+                parsed.len()
+            );
         }
     };
 
@@ -514,9 +509,6 @@ fn atomic_query_outcome<Upstream>(
 ) -> CheckerOutcome<CheckedMemoryOperations, Upstream> {
     match error {
         crate::CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-        crate::CheckerQueryError::Infrastructure(error) => {
-            CheckerOutcome::InfrastructureFailure(error)
-        }
         crate::CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
@@ -584,8 +576,7 @@ fn add_invalid_atomic_order_diagnostic<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let span =
-        expression_span(request, expression).map_err(CheckerOutcome::InfrastructureFailure)?;
+    let span = expression_span(request, expression);
 
     diagnostics.add(
         Diagnostic::new(
@@ -613,8 +604,7 @@ fn add_unavailable_atomic_operation_diagnostic<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let span =
-        expression_span(request, expression).map_err(CheckerOutcome::InfrastructureFailure)?;
+    let span = expression_span(request, expression);
 
     crate::memory_diagnostics::add_target_memory_operation_unavailable(
         span,

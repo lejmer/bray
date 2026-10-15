@@ -7,7 +7,7 @@ use bray_symbols::{
     TypeData, TypeId,
 };
 
-use crate::{CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext};
+use crate::{CheckerQueryError, CheckerRequestContext};
 
 pub fn normalize_type_valued_members<C>(
     request: &C,
@@ -20,21 +20,32 @@ where
     TypeNormalizer {
         request,
         diagnostics,
+        substitution: None,
         normalized: BTreeMap::new(),
         active: BTreeSet::new(),
     }
     .normalize_type(ty)
 }
 
-pub fn normalize_callable_signature_type_valued_members<C>(
+/// Resolves implementation Self and type-valued members in an instantiated callable signature.
+pub fn normalize_callable_signature<C>(
     request: &C,
     signature: CallableSignature,
+    substitution: Option<GenericSubstitutionId>,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<CallableSignature, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    signature.try_map_types(|ty| normalize_type_valued_members(request, ty, diagnostics))
+    let mut normalizer = TypeNormalizer {
+        request,
+        diagnostics,
+        substitution,
+        normalized: BTreeMap::new(),
+        active: BTreeSet::new(),
+    };
+
+    signature.try_map_types(|ty| normalizer.normalize_type(ty))
 }
 
 struct TypeNormalizer<'request, 'diagnostics, C>
@@ -43,6 +54,7 @@ where
 {
     request: &'request C,
     diagnostics: &'diagnostics mut DiagnosticBag,
+    substitution: Option<GenericSubstitutionId>,
     normalized: BTreeMap<TypeId, TypeId>,
     active: BTreeSet<TypeId>,
 }
@@ -66,6 +78,43 @@ where
         let data = self.request.semantic_values().type_data(ty);
 
         let normalized = match data.as_ref() {
+            TypeData::ContextualSelf(bray_symbols::SelfTypeContext::Implementation(
+                implementation,
+            )) => {
+                let subject = self.request.implementation_subject_type(*implementation)?;
+
+                self.diagnostics
+                    .extend(subject.diagnostics().iter().cloned());
+
+                let subject = match self.substitution {
+                    Some(substitution) => self
+                        .request
+                        .semantic_values()
+                        .substitute_type(*subject.value(), substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in normalize_type: {error:?}")),
+                    None => *subject.value(),
+                };
+
+                self.normalize_type(subject)?
+            }
+            TypeData::ContextualSelf(bray_symbols::SelfTypeContext::NamedType(definition)) => {
+                let subject = self
+                    .request
+                    .semantic_values()
+                    .intern_open_named_type(self.request.symbols(), *definition)
+                    .expect("named Self has a valid generic identity")
+                    .expect("named Self retains its declaration");
+
+                let subject = match self.substitution {
+                    Some(substitution) => self
+                        .request
+                        .semantic_values()
+                        .substitute_type(subject, substitution)
+                        .expect("selected Self substitution is valid"),
+                    None => subject,
+                };
+
+                self.normalize_type(subject)?
+            }
             TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => ty,
             TypeData::Named {
                 definition,
@@ -209,10 +258,9 @@ where
 
         let substitution = self.normalize_substitution(data.substitution())?;
 
-        self.request
+        Ok(self.request
             .semantic_values()
-            .intern_trait_application(TraitApplicationData::new(data.definition(), substitution))
-            .map_err(semantic_value_error)
+            .intern_trait_application(TraitApplicationData::new(data.definition(), substitution)).unwrap_or_else(|error| panic!("normalize_application must satisfy its checked construction contract: {error:?}")))
     }
 
     fn normalize_substitution(
@@ -235,50 +283,20 @@ where
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let normalized = GenericSubstitutionData::try_new(data.owner(), parameters, arguments)
-            .map_err(|error| {
-                CheckerQueryError::Infrastructure(CheckerInfrastructureError::GenericSubstitution(
-                    error,
-                ))
-            })?;
+        let normalized = GenericSubstitutionData::try_new(data.owner(), parameters, arguments).unwrap_or_else(|error| panic!("normalize_substitution must satisfy its checked construction contract: {error:?}"));
 
-        self.request
+        Ok(self.request
             .semantic_values()
-            .intern_generic_substitution(normalized)
-            .map_err(semantic_value_error)
+            .intern_generic_substitution(normalized).unwrap_or_else(|error| panic!("normalize_substitution must satisfy its checked construction contract: {error:?}")))
     }
 
     fn intern(&self, data: TypeData) -> Result<TypeId, CheckerQueryError<C::UpstreamError>> {
-        self.request
+        Ok(self
+            .request
             .semantic_values()
             .intern_type(data)
-            .map_err(semantic_value_error)
-    }
-}
-
-fn semantic_value_error<Upstream>(
-    error: bray_symbols::SemanticValueStoreError,
-) -> CheckerQueryError<Upstream> {
-    CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
-}
-
-#[cfg(test)]
-mod tests {
-    use bray_symbols::{SemanticValueKind, SemanticValueStoreError};
-
-    use super::{CheckerInfrastructureError, CheckerQueryError, semantic_value_error};
-
-    #[test]
-    fn normalization_retains_the_exact_semantic_value_store_failure() {
-        let error = SemanticValueStoreError::CapacityExhausted {
-            kind: SemanticValueKind::TraitApplication,
-        };
-
-        assert_eq!(
-            semantic_value_error::<()>(error),
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                error,
-            ))
-        );
+            .unwrap_or_else(|error| {
+                panic!("intern must satisfy its checked construction contract: {error:?}")
+            }))
     }
 }

@@ -156,7 +156,8 @@ scope CoreAtomic at core.atomic {
             func wait<T, const ORDER: usize>(
                 pos storage: &Atomic<T>,
                 pos expected: T,
-            ) -> unit;
+            ) -> unit
+                requires(blocking_execution());
         }
     }
 

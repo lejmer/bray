@@ -148,9 +148,8 @@ impl SemanticValueStore {
             replacement,
         )?;
 
-        self.intern_dependency_contract_template(super::DependencyContractTemplateData::new(
-            requirements,
-        ))
+        // Formal storage paths carry no contextual Self type. Share their immutable identities.
+        self.intern_dependency_contract_template(template.with_requirements(requirements))
     }
 
     fn substitute_contextual_call_inputs(

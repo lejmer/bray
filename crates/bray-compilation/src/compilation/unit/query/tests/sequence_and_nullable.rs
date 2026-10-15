@@ -4,11 +4,43 @@ use bray_compiler_known::ImplementationHook;
 use bray_ir::{MirBinaryOperator, MirNullableQueryKind, MirOperationKind};
 
 #[test]
+fn sequence_method_references_cannot_initialize_their_result_type() {
+    let compilation = compilation(
+        r#"module app;
+
+func inspect(pos slice: &[u8]) -> usize
+{
+    let count: usize = slice.length;
+    return count;
+}
+"#,
+    );
+
+    assert!(
+        compilation
+            .check_diagnostics()
+            .by_kind(bray_diagnostics::DiagnosticKind::CheckingIncompatibleExpressionType)
+            .next()
+            .is_some()
+    );
+
+    let key = source_callable_body_key(&compilation);
+
+    let lowered = compilation
+        .lowered_unit(key)
+        .expect("invalid source must retain diagnostics");
+
+    assert!(lowered.diagnostics().has_errors());
+    assert!(lowered.value().is_none());
+}
+
+#[test]
 fn slices_and_fixed_arrays_select_and_lower_sequence_operations() {
     let compilation = compilation(
         r#"module app;
 
 func inspect(pos slice: &[u8], pos array: [u8; 4]) -> (usize, bool, usize, bool)
+    executes(pure)
 {
     return (slice.length(), slice.is_empty(), array.length(), array.is_empty());
 }

@@ -1,0 +1,262 @@
+trusted module std.sync;
+
+using internal std.sync.mutex;
+using internal std.sync.spin_lock;
+using internal std.sync.condition;
+
+struct ConditionVariable
+{
+    instance: std.sync.condition.Marker;
+    storage: Uninit<SpinLock<std.sync.condition.Queue>>;
+
+    trusted construct() -> Self
+        ensures(trusted std.sync.condition.valid(&result.instance))
+    {
+        return
+        {
+            instance = std.sync.condition.Marker
+            {
+            },
+            storage = std.memory.uninit_from<SpinLock<std.sync.condition.Queue>>(
+                SpinLock<std.sync.condition.Queue>(
+                    {
+                        head = core.atomic.initialize<RawPointer<std.sync.condition.Waiter>>(
+                            std.memory.null<std.sync.condition.Waiter>()
+                        )
+                    }
+                ),
+            ),
+        };
+    }
+
+    trusted destruct()
+        requires(trusted std.sync.condition.valid(&self.instance))
+        uses(raw_memory)
+    {
+        let authorize = trusted lambda(pos pointer: RawPointer<SpinLock<std.sync.condition.Queue>>)
+            ensures(
+                trusted core.memory.valid_read<SpinLock<std.sync.condition.Queue>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.initialized_as<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.epoch_current<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.synchronized_access<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.movement_stable<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.finalization_pending<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        let pointer = std.memory.uninit_pointer<SpinLock<std.sync.condition.Queue>>(&self.storage);
+
+        authorize(pointer);
+
+        let queue = trusted std.memory.read<SpinLock<std.sync.condition.Queue>>(pointer);
+
+        let authorize_queue = trusted lambda(pos queue: &SpinLock<std.sync.condition.Queue>)
+            ensures(trusted std.sync.spin_lock.valid(&queue.instance))
+            executes(pure, total) {};
+
+        authorize_queue(&queue);
+    }
+
+    trusted func wait<T>(pos guard: MutexGuard<T>) -> MutexGuard<T>
+        requires(
+            blocking_execution(),
+            trusted std.sync.condition.valid(&self.instance),
+            trusted std.sync.mutex.acquired(&guard.acquisition),
+        )
+        ensures(trusted std.sync.condition.valid(&self.instance), trusted std.sync.mutex.acquired(&result.acquisition))
+        uses(raw_memory, unchecked_alias)
+    {
+        let authorize = trusted lambda(pos pointer: RawPointer<SpinLock<std.sync.condition.Queue>>)
+            ensures(
+                trusted core.memory.valid_read<SpinLock<std.sync.condition.Queue>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.initialized_as<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.epoch_current<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.synchronized_access<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.movement_stable<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.finalization_pending<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        let pointer = std.memory.uninit_pointer<SpinLock<std.sync.condition.Queue>>(&self.storage);
+
+        authorize(pointer);
+
+        let queue = trusted std.memory.borrow_from<SpinLock<std.sync.condition.Queue>, Self>(&self, pointer);
+
+        let authorize_queue = trusted lambda(pos queue: &SpinLock<std.sync.condition.Queue>)
+            ensures(trusted std.sync.spin_lock.valid(&queue.instance))
+            executes(pure, total) {};
+
+        authorize_queue(queue);
+
+        let authorize_waiter = trusted lambda(pos pointer: RawPointer<std.sync.condition.Waiter>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.condition.Waiter>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.condition.Waiter>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.condition.Waiter>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.condition.Waiter>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.condition.Waiter>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.condition.Waiter>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.condition.Waiter>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.condition.Waiter>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        let waiter: std.sync.condition.Waiter =
+        {
+            previous = core.atomic.initialize<RawPointer<std.sync.condition.Waiter>>(
+                std.memory.null<std.sync.condition.Waiter>()
+            ),
+            next = core.atomic.initialize<RawPointer<std.sync.condition.Waiter>>(
+                std.memory.null<std.sync.condition.Waiter>()
+            ),
+            signalled = core.atomic.initialize<u32>(0),
+        };
+
+        let mutex = guard.owner();
+
+        let address = std.memory.address_of<std.sync.condition.Waiter>(&waiter);
+
+        // Publish while the application mutex is still held. Only this call owns the node.
+        {
+            let mut held = queue.lock();
+            let list = held.get();
+
+            let head = core.atomic.load<RawPointer<std.sync.condition.Waiter>, 0>(&list.head);
+
+            core.atomic.store<RawPointer<std.sync.condition.Waiter>, 0>(&waiter.next, head);
+
+            if !std.memory.is_null<std.sync.condition.Waiter>(head)
+            {
+                authorize_waiter(head);
+
+                let first = trusted std.memory.borrow_from<std.sync.condition.Waiter, Self>(&self, head);
+
+                core.atomic.store<RawPointer<std.sync.condition.Waiter>, 0>(&first.previous, address);
+            }
+
+            core.atomic.store<RawPointer<std.sync.condition.Waiter>, 0>(&list.head, address);
+        }
+
+        guard.unlock();
+        core.atomic.wait<u32, 1>(&waiter.signalled, 0);
+
+        // Removal shares the notifier's lock, including completion of its native wake.
+        {
+            let mut held = queue.lock();
+            let list = held.get();
+            let previous = core.atomic.load<RawPointer<std.sync.condition.Waiter>, 0>(&waiter.previous);
+            let next = core.atomic.load<RawPointer<std.sync.condition.Waiter>, 0>(&waiter.next);
+
+            if std.memory.is_null<std.sync.condition.Waiter>(previous)
+            {
+                core.atomic.store<RawPointer<std.sync.condition.Waiter>, 0>(&list.head, next);
+            }
+            else
+            {
+                authorize_waiter(previous);
+
+                let before = trusted std.memory.borrow_from<std.sync.condition.Waiter, Self>(&self, previous);
+
+                core.atomic.store<RawPointer<std.sync.condition.Waiter>, 0>(&before.next, next);
+            }
+
+            if !std.memory.is_null<std.sync.condition.Waiter>(next)
+            {
+                authorize_waiter(next);
+
+                let after = trusted std.memory.borrow_from<std.sync.condition.Waiter, Self>(&self, next);
+
+                core.atomic.store<RawPointer<std.sync.condition.Waiter>, 0>(&after.previous, previous);
+            }
+        }
+
+        return mutex.lock();
+    }
+
+    func notify_one()
+        requires(trusted std.sync.condition.valid(&self.instance))
+        ensures(trusted std.sync.condition.valid(&self.instance))
+    {
+        self.notify(false);
+    }
+
+    func notify_all()
+        requires(trusted std.sync.condition.valid(&self.instance))
+        ensures(trusted std.sync.condition.valid(&self.instance))
+    {
+        self.notify(true);
+    }
+
+    internal trusted func notify(pos everyone: bool)
+        requires(trusted std.sync.condition.valid(&self.instance))
+        ensures(trusted std.sync.condition.valid(&self.instance))
+        uses(raw_memory, unchecked_alias)
+    {
+        let authorize = trusted lambda(pos pointer: RawPointer<SpinLock<std.sync.condition.Queue>>)
+            ensures(
+                trusted core.memory.valid_read<SpinLock<std.sync.condition.Queue>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.initialized_as<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.epoch_current<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.synchronized_access<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.movement_stable<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+                trusted core.memory.finalization_pending<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        let pointer = std.memory.uninit_pointer<SpinLock<std.sync.condition.Queue>>(&self.storage);
+
+        authorize(pointer);
+
+        let queue = trusted std.memory.borrow_from<SpinLock<std.sync.condition.Queue>, Self>(&self, pointer);
+
+        let authorize_queue = trusted lambda(pos queue: &SpinLock<std.sync.condition.Queue>)
+            ensures(trusted std.sync.spin_lock.valid(&queue.instance))
+            executes(pure, total) {};
+
+        authorize_queue(queue);
+
+        let authorize_waiter = trusted lambda(pos pointer: RawPointer<std.sync.condition.Waiter>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.condition.Waiter>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.condition.Waiter>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.condition.Waiter>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.condition.Waiter>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.condition.Waiter>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.condition.Waiter>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.condition.Waiter>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.condition.Waiter>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        let mut held = queue.lock();
+        let list = held.get();
+        let mut current = core.atomic.load<RawPointer<std.sync.condition.Waiter>, 0>(&list.head);
+
+        while !std.memory.is_null<std.sync.condition.Waiter>(current)
+        {
+            authorize_waiter(current);
+
+            let waiter = trusted std.memory.borrow_from<std.sync.condition.Waiter, Self>(&self, current);
+
+            if core.atomic.load<u32, 0>(&waiter.signalled) == 0
+            {
+                core.atomic.store<u32, 2>(&waiter.signalled, 1);
+                core.atomic.notify_one<u32>(&waiter.signalled);
+
+                if !everyone
+                {
+                    return;
+                }
+            }
+
+            current = core.atomic.load<RawPointer<std.sync.condition.Waiter>, 0>(&waiter.next);
+        }
+    }
+}

@@ -9,6 +9,40 @@ use bray_symbols::TypeData;
 use bray_testing::assert_goal_state_diagnostic_kind;
 
 #[test]
+fn successive_returned_views_retain_their_own_borrow_capabilities() {
+    let compilation = compilation(
+        r#"module app;
+        struct Holder
+        {
+            pointer: RawPointer<u8>;
+            mut value: u8;
+        }
+        func holder_value(pos holder: &Holder) -> &u8 { return &holder.value; }
+        func equal(pos value: &u8) -> bool { return value == 1; }
+        func probe()
+        {
+            let mut holder: Holder = { pointer = core.memory.null<u8>(), value = 1 };
+            assert(equal(holder_value(&holder)));
+            holder.value = 2;
+            assert(equal(holder_value(&holder)));
+        }
+        "#,
+    );
+
+    let lowered = compilation
+        .lowered_unit(source_function_body_key(&compilation, "probe"))
+        .expect("successive transient views must lower");
+
+    assert!(
+        lowered.diagnostics().is_empty(),
+        "{:?}",
+        lowered.diagnostics()
+    );
+
+    assert!(lowered.value().is_some());
+}
+
+#[test]
 fn mutable_receiver_authority_reaches_mutable_projected_fields() {
     let compilation = compilation(concat!(
         "module app;\n",
@@ -479,4 +513,46 @@ fn mutable_trait_fulfillment_receivers_authorize_field_assignment() {
         }),
         "{flow:?}"
     );
+}
+
+#[test]
+fn explicit_receiver_loans_are_reused_and_still_cover_argument_evaluation() {
+    for (argument, valid) in [("1", true), ("touch(&mut counter)", false)] {
+        let source = format!(
+            r#"
+            module app;
+            trait Writer {{ mut func write(pos value: i32); }}
+            struct Counter {{ mut value: i32; }}
+            impl Counter(Writer) {{ mut func write(pos value: i32) {{ self.value = value; }} }}
+            func touch(pos counter: &mut Counter) -> i32 {{ counter.value = 3; return 2; }}
+            func caller() {{
+                let mut counter = Counter {{ value = 0 }};
+                (&mut counter)(Writer).write({argument});
+                (&mut counter)(Writer).write(4);
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if valid {
+            let lowered = application
+                .lowered_unit(source_function_body_key(&application, "caller"))
+                .unwrap();
+
+            assert!(lowered.value().is_some(), "{lowered:#?}");
+        } else {
+            assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingConflictingBorrow,
+            );
+        }
+    }
 }

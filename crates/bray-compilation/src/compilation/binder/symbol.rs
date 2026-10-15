@@ -11,7 +11,10 @@ mod imported;
 mod initializer;
 mod module_surface;
 mod result_dependencies;
-pub(in crate::compilation) use result_dependencies::expression_result_dependencies;
+pub(in crate::compilation) use result_dependencies::{
+    BodyAnalysis, default_result_dependencies, expression_result_dependencies,
+    source_body_semantics, static_result_dependencies,
+};
 mod static_storage;
 pub(in crate::compilation) use static_storage::static_dependencies_from_contract;
 mod surface;
@@ -24,6 +27,9 @@ pub(in crate::compilation) use binding::binder_error;
 pub(in crate::compilation) use cache::CompilationSymbolSemantics;
 pub(in crate::compilation) use contract::{
     bind_declared_execution_requirements, bind_declared_trusted_capabilities,
+};
+pub(in crate::compilation) use declaration_body::{
+    checked_callable_type_contracts, static_dependency_root,
 };
 pub(in crate::compilation) use directive::bind_module_part_directives_for_selection;
 pub(in crate::compilation) use environment::{

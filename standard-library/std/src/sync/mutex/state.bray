@@ -1,0 +1,26 @@
+trusted module std.sync.mutex;
+
+struct State<T>
+{
+    tickets: core.atomic.Atomic<u32>;
+    value: Uninit<T>;
+}
+
+struct Marker
+{
+}
+
+trusted predicate acquired(marker: &Marker);
+
+trusted predicate valid(marker: &Marker);
+
+const func marker<T>(pos guard: &(std.sync.MutexGuard<T>?)) -> &Marker
+    requires(guard matches ?_)
+    executes(pure, total)
+{
+    match guard
+    {
+        case ?held { return &held.acquisition; }
+        case none { panic("missing mutex acquisition"); }
+    }
+}

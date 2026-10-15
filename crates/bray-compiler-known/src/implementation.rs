@@ -34,6 +34,8 @@ define_catalog_enum! {
         MemoryCopyOverlapping => "MemoryCopyOverlapping",
         /// Creates protected storage without creating a value of its represented type.
         UninitNew => "UninitNew",
+        /// Moves an initialized value into protected storage.
+        UninitFrom => "UninitFrom",
         /// Produces a shared raw pointer to protected storage.
         UninitPointer => "UninitPointer",
         /// Produces a mutable raw pointer to protected storage.
@@ -66,6 +68,10 @@ define_catalog_enum! {
         Allocate => "Allocate",
         /// Releases an owned raw allocation.
         Deallocate => "Deallocate",
+        /// Creates an empty raw-buffer owner from a validated element layout.
+        RawBufferAllocate => "RawBufferAllocate",
+        RawBufferPush => "RawBufferPush",
+        RawBufferPop => "RawBufferPop",
         /// Reads a raw buffer's capacity.
         RawBufferCapacity => "RawBufferCapacity",
         /// Reads a raw buffer's initialized element count.
@@ -88,8 +94,6 @@ define_catalog_enum! {
         RawBufferRelocate => "RawBufferRelocate",
         /// Initializes a byte-buffer range to one repeated byte.
         ByteBufferFill => "ByteBufferFill",
-        /// Copies an initialized byte slice into distinct writable storage.
-        ByteBufferCopy => "ByteBufferCopy",
         /// Reads one initialized byte from byte-buffer storage.
         ByteBufferRead => "ByteBufferRead",
         /// Reads the element count of a slice or fixed array.
@@ -250,6 +254,14 @@ define_catalog_enum! {
 }
 
 impl ImplementationHook {
+    /// Whether this predicate describes the current runtime execution lane.
+    pub const fn is_execution_requirement(self) -> bool {
+        matches!(
+            self,
+            Self::BlockingExecution | Self::ComputeExecution | Self::MainThreadExecution
+        )
+    }
+
     /// Compiler-provided raw-memory and layout operations.
     pub const MEMORY_OPERATIONS: &'static [Self] = &[
         Self::AddressOf,
@@ -266,6 +278,7 @@ impl ImplementationHook {
         Self::MemoryCopy,
         Self::MemoryCopyOverlapping,
         Self::UninitNew,
+        Self::UninitFrom,
         Self::UninitPointer,
         Self::UninitPointerMut,
         Self::UninitWrite,
@@ -282,6 +295,9 @@ impl ImplementationHook {
         Self::RawDeallocate,
         Self::Allocate,
         Self::Deallocate,
+        Self::RawBufferAllocate,
+        Self::RawBufferPush,
+        Self::RawBufferPop,
         Self::RawBufferCapacity,
         Self::RawBufferInitializedCount,
         Self::RawBufferPointer,
@@ -293,7 +309,6 @@ impl ImplementationHook {
         Self::RawBufferReplace,
         Self::RawBufferRelocate,
         Self::ByteBufferFill,
-        Self::ByteBufferCopy,
         Self::ByteBufferRead,
         Self::CallbackState,
         Self::TransferredValueBorrow,

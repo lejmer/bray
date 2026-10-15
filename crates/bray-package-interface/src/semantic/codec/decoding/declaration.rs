@@ -149,8 +149,12 @@ fn decode_type_representation(
     let alignment = read_optional_u64(reader)?;
     let packing = read_optional_u64(reader)?;
     let opaque_size = read_optional_u64(reader)?;
-    let incomplete = decode_bool(reader)?;
-    let tagless_union = decode_bool(reader)?;
+
+    let incomplete =
+        super::common::decode_bool(reader, crate::InterfaceValidationField::Declaration)?;
+
+    let tagless_union =
+        super::common::decode_bool(reader, crate::InterfaceValidationField::Declaration)?;
 
     let union_tag_type =
         crate::semantic::codec::common::read_optional_u32(reader)?.map(InterfaceTypeId::new);
@@ -227,8 +231,11 @@ fn decode_type_representation(
     let copy_dependencies =
         crate::semantic::codec::common::read_symbol_references(reader, limits, context)?;
 
-    let plain_storage = decode_bool(reader)?;
-    let finite_size = decode_bool(reader)?;
+    let plain_storage =
+        super::common::decode_bool(reader, crate::InterfaceValidationField::Declaration)?;
+
+    let finite_size =
+        super::common::decode_bool(reader, crate::InterfaceValidationField::Declaration)?;
 
     Ok(InterfaceTypeRepresentation::new(owner)
         .with_layout(layout, alignment, packing, union_tag_type)
@@ -262,19 +269,6 @@ fn read_optional_u64(reader: &mut WireReader<'_>) -> Result<Option<u64>, Interfa
     match raw {
         0 => Ok(None),
         1 => reader.read_u64().map(Some).map_err(map_wire_error),
-        _ => Err(crate::semantic::codec::invalid_discriminant(
-            crate::InterfaceValidationField::Declaration,
-            raw,
-        )),
-    }
-}
-
-fn decode_bool(reader: &mut WireReader<'_>) -> Result<bool, InterfaceValidationError> {
-    let raw = read_u32(reader)?;
-
-    match raw {
-        0 => Ok(false),
-        1 => Ok(true),
         _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Declaration,
             raw,
@@ -316,7 +310,9 @@ pub(super) fn decode_callable_signature(
 
     let result = InterfaceTypeId::new(read_u32(reader)?);
     let result_dependencies = crate::InterfaceDependencyContractId::new(read_u32(reader)?);
-    let has_body = decode_bool(reader)?;
+
+    let has_body =
+        super::common::decode_bool(reader, crate::InterfaceValidationField::Declaration)?;
 
     Ok(InterfaceCallableSignature::new(
         owner,

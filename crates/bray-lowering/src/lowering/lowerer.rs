@@ -23,6 +23,7 @@ pub(super) enum YieldTarget {
         syntax: SyntaxAnchor,
         block: MirBlockId,
         result_type: bray_symbols::TypeId,
+        success_type: Option<bray_symbols::TypeId>,
         scope_depth: usize,
     },
     Generator {
@@ -66,6 +67,7 @@ pub(super) struct Lowerer<'unit> {
     pub(super) static_accesses: BTreeMap<StorageAccessId, StaticReferenceSelection>,
     pub(super) parameter_positions: BTreeMap<StorageIdentityId, u32>,
     pub(super) active_scopes: Vec<bray_bound_tree::BoundBlockId>,
+    pub(super) scoped_guards: BTreeMap<bray_bound_tree::BoundExpressionId, MirPlace>,
     pub(super) yield_targets: Vec<YieldTarget>,
     pub(super) loop_targets: Vec<LoopTarget>,
     pub(super) catch_targets: Vec<CatchTarget>,
@@ -104,6 +106,7 @@ impl<'unit> Lowerer<'unit> {
             static_accesses: BTreeMap::new(),
             parameter_positions,
             active_scopes: Vec::new(),
+            scoped_guards: BTreeMap::new(),
             yield_targets: Vec::new(),
             loop_targets: Vec::new(),
             catch_targets: Vec::new(),
@@ -1832,6 +1835,7 @@ mod tests {
             unit.key().kind(),
             [],
             [],
+            unit.tree().blocks().map(|(block, _)| block),
             scope_exits
                 .iter()
                 .map(|(scope, exit)| StorageExitPoint::new(*scope, *exit)),
@@ -1845,8 +1849,14 @@ mod tests {
         let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
             .unwrap_or_else(|error| panic!("empty liveness must validate: {error:?}"));
 
-        let refinements = CheckedRefinements::try_new(unit.unit(), unit.key().kind(), [], false)
-            .unwrap_or_else(|error| panic!("empty refinements must validate: {error:?}"));
+        let refinements = CheckedRefinements::try_new(
+            unit.unit(),
+            unit.key().kind(),
+            [],
+            Default::default(),
+            false,
+        )
+        .unwrap_or_else(|error| panic!("empty refinements must validate: {error:?}"));
 
         let dependencies = CheckedDependencyContracts::try_new(
             &unit,
@@ -1854,7 +1864,7 @@ mod tests {
             expressions
                 .iter()
                 .copied()
-                .map(|expression| (expression, BoundDependencyContract::new([]))),
+                .map(|expression| (expression.into(), BoundDependencyContract::new([]))),
             [],
             [],
             [],

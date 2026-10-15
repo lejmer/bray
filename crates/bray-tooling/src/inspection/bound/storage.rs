@@ -226,6 +226,7 @@ impl InspectionStorageProvenance {
             | StorageIdentity::CustomIndexBorrow(expression)
             | StorageIdentity::IterationCursor(expression)
             | StorageIdentity::IterationElement(expression)
+            | StorageIdentity::ScopedCapability { expression, .. }
             | StorageIdentity::Allocation(expression) => Ok(Self::Expression {
                 expression: expression.ordinal(),
             }),
@@ -433,6 +434,8 @@ enum InspectionStorageProjection {
     },
     NullableValue,
     OwnedTarget,
+    /// The payload held in protected uninitialized storage.
+    UninitPayload,
 }
 
 impl InspectionStorageProjection {
@@ -465,6 +468,7 @@ impl InspectionStorageProjection {
             },
             StorageProjection::NullableValue => Self::NullableValue,
             StorageProjection::OwnedTarget => Self::OwnedTarget,
+            StorageProjection::UninitPayload => Self::UninitPayload,
         }
     }
 
@@ -490,6 +494,7 @@ impl InspectionStorageProjection {
             ),
             Self::NullableValue => String::from("nullable_value"),
             Self::OwnedTarget => String::from("owned_target"),
+            Self::UninitPayload => String::from("uninit_payload"),
         }
     }
 }

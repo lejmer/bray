@@ -87,29 +87,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 ))
             }
             MirProjectionKind::ElementFromStart(index) => {
-                self.static_element_pointer(pointer, &kind, u64::from(*index))
+                self.sequence_element_pointer(pointer, source_type, &kind, *index, false)
             }
             MirProjectionKind::ElementFromEnd(index) => {
-                let CodegenTypeKind::Array { length, .. } = kind else {
-                    panic!(
-                        "checked MIR place translation violated an established compiler contract"
-                    );
-                };
-
-                let index = length
-                    .checked_sub(u64::from(*index))
-                    .and_then(|value| value.checked_sub(1))
-                    .expect(
-                        "checked MIR place translation requires an established mapping or value",
-                    );
-
-                self.static_element_pointer(
-                    pointer,
-                    self.type_mapping(source_type)
-                        .map(bray_codegen::CodegenTypeMapping::kind)
-                        .expect("checked MIR place translation requires an established mapping or value"),
-                    index,
-                )
+                self.sequence_element_pointer(pointer, source_type, &kind, *index, true)
             }
             MirProjectionKind::Index(index) => {
                 let index = self.operand(index)?;
@@ -145,32 +126,64 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             MirProjectionKind::OwnedStorage => Ok(pointer),
             MirProjectionKind::Field(_) | MirProjectionKind::TupleField(_) => {
-                panic!("checked MIR place translation violated an established compiler contract")
+                panic!(
+                    "field projection {projection:?} requires aggregate representation, got {kind:?} for {source_type:?}"
+                )
             }
         }
     }
 
-    pub(super) fn static_element_pointer(
-        &self,
+    fn sequence_element_pointer(
+        &mut self,
         pointer: PointerValue<'context>,
+        source_type: bray_symbols::TypeId,
         kind: &CodegenTypeKind,
-        index: u64,
+        ordinal: u32,
+        from_end: bool,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
-        let CodegenTypeKind::Array { element, length } = kind else {
-            panic!("checked MIR place translation violated an established compiler contract");
+        let integer = self
+            .types
+            .context()
+            .ptr_sized_int_type(self.types.target_data(), None);
+
+        let ordinal = u64::from(ordinal);
+
+        let (pointer, element, index) = match kind {
+            CodegenTypeKind::Array { element, length } => {
+                assert!(
+                    ordinal < *length,
+                    "checked array projection {ordinal} exceeds length {length}"
+                );
+
+                let index = if from_end {
+                    length - ordinal - 1
+                } else {
+                    ordinal
+                };
+
+                (pointer, *element, integer.const_int(index, false))
+            }
+            CodegenTypeKind::UnsizedSlice { element } => {
+                let (data, length) = self.unsized_slice_parts(pointer, source_type)?;
+
+                let index = if from_end {
+                    llvm(self.builder.build_int_sub(
+                        length,
+                        integer.const_int(ordinal + 1, false),
+                        "slice.suffix.index",
+                    ))?
+                } else {
+                    integer.const_int(ordinal, false)
+                };
+
+                (data, *element, index)
+            }
+            unexpected => {
+                panic!("checked sequence projection requires an array or slice, got {unexpected:?}")
+            }
         };
 
-        if index >= *length {
-            panic!("checked MIR place translation violated an established compiler contract");
-        }
-
-        let stride = self.mapped_type_size(*element);
-
-        let offset = stride
-            .checked_mul(index)
-            .ok_or(CodegenFailure::ResourceExhausted)?;
-
-        self.constant_offset_pointer(pointer, offset)
+        self.dynamic_offset_pointer(pointer, index, self.mapped_type_size(element))
     }
 
     pub(super) fn index_pointer(

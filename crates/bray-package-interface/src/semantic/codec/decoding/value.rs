@@ -483,6 +483,10 @@ pub(super) fn decode_constant_term(
             term: InterfaceConstantTermId::new(read_u32(reader)?),
             ty: InterfaceTypeId::new(read_u32(reader)?),
         }),
+        19 => Ok(InterfaceConstantTerm::VariantTest {
+            subject: InterfaceConstantTermId::new(read_u32(reader)?),
+            variant: read_symbol_reference(reader, context)?,
+        }),
         18 => Ok(InterfaceConstantTerm::CallableArgument(
             bray_symbols::SymbolOrdinal::new(read_u32(reader)?),
         )),
@@ -552,6 +556,9 @@ pub(super) fn decode_constant_projection(
         1 => Ok(InterfaceConstantProjection::TupleElement(
             SymbolOrdinal::new(read_u32(reader)?),
         )),
+        7 => Ok(InterfaceConstantProjection::ArrayElementOrdinal(
+            SymbolOrdinal::new(read_u32(reader)?),
+        )),
         2 => Ok(InterfaceConstantProjection::ArrayElement(
             InterfaceConstantTermId::new(read_u32(reader)?),
         )),
@@ -603,6 +610,88 @@ mod tests {
         InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId, InterfaceValidationError,
         InterfaceValidationLimits,
     };
+
+    #[test]
+    fn mutation_effects_round_trip_and_intern_entry_reference_targets() {
+        use crate::{
+            InterfaceDependencyContract, InterfaceDependencyProjection, InterfaceDependencySubject,
+            InterfaceDependencySubjectRoot,
+        };
+
+        use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
+
+        let (surface, mut semantics) = fixture();
+
+        let subject = InterfaceDependencySubject::new(
+            InterfaceDependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
+            [],
+        );
+
+        let effects = [
+            DependencyStorageEffect::Cleanup(crate::InterfaceTypeId::new(0)),
+            DependencyStorageEffect::Direct {
+                subject: subject.clone(),
+                kind: DependencyMutationKind::Write,
+            },
+            DependencyStorageEffect::Direct {
+                subject: subject.clone(),
+                kind: DependencyMutationKind::Consume,
+            },
+            DependencyStorageEffect::Direct {
+                subject: subject.clone(),
+                kind: DependencyMutationKind::Atomic,
+            },
+            DependencyStorageEffect::Indirect {
+                reference: subject,
+                projections: [InterfaceDependencyProjection::Element(
+                    crate::InterfaceConstantTermId::new(0),
+                )]
+                .into(),
+                kind: DependencyMutationKind::Retire,
+            },
+        ];
+
+        semantics.dependency_contracts = vec![
+            InterfaceDependencyContract::new([])
+                .with_effects(effects)
+                .with_normal_completion(false),
+            InterfaceDependencyContract::new([]).with_effects([DependencyStorageEffect::Atomic]),
+        ]
+        .into();
+
+        let limits = InterfaceValidationLimits::default();
+        let sections = encode_semantics(&semantics, &surface, limits).unwrap();
+
+        let decoded =
+            decode_semantics(&encoded_section_views(&sections), &surface, limits).unwrap();
+
+        assert_eq!(decoded, semantics);
+
+        let store = SemanticValueStore::try_new().unwrap();
+        let imported = decoded.intern(&store, &resolver(&surface)).unwrap();
+        let template = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
+
+        assert_eq!(template.effects().len(), 5);
+
+        assert_eq!(
+            store
+                .dependency_contract_template_data(imported.dependency_contracts()[1])
+                .effects(),
+            &[DependencyStorageEffect::Atomic]
+        );
+
+        assert!(!template.normal_completion());
+
+        assert_eq!(
+            template.effects()[0],
+            DependencyStorageEffect::Cleanup(imported.types()[0])
+        );
+
+        assert!(
+            matches!(&template.effects()[4], DependencyStorageEffect::Indirect { projections, kind: DependencyMutationKind::Retire, .. }
+            if projections.as_ref() == [bray_symbols::DependencyProjection::Element(imported.constant_terms()[0])])
+        );
+    }
 
     #[test]
     fn semantic_sections_round_trip_and_intern_without_persisting_local_value_ids() {

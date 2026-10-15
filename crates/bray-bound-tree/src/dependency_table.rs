@@ -49,26 +49,359 @@ pub enum DependencyContractsBuildError {
     ContractCapacityExceeded,
 }
 
+/// An exact input-to-output reference relation of a selected call.
+/// Address formation locates storage without equating a pointer with the borrowed value.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct BoundCallReference {
+    relation: bray_symbols::DependencyBorrowRelation,
+    preserves_value: bool,
+    addressed_type: Option<bray_symbols::TypeId>,
+}
+
+impl BoundCallReference {
+    /// Records whether the reference forwards an input value or forms an address.
+    pub const fn new(
+        relation: bray_symbols::DependencyBorrowRelation,
+        preserves_value: bool,
+        addressed_type: Option<bray_symbols::TypeId>,
+    ) -> Self {
+        Self {
+            relation,
+            preserves_value,
+            addressed_type,
+        }
+    }
+
+    /// Returns the checked formal reference relation.
+    pub const fn relation(&self) -> &bray_symbols::DependencyBorrowRelation {
+        &self.relation
+    }
+
+    /// The source storage type when the result forms an address instead of forwarding a reference.
+    pub const fn addressed_type(&self) -> Option<bray_symbols::TypeId> {
+        self.addressed_type
+    }
+
+    /// Whether the output retains the input reference value, rather than only its target.
+    pub const fn preserves_value(&self) -> bool {
+        self.preserves_value
+    }
+}
+
+/// The distinct invocation, returned-value and deferred requirements of one selected call.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct BoundCallDependencyContracts {
+    input_count: usize,
+    returned_input: Option<bray_symbols::ConstantTermId>,
+    returned_input_conditions: Arc<[bray_symbols::ConstantTermId]>,
+    carriers: Arc<[bray_symbols::DependencyWitnessCarrier]>,
+    invocation: BoundDependencyContract,
+    result: BoundDependencyContract,
+    deferred: Option<BoundDependencyContract>,
+    references: Vec<BoundCallReference>,
+    effects: Arc<[bray_symbols::DependencyStorageEffect]>,
+    retained_inputs: Option<BTreeSet<BoundExpressionId>>,
+    reference_paths: BTreeMap<bray_symbols::DependencySubject, crate::StorageReferencePath>,
+    normal_completion: bool,
+    deferred_effects: Option<Arc<[bray_symbols::DependencyStorageEffect]>>,
+    deferred_completion: bool,
+}
+
+impl BoundCallDependencyContracts {
+    /// Records an unchanged owned input returned as the complete result on every normal exit.
+    /// Normal completion must have no observable storage mutation or cleanup effects.
+    /// The term contains only a formal input and owned projections, never an equality or dereference.
+    pub fn with_returned_input(mut self, input: Option<bray_symbols::ConstantTermId>) -> Self {
+        self.returned_input = input;
+
+        self
+    }
+
+    /// Returns the checked whole-value transport, without introducing trusted guarantees.
+    pub const fn returned_input(&self) -> Option<bray_symbols::ConstantTermId> {
+        self.returned_input
+    }
+
+    /// Retains presence facts implied by successfully returning the checked input projection.
+    pub fn with_returned_input_conditions(
+        mut self,
+        conditions: impl IntoIterator<Item = bray_symbols::ConstantTermId>,
+    ) -> Self {
+        self.returned_input_conditions = conditions.into_iter().collect();
+
+        self
+    }
+
+    /// Returns ordinary presence facts prepared from the selected whole-value transport.
+    pub fn returned_input_conditions(&self) -> &[bray_symbols::ConstantTermId] {
+        &self.returned_input_conditions
+    }
+
+    /// Creates the instantiated phase contracts for a selected call.
+    pub fn new(
+        invocation: BoundDependencyContract,
+        result: BoundDependencyContract,
+        deferred: Option<BoundDependencyContract>,
+    ) -> Self {
+        Self {
+            invocation,
+            result,
+            returned_input: None,
+            returned_input_conditions: Arc::new([]),
+            carriers: Arc::new([]),
+            input_count: 0,
+            deferred,
+            references: Vec::new(),
+            effects: Arc::new([bray_symbols::DependencyStorageEffect::Unknown]),
+            retained_inputs: None,
+            reference_paths: BTreeMap::new(),
+            normal_completion: true,
+            deferred_effects: None,
+            deferred_completion: true,
+        }
+    }
+
+    /// Retains receiver-first formal arity for portable completion conditions.
+    pub const fn with_input_count(mut self, count: usize) -> Self {
+        self.input_count = count;
+
+        self
+    }
+
+    /// Returns the ordinal reserved for the completion result.
+    pub const fn input_count(&self) -> usize {
+        self.input_count
+    }
+
+    /// Retains the returned carrier paths established by the selected callable.
+    pub fn with_carriers(
+        mut self,
+        carriers: impl IntoIterator<Item = bray_symbols::DependencyWitnessCarrier>,
+    ) -> Self {
+        self.carriers = carriers.into_iter().collect();
+
+        self
+    }
+
+    /// Returns complete owners supporting the callable's trusted completion clauses.
+    pub fn carriers(&self) -> &[bray_symbols::DependencyWitnessCarrier] {
+        &self.carriers
+    }
+
+    /// Records whether this invocation phase can produce a normal result.
+    pub fn with_normal_completion(mut self, possible: bool) -> Self {
+        self.normal_completion = possible;
+
+        self
+    }
+
+    /// Whether normal completion is possible for this selected invocation phase.
+    pub const fn normal_completion(&self) -> bool {
+        self.normal_completion
+    }
+
+    /// Records the body effects and outcome separately from lazy frame creation.
+    pub fn with_deferred_execution(
+        mut self,
+        effects: impl IntoIterator<Item = bray_symbols::DependencyStorageEffect>,
+        normal_completion: bool,
+    ) -> Self {
+        self.deferred_effects = Some(bray_symbols::DependencyStorageEffect::normalize(effects));
+        self.deferred_completion = normal_completion;
+
+        self
+    }
+
+    /// Body effects applied when this lazy invocation is driven.
+    pub fn deferred_effects(&self) -> Option<&[bray_symbols::DependencyStorageEffect]> {
+        self.deferred_effects.as_deref()
+    }
+
+    /// Whether driving this invocation can return normally.
+    pub const fn deferred_completion(&self) -> bool {
+        self.deferred_completion
+    }
+
+    /// Shares checked access paths between reference transfers and mutation effects.
+    pub fn with_reference_paths(
+        mut self,
+        paths: BTreeMap<bray_symbols::DependencySubject, crate::StorageReferencePath>,
+    ) -> Self {
+        self.reference_paths = paths;
+
+        self
+    }
+
+    /// Returns the input subjects whose reference paths were prepared by call analysis.
+    pub fn reference_subjects(&self) -> impl Iterator<Item = &bray_symbols::DependencySubject> {
+        self.reference_paths.keys()
+    }
+
+    /// Returns the selected input path prepared by type analysis.
+    pub fn reference_path(
+        &self,
+        subject: &bray_symbols::DependencySubject,
+    ) -> Option<&crate::StorageReferencePath> {
+        self.reference_paths.get(subject)
+    }
+
+    /// Records the dependencies carried by the returned value.
+    pub fn with_result(mut self, result: BoundDependencyContract) -> Self {
+        self.result = result;
+
+        self
+    }
+
+    /// Records reference transfers and the inputs retained by a returned witness.
+    pub fn with_references(
+        mut self,
+        references: Vec<BoundCallReference>,
+        retained_inputs: Option<BTreeSet<BoundExpressionId>>,
+    ) -> Self {
+        self.references = references;
+        self.retained_inputs = retained_inputs;
+
+        self
+    }
+
+    /// Retains the selected callable's checked formal mutation effects.
+    pub fn with_effects(
+        mut self,
+        effects: impl IntoIterator<Item = bray_symbols::DependencyStorageEffect>,
+    ) -> Self {
+        self.effects = bray_symbols::DependencyStorageEffect::normalize(effects);
+
+        self
+    }
+
+    /// Returns the complete may-mutation summary for this invocation.
+    pub fn effects(&self) -> &[bray_symbols::DependencyStorageEffect] {
+        &self.effects
+    }
+
+    /// Returns exact reference transfers on normal completion.
+    pub fn references(&self) -> &[BoundCallReference] {
+        &self.references
+    }
+
+    /// Returns retained witness inputs when the returned value has a checked dependency source.
+    pub const fn retained_inputs(&self) -> Option<&BTreeSet<BoundExpressionId>> {
+        self.retained_inputs.as_ref()
+    }
+
+    /// Returns the requirements for beginning the invocation.
+    pub const fn invocation(&self) -> &BoundDependencyContract {
+        &self.invocation
+    }
+
+    /// Returns the dependencies retained by the result after completion.
+    pub const fn result(&self) -> &BoundDependencyContract {
+        &self.result
+    }
+
+    /// Returns the requirements for driving deferred execution, when present.
+    pub const fn deferred(&self) -> Option<&BoundDependencyContract> {
+        self.deferred.as_ref()
+    }
+
+    fn phase_contracts(&self) -> impl Iterator<Item = &BoundDependencyContract> {
+        [&self.invocation, &self.result]
+            .into_iter()
+            .chain(self.deferred.as_ref())
+    }
+
+    fn is_valid_for(&self, unit: BoundUnitId) -> bool {
+        self.phase_contracts()
+            .all(|contract| contract.is_valid_for(unit))
+            && self
+                .retained_inputs
+                .iter()
+                .flatten()
+                .all(|input| input.unit() == unit)
+    }
+}
+
 /// Durable dependency contracts for values, accesses, and borrows in one checked unit.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CheckedDependencyContracts {
+    static_carriers: BTreeMap<
+        bray_symbols::StaticReferenceSelection,
+        Arc<[bray_symbols::DependencyWitnessCarrier]>,
+    >,
+    projection_variants:
+        BTreeMap<bray_symbols::UnionPayloadFieldSymbolId, bray_symbols::UnionVariantSymbolId>,
     unit: BoundUnitId,
     kind: BoundUnitKind,
     contracts: Arc<[BoundDependencyContract]>,
-    expressions: Arc<[ContractEntry<BoundExpressionId>]>,
-    deferred_expressions: Arc<[ContractEntry<BoundExpressionId>]>,
+    calls: Arc<BTreeMap<crate::BoundExecutionSite, BoundCallDependencyContracts>>,
+    expressions: Arc<[ContractEntry<crate::BoundExecutionSite>]>,
+    deferred_expressions: Arc<[ContractEntry<crate::BoundExecutionSite>]>,
     accesses: Arc<[ContractEntry<StorageAccessId>]>,
     borrows: Arc<[ContractEntry<BorrowCapabilityId>]>,
+    pub(crate) lifecycle_consumers:
+        Arc<BTreeMap<crate::StorageIdentityId, BTreeSet<crate::StorageIdentityId>>>,
+    lifecycle_dependencies: Arc<
+        BTreeMap<bray_symbols::CallableInstanceData, bray_symbols::DependencyContractTemplateData>,
+    >,
     is_recovered: bool,
 }
 
 impl CheckedDependencyContracts {
+    /// Retains the initializer authority instantiated for referenced static storage.
+    pub fn with_static_carriers(
+        mut self,
+        carriers: BTreeMap<
+            bray_symbols::StaticReferenceSelection,
+            Arc<[bray_symbols::DependencyWitnessCarrier]>,
+        >,
+    ) -> Self {
+        self.static_carriers = carriers;
+
+        self
+    }
+
+    /// Returns the checked initializer authority for each referenced instance.
+    pub fn static_carriers(
+        &self,
+    ) -> &BTreeMap<
+        bray_symbols::StaticReferenceSelection,
+        Arc<[bray_symbols::DependencyWitnessCarrier]>,
+    > {
+        &self.static_carriers
+    }
+
+    /// Retains declaration relationships resolved before dependency flow.
+    pub fn with_projection_variants(
+        mut self,
+        variants: BTreeMap<
+            bray_symbols::UnionPayloadFieldSymbolId,
+            bray_symbols::UnionVariantSymbolId,
+        >,
+    ) -> Self {
+        self.projection_variants = variants;
+
+        self
+    }
+
+    /// Returns the checked variant owning a projected payload field.
+    pub fn projection_variant(
+        &self,
+        field: bray_symbols::UnionPayloadFieldSymbolId,
+    ) -> bray_symbols::UnionVariantSymbolId {
+        *self
+            .projection_variants
+            .get(&field)
+            .expect("dependency preparation retains every projected union field")
+    }
+
     /// Validates and creates one normalized per-unit dependency table.
     pub fn try_new(
         unit: &BoundUnit,
         storage: &StoragePlan,
-        expressions: impl IntoIterator<Item = (BoundExpressionId, BoundDependencyContract)>,
-        deferred_expressions: impl IntoIterator<Item = (BoundExpressionId, BoundDependencyContract)>,
+        expressions: impl IntoIterator<Item = (crate::BoundExecutionSite, BoundDependencyContract)>,
+        deferred_expressions: impl IntoIterator<
+            Item = (crate::BoundExecutionSite, BoundDependencyContract),
+        >,
         accesses: impl IntoIterator<Item = (StorageAccessId, BoundDependencyContract)>,
         borrows: impl IntoIterator<Item = (BorrowCapabilityId, BoundDependencyContract)>,
         is_recovered: bool,
@@ -86,7 +419,10 @@ impl CheckedDependencyContracts {
             &mut contracts,
             &mut contract_ids,
             |expression| {
-                expression.unit() == unit.unit() && unit.view().expression(expression).is_some()
+                expression.node().unit() == unit.unit()
+                    && expression
+                        .expression()
+                        .is_some_and(|expression| unit.view().expression(expression).is_some())
             },
             DependencyContractsBuildError::InvalidExpression,
         )?;
@@ -97,7 +433,10 @@ impl CheckedDependencyContracts {
             &mut contracts,
             &mut contract_ids,
             |expression| {
-                expression.unit() == unit.unit() && unit.view().expression(expression).is_some()
+                expression.node().unit() == unit.unit()
+                    && expression
+                        .expression()
+                        .is_some_and(|expression| unit.view().expression(expression).is_some())
             },
             DependencyContractsBuildError::InvalidExpression,
         )?;
@@ -120,16 +459,78 @@ impl CheckedDependencyContracts {
             DependencyContractsBuildError::InvalidBorrow,
         )?;
 
-        Ok(Self {
+        let mut result = Self {
+            projection_variants: BTreeMap::new(),
+            static_carriers: BTreeMap::new(),
             unit: unit.unit(),
             kind: unit.key().kind(),
             contracts: contracts.into(),
+            calls: Arc::default(),
             expressions: expressions.into(),
             deferred_expressions: deferred_expressions.into(),
             accesses: accesses.into(),
             borrows: borrows.into(),
+            lifecycle_consumers: Arc::default(),
+            lifecycle_dependencies: Arc::default(),
             is_recovered,
-        })
+        };
+
+        result.lifecycle_consumers = Arc::new(result.prepare_lifecycle_dependencies(unit, storage));
+
+        Ok(result)
+    }
+
+    /// Publishes selected-call contracts after checking their unit-local subjects.
+    pub fn try_with_calls(
+        mut self,
+        calls: BTreeMap<crate::BoundExecutionSite, BoundCallDependencyContracts>,
+    ) -> Result<Self, DependencyContractsBuildError> {
+        for (occurrence, contract) in &calls {
+            if self.expression(*occurrence).is_none()
+                || contract
+                    .retained_inputs
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .any(|input| self.expression(input).is_none())
+            {
+                return Err(DependencyContractsBuildError::InvalidExpression);
+            }
+
+            if !contract.is_valid_for(self.unit) {
+                return Err(DependencyContractsBuildError::ForeignContract);
+            }
+        }
+
+        self.calls = Arc::new(calls);
+
+        Ok(self)
+    }
+
+    /// Returns direct call contracts without inherited child-expression requirements.
+    pub fn calls(&self) -> &BTreeMap<crate::BoundExecutionSite, BoundCallDependencyContracts> {
+        &self.calls
+    }
+
+    /// Attaches the checked dependency and mutation summaries for selected cleanup callees.
+    pub fn with_lifecycle_dependencies(
+        mut self,
+        references: BTreeMap<
+            bray_symbols::CallableInstanceData,
+            bray_symbols::DependencyContractTemplateData,
+        >,
+    ) -> Self {
+        self.lifecycle_dependencies = Arc::new(references);
+
+        self
+    }
+
+    /// Returns instantiated cleanup summaries shared by flow and execution-property checking.
+    pub fn lifecycle_dependencies(
+        &self,
+    ) -> &BTreeMap<bray_symbols::CallableInstanceData, bray_symbols::DependencyContractTemplateData>
+    {
+        &self.lifecycle_dependencies
     }
 
     /// Returns the checked semantic unit described by this table.
@@ -153,17 +554,20 @@ impl CheckedDependencyContracts {
             .and_then(|index| self.contracts.get(index))
     }
 
-    /// Returns the contract carried by one expression result.
-    pub fn expression(&self, expression: BoundExpressionId) -> Option<BoundDependencyContractId> {
-        find_contract(&self.expressions, expression)
+    /// Returns the contract carried by one source or implicit invocation occurrence.
+    pub fn expression(
+        &self,
+        occurrence: impl Into<crate::BoundExecutionSite>,
+    ) -> Option<BoundDependencyContractId> {
+        find_contract(&self.expressions, occurrence.into())
     }
 
-    /// Returns the contract required when one lazy expression is executed.
+    /// Returns the contract required when one source or implicit invocation is driven.
     pub fn deferred_expression(
         &self,
-        expression: BoundExpressionId,
+        occurrence: impl Into<crate::BoundExecutionSite>,
     ) -> Option<BoundDependencyContractId> {
-        find_contract(&self.deferred_expressions, expression)
+        find_contract(&self.deferred_expressions, occurrence.into())
     }
 
     /// Resolves the deferred contract carried through local reference bindings.
@@ -228,7 +632,12 @@ impl CheckedDependencyContracts {
         let expressions_match = self
             .expressions
             .iter()
-            .map(|entry| *entry.occurrence())
+            .filter_map(|entry| match entry.occurrence() {
+                crate::BoundExecutionSite::Node(crate::AnyBoundNodeId::Expression(expression)) => {
+                    Some(*expression)
+                }
+                _ => None,
+            })
             .eq(unit.tree().expressions().map(|(expression, _)| expression));
 
         let accesses_match = self
@@ -251,6 +660,11 @@ impl CheckedDependencyContracts {
             && self
                 .contracts
                 .iter()
+                .chain(
+                    self.calls
+                        .values()
+                        .flat_map(BoundCallDependencyContracts::phase_contracts),
+                )
                 .all(|contract| contract.exists_in(storage))
     }
 
@@ -380,8 +794,8 @@ mod tests {
         let table = CheckedDependencyContracts::try_new(
             &bound,
             &storage,
-            [(expression, contract.clone())],
-            [(expression, deferred)],
+            [(expression.into(), contract.clone())],
+            [(expression.into(), deferred)],
             [(access, contract)],
             [],
             false,
@@ -436,7 +850,7 @@ mod tests {
                 &bound,
                 &storage,
                 [(
-                    BoundExpressionId::from_slot(BoundUnitId::new(4), 0),
+                    BoundExpressionId::from_slot(BoundUnitId::new(4), 0).into(),
                     BoundDependencyContract::new([]),
                 )],
                 [],
@@ -462,7 +876,7 @@ mod tests {
         let complete = CheckedDependencyContracts::try_new(
             &bound,
             &storage,
-            [(expression, contract.clone())],
+            [(expression.into(), contract.clone())],
             [],
             [(access, contract)],
             [],
@@ -481,6 +895,117 @@ mod tests {
                 .unwrap_or_else(|error| panic!("partial dependency table must build: {error:?}"));
 
         assert!(!incomplete.is_complete_for(&bound, &storage));
+    }
+
+    #[test]
+    fn call_publication_preserves_distinct_phases_and_rejects_foreign_subjects() {
+        let unit = BoundUnitId::new(5);
+
+        let (bound, expression, storage, access) = expression_unit_with_storage(unit);
+
+        let table = || {
+            CheckedDependencyContracts::try_new(
+                &bound,
+                &storage,
+                [(expression.into(), BoundDependencyContract::new([]))],
+                [],
+                [(access, BoundDependencyContract::new([]))],
+                [],
+                false,
+            )
+            .unwrap()
+        };
+
+        let contract = |access, kind| {
+            BoundDependencyContract::new([BoundDependencyRequirement::direct(
+                BoundDependencySubject::StorageAccess(access),
+                kind,
+            )])
+        };
+
+        let invocation = contract(access, BoundDependencyRequirementKind::StorageAlive);
+        let result = contract(access, BoundDependencyRequirementKind::ValueDependencies);
+        let deferred = contract(access, BoundDependencyRequirementKind::StorageInitialized);
+
+        let phases = super::BoundCallDependencyContracts::new(
+            invocation.clone(),
+            result.clone(),
+            Some(deferred.clone()),
+        );
+
+        let relation = bray_symbols::DependencyBorrowRelation::new(
+            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Parameter(
+                bray_symbols::SymbolOrdinal::new(0),
+            )),
+            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result),
+            bray_symbols::DependencyReferenceKind::Borrow,
+        );
+
+        let references = vec![super::BoundCallReference::new(relation, true, None)];
+
+        let retained = Some(std::collections::BTreeSet::from([expression]));
+        let phases = phases.with_references(references.clone(), retained.clone());
+
+        let published = table()
+            .try_with_calls([(expression.into(), phases.clone())].into())
+            .unwrap();
+
+        let call = &published.calls()[&expression.into()];
+
+        assert_eq!(call.invocation(), &invocation);
+        assert_eq!(call.result(), &result);
+        assert_eq!(call.deferred(), Some(&deferred));
+        assert_eq!(call.references(), &references);
+        assert_eq!(call.retained_inputs(), retained.as_ref());
+
+        let missing = BoundExpressionId::from_slot(unit, 1);
+
+        assert_eq!(
+            table().try_with_calls(
+                [(
+                    expression.into(),
+                    phases.clone().with_references(
+                        references,
+                        Some(std::collections::BTreeSet::from([missing]))
+                    )
+                )]
+                .into()
+            ),
+            Err(DependencyContractsBuildError::InvalidExpression)
+        );
+
+        for occurrence in [
+            BoundExpressionId::from_slot(BoundUnitId::new(6), 0),
+            BoundExpressionId::from_slot(unit, 1),
+        ] {
+            assert_eq!(
+                table().try_with_calls([(occurrence.into(), phases.clone())].into()),
+                Err(DependencyContractsBuildError::InvalidExpression),
+            );
+        }
+
+        let (_, _, _, foreign) = expression_unit_with_storage(BoundUnitId::new(6));
+
+        let foreign = contract(foreign, BoundDependencyRequirementKind::StorageAlive);
+
+        for phases in [
+            super::BoundCallDependencyContracts::new(
+                foreign.clone(),
+                result.clone(),
+                Some(deferred.clone()),
+            ),
+            super::BoundCallDependencyContracts::new(
+                invocation.clone(),
+                foreign.clone(),
+                Some(deferred.clone()),
+            ),
+            super::BoundCallDependencyContracts::new(invocation, result, Some(foreign)),
+        ] {
+            assert_eq!(
+                table().try_with_calls([(expression.into(), phases)].into()),
+                Err(DependencyContractsBuildError::ForeignContract),
+            );
+        }
     }
 
     fn expression_unit_with_storage(

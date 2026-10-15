@@ -234,7 +234,11 @@ fn build_product_bundle(
     targets: &[TargetIdentity],
     profile: Option<&BuildProfileOptions>,
 ) -> Result<PathBuf, BuildError> {
-    if profile.is_none() && super::reuse::current(output, targets, |targets| super::reuse::input_identity(source, targets))? {
+    if profile.is_none()
+        && super::reuse::current(output, targets, |targets| {
+            super::reuse::input_identity(source, targets)
+        })?
+    {
         crate::progress::message("Reusing standard library bundle");
 
         return Ok(output.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME));

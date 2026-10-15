@@ -1,0 +1,99 @@
+trusted module std.sync;
+
+using internal std.sync.mutex;
+
+struct MutexGuard<T>
+{
+    mutex: &Mutex<T>;
+    acquisition: std.sync.mutex.Marker;
+
+    trusted destruct()
+        requires(trusted std.sync.mutex.acquired(&self.acquisition))
+        ensures(trusted std.sync.mutex.valid(&self.mutex.instance))
+        executes(total)
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = std.memory.uninit_pointer<std.sync.mutex.State<T>>(&self.mutex.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.mutex.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.mutex.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.mutex.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
+        let state = trusted std.memory.borrow_from<std.sync.mutex.State<T>, Mutex<T>>(self.mutex, pointer);
+        let _: u32 = core.atomic.fetch_add<u32, 3>(&state.tickets, 65536);
+
+        core.atomic.notify_all<u32>(&state.tickets);
+    }
+
+    internal trusted func pointer() -> RawPointer<T>
+        requires(trusted std.sync.mutex.acquired(&self.acquisition))
+        ensures(
+            trusted core.memory.valid_write<T>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<T>(pointer = result),
+            trusted core.memory.initialized_as<T>(pointer = result),
+            trusted core.memory.exclusive_alias_valid<T>(pointer = result),
+            trusted core.memory.epoch_current<T>(pointer = result),
+            trusted core.memory.synchronized_access<T>(pointer = result),
+            trusted core.memory.movement_stable<T>(pointer = result),
+            trusted core.memory.finalization_pending<T>(pointer = result),
+        )
+        executes(pure, total)
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = std.memory.uninit_pointer<std.sync.mutex.State<T>>(&self.mutex.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.mutex.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.mutex.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.mutex.State<T>>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.mutex.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
+        let state = trusted std.memory.borrow_from<std.sync.mutex.State<T>, Mutex<T>>(self.mutex, pointer);
+        let value = std.memory.uninit_pointer<T>(&state.value);
+
+        return value;
+    }
+
+    trusted mut func get() -> &mut T
+        requires(trusted std.sync.mutex.acquired(&self.acquisition))
+        ensures(trusted std.sync.mutex.acquired(&self.acquisition))
+        executes(pure, total)
+        uses(raw_memory, unchecked_alias)
+    {
+        let value = self.pointer();
+
+        return trusted std.memory.borrow_mut_from<T, MutexGuard<T>>(&mut self, value);
+    }
+
+    internal trusted func owner() -> &Mutex<T>
+        requires(trusted std.sync.mutex.acquired(&self.acquisition))
+        ensures(trusted std.sync.mutex.valid(&result.instance))
+        executes(pure, total)
+    {
+        return self.mutex;
+    }
+
+    consume func unlock()
+        requires(trusted std.sync.mutex.acquired(&self.acquisition))
+        executes(total) {}
+}

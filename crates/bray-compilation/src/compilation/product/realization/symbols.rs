@@ -93,6 +93,7 @@ pub(in crate::compilation::product) enum NativeBoundaryMapping {
     Callback {
         name: BinarySymbolName,
         linkage: CodegenLinkage,
+        kind: bray_codegen::CodegenNativeEntryKind,
     },
 }
 
@@ -144,6 +145,21 @@ impl Compilation {
                     let signature = self.codegen_instance_signature(realization, cancellation)?;
 
                     if let Some(role) = self.codegen_runtime_source_role(instance.key())? {
+                        if !super::runtime_source::runtime_source_contract_matches(
+                            self,
+                            role,
+                            instance.key().template(),
+                            cancellation,
+                        )? {
+                            return Err(
+                                CodegenPreparationError::InvalidRuntimeRoleSourceContract {
+                                    role,
+                                    // Retain the rejected identity only on the diagnostic path.
+                                    instance: instance.key().clone(),
+                                },
+                            );
+                        }
+
                         let expected = self.codegen_runtime_signature(role)?;
 
                         let matches = super::runtime_source::runtime_source_signature_matches(
@@ -362,7 +378,11 @@ impl Compilation {
         CodegenPreparationError,
     > {
         match boundary {
-            Some(NativeBoundaryMapping::Callback { name, linkage }) => {
+            Some(NativeBoundaryMapping::Callback {
+                name,
+                linkage,
+                kind,
+            }) => {
                 let body_name = self.generated_callable_symbol_name(
                     product,
                     target,
@@ -374,7 +394,7 @@ impl Compilation {
                 Ok((
                     body_name,
                     CALLBACK_BODY_LINKAGE,
-                    Some(CodegenNativeEntryMapping::new(name, linkage)),
+                    Some(CodegenNativeEntryMapping::new(name, linkage).with_kind(kind)),
                 ))
             }
             Some(NativeBoundaryMapping::Direct { name, linkage }) => Ok((name, linkage, None)),
@@ -440,11 +460,12 @@ impl Compilation {
             _ => product.source_namespace(),
         };
 
-        let (independent, storage_dependencies) = self
-            .codegen_native_publication_metadata(instance, realization, cancellation)?;
+        let (independent, storage_dependencies) =
+            self.codegen_native_publication_metadata(instance, realization, cancellation)?;
 
-        let mut compatibility = CodegenPartitionCompatibility::new(package, source_namespace, linkage, visibility)
-            .with_native_storage_dependencies_identity(storage_dependencies);
+        let mut compatibility =
+            CodegenPartitionCompatibility::new(package, source_namespace, linkage, visibility)
+                .with_native_storage_dependencies_identity(storage_dependencies);
 
         if independent {
             compatibility = compatibility.with_native_selection_boundary();
@@ -545,6 +566,14 @@ impl Compilation {
             let name = BinarySymbolName::try_new(symbol)
                 .ok_or(CodegenPreparationError::InvalidSymbolName)?;
 
+            if let Some(kind) = bray_codegen::CodegenNativeEntryKind::for_runtime_role(role) {
+                return Ok(Some(NativeBoundaryMapping::Callback {
+                    name,
+                    linkage: CodegenLinkage::Export,
+                    kind,
+                }));
+            }
+
             return Ok(Some(NativeBoundaryMapping::Direct {
                 name,
                 linkage: CodegenLinkage::Export,
@@ -609,7 +638,7 @@ impl Compilation {
             .transpose()
     }
 
-    fn codegen_runtime_source_role(
+    pub(super) fn codegen_runtime_source_role(
         &self,
         instance: &bray_codegen::CodegenInstanceKey,
     ) -> Result<Option<bray_runtime_interface::RuntimeAbiRole>, CodegenPreparationError> {

@@ -263,6 +263,13 @@ impl CodegenCallableSignature {
         self
     }
 
+    /// Removes the body-only outcome parameter at a generated native boundary.
+    pub const fn without_panic_report_context(mut self) -> Self {
+        self.panic_report_context = false;
+
+        self
+    }
+
     /// Returns target-classified parameters in semantic call order.
     pub fn parameters(&self) -> &[CodegenParameterMapping] {
         &self.parameters

@@ -1,0 +1,26 @@
+trusted module std.sync;
+
+using internal std.sync.once;
+
+struct Lazy<T>
+{
+    once: Once<T>;
+    initializer: func() -> T;
+
+    construct(pos initializer: func() -> T) -> Self
+        ensures(trusted std.sync.once.valid(&result.once.instance))
+    {
+        return
+        {
+            once = Once<T>.empty(),
+            initializer = initializer
+        };
+    }
+
+    func get() -> &T
+        requires(blocking_execution(), trusted std.sync.once.valid(&self.once.instance))
+        ensures(trusted std.sync.once.valid(&self.once.instance))
+    {
+        return self.once.get_or_init(self.initializer);
+    }
+}

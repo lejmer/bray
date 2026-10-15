@@ -297,9 +297,7 @@ fn resolve_member_alignment(
         compilation.semantic_value_store()?,
         template,
         checked.value(),
-    )
-    .map_err(FactQueryError::from)?
-    else {
+    ) else {
         return Ok(Some(NonZeroU64::MIN));
     };
 

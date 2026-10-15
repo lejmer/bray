@@ -57,10 +57,11 @@ Uniform [cleanup capacity](../async-and-concurrency/async-representation-and-sto
 discharge contribute their actual effects. A current-value completion proof can omit a finalizer invocation without
 making the owner's construction or disposal pure. Ordinary moves transfer the existing allowance without new admission.
 
-Forming a pointer to protected storage with `uninit_pointer` or `uninit_pointer_mut`, and deriving an anchored
-borrow with `borrow_from` or `borrow_mut_from`, are pure and total on their valid input domains. The pointer and
-borrow retain the source storage and capability dependencies. Exposing or comparing numerical addresses remains
-an address observation.
+Forming a pointer to supplied storage with `address_of`, `address_of_mut`, `uninit_pointer`, or
+`uninit_pointer_mut`, and deriving an anchored borrow with `borrow_from` or `borrow_mut_from`, are pure and total on their valid input domains. Trusted guarantees
+on the pointer remain valid only while their source storage and capability conditions remain valid. The raw address
+does not extend the source lifetime or create ordinary borrow protection. An anchored borrow retains the source
+storage and capability dependencies. Exposing or comparing numerical addresses remains an address observation.
 
 ## Total execution
 
@@ -102,7 +103,9 @@ The compiler checks the ordinary body under common requirements and each declare
 branches, matches, calls, returns, and cleanup must satisfy every applicable promise. Acceptance requires sufficient
 evidence for each guarantee, including the contracts of selected operations and implicit lifecycle steps.
 
-All Bray source bodies undergo this verification, including `trusted` bodies. A trusted foreign declaration can
+All Bray source bodies undergo this verification, including `trusted` bodies. Explicit trusted premises follow
+[trusted guarantee establishment](trusted-caller-obligations.md#establishing-trusted-guarantees). Their provenance does
+not turn an ordinary postcondition or an execution-property promise into an unchecked assertion. A trusted foreign declaration can
 assert guarantees across the foreign boundary. Those assertions carry the declaration's trust obligations.
 
 Compiled interfaces retain entry guards, guarded postconditions, execution properties, proof provenance, and proof

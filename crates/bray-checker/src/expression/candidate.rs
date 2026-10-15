@@ -30,13 +30,14 @@ use crate::type_check::{ExpressionTypeSession, SessionProgress};
 use crate::{
     CallableCandidate, CallableCandidateTemplate, CallableCandidateTemplates,
     CallableSelectionRequest, CallableValueCandidateTemplate, CandidateAbsence, CandidateSelection,
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerQueryResult,
-    CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView, ExpressionCandidateSet,
-    NestedCallableEvidence,
+    CheckerOutcome, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView, ExpressionCandidateSet, NestedCallableEvidence,
 };
 
 fn invalid_selection_input<Upstream>() -> CheckerQueryError<Upstream> {
-    CheckerQueryError::Infrastructure(CheckerInfrastructureError::InvalidSemanticSelectionInput)
+    panic!(
+        "Semantic-selection inputs do not describe the requested bound unit or operation category. in invalid_selection_input"
+    )
 }
 
 struct PreparedCall {
@@ -115,7 +116,9 @@ where
         }
 
         let Some(expression) = request.view().expression(candidate_set.expression()) else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in prepare_calls"
+            );
         };
 
         if matches!(candidate_set, ExpressionCandidateSet::Callable(_))
@@ -226,8 +229,11 @@ where
                 expression,
                 reason: CandidateAbsence::UnavailableDeclarationSemantics,
             }) if member_callee(request, *expression).is_some() => {
-                let callee = member_callee(request, *expression)
-                    .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+                let callee = member_callee(request, *expression).unwrap_or_else(|| {
+                    panic!(
+                        "prepare_calls requires selected member callee, expression: {expression:?}"
+                    )
+                });
 
                 calls.push(PreparedCall {
                     expression: *expression,
@@ -332,7 +338,9 @@ where
     }
 
     let Some(substitution_id) = candidate.generic_substitution() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in generic_constraint_outcome"
+        );
     };
 
     let substitution = request
@@ -345,9 +353,6 @@ where
         Ok(true) => return Ok(ProofOutcome::Proven),
         Ok(false) => {}
         Err(CheckerQueryError::Cancelled) => return Ok(ProofOutcome::Unknown),
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            return Err(CheckerQueryError::Infrastructure(error));
-        }
         Err(CheckerQueryError::Upstream(error)) => {
             return Err(CheckerQueryError::Upstream(error));
         }
@@ -356,9 +361,6 @@ where
     let result = match request.generic_constraints(obligation) {
         Ok(result) => result,
         Err(CheckerQueryError::Cancelled) => return Ok(ProofOutcome::Unknown),
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            return Err(CheckerQueryError::Infrastructure(error));
-        }
         Err(CheckerQueryError::Upstream(error)) => {
             return Err(CheckerQueryError::Upstream(error));
         }
@@ -401,29 +403,18 @@ where
 
         let subject = request
             .semantic_values()
-            .substitute_type(subject, obligation.substitution())
-            .map_err(|error| {
-                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })?;
+            .substitute_type(subject, obligation.substitution()).unwrap_or_else(|error| panic!("active_constraints_prove must satisfy its checked construction contract: {error:?}"));
 
         let application = request
             .semantic_values()
-            .substitute_trait_application(application, obligation.substitution())
-            .map_err(|error| {
-                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })?;
+            .substitute_trait_application(application, obligation.substitution()).unwrap_or_else(|error| panic!("active_constraints_prove must satisfy its checked construction contract: {error:?}"));
 
         if active.contains(&(subject, application)) {
             continue;
         }
 
         let built_in =
-            crate::built_in_trait_constraint_outcome(request.context(), subject, application)
-                .map_err(CheckerQueryError::Infrastructure)?;
+            crate::built_in_trait_constraint_outcome(request.context(), subject, application);
 
         if built_in == Some(ProofOutcome::Proven) {
             continue;
@@ -507,7 +498,9 @@ where
     let callee = match request.view().expression(expression) {
         Some(BoundExpression::Call(call)) => call.callee(),
         Some(BoundExpression::ErrorCall(call)) => call.callee(),
-        _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into()),
+        _ => panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in defer_callable_selection"
+        ),
     };
 
     deferred.insert(expression);
@@ -524,7 +517,9 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(BoundExpression::Call(call)) = request.view().expression(expression) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in nested_callable_target"
+        );
     };
 
     if !matches!(
@@ -539,11 +534,15 @@ where
         .filter(|evidence| evidence.expression() == call.callee());
 
     let Some(evidence) = matching.next() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in nested_callable_target"
+        );
     };
 
     if matching.next().is_some() {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in nested_callable_target"
+        );
     }
 
     Ok(Some(evidence.callable()))
@@ -569,7 +568,9 @@ where
         }
 
         let Some(bound) = request.view().expression(expression) else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in defer_expression_tree"
+            );
         };
 
         pending.extend(bound.child_expressions());
@@ -613,7 +614,9 @@ where
 
         let Some(BoundExpression::Call(call)) = request.view().expression(prepared_call.expression)
         else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in add_candidate_expectations"
+            );
         };
 
         let available = candidates.iter().collect::<Vec<_>>();
@@ -629,7 +632,7 @@ where
                 session.add_evidence(argument.expression(), expected);
             }
 
-            session.add_expectation(argument.expression(), expected)?;
+            session.add_expectation(argument.expression(), expected);
         }
 
         let Some(candidates) = viable_candidates(
@@ -654,7 +657,7 @@ where
                 continue;
             };
 
-            session.add_expectation(argument.expression(), expected)?;
+            session.add_expectation(argument.expression(), expected);
         }
     }
 
@@ -675,16 +678,13 @@ where
     let input = match call_selection_request(request, types, prepared, member_targets, []) {
         Ok(input) => input,
         Err(CheckerQueryError::Cancelled) => return Ok(None),
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            return Err(CheckerQueryError::Infrastructure(error));
-        }
         Err(CheckerQueryError::Upstream(error)) => {
             return Err(CheckerQueryError::Upstream(error));
         }
     };
 
     let Some(indices) =
-        crate::selection::viable_candidate_indices(request, types, &input, candidates)?
+        crate::selection::viable_candidate_indices(request, types, &input, candidates)
     else {
         return Ok(None);
     };
@@ -718,7 +718,9 @@ where
             .type_data(candidate.callable_type());
 
         let TypeData::Callable(callable) = callable.as_ref() else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in common_parameter_type"
+            );
         };
 
         let Some(mapping) = crate::selection::map_argument_parameter_indices(
@@ -730,7 +732,9 @@ where
         };
 
         let Some(parameter_index) = mapping.get(ordinal).copied() else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in common_parameter_type"
+            );
         };
 
         let Some(parameter_index) = parameter_index else {
@@ -738,7 +742,9 @@ where
         };
 
         let Some(parameter) = callable.parameters().get(parameter_index) else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in common_parameter_type"
+            );
         };
 
         match expected {
@@ -796,9 +802,6 @@ fn dependency_progress<T, Upstream>(
     match result {
         Ok(value) => Ok(SessionProgress::Complete(value)),
         Err(CheckerQueryError::Cancelled) => Ok(SessionProgress::Cancelled),
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            Err(CheckerQueryError::Infrastructure(error))
-        }
         Err(CheckerQueryError::Upstream(error)) => Err(CheckerQueryError::Upstream(error)),
     }
 }
@@ -813,7 +816,9 @@ where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
 {
     let Some(BoundExpression::Call(call)) = request.view().expression(prepared.expression) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in materialize_call_candidates"
+        );
     };
 
     let member = member_targets.get(&call.callee());
@@ -856,7 +861,9 @@ where
                 resolve_generic_arguments(request, template.generic_arguments(), &mut diagnostics)?
             }
             CallableCandidateTemplate::Value(_) => {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in materialize_call_candidates"
+                );
             }
         };
 
@@ -874,16 +881,20 @@ where
                 resolve_open_predicate_candidate(request, template, &explicit, &mut diagnostics)?,
             ),
             CallableCandidateTemplate::Value(_) => {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in materialize_call_candidates"
+                );
             }
         };
 
         let Some(parameters) = parameters.get(explicit.len()..) else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in materialize_call_candidates"
+            );
         };
 
         let Some(inferred) =
-            infer_call_generic_arguments(request, prepared.expression, &open, parameters, types)?
+            infer_call_generic_arguments(request, prepared.expression, &open, parameters, types)
         else {
             continue;
         };
@@ -908,7 +919,9 @@ where
                 )?
             }
             CallableCandidateTemplate::Value(_) => {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in materialize_call_candidates"
+                );
             }
         };
 
@@ -942,7 +955,9 @@ where
     }
 
     let Some(callee_type) = types.expression(call.callee()) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in materialize_call_candidates"
+        );
     };
 
     if callee_type.is_recovered() {
@@ -958,7 +973,7 @@ where
         }));
     };
 
-    let result = call_result(request, callable, callable.result())?;
+    let result = call_result(request, callable, callable.result());
 
     let target = match prepared.anonymous_target {
         Some(anonymous) => BoundCallableTarget::Anonymous(anonymous),
@@ -1040,11 +1055,11 @@ where
     loop {
         let revision = session.revision();
 
-        if session.propagate()?.is_cancelled() {
+        if session.propagate().is_cancelled() {
             return Ok(SessionProgress::Cancelled);
         }
 
-        built_in_operator::apply_evidence(request, prepared.built_in_operators(), session)?;
+        built_in_operator::apply_evidence(request, prepared.built_in_operators(), session);
 
         let types = session.preview();
 
@@ -1053,7 +1068,7 @@ where
             &types,
             prepared.built_in_operators(),
             session,
-        )?;
+        );
 
         if add_candidate_expectations(request, &types, prepared, session)?.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
@@ -1127,9 +1142,6 @@ where
                 }
             }
             CheckerOutcome::Cancelled => return Ok(SessionProgress::Cancelled),
-            CheckerOutcome::InfrastructureFailure(error) => {
-                return Err(CheckerQueryError::Infrastructure(error));
-            }
             CheckerOutcome::UpstreamFailure(error) => {
                 return Err(CheckerQueryError::Upstream(error));
             }
@@ -1150,14 +1162,18 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(BoundExpression::Call(call)) = request.view().expression(prepared.expression) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in apply_selected_signature"
+        );
     };
 
     let Some(candidate) = candidates
         .iter()
         .find(|candidate| candidate.resolution() == selection.resolution())
     else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in apply_selected_signature"
+        );
     };
 
     session.add_evidence(call.callee(), candidate.callable_type());
@@ -1167,7 +1183,9 @@ where
         .type_data(candidate.callable_type());
 
     let TypeData::Callable(callable) = callable.as_ref() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in apply_selected_signature"
+        );
     };
 
     for argument in selection.arguments() {
@@ -1186,12 +1204,16 @@ where
                 continue;
             }
 
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in apply_selected_signature"
+            );
         };
 
         if let Some(parameter) = parameter {
             let Some(signature) = candidate.declaration_signature() else {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in apply_selected_signature"
+                );
             };
 
             if signature
@@ -1199,11 +1221,13 @@ where
                 .get(*ordinal as usize)
                 .is_none_or(|signature| signature.parameter() != *parameter)
             {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in apply_selected_signature"
+                );
             }
         }
 
-        session.add_expectation(*expression, selected.ty())?;
+        session.add_expectation(*expression, selected.ty());
     }
 
     session.add_evidence(prepared.expression, selection.resolution().result().ty());
@@ -1234,9 +1258,6 @@ where
         ) {
             Ok(materialized) => materialized,
             Err(CheckerQueryError::Cancelled) => return Ok(None),
-            Err(CheckerQueryError::Infrastructure(error)) => {
-                return Err(CheckerQueryError::Infrastructure(error));
-            }
             Err(CheckerQueryError::Upstream(error)) => {
                 return Err(CheckerQueryError::Upstream(error));
             }
@@ -1268,9 +1289,6 @@ where
                 }
             }
             CheckerOutcome::Cancelled => return Ok(None),
-            CheckerOutcome::InfrastructureFailure(error) => {
-                return Err(CheckerQueryError::Infrastructure(error));
-            }
             CheckerOutcome::UpstreamFailure(error) => {
                 return Err(CheckerQueryError::Upstream(error));
             }
@@ -1281,7 +1299,7 @@ where
         request,
         types,
         prepared.built_in_operators(),
-    )?);
+    ));
 
     Ok(Some((entries, diagnostics)))
 }
@@ -1299,9 +1317,6 @@ where
     let input = match call_selection_request(request, types, prepared, member_targets, []) {
         Ok(input) => input,
         Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         Err(CheckerQueryError::Upstream(error)) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
@@ -1403,9 +1418,9 @@ where
             }
             Some(_) => return Ok(crate::ReceiverCapability::Owned),
             None => {
-                return Err(CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                ));
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in receiver_capability"
+                );
             }
         }
     }
@@ -1424,7 +1439,9 @@ where
     }
 
     let Some(substitution) = candidate.generic_substitution() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in generic_constraint_implementation_selections"
+        );
     };
 
     let substitution_data = request
@@ -1456,15 +1473,13 @@ where
 
         let subject = request
             .semantic_values()
-            .substitute_type(subject, substitution)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            .substitute_type(subject, substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in generic_constraint_implementation_selections: {error:?}"));
 
         let application = request
             .semantic_values()
-            .substitute_trait_application(application, substitution)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            .substitute_trait_application(application, substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in generic_constraint_implementation_selections: {error:?}"));
 
-        if crate::built_in_trait_constraint_outcome(request.context(), subject, application)?
+        if crate::built_in_trait_constraint_outcome(request.context(), subject, application)
             == Some(ProofOutcome::Proven)
         {
             continue;
@@ -1552,11 +1567,7 @@ where
 
             let ordinal = parameter.ordinal();
 
-            let index = usize::try_from(ordinal).map_err(|_| {
-                CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SelectionInputOrdinalUnrepresentable { ordinal },
-                )
-            })?;
+            let index = usize::try_from(ordinal).unwrap_or_else(|error| panic!("name_receiver_capability must satisfy its checked construction contract: {error:?}"));
 
             let mode = match signature.value().callable_type() {
                 TypeExpressionTemplate::Callable(callable) => callable

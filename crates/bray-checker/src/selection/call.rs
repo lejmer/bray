@@ -14,9 +14,7 @@ use bray_symbols::{
 };
 
 use crate::unit::assert_unit_inputs;
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 use super::{
     CallableCandidate, CallableCandidateState, CallableSelectionRequest, CandidateSelection,
@@ -67,7 +65,9 @@ where
         .windows(2)
         .any(|pair| pair[0].key() >= pair[1].key())
     {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in select_candidates"
+        );
     }
 
     let mut applicable = Vec::new();
@@ -108,7 +108,7 @@ where
                 &mut |_| {},
                 &mut |_| {},
                 &mut |_| {},
-            )? {
+            ) {
                 CandidateApplicability::Applicable { .. } => {
                     inaccessible.push(failure_candidate(candidate));
                 }
@@ -182,12 +182,12 @@ pub(crate) fn viable_candidate_indices<C>(
     types: &CheckedExpressionTypes,
     input: &CallableSelectionRequest,
     candidates: &[CallableCandidate],
-) -> Result<Option<Vec<usize>>, CheckerInfrastructureError>
+) -> Option<Vec<usize>>
 where
     C: CheckerRequestContext + ?Sized,
 {
     if request.is_cancelled() {
-        return Ok(None);
+        return None;
     }
 
     assert_unit_inputs(
@@ -209,7 +209,7 @@ where
 
     for (index, candidate) in candidates.iter().enumerate() {
         if request.is_cancelled() {
-            return Ok(None);
+            return None;
         }
 
         if !matches!(
@@ -226,7 +226,7 @@ where
             &mut |_| {},
             &mut |_| {},
             &mut |_| {},
-        )? {
+        ) {
             CandidateApplicability::Applicable { .. } | CandidateApplicability::Recovered => {
                 viable.push(index);
             }
@@ -234,7 +234,7 @@ where
         }
     }
 
-    Ok(Some(viable))
+    Some(viable)
 }
 
 #[expect(
@@ -279,7 +279,7 @@ where
         &mut |receiver| selected_receiver = receiver,
         &mut |argument| selected_arguments.push(argument),
         &mut |witness| witnesses.push(witness),
-    )? {
+    ) {
         CandidateApplicability::Applicable {
             abi,
             phase_behaviors,
@@ -302,7 +302,6 @@ where
                     Ok(Some(resolution)) if resolution.is_available() => Some(resolution.hook()),
                     Ok(_) => None,
                     Err(CheckerQueryError::Cancelled) => return Ok(None),
-                    Err(CheckerQueryError::Infrastructure(error)) => return Err(error.into()),
                     Err(CheckerQueryError::Upstream(error)) => {
                         return Err(CheckerQueryError::Upstream(error));
                     }
@@ -347,14 +346,16 @@ fn check_candidate_applicability<C>(
     on_receiver: &mut impl FnMut(Option<SelectedReceiver>),
     on_argument: &mut impl FnMut(SelectedArgument),
     on_witness: &mut impl FnMut(SelectedImplementationWitness),
-) -> Result<CandidateApplicability, CheckerInfrastructureError>
+) -> CandidateApplicability
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let callable_type = callable_type(request, candidate.callable_type())?;
+    let callable_type = callable_type(request, candidate.callable_type());
 
     let TypeData::Callable(callable_type) = callable_type.as_ref() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in check_candidate_applicability"
+        );
     };
 
     if !callable_surface_is_consistent(
@@ -364,25 +365,26 @@ where
         callable_type,
         candidate.defaults(),
     ) {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in check_candidate_applicability"
+        );
     }
 
     if let BoundCallableTarget::Declaration(callable) = candidate.resolution().target() {
         request
             .semantic_values()
-            .intern_callable_instance(callable)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            .intern_callable_instance(callable).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in check_candidate_applicability: {error:?}"));
     }
 
     match generic_arguments_are_compatible(
         request,
         input.generic_arguments,
         candidate.resolution().target(),
-    )? {
+    ) {
         Compatibility::No(reason) => {
-            return Ok(CandidateApplicability::Incompatible(reason));
+            return CandidateApplicability::Incompatible(reason);
         }
-        Compatibility::Recovered => return Ok(CandidateApplicability::Recovered),
+        Compatibility::Recovered => return CandidateApplicability::Recovered,
         Compatibility::Yes => {}
     }
 
@@ -398,11 +400,11 @@ where
                     .declaration_signature()
                     .and_then(CallableSignature::receiver)
             }),
-    )? {
+    ) {
         ReceiverApplicability::Incompatible(reason) => {
-            return Ok(CandidateApplicability::Incompatible(reason));
+            return CandidateApplicability::Incompatible(reason);
         }
-        ReceiverApplicability::Recovered => return Ok(CandidateApplicability::Recovered),
+        ReceiverApplicability::Recovered => return CandidateApplicability::Recovered,
         ReceiverApplicability::Applicable(receiver) => on_receiver(receiver),
     }
 
@@ -414,46 +416,45 @@ where
         callable_type,
         candidate,
         on_argument,
-    )? {
+    ) {
         ArgumentMapping::Mapped { recovered } => recovered,
         ArgumentMapping::Rejected(reason) => {
-            return Ok(CandidateApplicability::Incompatible(
+            return CandidateApplicability::Incompatible(
                 SelectionCandidateRejectionReason::CallableArgument(reason),
-            ));
+            );
         }
     };
 
     if recovered {
-        return Ok(CandidateApplicability::Recovered);
+        return CandidateApplicability::Recovered;
     }
 
     let Some(()) = visit_selected_witnesses(
         candidate.resolution(),
         candidate.implementation_selections(),
         on_witness,
-    )?
-    else {
-        return Ok(CandidateApplicability::Incompatible(
+    ) else {
+        return CandidateApplicability::Incompatible(
             SelectionCandidateRejectionReason::RequiredImplementation,
-        ));
+        );
     };
 
-    Ok(CandidateApplicability::Applicable {
+    CandidateApplicability::Applicable {
         abi: callable_type.abi(),
         phase_behaviors: callable_type.phase_behaviors().clone(),
-    })
+    }
 }
 
 fn generic_arguments_are_compatible<C>(
     request: CheckerUnitView<'_, C>,
     arguments: &[BoundGenericArgument],
     target: BoundCallableTarget,
-) -> Result<Compatibility, CheckerInfrastructureError>
+) -> Compatibility
 where
     C: CheckerRequestContext + ?Sized,
 {
     if arguments.iter().any(|argument| argument.is_recovered()) {
-        return Ok(Compatibility::Recovered);
+        return Compatibility::Recovered;
     }
 
     let expected_count = match target {
@@ -470,18 +471,18 @@ where
         BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_) => 0,
     };
 
-    Ok(if arguments.len() <= expected_count {
+    if arguments.len() <= expected_count {
         Compatibility::Yes
     } else {
-        let provided = super::capacity::selection_ordinal_u64(arguments.len())?;
+        let provided = super::capacity::selection_ordinal_u64(arguments.len());
 
-        let maximum = super::capacity::selection_ordinal_u64(expected_count)?;
+        let maximum = super::capacity::selection_ordinal_u64(expected_count);
 
         Compatibility::No(SelectionCandidateRejectionReason::GenericArgumentCount {
             provided,
             maximum,
         })
-    })
+    }
 }
 
 fn callable_surface_is_consistent(
@@ -527,21 +528,25 @@ fn visit_selected_witnesses(
     resolution: &bray_bound_tree::BoundResolvedCall,
     evidence: &[ImplementationSelectionEvidence],
     on_witness: &mut impl FnMut(SelectedImplementationWitness),
-) -> Result<Option<()>, CheckerInfrastructureError> {
+) -> Option<()> {
     if evidence
         .windows(2)
         .any(|pair| pair[0].requirement() == pair[1].requirement())
     {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in visit_selected_witnesses"
+        );
     }
 
     if evidence.len() != resolution.implementation_witnesses().len() {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in visit_selected_witnesses"
+        );
     }
 
     for (index, selection) in evidence.iter().enumerate() {
         let ImplementationSelection::Selected(witness) = selection.selection() else {
-            return Ok(None);
+            return None;
         };
 
         if resolution
@@ -552,7 +557,7 @@ fn visit_selected_witnesses(
                 matches!(prior.selection(), ImplementationSelection::Selected(prior) if *prior == *witness)
             })
         {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            panic!("Semantic-selection inputs do not describe the requested bound unit or operation category. in visit_selected_witnesses");
         }
 
         on_witness(SelectedImplementationWitness::new(
@@ -561,23 +566,25 @@ fn visit_selected_witnesses(
         ));
     }
 
-    Ok(Some(()))
+    Some(())
 }
 
 fn callable_type<C>(
     request: CheckerUnitView<'_, C>,
     callable_type: bray_symbols::TypeId,
-) -> Result<std::sync::Arc<TypeData>, CheckerInfrastructureError>
+) -> std::sync::Arc<TypeData>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let data = request.semantic_values().type_data(callable_type);
 
     let TypeData::Callable(_) = data.as_ref() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in callable_type"
+        );
     };
 
-    Ok(data)
+    data
 }
 
 enum ReceiverApplicability {
@@ -591,12 +598,12 @@ fn select_receiver<C>(
     types: &CheckedExpressionTypes,
     actual: Option<super::ReceiverSelection>,
     expected: Option<bray_symbols::ReceiverParameterSignature>,
-) -> Result<ReceiverApplicability, CheckerInfrastructureError>
+) -> ReceiverApplicability
 where
     C: CheckerRequestContext + ?Sized,
 {
     let (Some(actual), Some(expected)) = (actual, expected) else {
-        return Ok(if actual.is_none() && expected.is_none() {
+        return if actual.is_none() && expected.is_none() {
             ReceiverApplicability::Applicable(None)
         } else {
             ReceiverApplicability::Incompatible(
@@ -605,41 +612,39 @@ where
                     required: expected.is_some(),
                 },
             )
-        });
+        };
     };
 
-    let actual_type = expression_type(types, actual.expression())?;
+    let actual_type = expression_type(types, actual.expression());
 
     if actual_type.is_recovered() {
-        return Ok(ReceiverApplicability::Recovered);
+        return ReceiverApplicability::Recovered;
     }
 
     if !receiver_type_supports(request, actual_type.ty(), expected.ty()) {
-        return Ok(ReceiverApplicability::Incompatible(
+        return ReceiverApplicability::Incompatible(
             SelectionCandidateRejectionReason::ReceiverType {
                 provided: actual_type.ty(),
                 required: expected.ty(),
             },
-        ));
+        );
     }
 
     if !receiver_capability_supports(actual.capability(), expected.mode()) {
-        return Ok(ReceiverApplicability::Incompatible(
+        return ReceiverApplicability::Incompatible(
             SelectionCandidateRejectionReason::ReceiverCapability {
                 provided: actual.capability(),
                 required: expected.mode(),
             },
-        ));
+        );
     }
 
-    Ok(ReceiverApplicability::Applicable(Some(
-        SelectedReceiver::new(
-            actual.expression(),
-            expected.parameter(),
-            expected.mode(),
-            actual_type.ty(),
-            expected.ty(),
-        ),
+    ReceiverApplicability::Applicable(Some(SelectedReceiver::new(
+        actual.expression(),
+        expected.parameter(),
+        expected.mode(),
+        actual_type.ty(),
+        expected.ty(),
     )))
 }
 
@@ -695,7 +700,7 @@ fn map_arguments(
     callable: &CallableTypeData,
     candidate: &CallableCandidate,
     on_argument: &mut impl FnMut(SelectedArgument),
-) -> Result<ArgumentMapping, CheckerInfrastructureError> {
+) -> ArgumentMapping {
     let parameters = callable.parameters();
 
     let signatures = candidate
@@ -709,9 +714,9 @@ fn map_arguments(
         arguments,
         parameters,
         callable.is_variadic(),
-    )? {
+    ) {
         Ok(indices) => indices,
-        Err(reason) => return Ok(ArgumentMapping::Rejected(reason)),
+        Err(reason) => return ArgumentMapping::Rejected(reason),
     };
 
     let mut supplied = vec![None; parameters.len()];
@@ -720,14 +725,14 @@ fn map_arguments(
     for (source_ordinal, (argument, parameter_index)) in
         arguments.iter().zip(parameter_indices).enumerate()
     {
-        let actual = expression_type(types, argument.expression())?;
+        let actual = expression_type(types, argument.expression());
 
         recovered |= argument.is_recovered() || actual.is_recovered();
 
         let Some(parameter_index) = parameter_index else {
-            let conversion = variadic_argument_conversion(request, actual.ty())?;
+            let conversion = variadic_argument_conversion(request, actual.ty());
 
-            let ordinal = super::capacity::selection_ordinal_u32(source_ordinal)?;
+            let ordinal = super::capacity::selection_ordinal_u32(source_ordinal);
 
             on_argument(SelectedArgument::Explicit {
                 expression: argument.expression(),
@@ -744,16 +749,14 @@ fn map_arguments(
         let conversion = argument_conversion(request, actual.ty(), expected);
 
         if !actual.is_recovered() && conversion.is_none() {
-            let ordinal = super::capacity::selection_ordinal_u64(source_ordinal)?;
+            let ordinal = super::capacity::selection_ordinal_u64(source_ordinal);
 
-            return Ok(ArgumentMapping::Rejected(
-                SelectionCallableArgumentRejection::Type {
-                    name: argument.name().map(|name| name.as_str().to_owned()),
-                    ordinal,
-                    expected,
-                    actual: actual.ty(),
-                },
-            ));
+            return ArgumentMapping::Rejected(SelectionCallableArgumentRejection::Type {
+                name: argument.name().map(|name| name.as_str().to_owned()),
+                ordinal,
+                expected,
+                actual: actual.ty(),
+            });
         }
 
         supplied[parameter_index] = Some(argument.expression());
@@ -761,7 +764,9 @@ fn map_arguments(
         let parameter = signatures.map(|signatures| signatures[parameter_index].parameter());
 
         let Ok(ordinal) = u32::try_from(parameter_index) else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in map_arguments"
+            );
         };
 
         on_argument(SelectedArgument::Explicit {
@@ -783,25 +788,25 @@ fn map_arguments(
 
     let Some(signatures) = signatures else {
         if let Some(index) = supplied.iter().position(Option::is_none) {
-            let ordinal = super::capacity::selection_ordinal_u64(index)?;
+            let ordinal = super::capacity::selection_ordinal_u64(index);
 
-            return Ok(ArgumentMapping::Rejected(
-                SelectionCallableArgumentRejection::Missing {
-                    name: parameters[index].name().as_str().to_owned(),
-                    ordinal,
-                    expected: parameters[index].ty(),
-                },
-            ));
+            return ArgumentMapping::Rejected(SelectionCallableArgumentRejection::Missing {
+                name: parameters[index].name().as_str().to_owned(),
+                ordinal,
+                expected: parameters[index].ty(),
+            });
         }
 
-        return Ok(ArgumentMapping::Mapped { recovered });
+        return ArgumentMapping::Mapped { recovered };
     };
 
     let mut seen_parameters = BTreeSet::new();
 
     for (index, signature) in signatures.iter().copied().enumerate() {
         if !seen_parameters.insert(signature.parameter()) {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in map_arguments"
+            );
         }
 
         if supplied[index].is_some() {
@@ -809,15 +814,13 @@ fn map_arguments(
         }
 
         if mode == CallableSelectionMode::Overload {
-            let ordinal = super::capacity::selection_ordinal_u64(index)?;
+            let ordinal = super::capacity::selection_ordinal_u64(index);
 
-            return Ok(ArgumentMapping::Rejected(
-                SelectionCallableArgumentRejection::Missing {
-                    name: parameters[index].name().as_str().to_owned(),
-                    ordinal,
-                    expected: parameters[index].ty(),
-                },
-            ));
+            return ArgumentMapping::Rejected(SelectionCallableArgumentRejection::Missing {
+                name: parameters[index].name().as_str().to_owned(),
+                ordinal,
+                expected: parameters[index].ty(),
+            });
         }
 
         let Some((_, provider)) = defaults
@@ -825,19 +828,19 @@ fn map_arguments(
             .find(|(parameter, _)| *parameter == signature.parameter())
             .copied()
         else {
-            let ordinal = super::capacity::selection_ordinal_u64(index)?;
+            let ordinal = super::capacity::selection_ordinal_u64(index);
 
-            return Ok(ArgumentMapping::Rejected(
-                SelectionCallableArgumentRejection::Missing {
-                    name: parameters[index].name().as_str().to_owned(),
-                    ordinal,
-                    expected: parameters[index].ty(),
-                },
-            ));
+            return ArgumentMapping::Rejected(SelectionCallableArgumentRejection::Missing {
+                name: parameters[index].name().as_str().to_owned(),
+                ordinal,
+                expected: parameters[index].ty(),
+            });
         };
 
         let Ok(ordinal) = u32::try_from(index) else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in map_arguments"
+            );
         };
 
         on_argument(SelectedArgument::Default {
@@ -848,7 +851,7 @@ fn map_arguments(
         });
     }
 
-    Ok(ArgumentMapping::Mapped { recovered })
+    ArgumentMapping::Mapped { recovered }
 }
 
 fn argument_conversion<C>(
@@ -877,17 +880,14 @@ fn map_argument_parameter_indices_for_diagnostic(
     arguments: &[BoundArgument],
     parameters: &[bray_symbols::CallableParameterData],
     variadic: bool,
-) -> Result<
-    Result<Vec<Option<usize>>, SelectionCallableArgumentRejection>,
-    CheckerInfrastructureError,
-> {
+) -> Result<Vec<Option<usize>>, SelectionCallableArgumentRejection> {
     let mut supplied = vec![false; parameters.len()];
     let mut positional_index = 0;
     let mut saw_named = false;
     let mut mapped = Vec::with_capacity(arguments.len());
 
     for (source_ordinal, argument) in arguments.iter().enumerate() {
-        let ordinal = super::capacity::selection_ordinal_u64(source_ordinal)?;
+        let ordinal = super::capacity::selection_ordinal_u64(source_ordinal);
 
         let parameter_index = match argument.name() {
             Some(name) => {
@@ -897,21 +897,19 @@ fn map_argument_parameter_indices_for_diagnostic(
                     .iter()
                     .position(|parameter| parameter.name().as_str() == name.as_str())
                 else {
-                    return Ok(Err(SelectionCallableArgumentRejection::UnknownName {
+                    return Err(SelectionCallableArgumentRejection::UnknownName {
                         provided: name.as_str().to_owned(),
                         accepted: parameters
                             .iter()
                             .map(|parameter| parameter.name().as_str().to_owned())
                             .collect(),
-                    }));
+                    });
                 };
 
                 index
             }
             None if saw_named => {
-                return Ok(Err(
-                    SelectionCallableArgumentRejection::PositionalAfterNamed { ordinal },
-                ));
+                return Err(SelectionCallableArgumentRejection::PositionalAfterNamed { ordinal });
             }
             None => {
                 let index = positional_index;
@@ -924,15 +922,15 @@ fn map_argument_parameter_indices_for_diagnostic(
                         continue;
                     }
 
-                    return Ok(Err(
-                        SelectionCallableArgumentRejection::PositionalUnavailable { ordinal },
-                    ));
+                    return Err(SelectionCallableArgumentRejection::PositionalUnavailable {
+                        ordinal,
+                    });
                 };
 
                 if parameter.position() != CallablePosition::PositionalOrNamed {
-                    return Ok(Err(
-                        SelectionCallableArgumentRejection::PositionalUnavailable { ordinal },
-                    ));
+                    return Err(SelectionCallableArgumentRejection::PositionalUnavailable {
+                        ordinal,
+                    });
                 }
 
                 index
@@ -940,16 +938,16 @@ fn map_argument_parameter_indices_for_diagnostic(
         };
 
         if std::mem::replace(&mut supplied[parameter_index], true) {
-            return Ok(Err(SelectionCallableArgumentRejection::Duplicate {
+            return Err(SelectionCallableArgumentRejection::Duplicate {
                 name: argument.name().map(|name| name.as_str().to_owned()),
                 ordinal,
-            }));
+            });
         }
 
         mapped.push(Some(parameter_index));
     }
 
-    Ok(Ok(mapped))
+    Ok(mapped)
 }
 
 pub(crate) fn map_argument_parameter_indices(
@@ -1003,23 +1001,15 @@ pub(crate) fn map_argument_parameter_indices(
 fn variadic_argument_conversion<C>(
     request: CheckerUnitView<'_, C>,
     source: bray_symbols::TypeId,
-) -> Result<SelectedConversion, CheckerInfrastructureError>
+) -> SelectedConversion
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(target) = super::operation::c_variadic_promotion_target(request, source)? else {
-        return Ok(SelectedConversion::new(
-            source,
-            source,
-            ConversionTarget::Identity,
-        ));
+    let Some(target) = super::operation::c_variadic_promotion_target(request, source) else {
+        return SelectedConversion::new(source, source, ConversionTarget::Identity);
     };
 
-    Ok(SelectedConversion::new(
-        source,
-        target,
-        ConversionTarget::CVariadicPromotion,
-    ))
+    SelectedConversion::new(source, target, ConversionTarget::CVariadicPromotion)
 }
 
 #[derive(Clone)]
@@ -1032,10 +1022,10 @@ enum Compatibility {
 fn expression_type(
     types: &CheckedExpressionTypes,
     expression: bray_bound_tree::BoundExpressionId,
-) -> Result<ExpressionTypeResult, CheckerInfrastructureError> {
+) -> ExpressionTypeResult {
     types
         .expression(expression)
-        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)
+        .unwrap_or_else(|| panic!("call selection requires a checked type for {expression:?}"))
 }
 
 fn callable_selection_mode<C>(
@@ -1296,12 +1286,12 @@ mod tests {
 
         assert!(matches!(
             super::generic_arguments_are_compatible(request, &[generic_argument], target),
-            Ok(super::Compatibility::Yes)
+            super::Compatibility::Yes
         ));
 
         assert!(matches!(
             super::generic_arguments_are_compatible(request, &[], target),
-            Ok(super::Compatibility::Yes)
+            super::Compatibility::Yes
         ));
     }
 

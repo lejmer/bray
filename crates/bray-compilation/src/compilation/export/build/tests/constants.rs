@@ -13,6 +13,49 @@ use crate::{Compilation, CompilationRequest, DependencyInterfaceInput};
 use super::fixtures::{compilation, execution_consumer, export};
 
 #[test]
+fn initialized_protected_storage_round_trips_through_an_interface() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct State { count: u64; ready: bool; }
+        static STATE: Uninit<State> = core.memory.uninit_from<State>({ count = 23, ready = true });
+        const func protect<T>(pos value: T) -> Uninit<T>
+            ensures(trusted core.memory.uninit_initialized<T>(storage = &result))
+        {
+            return core.memory.uninit_from<T>(value);
+        }
+    "#,
+    );
+
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        trusted module app;
+        using example.package.api;
+
+        trusted func main() -> u32 uses(unchecked_init)
+        {
+            let mut storage = example.package.api.protect<u32>(42);
+            let _ = core.memory.uninit_pointer<example.package.api.State>(&example.package.api.STATE);
+            return trusted core.memory.move_initialized<u32>(&mut storage);
+        }
+    "#,
+    );
+
+    assert!(
+        consumer.check_diagnostics().is_empty(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
+}
+
+#[test]
 fn imported_constant_templates_preserve_materialization_checks() {
     let provider = compilation(
         r#"
@@ -66,9 +109,9 @@ fn public_constant_callables_round_trip_as_implementation_bodies() {
         r#"
             module math;
 
-            const func selected(pos value: i32) -> i32
+            const func selected(pos value: u8) -> u32
             {
-                return value;
+                return value as u32;
             }
         "#,
     );
@@ -153,7 +196,7 @@ fn public_constant_callables_round_trip_as_implementation_bodies() {
 
             using example.package.math.selected;
 
-            const result: i32 = example.package.math.selected(37);
+            const result: u32 = example.package.math.selected(37);
         "#,
     );
 
@@ -253,4 +296,48 @@ fn generic_constant_type_members_can_call_generic_constant_helpers() {
     compilation
         .build_package_interface_export_bundle(request)
         .unwrap_or_else(|error| panic!("generic constant member export must build: {error:?}"));
+}
+
+#[test]
+fn imported_constant_tuple_projections_retain_checked_ordinals() {
+    let provider = compilation(
+        r#"
+        module api;
+        public const func first(pos value: (bool, bool)) -> bool { return value.0; }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+    let interface = encode_package_interface(bundle).unwrap();
+
+    let implementation = PackageImplementationArtifact::try_from_export_bundle(
+        &interface,
+        bundle,
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    let dependency = super::fixtures::execution_dependency(&provider)
+        .with_implementation_artifact("provider.brayimpl", Arc::new(implementation));
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+        using example.package.api;
+        const VALUE: bool = example.package.api.first((false, true));
+    "#,
+        [dependency],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
 }

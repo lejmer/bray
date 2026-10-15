@@ -1,89 +1,30 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    BoundDependencySubject, CheckedMemoryOperations, CheckedSemanticSelections, LastUse,
-    LiveAcrossScope, LiveAcrossSuspension, Liveness, StoragePlan,
+    BoundDependencySubject, LastUse, LiveAcrossScope, LiveAcrossSuspension, Liveness, StoragePlan,
 };
 use bray_symbols::CallableSignatureQuery;
 
-use crate::analysis::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 use crate::analysis::fixed_point::{
-    FixedPointDomain, FixedPointOutcome, FixedPointResult, FlowDirection, solve_fixed_point,
+    FixedPointDomain, FixedPointOutcome, FixedPointResult, solve_fixed_point,
 };
 use crate::analysis::id::AnalysisEdgeId;
 use crate::analysis::model::{
-    AnalysisBlock, AnalysisCallPhase, AnalysisEdge, AnalysisEdgeKind, AnalysisOperation,
-    AnalysisOperationKind, AnalysisScopeExitPhase, ControlFlowGraph,
+    AnalysisBlock, AnalysisCallPhase, AnalysisEdgeKind, AnalysisOperation, AnalysisOperationKind,
+    AnalysisScopeExitPhase, ControlFlowGraph,
 };
-use crate::analysis::reachability::{ReachabilityResult, analyze_reachability};
-use crate::unit::assert_unit_inputs;
-use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitView,
-};
+use crate::analysis::reachability::ReachabilityResult;
+use crate::{CheckerOutcome, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView};
 
+use super::domain::{SetLiveness, SetTransfer};
 use super::effects::OperationEffects;
-
-pub(crate) fn analyze_storage_liveness<C>(
-    request: CheckerUnitView<'_, C>,
-    selections: &CheckedSemanticSelections,
-    types: &bray_bound_tree::CheckedExpressionTypes,
-    patterns: &bray_bound_tree::CheckedPatterns,
-    storage: &StoragePlan,
-    memory: &CheckedMemoryOperations,
-) -> CheckerOutcome<Liveness, C::UpstreamError>
-where
-    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
-{
-    assert_unit_inputs(
-        request,
-        [
-            ("expression types", (types.unit(), types.kind())),
-            (
-                "semantic selections",
-                (selections.unit(), selections.kind()),
-            ),
-            ("patterns", (patterns.unit(), patterns.kind())),
-            ("storage plan", (storage.unit(), storage.kind())),
-            ("memory operations", (memory.unit(), memory.kind())),
-        ],
-    );
-
-    let graph = match build_storage_control_flow_graph(request, storage, selections, None) {
-        ControlFlowGraphBuildOutcome::Complete(graph) => graph,
-        ControlFlowGraphBuildOutcome::Cancelled => {
-            return CheckerOutcome::Cancelled;
-        }
-        ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
-        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
-    };
-
-    match analyze_storage_liveness_with_graph(
-        request, selections, types, patterns, storage, memory, &graph,
-    ) {
-        CheckerOutcome::Complete(result) => {
-            CheckerOutcome::Complete(result.map(|(liveness, _)| liveness))
-        }
-        CheckerOutcome::Cancelled => CheckerOutcome::Cancelled,
-        CheckerOutcome::InfrastructureFailure(error) => {
-            CheckerOutcome::InfrastructureFailure(error)
-        }
-        CheckerOutcome::UpstreamFailure(error) => CheckerOutcome::UpstreamFailure(error),
-    }
-}
 
 pub(crate) fn analyze_storage_liveness_with_graph<C>(
     request: CheckerUnitView<'_, C>,
-    selections: &CheckedSemanticSelections,
-    types: &bray_bound_tree::CheckedExpressionTypes,
-    patterns: &bray_bound_tree::CheckedPatterns,
+    effects: &OperationEffects,
     storage: &StoragePlan,
-    memory: &CheckedMemoryOperations,
     graph: &ControlFlowGraph,
+    reachability: &ReachabilityResult,
 ) -> CheckerOutcome<
     (
         Liveness,
@@ -94,28 +35,7 @@ pub(crate) fn analyze_storage_liveness_with_graph<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    if !graph.is_well_formed() {
-        panic!("checker control-flow graph violated its construction invariants");
-    }
-
-    let effects = match OperationEffects::from_checked_inputs(
-        request, selections, types, patterns, storage, memory,
-    ) {
-        Ok(effects) => effects,
-        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
-        Err(CheckerQueryError::Upstream(error)) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
-    };
-
-    let Some(reachability) = analyze_reachability(&graph, request) else {
-        return CheckerOutcome::Cancelled;
-    };
-
-    let domain = LivenessDomain::new(&graph, &reachability, &effects);
+    let domain = storage_domain(&graph, &reachability, effects);
 
     let result = match solve_fixed_point(&graph, &domain, &request) {
         FixedPointOutcome::Complete(result) => result,
@@ -130,7 +50,7 @@ where
     let liveness = collect_liveness(
         &graph,
         &reachability,
-        &effects,
+        effects,
         domain.universe(),
         &result,
         &domain,
@@ -140,168 +60,58 @@ where
     match liveness {
         Ok(liveness) => CheckerOutcome::without_diagnostics((
             liveness,
-            collect_edge_lifetime_ends(graph, &reachability, &effects, &domain, &result),
+            collect_edge_lifetime_ends(graph, &reachability, effects, &domain, &result),
         )),
         Err(error) => {
-            CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::Liveness(error))
+            panic!(
+                "Durable liveness construction rejected one exact relationship. in analyze_storage_liveness_with_graph, value0: {:?}",
+                error
+            )
         }
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct BlockTransfer {
-    generated: BTreeSet<BoundDependencySubject>,
-    killed: BTreeSet<BoundDependencySubject>,
-}
-
-struct LivenessDomain<'analysis> {
-    reachability: &'analysis ReachabilityResult,
-    effects: &'analysis OperationEffects,
-    transfers: Box<[BlockTransfer]>,
-}
-
-impl<'analysis> LivenessDomain<'analysis> {
-    fn new(
-        graph: &'analysis ControlFlowGraph,
-        reachability: &'analysis ReachabilityResult,
-        effects: &'analysis OperationEffects,
-    ) -> Self {
-        let transfers = graph
+fn storage_domain<'a>(
+    graph: &ControlFlowGraph,
+    reachability: &'a ReachabilityResult,
+    effects: &OperationEffects,
+) -> SetLiveness<'a, BoundDependencySubject> {
+    SetLiveness::new(
+        Some(reachability),
+        graph
             .blocks()
             .iter()
             .map(|block| block_transfer(graph, block, effects))
-            .collect();
-
-        Self {
-            reachability,
-            effects,
-            transfers,
-        }
-    }
-
-    fn universe(&self) -> &BTreeSet<BoundDependencySubject> {
-        &self.effects.universe
-    }
-
-    fn transfer(&self, block: &AnalysisBlock) -> Option<&BlockTransfer> {
-        block
-            .id()
-            .to_index()
-            .and_then(|index| self.transfers.get(index))
-    }
-}
-
-impl FixedPointDomain for LivenessDomain<'_> {
-    type State = BTreeSet<BoundDependencySubject>;
-
-    fn direction(&self) -> FlowDirection {
-        FlowDirection::Backward
-    }
-
-    fn bottom(&self) -> Self::State {
-        BTreeSet::new()
-    }
-
-    fn should_seed(&self, block: &AnalysisBlock) -> bool {
-        self.reachability.is_block_reachable(block.id())
-            && self
-                .transfer(block)
-                .is_some_and(|transfer| !transfer.generated.is_empty())
-    }
-
-    fn boundary(&self) -> Self::State {
-        BTreeSet::new()
-    }
-
-    fn merge_boundary(&self, _: &mut Self::State, _: &Self::State) -> bool {
-        false
-    }
-
-    fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
-        if !self.reachability.is_block_reachable(block.id()) {
-            return BTreeSet::new();
-        }
-
-        let Some(transfer) = self.transfer(block) else {
-            return BTreeSet::new();
-        };
-
-        let mut output = transfer.generated.clone();
-
-        output.extend(
-            source
-                .iter()
-                .filter(|subject| !transfer.killed.contains(subject))
-                .copied(),
-        );
-
-        output
-    }
-
-    fn propagate(
-        &self,
-        source: &Self::State,
-        edge: &AnalysisEdge,
-        target: &mut Self::State,
-    ) -> bool {
-        if !self.reachability.is_edge_reachable(edge.id()) {
-            return false;
-        }
-
-        if edge.kind() == AnalysisEdgeKind::Recovery {
-            return merge_state(target, self.universe());
-        }
-
-        merge_state(target, source)
-    }
-
-    fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {
-        graph
-            .blocks()
-            .len()
-            .saturating_mul(self.universe().len().saturating_add(1))
-    }
+            .collect(),
+        // Recovery needs the full immutable subject universe independently of effect preparation.
+        effects.universe.clone(),
+    )
 }
 
 fn block_transfer(
     graph: &ControlFlowGraph,
     block: &AnalysisBlock,
     effects: &OperationEffects,
-) -> BlockTransfer {
-    let mut transfer = BlockTransfer::default();
+) -> SetTransfer<BoundDependencySubject> {
+    let mut transfer = SetTransfer::default();
 
-    for operation in block.operations().iter().rev() {
-        let Some(operation) = graph.operation(*operation) else {
-            continue;
-        };
+    for id in block.operations().iter().rev() {
+        let operation = graph
+            .operation(*id)
+            .expect("liveness block retains its operation");
+
+        transfer_operation(
+            &mut transfer.generated,
+            operation,
+            effects,
+            &effects.universe,
+        );
 
         if OperationEffects::operation_requires_conservative_liveness(operation) {
-            transfer.generated = effects.universe.clone();
             transfer.killed.clear();
-
-            continue;
+        } else if let Some(effect) = effects.operation_effect(operation) {
+            transfer.killed.extend(effect.definitions().copied());
         }
-
-        if let AnalysisOperationKind::ScopeExit { exit, phase, .. } = operation.kind() {
-            if phase == AnalysisScopeExitPhase::LifecycleResolution {
-                transfer
-                    .generated
-                    .extend(effects.retained_at_exit(exit).copied());
-            }
-
-            continue;
-        }
-
-        let Some(effect) = effects.operation_effect(operation) else {
-            continue;
-        };
-
-        transfer
-            .generated
-            .retain(|subject| !effect.defines(subject));
-
-        transfer.generated.extend(effect.uses().copied());
-        transfer.killed.extend(effect.definitions().copied());
     }
 
     transfer
@@ -319,8 +129,14 @@ fn transfer_operation(
         return;
     }
 
-    if let AnalysisOperationKind::ScopeExit { exit, phase, .. } = operation.kind() {
-        if phase == AnalysisScopeExitPhase::LifecycleResolution {
+    if let AnalysisOperationKind::ScopeExit {
+        exit,
+        phase,
+        preserves_exit_value,
+        ..
+    } = operation.kind()
+    {
+        if preserves_exit_value && phase == AnalysisScopeExitPhase::LifecycleResolution {
             state.extend(effects.retained_at_exit(exit).copied());
         }
 
@@ -335,24 +151,13 @@ fn transfer_operation(
     state.extend(effect.uses().copied());
 }
 
-fn merge_state(
-    target: &mut BTreeSet<BoundDependencySubject>,
-    incoming: &BTreeSet<BoundDependencySubject>,
-) -> bool {
-    let previous_len = target.len();
-
-    target.extend(incoming.iter().copied());
-
-    target.len() != previous_len
-}
-
 fn collect_liveness(
     graph: &ControlFlowGraph,
     reachability: &ReachabilityResult,
     effects: &OperationEffects,
     universe: &BTreeSet<BoundDependencySubject>,
     result: &FixedPointResult<BTreeSet<BoundDependencySubject>>,
-    domain: &LivenessDomain<'_>,
+    domain: &SetLiveness<'_, BoundDependencySubject>,
     kind: bray_bound_tree::BoundUnitKind,
 ) -> Result<Liveness, bray_bound_tree::LivenessBuildError> {
     let mut last_uses = Vec::new();
@@ -365,33 +170,39 @@ fn collect_liveness(
             continue;
         }
 
-        let Some(live_out) = result.state(block.id()) else {
-            continue;
-        };
+        let live_out = result
+            .state(block.id())
+            .expect("reachable liveness block has a solved state");
 
         let mut state = live_out.clone();
 
         for operation in block.operations().iter().rev() {
-            let Some(operation) = graph.operation(*operation) else {
-                continue;
-            };
+            let operation = graph
+                .operation(*operation)
+                .expect("liveness block retains its operation");
 
             if let AnalysisOperationKind::ScopeExit {
                 block,
                 exit,
                 phase: AnalysisScopeExitPhase::LifecycleResolution,
+                preserves_exit_value,
             } = operation.kind()
             {
                 live_across_scopes.extend(
                     state
                         .iter()
                         .copied()
-                        .chain(effects.retained_at_exit(exit).copied())
+                        .chain(
+                            effects
+                                .retained_at_exit(exit)
+                                .copied()
+                                .filter(|_| preserves_exit_value),
+                        )
                         .map(|subject| LiveAcrossScope::new(block, exit, subject)),
                 );
             }
 
-            if let AnalysisOperationKind::Suspension { expression, .. } = operation.kind() {
+            if let AnalysisOperationKind::Suspension { occurrence, .. } = operation.kind() {
                 live_across_suspensions.extend(
                     state
                         .iter()
@@ -402,7 +213,7 @@ fn collect_liveness(
                                 .into_iter()
                                 .flat_map(|effect| effect.uses.iter().copied()),
                         )
-                        .map(|subject| LiveAcrossSuspension::new(expression, subject)),
+                        .map(|subject| LiveAcrossSuspension::new(occurrence, subject)),
                 );
             }
 
@@ -416,7 +227,7 @@ fn collect_liveness(
                         .uses()
                         .filter(|subject| !effect.defines(subject) && !state.contains(subject))
                         .copied()
-                        .map(|subject| LastUse::new(subject, operation.kind().node())),
+                        .map(|subject| LastUse::new(subject, operation.kind().occurrence())),
                 );
 
                 last_uses.extend(
@@ -431,7 +242,7 @@ fn collect_liveness(
                                 && !state.contains(subject)
                         })
                         .copied()
-                        .map(|subject| LastUse::new(subject, operation.kind().node())),
+                        .map(|subject| LastUse::new(subject, operation.kind().occurrence())),
                 );
             }
 
@@ -482,7 +293,7 @@ fn collect_edge_lifetime_ends(
     graph: &ControlFlowGraph,
     reachability: &ReachabilityResult,
     effects: &OperationEffects,
-    domain: &LivenessDomain<'_>,
+    domain: &SetLiveness<'_, BoundDependencySubject>,
     result: &FixedPointResult<BTreeSet<BoundDependencySubject>>,
 ) -> BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>> {
     let mut ends = BTreeMap::new();
@@ -498,11 +309,11 @@ fn collect_edge_lifetime_ends(
 
         let live_in = FixedPointDomain::transfer(domain, target, live_out);
 
-        for edge in target
-            .predecessors()
-            .iter()
-            .filter_map(|id| graph.edge(*id))
-        {
+        for edge in target.predecessors().iter().map(|id| {
+            graph
+                .edge(*id)
+                .expect("liveness predecessor edge belongs to its graph")
+        }) {
             if !reachability.is_edge_reachable(edge.id()) {
                 continue;
             }
@@ -513,21 +324,28 @@ fn collect_edge_lifetime_ends(
 
             let source_operation = graph
                 .block(edge.source())
-                .and_then(|block| block.operations().last())
-                .and_then(|id| graph.operation(*id));
-
-            let target_operation = target
+                .expect("liveness edge retains its source block")
                 .operations()
-                .first()
-                .and_then(|id| graph.operation(*id));
+                .last()
+                .map(|id| {
+                    graph
+                        .operation(*id)
+                        .expect("liveness block retains its final operation")
+                });
 
             let bypassed_attempt = source_operation.filter(|operation| {
-                let AnalysisOperationKind::Call { expression, phase: AnalysisCallPhase::Attempt } = operation.kind() else {
+                let AnalysisOperationKind::Call {
+                    invocation,
+                    phase: AnalysisCallPhase::Attempt,
+                } = operation.kind()
+                else {
                     return false;
                 };
 
-                !target_operation.is_some_and(|target| matches!(target.kind(),
-                    AnalysisOperationKind::Call { expression: completed, phase: AnalysisCallPhase::Completion } if completed == expression))
+                edge.refinement()
+                    == Some(
+                        crate::analysis::model::AnalysisRefinement::InvocationFailure(invocation),
+                    )
             });
 
             // Failed calls bypass the completion where storage flow applies input last uses.
@@ -791,7 +609,7 @@ mod tests {
             let reachability =
                 analyze_reachability(&graph, request).expect("test graph must be reachable");
 
-            let domain = super::LivenessDomain::new(&graph, &reachability, &effects);
+            let domain = super::storage_domain(&graph, &reachability, &effects);
 
             let FixedPointOutcome::Complete(result) = solve_fixed_point(&graph, &domain, &request)
             else {
@@ -988,7 +806,7 @@ mod tests {
         let storage = builder.finish();
         let mut effects = OperationEffects::from_storage_plan(&bound_unit, &storage, &memory);
 
-        effects.retain_call_input_dependencies(&bound_unit);
+        effects.retain_invocation_input_dependencies(&bound_unit);
 
         let Some(effect) = effects.effect(AnyBoundNodeId::Expression(*call)) else {
             panic!("call input retention must produce one operation effect");
@@ -998,6 +816,73 @@ mod tests {
             effect
                 .uses
                 .contains(&BoundDependencySubject::BorrowCapability(capability))
+        );
+    }
+
+    #[test]
+    fn suspended_results_are_defined_only_on_normal_completion() {
+        use crate::analysis::model::{AnalysisCallPhase, AnalysisSuspensionKind};
+
+        let unit = BoundUnitId::new(22);
+
+        let (bound_unit, expression, _) = test_expression(unit);
+
+        let mut builder = StoragePlanBuilder::new(unit, bound_unit.key().kind());
+
+        let identity = builder
+            .push_identity(StorageIdentity::Temporary(expression))
+            .unwrap();
+
+        let subject = BoundDependencySubject::Storage(identity);
+
+        let effects = OperationEffects::from_storage_plan(
+            &bound_unit,
+            &builder.finish(),
+            &empty_memory_operations(unit),
+        );
+
+        let operation = |kind| {
+            AnalysisOperation::new(
+                AnalysisOperationId::from_slot(unit, 0),
+                kind,
+                ProgramPointId::from_slot(unit, 0),
+                ProgramPointId::from_slot(unit, 1),
+            )
+        };
+
+        for kind in [AnalysisSuspensionKind::Await, AnalysisSuspensionKind::Yield] {
+            let suspended = operation(AnalysisOperationKind::Suspension {
+                occurrence: expression.into(),
+                kind,
+            });
+
+            let completed = operation(AnalysisOperationKind::Call {
+                invocation: expression.into(),
+                phase: AnalysisCallPhase::Completion,
+            });
+
+            let mut state = BTreeSet::from([subject]);
+
+            transfer_operation(&mut state, &suspended, &effects, &effects.universe);
+
+            assert_eq!(
+                state,
+                BTreeSet::from([subject]),
+                "a suspended invocation has not produced its result"
+            );
+
+            transfer_operation(&mut state, &completed, &effects, &effects.universe);
+            assert!(state.is_empty(), "the result is born only on completion");
+        }
+
+        let suspended = operation(AnalysisOperationKind::Suspension {
+            occurrence: expression.into(),
+            kind: AnalysisSuspensionKind::ScopedCall,
+        });
+
+        assert!(
+            effects.operation_effect(&suspended).is_none(),
+            "scoped calls already have separate attempt and completion operations"
         );
     }
 

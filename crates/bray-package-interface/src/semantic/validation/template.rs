@@ -308,6 +308,25 @@ fn validate_template(
         semantics.dependency_contracts.len(),
     )?;
 
+    let result_dependencies = &semantics.dependency_contracts[template
+        .behavior()
+        .result_dependencies()
+        .to_index()
+        .expect("validated template result dependency index")];
+
+    if let Some(input) = result_dependencies.returned_input {
+        semantics.validate_returned_input(input, template.inputs().len(), surface)?;
+    }
+
+    for carrier in &*result_dependencies.carriers {
+        semantics.validate_execution_term(
+            carrier.guarantee(),
+            template.inputs().len(),
+            true,
+            surface,
+        )?;
+    }
+
     for symbol in template
         .behavior()
         .effects()
@@ -424,6 +443,46 @@ fn validate_operation_references(
         InterfaceCheckedTemplateOperation::Convert { target, .. } => {
             validate_index(target.to_index(), context.semantics.types.len())?;
         }
+        InterfaceCheckedTemplateOperation::VariantTest { subject, variant } => {
+            if validate_template_reference(context, variant)? != SymbolKind::UnionVariant {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
+            }
+
+            let mut subject_type = node_type(context.template, *subject);
+            let mut owner = None;
+
+            for _ in 0..=context.semantics.types.len() {
+                match subject_type.and_then(|ty| type_at(context.semantics, ty)) {
+                    Some(InterfaceType::Borrow { target, .. }) => subject_type = Some(*target),
+                    Some(InterfaceType::Named { definition, .. }) => {
+                        owner = Some(definition);
+                        break;
+                    }
+                    _ => break,
+                }
+            }
+
+            let owned = match (variant, owner) {
+                (InterfaceTemplateReference::Symbol(variant), Some(owner)) => {
+                    super::surface::reference_has_owner(variant, owner, context.surface)?
+                }
+                (InterfaceTemplateReference::Support(_), Some(owner))
+                    if !matches!(owner, crate::InterfaceSymbolReference::CompilerKnown(_)) =>
+                {
+                    template_reference_key(context, variant)?.owner()
+                        == Some(reference_key(owner, context.surface)?)
+                }
+                _ => false,
+            };
+
+            if !owned {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
+            }
+        }
         InterfaceCheckedTemplateOperation::Project { member, .. } => {
             validate_template_reference(context, member)?;
         }
@@ -455,6 +514,7 @@ fn validate_operation_references(
         | InterfaceCheckedTemplateOperation::Borrow { .. }
         | InterfaceCheckedTemplateOperation::Tuple(_)
         | InterfaceCheckedTemplateOperation::Array(_)
+        | InterfaceCheckedTemplateOperation::TupleElement { .. }
         | InterfaceCheckedTemplateOperation::Conditional { .. }
         | InterfaceCheckedTemplateOperation::ShortCircuit { .. } => {}
         InterfaceCheckedTemplateOperation::Temporary(temporary) => {
@@ -486,7 +546,8 @@ fn validate_operation_type(
         InterfaceCheckedTemplateOperation::Unary { operand, .. } => {
             node_type(template, *operand) == Some(node.ty())
         }
-        InterfaceCheckedTemplateOperation::Binary { .. } => true,
+        InterfaceCheckedTemplateOperation::Binary { .. }
+        | InterfaceCheckedTemplateOperation::VariantTest { .. } => true,
         InterfaceCheckedTemplateOperation::Borrow { kind, operand } => {
             let Some(InterfaceType::Borrow {
                 kind: ty_kind,
@@ -498,7 +559,29 @@ fn validate_operation_type(
                 ));
             };
 
-            ty_kind == kind && node_type(template, *operand) == Some(*target)
+            let mut operand_type = node_type(template, *operand);
+            let mut reaches_target = false;
+
+            for _ in 0..=semantics.types.len() {
+                if operand_type == Some(*target) {
+                    reaches_target = true;
+                    break;
+                }
+
+                match operand_type.and_then(|ty| type_at(semantics, ty)) {
+                    Some(InterfaceType::Borrow {
+                        kind: source_kind,
+                        target: source_target,
+                    }) if *kind == bray_symbols::BorrowKind::Shared
+                        || *source_kind == bray_symbols::BorrowKind::Mutable =>
+                    {
+                        operand_type = Some(*source_target);
+                    }
+                    _ => break,
+                }
+            }
+
+            ty_kind == kind && reaches_target
         }
         InterfaceCheckedTemplateOperation::Convert { target, .. } => *target == node.ty(),
         InterfaceCheckedTemplateOperation::Tuple(elements) => {
@@ -555,6 +638,31 @@ fn validate_operation_type(
         InterfaceCheckedTemplateOperation::ShortCircuit { left, right, .. } => {
             node_type(template, *left) == Some(node.ty())
                 && node_type(template, *right) == Some(node.ty())
+        }
+        InterfaceCheckedTemplateOperation::TupleElement { subject, index } => {
+            let mut subject_type = node_type(template, *subject);
+
+            let mut matches_element = false;
+
+            for _ in 0..=semantics.types.len() {
+                match subject_type.and_then(|ty| type_at(semantics, ty)) {
+                    Some(
+                        InterfaceType::Borrow { target, .. }
+                        | InterfaceType::OwnedIndirection { target, .. },
+                    ) => {
+                        subject_type = Some(*target);
+                    }
+                    Some(InterfaceType::Tuple(elements)) => {
+                        matches_element = index.to_index().and_then(|index| elements.get(index))
+                            == Some(&node.ty());
+
+                        break;
+                    }
+                    _ => break,
+                }
+            }
+
+            matches_element
         }
         InterfaceCheckedTemplateOperation::Temporary(temporary) => {
             let temporary_index =

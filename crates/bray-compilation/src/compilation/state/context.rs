@@ -180,11 +180,28 @@ pub(in crate::compilation) struct CompilationState {
     pub(in crate::compilation) checked_patterns: UnitQueryCache<CheckedPatterns>,
     pub(in crate::compilation) storage_plans: UnitQueryCache<StoragePlan>,
     pub(in crate::compilation) memory_operations: UnitQueryCache<CheckedMemoryOperations>,
+    pub(in crate::compilation) unwind_candidates: UnitQueryCache<bray_checker::UnwindCandidate>,
+    pub(in crate::compilation) unwind_behavior: UnitQueryCache<bool>,
     pub(in crate::compilation) execution_candidates:
         UnitQueryCache<bray_checker::ExecutionCandidates>,
     pub(in crate::compilation) certified_execution:
         UnitQueryCache<bray_checker::ExecutionCertification>,
-    pub(in crate::compilation) body_semantics: UnitQueryCache<CheckedBodySemantics>,
+    pub(in crate::compilation) selected_body_behavior:
+        UnitQueryCache<bray_bound_tree::BodyBehaviorContributions>,
+    // Membership belongs to this immutable compilation snapshot. Do not reuse it across edits.
+    pub(in crate::compilation) result_dependency_membership:
+        Mutex<BTreeMap<AnySymbolId, Arc<[AnySymbolId]>>>,
+    #[cfg(test)]
+    pub(in crate::compilation) result_dependency_discoveries: std::sync::atomic::AtomicUsize,
+    pub(in crate::compilation) result_dependency_components: UnitQueryCache<
+        std::collections::BTreeMap<
+            bray_symbols::AnySymbolId,
+            crate::compilation::binder::BodyAnalysis,
+        >,
+    >,
+    pub(in crate::compilation) prepared_body_analysis:
+        UnitQueryCache<bray_checker::PreparedBodyAnalysis>,
+    pub(in crate::compilation) body_semantics: UnitQueryCache<Arc<CheckedBodySemantics>>,
     pub(in crate::compilation) checked_body_behaviors: UnitQueryCache<CheckedBodyBehavior>,
     pub(in crate::compilation) lowered_units: UnitQueryCache<Option<bray_lowering::LoweredUnit>>,
     pub(in crate::compilation) source_outputs: crate::compilation::source_output::SourceOutputs,

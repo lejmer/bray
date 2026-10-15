@@ -14,7 +14,7 @@ pub(crate) fn diagnostic_binding_failure(
     use bray_binder::BoundUnitBindingError as Error;
 
     let (reason, context) = match error {
-        Error::Cancelled | Error::CheckerInfrastructure(_) => {
+        Error::Cancelled => {
             unreachable!("fact binding failures contain only binding-owned causes")
         }
         Error::Upstream(error) => match *error {},
@@ -150,10 +150,9 @@ fn diagnostic_nested_binding_failure(
     }
 
     let reason = match error {
-        Error::Cancelled
-        | Error::CheckerInfrastructure(_)
-        | Error::SemanticValue(_)
-        | Error::Upstream(_) => unreachable!("nested binding retains binding-owned causes"),
+        Error::Cancelled | Error::SemanticValue(_) | Error::Upstream(_) => {
+            unreachable!("nested binding retains binding-owned causes")
+        }
         Error::DependencyUnavailable => "binding_dependency_unavailable",
         Error::MissingSyntax { .. } => "binding_missing_syntax",
         Error::MissingOwner { .. } => "binding_missing_owner",
@@ -312,7 +311,6 @@ fn push_nested_binding_context(
         }
         Error::BoundWalkStopped(root) => context.push(identity_field("root", root)),
         Error::Cancelled
-        | Error::CheckerInfrastructure(_)
         | Error::SemanticValue(_)
         | Error::Upstream(_)
         | Error::DependencyUnavailable

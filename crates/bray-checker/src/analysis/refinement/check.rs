@@ -1,7 +1,12 @@
-use std::collections::BTreeMap;
-
+use super::super::model::{
+    AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind, AnalysisScopeExitPhase,
+    ControlFlowGraph,
+};
+use super::set::RefinementSet;
+use super::universe::{MAX_REFINEMENT_CELLS, RefinementUniverse, RefinementUniverseError};
+use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{
-    AnyBoundNodeId, CheckedPatterns, CheckedRefinements, CheckedSemanticSelections,
+    AnyBoundNodeId, CheckedExpressionSemantics, CheckedPatterns, CheckedRefinements,
     RefinementOccurrence, StoragePlan,
 };
 use bray_diagnostics::{
@@ -9,153 +14,110 @@ use bray_diagnostics::{
     DiagnosticLabelKind, DiagnosticRefinementCapacity, DiagnosticRefinementCapacitySurface,
     SeverityKind,
 };
+use std::collections::BTreeMap;
 
-use crate::unit::assert_unit_inputs;
-use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
-
-use super::super::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
-use super::super::fixed_point::{
-    FixedPointDomain, FixedPointOutcome, FlowDirection, solve_fixed_point,
-};
-use super::super::model::{
-    AnalysisBlock, AnalysisCallPhase, AnalysisEdge, AnalysisEdgeKind, AnalysisOperation,
-    AnalysisOperationKind, AnalysisScopeExitPhase, ControlFlowGraph,
-};
-use super::super::reachability::{ReachabilityResult, analyze_reachability};
-use super::set::RefinementSet;
-use super::universe::{
-    MAX_REFINEMENT_CELLS, RefinementUniverse, RefinementUniverseError, capacity_error,
-};
-
-pub(crate) fn check_refinements<C>(
+pub(crate) fn prepare_refinements<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     patterns: &CheckedPatterns,
-    selections: &CheckedSemanticSelections,
-    storage: &StoragePlan,
-) -> CheckerOutcome<CheckedRefinements, C::UpstreamError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    assert_unit_inputs(
-        request,
-        [
-            ("patterns", (patterns.unit(), patterns.kind())),
-            (
-                "semantic selections",
-                (selections.unit(), selections.kind()),
-            ),
-            ("storage plan", (storage.unit(), storage.kind())),
-        ],
-    );
-
-    let graph = match build_storage_control_flow_graph(request, storage, selections, None) {
-        ControlFlowGraphBuildOutcome::Complete(graph) => graph,
-        ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
-        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
-    };
-
-    check_refinements_with_graph(request, patterns, selections, storage, &graph).with_upstream()
-}
-
-pub(crate) fn check_refinements_with_graph<C>(
-    request: CheckerUnitView<'_, C>,
-    patterns: &CheckedPatterns,
-    selections: &CheckedSemanticSelections,
+    expressions: &CheckedExpressionSemantics,
     storage: &StoragePlan,
     graph: &ControlFlowGraph,
-) -> CheckerOutcome<CheckedRefinements>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    if !graph.is_well_formed() {
-        panic!("checker control-flow graph violated its construction invariants");
+    memory: &bray_bound_tree::CheckedMemoryOperations,
+) -> CheckerOutcome<RefinementUniverse, C::UpstreamError> {
+    match RefinementUniverse::new(
+        graph,
+        request,
+        patterns,
+        expressions,
+        storage,
+        memory,
+        storage.copyable_types(),
+    ) {
+        Ok(universe) => CheckerOutcome::without_diagnostics(universe),
+        Err(RefinementUniverseError::Cancelled) => CheckerOutcome::Cancelled,
+        Err(RefinementUniverseError::CapacityExceeded(capacity)) => CheckerOutcome::complete(
+            {
+                let mut universe = RefinementUniverse::default();
+
+                universe.is_recovered = true;
+
+                universe
+            },
+            DiagnosticBag::single(capacity_diagnostic(
+                request.source(request.unit().key().source()).span(),
+                capacity,
+            )),
+        ),
     }
+}
 
-    let Some(reachability) = analyze_reachability(graph, request) else {
-        return CheckerOutcome::Cancelled;
+pub(crate) fn publish_refinements<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    graph: &ControlFlowGraph,
+    universe: &RefinementUniverse,
+    occurrences: BTreeMap<AnyBoundNodeId, RefinementSet>,
+    invalidations: BTreeMap<
+        bray_bound_tree::BoundExecutionSite,
+        bray_bound_tree::StorageInvalidation,
+    >,
+) -> CheckerOutcome<CheckedRefinements, C::UpstreamError> {
+    let count = occurrences.values().fold(0usize, |count, set| {
+        count
+            .checked_add(set.len())
+            .expect("published refinement counts fit the host address space")
+    });
+
+    let mut diagnostics = DiagnosticBag::new();
+
+    let mut recovered = universe.is_recovered
+        || graph
+            .operations()
+            .iter()
+            .any(|operation| matches!(operation.kind(), AnalysisOperationKind::Recovery(_)));
+
+    let occurrences = if count > MAX_REFINEMENT_CELLS {
+        let capacity = DiagnosticRefinementCapacity::try_new(
+            DiagnosticRefinementCapacitySurface::PublishedRefinements,
+            u64::try_from(count).expect("refinement count fits diagnostic representation"),
+            u64::try_from(MAX_REFINEMENT_CELLS)
+                .expect("configured refinement capacity fits diagnostic representation"),
+        )
+        .expect("exceeded capacity has a valid diagnostic");
+
+        diagnostics.add(capacity_diagnostic(
+            request.source(request.unit().key().source()).span(),
+            capacity,
+        ));
+
+        recovered = true;
+
+        Vec::new()
+    } else {
+        occurrences
+            .into_iter()
+            .filter(|(_, set)| !set.is_empty())
+            .map(|(node, set)| {
+                RefinementOccurrence::new(node, universe.active_refinements(&set).cloned())
+            })
+            .collect()
     };
 
-    let universe = match RefinementUniverse::new(graph, request, patterns, selections, storage) {
-        Ok(universe) => universe,
-        Err(RefinementUniverseError::CapacityExceeded(capacity)) => {
-            return capacity_recovery(request, capacity);
-        }
-        Err(RefinementUniverseError::CountUnrepresentable) => {
-            return CheckerOutcome::InfrastructureFailure(
-                crate::CheckerInfrastructureError::RefinementCapacityUnrepresentable,
-            );
-        }
-        Err(RefinementUniverseError::AllocationFailed) => {
-            return CheckerOutcome::InfrastructureFailure(
-                crate::CheckerInfrastructureError::RefinementStorageUnavailable,
-            );
-        }
-        Err(RefinementUniverseError::Cancelled) => return CheckerOutcome::Cancelled,
-    };
+    // Unvisited operations retain their conservative prepared effects. Reachable operations
+    // replace them with the effects established on every converged incoming path.
+    let mut effects = universe.invalidating_accesses.clone();
 
-    let result = match analyze_refinements(graph, &reachability, &universe, storage, request) {
-        Some(result) => result,
-        None => return CheckerOutcome::Cancelled,
-    };
-
-    let occurrences = match result.occurrences(graph, storage) {
-        Ok(occurrences) => occurrences,
-        Err(RefinementUniverseError::CapacityExceeded(capacity)) => {
-            return capacity_recovery(request, capacity);
-        }
-        Err(RefinementUniverseError::CountUnrepresentable) => {
-            return CheckerOutcome::InfrastructureFailure(
-                crate::CheckerInfrastructureError::RefinementCapacityUnrepresentable,
-            );
-        }
-        Err(RefinementUniverseError::AllocationFailed) => {
-            return CheckerOutcome::InfrastructureFailure(
-                crate::CheckerInfrastructureError::RefinementStorageUnavailable,
-            );
-        }
-        Err(RefinementUniverseError::Cancelled) => return CheckerOutcome::Cancelled,
-    };
-
-    let is_recovered = graph
-        .operations()
-        .iter()
-        .any(|operation| matches!(operation.kind(), AnalysisOperationKind::Recovery(_)));
+    effects.extend(invalidations);
 
     let refinements = CheckedRefinements::try_new(
         graph.unit(),
         request.view().kind(),
         occurrences,
-        is_recovered,
+        effects,
+        recovered,
     )
-    .unwrap_or_else(|error| panic!("checker produced invalid refinements: {error:?}"));
+    .expect("composite flow publishes valid refinement occurrences");
 
-    CheckerOutcome::without_diagnostics(refinements)
-}
-
-fn capacity_recovery<C>(
-    request: CheckerUnitView<'_, C>,
-    capacity: DiagnosticRefinementCapacity,
-) -> CheckerOutcome<CheckedRefinements>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let source = match request.source(request.unit().key().source()) {
-        Ok(source) => source,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-    };
-
-    let diagnostic = capacity_diagnostic(source.span(), capacity);
-
-    let refinements =
-        CheckedRefinements::try_new(request.view().unit(), request.view().kind(), [], true)
-            .unwrap_or_else(|error| panic!("empty recovery refinements must be valid: {error:?}"));
-
-    CheckerOutcome::complete(refinements, DiagnosticBag::single(diagnostic))
+    CheckerOutcome::complete(refinements, diagnostics)
 }
 
 fn capacity_diagnostic(
@@ -175,230 +137,50 @@ fn capacity_diagnostic(
     .with_arg(DiagnosticArg::refinement_capacity(capacity))
 }
 
-struct RefinementResult<'universe> {
-    result: super::super::fixed_point::FixedPointResult<RefinementState>,
-    universe: &'universe RefinementUniverse,
-}
-
-impl RefinementResult<'_> {
-    fn occurrences(
-        &self,
-        graph: &ControlFlowGraph,
-        storage: &StoragePlan,
-    ) -> Result<Vec<RefinementOccurrence>, RefinementUniverseError> {
-        let mut occurrence_refinements = BTreeMap::new();
-
-        for block in graph.blocks() {
-            let Some(mut state) = self.result.state(block.id()).cloned() else {
-                continue;
-            };
-
-            for operation in block.operations() {
-                let Some(operation) = graph.operation(*operation) else {
-                    continue;
-                };
-
-                match occurrence_refinements.entry(operation.kind().node()) {
-                    std::collections::btree_map::Entry::Vacant(entry) => {
-                        entry.insert(state.refinements.clone());
-                    }
-                    std::collections::btree_map::Entry::Occupied(mut entry) => {
-                        entry.get_mut().intersect(&state.refinements);
-                    }
-                }
-
-                transfer_operation(&mut state, operation, self.universe, storage);
-            }
-        }
-
-        let actual_refinements =
-            occurrence_refinements
-                .values()
-                .try_fold(0usize, |count, refinements| {
-                    count
-                        .checked_add(refinements.len())
-                        .ok_or(RefinementUniverseError::CountUnrepresentable)
-                })?;
-
-        if actual_refinements > MAX_REFINEMENT_CELLS {
-            return Err(capacity_error(
-                DiagnosticRefinementCapacitySurface::PublishedRefinements,
-                actual_refinements,
-                MAX_REFINEMENT_CELLS,
-            ));
-        }
-
-        Ok(occurrence_refinements
-            .into_iter()
-            .filter(|(_, refinements)| !refinements.is_empty())
-            .map(|(node, refinements)| {
-                RefinementOccurrence::new(node, self.universe.active_refinements(&refinements))
-            })
-            .collect())
-    }
-}
-
-fn analyze_refinements<'universe, C>(
-    graph: &ControlFlowGraph,
-    reachability: &ReachabilityResult,
-    universe: &'universe RefinementUniverse,
-    storage: &StoragePlan,
-    request: CheckerUnitView<'_, C>,
-) -> Option<RefinementResult<'universe>>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let domain = RefinementDomain {
-        graph,
-        reachability,
-        universe,
-        storage,
-    };
-
-    match solve_fixed_point(graph, &domain, &request) {
-        FixedPointOutcome::Complete(result) => Some(RefinementResult { result, universe }),
-        FixedPointOutcome::Cancelled => None,
-        FixedPointOutcome::ConvergenceInvariantViolated => {
-            panic!("finite refinement analysis exceeded its convergence bound")
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct RefinementState {
-    refinements: RefinementSet,
-}
-
-struct RefinementDomain<'analysis> {
-    graph: &'analysis ControlFlowGraph,
-    reachability: &'analysis ReachabilityResult,
-    universe: &'analysis RefinementUniverse,
-    storage: &'analysis StoragePlan,
-}
-
-impl FixedPointDomain for RefinementDomain<'_> {
-    type State = RefinementState;
-
-    fn direction(&self) -> FlowDirection {
-        FlowDirection::Forward
-    }
-
-    fn bottom(&self) -> Self::State {
-        RefinementState {
-            refinements: RefinementSet::empty(self.universe.len()),
-        }
-    }
-
-    fn initial(&self, block: &AnalysisBlock) -> Self::State {
-        if self.reachability.is_block_reachable(block.id()) {
-            RefinementState {
-                refinements: RefinementSet::full(self.universe.len()),
-            }
-        } else {
-            self.bottom()
-        }
-    }
-
-    fn boundary(&self) -> Self::State {
-        self.bottom()
-    }
-
-    fn merge_boundary(&self, target: &mut Self::State, boundary: &Self::State) -> bool {
-        target.refinements.replace(&boundary.refinements)
-    }
-
-    fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
-        self.transfer(block, source)
-    }
-
-    fn propagate(
-        &self,
-        source: &Self::State,
-        edge: &AnalysisEdge,
-        target: &mut Self::State,
-    ) -> bool {
-        if !self.reachability.is_edge_reachable(edge.id()) {
-            return false;
-        }
-
-        let mut incoming = source.clone();
-
-        if edge.kind() == AnalysisEdgeKind::Recovery {
-            incoming.refinements.clear();
-        } else if let Some(refinement) = edge.refinement() {
-            self.universe
-                .insert_refinement(&mut incoming.refinements, refinement);
-        }
-
-        target.refinements.intersect(&incoming.refinements)
-    }
-
-    fn convergence_bound(&self, _: &ControlFlowGraph) -> usize {
-        self.graph
-            .blocks()
-            .len()
-            .saturating_mul(self.universe.len().saturating_add(1))
-    }
-}
-
-impl RefinementDomain<'_> {
-    fn transfer(&self, block: &AnalysisBlock, source: &RefinementState) -> RefinementState {
-        let mut incoming = source.clone();
-
-        for operation in block.operations() {
-            let Some(operation) = self.graph.operation(*operation) else {
-                continue;
-            };
-
-            transfer_operation(&mut incoming, operation, self.universe, self.storage);
-        }
-
-        incoming
-    }
-}
-
-fn transfer_operation(
-    state: &mut RefinementState,
+pub(crate) fn transfer_operation(
+    state: &mut RefinementSet,
     operation: &AnalysisOperation,
     universe: &RefinementUniverse,
     storage: &StoragePlan,
+    invalidation: Option<&bray_bound_tree::StorageInvalidation>,
 ) {
     match operation.kind() {
-        AnalysisOperationKind::Recovery(_) => state.refinements.clear(),
+        AnalysisOperationKind::Recovery(_) => state.clear(),
         AnalysisOperationKind::PatternObservation(_) => {}
         AnalysisOperationKind::ScopeExit {
             phase: AnalysisScopeExitPhase::LifecycleResolution,
             ..
         } => {}
         AnalysisOperationKind::Bound(node) => {
-            universe.invalidate_for_operation(&mut state.refinements, node, storage);
-            universe.finish_operation(&mut state.refinements, node);
+            universe.invalidate_for_operation(state, node, storage, invalidation);
+            universe.finish_operation(state, node);
         }
         AnalysisOperationKind::Call {
-            expression,
+            invocation,
             phase: AnalysisCallPhase::Attempt,
         } => {
-            universe.invalidate_for_operation(
-                &mut state.refinements,
-                AnyBoundNodeId::Expression(expression),
-                storage,
-            );
+            universe.invalidate_for_operation(state, invocation, storage, invalidation);
         }
         AnalysisOperationKind::Call {
-            expression,
+            invocation,
             phase: AnalysisCallPhase::Completion,
         } => {
-            universe.finish_operation(
-                &mut state.refinements,
-                AnyBoundNodeId::Expression(expression),
-            );
+            if let bray_bound_tree::BoundExecutionSite::Node(node) = invocation {
+                universe.finish_operation(state, node);
+            }
         }
-        AnalysisOperationKind::Suspension { expression, .. }
-        | AnalysisOperationKind::TaskOperation { expression, .. } => {
+        AnalysisOperationKind::Suspension { occurrence, .. } => {
+            universe.invalidate_for_operation(state, occurrence, storage, invalidation);
+
+            if let bray_bound_tree::BoundExecutionSite::Node(node) = occurrence {
+                universe.finish_operation(state, node);
+            }
+        }
+        AnalysisOperationKind::TaskOperation { expression, .. } => {
             let node = AnyBoundNodeId::Expression(expression);
 
-            universe.invalidate_for_operation(&mut state.refinements, node, storage);
-            universe.finish_operation(&mut state.refinements, node);
+            universe.invalidate_for_operation(state, node, storage, invalidation);
+            universe.finish_operation(state, node);
         }
         AnalysisOperationKind::ScopeExit {
             phase: AnalysisScopeExitPhase::TaskCancellationBroadcast,

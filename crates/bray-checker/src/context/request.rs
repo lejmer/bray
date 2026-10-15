@@ -16,7 +16,7 @@ use bray_symbols::{
 use bray_target::TargetProfile;
 use std::sync::Arc;
 
-use super::errors::{CheckerInfrastructureError, CheckerQueryResult};
+use super::errors::CheckerQueryResult;
 
 /// One recognized implementation hook and its availability for the selected target.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -90,10 +90,45 @@ pub trait CheckerRequestContext: Sync {
     /// Returns the canonical semantic values used by bound structure and queries.
     fn semantic_values(&self) -> &SemanticValueStore;
 
+    /// Matches inherited named-type arguments to an inherent callable's implementation header.
+    fn inherited_callable_substitution(
+        &self,
+        instance: bray_symbols::CallableInstanceData,
+    ) -> CheckerQueryResult<
+        DiagnosticResult<Option<bray_symbols::GenericSubstitutionId>>,
+        Self::UpstreamError,
+    >;
+
+    /// Resolves the open subject type that defines an implementation's contextual Self.
+    fn implementation_subject_type(
+        &self,
+        implementation: bray_symbols::ImplementationSymbolId,
+    ) -> CheckerQueryResult<DiagnosticResult<TypeId>, Self::UpstreamError>;
+
+    /// Returns predicate contracts checked independently of callable body effects.
+    fn callable_predicate_contracts(
+        &self,
+        _callable: bray_symbols::CallableSymbolId,
+    ) -> CheckerQueryResult<
+        bray_diagnostics::DiagnosticResult<std::sync::Arc<[bray_symbols::CallableContractClause]>>,
+        Self::UpstreamError,
+    > {
+        Ok(bray_diagnostics::DiagnosticResult::new(
+            std::sync::Arc::new([]),
+            bray_diagnostics::DiagnosticBag::new(),
+        ))
+    }
+
     /// Returns the inferred contract retained by one callable's returned value.
     fn callable_result_dependencies(
         &self,
         callable: bray_symbols::CallableSymbolId,
+    ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>;
+
+    /// Returns the checked result contract of a static initializer, independently of shutdown.
+    fn static_result_dependencies(
+        &self,
+        declaration: bray_symbols::StaticSymbolId,
     ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>;
 
     /// Returns the exact trait requirement represented by an abstract dispatch route.
@@ -115,17 +150,11 @@ pub trait CheckerRequestContext: Sync {
         Self::UpstreamError,
     >;
 
-    /// Returns the result type and retained dependencies of a selected parameter default.
-    fn parameter_default_result(
+    /// Returns the retained dependencies of a selected runtime-default provider.
+    fn default_result_dependencies(
         &self,
-        parameter: bray_symbols::CallableParameterSymbolId,
-    ) -> CheckerQueryResult<
-        (
-            bray_symbols::TypeId,
-            bray_symbols::DependencyContractTemplateId,
-        ),
-        Self::UpstreamError,
-    >;
+        provider: bray_bound_tree::DefaultValueProvider,
+    ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>;
 
     /// Returns the compilation-wide symbol graph.
     fn symbols(&self) -> &SymbolGraph;
@@ -333,16 +362,14 @@ pub trait CheckerRequestContext: Sync {
     ) -> CheckerQueryResult<bool, Self::UpstreamError>;
 
     /// Resolves a bound source anchor without exposing its source snapshot.
-    fn source(
-        &self,
-        anchor: BoundSourceAnchor,
-    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError>;
+    ///
+    /// The anchor must identify retained source at its bound revision with a valid text range.
+    fn source(&self, anchor: BoundSourceAnchor) -> CheckerSource<'_>;
 
     /// Resolves one declaration syntax anchor from the current immutable compilation snapshot.
-    fn source_syntax(
-        &self,
-        anchor: bray_declarations::SyntaxAnchor,
-    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError>;
+    ///
+    /// The anchor must identify retained source with a valid text range.
+    fn source_syntax(&self, anchor: bray_declarations::SyntaxAnchor) -> CheckerSource<'_>;
 
     /// Returns the cancellation source for the current request.
     fn cancellation(&self) -> &dyn Cancellation;

@@ -1,6 +1,6 @@
 use super::common::{decode_tag, validate_record_count};
 use crate::semantic::codec::common::{
-    SemanticDecodeContext, map_wire_error, read_count, read_symbol_reference,
+    SemanticDecodeContext, map_wire_error, read_count, read_optional_u32, read_symbol_reference,
     read_symbol_references, read_u32,
 };
 use crate::semantic::codec::record::RecordTable;
@@ -78,6 +78,9 @@ pub(super) fn decode_dependency_contract(
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceDependencyContract, InterfaceValidationError> {
+    let normal_completion =
+        super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)?;
+
     let requirement_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
     let mut requirements = context.allocate_items(reader, requirement_count)?;
 
@@ -85,7 +88,69 @@ pub(super) fn decode_dependency_contract(
         requirements.push(decode_dependency_requirement(reader, limits, context, 0)?);
     }
 
-    Ok(InterfaceDependencyContract::new(requirements))
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut borrows = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        borrows.push(
+            bray_symbols::DependencyBorrowRelation::new(
+                decode_dependency_subject(reader, limits, context)?,
+                decode_dependency_subject(reader, limits, context)?,
+                decode_tag(read_u32(reader)?)?,
+            )
+            .with_dereferences(read_u32(reader)?)
+            .with_target_projections(decode_dependency_projections(reader, limits, context)?),
+        );
+    }
+
+    let returned_input = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
+
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut carriers = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        carriers.push(bray_symbols::DependencyWitnessCarrier::new(
+            crate::InterfaceConstantTermId::new(read_u32(reader)?),
+            decode_dependency_projections(reader, limits, context)?,
+        ));
+    }
+
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut effects = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        use bray_symbols::DependencyStorageEffect;
+
+        let raw = read_u32(reader)?;
+
+        effects.push(match raw {
+            0 => DependencyStorageEffect::Unknown,
+            4 => DependencyStorageEffect::Atomic,
+            3 => DependencyStorageEffect::Cleanup(crate::InterfaceTypeId::new(read_u32(reader)?)),
+            1 => DependencyStorageEffect::Direct {
+                subject: decode_dependency_subject(reader, limits, context)?,
+                kind: decode_tag(read_u32(reader)?)?,
+            },
+            2 => DependencyStorageEffect::Indirect {
+                reference: decode_dependency_subject(reader, limits, context)?,
+                projections: decode_dependency_projections(reader, limits, context)?.into(),
+                kind: decode_tag(read_u32(reader)?)?,
+            },
+            _ => {
+                return Err(crate::semantic::codec::invalid_discriminant(
+                    crate::InterfaceValidationField::Dependency,
+                    raw,
+                ));
+            }
+        });
+    }
+
+    Ok(InterfaceDependencyContract::new(requirements)
+        .with_borrows(borrows)
+        .with_carriers(carriers)
+        .with_returned_input(returned_input)
+        .with_effects(effects)
+        .with_normal_completion(normal_completion))
 }
 
 pub(super) fn decode_constraint(
@@ -100,7 +165,7 @@ pub(super) fn decode_constraint(
         1 => Ok(InterfaceConstraint::new(
             owner,
             ordinal,
-            InterfacePredicateSummary::new(InterfaceDependencyContractId::new(read_u32(reader)?)),
+            decode_predicate_summary(reader)?,
         )),
         2 => Ok(InterfaceConstraint::trait_satisfaction(
             owner,
@@ -190,9 +255,7 @@ fn decode_callable_clauses(
             1 => InterfaceCallableContractClause::new(
                 ordinal,
                 kind,
-                InterfacePredicateSummary::new(InterfaceDependencyContractId::new(read_u32(
-                    reader,
-                )?)),
+                decode_predicate_summary(reader)?,
             ),
             2 if kind == CallableContractClauseKind::Static => {
                 InterfaceCallableContractClause::trait_satisfaction(
@@ -220,6 +283,19 @@ pub(super) fn decode_callable_behavior(
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceCallablePhaseBehavior, InterfaceValidationError> {
+    let mut predicate_sets = Vec::with_capacity(2);
+
+    for _ in 0..2 {
+        let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+        let mut predicates = context.allocate_items(reader, count)?;
+
+        for _ in 0..count {
+            predicates.push(decode_predicate_summary(reader)?);
+        }
+
+        predicate_sets.push(predicates);
+    }
+
     let effects = read_symbol_references(reader, limits, context)?;
     let capabilities = read_symbol_references(reader, limits, context)?;
     let execution_requirements = read_symbol_references(reader, limits, context)?;
@@ -244,6 +320,10 @@ pub(super) fn decode_callable_behavior(
 
     let dependency_contract = InterfaceDependencyContractId::new(read_u32(reader)?);
     let current_run_cancellation = decode_tag(read_u32(reader)?)?;
+
+    let may_unwind =
+        super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)?;
+
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
     let mut execution_properties = context.allocate_items(reader, count)?;
 
@@ -259,7 +339,18 @@ pub(super) fn decode_callable_behavior(
         lifecycle_obligations,
         dependency_contract,
         current_run_cancellation,
-    );
+    )
+    .with_may_unwind(may_unwind);
+
+    behavior.predicate_guarantees = predicate_sets
+        .pop()
+        .expect("two phase predicate sets")
+        .into();
+
+    behavior.predicate_requirements = predicate_sets
+        .pop()
+        .expect("two phase predicate sets")
+        .into();
 
     // Retain wire ordering so validation can reject duplicate or unordered promises.
     behavior.execution_properties = execution_properties.into();
@@ -422,6 +513,16 @@ pub(super) fn decode_dependency_subject(
         }
     };
 
+    let projections = decode_dependency_projections(reader, limits, context)?;
+
+    Ok(InterfaceDependencySubject::new(root, projections))
+}
+
+fn decode_dependency_projections(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<Vec<InterfaceDependencyProjection>, InterfaceValidationError> {
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
 
     let mut projections = context.allocate_items(reader, count)?;
@@ -442,6 +543,7 @@ pub(super) fn decode_dependency_subject(
                 reader, context,
             )?),
             6 => InterfaceDependencyProjection::OwnedTarget,
+            7 => InterfaceDependencyProjection::UninitPayload,
             _ => {
                 return Err(crate::semantic::codec::invalid_discriminant(
                     crate::InterfaceValidationField::Dependency,
@@ -451,7 +553,7 @@ pub(super) fn decode_dependency_subject(
         });
     }
 
-    Ok(InterfaceDependencySubject::new(root, projections))
+    Ok(projections)
 }
 
 pub(super) fn decode_dependency_guard(
@@ -532,11 +634,14 @@ mod tests {
     #[test]
     fn witness_dependencies_decode_separate_value_and_storage_inputs() {
         let words = [
+            1, // Normal completion is possible.
             1, // One result requirement.
             3, 2, 3, 4, 1, // Witness call and one input.
             1, 0, // Receiver input with no projection.
             1, 1, 2, 5, 0, 7, // Values carried by parameter five.
             1, 1, 8, 0, 1, // Evaluation-owned storage.
+            0, 0, 0, 1,
+            0, // No reference relations, returned input or carriers. Unknown effects.
         ];
 
         let decoded = decode_words(&words, InterfaceValidationLimits::default()).unwrap();
@@ -585,7 +690,7 @@ mod tests {
     fn witness_dependencies_reject_projected_inputs_and_unbounded_counts() {
         assert_eq!(
             decode_words(
-                &[1, 3, 2, 3, 4, 1, 1, 1, 4, 0, 0],
+                &[1, 1, 3, 2, 3, 4, 1, 1, 1, 4, 0, 0],
                 InterfaceValidationLimits::default()
             ),
             Err(crate::semantic::codec::invalid_value(
@@ -595,7 +700,7 @@ mod tests {
 
         assert!(matches!(
             decode_words(
-                &[1, 3, 2, 3, 4, u32::MAX],
+                &[1, 1, 3, 2, 3, 4, u32::MAX],
                 InterfaceValidationLimits::default()
             ),
             Err(InterfaceValidationError::ResourceLimitExceeded {
@@ -606,7 +711,7 @@ mod tests {
     }
     #[test]
     fn dependency_equations_decode_with_bounded_nesting() {
-        let words = [1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0];
+        let words = [1, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 1, 0];
         let variable = InterfaceDependencyRequirement::variable(0, SymbolOrdinal::new(0));
 
         let expected =
@@ -632,11 +737,23 @@ mod tests {
         ));
 
         assert!(matches!(
-            decode_words(&[1, 6, u32::MAX], InterfaceValidationLimits::default()),
+            decode_words(&[1, 1, 6, u32::MAX], InterfaceValidationLimits::default()),
             Err(InterfaceValidationError::ResourceLimitExceeded {
                 limit: InterfaceLimit::RecordCount,
                 ..
             })
         ));
     }
+}
+
+fn decode_predicate_summary(
+    reader: &mut WireReader<'_>,
+) -> Result<InterfacePredicateSummary, InterfaceValidationError> {
+    let dependency = InterfaceDependencyContractId::new(read_u32(reader)?);
+    let condition = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
+
+    let is_trusted =
+        super::common::decode_bool(reader, crate::InterfaceValidationField::Reference)?;
+
+    Ok(InterfacePredicateSummary::new(dependency).with_condition(condition, is_trusted))
 }

@@ -58,7 +58,7 @@ pub(in crate::compilation::export) struct SemanticExporter<'a> {
     pub(super) graph: &'a bray_symbols::SymbolGraph,
     pub(super) surface: &'a PackageInterfaceSurface,
     pub(super) keys: &'a BTreeMap<AnySymbolId, ExternalSymbolKey>,
-    pub(super) values: &'a SemanticValueStore,
+    pub(in crate::compilation::export) values: &'a SemanticValueStore,
     declaration: Option<AnySymbolId>,
     pub(super) type_ids: BTreeMap<TypeId, InterfaceTypeId>,
     pub(super) substitution_ids: BTreeMap<GenericSubstitutionId, InterfaceGenericSubstitutionId>,
@@ -222,7 +222,6 @@ impl<'a> SemanticExporter<'a> {
         }
 
         resolve_type_expression_template(self.values, template, constants.value())
-            .map_err(super::super::checker_infrastructure_export_error)?
             .ok_or_else(|| incomplete(owner))
     }
 
@@ -315,6 +314,13 @@ impl<'a> SemanticExporter<'a> {
     ) -> Result<InterfacePredicateSummary, PackageInterfaceExportError> {
         Ok(InterfacePredicateSummary::new(
             self.dependency_contract_id(predicate.dependency_contract())?,
+        )
+        .with_condition(
+            predicate
+                .condition()
+                .map(|term| self.constant_term_id(term))
+                .transpose()?,
+            predicate.is_trusted(),
         ))
     }
 
@@ -352,7 +358,11 @@ impl<'a> SemanticExporter<'a> {
         let result_dependencies = self
             .values
             .empty_dependency_contract_template()
-            .map_err(super::super::semantic_value_export_error)?;
+            .unwrap_or_else(|error| {
+                panic!(
+                    "semantic_value_export_error in checked_constant_template_with_usage: {error:?}"
+                )
+            });
 
         let behavior = InterfaceCheckedTemplateBehavior::new(
             [],
@@ -539,6 +549,19 @@ impl<'a> SemanticExporter<'a> {
             self.dependency_contract_id(behavior.dependency_contract())?,
             behavior.current_run_cancellation(),
         )
-        .with_execution_properties(behavior.execution_properties().iter().copied()))
+        .with_may_unwind(behavior.may_unwind())
+        .with_execution_properties(behavior.execution_properties().iter().copied())
+        .with_predicates(
+            behavior
+                .predicate_requirements()
+                .iter()
+                .map(|predicate| self.predicate_summary(*predicate))
+                .collect::<Result<Vec<_>, _>>()?,
+            behavior
+                .predicate_guarantees()
+                .iter()
+                .map(|predicate| self.predicate_summary(*predicate))
+                .collect::<Result<Vec<_>, _>>()?,
+        ))
     }
 }

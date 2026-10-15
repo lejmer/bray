@@ -13,9 +13,6 @@ where
 {
     match error {
         BindingQueryError::Cancelled => FactQueryError::Cancelled,
-        BindingQueryError::CheckerInfrastructure(error) => {
-            FactQueryError::CheckerInfrastructure(error)
-        }
         BindingQueryError::SemanticValue(error) => FactQueryError::SemanticValueStore(error),
         BindingQueryError::DependencyUnavailable => FactQueryError::BindingDependencyUnavailable,
         BindingQueryError::MissingSyntax { source } => FactQueryError::Binding(
@@ -52,7 +49,6 @@ where
 {
     match error {
         BindingError::Cancelled => FactQueryError::Cancelled,
-        BindingError::CheckerInfrastructure(error) => FactQueryError::CheckerInfrastructure(error),
         BindingError::SemanticValue(error) => FactQueryError::SemanticValueStore(error),
         BindingError::Upstream(error) => error.into(),
         BindingError::DependencyUnavailable => FactQueryError::BindingDependencyUnavailable,
@@ -203,12 +199,6 @@ where
     }
 }
 
-pub(in crate::compilation) fn semantic_value_binding_error(
-    error: bray_symbols::SemanticValueStoreError,
-) -> BindingQueryError<FactQueryError> {
-    BindingQueryError::SemanticValue(error)
-}
-
 pub(in crate::compilation) fn callable_signature_binding_error(
     error: bray_symbols::CallableSignatureTemplateError,
 ) -> BindingQueryError<FactQueryError> {
@@ -245,35 +235,17 @@ pub(in crate::compilation) fn symbol_query_contract_binding_error(
 
 #[cfg(test)]
 mod tests {
-    use bray_checker::CheckerInfrastructureError;
+
     use bray_symbols::{
         FunctionSymbolId, PackageIdentity, SemanticValueKind, SemanticValueStoreError, SymbolId,
         SymbolQueryKind,
     };
 
     use super::{binding_error, binding_query_error, symbol_query_contract_binding_error};
-    use crate::compilation::binder::symbol::binder_error;
     use crate::compilation::{
         SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
     };
     use crate::fact::{FactQueryError, SymbolQueryKey};
-
-    #[test]
-    fn checker_infrastructure_causes_survive_binding_query_boundaries() {
-        for cause in [
-            CheckerInfrastructureError::StorageFlow(
-                bray_checker::CheckerStorageFlowFailure::FlowConstruction(
-                    bray_bound_tree::StorageFlowBuildError::ForeignUnit,
-                ),
-            ),
-            CheckerInfrastructureError::SemanticValueUnavailable,
-            CheckerInfrastructureError::AtomicInitializerResultUnavailable,
-        ] {
-            let error = FactQueryError::CheckerInfrastructure(cause);
-
-            assert_eq!(binding_query_error(binder_error(error.clone())), error);
-        }
-    }
 
     #[test]
     fn semantic_value_causes_survive_binding_query_boundaries() {

@@ -3,6 +3,70 @@ use bray_ir::{MirAggregateKind, MirOperand, MirOperationKind, MirPanicCause, Mir
 use super::support::lowered_mir;
 use crate::test_support::{compilation, source_callable_body_key, source_function_body_key};
 
+#[test]
+fn borrowed_nullable_patterns_test_the_payload_discriminant() {
+    for parameter in ["&i32?", "&mut i32?", "(&i32)?"] {
+        for (input, condition) in [
+            (parameter, "let ?present = value"),
+            (parameter, "value matches none"),
+            ("Wrapper", "let { slot = ?present } = value"),
+            ("Wrapper", "value matches { slot = none }"),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+                struct Wrapper {{ slot: {parameter}; }}
+                func inspect(pos value: {input}) -> bool {{
+                    if {condition} {{ return true; }}
+                    return false;
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+
+            let lowered = compilation
+                .lowered_unit(source_function_body_key(&compilation, "inspect"))
+                .unwrap();
+
+            assert!(
+                !lowered.diagnostics().has_errors(),
+                "{source}: {lowered:#?}"
+            );
+
+            let mir = lowered_mir(&lowered);
+            let mut tested = false;
+
+            for block in mir.blocks() {
+                if let MirTerminatorKind::PatternBranch {
+                    subject: MirOperand::Copy(place),
+                    predicate:
+                        bray_ir::MirPatternPredicate::NullableAbsent
+                        | bray_ir::MirPatternPredicate::NullablePresent,
+                    ..
+                } = block.terminator().kind()
+                {
+                    assert!(
+                        matches!(
+                            compilation
+                                .semantic_value_store()
+                                .unwrap()
+                                .type_data(place.ty())
+                                .as_ref(),
+                            bray_symbols::TypeData::Nullable(_)
+                        ),
+                        "{source}: {place:#?}"
+                    );
+
+                    tested = true;
+                }
+            }
+
+            assert!(tested, "fixture must retain its nullable branch: {source}");
+        }
+    }
+}
+
 const CONTROL_LOWERING_SOURCE: &str = concat!(
     "module app;\n",
     "\n",
@@ -158,9 +222,9 @@ const GENERATOR_LOWERING_SOURCE: &str = concat!(
 const FAILURE_LOWERING_SOURCE: &str = concat!(
     "module app;\n",
     "\n",
-    "func main()\n",
+    "func main(pos condition: bool)\n",
     "{\n",
-    "    assert(true);\n",
+    "    assert(condition);\n",
     "}\n",
 );
 
@@ -553,6 +617,27 @@ fn checked_assertion_lowers_to_explicit_failure_control() {
         block.terminator().kind(),
         MirTerminatorKind::BeginCleanup(_) | MirTerminatorKind::Panic { .. }
     )));
+}
+
+#[test]
+fn established_assertions_do_not_lower_failure_messages_or_reports() {
+    for body in [
+        "assert(true);",
+        "let value: i32 = 1; assert(value == 1, panic(\"unreachable\"));",
+    ] {
+        let source = format!("module app; func main() {{ {body} }}");
+        let compilation = compilation(&source);
+        let key = source_callable_body_key(&compilation);
+        let result = compilation.lowered_unit(key).unwrap();
+        let mir = lowered_mir(&result);
+
+        assert!(
+            !mir.operations()
+                .iter()
+                .any(|operation| matches!(operation.kind(), MirOperationKind::PanicReport(_))),
+            "{body}: {mir:#?}"
+        );
+    }
 }
 
 #[test]

@@ -11,6 +11,8 @@ use crate::{BoundLiteralKind, BoundNodeOrigin, BoundPatternId};
 pub enum BoundPatternMode {
     /// Introduce local bindings that become visible after the pattern succeeds.
     Declaration,
+    /// Introduce irrefutable aliases into a retained scoped capability.
+    Scoped,
     /// Assign through names and projections already visible at the pattern site.
     Assignment,
     /// Observe a match subject and introduce arm-local bindings on success.
@@ -24,6 +26,7 @@ impl BoundPatternMode {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Declaration => "declaration",
+            Self::Scoped => "scoped",
             Self::Assignment => "assignment",
             Self::MatchObserve => "match_observe",
             Self::MatchConsume => "match_consume",

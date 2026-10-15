@@ -1,6 +1,4 @@
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{SelectedArgument, SelectedCall};
 use bray_symbols::{
     DependencyContractTemplateData, DependencyRequirement, DependencyRequirementKind,
@@ -10,6 +8,8 @@ use bray_symbols::{
 /// Dependencies retained by a selected call, including inputs whose call-owned storage would escape.
 pub(crate) struct CallResultDependencies {
     pub(crate) template: DependencyContractTemplateData,
+    pub(crate) evaluation_effects: std::sync::Arc<[bray_symbols::DependencyStorageEffect]>,
+    pub(crate) evaluation_completes: bool,
     pub(crate) escaping_evaluation_inputs: Vec<DependencySubjectRoot>,
 }
 
@@ -18,6 +18,48 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     call: &SelectedCall,
     template: &DependencyContractTemplateData,
+) -> Result<CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
+    let mut defaults = std::collections::BTreeMap::new();
+
+    for argument in call.arguments() {
+        let SelectedArgument::Default {
+            parameter,
+            provider,
+            ..
+        } = argument
+        else {
+            continue;
+        };
+
+        let provider = request.default_result_dependencies(
+            bray_bound_tree::DefaultValueProvider::CallableParameter(*provider),
+        )?;
+
+        let provider = super::resolved_result_template(
+            request,
+            match call.target() {
+                bray_bound_tree::BoundCallableTarget::Declaration(instance) => Some(instance),
+                _ => None,
+            },
+            provider,
+        )?;
+
+        defaults.insert(*parameter, provider);
+    }
+
+    expand(request, call, template, &defaults)
+}
+
+type Defaults = std::collections::BTreeMap<
+    bray_symbols::CallableParameterSymbolId,
+    DependencyContractTemplateData,
+>;
+
+fn expand<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    call: &SelectedCall,
+    template: &DependencyContractTemplateData,
+    defaults: &Defaults,
 ) -> Result<CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
     let mut result = Vec::new();
     let mut escaping_evaluation_inputs = std::collections::BTreeSet::new();
@@ -39,10 +81,12 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
         {
             let definitions = definitions
                 .iter()
-                .map(|definition| expand_witness_input_defaults(request, call, definition))
+                .map(|definition| {
+                    expand_witness_input_defaults(request, call, definition, defaults)
+                })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let roots = expand_witness_input_defaults(request, call, &roots)?;
+            let roots = expand_witness_input_defaults(request, call, &roots, defaults)?;
 
             result.push(DependencyRequirement::fixed_point(definitions, roots));
             continue;
@@ -62,7 +106,7 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
             result.push(DependencyRequirement::result_call(
                 callable,
                 requirement,
-                expand_call_inputs(request, call, &inputs)?,
+                expand_call_inputs(request, call, &inputs, defaults)?,
             ));
 
             continue;
@@ -121,29 +165,40 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
             continue;
         }
 
-        let (_, template) = request.context().parameter_default_result(parameter)?;
-
-        let template = match call.target() {
-            bray_bound_tree::BoundCallableTarget::Declaration(instance) => request
-                .semantic_values()
-                .substitute_dependency_contract(template, instance.substitution())
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?,
-            _ => template,
-        };
-
-        let template = request
-            .semantic_values()
-            .dependency_contract_template_data(template);
-
         pending.extend(
-            super::witness::resolve(request, template.requirements())?
-                .into_iter()
+            defaults[&parameter]
+                .requirements()
+                .iter()
+                .cloned()
                 .map(|requirement| (requirement, true)),
         );
     }
 
+    // Default providers execute when arguments are evaluated, even for a lazy call.
+    let evaluation_effects = bray_symbols::DependencyStorageEffect::normalize(
+        defaults
+            .values()
+            .flat_map(|provider| provider.effects())
+            .cloned(),
+    );
+
+    let evaluation_completes = defaults
+        .values()
+        .all(DependencyContractTemplateData::normal_completion);
+
     Ok(CallResultDependencies {
-        template: DependencyContractTemplateData::new(result),
+        // Default arguments have no caller expression to anchor an exact entry identity.
+        template: template.with_requirements(result).with_borrows(
+            template
+                .borrows()
+                .iter()
+                .filter(|relation| {
+                    super::result_argument(call, relation.entry().subject_root()).is_some()
+                })
+                .cloned(),
+        ),
+        evaluation_effects,
+        evaluation_completes,
         escaping_evaluation_inputs: escaping_evaluation_inputs.into_iter().collect(),
     })
 }
@@ -152,14 +207,15 @@ fn expand_call_inputs<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     call: &SelectedCall,
     inputs: &[bray_symbols::DependencyCallInput],
+    defaults: &Defaults,
 ) -> Result<Vec<bray_symbols::DependencyCallInput>, CheckerQueryError<C::UpstreamError>> {
     inputs
         .iter()
         .map(|input| {
             Ok(bray_symbols::DependencyCallInput::new(
                 input.root(),
-                expand_witness_input_defaults(request, call, input.values())?,
-                expand_witness_input_defaults(request, call, input.storage())?,
+                expand_witness_input_defaults(request, call, input.values(), defaults)?,
+                expand_witness_input_defaults(request, call, input.storage(), defaults)?,
             ))
         })
         .collect::<Result<Vec<_>, CheckerQueryError<C::UpstreamError>>>()
@@ -169,9 +225,10 @@ fn expand_witness_input_defaults<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     call: &SelectedCall,
     requirements: &[DependencyRequirement],
+    defaults: &Defaults,
 ) -> Result<Vec<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
     let template = DependencyContractTemplateData::new(requirements.iter().cloned());
-    let expanded = expand_result_defaults(request, call, &template)?;
+    let expanded = expand(request, call, &template, defaults)?;
 
     let errors = expanded.escaping_evaluation_inputs.iter().map(|_| {
         DependencyRequirement::direct(
@@ -211,26 +268,18 @@ fn default_borrows_argument_storage<C: CheckerRequestContext + ?Sized>(
                 } => *actual == ordinal.raw(),
             }) {
                 Some(SelectedArgument::Explicit { conversion, .. }) => conversion.target_type(),
-                Some(SelectedArgument::Default { parameter, .. }) => {
-                    let (ty, _) = request.context().parameter_default_result(*parameter)?;
-
-                    match call.target() {
-                        bray_bound_tree::BoundCallableTarget::Declaration(instance) => request
-                            .semantic_values()
-                            .substitute_type(ty, instance.substitution())
-                            .map_err(CheckerInfrastructureError::SemanticValueStore)?,
-                        _ => ty,
-                    }
-                }
+                Some(SelectedArgument::Default { ty, .. }) => *ty,
                 None => {
-                    return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                    panic!(
+                        "Semantic-selection inputs do not describe the requested bound unit or operation category. in default_borrows_argument_storage"
+                    );
                 }
             }
         }
         DependencySubjectRoot::Receiver => {
-            let receiver = call
-                .receiver()
-                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            let receiver = call.receiver().unwrap_or_else(|| {
+                panic!("default_borrows_argument_storage requires borrowed result receiver")
+            });
 
             if !matches!(
                 receiver.mode(),
@@ -274,27 +323,20 @@ pub(super) fn escaping_evaluation_diagnostic<C: CheckerRequestContext + ?Sized>(
     call: &SelectedCall,
     root: DependencySubjectRoot,
     id: bray_diagnostics::DiagnosticId,
-) -> Result<bray_diagnostics::Diagnostic, CheckerInfrastructureError> {
-    let origin = crate::diagnostic::bound_node_origin(request, expression.into())
-        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+) -> bray_diagnostics::Diagnostic {
+    let origin = crate::diagnostic::bound_node_origin(request, expression.into()).unwrap_or_else(|| panic!("escaping_evaluation_diagnostic requires bound node source origin, expression: {expression:?}, id: {id:?}"));
 
-    let source = request.source(origin.source_anchor())?;
+    let source = request.source(origin.source_anchor());
 
     let argument = super::result_argument(call, root)
         .or_else(|| match request.view().expression(expression) {
             Some(bray_bound_tree::BoundExpression::Call(call)) => Some(call.callee()),
             _ => None,
-        })
-        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+        }).unwrap_or_else(|| panic!("escaping_evaluation_diagnostic requires checked expression type or node, expression: {expression:?}, id: {id:?}"));
 
-    let argument = crate::diagnostic::bound_node_origin(request, argument.into())
-        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+    let argument = crate::diagnostic::bound_node_origin(request, argument.into()).unwrap_or_else(|| panic!("escaping_evaluation_diagnostic requires bound node source origin, expression: {expression:?}, id: {id:?}"));
 
-    let argument = request.source(argument.source_anchor())?;
+    let argument = request.source(argument.source_anchor());
 
-    Ok(crate::diagnostic::escaping_storage_dependency_diagnostic(
-        id,
-        source.span(),
-        argument.span(),
-    ))
+    crate::diagnostic::escaping_storage_dependency_diagnostic(id, source.span(), argument.span())
 }

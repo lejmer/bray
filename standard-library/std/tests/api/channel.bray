@@ -24,6 +24,10 @@ internal async func completed_value() -> i32
 }
 
 internal async func send_sequence(pos mut sender: std.channel.Sender<i32>, pos first: i32, pos count: i32)
+    requires(
+        trusted std.channel.owner.live(&sender.owner.instance),
+        trusted std.channel.owner.sender(&sender.owner.instance),
+    )
 {
     let mut offset: i32 = 0;
 
@@ -297,36 +301,78 @@ func endpoint_closure_preserves_unsent_values_and_terminal_receives()
 @test
 func concurrency_model_receiver_close_resolves_buffered_messages()
 {
-    core.atomic.store<u32, 4>(&CHANNEL_CLEANUP_COUNT, 0);
+    let mut capacity: usize = 1;
 
-    let (mut sender, mut receiver) = std.testing.assert_ok<
-        (std.channel.Sender<ChannelCleanupProbe>, std.channel.Receiver<ChannelCleanupProbe>),
-        std.channel.ChannelError
-    >(std.channel.bounded<ChannelCleanupProbe>(capacity = 2));
+    while capacity <= 8
+    {
+        let mut head: usize = 0;
 
-    std.testing.assert_ok<unit, std.channel.TrySendError<ChannelCleanupProbe>>(
-        sender.try_send(
-            ChannelCleanupProbe
+        while head < capacity
+        {
+            let mut length: usize = 0;
+
+            while length <= capacity
             {
-                value = 1,
+                let (sender, receiver) = std.testing.assert_ok<
+                    (std.channel.Sender<ChannelCleanupProbe>, std.channel.Receiver<ChannelCleanupProbe>),
+                    std.channel.ChannelError
+                >(std.channel.bounded<ChannelCleanupProbe>(capacity = capacity));
+
+                let mut advanced: usize = 0;
+
+                while advanced < head
+                {
+                    std.testing.assert_ok<unit, std.channel.TrySendError<ChannelCleanupProbe>>(
+                        sender.try_send(
+                            ChannelCleanupProbe
+                            {
+                                value = 0
+                            }
+                        )
+                    );
+
+                    match consume receiver.try_receive()
+                    {
+                        case Received(value) {}
+                        case Empty { assert(false); }
+                        case Closed { assert(false); }
+                    }
+
+                    advanced += 1;
+                }
+
+                core.atomic.store<u32, 4>(&CHANNEL_CLEANUP_COUNT, 0);
+
+                let mut queued: usize = 0;
+                let mut expected: u32 = 0;
+
+                while queued < length
+                {
+                    std.testing.assert_ok<unit, std.channel.TrySendError<ChannelCleanupProbe>>(
+                        sender.try_send(
+                            ChannelCleanupProbe
+                            {
+                                value = expected
+                            }
+                        )
+                    );
+
+                    queued += 1;
+                    expected += 1;
+                }
+
+                receiver.close();
+                assert(core.atomic.load<u32, 1>(&CHANNEL_CLEANUP_COUNT) == expected);
+                sender.close();
+                assert(core.atomic.load<u32, 1>(&CHANNEL_CLEANUP_COUNT) == expected);
+                length += 1;
             }
-        )
-    );
 
-    std.testing.assert_ok<unit, std.channel.TrySendError<ChannelCleanupProbe>>(
-        sender.try_send(
-            ChannelCleanupProbe
-            {
-                value = 2,
-            }
-        )
-    );
+            head += 1;
+        }
 
-    receiver.close();
-
-    assert(core.atomic.load<u32, 1>(&CHANNEL_CLEANUP_COUNT) == 2);
-
-    sender.close();
+        capacity += 1;
+    }
 }
 
 @test

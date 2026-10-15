@@ -207,6 +207,16 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
                 encoder.write_u32(field.value().raw());
             }
         }
+        InterfaceCheckedTemplateOperation::VariantTest { subject, variant } => {
+            encoder.write_u32(19);
+            encoder.write_u32(subject.raw());
+            encode_template_reference(encoder, variant);
+        }
+        InterfaceCheckedTemplateOperation::TupleElement { subject, index } => {
+            encoder.write_u32(18);
+            encoder.write_u32(subject.raw());
+            encoder.write_u32(index.raw());
+        }
         InterfaceCheckedTemplateOperation::Project { subject, member } => {
             encoder.write_u32(8);
             encoder.write_u32(subject.raw());

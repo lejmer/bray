@@ -116,9 +116,14 @@ impl Compilation {
                 .has_panic_report_context();
 
             demands.extend(
-                mapped_symbol_runtime_roles(native_entry.is_some(), panic_report_context)
-                    .into_iter()
-                    .map(|role| NativeDemand::runtime_role(key.clone(), role)),
+                mapped_symbol_runtime_roles(
+                    native_entry
+                        .as_ref()
+                        .map(bray_codegen::CodegenNativeEntryMapping::kind),
+                    panic_report_context,
+                )
+                .into_iter()
+                .map(|role| NativeDemand::runtime_role(key.clone(), role)),
             );
 
             if linkage == CodegenLinkage::Import {

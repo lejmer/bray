@@ -1,9 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::{
-    CheckerInfrastructureError, CheckerRequestContext, CheckerUnitRoot, CheckerUnitView,
-    SemanticUnitContext,
-};
+use crate::{CheckerRequestContext, CheckerUnitRoot, CheckerUnitView, SemanticUnitContext};
 use bray_bound_tree::{
     BoundBlockId, BoundBlockItem, BoundControlTransferKind, BoundExpression, BoundExpressionId,
     BoundLiteralKind, BoundOperator, BoundReferenceTarget, BoundStructuredExpressionKind,
@@ -235,7 +232,8 @@ where
             BoundExpression::Structured(structured)
                 if structured.kind() == BoundStructuredExpressionKind::With =>
             {
-                if let Some(block) = structured.blocks().first()
+                if !types.scoped_failures.contains_key(&expression_id)
+                    && let Some(block) = structured.blocks().first()
                     && let Some(block_variable) = block_variables.get(block).copied()
                 {
                     inference.unify(variable, block_variable, expression_id);
@@ -321,7 +319,7 @@ pub(super) fn block_expectations<C>(
     request: CheckerUnitView<'_, C>,
     blocks: &[BoundBlockId],
     inferred_byte_initializers: &mut Vec<BoundExpressionId>,
-) -> Result<Option<Vec<ExpressionTypeExpectation>>, CheckerInfrastructureError>
+) -> Option<Vec<ExpressionTypeExpectation>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -329,7 +327,7 @@ where
 
     for &block in blocks {
         if request.is_cancelled() {
-            return Ok(None);
+            return None;
         }
 
         let Some(block) = request.view().block(block) else {
@@ -342,7 +340,7 @@ where
                     let expected = if binding.infers_byte_extent() {
                         inferred_byte_initializers.push(binding.initializer());
 
-                        inferred_byte_array_type(request, binding.initializer())?
+                        inferred_byte_array_type(request, binding.initializer())
                     } else {
                         binding.declared_type().and_then(|reference| reference.ty())
                     };
@@ -361,7 +359,7 @@ where
         }
     }
 
-    Ok(Some(expectations))
+    Some(expectations)
 }
 
 fn push_expected_initializer(
@@ -381,7 +379,7 @@ pub(super) fn add_expectations<C>(
     expectations: impl IntoIterator<Item = ExpressionTypeExpectation>,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
-) -> Result<Option<()>, CheckerInfrastructureError>
+) -> Option<()>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -389,7 +387,7 @@ where
 
     while let Some(expectation) = pending.pop() {
         if request.is_cancelled() {
-            return Ok(None);
+            return None;
         }
 
         let variable = variables
@@ -481,7 +479,7 @@ where
                         continue;
                     };
 
-                    let usize = representation_type(request, RepresentationRole::ScalarUsize)?;
+                    let usize = representation_type(request, RepresentationRole::ScalarUsize);
 
                     pending.push(ExpressionTypeExpectation::new(*value, *element));
                     pending.push(ExpressionTypeExpectation::new(*count, usize));
@@ -506,7 +504,7 @@ where
         }
     }
 
-    Ok(Some(()))
+    Some(())
 }
 
 fn is_contextual_numeric_literal<C>(

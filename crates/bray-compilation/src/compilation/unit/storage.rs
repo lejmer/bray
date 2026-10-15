@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_binder::semantic_unit_context;
+use bray_binder::{BindingQueryContext, semantic_unit_context};
 use bray_bound_tree::{BoundUnitKey, CheckedBodySemantics, StoragePlan};
 use bray_checker::{BodySemanticChecker, DefaultBodySemanticChecker};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -42,9 +42,8 @@ impl Compilation {
                     &semantic_context,
                     &context,
                     declared.result().value(),
-                    expressions.result().value().types(),
+                    expressions.result().value(),
                     patterns.result().value(),
-                    expressions.result().value().selections(),
                 )?;
 
                 let (plan, plan_diagnostics) = result.into_parts();
@@ -62,56 +61,230 @@ impl Compilation {
         )
     }
 
-    pub(in crate::compilation) fn body_semantics_with_cancellation(
+    pub(in crate::compilation) fn prepared_body_analysis_with_cancellation(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitResult<CheckedBodySemantics>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitResult<bray_checker::PreparedBodyAnalysis>>, FactQueryError> {
         self.unit_query(
-            &self.state.body_semantics,
-            CompilationFactKey::BodySemantics(key.clone()),
+            &self.state.prepared_body_analysis,
+            CompilationFactKey::PreparedBodyAnalysis(key.clone()),
             key.clone(),
             cancellation,
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
-
-                let control_flow =
-                    self.control_flow_with_cancellation(key.clone(), cancellation)?;
 
                 let expressions =
                     self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
 
                 let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
                 let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
-                let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
                 let context = self.checker_context_for(&key, cancellation)?;
+                let semantic = semantic_unit_context(context.symbols(), bound.result().value());
 
-                let semantic_context =
-                    semantic_unit_context(context.symbols(), bound.result().value());
+                let request =
+                    bray_checker::CheckerUnitView::new(bound.result().value(), &semantic, &context);
 
-                let unit = bray_checker::CheckerUnitView::new(
-                    bound.result().value(),
-                    &semantic_context,
-                    &context,
-                );
-
-                let result = checker_result(DefaultBodySemanticChecker.check_body_semantics(
-                    unit,
-                    control_flow.result().value(),
+                let result = checker_result(bray_checker::prepare_body_analysis(
+                    request,
                     expressions.result().value(),
                     patterns.result().value(),
                     storage.result().value(),
-                    memory.result().value(),
                 ))?;
 
-                let (semantics, semantic_diagnostics) = result.into_parts();
+                let (prepared, diagnostics) = result.into_parts();
 
-                Ok((
-                    DiagnosticResult::new(semantics, semantic_diagnostics),
-                    Box::new([]),
-                ))
+                let diagnostics = DiagnosticBag::merged_all([
+                    bound.result().diagnostics(),
+                    expressions.result().diagnostics(),
+                    patterns.result().diagnostics(),
+                    storage.result().diagnostics(),
+                    &diagnostics,
+                ]);
+
+                Ok((DiagnosticResult::new(prepared, diagnostics), Box::new([])))
             },
         )
+    }
+
+    pub(in crate::compilation) fn body_analysis_inputs(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<BodyAnalysisInputs, FactQueryError> {
+        let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
+        let expressions = self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
+
+        let behavior = self.selected_body_behavior_with_cancellation(key.clone(), cancellation)?;
+
+        let prepared = self.prepared_body_analysis_with_cancellation(key.clone(), cancellation)?;
+
+        let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
+        let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
+        let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
+
+        let contracts = self.trusted_contract_inputs(
+            &key,
+            bound.result().value(),
+            expressions.result().value(),
+            cancellation,
+        )?;
+
+        let non_unwinding = self.checked_unwind(key.clone(), cancellation)?;
+        let binding = self.binding_context_for(&key, cancellation)?;
+
+        let static_dependencies = expressions
+            .result()
+            .value()
+            .selections()
+            .entries()
+            .iter()
+            .filter_map(|entry| match entry.selection() {
+                bray_bound_tree::SemanticSelection::StaticReference(selection) => {
+                    Some(selection.template().declaration())
+                }
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .map(|declaration| {
+                super::super::binder::static_dependency_root(&binding, declaration)
+                    .map(|root| (declaration, root))
+                    .map_err(super::super::binder::binding_query_error)
+            })
+            .collect::<Result<std::collections::BTreeMap<_, _>, _>>()?;
+
+        Ok(BodyAnalysisInputs {
+            key,
+            bound,
+            expressions,
+            behavior,
+            prepared,
+            patterns,
+            storage,
+            memory,
+            contracts,
+            non_unwinding,
+            static_dependencies,
+        })
+    }
+
+    pub(in crate::compilation) fn body_semantics_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitResult<Arc<CheckedBodySemantics>>>, FactQueryError> {
+        self.unit_query(
+            &self.state.body_semantics,
+            CompilationFactKey::BodySemantics(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                let source_static = key.kind() == bray_bound_tree::BoundUnitKind::ConstantTemplate
+                    && matches!(
+                        self.binding_context_for(&key, cancellation)?
+                            .symbols()
+                            .symbol_for_key(key.declared_owner()),
+                        Some(bray_symbols::AnySymbolId::Static(_))
+                    );
+
+                if source_static
+                    || matches!(
+                        key.kind(),
+                        bray_bound_tree::BoundUnitKind::CallableBody
+                            | bray_bound_tree::BoundUnitKind::RuntimeDefault
+                    )
+                {
+                    let context = self.binding_context_for(&key, cancellation)?;
+
+                    let result = crate::compilation::binder::source_body_semantics(&context, &key)
+                        .map_err(crate::compilation::binder::binding_query_error)?;
+
+                    return Ok((result, Box::new([])));
+                }
+
+                let inputs = self.body_analysis_inputs(key.clone(), cancellation)?;
+                let result = inputs.check(self, cancellation, None, &Default::default())?;
+
+                Ok((result, Box::new([])))
+            },
+        )
+    }
+}
+
+/// Immutable body prerequisites shared by every round of a demanded call component.
+pub(in crate::compilation) struct BodyAnalysisInputs {
+    key: BoundUnitKey,
+    pub(in crate::compilation) bound: Arc<PublishedUnitResult<bray_bound_tree::BoundUnit>>,
+    pub(in crate::compilation) expressions:
+        Arc<PublishedUnitResult<bray_bound_tree::CheckedExpressionSemantics>>,
+    pub(in crate::compilation) patterns: Arc<PublishedUnitResult<bray_bound_tree::CheckedPatterns>>,
+    pub(in crate::compilation) behavior:
+        Arc<PublishedUnitResult<bray_bound_tree::BodyBehaviorContributions>>,
+    pub(in crate::compilation) prepared:
+        Arc<PublishedUnitResult<bray_checker::PreparedBodyAnalysis>>,
+    storage: Arc<PublishedUnitResult<StoragePlan>>,
+    memory: Arc<PublishedUnitResult<bray_bound_tree::CheckedMemoryOperations>>,
+    contracts: DiagnosticResult<bray_checker::TrustedContractInputs>,
+    non_unwinding: bray_bound_tree::CheckedUnwind,
+    static_dependencies: std::collections::BTreeMap<
+        bray_symbols::StaticSymbolId,
+        bray_symbols::DependencySubjectRoot,
+    >,
+}
+
+impl BodyAnalysisInputs {
+    pub(in crate::compilation) fn check(
+        &self,
+        compilation: &Compilation,
+        cancellation: &CancellationToken,
+        templates: Option<
+            &std::collections::BTreeMap<
+                bray_symbols::AnySymbolId,
+                bray_symbols::DependencyContractTemplateId,
+            >,
+        >,
+        recursive: &std::collections::BTreeSet<bray_symbols::CallableSymbolId>,
+    ) -> Result<DiagnosticResult<Arc<CheckedBodySemantics>>, FactQueryError> {
+        let context = compilation.checker_context_for(&self.key, cancellation)?;
+
+        let semantic_context =
+            semantic_unit_context(context.symbols(), self.bound.result().value());
+
+        let mut unit = bray_checker::CheckerUnitView::new(
+            self.bound.result().value(),
+            &semantic_context,
+            &context,
+        )
+        .with_trusted_contracts(self.contracts.value())
+        .with_unwind(&self.non_unwinding)
+        .with_static_dependencies(&self.static_dependencies);
+
+        if let Some(templates) = templates {
+            unit = unit.with_result_dependencies(templates, recursive);
+        }
+
+        let result = checker_result(DefaultBodySemanticChecker.check_body_semantics(
+            unit,
+            self.prepared.result().value(),
+            self.behavior.result().value(),
+            self.expressions.result().value(),
+            self.patterns.result().value(),
+            self.storage.result().value(),
+            self.memory.result().value(),
+        ))?;
+
+        let (semantics, mut diagnostics) = result.into_parts();
+
+        diagnostics.add_range(self.contracts.diagnostics().iter().cloned());
+        diagnostics.add_range(self.prepared.result().diagnostics().iter().cloned());
+        diagnostics.add_range(self.behavior.result().diagnostics().iter().cloned());
+
+        Ok(DiagnosticResult::new(
+            Arc::new(semantics.with_unwind(self.non_unwinding.clone())),
+            diagnostics,
+        ))
     }
 }
 
@@ -192,7 +365,12 @@ mod tests {
 
                 for index in 0..count {
                     if partial {
-                        writeln!(source, "let wrapper{index} = Wrapper {{ value = Item {{}}, }};").unwrap();
+                        writeln!(
+                            source,
+                            "let wrapper{index} = Wrapper {{ value = Item {{}}, }};"
+                        )
+                        .unwrap();
+
                         writeln!(source, "let moved{index} = wrapper{index}.value;").unwrap();
                     } else {
                         writeln!(source, "let item{index} = Item {{}};").unwrap();
@@ -224,19 +402,31 @@ mod tests {
                 assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
 
                 assert!(
-                    flow.value().operations().iter().filter(|operation| {
-                        operation.purpose() == bray_bound_tree::StorageAccessPurpose::Move
-                            && operation.status() == bray_bound_tree::StorageOperationStatus::Valid
-                    }).count() >= count
+                    flow.value()
+                        .operations()
+                        .iter()
+                        .filter(|operation| {
+                            operation.purpose() == bray_bound_tree::StorageAccessPurpose::Move
+                                && operation.status()
+                                    == bray_bound_tree::StorageOperationStatus::Valid
+                        })
+                        .count()
+                        >= count
                 );
 
                 assert!(
-                    flow.value().exits().iter().all(|exit| exit.live().len() <= 8),
+                    flow.value()
+                        .exits()
+                        .iter()
+                        .all(|exit| exit.live().len() <= 8),
                     "expired move-only storage must not accumulate at exits"
                 );
 
                 assert!(
-                    flow.value().exits().iter().all(|exit| exit.moved().len() <= 8),
+                    flow.value()
+                        .exits()
+                        .iter()
+                        .all(|exit| exit.moved().len() <= 8),
                     "expired move history must not accumulate at exits"
                 );
             }

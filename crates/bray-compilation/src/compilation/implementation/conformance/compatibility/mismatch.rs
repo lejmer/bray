@@ -115,6 +115,10 @@ pub(in crate::compilation::implementation::conformance) enum CallableContractMis
         surface: CallableContractSurface,
         index: usize,
     },
+    PredicateCondition {
+        surface: CallableContractSurface,
+        index: usize,
+    },
     TraitSatisfaction {
         surface: CallableContractSurface,
         index: usize,

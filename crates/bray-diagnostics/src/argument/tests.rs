@@ -158,7 +158,6 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
             provenance_identity: Some("test".to_owned()),
         }),
         Kind::EvaluationCycle(crate::DiagnosticEvaluationFailureDetail::new("cycle", [])),
-        Kind::CheckingInfrastructureFailure,
         Kind::CodegenTargetUnsupportedProfile,
         Kind::CodegenTargetEmptyTriple,
         Kind::CodegenTargetEmptyCpu,

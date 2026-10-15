@@ -1,6 +1,67 @@
 use crate::test_support::source_function_body_key;
 
-use super::fixtures::{compilation, execution_consumer};
+use super::fixtures::{compilation, compilation_from_sources, execution_consumer};
+
+#[test]
+fn imported_call_effects_distinguish_forwarding_from_mutation() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Cell { mut value: bool; }
+        func same<T>(pos value: &T) -> &T { return value; }
+        func rewrite(pos cell: &mut Cell) { cell.value = false; }
+    "#,
+    );
+
+    for (body, unchanged) in [
+        (
+            "func caller(pos cell: &example.package.api.Cell) -> &example.package.api.Cell { return example.package.api.same(cell); }",
+            true,
+        ),
+        (
+            "func caller(pos cell: &mut example.package.api.Cell) { example.package.api.rewrite(cell); }",
+            false,
+        ),
+    ] {
+        let source = format!(
+            "module app; using example.package.api.Cell; using example.package.api.same; using example.package.api.rewrite; {body}"
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        let contracts = consumer
+            .dependency_contracts(source_function_body_key(&consumer, "caller"))
+            .unwrap();
+
+        assert!(
+            !contracts.diagnostics().has_errors(),
+            "{:?}",
+            contracts.diagnostics()
+        );
+
+        let calls = contracts.value().calls();
+
+        assert_eq!(calls.len(), 1);
+
+        let call = calls.values().next().unwrap();
+
+        assert_eq!(call.effects().is_empty(), unchanged, "{:?}", call.effects());
+
+        if !unchanged {
+            assert!(
+                call.effects().iter().any(|effect| matches!(
+                    effect,
+                    bray_symbols::DependencyStorageEffect::Indirect {
+                        kind: bray_symbols::DependencyMutationKind::Write,
+                        ..
+                    }
+                )),
+                "the imported body retains its specific write target: {:?}",
+                call.effects()
+            );
+        }
+    }
+}
 
 #[test]
 fn returned_values_preserve_imported_generic_dependencies() {
@@ -517,5 +578,715 @@ fn storage_projection_guarantees_survive_generic_interfaces() {
             flow.diagnostics(),
             bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
         );
+    }
+}
+
+#[test]
+fn exact_borrow_origin_survives_generic_export_and_import() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Holder<T> { reference: &T; address: RawPointer<T>; }
+        func make<T>(pos input: &T, pos address: RawPointer<T>) -> Holder<T> { return { reference = input, address = address }; }
+    "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api;
+        func forwarded(pos input: &bool, pos address: RawPointer<bool>) -> example.package.api.Holder<bool> { return example.package.api.make(input, address); }
+    "#,
+    );
+
+    let diagnostics = consumer.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let callable = crate::test_support::source_function(&consumer, "forwarded");
+
+    let context = consumer
+        .binding_context(&consumer.state.cancellation)
+        .unwrap();
+
+    let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
+        &context,
+        bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(
+            callable.into(),
+        ),
+    )
+    .unwrap();
+
+    let template = consumer
+        .semantic_value_store()
+        .unwrap()
+        .dependency_contract_template_data(*dependencies.value());
+
+    assert_eq!(template.borrows().len(), 2, "{template:#?}");
+
+    for (parameter, kind) in [
+        (0, bray_symbols::DependencyReferenceKind::Borrow),
+        (1, bray_symbols::DependencyReferenceKind::Address),
+    ] {
+        let relation = template
+            .borrows()
+            .iter()
+            .find(|relation| relation.kind() == kind)
+            .unwrap_or_else(|| panic!("imported origin must retain {kind:?}: {template:#?}"));
+
+        assert_eq!(
+            relation.entry().subject_root(),
+            bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(
+                parameter
+            ))
+        );
+
+        assert_eq!(
+            relation.exit().subject_root(),
+            bray_symbols::DependencySubjectRoot::Result
+        );
+
+        assert_eq!(relation.exit().projections().len(), 1);
+    }
+}
+
+#[test]
+fn inferred_unwind_behavior_survives_export_and_import() {
+    let provider = compilation(
+        r#"
+        module api;
+        func spin() { while true {} }
+        func fail() { panic("failure"); }
+    "#,
+    );
+
+    for (callee, expected) in [("spin", false), ("fail", true)] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                "module app; using example.package.api; func root() {{ example.package.api.{callee}(); }}"
+            ),
+        );
+
+        let key = source_function_body_key(&consumer, "root");
+
+        let summary = consumer
+            .unwind_behavior(key.clone(), &consumer.state.cancellation)
+            .unwrap();
+
+        assert!(
+            !summary.result().diagnostics().has_errors(),
+            "{:?}",
+            summary.result().diagnostics()
+        );
+
+        assert_eq!(*summary.result().value(), expected, "{callee}");
+
+        let lowered = consumer.lowered_unit(key).unwrap();
+
+        assert!(
+            !lowered.diagnostics().has_errors(),
+            "{:?}",
+            lowered.diagnostics()
+        );
+    }
+}
+
+#[test]
+fn imported_generic_addresses_retain_authority_only_while_the_owner_lives() {
+    let provider = compilation(
+        r#"
+        module api;
+        func forward<T>(pos pointer: RawPointer<T>) -> RawPointer<T>
+            executes(pure, total)
+        { return pointer; }
+    "#,
+    );
+
+    for (body, valid) in [
+        (
+            r#"
+            let value: u8 = 1;
+            let pointer = example.package.api.forward<u8>(core.memory.address_of<u8>(&value));
+            return core.memory.read<u8>(pointer);
+        "#,
+            true,
+        ),
+        (
+            r#"
+            let mut pointer = core.memory.null<u8>();
+            {
+                let value: u8 = 1;
+                pointer = example.package.api.forward<u8>(core.memory.address_of<u8>(&value));
+            };
+            return core.memory.read<u8>(pointer);
+        "#,
+            false,
+        ),
+    ] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            trusted module app;
+            using example.package.api;
+            trusted func caller() -> u8 uses(raw_memory) {{ {body} }}
+        "#
+            ),
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{body}: {diagnostics:?}");
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_reference_replacements_preserve_both_identity_and_lifetime() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Holder<T> { mut reference: &T; }
+        func replace<T>(pos target: &mut Holder<T>, pos input: &T) { target.reference = input; }
+        func forward<T>(pos first: &T, pos second: &T) -> Holder<T> {
+            let mut result: Holder<T> = { reference = first };
+            replace(&mut result, second);
+            return result;
+        }
+    "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api;
+        func caller(pos first: &bool, pos second: &bool) -> example.package.api.Holder<bool> {
+            let mut result: example.package.api.Holder<bool> = { reference = first };
+            example.package.api.replace(&mut result, second);
+            return result;
+        }
+    "#,
+    );
+
+    let diagnostics = consumer.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let template =
+        crate::compilation::result_dependencies::source_function_dependencies(&consumer, "caller");
+
+    assert!(
+        template
+            .borrows()
+            .iter()
+            .any(|relation| relation.exit().subject_root()
+                == bray_symbols::DependencySubjectRoot::Result
+                && relation.entry().subject_root()
+                    == bray_symbols::DependencySubjectRoot::Parameter(
+                        bray_symbols::SymbolOrdinal::new(1)
+                    )),
+        "{template:#?}"
+    );
+
+    let escaping = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api;
+        func bad(pos caller: &bool) -> example.package.api.Holder<bool> {
+            let local = true;
+            return example.package.api.forward(caller, &local);
+        }
+    "#,
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        escaping.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
+    );
+}
+#[test]
+fn imported_field_addresses_keep_the_projection_from_the_original_reference() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Holder<T> { reference: &T; }
+        func address<T>(pos holder: &Holder<T>) -> &&T { return &holder.reference; }
+    "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api.Holder;
+        using example.package.api.address;
+        func caller(pos holder: &example.package.api.Holder<bool>) -> &&bool { return example.package.api.address(holder); }
+    "#,
+    );
+
+    let flow = consumer
+        .storage_flow(source_function_body_key(&consumer, "caller"))
+        .unwrap();
+
+    assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
+
+    let references = flow
+        .value()
+        .dependencies()
+        .borrows()
+        .iter()
+        .filter(|relation| {
+            relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(references.len(), 1, "{references:?}");
+    assert!(references[0].entry().projections().is_empty());
+
+    assert!(matches!(
+        references[0].target_projections(),
+        [bray_symbols::DependencyProjection::ProductField(_)]
+    ));
+}
+
+#[test]
+fn imported_generic_protected_payload_addresses_retain_their_storage_projection() {
+    let provider = compilation(
+        r#"
+        module api;
+        func pointer<T>(pos storage: &Uninit<T>) -> RawPointer<T> {
+            return core.memory.uninit_pointer<T>(storage);
+        }
+    "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api.pointer;
+        func caller(pos storage: &Uninit<bool>) -> RawPointer<bool> {
+            return example.package.api.pointer<bool>(storage);
+        }
+    "#,
+    );
+
+    let dependencies =
+        crate::compilation::result_dependencies::source_function_dependencies(&consumer, "caller");
+
+    let relations = dependencies.borrows();
+
+    assert_eq!(relations.len(), 1, "{dependencies:#?}");
+
+    assert_eq!(
+        relations[0].kind(),
+        bray_symbols::DependencyReferenceKind::Address
+    );
+
+    assert_eq!(
+        relations[0].target_projections(),
+        &[bray_symbols::DependencyProjection::UninitPayload]
+    );
+}
+
+#[test]
+fn imported_nested_reference_layers_survive_generic_specialization() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Cell<T> { value: T; }
+        func value<T>(pos outer: &&Cell<T>) -> &T { return &outer.value; }
+    "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api.Cell;
+        using example.package.api.value;
+        func forward(pos outer: &&example.package.api.Cell<bool>) -> &bool { return example.package.api.value<bool>(outer); }
+    "#,
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    let dependencies =
+        crate::compilation::result_dependencies::source_function_dependencies(&consumer, "forward");
+
+    assert_eq!(dependencies.borrows().len(), 1, "{dependencies:#?}");
+
+    assert_eq!(
+        dependencies.borrows()[0].dereferences(),
+        1,
+        "{dependencies:#?}"
+    );
+
+    assert_eq!(
+        dependencies.borrows()[0].target_projections().len(),
+        1,
+        "{dependencies:#?}"
+    );
+}
+
+#[test]
+fn imported_recursive_results_preserve_normal_completion_and_exact_origin() {
+    let provider = compilation(
+        r#"
+        module api;
+        func forward<T>(pos value: &T, pos again: bool) -> &T {
+            if again { return forward<T>(value, false); }
+            return value;
+        }
+        func forever<T>(pos value: &T) -> &T { return forever<T>(value); }
+    "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api.forward;
+        using example.package.api.forever;
+        func good(pos value: &bool) -> &bool { return example.package.api.forward<bool>(value, true); }
+        func diverging(pos value: &bool) -> &bool { return example.package.api.forever<bool>(value); }
+    "#,
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    let good =
+        crate::compilation::result_dependencies::source_function_dependencies(&consumer, "good");
+
+    assert!(good.normal_completion());
+    assert_eq!(good.borrows().len(), 1, "{good:#?}");
+
+    assert_eq!(
+        good.borrows()[0].entry().subject_root(),
+        bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
+    );
+
+    let diverging = crate::compilation::result_dependencies::source_function_dependencies(
+        &consumer,
+        "diverging",
+    );
+
+    assert!(!diverging.normal_completion());
+    assert!(diverging.borrows().is_empty());
+}
+
+#[test]
+fn imported_union_payload_dependencies_resolve_at_the_owning_boundary() {
+    let provider = compilation(
+        r#"
+        module api;
+        union Choice { Value(pos item: &bool); }
+        func get(pos choice: Choice) -> &bool {
+            match choice { case .Value(item) { return item; } }
+        }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for (body, valid) in [
+        (
+            "func caller(pos value: &bool) -> &bool { return example.package.api.get(example.package.api.Choice.Value(value)); }",
+            true,
+        ),
+        (
+            "func caller() -> &bool { let value = true; return example.package.api.get(example.package.api.Choice.Value(&value)); }",
+            false,
+        ),
+    ] {
+        let source = format!(
+            "module app; using example.package.api.Choice; using example.package.api.get; {body}"
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+        let diagnostics = consumer.check_diagnostics();
+
+        if valid {
+            assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
+            );
+        }
+    }
+}
+
+#[test]
+fn generic_owner_forwarding_preserves_only_the_transferred_witness() {
+    let forwarding = r#"
+        module api;
+        extern func fail() -> never;
+        extern func interfere();
+        func disturbed<T>(pos value: T) -> T { interfere(); return value; }
+        struct Box<T> { value: T; }
+        struct Cell { mut flag: bool; }
+        func changed_referent<T>(pos value: T, pos other: &mut Cell) -> T {
+            other.flag = false;
+            return value;
+        }
+        func caught_failure<T>(pos value: T) -> T {
+            let _ = catch { fail(); };
+            return value;
+        }
+        func scalar(pos value: bool) -> bool { return value; }
+        func borrow<T>(pos value: &T) -> &T { return value; }
+        func changed(pos value: Cell) -> Cell {
+            let mut owner = value;
+            owner.flag = false;
+            return owner;
+        }
+        func identity<T>(pos value: T) -> T { return value; }
+        func unwrap<T>(pos value: Box<T>) -> T { return value.value; }
+        func present<T>(pos value: T?) -> T {
+            match consume value {
+                case ?item { return item; }
+                case none { panic("absent"); }
+            }
+        }
+        func success<T>(pos value: Result<T, bool>) -> T {
+            match consume value {
+                case Ok(item) { return item; }
+                case Error(_) { fail(); }
+            }
+        }
+        func choose<T>(pos first: T, pos second: T, pos choice: bool) -> T {
+            if choice { return first; }
+            return second;
+        }
+    "#;
+
+    let provider = compilation(forwarding);
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for name in [
+        "scalar",
+        "borrow",
+        "changed",
+        "disturbed",
+        "changed_referent",
+        "caught_failure",
+    ] {
+        let dependencies =
+            crate::compilation::result_dependencies::source_function_dependencies(&provider, name);
+
+        assert!(
+            dependencies.returned_input().is_none(),
+            "{name}: {dependencies:?}"
+        );
+    }
+
+    for (body, failure) in [
+        (
+            "let owner = api.identity<Owner>(create()); observe(&owner);",
+            None,
+        ),
+        (
+            "let owner = api.identity<Owner>(api.identity<Owner>(create())); observe(&owner);",
+            None,
+        ),
+        (
+            "let wrapped: api.Box<Owner> = { value = create() }; let owner = api.unwrap<Owner>(wrapped); observe(&owner);",
+            None,
+        ),
+        (
+            "let owner = api.present<Owner>(create()); observe(&owner);",
+            None,
+        ),
+        (
+            "let wrapped: Result<Owner, bool> = Ok(create()); let owner = api.success<Owner>(wrapped); observe(&owner);",
+            None,
+        ),
+        (
+            "let owner = api.success<Owner>(create_result(true)); observe(&owner);",
+            None,
+        ),
+        (
+            "let owner = api.present<Owner>(create_optional(true)); observe(&owner);",
+            None,
+        ),
+        (
+            "let owner = api.identity<Owner>(Owner { marker = Marker {} }); observe(&owner);",
+            Some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven),
+        ),
+        (
+            "let owner = create(); let forged = api.identity<Owner>(Owner { marker = owner.marker }); observe(&forged);",
+            Some(bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven),
+        ),
+        (
+            "let owner = api.unwrap<Owner>(create_box()); observe(&owner);",
+            Some(bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven),
+        ),
+        (
+            "let owner = api.choose<Owner>(create(), Owner { marker = Marker {} }, false); observe(&owner);",
+            Some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven),
+        ),
+    ] {
+        let declarations = format!(
+            r#"
+            trusted module app;
+            using api;
+            struct Marker {{}}
+            struct Owner {{ marker: Marker; destruct() {{}} }}
+            trusted predicate live(value: &Marker);
+            trusted func create() -> Owner ensures(trusted live(&result.marker)) {{
+                return Owner {{ marker = Marker {{}} }};
+            }}
+            func create_result(pos succeeds: bool) -> Result<Owner, bool>
+                ensures(!(result matches Ok(_)) || trusted live(result_marker(&result))) {{
+                if succeeds {{ return Ok(create()); }}
+                return Error(false);
+            }}
+            const func result_marker(pos value: &Result<Owner, bool>) -> &Marker
+                requires(value matches Ok(_)) executes(pure, total) {{
+                match value {{
+                    case Ok(owner) {{ return &owner.marker; }}
+                    case Error(_) {{ panic("absent"); }}
+                }}
+            }}
+            func create_optional(pos succeeds: bool) -> Owner?
+                ensures(!(result matches ?_) || trusted live(optional_marker(&result))) {{
+                if succeeds {{ let owner = create(); return owner; }}
+                return none;
+            }}
+            const func optional_marker(pos value: &(Owner?)) -> &Marker
+                requires(value matches ?_) executes(pure, total) {{
+                match value {{
+                    case ?owner {{ return &owner.marker; }}
+                    case none {{ panic("absent"); }}
+                }}
+            }}
+            trusted func create_box() -> api.Box<Owner>
+                ensures(trusted live(&result.value.marker)) {{
+                return {{ value = Owner {{ marker = Marker {{}} }} }};
+            }}
+            func observe(pos value: &Owner)
+                requires(trusted live(&value.marker))
+                ensures(trusted live(&value.marker)) executes(pure, total) {{}}
+            func caller() {{ {body} }}
+        "#
+        );
+
+        for imported in [false, true] {
+            let consumer = if imported {
+                execution_consumer(
+                    &provider,
+                    &declarations
+                        .replace("using api;", "using example.package.api;")
+                        .replace("api.", "example.package.api."),
+                )
+            } else {
+                compilation_from_sources([forwarding, &declarations])
+            };
+
+            let diagnostics = consumer.check_diagnostics();
+
+            if let Some(failure) = failure {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics, failure);
+            } else {
+                assert!(
+                    !diagnostics.has_errors(),
+                    "imported={imported}, {body}: {diagnostics:#?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn imported_task_owners_retain_dependencies_through_cleanup_and_consumption() {
+    let provider = compilation(
+        r#"
+        module api;
+        extern async func work(pos value: &u32);
+        func pending(pos value: &u32) -> Future<unit> {
+            return work(value);
+        }
+    "#,
+    );
+
+    for (body, valid) in [
+        (
+            "let owner = example.package.api.pending(&value).start(); value = 1;",
+            false,
+        ),
+        (
+            "let _ = example.package.api.pending(&value).start(); value = 1;",
+            false,
+        ),
+        (
+            "let owner = example.package.api.pending(&value).start(); let moved = owner; value = 1;",
+            false,
+        ),
+        (
+            "let owner = example.package.api.pending(&value).start(); try await owner.join(); value = 1;",
+            true,
+        ),
+        (
+            "{ let owner = example.package.api.pending(&value).start(); } value = 1;",
+            true,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            using example.package.api.pending;
+            async func caller() {{
+                let mut value: u32 = 0;
+                {body}
+            }}
+        "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        let flow = consumer
+            .storage_flow(source_function_body_key(&consumer, "caller"))
+            .unwrap();
+
+        if valid {
+            assert!(
+                !flow.diagnostics().has_errors(),
+                "{body}: {:?}",
+                flow.diagnostics()
+            );
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                flow.diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow,
+            );
+        }
     }
 }

@@ -568,7 +568,7 @@ mod tests {
             ),
             (
                 InterfaceValidationError::UnsupportedFormatRevision {
-                    actual: InterfaceFormatRevision::new(2),
+                    actual: InterfaceFormatRevision::new(9),
                 },
                 DiagnosticKind::InterfaceUnsupportedFormatRevision,
             ),

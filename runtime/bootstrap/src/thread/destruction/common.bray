@@ -1,0 +1,46 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.thread.destruction;
+
+using std.memory;
+using internal bray.runtime.bootstrap.host;
+
+// Only the compiler-bound native callback owns this exact-thread exit scope.
+trusted internal predicate native_attachment_exit();
+
+trusted internal predicate exit_scope_live(owner: &ExitScope);
+
+internal struct ExitScope
+{
+    identity: u64;
+    native: bool;
+}
+
+trusted internal func native_exit_scope(pos value: RawPointer<u8>) -> ExitScope
+    requires(trusted native_attachment_exit())
+    ensures(trusted exit_scope_live(owner = &result))
+    uses(intrinsic)
+{
+    return
+    {
+        identity = trusted core.target.expose_address<u8>(value) as u64,
+        native = true
+    };
+}
+
+trusted internal func explicit_exit_scope() -> ExitScope
+    ensures(trusted exit_scope_live(owner = &result))
+{
+    return
+    {
+        identity = trusted internal bray.runtime.bootstrap.host.current_native_thread_identity(),
+        native = false
+    };
+}
+
+// The platform adapter empties the slot before entering local destruction.
+trusted internal func finish_native_attachment(pos value: RawPointer<u8>)
+    requires(trusted native_attachment_exit())
+{
+    let scope: ExitScope = trusted native_exit_scope(value);
+    let _: u32 = trusted internal bray.runtime.bootstrap.host.finish_attachment(&scope);
+}

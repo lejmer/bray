@@ -8,8 +8,7 @@ use bray_symbols::{
 };
 
 use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitView,
+    CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 pub(super) fn callable_symbol<C>(
@@ -33,14 +32,18 @@ where
     };
 
     let Some(owner) = GenericOwnerId::try_new(definition.symbol()) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in callable_symbol"
+        );
     };
 
     let Some(parameters) = request
         .symbols()
         .callable_generic_parameters(definition.callable_symbol())
     else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in callable_symbol"
+        );
     };
 
     let open_arguments = parameters
@@ -50,11 +53,15 @@ where
             request
                 .semantic_values()
                 .intern_generic_parameter_argument(parameter)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "callable_symbol must satisfy its checked construction contract: {error:?}"
+                    )
+                })
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Vec<_>>();
 
-    let open = intern_substitution(request, owner, &parameters, open_arguments)?;
+    let open = intern_substitution(request, owner, &parameters, open_arguments);
 
     let template = request.resolve_symbol_query(
         SymbolQueryRequest::<CallableSignatureQuery>::new(definition.callable_symbol()),
@@ -77,7 +84,7 @@ where
         return Ok(None);
     };
 
-    let substitution = intern_substitution(request, owner, &parameters, arguments)?;
+    let substitution = intern_substitution(request, owner, &parameters, arguments);
 
     let crate::expression::TemplateResolution::Resolved(signature) =
         crate::expression::resolve_signature(
@@ -110,16 +117,17 @@ fn intern_substitution<C>(
     owner: GenericOwnerId,
     parameters: &[bray_symbols::GenericParameterSymbolId],
     arguments: Vec<bray_symbols::GenericArgument>,
-) -> Result<bray_symbols::GenericSubstitutionId, CheckerInfrastructureError>
+) -> bray_symbols::GenericSubstitutionId
 where
     C: CheckerRequestContext + ?Sized,
 {
     let substitution =
-        GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments)
-            .map_err(CheckerInfrastructureError::GenericSubstitution)?;
+        GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments).unwrap_or_else(|error| panic!("Generic substitution construction rejected an exact parameter-to-argument relationship. in intern_substitution: {error:?}"));
 
     request
         .semantic_values()
         .intern_generic_substitution(substitution)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)
+        .unwrap_or_else(|error| {
+            panic!("intern_substitution must satisfy its checked construction contract: {error:?}")
+        })
 }

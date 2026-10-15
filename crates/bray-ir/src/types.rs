@@ -115,7 +115,8 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
 
 fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<TypeId>) {
     match kind {
-        CheckedMemoryOperationKind::UninitNew { element: pointee }
+        CheckedMemoryOperationKind::UninitFrom { element: pointee }
+        | CheckedMemoryOperationKind::UninitNew { element: pointee }
         | CheckedMemoryOperationKind::UninitPointer {
             element: pointee, ..
         }
@@ -182,7 +183,9 @@ fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<T
         | CheckedMemoryOperationKind::AtomicNotify { value, .. } => {
             types.insert(value);
         }
-        CheckedMemoryOperationKind::RawBufferSparePointer { element }
+        CheckedMemoryOperationKind::RawBufferPush { element }
+        | CheckedMemoryOperationKind::RawBufferPop { element }
+        | CheckedMemoryOperationKind::RawBufferSparePointer { element }
         | CheckedMemoryOperationKind::RawBufferRelease { element }
         | CheckedMemoryOperationKind::RawBufferReplace { element }
         | CheckedMemoryOperationKind::RawBufferRelocate { element } => {
@@ -190,6 +193,7 @@ fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<T
         }
         CheckedMemoryOperationKind::RawAllocate
         | CheckedMemoryOperationKind::RawDeallocate
+        | CheckedMemoryOperationKind::RawBufferAllocate
         | CheckedMemoryOperationKind::Allocate
         | CheckedMemoryOperationKind::Deallocate
         | CheckedMemoryOperationKind::RawBufferCapacity
@@ -199,7 +203,6 @@ fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<T
         | CheckedMemoryOperationKind::RawBufferInitializedSliceMut
         | CheckedMemoryOperationKind::RawBufferSetInitializedCount
         | CheckedMemoryOperationKind::ByteBufferFill
-        | CheckedMemoryOperationKind::ByteBufferCopy
         | CheckedMemoryOperationKind::ByteBufferRead
         | CheckedMemoryOperationKind::SequenceLength
         | CheckedMemoryOperationKind::Fence { .. }

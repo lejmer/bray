@@ -64,8 +64,7 @@ pub(super) fn codegen_unit_identity(
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        DiagnosticCheckerFailure, DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure,
-        DiagnosticNoteKind,
+        DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure, DiagnosticNoteKind,
     };
     use bray_symbols::{PackageIdentity, ProductIdentity};
     use bray_target::TargetIdentity;
@@ -83,10 +82,9 @@ mod tests {
         let target = TargetIdentity::try_new("test-target")
             .unwrap_or_else(|| panic!("target identity must be valid"));
 
-        let failure =
-            DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Checker(
-                DiagnosticCheckerFailure::CompilerKnownRepresentationUnavailable("ScalarU32"),
-            ));
+        let failure = DiagnosticEmissionFailure::Evaluation(
+            DiagnosticEmissionEvaluationFailure::SemanticValueStoreCreate,
+        );
 
         let diagnostic = emission_failure_diagnostic(failure, &product, &target);
 

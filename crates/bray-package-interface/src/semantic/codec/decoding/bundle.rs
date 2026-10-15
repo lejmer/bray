@@ -192,11 +192,11 @@ pub(crate) fn selected_semantic_sections(
         crate::InterfaceSemanticRecordKind::DeclaredType => Some(CALLABLE_SIGNATURE_SECTIONS),
         crate::InterfaceSemanticRecordKind::TypeRepresentation => None,
         crate::InterfaceSemanticRecordKind::GenericConstraint => Some(GENERIC_CONSTRAINT_SECTIONS),
+        crate::InterfaceSemanticRecordKind::CallableContracts => Some(COMPLETE_SEMANTIC_SECTIONS),
         crate::InterfaceSemanticRecordKind::Implementation => Some(IMPLEMENTATION_SECTIONS),
         crate::InterfaceSemanticRecordKind::TargetProperty => Some(TARGET_SEMANTIC_SECTIONS),
         crate::InterfaceSemanticRecordKind::Runtime => Some(TARGET_SEMANTIC_SECTIONS),
-        crate::InterfaceSemanticRecordKind::CallableContracts
-        | crate::InterfaceSemanticRecordKind::DeclarationTemplate
+        crate::InterfaceSemanticRecordKind::DeclarationTemplate
         | crate::InterfaceSemanticRecordKind::Abi => None,
     }
 }

@@ -7,7 +7,7 @@ use super::{
 
 pub(super) fn select(
     input: &IterationSourceSelectionRequest,
-) -> Result<CandidateSelection<SelectedIterationSource>, crate::CheckerInfrastructureError> {
+) -> CandidateSelection<SelectedIterationSource> {
     if input.candidates().iter().any(|candidate| {
         let selection = candidate.selection();
 
@@ -15,10 +15,12 @@ pub(super) fn select(
             || selection.source() != input.source()
             || selection.mode() != input.mode()
     }) {
-        return Err(crate::CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in select"
+        );
     }
 
-    Ok(match input.candidates() {
+    match input.candidates() {
         [] => CandidateSelection::Failed(SelectionFailure::Unavailable),
         [candidate] => CandidateSelection::Selected(candidate.selection().clone()),
         candidates => CandidateSelection::Failed(SelectionFailure::Ambiguous(
@@ -38,7 +40,7 @@ pub(super) fn select(
                 })
                 .collect(),
         )),
-    })
+    }
 }
 
 #[cfg(test)]
@@ -61,8 +63,8 @@ mod tests {
         callable_instance, expression_unit, literal_expression, push_expression,
     };
     use crate::{
-        CandidateSelection, CheckerInfrastructureError, IterationSourceCandidate,
-        IterationSourceSelectionRequest, SelectionFailure,
+        CandidateSelection, IterationSourceCandidate, IterationSourceSelectionRequest,
+        SelectionFailure,
     };
 
     #[test]
@@ -80,7 +82,7 @@ mod tests {
 
         assert_eq!(
             select(&unavailable),
-            Ok(CandidateSelection::Failed(SelectionFailure::Unavailable))
+            CandidateSelection::Failed(SelectionFailure::Unavailable)
         );
 
         let first = candidate(&values, expression, source, 1);
@@ -95,7 +97,7 @@ mod tests {
 
         assert_eq!(
             select(&unique),
-            Ok(CandidateSelection::Selected(first.selection().clone()))
+            CandidateSelection::Selected(first.selection().clone())
         );
 
         let ambiguous = IterationSourceSelectionRequest::new(
@@ -105,7 +107,7 @@ mod tests {
             [second, first],
         );
 
-        let Ok(CandidateSelection::Failed(SelectionFailure::Ambiguous(keys))) = select(&ambiguous)
+        let CandidateSelection::Failed(SelectionFailure::Ambiguous(keys)) = select(&ambiguous)
         else {
             panic!("two distinct protocol pairs must remain ambiguous");
         };
@@ -115,6 +117,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Semantic-selection inputs")]
     fn iteration_selection_rejects_candidates_for_another_source_occurrence() {
         let (expression, source) = expression_ids();
 
@@ -128,10 +131,7 @@ mod tests {
             [candidate],
         );
 
-        assert_eq!(
-            select(&request),
-            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput)
-        );
+        select(&request);
     }
 
     fn expression_ids() -> (BoundExpressionId, BoundExpressionId) {

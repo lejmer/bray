@@ -134,7 +134,9 @@ fn require_selected_archive_static(
 
         assert_eq!(symbols.len(), 1, "fixture must publish one {name} static");
 
-        let symbol = symbols.first().expect("fixture static must have its symbol");
+        let symbol = symbols
+            .first()
+            .expect("fixture static must have its symbol");
 
         if report.contains(*symbol) != expected {
             return Err(format!(

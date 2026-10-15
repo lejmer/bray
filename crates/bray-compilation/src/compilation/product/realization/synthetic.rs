@@ -134,13 +134,13 @@ impl bray_checker::LifecycleSelectionContext for CompilationSyntheticLoweringCon
             .resolve_codegen_type(template, substitution, self.cancellation)?)
     }
 
-    fn imported_raw_buffer_element(
+    fn raw_buffer_element(
         &self,
         definition: NamedTypeSymbolId,
         substitution: GenericSubstitutionId,
     ) -> Result<Option<TypeId>, Self::Error> {
         self.compilation
-            .imported_raw_buffer_element(definition, substitution, self.cancellation)
+            .raw_buffer_element(definition, substitution, self.cancellation)
     }
 
     fn representation_role(&self, definition: NamedTypeSymbolId) -> Option<RepresentationRole> {

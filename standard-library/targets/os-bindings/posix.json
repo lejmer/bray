@@ -268,6 +268,13 @@
             "blocking_execution",
             "foreign_call",
             "raw_memory"
+          ],
+          "requires": [
+            "capacity != 0",
+            "trusted core.memory.valid_write<u8>(pointer = destination, count = capacity)"
+          ],
+          "ensures": [
+            "core.memory.is_null<u8>(result) || trusted core.memory.nul_terminated_read(pointer = result)"
           ]
         },
         {
@@ -533,6 +540,14 @@
             "blocking_execution",
             "foreign_call",
             "raw_memory"
+          ],
+          "requires": [
+            "length == 0 || trusted core.memory.valid_write<u8>(pointer = destination, count = length)"
+          ],
+          "ensures": [
+            "result < 0 || std.truncate_to<usize>(result) <= length",
+            "result < 0 || trusted core.memory.valid_read<u8>(pointer = destination, count = std.truncate_to<usize>(result))",
+            "result < 0 || trusted core.memory.initialized_range_as<u8>(pointer = destination, count = std.truncate_to<usize>(result))"
           ]
         },
         {
@@ -825,11 +840,13 @@
           "initialization": "success initializes two descriptor values",
           "requires": [
             "trusted core.memory.valid_write<i32>(pointer = descriptors, count = 2)",
-            "trusted core.memory.aligned_for<i32>(pointer = descriptors)",
-            "trusted core.memory.initialized_range_as<i32>(pointer = descriptors, count = 2)"
+            "trusted core.memory.aligned_for<i32>(pointer = descriptors)"
           ],
           "ensures": [
-            "trusted core.memory.initialized_range_as<i32>(pointer = descriptors, count = 2)"
+            "trusted core.memory.valid_read<i32>(pointer = descriptors, count = 2)",
+            "trusted core.memory.valid_write<i32>(pointer = descriptors, count = 2)",
+            "trusted core.memory.aligned_for<i32>(pointer = descriptors)",
+            "result != 0 || trusted core.memory.initialized_range_as<i32>(pointer = descriptors, count = 2)"
           ],
           "dependencies": [
             "blocking_execution",
@@ -899,6 +916,50 @@
           "initialization": "no output storage",
           "dependencies": [
             "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ],
+          "requires": [
+            "length == 0 || trusted core.memory.valid_read<u8>(pointer = source, count = length)",
+            "length == 0 || trusted core.memory.initialized_range_as<u8>(pointer = source, count = length)"
+          ],
+          "ensures": [
+            "result < 0 || std.truncate_to<usize>(result) <= length"
+          ]
+        },
+        {
+          "name": "narrow_string_length",
+          "native": "strnlen",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "text",
+              "type": "RawPointer<u8>",
+              "native_type": "const char *"
+            },
+            {
+              "name": "limit",
+              "type": "usize",
+              "native_type": "size_t"
+            }
+          ],
+          "result": "usize",
+          "native_result": "size_t",
+          "link": "c",
+          "ownership": "the caller retains the live, unchanged NUL-terminated text",
+          "initialization": "readable initialized prefix; includes the terminator when the result is below the limit",
+          "requires": [
+            "trusted core.memory.nul_terminated_read(pointer = text)"
+          ],
+          "ensures": [
+            "result <= limit",
+            "trusted core.memory.nul_terminated_read(pointer = text)",
+            "trusted core.memory.valid_read<u8>(pointer = text, count = result)",
+            "trusted core.memory.initialized_range_as<u8>(pointer = text, count = result)",
+            "result == limit || trusted core.memory.valid_read<u8>(pointer = text, count = result + 1)",
+            "result == limit || trusted core.memory.initialized_range_as<u8>(pointer = text, count = result + 1)"
+          ],
+          "dependencies": [
             "foreign_call",
             "raw_memory"
           ]

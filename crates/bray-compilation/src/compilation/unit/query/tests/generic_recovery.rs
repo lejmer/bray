@@ -315,3 +315,18 @@ fn malformed_generic_type_arguments_recover_without_syntax_contract_failures() {
         );
     }
 }
+
+#[test]
+fn unresolved_trait_constraints_preserve_source_diagnostics() {
+    let application = compilation(
+        r#"
+            module app;
+            func check<T>(pos value: T) with(T: MissingTrait) {}
+        "#,
+    );
+
+    assert_goal_state_diagnostic_kind(
+        application.check_diagnostics(),
+        DiagnosticKind::BindingUnresolvedName,
+    );
+}

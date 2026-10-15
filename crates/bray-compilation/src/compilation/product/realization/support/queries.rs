@@ -87,9 +87,6 @@ pub(in crate::compilation::product::realization) fn codegen_checker_error(
 ) -> CodegenPreparationError {
     match error {
         bray_checker::CheckerQueryError::Cancelled => FactQueryError::Cancelled.into(),
-        bray_checker::CheckerQueryError::Infrastructure(error) => {
-            FactQueryError::CheckerInfrastructure(error).into()
-        }
         bray_checker::CheckerQueryError::Upstream(error) => error.into(),
     }
 }

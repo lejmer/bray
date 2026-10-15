@@ -1,8 +1,10 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
-use super::super::{CapacityResource, FactQueryError, FactRuntimeFailure, QueryPriority,
-    QueryPriorityDemand, SchedulerCounter, SynchronizationComponent};
+use super::super::{
+    CapacityResource, FactQueryError, FactRuntimeFailure, QueryPriority, QueryPriorityDemand,
+    SchedulerCounter, SynchronizationComponent,
+};
 use crate::profile::{ProfileSession, ProfileWorkerActivity};
 
 const MAX_INTERACTIVE_STREAK: usize = 8;
@@ -31,10 +33,16 @@ impl ExecutionSlots {
         }
     }
 
-    pub(super) fn acquire(&self, priority: &QueryPriorityDemand) -> Result<ExecutionSlot<'_>, FactQueryError> {
+    pub(super) fn acquire(
+        &self,
+        priority: &QueryPriorityDemand,
+    ) -> Result<ExecutionSlot<'_>, FactQueryError> {
         self.acquire_capacity(priority)?;
 
-        Ok(ExecutionSlot { slots: self, lease: Arc::new(ExecutionLease::new(priority.clone())) })
+        Ok(ExecutionSlot {
+            slots: self,
+            lease: Arc::new(ExecutionLease::new(priority.clone())),
+        })
     }
 
     fn acquire_capacity(&self, priority: &QueryPriorityDemand) -> Result<(), FactQueryError> {
@@ -88,7 +96,10 @@ impl ExecutionSlots {
 
         drop(state);
 
-        Ok(Some(ExecutionSlot { slots: self, lease: Arc::new(ExecutionLease::new(priority.clone())) }))
+        Ok(Some(ExecutionSlot {
+            slots: self,
+            lease: Arc::new(ExecutionLease::new(priority.clone())),
+        }))
     }
 
     fn can_acquire(&self, state: &SlotState, interactive: bool) -> bool {
@@ -174,7 +185,10 @@ pub(super) fn grant_slot(state: &mut SlotState, interactive: bool) -> Result<(),
     Ok(())
 }
 
-pub(super) fn register_waiter(state: &mut SlotState, interactive: bool) -> Result<(), FactQueryError> {
+pub(super) fn register_waiter(
+    state: &mut SlotState,
+    interactive: bool,
+) -> Result<(), FactQueryError> {
     if interactive {
         state.interactive_waiters = state.interactive_waiters.checked_add(1).ok_or(
             FactRuntimeFailure::CapacityExhausted {
@@ -198,7 +212,10 @@ pub(super) fn register_waiter(state: &mut SlotState, interactive: bool) -> Resul
     Ok(())
 }
 
-pub(super) fn unregister_waiter(state: &mut SlotState, interactive: bool) -> Result<(), FactQueryError> {
+pub(super) fn unregister_waiter(
+    state: &mut SlotState,
+    interactive: bool,
+) -> Result<(), FactQueryError> {
     if interactive {
         if state.interactive_waiters == 0 {
             return Err(FactRuntimeFailure::InvalidSchedulerState {
@@ -235,15 +252,22 @@ pub(super) struct ExecutionLease {
 
 impl ExecutionLease {
     fn new(priority: QueryPriorityDemand) -> Self {
-        Self { priority, held: AtomicBool::new(true), activity: Mutex::new(None) }
+        Self {
+            priority,
+            held: AtomicBool::new(true),
+            activity: Mutex::new(None),
+        }
     }
 
     fn activity(&self) -> Result<MutexGuard<'_, Option<ProfileWorkerActivity>>, FactQueryError> {
-        self.activity.lock().map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
-            component: SynchronizationComponent::SchedulerSlots,
-            fact: None,
-            task: None,
-        }.into())
+        self.activity.lock().map_err(|_| {
+            FactRuntimeFailure::SynchronizationPoisoned {
+                component: SynchronizationComponent::SchedulerSlots,
+                fact: None,
+                task: None,
+            }
+            .into()
+        })
     }
 
     pub(super) fn suspend(&self, slots: &ExecutionSlots) -> Result<(), FactQueryError> {
@@ -255,7 +279,8 @@ impl ExecutionLease {
                 counter: SchedulerCounter::ActiveSlots,
                 expected_minimum: 1,
                 actual: 0,
-            }.into());
+            }
+            .into());
         }
 
         drop(activity.take());
@@ -266,7 +291,11 @@ impl ExecutionLease {
         Ok(())
     }
 
-    pub(super) fn resume(&self, slots: &ExecutionSlots, profile: Option<&Arc<ProfileSession>>) -> Result<(), FactQueryError> {
+    pub(super) fn resume(
+        &self,
+        slots: &ExecutionSlots,
+        profile: Option<&Arc<ProfileSession>>,
+    ) -> Result<(), FactQueryError> {
         let mut activity = self.activity()?;
 
         slots.acquire_capacity(&self.priority)?;
@@ -283,7 +312,10 @@ pub(super) struct ExecutionSlot<'a> {
 }
 
 impl ExecutionSlot<'_> {
-    pub(super) fn start_activity(&self, profile: Option<&Arc<ProfileSession>>) -> Result<(), FactQueryError> {
+    pub(super) fn start_activity(
+        &self,
+        profile: Option<&Arc<ProfileSession>>,
+    ) -> Result<(), FactQueryError> {
         *self.lease.activity()? = profile.map(ProfileSession::start_worker_activity);
 
         Ok(())
@@ -310,4 +342,3 @@ impl Drop for ExecutionSlot<'_> {
         self.slots.available.notify_all();
     }
 }
-

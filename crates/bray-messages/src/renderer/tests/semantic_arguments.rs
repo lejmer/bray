@@ -20,6 +20,33 @@ use crate::renderer::DiagnosticRenderer;
 use crate::{DiagnosticLocale, RenderedDiagnosticNoteKind};
 
 #[test]
+fn scoped_selection_failures_identify_enter_and_exit() {
+    let renderer = DiagnosticRenderer::english();
+
+    for (kind, expected) in [
+        (
+            DiagnosticSelectionKind::ScopeEnter,
+            "no applicable scope enter candidate",
+        ),
+        (
+            DiagnosticSelectionKind::ScopeExit,
+            "no applicable scope exit candidate",
+        ),
+    ] {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::CheckingNoApplicableCandidate,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::selection_kind(kind));
+
+        let rendered = renderer.render(&diagnostic);
+
+        assert_eq!(rendered.message(), expected);
+    }
+}
+
+#[test]
 fn renderer_localizes_checker_diagnostics() {
     let incompatible = Diagnostic::new(
         DiagnosticId::new(0),
@@ -381,6 +408,27 @@ fn renderer_localizes_exact_refinement_capacity() {
 }
 
 #[test]
+fn renderer_names_raw_buffer_prefix_operations() {
+    for (operation, name) in [
+        (DiagnosticMemoryOperation::RawBufferPush, "raw buffer push"),
+        (DiagnosticMemoryOperation::RawBufferPop, "raw buffer pop"),
+    ] {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::CheckingTargetMemoryOperationUnavailable,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::target_triple("wasm32-unknown-unknown"))
+        .with_arg(DiagnosticArg::memory_operation(operation));
+
+        assert_eq!(
+            DiagnosticRenderer::english().render(&diagnostic).message(),
+            format!("target 'wasm32-unknown-unknown' does not provide the required {name}"),
+        );
+    }
+}
+
+#[test]
 fn renderer_localizes_memory_operation_and_callback_causes() {
     let unavailable = Diagnostic::new(
         DiagnosticId::new(0),
@@ -492,4 +540,29 @@ fn renderer_formats_typed_arguments_for_utf8_diagnostics() {
 
     assert_eq!(note.rendered_kind(), RenderedDiagnosticNoteKind::Help);
     assert_eq!(note.message(), "source inputs must be valid UTF-8");
+}
+
+#[test]
+fn renderer_identifies_the_protected_payload_in_a_storage_path() {
+    let access = DiagnosticStorageAccess::new(
+        DiagnosticStorageAccessPurpose::MutableBorrow,
+        DiagnosticStorageRoot::Parameter,
+        [
+            DiagnosticStorageProjection::ProductField(String::from("value")),
+            DiagnosticStorageProjection::UninitPayload,
+        ],
+        DiagnosticType::I32,
+    );
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::CheckingMissingMutationAuthority,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::storage_access(access));
+
+    assert_eq!(
+        DiagnosticRenderer::english().render(&diagnostic).message(),
+        "mutable borrow of parameter storage.value.protected payload with type i32 has no mutable access to the reached storage"
+    );
 }

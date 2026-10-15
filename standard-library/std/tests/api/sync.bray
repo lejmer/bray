@@ -1,12 +1,14 @@
 module bray.standard_library_tests.sync;
 
 using std.atomic;
+using std.memory;
 using std.sync;
 using std.task;
 using std.testing;
 
 internal async func increment_mutex(pos counter: &std.sync.Mutex<u32>, pos iterations: u32)
-    requires(blocking_execution())
+    requires(blocking_execution(), trusted std.sync.mutex.valid(&counter.instance))
+    ensures(trusted std.sync.mutex.valid(&counter.instance))
 {
     let mut remaining: u32 = iterations;
 
@@ -25,7 +27,8 @@ internal async func increment_mutex(pos counter: &std.sync.Mutex<u32>, pos itera
 }
 
 internal async func panic_while_holding_mutex(pos mutex: &std.sync.Mutex<u32>)
-    requires(blocking_execution())
+    requires(blocking_execution(), trusted std.sync.mutex.valid(&mutex.instance))
+    ensures(trusted std.sync.mutex.valid(&mutex.instance))
 {
     let guard: std.sync.MutexGuard<u32> = mutex.lock();
 
@@ -33,7 +36,8 @@ internal async func panic_while_holding_mutex(pos mutex: &std.sync.Mutex<u32>)
 }
 
 internal async func record_writer_order(pos lock: &std.sync.RwLock<u32>, pos order: &std.atomic.Atomic<u32>)
-    requires(blocking_execution())
+    requires(blocking_execution(), trusted std.sync.rw_lock.valid(&lock.instance))
+    ensures(trusted std.sync.rw_lock.valid(&lock.instance))
 {
     let mut guard: std.sync.RwLockWriteGuard<u32> = lock.write();
     let position: u32 = order.fetch_add(1, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
@@ -44,7 +48,8 @@ internal async func record_writer_order(pos lock: &std.sync.RwLock<u32>, pos ord
 }
 
 internal async func record_reader_order(pos lock: &std.sync.RwLock<u32>, pos order: &std.atomic.Atomic<u32>)
-    requires(blocking_execution())
+    requires(blocking_execution(), trusted std.sync.rw_lock.valid(&lock.instance))
+    ensures(trusted std.sync.rw_lock.valid(&lock.instance))
 {
     let guard: std.sync.RwLockReadGuard<u32> = lock.read();
     let position: u32 = order.fetch_add(1, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
@@ -58,7 +63,8 @@ internal async func cross_reusable_barrier(
     pos rounds: u32,
     pos crossings: &std.atomic.Atomic<u32>,
 )
-    requires(blocking_execution())
+    requires(blocking_execution(), trusted std.sync.mutex.valid(barrier.marker()))
+    ensures(trusted std.sync.mutex.valid(barrier.marker()))
 {
     let mut remaining: u32 = rounds;
 
@@ -85,6 +91,11 @@ internal func failed_initialization() -> Result<i32, i32>
 @test
 func synchronization_owners_guard_and_publish_values()
 {
+    assert(std.memory.size_of<std.sync.SpinLockGuard<u32>>() == std.memory.size_of<RawPointer<u8>>());
+    assert(std.memory.size_of<std.sync.MutexGuard<u32>>() == std.memory.size_of<RawPointer<u8>>());
+    assert(std.memory.size_of<std.sync.RwLockReadGuard<u32>>() == std.memory.size_of<RawPointer<u8>>());
+    assert(std.memory.size_of<std.sync.RwLockWriteGuard<u32>>() == std.memory.size_of<RawPointer<u8>>());
+
     let spin: std.sync.SpinLock<i32> = std.sync.SpinLock<i32>(1);
 
     {
@@ -255,4 +266,35 @@ async func concurrency_stress_barrier_reuses_its_generation_across_contended_rou
     try await third.join();
 
     assert(crossings.load(order = std.atomic.LoadOrder.Acquire) == 48);
+}
+
+static REENTERED_ONCE: std.sync.Once<i32> = std.sync.Once<i32>.empty();
+
+internal func catch_once_reentry() -> i32
+{
+    let caught: Result<unit, PanicReport> = catch
+    {
+        let _: &i32 = REENTERED_ONCE.get_or_init(initialized_value);
+
+        yield unit;
+    };
+
+    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+
+    return 99;
+}
+
+@test
+func once_caught_reentry_rejects_publication_and_allows_retry()
+{
+    let caught: Result<unit, PanicReport> = catch
+    {
+        let _: &i32 = REENTERED_ONCE.get_or_init(catch_once_reentry);
+
+        yield unit;
+    };
+
+    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+
+    assert(REENTERED_ONCE.get_or_init(initialized_value) == 37);
 }

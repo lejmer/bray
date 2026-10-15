@@ -22,11 +22,11 @@ pub(in crate::compilation::binder::symbol) fn extend_dependency_contract_with_st
         return Ok(contract);
     }
 
-    let mut requirements = context
+    let template = context
         .semantic_values()
-        .dependency_contract_template_data(contract)
-        .requirements()
-        .to_vec();
+        .dependency_contract_template_data(contract);
+
+    let mut requirements = template.requirements().to_vec();
 
     for dependency in dependencies {
         requirements.push(DependencyRequirement::direct(
@@ -35,10 +35,9 @@ pub(in crate::compilation::binder::symbol) fn extend_dependency_contract_with_st
         ));
     }
 
-    context
+    Ok(context
         .semantic_values()
-        .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements))
-        .map_err(crate::compilation::binder::semantic_value_binding_error)
+        .intern_dependency_contract_template(template.with_requirements(requirements)).unwrap_or_else(|error| panic!("extend_dependency_contract_with_statics must satisfy its checked construction contract: {error:?}")))
 }
 
 pub(in crate::compilation::binder::symbol) fn portable_dependency_contract(
@@ -54,10 +53,9 @@ pub(in crate::compilation::binder::symbol) fn portable_dependency_contract(
         }
     }
 
-    context
+    Ok(context
         .semantic_values()
-        .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements))
-        .map_err(crate::compilation::binder::semantic_value_binding_error)
+        .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements)).unwrap_or_else(|error| panic!("portable_dependency_contract must satisfy its checked construction contract: {error:?}")))
 }
 
 fn portable_requirement(
@@ -143,11 +141,7 @@ fn portable_bound_subject(
         BoundDependencySubject::StorageAccess(access) => portable_subject(context, storage, access),
         BoundDependencySubject::BorrowCapability(capability) => {
             let capability = storage.borrow_capability(capability).ok_or_else(|| {
-                storage_flow_failure(
-                    bray_checker::CheckerStorageFlowFailure::MissingBorrowCapability {
-                        borrow: capability,
-                    },
-                )
+                panic!("A storage borrow identity has no retained capability. in portable_bound_subject, borrow: {:?}", capability)
             })?;
 
             portable_subject(context, storage, capability.access())
@@ -173,7 +167,9 @@ fn portable_subject(
 ) -> BindingQueryResult<Option<PortableSubject>> {
     let projection_count = storage
         .resolved_projections(access)
-        .ok_or_else(|| missing_storage_access(access))?
+        .unwrap_or_else(|| {
+            panic!("portable dependency must retain planned storage access {access:?}")
+        })
         .len();
 
     portable_subject_with_projection_count(context, storage, access, projection_count)
@@ -185,9 +181,9 @@ fn portable_guard_subject(
     access: StorageAccessId,
     is_guard_projection: impl FnOnce(&StorageProjection) -> bool,
 ) -> BindingQueryResult<Option<PortableSubject>> {
-    let projections = storage
-        .resolved_projections(access)
-        .ok_or_else(|| missing_storage_access(access))?;
+    let projections = storage.resolved_projections(access).unwrap_or_else(|| {
+        panic!("portable dependency must retain planned storage access {access:?}")
+    });
 
     let projection_count = if projections.last().is_some_and(is_guard_projection) {
         projections.len().saturating_sub(1)
@@ -205,7 +201,7 @@ fn portable_subject_with_projection_count(
     projection_count: usize,
 ) -> BindingQueryResult<Option<PortableSubject>> {
     let Some(identity) = storage.root_identity(access) else {
-        return Err(missing_storage_access(access));
+        panic!("portable dependency must retain its root storage identity for access {access:?}");
     };
 
     let Some(mut subject) = portable_storage_identity(context, storage, identity)? else {
@@ -214,7 +210,9 @@ fn portable_subject_with_projection_count(
 
     for projection in storage
         .resolved_projections(access)
-        .ok_or_else(|| missing_storage_access(access))?
+        .unwrap_or_else(|| {
+            panic!("portable dependency must retain planned storage access {access:?}")
+        })
         .iter()
         .take(projection_count)
     {
@@ -234,6 +232,9 @@ fn portable_subject_with_projection_count(
             StorageProjection::OwnedTarget => {
                 subject.append_projection(DependencyProjection::OwnedTarget);
             }
+            StorageProjection::UninitPayload => {
+                subject.append_projection(DependencyProjection::UninitPayload);
+            }
             StorageProjection::ElementFromStart(_)
             | StorageProjection::ElementFromEnd(_)
             | StorageProjection::Element(_)
@@ -250,9 +251,7 @@ fn portable_storage_identity(
     identity: bray_bound_tree::StorageIdentityId,
 ) -> BindingQueryResult<Option<PortableSubject>> {
     let identity = storage.identity(identity).ok_or_else(|| {
-        storage_flow_failure(
-            bray_checker::CheckerStorageFlowFailure::MissingStorageIdentity { identity },
-        )
+        panic!("A planned storage identity is absent from its source body's storage plan. in portable_storage_identity, identity: {:?}", identity)
     })?;
 
     let root = match identity {
@@ -282,6 +281,7 @@ fn portable_storage_identity(
         | StorageIdentity::CustomIndexBorrow(_)
         | StorageIdentity::IterationCursor(_)
         | StorageIdentity::IterationElement(_)
+        | StorageIdentity::ScopedCapability { .. }
         | StorageIdentity::Allocation(_)
         | StorageIdentity::CompilerCreated(_)
         | StorageIdentity::Error(_) => return Ok(None),
@@ -290,7 +290,7 @@ fn portable_storage_identity(
     Ok(Some(PortableSubject::root(root)))
 }
 
-pub(in crate::compilation::binder::symbol) fn static_dependency_root(
+pub(in crate::compilation) fn static_dependency_root(
     context: &CompilationBindingContext<'_>,
     id: bray_symbols::StaticSymbolId,
 ) -> BindingQueryResult<DependencySubjectRoot> {
@@ -324,20 +324,6 @@ pub(in crate::compilation::binder::symbol) fn static_dependency_root(
 
 struct PortableSubject {
     subject: DependencySubject,
-}
-
-fn missing_storage_access(
-    access: StorageAccessId,
-) -> BindingQueryError<crate::fact::FactQueryError> {
-    storage_flow_failure(bray_checker::CheckerStorageFlowFailure::MissingStorageAccess { access })
-}
-
-fn storage_flow_failure(
-    failure: bray_checker::CheckerStorageFlowFailure,
-) -> BindingQueryError<crate::fact::FactQueryError> {
-    BindingQueryError::CheckerInfrastructure(bray_checker::CheckerInfrastructureError::StorageFlow(
-        failure,
-    ))
 }
 
 impl PortableSubject {

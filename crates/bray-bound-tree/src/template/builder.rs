@@ -227,7 +227,9 @@ fn validate_operation_types(
         | CheckedTemplateOperation::Product(_)
         | CheckedTemplateOperation::Index { .. }
         | CheckedTemplateOperation::Slice { .. }
-        | CheckedTemplateOperation::Project { .. } => {}
+        | CheckedTemplateOperation::Project { .. }
+        | CheckedTemplateOperation::VariantTest { .. }
+        | CheckedTemplateOperation::TupleElement { .. } => {}
     }
 
     Ok(())

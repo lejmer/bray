@@ -46,6 +46,11 @@ The scoped capability remains live while `exit` runs.
 
 After `exit` completes, the original body result or control-flow outcome continues.
 
+If `exit` returns an error while a `return`, `break`, `continue`, propagation, panic, or cancellation outcome is pending,
+the pending outcome continues and the exit error is retained as a suppressed incident. The error does not replace the
+pending transfer. When the body completes normally or yields its value, an exit error contributes to the `with`
+expression's failure contract.
+
 If `enter` does not complete successfully, the pattern is not matched, the `with` body is not evaluated, and `exit` does
 not run.
 

@@ -104,6 +104,89 @@ impl Compilation {
         Ok(DiagnosticResult::new(certified, diagnostics))
     }
 
+    fn local_execution_declares(
+        &self,
+        body: &BoundUnitKey,
+        required: ExecutionObligation,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<bool, FactQueryError> {
+        let declared = self.execution_declaration(body.source().syntax())?;
+
+        diagnostics.add_range(declared.diagnostics().iter().cloned());
+
+        Ok(!declared.diagnostics().has_errors()
+            && matches!(required, ExecutionObligation::Property(property, None)
+                if declared.value().properties().iter().any(|entry| entry.property == property)))
+    }
+
+    fn select_source_execution_obligation(
+        &self,
+        body: &BoundUnitKey,
+        callable: bray_symbols::CallableInstanceData,
+        declaration: &bray_checker::ExecutionDeclaration,
+        required: ExecutionObligation,
+        evidence: Option<&bray_checker::ExecutionCallEvidence>,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<ExecutionObligation>, FactQueryError> {
+        let selected = match required {
+            ExecutionObligation::Property(property, _) => {
+                let selected = self.applicable_execution_obligation(
+                    body,
+                    callable,
+                    declaration,
+                    property,
+                    evidence,
+                    cancellation,
+                )?;
+
+                selected
+                    .map(|source| ExecutionObligation::Property(property, source.map(Into::into)))
+            }
+            postcondition => Some(postcondition),
+        };
+
+        let selected = if selected.is_none()
+            && self.is_constant_callable(callable, cancellation)?
+            && !declaration.has_requirements()
+        {
+            Some(required)
+        } else {
+            selected
+        };
+
+        Ok(selected)
+    }
+
+    fn foreign_execution_applies(
+        &self,
+        callable: bray_symbols::CallableInstanceData,
+        function: bray_symbols::FunctionSymbolId,
+        declaration: &bray_checker::ExecutionDeclaration,
+        property: bray_checker::ExecutionProperty,
+        evidence: Option<&bray_checker::ExecutionCallEvidence>,
+        diagnostics: &mut DiagnosticBag,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, FactQueryError> {
+        let foreign = self.foreign_callable_contract_with_cancellation(function, cancellation)?;
+
+        diagnostics.add_range(foreign.diagnostics().iter().cloned());
+
+        let applicable = if let Some(owner) = self.execution_contract_owner(function.into())? {
+            self.applicable_execution_obligation(
+                &owner,
+                callable,
+                declaration,
+                property,
+                evidence,
+                cancellation,
+            )? == Some(None)
+        } else {
+            false
+        };
+
+        Ok(foreign.value().is_some() && !foreign.diagnostics().has_errors() && applicable)
+    }
+
     pub(super) fn certify_execution_obligation(
         &self,
         root: &BoundUnitKey,
@@ -129,18 +212,23 @@ impl Compilation {
         let mut visited = BTreeSet::new();
 
         // The traversal retains each immutable unit identity until its dependencies are checked.
-        let mut pending = vec![(root.clone(), obligation)];
+        let mut pending = vec![(
+            root.clone(),
+            obligation,
+            (root.source().syntax(), obligation),
+        )];
+
         let mut failure = None;
 
         let limit = usize::try_from(bray_checker::ConstantEvaluationLimits::default().call_depth())
             .unwrap_or(1024);
 
-        while let Some((key, obligation)) = pending.pop() {
+        while let Some((key, obligation, exported_owner)) = pending.pop() {
             cancellation.check()?;
 
             let proof_key = (key.source().syntax(), obligation);
 
-            if !visited.insert(proof_key) {
+            if !visited.insert((proof_key, exported_owner)) {
                 continue;
             }
 
@@ -169,29 +257,33 @@ impl Compilation {
                 continue;
             }
 
-            let execution = candidate.dependencies().iter().map(|dependency| {
-                (
-                    dependency.target,
-                    ExecutionObligation::Property(dependency.property, None),
-                    dependency.node,
-                )
-            });
-
-            let completion = candidate
-                .completion_dependencies()
-                .iter()
-                .map(|dependency| {
-                    (
-                        dependency.target,
-                        ExecutionObligation::Postcondition(dependency.source),
-                        dependency.node,
-                    )
-                });
-
             let mut dependencies = BTreeSet::new();
             let mut valid = true;
 
-            for (target, required, node) in execution.chain(completion) {
+            for (target, required, node) in candidate_dependencies(candidate) {
+                if matches!(
+                    target,
+                    BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_)
+                ) && let Some(body) = candidate
+                    .dependency_evidence(node, target)
+                    .and_then(bray_checker::ExecutionCallEvidence::anonymous_target)
+                {
+                    if self.local_execution_declares(body, required, diagnostics)? {
+                        dependencies.insert((
+                            ExecutionProofOwner::Source(body.source().syntax()),
+                            required,
+                        ));
+
+                        // Local bodies are checked in the same proof graph. Their external dependencies
+                        // belong to the enclosing exported proof, without serializing local symbol IDs.
+                        pending.push((body.clone(), required, exported_owner));
+                    } else {
+                        valid = false;
+                    }
+
+                    continue;
+                }
+
                 if let BoundCallableTarget::Indirect(ty) = target {
                     let ty = self.semantic_value_store()?.type_data(ty);
 
@@ -202,7 +294,12 @@ impl Compilation {
                             && callable.phase_behaviors().invocation().execution_properties()
                                 .contains(&bray_checker::ExecutionProperty::Pure));
 
-                    selected_dependencies.insert((proof_key.0, proof_key.1, target, required));
+                    selected_dependencies.insert((
+                        exported_owner.0,
+                        exported_owner.1,
+                        target,
+                        required,
+                    ));
 
                     continue;
                 }
@@ -219,7 +316,7 @@ impl Compilation {
                     let selected = self.select_imported_execution_obligation(
                         callable,
                         required,
-                        candidate.call_evidence(node),
+                        candidate.dependency_evidence(node, target),
                         diagnostics,
                         cancellation,
                     )?;
@@ -233,7 +330,13 @@ impl Compilation {
                             cancellation,
                         )?;
 
-                        selected_dependencies.insert((proof_key.0, proof_key.1, target, selected));
+                        selected_dependencies.insert((
+                            exported_owner.0,
+                            exported_owner.1,
+                            target,
+                            selected,
+                        ));
+
                         dependencies.insert((ExecutionProofOwner::Imported(callable), selected));
                     } else {
                         valid = false;
@@ -252,36 +355,25 @@ impl Compilation {
                 }
 
                 if let Some(body) = self.callable_body_key(callable.definition())? {
-                    let selected = match required {
-                        ExecutionObligation::Property(property, _) => {
-                            let selected = self.applicable_execution_obligation(
-                                &body,
-                                declaration.value(),
-                                property,
-                                candidate.call_evidence(node),
-                                cancellation,
-                            )?;
-
-                            selected.map(|source| {
-                                ExecutionObligation::Property(property, source.map(Into::into))
-                            })
-                        }
-                        postcondition => Some(postcondition),
-                    };
-
-                    let selected = if selected.is_none()
-                        && self.is_constant_callable(callable, cancellation)?
-                        && !declaration.value().has_requirements()
-                    {
-                        Some(required)
-                    } else {
-                        selected
-                    };
+                    let selected = self.select_source_execution_obligation(
+                        &body,
+                        callable,
+                        declaration.value(),
+                        required,
+                        candidate.dependency_evidence(node, target),
+                        cancellation,
+                    )?;
 
                     if let Some(selected) = selected {
-                        selected_dependencies.insert((proof_key.0, proof_key.1, target, selected));
+                        selected_dependencies.insert((
+                            exported_owner.0,
+                            exported_owner.1,
+                            target,
+                            selected,
+                        ));
+
                         dependencies.insert((ExecutionProofOwner::Source(anchor), selected));
-                        pending.push((body, selected));
+                        pending.push((body, selected, (anchor, selected)));
                     } else {
                         valid = false;
                     }
@@ -290,21 +382,22 @@ impl Compilation {
                     ExecutionObligation::Property(property, None),
                 ) = (callable.definition().callable_symbol(), required)
                 {
-                    let foreign =
-                        self.foreign_callable_contract_with_cancellation(function, cancellation)?;
+                    if self.foreign_execution_applies(
+                        callable,
+                        function,
+                        declaration.value(),
+                        property,
+                        candidate.dependency_evidence(node, target),
+                        diagnostics,
+                        cancellation,
+                    )? {
+                        selected_dependencies.insert((
+                            exported_owner.0,
+                            exported_owner.1,
+                            target,
+                            required,
+                        ));
 
-                    diagnostics.add_range(foreign.diagnostics().iter().cloned());
-
-                    if foreign.value().is_some()
-                        && !foreign.diagnostics().has_errors()
-                        && !declaration.value().has_requirements()
-                        && declaration
-                            .value()
-                            .properties()
-                            .iter()
-                            .any(|declared| declared.property == property)
-                    {
-                        selected_dependencies.insert((proof_key.0, proof_key.1, target, required));
                         dependencies.insert((ExecutionProofOwner::Source(anchor), required));
 
                         graph.insert(
@@ -331,28 +424,67 @@ impl Compilation {
             }
         }
 
-        let root_key = (
-            ExecutionProofOwner::Source(root.source().syntax()),
-            obligation,
-        );
-
-        if let Some(reason) = check_execution_proof_dependencies(&graph).get(&root_key) {
-            failure = Some(match reason {
-                ExecutionProofFailure::CircularCompletion(owner) => {
-                    (proof_owner_span(*owner, root.source().syntax()), true)
-                }
-                ExecutionProofFailure::MissingCandidate(owner) => {
-                    failure.unwrap_or((proof_owner_span(*owner, root.source().syntax()), false))
-                }
-            });
-        }
-
-        if !graph.contains_key(&root_key) {
-            failure.get_or_insert((proof_owner_span(root_key.0, root.source().syntax()), false));
-        }
+        let failure = execution_proof_failure(&graph, root.source().syntax(), obligation, failure);
 
         Ok((failure, assertions, selected_dependencies))
     }
+}
+
+fn candidate_dependencies(
+    candidate: &bray_checker::ExecutionCandidate,
+) -> impl Iterator<
+    Item = (
+        BoundCallableTarget,
+        ExecutionObligation,
+        bray_bound_tree::BoundExecutionSite,
+    ),
+> + '_ {
+    let execution = candidate.dependencies().iter().map(|dependency| {
+        (
+            dependency.target,
+            ExecutionObligation::Property(dependency.property, None),
+            dependency.occurrence,
+        )
+    });
+
+    let completion = candidate
+        .completion_dependencies()
+        .iter()
+        .map(|dependency| {
+            (
+                dependency.target,
+                ExecutionObligation::Postcondition(dependency.source),
+                dependency.node.into(),
+            )
+        });
+
+    execution.chain(completion)
+}
+
+fn execution_proof_failure(
+    graph: &ExecutionProofGraph,
+    source: SyntaxAnchor,
+    obligation: ExecutionObligation,
+    mut failure: Option<(SourceSpan, bool)>,
+) -> Option<(SourceSpan, bool)> {
+    let root_key = (ExecutionProofOwner::Source(source), obligation);
+
+    if let Some(reason) = check_execution_proof_dependencies(&graph).get(&root_key) {
+        failure = Some(match reason {
+            ExecutionProofFailure::CircularCompletion(owner) => {
+                (proof_owner_span(*owner, source), true)
+            }
+            ExecutionProofFailure::MissingCandidate(owner) => {
+                failure.unwrap_or((proof_owner_span(*owner, source), false))
+            }
+        });
+    }
+
+    if !graph.contains_key(&root_key) {
+        failure.get_or_insert((proof_owner_span(root_key.0, source), false));
+    }
+
+    failure
 }
 
 pub(super) fn guarantee_diagnostic(

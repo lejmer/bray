@@ -6,9 +6,7 @@ use bray_symbols::{
     SemanticValueStoreError,
 };
 
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 pub(super) type Parameters = BTreeSet<GenericParameterSymbolId>;
 
@@ -45,8 +43,7 @@ pub(super) fn solve_parameters<C: CheckerRequestContext + ?Sized, K: Copy + Ord>
 
             for (callable, target) in &node.edges {
                 let callable = retain_parameters(values, *callable, relevant.get(target))
-                    .and_then(|callable| values.intern_callable_instance(callable))
-                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                    .and_then(|callable| values.intern_callable_instance(callable)).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in solve_parameters: {error:?}"));
 
                 requirements.push(DependencyRequirement::result_call(callable, None, []));
             }
@@ -54,8 +51,7 @@ pub(super) fn solve_parameters<C: CheckerRequestContext + ?Sized, K: Copy + Ord>
             let template = values
                 .intern_dependency_contract_template(DependencyContractTemplateData::new(
                     requirements,
-                ))
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                )).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in solve_parameters: {error:?}"));
 
             let substitution = values.generic_substitution_data(node.callable.substitution());
 
@@ -65,8 +61,7 @@ pub(super) fn solve_parameters<C: CheckerRequestContext + ?Sized, K: Copy + Ord>
                         template,
                         substitution.owner(),
                         binding.parameter(),
-                    )
-                    .map_err(CheckerInfrastructureError::SemanticValueStore)?
+                    ).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in solve_parameters: {error:?}"))
                 {
                     changed |= relevant
                         .entry(*key)

@@ -20,8 +20,8 @@ use crate::expression::{TemplateResolution, resolve_type_template};
 use crate::pattern::input::{PatternCheckInput, PatternConstantEvidence};
 use crate::unit::assert_unit_inputs;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerQueryResult,
-    CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
+    CheckerOutcome, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 pub(crate) fn check_patterns<C>(
@@ -97,9 +97,6 @@ pub(in crate::pattern) fn available_dependency<T, Upstream>(
     match result {
         Ok(value) => Ok(Some(value)),
         Err(CheckerQueryError::Cancelled) => Ok(None),
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            Err(CheckerQueryError::Infrastructure(error))
-        }
         Err(CheckerQueryError::Upstream(error)) => Err(CheckerQueryError::Upstream(error)),
     }
 }
@@ -107,7 +104,6 @@ pub(in crate::pattern) fn available_dependency<T, Upstream>(
 fn query_outcome<T, Upstream>(error: CheckerQueryError<Upstream>) -> CheckerOutcome<T, Upstream> {
     match error {
         CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-        CheckerQueryError::Infrastructure(error) => CheckerOutcome::InfrastructureFailure(error),
         CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
@@ -121,7 +117,7 @@ where
 {
     pub(in crate::pattern) request: CheckerUnitView<'view, C>,
     expression_types: &'view CheckedExpressionTypes,
-    iteration_patterns: BTreeMap<BoundPatternId, PatternSubject>,
+    subject_types: BTreeMap<BoundPatternId, PatternSubject>,
     declared_patterns: BTreeMap<BoundPatternId, TypeId>,
     pub(in crate::pattern) constant_patterns:
         &'input BTreeMap<BoundPatternId, PatternConstantEvidence>,
@@ -158,17 +154,16 @@ where
 
         let error_type = request
             .semantic_values()
-            .intern_type(TypeData::Error)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            .intern_type(TypeData::Error).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in new: {error:?}"));
 
-        let iteration_patterns = input
-            .iteration_patterns()
+        let subject_types = input
+            .subject_types()
             .iter()
             .map(|input| {
                 (
                     input.pattern(),
                     PatternSubject {
-                        ty: input.element_type(),
+                        ty: input.ty(),
                         is_recovered: input.is_recovered(),
                         trusted_variant: false,
                     },
@@ -190,7 +185,7 @@ where
         Ok(Self {
             request,
             expression_types,
-            iteration_patterns,
+            subject_types,
             declared_patterns,
             constant_patterns: input.constant_patterns(),
             constant_guards: input.constant_guards(),
@@ -277,16 +272,22 @@ where
                 }
             }
             BoundExpression::For(expression) => {
-                self.collect_iteration_subject(expression.pattern());
+                self.collect_protocol_subject(expression.pattern());
             }
             BoundExpression::Generator(expression) => {
-                self.collect_iteration_subject(expression.pattern());
+                self.collect_protocol_subject(expression.pattern());
+            }
+            BoundExpression::Structured(expression)
+                if expression.kind() == BoundStructuredExpressionKind::With =>
+            {
+                for pattern in expression.patterns() {
+                    self.collect_protocol_subject(*pattern);
+                }
             }
             BoundExpression::Structured(expression)
                 if matches!(
                     expression.kind(),
-                    BoundStructuredExpressionKind::With
-                        | BoundStructuredExpressionKind::PatternTest
+                    BoundStructuredExpressionKind::PatternTest
                         | BoundStructuredExpressionKind::PatternBinding
                 ) =>
             {
@@ -308,9 +309,9 @@ where
         }
     }
 
-    fn collect_iteration_subject(&mut self, pattern: BoundPatternId) {
+    fn collect_protocol_subject(&mut self, pattern: BoundPatternId) {
         let subject = self
-            .iteration_patterns
+            .subject_types
             .get(&pattern)
             .copied()
             .unwrap_or(PatternSubject {
@@ -406,6 +407,13 @@ where
             matched_subject.ty,
             type_data.as_ref(),
         )?;
+
+        if pattern.mode() == bray_bound_tree::BoundPatternMode::Scoped {
+            compatible &= self
+                .declared_patterns
+                .get(&id)
+                .is_none_or(|declared| *declared == subject.ty);
+        }
 
         if kind == BoundPatternKind::Literal {
             compatible &= predicate.is_some();

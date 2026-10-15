@@ -974,16 +974,34 @@ mod tests {
         assert_eq!(path.len(), 28);
         assert!(workload.source.contains(&format!("&\"{path}\"")));
 
-        for target in [NativeTarget::X86_64LinuxGnu, NativeTarget::Aarch64LinuxGnu, NativeTarget::X86_64MacOs, NativeTarget::Aarch64MacOs] {
-            assert_eq!(workload.storage_expectation(target), Some(super::StorageExpectation {
-                allocation_count: 5, allocated_bytes: 371, copied_bytes: 112,
-            }));
+        for target in [
+            NativeTarget::X86_64LinuxGnu,
+            NativeTarget::Aarch64LinuxGnu,
+            NativeTarget::X86_64MacOs,
+            NativeTarget::Aarch64MacOs,
+        ] {
+            assert_eq!(
+                workload.storage_expectation(target),
+                Some(super::StorageExpectation {
+                    allocation_count: 5,
+                    allocated_bytes: 371,
+                    copied_bytes: 112,
+                })
+            );
         }
 
-        for target in [NativeTarget::X86_64WindowsMsvc, NativeTarget::Aarch64WindowsMsvc] {
-            assert_eq!(workload.storage_expectation(target), Some(super::StorageExpectation {
-                allocation_count: 5, allocated_bytes: 486, copied_bytes: 168,
-            }));
+        for target in [
+            NativeTarget::X86_64WindowsMsvc,
+            NativeTarget::Aarch64WindowsMsvc,
+        ] {
+            assert_eq!(
+                workload.storage_expectation(target),
+                Some(super::StorageExpectation {
+                    allocation_count: 5,
+                    allocated_bytes: 486,
+                    copied_bytes: 168,
+                })
+            );
         }
     }
 

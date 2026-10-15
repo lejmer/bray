@@ -43,6 +43,15 @@ pub(super) fn translate<'context, 'request>(
     trampoline: FunctionValue<'context>,
     types: &mut LlvmTypeMappings<'context, 'request>,
 ) -> Result<(), CodegenFailure> {
+    if symbol
+        .native_entry()
+        .is_some_and(|entry| entry.kind() != bray_codegen::CodegenNativeEntryKind::ForeignCallback)
+    {
+        return translate_runtime_boundary(
+            context, module, request, symbol, body, trampoline, types,
+        );
+    }
+
     let builder = context.create_builder();
     let entry = context.append_basic_block(trampoline, "callback.entry");
 
@@ -147,6 +156,81 @@ pub(super) fn translate<'context, 'request>(
         None => {
             llvm(builder.build_return(None))?;
         }
+    }
+
+    Ok(())
+}
+
+fn translate_runtime_boundary<'context>(
+    context: &'context Context,
+    module: &Module<'context>,
+    request: CodegenRequest<'_>,
+    symbol: &CodegenSymbolMapping,
+    body: FunctionValue<'context>,
+    trampoline: FunctionValue<'context>,
+    types: &mut LlvmTypeMappings<'context, '_>,
+) -> Result<(), CodegenFailure> {
+    assert!(symbol.signature().has_panic_report_context());
+
+    let builder = context.create_builder();
+
+    builder.position_at_end(context.append_basic_block(trampoline, "runtime.entry"));
+
+    let outcome_type = crate::native::run_outcome_type(context, request.target());
+    let outcome = llvm(builder.build_alloca(outcome_type, "runtime.outcome"))?;
+
+    llvm(builder.build_store(outcome, outcome_type.const_zero()))?;
+
+    let mut arguments: Vec<BasicMetadataValueEnum<'context>> = trampoline
+        .get_params()
+        .into_iter()
+        .map(Into::into)
+        .collect();
+
+    arguments.push(outcome.into());
+
+    let call = llvm(builder.build_call(body, &arguments, ""))?;
+
+    call.set_call_convention(body.get_call_conventions());
+    apply_signature_call_attributes(call, symbol.signature(), types)?;
+
+    let result = llvm(builder.build_load(outcome_type, outcome, "runtime.outcome.result"))?;
+
+    resolve_callback_outcome(context, module, request, &builder, trampoline, result)?;
+
+    if symbol
+        .native_entry()
+        .is_some_and(|entry| entry.kind() == bray_codegen::CodegenNativeEntryKind::RuntimeStatus)
+    {
+        let (state, _) = native_run_outcome(&builder, result)?;
+
+        let completed = native_run_state_is(
+            &builder,
+            state,
+            NativeRunState::COMPLETED,
+            "runtime.completed",
+        )?;
+
+        let status = call
+            .try_as_basic_value()
+            .basic()
+            .expect("runtime status body returns its native status");
+
+        let failure = context.i32_type().const_int(
+            u64::from(bray_runtime_abi::NativeRuntimeStatus::RUNTIME_FAILURE.code()),
+            false,
+        );
+
+        let returned = llvm(builder.build_select(
+            completed,
+            status,
+            BasicValueEnum::IntValue(failure),
+            "runtime.status",
+        ))?;
+
+        llvm(builder.build_return(Some(&returned)))?;
+    } else {
+        llvm(builder.build_return(None))?;
     }
 
     Ok(())

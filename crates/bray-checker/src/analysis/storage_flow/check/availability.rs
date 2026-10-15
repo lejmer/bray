@@ -7,14 +7,14 @@ pub(super) fn storage_is_recovered(storage: &StoragePlan) -> bool {
     storage.is_recovered()
 }
 
-pub(super) fn projection_is_available(
+pub(super) fn projection_is_available<'refinements>(
     storage: &StoragePlan,
     access: StorageAccessId,
     projection: StorageProjection,
     depth: usize,
-    refinements: &[Refinement],
+    refinements: impl Iterator<Item = &'refinements Refinement> + Clone,
 ) -> bool {
-    let related = refinements.iter().filter(|refinement| {
+    let related = refinements.clone().filter(|refinement| {
         if let RefinementKind::Pattern {
             access: subject, ..
         } = refinement.kind()
@@ -67,5 +67,6 @@ pub(super) fn projection_is_available(
         | StorageProjection::Element(_)
         | StorageProjection::SliceRange { .. }
         | StorageProjection::OwnedTarget => true,
+        StorageProjection::UninitPayload => false,
     }
 }

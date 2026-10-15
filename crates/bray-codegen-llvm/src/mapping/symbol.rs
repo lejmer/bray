@@ -74,7 +74,7 @@ pub(crate) fn declare_native_entry<'context>(
         mapping.key().clone(),
         native_entry.name().clone(),
         native_entry.linkage(),
-        mapping.signature().clone(),
+        mapping.signature().clone().without_panic_report_context(),
     );
 
     declare_symbol(module, &entry_mapping, target, defines_symbol, types).map(Some)

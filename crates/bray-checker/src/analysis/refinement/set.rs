@@ -1,16 +1,17 @@
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct RefinementSet {
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct RefinementSet {
     words: Box<[u64]>,
 }
 
 impl RefinementSet {
-    pub(super) fn empty(refinements: usize) -> Self {
+    pub(crate) fn empty(refinements: usize) -> Self {
         Self {
             words: vec![0; refinements.div_ceil(u64::BITS as usize)].into_boxed_slice(),
         }
     }
 
-    pub(super) fn full(refinements: usize) -> Self {
+    #[cfg(test)]
+    pub(crate) fn full(refinements: usize) -> Self {
         let mut set = Self {
             words: vec![u64::MAX; refinements.div_ceil(u64::BITS as usize)].into_boxed_slice(),
         };
@@ -26,22 +27,22 @@ impl RefinementSet {
         set
     }
 
-    pub(super) fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.words.iter().all(|word| *word == 0)
     }
 
-    pub(super) fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.words
             .iter()
             .map(|word| word.count_ones() as usize)
             .sum()
     }
 
-    pub(super) fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.words.fill(0);
     }
 
-    pub(super) fn insert(&mut self, index: usize) {
+    pub(crate) fn insert(&mut self, index: usize) {
         let Some(word) = self.words.get_mut(index / u64::BITS as usize) else {
             return;
         };
@@ -49,7 +50,7 @@ impl RefinementSet {
         *word |= 1_u64 << (index % u64::BITS as usize);
     }
 
-    pub(super) fn remove(&mut self, index: usize) {
+    pub(crate) fn remove(&mut self, index: usize) {
         let Some(word) = self.words.get_mut(index / u64::BITS as usize) else {
             return;
         };
@@ -57,17 +58,7 @@ impl RefinementSet {
         *word &= !(1_u64 << (index % u64::BITS as usize));
     }
 
-    pub(super) fn replace(&mut self, other: &Self) -> bool {
-        if self == other {
-            return false;
-        }
-
-        self.words.clone_from(&other.words);
-
-        true
-    }
-
-    pub(super) fn intersect(&mut self, other: &Self) -> bool {
+    pub(crate) fn intersect(&mut self, other: &Self) -> bool {
         let mut changed = false;
 
         for (target, incoming) in self.words.iter_mut().zip(&other.words) {
@@ -80,7 +71,7 @@ impl RefinementSet {
         changed
     }
 
-    pub(super) fn retain(&mut self, mut predicate: impl FnMut(usize) -> bool) {
+    pub(crate) fn retain(&mut self, mut predicate: impl FnMut(usize) -> bool) {
         for (word_index, word) in self.words.iter_mut().enumerate() {
             let mut remaining = *word;
 
@@ -98,7 +89,7 @@ impl RefinementSet {
         }
     }
 
-    pub(super) fn indexes(&self) -> impl Iterator<Item = usize> + '_ {
+    pub(crate) fn indexes(&self) -> impl Iterator<Item = usize> + Clone + '_ {
         self.words
             .iter()
             .enumerate()

@@ -220,7 +220,7 @@ impl Compilation {
 
         Ok(DiagnosticResult::new(domains, diagnostics))
     }
-    pub(super) fn execution_contract_owner(
+    pub(in crate::compilation) fn execution_contract_owner(
         &self,
         symbol: AnySymbolId,
     ) -> Result<Option<BoundUnitKey>, FactQueryError> {

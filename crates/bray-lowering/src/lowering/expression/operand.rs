@@ -26,14 +26,18 @@ impl Lowerer<'_> {
                     self.lower_storage_operand(id, current)
                 }
                 _ => panic!(
-                    "lowering contract violation: UnsupportedExpression {value:?}",
-                    value = id
+                    "member operand {id:?} must select a storage member in {:?}, source: {:?}, member: {:?}",
+                    self.input.unit().key(),
+                    self.expression_source(id),
+                    target.member(),
                 ),
             },
             None => self.lower_storage_operand(id, current),
             _ => panic!(
-                "lowering contract violation: UnsupportedExpression {value:?}",
-                value = id
+                "member operand {id:?} must have a member selection in {:?}, source: {:?}, selection: {:?}",
+                self.input.unit().key(),
+                self.expression_source(id),
+                self.input.semantic_selections().expression(id),
             ),
         }
     }

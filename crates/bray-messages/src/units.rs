@@ -62,7 +62,9 @@ pub(crate) fn percentage_ratio(part: u64, total: u64) -> String {
 mod tests {
     use std::time::Duration;
 
-    use super::{ByteUnit, DurationUnit, percentage, percentage_ratio, scaled_bytes, scaled_duration};
+    use super::{
+        ByteUnit, DurationUnit, percentage, percentage_ratio, scaled_bytes, scaled_duration,
+    };
 
     #[test]
     fn completion_percentages_preserve_whole_values() {

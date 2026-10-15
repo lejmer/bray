@@ -66,8 +66,15 @@ impl Lowerer<'_> {
             )),
         )?;
 
-        let lifecycle =
-            self.resolve_cleanup(broadcast, source, plans, None, &failures, input_exit)?;
+        let lifecycle = self.resolve_cleanup(
+            broadcast,
+            source,
+            plans,
+            None,
+            pending.as_ref(),
+            &failures,
+            input_exit,
+        )?;
 
         self.set_destination(
             lifecycle,
@@ -200,18 +207,19 @@ impl Lowerer<'_> {
         Ok(failures)
     }
 
-    pub(super) fn check_ordinary_cleanup(
+    pub(in crate::lowering) fn check_ordinary_cleanup(
         &mut self,
         block: MirBlockId,
         source: &MirSourceAnchor,
         released_owner: Option<TypeId>,
+        shielded: bool,
     ) -> Result<MirBlockId, LoweringError> {
         let Some((mut panicked, mut cancelled, report)) = self.cleanup_failure_targets.clone()
         else {
             return Ok(block);
         };
 
-        if let Some(owner) = released_owner {
+        if released_owner.is_some() || shielded {
             let kind = self.builder.block_kind(block);
 
             for target in [&mut panicked, &mut cancelled] {
@@ -219,7 +227,17 @@ impl Lowerer<'_> {
                     .builder
                     .push_block(Self::retained_source(source), kind)?;
 
-                self.discharge_outgoing_owner(edge, source, owner)?;
+                if let Some(owner) = released_owner {
+                    self.discharge_outgoing_owner(edge, source, owner)?;
+                }
+
+                if shielded {
+                    self.cleanup_shield(
+                        edge,
+                        source,
+                        bray_runtime_interface::RuntimeAbiRole::CleanupShieldLeave,
+                    )?;
+                }
 
                 self.set_terminator(
                     edge,

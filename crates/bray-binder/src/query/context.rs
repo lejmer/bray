@@ -23,6 +23,19 @@ pub trait BindingQueryContext: Send + Sync {
     /// The compilation-owned cancellation observer.
     type Cancellation: Cancellation + ?Sized;
 
+    /// Checks predicate clauses on a callable type in its exact lexical declaration scope.
+    fn callable_type_contracts(
+        &self,
+        _owner: AnySymbolId,
+        _syntax: bray_syntax::SyntaxNodeView<'_>,
+        _callable: &TypeExpressionTemplate,
+    ) -> BindingQueryResult<
+        DiagnosticResult<bray_symbols::CallablePhaseBehaviors>,
+        Self::UpstreamError,
+    > {
+        Err(crate::BindingQueryError::DependencyUnavailable)
+    }
+
     /// Returns the immutable syntax input for this compilation snapshot.
     fn syntax(&self) -> &SyntaxTree;
 

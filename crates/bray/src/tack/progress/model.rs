@@ -124,7 +124,10 @@ pub(super) struct PackageProgressReport {
     status: BuildProgressStatus,
     completed_units: u64,
     total_units: u64,
-    #[serde(rename = "duration_milliseconds", serialize_with = "serialize_duration_milliseconds")]
+    #[serde(
+        rename = "duration_milliseconds",
+        serialize_with = "serialize_duration_milliseconds"
+    )]
     duration: Duration,
 }
 
@@ -185,7 +188,10 @@ pub(super) struct BuildProgressReport {
     path: String,
     completed_units: u64,
     total_units: u64,
-    #[serde(rename = "duration_milliseconds", serialize_with = "serialize_duration_milliseconds")]
+    #[serde(
+        rename = "duration_milliseconds",
+        serialize_with = "serialize_duration_milliseconds"
+    )]
     duration: Duration,
     packages: Vec<PackageProgressReport>,
 }
@@ -253,6 +259,9 @@ impl BuildProgressReport {
     }
 }
 
-fn serialize_duration_milliseconds<S: Serializer>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error> {
+fn serialize_duration_milliseconds<S: Serializer>(
+    duration: &Duration,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
     serializer.serialize_u64(u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
 }

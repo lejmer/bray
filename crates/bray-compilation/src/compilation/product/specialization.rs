@@ -920,8 +920,7 @@ impl Compilation {
             let context = super::super::checker::CompilationCheckerContext::new(binding_context);
 
             let outcome =
-                bray_checker::built_in_trait_constraint_outcome(&context, subject, application)
-                    .map_err(FactQueryError::from)?;
+                bray_checker::built_in_trait_constraint_outcome(&context, subject, application);
 
             if outcome != Some(ProofOutcome::Proven) {
                 return Err(ProductQueryFailure::BuiltInProofMismatch {
@@ -953,7 +952,6 @@ impl Compilation {
                     let conversion = bray_checker::built_in_conversion_plan_for_context(
                         &context, subject, target,
                     )
-                    .map_err(FactQueryError::from)?
                     .ok_or_else(|| {
                         ProductQueryFailure::missing(
                             ProductQueryContext::ImplementationRequirement(requirement),
@@ -1210,7 +1208,6 @@ impl Compilation {
             let application_data = values.trait_application_data(application);
 
             if bray_checker::built_in_trait_constraint_outcome(&context, subject, application)
-                .map_err(FactQueryError::from)?
                 == Some(ProofOutcome::Proven)
                 || self.is_copyable_trait(application_data.definition())?
             {
@@ -1349,11 +1346,11 @@ impl Compilation {
                 )
             })?;
 
-        let ty = named_type(values, NamedTypeSymbolId::Struct(definition))?;
+        let ty = named_type(values, NamedTypeSymbolId::Struct(definition));
 
         let value = values
             .intern_constant_value(ConstantValueData::new(
-                ty,
+                ty?,
                 ConstantValueKind::Integer(value.clone()),
             ))
             .map_err(FactQueryError::SemanticValueStore)?;

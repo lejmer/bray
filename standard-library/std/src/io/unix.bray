@@ -10,6 +10,11 @@ trusted internal func platform_standard_input_read(
     pos length: u64,
     pos transferred: RawPointer<u64>,
 ) -> std.platform.PlatformStatus
+    requires(
+        length == 0 || trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize),
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
 {
     return trusted internal std.platform.descriptor_read(
         descriptor = 0,
@@ -25,6 +30,12 @@ trusted internal func platform_standard_output_write(
     pos length: u64,
     pos transferred: RawPointer<u64>,
 ) -> std.platform.PlatformStatus
+    requires(
+        length == 0 || trusted core.memory.valid_read<u8>(pointer = source, count = length as usize),
+        length == 0 || trusted core.memory.initialized_range_as<u8>(pointer = source, count = length as usize),
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
 {
     return trusted internal std.platform.descriptor_write(
         descriptor = 1,
@@ -40,6 +51,12 @@ trusted internal func platform_standard_error_write(
     pos length: u64,
     pos transferred: RawPointer<u64>,
 ) -> std.platform.PlatformStatus
+    requires(
+        length == 0 || trusted core.memory.valid_read<u8>(pointer = source, count = length as usize),
+        length == 0 || trusted core.memory.initialized_range_as<u8>(pointer = source, count = length as usize),
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
 {
     return trusted internal std.platform.descriptor_write(
         descriptor = 2,

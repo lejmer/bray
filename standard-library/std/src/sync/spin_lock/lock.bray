@@ -1,0 +1,177 @@
+trusted module std.sync;
+
+using internal std.sync.spin_lock;
+
+struct SpinLock<T>
+{
+    instance: std.sync.spin_lock.Marker;
+    storage: Uninit<std.sync.spin_lock.State<T>>;
+
+    trusted construct(pos value: T) -> Self
+        ensures(trusted std.sync.spin_lock.valid(&result.instance))
+    {
+        return std.sync.spin_lock.initialize<T>(value);
+    }
+
+    trusted destruct()
+        requires(trusted std.sync.spin_lock.valid(&self.instance))
+        uses(raw_memory, unchecked_init)
+    {
+        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.spin_lock.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.spin_lock.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.spin_lock.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
+        let state: std.sync.spin_lock.State<T> = trusted std.memory.read<std.sync.spin_lock.State<T>>(pointer);
+
+        let initialized = trusted lambda(pos storage: &Uninit<T>)
+            ensures(trusted core.memory.uninit_initialized<T>(storage = storage))
+            executes(pure, total) {};
+
+        initialized(&state.value);
+
+        let _: T = trusted std.memory.assume_initialized<T>(state.value);
+    }
+
+    trusted func lock() -> SpinLockGuard<T>
+        requires(trusted std.sync.spin_lock.valid(&self.instance))
+        ensures(
+            trusted std.sync.spin_lock.valid(&self.instance),
+            trusted std.sync.spin_lock.acquired(&result.acquisition),
+        )
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.spin_lock.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.spin_lock.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.spin_lock.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
+        let state = trusted std.memory.borrow_from<std.sync.spin_lock.State<T>, Self>(&self, pointer);
+        let mut observed = core.atomic.load<u32, 1>(&state.tickets);
+        let mut ticket: u32 = 0;
+
+        while true
+        {
+            let next = observed & 65535;
+            let serving = observed >> 16;
+
+            if((next + 65536 - serving) & 65535) == 65535
+            {
+                trusted internal spin_loop();
+                observed = core.atomic.load<u32, 1>(&state.tickets);
+                continue;
+            }
+
+            let desired = (observed & 4294901760) | ((next + 1) & 65535);
+
+            let (current, admitted) = core.atomic.compare_exchange<u32, 3, 1>(
+                &state.tickets,
+                expected = observed,
+                desired = desired,
+            );
+
+            if admitted
+            {
+                ticket = next;
+                break;
+            }
+
+            observed = current;
+        }
+
+        while(core.atomic.load<u32, 1>(&state.tickets) >> 16) != ticket
+        {
+            trusted internal spin_loop();
+        }
+
+        return
+        {
+            acquisition = std.sync.spin_lock.Marker
+            {
+            },
+            lock = &self
+        };
+    }
+
+    trusted func try_lock() -> SpinLockGuard<T>?
+        requires(trusted std.sync.spin_lock.valid(&self.instance))
+        ensures(
+            trusted std.sync.spin_lock.valid(&self.instance),
+            result matches none || trusted std.sync.spin_lock.acquired(std.sync.spin_lock.marker<T>(&result)),
+        )
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.spin_lock.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.spin_lock.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.spin_lock.State<T>>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.spin_lock.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
+        let state = trusted std.memory.borrow_from<std.sync.spin_lock.State<T>, Self>(&self, pointer);
+        let observed = core.atomic.load<u32, 1>(&state.tickets);
+        let serving = observed >> 16;
+        let next = observed & 65535;
+
+        if next != serving
+        {
+            return none;
+        }
+
+        let (_, acquired) = core.atomic.compare_exchange<u32, 3, 1>(
+            &state.tickets,
+            expected = observed,
+            desired = (observed & 4294901760) | ((next + 1) & 65535),
+        );
+
+        if !acquired
+        {
+            return none;
+        }
+
+        let guard: SpinLockGuard<T> =
+        {
+            acquisition = std.sync.spin_lock.Marker
+            {
+            },
+            lock = &self
+        };
+
+        return guard;
+    }
+}
+
+trusted internal func spin_loop()
+    uses(intrinsic)
+{
+    trusted core.target.spin_loop_hint();
+}

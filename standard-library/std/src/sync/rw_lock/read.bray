@@ -1,0 +1,14 @@
+trusted module std.sync.rw_lock.read;
+
+trusted predicate acquired(marker: &std.sync.rw_lock.Marker);
+
+const func marker<T>(pos guard: &(std.sync.RwLockReadGuard<T>?)) -> &std.sync.rw_lock.Marker
+    requires(guard matches ?_)
+    executes(pure, total)
+{
+    match guard
+    {
+        case ?held { return &held.acquisition; }
+        case none { panic("missing reader-writer lock acquisition"); }
+    }
+}

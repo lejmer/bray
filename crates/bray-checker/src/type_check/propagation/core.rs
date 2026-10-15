@@ -7,8 +7,8 @@ use bray_bound_tree::{
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{BorrowKind, GenericArgument, TypeData};
 
-use crate::representation::type_representation;
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::representation::{representation_union_type, type_representation};
+use crate::{CheckerRequestContext, CheckerUnitView};
 
 use super::super::ExpressionTypeExpectation;
 use super::super::constraints::{add_expectations, add_operand_expectation};
@@ -28,7 +28,7 @@ pub(crate) fn propagate_dynamic_constraints<C>(
     regions: &ExpressionTypeRegions,
     types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
-) -> Result<Option<bool>, CheckerInfrastructureError>
+) -> Option<bool>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -53,18 +53,18 @@ where
         variables,
         types,
         inference,
-    )? {
-        return Ok(None);
+    ) {
+        return None;
     }
 
     for &expression_id in expressions {
         if request.is_cancelled() {
-            return Ok(None);
+            return None;
         }
 
         propagate_assignment(request, expression_id, variables, inference);
 
-        propagate_control_transfer(request, expression_id, variables, regions, types, inference)?;
+        propagate_control_transfer(request, expression_id, variables, regions, types, inference);
 
         if let Some(BoundExpression::BoxConstruction(construction)) =
             request.view().expression(expression_id)
@@ -76,7 +76,7 @@ where
                 variables,
                 types,
                 inference,
-            )?;
+            );
 
             continue;
         }
@@ -88,7 +88,7 @@ where
                 expression.operand(),
                 variables,
                 inference,
-            )?;
+            );
 
             continue;
         }
@@ -100,6 +100,49 @@ where
         };
 
         match expression.kind() {
+            BoundStructuredExpressionKind::With => {
+                if let Some(&failure) = types.scoped_failures.get(&expression_id)
+                    && let Some(&variable) = variables.get(&expression_id)
+                    && let Some(&body) = expression
+                        .blocks()
+                        .first()
+                        .and_then(|body| block_variables.get(body))
+                {
+                    let mut expected_success = None;
+
+                    if let Some(expected) = inference.unique_expectation(variable)
+                        && type_representation(request, expected)
+                            == Some(RepresentationRole::Result)
+                        && let TypeData::Named { substitution, .. } =
+                            request.semantic_values().type_data(expected).as_ref()
+                        && let Some(GenericArgument::Type(success)) = request
+                            .semantic_values()
+                            .generic_substitution_data(*substitution)
+                            .bindings()
+                            .first()
+                            .map(|binding| binding.argument())
+                    {
+                        expected_success = Some(success);
+                        inference.add_expectation(body, success, expression_id);
+                    }
+
+                    if let Some(success) = inference.evidence(body) {
+                        let success = if success == types.never {
+                            expected_success.unwrap_or(success)
+                        } else {
+                            success
+                        };
+
+                        let result = representation_union_type(
+                            request,
+                            RepresentationRole::Result,
+                            [success, failure],
+                        );
+
+                        inference.add_evidence(variable, result, expression_id);
+                    }
+                }
+            }
             BoundStructuredExpressionKind::Tuple => infer_tuple(
                 request,
                 expression_id,
@@ -107,7 +150,7 @@ where
                 variables,
                 types,
                 inference,
-            )?,
+            ),
             BoundStructuredExpressionKind::Array => infer_array(
                 request,
                 expression_id,
@@ -115,21 +158,21 @@ where
                 variables,
                 types,
                 inference,
-            )?,
+            ),
             BoundStructuredExpressionKind::RepeatedArray => infer_repeated_array(
                 request,
                 expression_id,
                 expression.operands(),
                 variables,
                 inference,
-            )?,
+            ),
             BoundStructuredExpressionKind::Range => infer_range(
                 request,
                 expression_id,
                 expression.operands(),
                 variables,
                 inference,
-            )?,
+            ),
             BoundStructuredExpressionKind::ArrayGenerator => infer_array_generator(
                 request,
                 expression_id,
@@ -138,7 +181,7 @@ where
                 regions,
                 types,
                 inference,
-            )?,
+            ),
             BoundStructuredExpressionKind::GeneralGenerator => infer_general_generator(
                 request,
                 expression_id,
@@ -146,7 +189,7 @@ where
                 variables,
                 regions,
                 inference,
-            )?,
+            ),
             BoundStructuredExpressionKind::Catch => infer_catch(
                 request,
                 expression_id,
@@ -154,21 +197,22 @@ where
                 variables,
                 block_variables,
                 inference,
-            )?,
+            ),
             BoundStructuredExpressionKind::Absence => {
-                infer_absence(request, expression_id, variables, inference)?
+                infer_absence(request, expression_id, variables, inference)
             }
             BoundStructuredExpressionKind::Borrow => {
-                infer_borrow(request, expression_id, expression, variables, inference)?
+                infer_borrow(request, expression_id, expression, variables, inference)
             }
-            BoundStructuredExpressionKind::ResultPropagation => {
-                infer_result_propagation(request, expression_id, expression, variables, inference)?
+            BoundStructuredExpressionKind::NullablePropagation
+            | BoundStructuredExpressionKind::ResultPropagation => {
+                infer_propagation(request, expression_id, expression, variables, inference)
             }
             _ => {}
         }
     }
 
-    Ok(Some(inference.revision() != before))
+    Some(inference.revision() != before)
 }
 
 fn infer_await<C>(
@@ -177,16 +221,15 @@ fn infer_await<C>(
     operand: BoundExpressionId,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(variable) = variables.get(&expression).copied() else {
-        return Ok(());
+        return;
     };
 
     let Some(operand_variable) = variables.get(&operand).copied() else {
-        return Ok(());
+        return;
     };
 
     if let Some(future) = inference.evidence(operand_variable) {
@@ -208,7 +251,7 @@ where
         .or(inference.unique_expectation(variable));
 
     let Some(completion) = completion else {
-        return Ok(());
+        return;
     };
 
     let Some(future) = request
@@ -217,15 +260,12 @@ where
             request.semantic_values(),
             RepresentationRole::Future,
             completion,
-        )
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?
+        ).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in infer_await: {error:?}"))
     else {
-        return Ok(());
+        return ;
     };
 
     inference.add_evidence(operand_variable, future, operand);
-
-    Ok(())
 }
 
 fn infer_absence<C>(
@@ -233,70 +273,74 @@ fn infer_absence<C>(
     expression_id: BoundExpressionId,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(variable) = variables.get(&expression_id).copied() else {
-        return Ok(());
+        return;
     };
 
-    let expected = inference.try_unique_matching_expectation(variable, |ty| {
+    let expected = inference.unique_matching_expectation(variable, |ty| {
         let data = request.semantic_values().type_data(ty);
 
-        Ok::<_, CheckerInfrastructureError>(matches!(data.as_ref(), TypeData::Nullable(_)))
-    })?;
+        matches!(data.as_ref(), TypeData::Nullable(_))
+    });
 
     if let Some(expected) = expected {
         inference.add_evidence(variable, expected, expression_id);
     }
-
-    Ok(())
 }
 
-fn infer_result_propagation<C>(
+fn infer_propagation<C>(
     request: CheckerUnitView<'_, C>,
     expression_id: BoundExpressionId,
     expression: &bray_bound_tree::BoundStructuredExpression,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(variable) = variables.get(&expression_id).copied() else {
-        return Ok(());
+        return;
     };
 
     let Some(operand) = expression.operands().first() else {
-        return Ok(());
+        return;
     };
 
     let Some(operand_variable) = variables.get(operand).copied() else {
-        return Ok(());
+        return;
     };
 
     if inference.is_recovered(operand_variable) {
         inference.mark_recovered(variable);
 
-        return Ok(());
+        return;
     }
 
     let Some(operand_type) = inference.evidence(operand_variable) else {
-        return Ok(());
+        return;
     };
 
     let data = request.semantic_values().type_data(operand_type);
 
+    if expression.kind() == BoundStructuredExpressionKind::NullablePropagation {
+        if let TypeData::Nullable(success) = data.as_ref() {
+            inference.add_evidence(variable, *success, expression_id);
+        }
+
+        return;
+    }
+
     let TypeData::Named { substitution, .. } = data.as_ref() else {
-        return Ok(());
+        return;
     };
 
     if !matches!(
         type_representation(request, operand_type),
         Some(RepresentationRole::Result | RepresentationRole::RunResult)
     ) {
-        return Ok(());
+        return;
     }
 
     let substitution = request
@@ -308,12 +352,10 @@ where
         .first()
         .map(|binding| binding.argument())
     else {
-        return Ok(());
+        return;
     };
 
     inference.add_evidence(variable, success, expression_id);
-
-    Ok(())
 }
 
 fn infer_borrow<C>(
@@ -322,35 +364,32 @@ fn infer_borrow<C>(
     expression: &bray_bound_tree::BoundStructuredExpression,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(kind) = expression.borrow_kind() else {
-        return Ok(());
+        return;
     };
 
     let Some(operand) = expression.operands().first().copied() else {
-        return Ok(());
+        return;
     };
 
     let Some(operand_variable) = variables.get(&operand).copied() else {
-        return Ok(());
+        return;
     };
 
     let Some(variable) = variables.get(&expression_id).copied() else {
-        return Ok(());
+        return;
     };
 
     let operand_type = inference.evidence(operand_variable);
 
-    let expected = inference.try_unique_matching_expectation(variable, |ty| {
+    let expected = inference.unique_matching_expectation(variable, |ty| {
         let data = request.semantic_values().type_data(ty);
 
-        Ok::<_, CheckerInfrastructureError>(
-            matches!(data.as_ref(), TypeData::Borrow { kind: expected, .. } if *expected == kind),
-        )
-    })?;
+        matches!(data.as_ref(), TypeData::Borrow { kind: expected, .. } if *expected == kind)
+    });
 
     if let Some(expected) = expected {
         let data = request.semantic_values().type_data(expected);
@@ -360,7 +399,7 @@ where
             ..
         } = data.as_ref()
         else {
-            return Ok(());
+            return;
         };
 
         let is_reborrow = match operand_type {
@@ -385,27 +424,24 @@ where
 
         inference.add_evidence(variable, expected, expression_id);
 
-        return Ok(());
+        return;
     }
 
     if let Some(target) = operand_type {
         let target_data = request.semantic_values().type_data(target);
 
         if matches!(target_data.as_ref(), TypeData::Borrow { .. }) {
-            return Ok(());
+            return;
         }
 
         let ty = request
             .semantic_values()
-            .intern_type(TypeData::Borrow { kind, target })
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            .intern_type(TypeData::Borrow { kind, target }).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in infer_borrow: {error:?}"));
 
         inference.add_evidence(variable, ty, expression_id);
 
-        return Ok(());
+        return;
     }
-
-    Ok(())
 }
 
 fn propagate_blocks<C>(
@@ -415,13 +451,13 @@ fn propagate_blocks<C>(
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
-) -> Result<bool, CheckerInfrastructureError>
+) -> bool
 where
     C: CheckerRequestContext + ?Sized,
 {
     for (&block_id, &variable) in block_variables {
         if request.is_cancelled() {
-            return Ok(false);
+            return false;
         }
 
         let Some(block) = request.view().block(block_id) else {
@@ -460,7 +496,7 @@ where
         }
     }
 
-    Ok(true)
+    true
 }
 
 fn own_block_yield(
@@ -482,17 +518,16 @@ fn propagate_control_transfer<C>(
     regions: &ExpressionTypeRegions,
     types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(BoundExpression::ControlTransfer(transfer)) = request.view().expression(expression_id)
     else {
-        return Ok(());
+        return;
     };
 
     let Some(target) = transfer.target() else {
-        return Ok(());
+        return;
     };
 
     match transfer.kind() {
@@ -506,7 +541,7 @@ where
                     variables,
                     types,
                     inference,
-                )?;
+                );
             }
         }
         BoundControlTransferKind::Break => {
@@ -519,13 +554,11 @@ where
                     variables,
                     types,
                     inference,
-                )?;
+                );
             }
         }
         BoundControlTransferKind::Return | BoundControlTransferKind::Continue => {}
     }
-
-    Ok(())
 }
 
 fn add_transfer_value<C>(
@@ -536,16 +569,23 @@ fn add_transfer_value<C>(
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
-    let nullable_expectation = inference.unique_expectation(target).filter(|expected| {
+    let is_nullable = |expected| {
         matches!(
-            request.semantic_values().type_data(*expected).as_ref(),
+            request.semantic_values().type_data(expected).as_ref(),
             TypeData::Nullable(_)
         )
-    });
+    };
+
+    let nullable_expectation = inference
+        .unique_matching_expectation(target, is_nullable)
+        .or_else(|| {
+            inference
+                .evidence(target)
+                .filter(|expected| is_nullable(*expected))
+        });
 
     if let (Some(expected), Some(operand)) = (nullable_expectation, operand) {
         add_expectations(
@@ -553,19 +593,35 @@ where
             [ExpressionTypeExpectation::new(operand, expected)],
             variables,
             inference,
-        )?;
+        );
 
         inference.add_evidence(target, expected, transfer);
 
-        return Ok(());
+        return;
     }
 
     match operand.and_then(|operand| variables.get(&operand).copied()) {
-        Some(operand) => inference.unify(target, operand, transfer),
+        Some(operand) => {
+            // A yielded value contributes to the join; the join cannot change its type.
+            // In particular, a never-valued operand stays never when another arm yields.
+            if let Some(actual) = inference.evidence(operand) {
+                inference.add_evidence(target, actual, transfer);
+            }
+
+            if let Some(expected) = inference
+                .evidence(target)
+                .filter(|expected| *expected != types.never && *expected != types.error)
+                .or_else(|| inference.unique_expectation(target))
+            {
+                inference.add_expectation(operand, expected, transfer);
+            }
+
+            if inference.is_recovered(operand) {
+                inference.mark_recovered(target);
+            }
+        }
         None => inference.add_evidence(target, types.unit, transfer),
     }
-
-    Ok(())
 }
 
 fn propagate_assignment<C>(

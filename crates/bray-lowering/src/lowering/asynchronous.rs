@@ -21,36 +21,6 @@ impl Lowerer<'_> {
         expression: BoundAwaitExpression,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        let Some(parent) = self.input.unit_kind().protected_frame() else {
-            panic!(
-                "lowering contract violation: AwaitOutsideProtectedFrame {value:?}",
-                value = id
-            );
-        };
-
-        let suspension = self
-            .input
-            .suspension(id)
-            // Lowering mutates its builder while retaining this immutable checked decision.
-            .cloned()
-            .unwrap_or_else(|| {
-                panic!(
-                    "lowering contract violation: MissingSuspensionPoint {value:?}",
-                    value = id
-                )
-            });
-
-        if suspension.kind()
-            != (AsyncSuspensionKind::Await {
-                operand: expression.operand(),
-            })
-        {
-            panic!(
-                "lowering contract violation: MissingSuspensionPoint {value:?}",
-                value = id
-            );
-        }
-
         let lowered = self.lower_expression(expression.operand(), current)?;
 
         let Some(current) = lowered.block else {
@@ -65,6 +35,50 @@ impl Lowerer<'_> {
         };
 
         let source = self.source(expression.origin());
+
+        let suspension = self
+            .input
+            .suspension(id)
+            .expect("checked await retains its suspension");
+
+        assert_eq!(
+            suspension.kind(),
+            AsyncSuspensionKind::Await {
+                operand: expression.operand()
+            },
+            "checked await retains its exact operand"
+        );
+
+        self.lower_awaited_frame(id.into(), frame, self.expression_type(id), current, source)
+    }
+
+    pub(super) fn lower_awaited_frame(
+        &mut self,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        frame_value: MirOperand,
+        completion: bray_symbols::TypeId,
+        current: MirBlockId,
+        source: MirSourceAnchor,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let Some(parent) = self.input.unit_kind().protected_frame() else {
+            panic!(
+                "lowering contract violation: AwaitOutsideProtectedFrame {value:?}",
+                value = occurrence
+            );
+        };
+
+        let suspension = self
+            .input
+            .suspension(occurrence)
+            // Lowering mutates its builder while retaining this immutable checked decision.
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingSuspensionPoint {value:?}",
+                    value = occurrence
+                )
+            });
+
         let child = MirFrameReference::Erased;
 
         self.push_operation(
@@ -73,7 +87,7 @@ impl Lowerer<'_> {
             MirOperationKind::Async(MirAsyncOperation::ComposeAwaitedFrame {
                 parent,
                 child,
-                frame,
+                frame: frame_value,
             }),
             None,
         )?;
@@ -82,7 +96,28 @@ impl Lowerer<'_> {
             .builder
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-        let cancellation = self.suspension_cleanup_edge(&source, id.into())?;
+        let cancellation = match occurrence {
+            bray_bound_tree::BoundExecutionSite::ScopedExit(_) => {
+                // The exit dispatcher establishes the cleanup shield before driving this child.
+                let unreachable = self.builder.push_block(
+                    Self::retained_source(&source),
+                    MirBlockKind::CleanupBroadcast,
+                )?;
+
+                self.set_terminator(
+                    unreachable,
+                    Self::retained_source(&source),
+                    MirTerminatorKind::Unreachable,
+                )?;
+
+                bray_ir::MirCleanupEdge::new(
+                    bray_ir::MirCleanupPhase::TaskCancellation,
+                    MirEdge::new(unreachable, []),
+                )
+            }
+            _ => self.suspension_cleanup_edge(&source, occurrence.node())?,
+        };
+
         let state = self.next_frame_state()?;
 
         self.set_terminator(
@@ -111,14 +146,21 @@ impl Lowerer<'_> {
             .with_affinity(self.frame_affinity()),
         );
 
-        let value = self.push_value_operation(
-            id,
-            resume,
-            Self::retained_source(&source),
-            MirOperationKind::Async(MirAsyncOperation::CommitAwaitedCompletion { child }),
-        )?;
+        let value = self
+            .push_operation(
+                resume,
+                Self::retained_source(&source),
+                MirOperationKind::Async(MirAsyncOperation::CommitAwaitedCompletion { child }),
+                Some(completion),
+            )?
+            .result()
+            .expect("awaited completion publishes its checked result");
 
-        Ok(LoweredExpression::continuing(resume, Some(value), source))
+        Ok(LoweredExpression::continuing(
+            resume,
+            Some(MirOperand::Value(value)),
+            source,
+        ))
     }
 
     pub(super) fn lower_call_operation(

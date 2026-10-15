@@ -18,12 +18,14 @@ struct List<T>
         return Ok(list);
     }
 
-    func as_slice() -> &[T]
+    trusted func as_slice() -> &[T]
+        uses(raw_memory)
     {
         return trusted std.memory.initialized_slice<T>(&self.storage);
     }
 
-    mut func as_slice_mut() -> &mut [T]
+    trusted mut func as_slice_mut() -> &mut [T]
+        uses(raw_memory)
     {
         return trusted std.memory.initialized_slice_mut<T>(&mut self.storage);
     }
@@ -31,35 +33,29 @@ struct List<T>
 
 trusted internal func push_available<T>(pos list: &mut List<T>, pos value: T) -> unit
 {
-    let current_length: usize = list.storage.initialized;
-
-    let destination: RawPointer<T> = trusted std.memory.spare_pointer<T>(&mut list.storage);
-
-    trusted std.memory.write<T>(destination, value);
-    trusted std.memory.set_initialized_count<T>(buffer = &mut list.storage, count = current_length + 1);
+    trusted internal std.memory.initialize_spare<T>(&mut list.storage, value);
 }
 
 trusted internal func take_last<T>(pos list: &mut List<T>) -> T
 {
-    let current_length: usize = list.storage.initialized;
-
-    let value: T =
-    {
-        let values: &mut [T] = trusted std.memory.initialized_slice_mut<T>(&mut list.storage);
-        let pointer: RawPointer<T> = std.memory.address_of_mut<T>(&mut values[current_length - 1]);
-        let result: T = trusted std.memory.read<T>(pointer);
-
-        yield result;
-    };
-
-    trusted std.memory.set_initialized_count<T>(buffer = &mut list.storage, count = current_length - 1);
-
-    return value;
+    return trusted internal std.memory.take_last<T>(&mut list.storage);
 }
 
 trusted internal func swap_at<T>(pos list: &mut List<T>, left: usize, right: usize) -> unit
+    uses(raw_memory, unchecked_init)
 {
     let values: &mut [T] = trusted std.memory.initialized_slice_mut<T>(&mut list.storage);
+
+    if left >= values.length() || right >= values.length()
+    {
+        panic("swap indexes must identify initialized elements");
+    }
+
+    if left == right
+    {
+        return unit;
+    }
+
     let left_pointer: RawPointer<T> = std.memory.address_of_mut<T>(&mut values[left]);
     let temporary: T = trusted std.memory.read<T>(left_pointer);
     let right_pointer: RawPointer<T> = std.memory.address_of_mut<T>(&mut values[right]);
@@ -213,6 +209,7 @@ trusted func clear<T>(pos list: &mut List<T>) -> unit
 }
 
 trusted internal func release_list_storage<T>(pos list: &mut List<T>) -> unit
+    uses(manual_alloc)
 {
     trusted std.memory.raw_buffer_release<T>(&mut list.storage);
 }
@@ -224,7 +221,8 @@ func reverse<T>(pos list: &mut List<T>) -> unit
     trusted reverse_values<T>(&mut list, count = count);
 }
 
-internal func copied_index(pos selector: &usize) -> usize
+trusted internal func copied_index(pos selector: &usize) -> usize
+    uses(raw_memory)
 {
     let pointer: RawPointer<usize> = std.memory.address_of<usize>(selector);
 

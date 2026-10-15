@@ -15,10 +15,9 @@ use bray_symbols::{
 
 use crate::{
     CallableCandidate, CallableCandidateState, CallableCandidateTemplateState,
-    CallableDeclarationCandidateTemplate, CheckedConstantTerms, CheckerInfrastructureError,
-    CheckerQueryError, CheckerQueryResult, PredicateCandidateTemplate,
-    normalize_callable_signature_type_valued_members, resolve_callable_signature_template,
-    resolve_type_expression_template,
+    CallableDeclarationCandidateTemplate, CheckedConstantTerms, CheckerQueryError,
+    CheckerQueryResult, PredicateCandidateTemplate, normalize_callable_signature,
+    resolve_callable_signature_template, resolve_type_expression_template,
 };
 
 pub(crate) enum TemplateResolution<T> {
@@ -57,12 +56,14 @@ where
     C: crate::CheckerRequestContext + ?Sized,
 {
     let arguments =
-        open_generic_arguments_with_prefix(request, explicit, template.generic().parameters())?;
+        open_generic_arguments_with_prefix(request, explicit, template.generic().parameters());
 
     match resolve_predicate_candidate_with_arguments(request, template, arguments, diagnostics)? {
         TemplateResolution::Resolved(candidate) => Ok(candidate),
         TemplateResolution::Unsupported => {
-            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in resolve_open_predicate_candidate"
+            )
         }
     }
 }
@@ -80,13 +81,11 @@ where
         template.generic().owner(),
         template.generic().parameters().iter().copied(),
         arguments,
-    )
-    .map_err(CheckerInfrastructureError::GenericSubstitution)?;
+    ).unwrap_or_else(|error| panic!("Generic substitution construction rejected an exact parameter-to-argument relationship. in resolve_predicate_candidate_with_arguments: {error:?}"));
 
     let substitution = request
         .semantic_values()
-        .intern_generic_substitution(substitution)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .intern_generic_substitution(substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in resolve_predicate_candidate_with_arguments: {error:?}"));
 
     let mut parameters = Vec::with_capacity(template.signature().parameters().len());
 
@@ -99,8 +98,7 @@ where
 
         let ty = request
             .semantic_values()
-            .substitute_type(ty, substitution)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            .substitute_type(ty, substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in resolve_predicate_candidate_with_arguments: {error:?}"));
 
         parameters.push(CallableParameterData::new(
             parameter.name().clone(),
@@ -111,12 +109,11 @@ where
     }
 
     let result =
-        crate::representation::representation_type(request, RepresentationRole::ScalarBool)?;
+        crate::representation::representation_type(request, RepresentationRole::ScalarBool);
 
     let dependencies = request
         .semantic_values()
-        .empty_dependency_contract_template()
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .empty_dependency_contract_template().unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in resolve_predicate_candidate_with_arguments: {error:?}"));
 
     let trust = if template.signature().is_trusted() {
         CallableTrust::Trusted
@@ -135,8 +132,7 @@ where
 
     let callable_type = request
         .semantic_values()
-        .intern_type(TypeData::Callable(callable))
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .intern_type(TypeData::Callable(callable)).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in resolve_predicate_candidate_with_arguments: {error:?}"));
 
     let resolution = BoundResolvedCall::new(
         BoundCallableTarget::Predicate(PredicateInstanceData::new(
@@ -163,7 +159,7 @@ where
 fn open_generic_arguments<C>(
     request: crate::CheckerUnitView<'_, C>,
     parameters: &[GenericParameterSymbolId],
-) -> Result<Vec<GenericArgument>, CheckerInfrastructureError>
+) -> Vec<GenericArgument>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -173,8 +169,7 @@ where
         .map(|parameter| {
             request
                 .semantic_values()
-                .intern_generic_parameter_argument(parameter)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)
+                .intern_generic_parameter_argument(parameter).unwrap_or_else(|error| panic!("open_generic_arguments must satisfy its checked construction contract: {error:?}"))
         })
         .collect()
 }
@@ -183,20 +178,22 @@ fn open_generic_arguments_with_prefix<C>(
     request: crate::CheckerUnitView<'_, C>,
     explicit: &[GenericArgument],
     parameters: &[GenericParameterSymbolId],
-) -> Result<Vec<GenericArgument>, CheckerInfrastructureError>
+) -> Vec<GenericArgument>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
     let Some(remaining) = parameters.get(explicit.len()..) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in open_generic_arguments_with_prefix"
+        );
     };
 
     let mut arguments = Vec::with_capacity(parameters.len());
 
     arguments.extend_from_slice(explicit);
-    arguments.extend(open_generic_arguments(request, remaining)?);
+    arguments.extend(open_generic_arguments(request, remaining));
 
-    Ok(arguments)
+    arguments
 }
 
 pub(super) fn resolve_declaration_candidate<C>(
@@ -230,12 +227,14 @@ where
     C: crate::CheckerRequestContext + ?Sized,
 {
     let arguments =
-        open_generic_arguments_with_prefix(request, explicit, template.generic().parameters())?;
+        open_generic_arguments_with_prefix(request, explicit, template.generic().parameters());
 
     match resolve_declaration_candidate_with_arguments(request, template, arguments, diagnostics)? {
         TemplateResolution::Resolved(candidate) => Ok(candidate),
         TemplateResolution::Unsupported => {
-            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in resolve_open_declaration_candidate"
+            )
         }
     }
 }
@@ -255,14 +254,26 @@ where
         template.generic().owner(),
         template.generic().parameters().iter().copied(),
         arguments,
-    )
-    .map_err(CheckerInfrastructureError::GenericSubstitution)?;
+    ).unwrap_or_else(|error| panic!("Generic substitution construction rejected an exact parameter-to-argument relationship. in resolve_declaration_candidate_with_arguments: {error:?}"));
 
     let substitution = values
-        .intern_generic_substitution(substitution)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .intern_generic_substitution(substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in resolve_declaration_candidate_with_arguments: {error:?}"));
 
-    let signature =
+    let inherited =
+        request
+            .context()
+            .inherited_callable_substitution(CallableInstanceData::new(
+                template.definition(),
+                substitution,
+            ))?;
+
+    diagnostics.add_range(inherited.diagnostics().iter().cloned());
+
+    let Some(substitution) = *inherited.value() else {
+        return Ok(TemplateResolution::Unsupported);
+    };
+
+    let mut signature =
         match resolve_signature(request, template.signature(), substitution, diagnostics)? {
             TemplateResolution::Resolved(signature) => signature,
             TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
@@ -271,28 +282,38 @@ where
     let callable_type = values.type_data(signature.callable_type());
 
     let TypeData::Callable(callable_type) = callable_type.as_ref() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in resolve_declaration_candidate_with_arguments"
+        );
     };
 
-    let callable_owner = GenericOwnerId::try_new(template.definition().symbol())
-        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+    let callable_owner =
+        GenericOwnerId::try_new(template.definition().symbol()).unwrap_or_else(|| {
+            panic!("resolve_declaration_candidate_with_arguments requires generic callable owner")
+        });
 
     let callable_substitution = if callable_owner == template.generic().owner() {
         substitution
     } else {
         values
-            .inherit_generic_substitution(substitution, callable_owner)
-            .map_err(|error| {
-                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })?
+            .inherit_generic_substitution(substitution, callable_owner).unwrap_or_else(|error| panic!("resolve_declaration_candidate_with_arguments must satisfy its checked construction contract: {error:?}"))
     };
+
+    {
+        let owner = bray_symbols::CallableSymbolId::try_from_any(template.definition().symbol())
+            .expect("declaration candidate must be callable");
+
+        let predicates = request.context().callable_predicate_contracts(owner)?;
+
+        diagnostics.add_range(predicates.diagnostics().iter().cloned());
+
+        signature = signature
+            .with_predicate_contracts(values, predicates.value(), callable_substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in resolve_declaration_candidate_with_arguments: {error:?}"));
+    }
 
     let instance = CallableInstanceData::new(template.definition(), callable_substitution);
 
-    let result = call_result(request, callable_type, signature.result())
-        .map_err(CheckerQueryError::Infrastructure)?;
+    let result = call_result(request, callable_type, signature.result());
 
     let resolution = BoundResolvedCall::new(BoundCallableTarget::Declaration(instance), [], result);
 
@@ -304,9 +325,9 @@ where
         }
 
         let Some(provider) = default.provider() else {
-            return Err(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
-            ));
+            panic!(
+                "Semantic-selection inputs do not describe the requested bound unit or operation category. in resolve_declaration_candidate_with_arguments"
+            );
         };
 
         defaults.push((default.parameter(), provider));
@@ -357,14 +378,14 @@ where
         TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
     };
 
-    resolve_type_expression_template(request.semantic_values(), template, &constants)
-        .map(|ty| {
-            ty.map_or(
-                TemplateResolution::Unsupported,
-                TemplateResolution::Resolved,
-            )
-        })
-        .map_err(CheckerQueryError::Infrastructure)
+    let Some(ty) =
+        resolve_type_expression_template(request.semantic_values(), template, &constants)
+    else {
+        return Ok(TemplateResolution::Unsupported);
+    };
+
+    crate::normalize_type_valued_members(request.context(), ty, diagnostics)
+        .map(TemplateResolution::Resolved)
 }
 
 pub(crate) fn resolve_signature<C>(
@@ -390,14 +411,17 @@ where
         template,
         substitution,
         &constants,
-    )
-    .map_err(CheckerQueryError::Infrastructure)?
-    else {
+    ) else {
         return Ok(TemplateResolution::Unsupported);
     };
 
-    normalize_callable_signature_type_valued_members(request.context(), signature, diagnostics)
-        .map(TemplateResolution::Resolved)
+    normalize_callable_signature(
+        request.context(),
+        signature,
+        Some(substitution),
+        diagnostics,
+    )
+    .map(TemplateResolution::Resolved)
 }
 
 pub(super) fn resolve_generic_arguments<C>(
@@ -430,9 +454,6 @@ where
                     Err(CheckerQueryError::Cancelled) => {
                         return Ok(TemplateResolution::Unsupported);
                     }
-                    Err(CheckerQueryError::Infrastructure(error)) => {
-                        return Err(CheckerQueryError::Infrastructure(error));
-                    }
                     Err(CheckerQueryError::Upstream(error)) => {
                         return Err(CheckerQueryError::Upstream(error));
                     }
@@ -464,9 +485,6 @@ where
         }
         Ok(TemplateResolution::Unsupported) => crate::CheckerOutcome::complete(None, diagnostics),
         Err(CheckerQueryError::Cancelled) => crate::CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            crate::CheckerOutcome::InfrastructureFailure(error)
-        }
         Err(CheckerQueryError::Upstream(error)) => crate::CheckerOutcome::UpstreamFailure(error),
     }
 }
@@ -488,9 +506,6 @@ where
                 Err(CheckerQueryError::Cancelled) => {
                     return Ok(TemplateResolution::Unsupported);
                 }
-                Err(CheckerQueryError::Infrastructure(error)) => {
-                    return Err(CheckerQueryError::Infrastructure(error));
-                }
                 Err(CheckerQueryError::Upstream(error)) => {
                     return Err(CheckerQueryError::Upstream(error));
                 }
@@ -502,35 +517,31 @@ where
         }
     }
 
-    CheckedConstantTerms::try_from_terms(terms)
+    Ok(CheckedConstantTerms::try_from_terms(terms)
         .map(TemplateResolution::Resolved)
-        .map_err(|error| {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::CheckedConstantTerms(
-                error,
-            ))
-        })
+        .unwrap_or_else(|error| {
+            panic!("checked_terms must satisfy its checked construction contract: {error:?}")
+        }))
 }
 
-pub(super) fn call_result<C>(
+/// Resolves the immediate or lazy result of a closed callable signature.
+pub fn call_result<C>(
     request: crate::CheckerUnitView<'_, C>,
     callable: &CallableTypeData,
     result: TypeId,
-) -> Result<BoundCallResult, CheckerInfrastructureError>
+) -> BoundCallResult
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
     match callable.execution() {
-        CallableExecution::Synchronous => Ok(BoundCallResult::Immediate(result)),
-        CallableExecution::Asynchronous => Ok(BoundCallResult::LazyFuture(
-            BoundFutureConstruction::new(result, future_type(request, result)?),
-        )),
+        CallableExecution::Synchronous => BoundCallResult::Immediate(result),
+        CallableExecution::Asynchronous => BoundCallResult::LazyFuture(
+            BoundFutureConstruction::new(result, future_type(request, result)),
+        ),
     }
 }
 
-fn future_type<C>(
-    request: crate::CheckerUnitView<'_, C>,
-    completion: TypeId,
-) -> Result<TypeId, CheckerInfrastructureError>
+fn future_type<C>(request: crate::CheckerUnitView<'_, C>, completion: TypeId) -> TypeId
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -540,13 +551,7 @@ where
             request.semantic_values(),
             RepresentationRole::Future,
             completion,
-        )
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?
-        .ok_or(
-            CheckerInfrastructureError::CompilerKnownRepresentationUnavailable {
-                role: RepresentationRole::Future,
-            },
-        )
+        ).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in future_type: {error:?}")).unwrap_or_else(|| panic!("compiler-known Future type must be available for async call selection"))
 }
 
 pub(super) const fn candidate_state(

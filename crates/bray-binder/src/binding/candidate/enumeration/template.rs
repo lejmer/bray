@@ -61,9 +61,6 @@ where
         {
             Ok(arguments) => arguments,
             Err(BindingQueryError::Cancelled) => return Err(BindingQueryError::Cancelled),
-            Err(BindingQueryError::CheckerInfrastructure(error)) => {
-                return Err(BindingQueryError::CheckerInfrastructure(error));
-            }
             Err(BindingQueryError::SemanticValue(error)) => {
                 return Err(BindingQueryError::SemanticValue(error));
             }

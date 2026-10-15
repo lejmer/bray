@@ -2,22 +2,20 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     BorrowCapabilityOrigin, BoundBlockId, BoundBlockItem, BoundCallableBodyKind, BoundExpressionId,
-    BoundPatternId, BoundReferenceTarget, CheckedExpressionTypes, CheckedPatterns,
-    CheckedSemanticSelections, DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
-    ExpressionTypeResult, PlannedBorrowCapability, SelectedIterationSource, SemanticSelection,
-    StorageAccess, StorageAccessId, StorageAccessPurpose, StorageAccessRoot, StorageBinding,
-    StorageBindingTarget, StorageIdentity, StoragePlan, StoragePlanBuilder,
+    BoundPatternId, BoundReferenceTarget, CheckedExpressionSemantics, CheckedExpressionTypes,
+    CheckedLiteralValues, CheckedPatterns, CheckedSemanticSelections, DeclaredValueTypeTemplates,
+    DeclaredValueTypeTerm, ExpressionTypeResult, PlannedBorrowCapability, SelectedIterationSource,
+    SemanticSelection, StorageAccess, StorageAccessId, StorageAccessPurpose, StorageAccessRoot,
+    StorageBinding, StorageBindingTarget, StorageIdentity, StoragePlan, StoragePlanBuilder,
 };
 use bray_symbols::{
-    AnySymbolId, BorrowKind, CallableSignatureQuery, CallableSignatureTemplateError,
-    CallableSymbolId, PredicateDefinitionSymbolId, ReceiverMode, SymbolQueryRequest, TypeData,
-    TypeExpressionTemplate, TypeId,
+    AnySymbolId, BorrowKind, CallableSignatureQuery, CallableSymbolId, PredicateDefinitionSymbolId,
+    ReceiverMode, SymbolQueryRequest, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitRoot, CheckerUnitView, SemanticUnitContext,
-    resolve_type_expression_template,
+    CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider,
+    CheckerUnitRoot, CheckerUnitView, SemanticUnitContext, resolve_type_expression_template,
 };
 
 #[derive(Clone, Copy)]
@@ -37,9 +35,8 @@ struct DeclaredCallableEntry {
 pub(crate) fn plan_storage<C>(
     request: CheckerUnitView<'_, C>,
     declared_types: &DeclaredValueTypeTemplates,
-    types: &CheckedExpressionTypes,
+    expressions: &CheckedExpressionSemantics,
     patterns: &CheckedPatterns,
-    selections: &CheckedSemanticSelections,
 ) -> CheckerOutcome<StoragePlan, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
@@ -50,6 +47,8 @@ where
 
     let unit = request.unit().unit();
     let kind = request.unit().key().kind();
+    let types = expressions.types();
+    let selections = expressions.selections();
 
     if declared_types.unit() != unit
         || declared_types.kind() != kind
@@ -60,38 +59,30 @@ where
         || selections.unit() != unit
         || selections.kind() != kind
     {
-        return CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidStoragePlan,
+        panic!(
+            "Storage-planning inputs or constructed records violate the requested unit contract. in plan_storage"
         );
     }
 
     let callable_entry = match declared_callable_entry(request) {
         Ok(entry) => entry,
         Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         Err(CheckerQueryError::Upstream(error)) => {
             return CheckerOutcome::UpstreamFailure(error);
         }
     };
 
-    let mut planner = match Planner::new(
+    let mut planner = Planner::new(
         request,
         declared_types,
-        types,
+        expressions,
         patterns,
-        selections,
         callable_entry,
-    ) {
-        Ok(planner) => planner,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-    };
+    );
 
     match planner.plan() {
         Ok(plan) => CheckerOutcome::complete(plan, planner.diagnostics),
         Err(PlanError::Cancelled) => CheckerOutcome::Cancelled,
-        Err(PlanError::Infrastructure(error)) => CheckerOutcome::InfrastructureFailure(error),
         Err(PlanError::Upstream(error)) => CheckerOutcome::UpstreamFailure(error),
     }
 }
@@ -103,6 +94,7 @@ where
     pub(super) request: CheckerUnitView<'view, C>,
     pub(super) declared_types: &'view DeclaredValueTypeTemplates,
     pub(super) types: &'view CheckedExpressionTypes,
+    pub(super) literals: &'view CheckedLiteralValues,
     pub(super) patterns: &'view CheckedPatterns,
     pub(super) selections: &'view CheckedSemanticSelections,
     pub(super) iterations: BTreeMap<BoundExpressionId, &'view SelectedIterationSource>,
@@ -125,7 +117,6 @@ where
 
 pub(super) enum PlanError<Upstream = std::convert::Infallible> {
     Cancelled,
-    Infrastructure(CheckerInfrastructureError),
     Upstream(Upstream),
 }
 
@@ -138,17 +129,10 @@ where
     }
 }
 
-impl<Upstream> From<CheckerInfrastructureError> for PlanError<Upstream> {
-    fn from(error: CheckerInfrastructureError) -> Self {
-        Self::Infrastructure(error)
-    }
-}
-
 impl<Upstream> From<CheckerQueryError<Upstream>> for PlanError<Upstream> {
     fn from(error: CheckerQueryError<Upstream>) -> Self {
         match error {
             CheckerQueryError::Cancelled => Self::Cancelled,
-            CheckerQueryError::Infrastructure(error) => Self::Infrastructure(error),
             CheckerQueryError::Upstream(error) => Self::Upstream(error),
         }
     }
@@ -161,33 +145,42 @@ where
     fn new<'view>(
         request: CheckerUnitView<'view, C>,
         declared_types: &'view DeclaredValueTypeTemplates,
-        types: &'view CheckedExpressionTypes,
+        expressions: &'view CheckedExpressionSemantics,
         patterns: &'view CheckedPatterns,
-        selections: &'view CheckedSemanticSelections,
         callable_entry: DeclaredCallableEntry,
-    ) -> Result<Planner<'view, C>, CheckerInfrastructureError> {
+    ) -> Planner<'view, C> {
         let unit = request.unit().unit();
         let root = request.unit().root().into();
         let mut builder = StoragePlanBuilder::new(unit, request.unit().key().kind());
 
         let result_storage = builder
             .push_identity(StorageIdentity::Result(root))
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+            .unwrap_or_else(|error| {
+                panic!(
+                    "The storage-plan builder rejected one exact relationship. in new: {error:?}"
+                )
+            });
 
         builder
             .bind(
                 StorageBindingTarget::Result,
                 StorageBinding::Identity(result_storage),
             )
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+            .unwrap_or_else(|error| {
+                panic!(
+                    "The storage-plan builder rejected one exact relationship. in new: {error:?}"
+                )
+            });
 
-        Ok(Planner {
+        Planner {
             request,
             declared_types,
-            types,
+            types: expressions.types(),
+            literals: expressions.literals(),
             patterns,
-            selections,
-            iterations: selections
+            selections: expressions.selections(),
+            iterations: expressions
+                .selections()
                 .entries()
                 .iter()
                 .filter_map(|entry| match entry.selection() {
@@ -200,6 +193,7 @@ where
                     | SemanticSelection::Call(_)
                     | SemanticSelection::Predicate(_)
                     | SemanticSelection::Operation(_)
+                    | SemanticSelection::ScopedUse(_)
                     | SemanticSelection::Propagation(_) => None,
                 })
                 .collect(),
@@ -213,7 +207,7 @@ where
             result_storage,
             receiver_entry: callable_entry.receiver,
             parameter_type_templates: callable_entry.parameter_types,
-        })
+        }
     }
 
     fn plan(&mut self) -> Result<StoragePlan, PlanError<C::UpstreamError>> {
@@ -253,10 +247,19 @@ where
         self.install_recovered_local_storage()?;
 
         let Some(builder) = self.builder.take() else {
-            return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+            panic!(
+                "Storage-planning inputs or constructed records violate the requested unit contract. in plan"
+            );
         };
 
-        Ok(builder.finish())
+        let plan = builder.finish();
+
+        let (copyable, diagnostics) =
+            super::copyability::storage_copyable_types(self.request, &plan)?;
+
+        self.diagnostics.add_range(diagnostics);
+
+        Ok(plan.with_copyable_types(copyable))
     }
 
     fn install_entry_storage(&mut self) -> Result<(), PlanError<C::UpstreamError>> {
@@ -301,16 +304,14 @@ where
 
         for result in results {
             let storage = self
-                .builder_mut()?
-                .push_identity(StorageIdentity::PostconditionResult(result))
-                .map_err(CheckerInfrastructureError::StoragePlan)?;
+                .builder_mut()
+                .push_identity(StorageIdentity::PostconditionResult(result)).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in install_entry_storage: {error:?}"));
 
-            self.builder_mut()?
+            self.builder_mut()
                 .bind(
                     StorageBindingTarget::PostconditionResult(result),
                     StorageBinding::Identity(storage),
-                )
-                .map_err(CheckerInfrastructureError::StoragePlan)?;
+                ).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in install_entry_storage: {error:?}"));
         }
 
         Ok(())
@@ -327,7 +328,9 @@ where
                     .symbols()
                     .callable_parameters_and_receiver(callable)
                 else {
-                    return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+                    panic!(
+                        "Storage-planning inputs or constructed records violate the requested unit contract. in install_declared_inputs"
+                    );
                 };
 
                 let parameters = parameters.to_vec();
@@ -340,8 +343,7 @@ where
                     } else {
                         let template = self
                             .parameter_type_templates
-                            .get(&parameter)
-                            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+                            .get(&parameter).unwrap_or_else(|| panic!("install_declared_inputs requires entry parameter type, symbol: {symbol:?}, parameter: {parameter:?}"));
 
                         self.entry_storage_from_template(template)?
                     };
@@ -355,8 +357,7 @@ where
                     let borrow = self
                         .receiver_entry
                         .filter(|(parameter, _)| parameter == &receiver)
-                        .map(|(_, borrow)| borrow)
-                        .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+                        .map(|(_, borrow)| borrow).unwrap_or_else(|| panic!("install_declared_inputs requires entry receiver borrow, symbol: {symbol:?}"));
 
                     let entry = match borrow {
                         Some((kind, fallback_target)) => {
@@ -371,10 +372,7 @@ where
                             let ty = self
                                 .request
                                 .semantic_values()
-                                .intern_type(TypeData::Borrow { kind, target })
-                                .map_err(|error| {
-                                    CheckerInfrastructureError::SemanticValueStore(error)
-                                })?;
+                                .intern_type(TypeData::Borrow { kind, target }).unwrap_or_else(|error| panic!("install_declared_inputs must satisfy its checked construction contract: {error:?}"));
 
                             Some(EntryStorage {
                                 ty,
@@ -402,7 +400,9 @@ where
                     .symbols()
                     .predicate_definition_parameters(predicate)
                 else {
-                    return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+                    panic!(
+                        "Storage-planning inputs or constructed records violate the requested unit contract. in install_declared_inputs"
+                    );
                 };
 
                 let parameters = parameters.to_vec();
@@ -434,24 +434,21 @@ where
         identity: StorageIdentity,
         ty: Option<TypeId>,
     ) -> Result<Option<bray_bound_tree::StorageIdentityId>, PlanError<C::UpstreamError>> {
-        if self.builder()?.binding(target).is_some() {
+        if self.builder().binding(target).is_some() {
             return Ok(None);
         }
 
         let storage = self
-            .builder_mut()?
-            .push_identity(identity)
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+            .builder_mut()
+            .push_identity(identity).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in bind_identity: {error:?}"));
 
         if let Some(ty) = ty {
-            self.builder_mut()?
-                .set_identity_type(storage, ty)
-                .map_err(CheckerInfrastructureError::StoragePlan)?;
+            self.builder_mut()
+                .set_identity_type(storage, ty).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in bind_identity: {error:?}"));
         }
 
-        self.builder_mut()?
-            .bind(target, StorageBinding::Identity(storage))
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+        self.builder_mut()
+            .bind(target, StorageBinding::Identity(storage)).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in bind_identity: {error:?}"));
 
         Ok(Some(storage))
     }
@@ -462,19 +459,17 @@ where
         identity: StorageIdentity,
         entry: Option<EntryStorage>,
     ) -> Result<(), PlanError<C::UpstreamError>> {
-        if self.builder()?.binding(target).is_some() {
+        if self.builder().binding(target).is_some() {
             return Ok(());
         }
 
         let storage = self
-            .builder_mut()?
-            .push_identity(identity)
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+            .builder_mut()
+            .push_identity(identity).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in bind_entry: {error:?}"));
 
         if let Some(entry) = entry {
-            self.builder_mut()?
-                .set_identity_type(storage, entry.ty)
-                .map_err(CheckerInfrastructureError::StoragePlan)?;
+            self.builder_mut()
+                .set_identity_type(storage, entry.ty).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in bind_entry: {error:?}"));
         }
 
         let source = bray_bound_tree::BoundSourceAnchor::new(
@@ -497,23 +492,21 @@ where
             );
 
             Some(
-                self.builder_mut()?
-                    .push_access(access)
-                    .map_err(CheckerInfrastructureError::StoragePlan)?,
+                self.builder_mut()
+                    .push_access(access).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in bind_entry: {error:?}")),
             )
         } else {
             None
         };
 
         let Some((kind, reached_type)) = entry.and_then(|entry| entry.borrow) else {
-            self.builder_mut()?
-                .bind(target, StorageBinding::Identity(storage))
-                .map_err(CheckerInfrastructureError::StoragePlan)?;
+            self.builder_mut()
+                .bind(target, StorageBinding::Identity(storage)).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in bind_entry: {error:?}"));
 
             return Ok(());
         };
 
-        let borrowed = root_access.ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+        let borrowed = root_access.unwrap_or_else(|| panic!("bind_entry requires borrowed entry root access, target: {target:?}, identity: {identity:?}"));
 
         let capability = PlannedBorrowCapability::new(
             BorrowCapabilityOrigin::Entry(target),
@@ -525,9 +518,8 @@ where
         );
 
         let capability = self
-            .builder_mut()?
-            .push_borrow_capability(capability)
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+            .builder_mut()
+            .push_borrow_capability(capability).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in bind_entry: {error:?}"));
 
         let access = StorageAccess::new(
             StorageAccessRoot::Borrow(capability),
@@ -538,13 +530,16 @@ where
         );
 
         let access = self
-            .builder_mut()?
-            .push_access(access)
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+            .builder_mut()
+            .push_access(access).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in bind_entry: {error:?}"));
 
-        self.builder_mut()?
+        self.builder_mut()
             .bind(target, StorageBinding::Access(access))
-            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
+            .unwrap_or_else(|error| {
+                panic!("bind_entry must satisfy its checked construction contract: {error:?}")
+            });
+
+        Ok(())
     }
 
     fn entry_storage(
@@ -577,8 +572,7 @@ where
                     self.request.semantic_values(),
                     template,
                     terms.value(),
-                )?
-                else {
+                ) else {
                     return Ok(None);
                 };
 
@@ -609,7 +603,7 @@ where
         for binding in bindings {
             let target = StorageBindingTarget::Local(binding);
 
-            if self.builder()?.binding(target).is_none() {
+            if self.builder().binding(target).is_none() {
                 let _ = self.bind_identity(target, StorageIdentity::LocalOwned(root), None)?;
             }
         }
@@ -661,27 +655,22 @@ where
         Ok(())
     }
 
-    pub(super) fn expression_type(
-        &self,
-        expression: BoundExpressionId,
-    ) -> Result<ExpressionTypeResult, PlanError<C::UpstreamError>> {
-        self.types
-            .expression(expression)
-            .ok_or_else(|| CheckerInfrastructureError::InvalidStoragePlan.into())
+    pub(super) fn expression_type(&self, expression: BoundExpressionId) -> ExpressionTypeResult {
+        self.types.expression(expression).unwrap_or_else(|| {
+            panic!("storage planning requires a checked expression type for {expression:?}")
+        })
     }
 
-    pub(super) fn builder(&self) -> Result<&StoragePlanBuilder, PlanError<C::UpstreamError>> {
+    pub(super) fn builder(&self) -> &StoragePlanBuilder {
         self.builder
             .as_ref()
-            .ok_or_else(|| CheckerInfrastructureError::InvalidStoragePlan.into())
+            .expect("storage-plan builder must remain present until the plan is finished")
     }
 
-    pub(super) fn builder_mut(
-        &mut self,
-    ) -> Result<&mut StoragePlanBuilder, PlanError<C::UpstreamError>> {
+    pub(super) fn builder_mut(&mut self) -> &mut StoragePlanBuilder {
         self.builder
             .as_mut()
-            .ok_or_else(|| CheckerInfrastructureError::InvalidStoragePlan.into())
+            .expect("storage-plan builder must remain present until the plan is finished")
     }
 
     pub(super) fn check_cancellation(&self) -> Result<(), PlanError<C::UpstreamError>> {
@@ -712,10 +701,14 @@ where
     let parameter_types = signature
         .value()
         .parameter_type_templates(request.semantic_values())
-        .map_err(storage_signature_error)?;
+        .unwrap_or_else(|error| {
+            panic!("checked callable signature must match its storage plan: {error:?}")
+        });
 
     if signature.value().parameters().len() != parameter_types.len() {
-        return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+        panic!(
+            "Storage-planning inputs or constructed records violate the requested unit contract. in declared_callable_entry"
+        );
     }
 
     let parameter_types = signature
@@ -747,16 +740,6 @@ pub(super) fn missing_node(id: impl Into<bray_bound_tree::AnyBoundNodeId>) -> ! 
         "storage node {:?} must belong to the committed tree and checked inputs",
         id.into()
     );
-}
-
-fn storage_signature_error(error: CallableSignatureTemplateError) -> CheckerInfrastructureError {
-    match error {
-        CallableSignatureTemplateError::InvalidCallableType
-        | CallableSignatureTemplateError::ParameterCountMismatch
-        | CallableSignatureTemplateError::ParameterIdentityMismatch => {
-            CheckerInfrastructureError::InvalidStoragePlan
-        }
-    }
 }
 
 pub(super) const fn iteration_purpose(

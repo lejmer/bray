@@ -1,0 +1,64 @@
+@target(target.identity.NAME == "x86_64-apple-darwin" || target.identity.NAME == "aarch64-apple-darwin")
+trusted internal module bray.runtime.bootstrap.atomic;
+
+@abi(c)
+trusted internal func wait(pos address: RawPointer<u32>, pos expected: u32)
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = address, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = address),
+        trusted core.memory.epoch_current<u32>(pointer = address),
+        trusted core.memory.movement_stable<u32>(pointer = address),
+        trusted core.memory.finalization_pending<u32>(pointer = address),
+    )
+    requires(blocking_execution())
+    uses(foreign_call, layout_reinterpret)
+{
+    let bytes = trusted core.memory.reinterpret<u8, u32>(address);
+
+    let _: i32 = trusted std.os.darwin.os_sync_wait_on_address(
+        bytes,
+        expected = expected as u64,
+        size = 4,
+        flags = std.os.darwin.OS_SYNC_WAIT_ON_ADDRESS_NONE,
+    );
+}
+
+@abi(c)
+trusted internal func notify_one(pos address: RawPointer<u32>)
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = address, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = address),
+        trusted core.memory.epoch_current<u32>(pointer = address),
+        trusted core.memory.movement_stable<u32>(pointer = address),
+        trusted core.memory.finalization_pending<u32>(pointer = address),
+    )
+    uses(foreign_call, layout_reinterpret)
+{
+    let bytes = trusted core.memory.reinterpret<u8, u32>(address);
+
+    let _: i32 = trusted std.os.darwin.os_sync_wake_by_address_any(
+        bytes,
+        size = 4,
+        flags = std.os.darwin.OS_SYNC_WAKE_BY_ADDRESS_NONE,
+    );
+}
+
+@abi(c)
+trusted internal func notify_all(pos address: RawPointer<u32>)
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = address, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = address),
+        trusted core.memory.epoch_current<u32>(pointer = address),
+        trusted core.memory.movement_stable<u32>(pointer = address),
+        trusted core.memory.finalization_pending<u32>(pointer = address),
+    )
+    uses(foreign_call, layout_reinterpret)
+{
+    let bytes = trusted core.memory.reinterpret<u8, u32>(address);
+
+    let _: i32 = trusted std.os.darwin.os_sync_wake_by_address_all(
+        bytes,
+        size = 4,
+        flags = std.os.darwin.OS_SYNC_WAKE_BY_ADDRESS_NONE,
+    );
+}

@@ -43,10 +43,10 @@ impl ControlFlowGraphAssembler {
     pub(super) fn push_call(
         &mut self,
         block: AnalysisBlockId,
-        expression: bray_bound_tree::BoundExpressionId,
+        invocation: bray_bound_tree::BoundExecutionSite,
         phase: AnalysisCallPhase,
     ) {
-        self.push_operation(block, AnalysisOperationKind::Call { expression, phase });
+        self.push_operation(block, AnalysisOperationKind::Call { invocation, phase });
     }
 
     pub(super) fn push_recovery(&mut self, block: AnalysisBlockId, node: AnyBoundNodeId) {
@@ -56,12 +56,12 @@ impl ControlFlowGraphAssembler {
     pub(super) fn push_suspension(
         &mut self,
         block: AnalysisBlockId,
-        expression: bray_bound_tree::BoundExpressionId,
+        occurrence: bray_bound_tree::BoundExecutionSite,
         kind: AnalysisSuspensionKind,
     ) {
         self.push_operation(
             block,
-            AnalysisOperationKind::Suspension { expression, kind },
+            AnalysisOperationKind::Suspension { occurrence, kind },
         );
     }
 
@@ -82,10 +82,88 @@ impl ControlFlowGraphAssembler {
         current: AnalysisBlockId,
         block: bray_bound_tree::BoundBlockId,
         exit: bray_bound_tree::AnyBoundNodeId,
+        preserves_exit_value: bool,
+        scoped: Option<(
+            bray_bound_tree::BoundExpressionId,
+            bray_bound_tree::BoundCallResult,
+        )>,
     ) -> AnalysisBlockId {
-        let cancellation = self.push_block();
+        let entered = self.push_block();
 
-        self.push_edge(current, cancellation, AnalysisEdgeKind::ScopeExit, None);
+        self.push_edge(current, entered, AnalysisEdgeKind::ScopeExit, None);
+
+        let completed = if let Some((expression, result)) = scoped {
+            self.push_call(
+                entered,
+                bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
+                AnalysisCallPhase::Attempt,
+            );
+
+            let completed = self.push_block();
+
+            if matches!(result, bray_bound_tree::BoundCallResult::LazyFuture(_)) {
+                self.push_suspension(
+                    entered,
+                    bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
+                    AnalysisSuspensionKind::ScopedCall,
+                );
+
+                let suspended = self.push_block();
+
+                self.push_edge(entered, suspended, AnalysisEdgeKind::Suspension, None);
+
+                // Cleanup is shielded, so cancellation waits until exit completes.
+                self.push_edge(
+                    suspended,
+                    completed,
+                    AnalysisEdgeKind::Resume,
+                    Some(super::model::AnalysisRefinement::InvocationCompletion(
+                        bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
+                    )),
+                );
+            } else {
+                self.push_edge(
+                    entered,
+                    completed,
+                    AnalysisEdgeKind::Sequential,
+                    Some(super::model::AnalysisRefinement::InvocationCompletion(
+                        bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
+                    )),
+                );
+            }
+
+            self.push_call(
+                completed,
+                bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
+                AnalysisCallPhase::Completion,
+            );
+
+            completed
+        } else {
+            entered
+        };
+
+        let cancellation = if let Some((expression, _)) = scoped {
+            let cancellation = self.push_block();
+
+            self.push_edge(completed, cancellation, AnalysisEdgeKind::Sequential, None);
+
+            if !preserves_exit_value {
+                // A failing exit still resolves the remaining cleanup, without its normal guarantees.
+                self.push_edge(
+                    entered,
+                    cancellation,
+                    AnalysisEdgeKind::Sequential,
+                    Some(AnalysisRefinement::InvocationFailure(
+                        bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
+                    )),
+                );
+            }
+
+            cancellation
+        } else {
+            entered
+        };
 
         self.push_operation(
             cancellation,
@@ -93,6 +171,7 @@ impl ControlFlowGraphAssembler {
                 block,
                 exit,
                 phase: AnalysisScopeExitPhase::TaskCancellationBroadcast,
+                preserves_exit_value,
             },
         );
 
@@ -106,6 +185,7 @@ impl ControlFlowGraphAssembler {
                 block,
                 exit,
                 phase: AnalysisScopeExitPhase::LifecycleResolution,
+                preserves_exit_value,
             },
         );
 
@@ -226,5 +306,142 @@ const fn exit_edge_kind(kind: AnalysisExitKind) -> AnalysisEdgeKind {
         AnalysisExitKind::Cancellation => AnalysisEdgeKind::RunCancellation,
         AnalysisExitKind::Yield => AnalysisEdgeKind::Yield,
         AnalysisExitKind::Recovery => AnalysisEdgeKind::Recovery,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AnalysisCallPhase, AnalysisExitKind, AnalysisOperationKind, AnalysisScopeExitPhase,
+        BoundUnitId, ControlFlowGraphAssembler,
+    };
+    use crate::test_support::{callable_key, error_type, push_block, push_expression};
+    use bray_bound_tree::{
+        BoundCallResult, BoundErrorExpression, BoundExpression, BoundFutureConstruction,
+        BoundNodeOrigin, BoundTreeBuilder,
+    };
+
+    #[test]
+    fn scoped_exit_completes_before_body_task_cancellation_and_destruction() {
+        let unit = BoundUnitId::new(83);
+        let origin = BoundNodeOrigin::source(callable_key().source());
+        let mut tree = BoundTreeBuilder::new(unit);
+
+        let expression = push_expression(
+            &mut tree,
+            BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
+        );
+
+        let scope = push_block(&mut tree, origin, []);
+
+        for result in [
+            BoundCallResult::Immediate(error_type()),
+            BoundCallResult::LazyFuture(BoundFutureConstruction::new(error_type(), error_type())),
+        ] {
+            for preserves_exit_value in [false, true] {
+                let mut assembler = ControlFlowGraphAssembler::new(unit);
+                let entry = assembler.push_block();
+
+                let end = assembler.push_scope_exit(
+                    entry,
+                    scope,
+                    expression.into(),
+                    preserves_exit_value,
+                    Some((expression, result)),
+                );
+
+                assembler.push_exit(end, AnalysisExitKind::Return);
+
+                let graph = assembler.finish(entry);
+
+                for failed in [false, true]
+                    .into_iter()
+                    .filter(|failed| !*failed || !preserves_exit_value)
+                {
+                    let mut cursor = graph.entry();
+                    let mut events = Vec::new();
+
+                    loop {
+                        let block = graph.block(cursor).unwrap();
+
+                        for operation in block.operations() {
+                            match graph.operation(*operation).unwrap().kind() {
+                                AnalysisOperationKind::Call { phase, .. } => {
+                                    events.push(match phase {
+                                        AnalysisCallPhase::Attempt => "exit attempt",
+                                        AnalysisCallPhase::Completion => "exit complete",
+                                    })
+                                }
+                                AnalysisOperationKind::ScopeExit { phase, .. } => {
+                                    events.push(match phase {
+                                        AnalysisScopeExitPhase::TaskCancellationBroadcast => {
+                                            "cancel tasks"
+                                        }
+                                        AnalysisScopeExitPhase::LifecycleResolution => {
+                                            "destroy locals"
+                                        }
+                                    })
+                                }
+                                AnalysisOperationKind::Suspension { .. } => {
+                                    events.push("await exit")
+                                }
+                                operation => panic!("unexpected cleanup operation: {operation:?}"),
+                            }
+                        }
+
+                        let successors = block
+                            .successors()
+                            .iter()
+                            .map(|id| graph.edge(*id).unwrap())
+                            .collect::<Vec<_>>();
+
+                        let failure = successors.iter().find(|edge| {
+                            matches!(
+                                edge.refinement(),
+                                Some(
+                                    crate::analysis::model::AnalysisRefinement::InvocationFailure(
+                                        _
+                                    )
+                                )
+                            )
+                        });
+
+                        if failure.is_some() {
+                            assert!(!preserves_exit_value);
+                            assert_eq!(successors.len(), 2);
+                        } else {
+                            assert!(successors.len() <= 1);
+                        }
+
+                        let Some(edge) = failure.filter(|_| failed).copied().or_else(|| successors.iter().copied().find(|edge| !matches!(edge.refinement(), Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(_))))) else { break; };
+
+                        cursor = edge.target();
+                    }
+
+                    let mut expected = if matches!(result, BoundCallResult::LazyFuture(_)) {
+                        vec![
+                            "exit attempt",
+                            "await exit",
+                            "exit complete",
+                            "cancel tasks",
+                            "destroy locals",
+                        ]
+                    } else {
+                        vec![
+                            "exit attempt",
+                            "exit complete",
+                            "cancel tasks",
+                            "destroy locals",
+                        ]
+                    };
+
+                    if failed {
+                        expected.retain(|event| *event != "exit complete");
+                    }
+
+                    assert_eq!(events, expected);
+                }
+            }
+        }
     }
 }

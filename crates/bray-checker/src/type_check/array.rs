@@ -14,21 +14,17 @@ use bray_symbols::{
 use crate::constant::{integer_to_usize, normalize_integer_literal};
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::representation::{representation_type, type_representation};
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 use super::diagnostic_type;
 
-pub(super) fn array_length<C>(
-    request: CheckerUnitView<'_, C>,
-    length: usize,
-) -> Result<ConstantTermId, CheckerInfrastructureError>
+pub(super) fn array_length<C>(request: CheckerUnitView<'_, C>, length: usize) -> ConstantTermId
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let length = u64::try_from(length)
-        .map_err(|_| CheckerInfrastructureError::ConstantArrayLengthCapacityExceeded { length })?;
+    let length = u64::try_from(length).unwrap_or_else(|error| {
+        panic!("array_length must satisfy its checked construction contract: {error:?}")
+    });
 
     request
         .semantic_values()
@@ -36,58 +32,59 @@ where
             ty: TargetSizedIntegerType::Usize,
             value: IntegerConstant::from_u64(length),
         })
-        .map_err(CheckerInfrastructureError::SemanticValueStore)
+        .unwrap_or_else(|error| {
+            panic!("array_length must satisfy its checked construction contract: {error:?}")
+        })
 }
 
 pub(super) fn inferred_byte_array_type<C>(
     request: CheckerUnitView<'_, C>,
     initializer: BoundExpressionId,
-) -> Result<Option<TypeId>, CheckerInfrastructureError>
+) -> Option<TypeId>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(length) = inferred_byte_array_length(request, initializer)? else {
-        return Ok(None);
+    let Some(length) = inferred_byte_array_length(request, initializer) else {
+        return None;
     };
 
-    let element = representation_type(request, RepresentationRole::ScalarU8)?;
-    let length = array_length(request, length)?;
+    let element = representation_type(request, RepresentationRole::ScalarU8);
+    let length = array_length(request, length);
 
     let ty = request
         .semantic_values()
-        .intern_type(TypeData::Array { element, length })
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .intern_type(TypeData::Array { element, length }).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in inferred_byte_array_type: {error:?}"));
 
-    Ok(Some(ty))
+    Some(ty)
 }
 
 fn inferred_byte_array_length<C>(
     request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
-) -> Result<Option<usize>, CheckerInfrastructureError>
+) -> Option<usize>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(BoundExpression::Structured(array)) = request.view().expression(expression) else {
-        return Ok(None);
+        return None;
     };
 
     match array.kind() {
-        BoundStructuredExpressionKind::Array => Ok(Some(array.operands().len())),
+        BoundStructuredExpressionKind::Array => Some(array.operands().len()),
         BoundStructuredExpressionKind::RepeatedArray => {
             let Some(count) = array.operands().get(1).copied() else {
-                return Ok(None);
+                return None;
             };
 
             let Some(BoundExpression::Literal(literal)) = request.view().expression(count) else {
-                return Ok(None);
+                return None;
             };
 
             if literal.kind() != BoundLiteralKind::Integer || literal.is_recovered() {
-                return Ok(None);
+                return None;
             }
 
-            let source = request.source(literal.origin().source_anchor())?;
+            let source = request.source(literal.origin().source_anchor());
 
             let spelling = source
                 .text_for_range(literal.spelling_range())
@@ -98,12 +95,12 @@ where
                     )
                 });
 
-            Ok(normalize_integer_literal(spelling)
+            normalize_integer_literal(spelling)
                 .ok()
                 .as_ref()
-                .and_then(integer_to_usize))
+                .and_then(integer_to_usize)
         }
-        _ => Ok(None),
+        _ => None,
     }
 }
 
@@ -142,7 +139,7 @@ where
             ),
         };
 
-        let span = expression_span(request, initializer)?;
+        let span = expression_span(request, initializer);
 
         diagnostics.push(
             Diagnostic::new(

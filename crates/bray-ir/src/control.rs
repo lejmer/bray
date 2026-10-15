@@ -736,18 +736,19 @@ mod tests {
         )
         .unwrap_or_else(|| panic!("test assembly contract must validate"));
 
-        let terminator = MirTerminatorKind::InlineAssembly(Box::new(MirInlineAssemblyTerminator::new(
-            contract,
-            MirOperand::Immediate {
-                value: MirImmediateValue::Unit,
+        let terminator =
+            MirTerminatorKind::InlineAssembly(Box::new(MirInlineAssemblyTerminator::new(
+                contract,
+                MirOperand::Immediate {
+                    value: MirImmediateValue::Unit,
+                    ty,
+                },
                 ty,
-            },
-            ty,
-            ty,
-            normal,
-            [first, second],
-            [],
-        )));
+                ty,
+                normal,
+                [first, second],
+                [],
+            )));
 
         let mut successors = Vec::new();
 

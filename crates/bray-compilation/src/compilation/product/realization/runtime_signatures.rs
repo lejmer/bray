@@ -107,7 +107,7 @@ macro_rules! define_runtime_signatures {
                             define_runtime_signatures!(@type self, $parameter)?, None, [],
                         ),)*],
                         define_runtime_signatures!(@result self, $result),
-                        CallableAbi::$abi,
+                        super::runtime_source::runtime_role_abi(self, role, CallableAbi::$abi),
                         false,
                     )),)+
                 }

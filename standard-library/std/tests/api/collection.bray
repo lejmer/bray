@@ -2,6 +2,7 @@ module bray.standard_library_tests.collection;
 
 using std.bytes;
 using std.collection;
+using internal std.collection.ring;
 using std.collection.DequeElementIndex;
 using std.collection.DequeMoveCursorIterator;
 using std.collection.DequeMoveIterable;
@@ -486,6 +487,32 @@ trusted func deque_iteration_preserves_wrapped_logical_order() -> Result<unit, s
 @test
 trusted func deque_owned_zero_sized_and_overflow_edges() -> Result<unit, std.memory.MemoryLayoutError>
 {
+    let ring_capacity: usize = ~0;
+
+    assert(
+        internal std.collection.ring.index(
+            head = ring_capacity - 2,
+            storage_capacity = ring_capacity,
+            logical_index = 1
+        ) == ring_capacity - 1
+    );
+
+    assert(
+        internal std.collection.ring.index(
+            head = ring_capacity - 2,
+            storage_capacity = ring_capacity,
+            logical_index = 2
+        ) == 0
+    );
+
+    assert(
+        internal std.collection.ring.index(
+            head = ring_capacity - 2,
+            storage_capacity = ring_capacity,
+            logical_index = ring_capacity - 1
+        ) == ring_capacity - 3
+    );
+
     let mut exact: std.collection.Deque<i32> = try trusted std.collection.Deque<i32>();
 
     try trusted exact.reserve_exact(additional = 3);

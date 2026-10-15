@@ -22,23 +22,23 @@ use crate::compilation::{
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
-use super::model::{OperationResolution, OperationSubject};
+use super::model::{OperationSubject, SemanticResolution};
 
 impl Compilation {
-    pub(in crate::compilation) fn operation_inputs(
+    pub(in crate::compilation) fn semantic_selection_inputs(
         &self,
         key: &BoundUnitKey,
         bound: &BoundUnit,
         semantics: &bray_bound_tree::CheckedExpressionSemantics,
         expressions: &[BoundExpressionId],
-        existing: &[OperationResolution],
+        existing: &[SemanticResolution],
         cancellation: &CancellationToken,
-    ) -> Result<(Vec<OperationResolution>, DiagnosticBag), FactQueryError> {
+    ) -> Result<(Vec<SemanticResolution>, DiagnosticBag), FactQueryError> {
         let binding_context = self.binding_context_for(key, cancellation)?;
 
         let existing = existing
             .iter()
-            .map(OperationResolution::expression)
+            .map(SemanticResolution::expression)
             .collect::<BTreeSet<_>>();
 
         let mut resolutions = Vec::new();
@@ -77,13 +77,27 @@ impl Compilation {
         types: &bray_bound_tree::CheckedExpressionTypes,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<OperationResolution>, FactQueryError> {
+    ) -> Result<Option<SemanticResolution>, FactQueryError> {
         let expression = unit.view().expression(key.expression()).ok_or_else(|| {
             operation_contract_failure(
                 key,
                 SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression),
             )
         })?;
+
+        if let BoundExpression::Structured(scoped) = expression
+            && scoped.kind() == BoundStructuredExpressionKind::With
+        {
+            return self.resolve_scoped_use(
+                key,
+                binding_context,
+                unit,
+                types,
+                scoped,
+                cancellation,
+                diagnostics,
+            );
+        }
 
         let selection_kind =
             selection_kind_for(binding_context, unit, key.expression(), expression)?;
@@ -178,7 +192,7 @@ impl Compilation {
         candidates: impl IntoIterator<Item = OperationCandidate>,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<OperationResolution>, FactQueryError> {
+    ) -> Result<Option<SemanticResolution>, FactQueryError> {
         let context = self.checker_context_for(key.unit(), cancellation)?;
 
         let semantic_context = semantic_unit_context(binding_context.symbols(), unit);
@@ -228,7 +242,7 @@ impl Compilation {
             _ => Vec::new(),
         };
 
-        Ok(Some(OperationResolution::new(
+        Ok(Some(SemanticResolution::new(
             key.expression(),
             result_type,
             expectations,
@@ -362,7 +376,9 @@ pub(in crate::compilation) fn operation_expressions(
             return BoundWalkControl::Stop;
         };
 
-        if selection_kind(unit, id, expression).is_ok()
+        if (selection_kind(unit, id, expression).is_ok()
+            || matches!(expression, BoundExpression::Structured(scoped)
+                if scoped.kind() == BoundStructuredExpressionKind::With))
             && !variant_construction_callees.contains(&id)
         {
             expressions.push(id);
@@ -443,12 +459,14 @@ pub(super) fn symbol_contract_failure(
     SemanticQueryFailure::contract(SemanticQueryContext::Symbol(symbol), violation).into()
 }
 
-pub(in crate::compilation) fn operation_type_input(
-    resolutions: &[OperationResolution],
+pub(in crate::compilation) fn selection_type_input(
+    resolutions: &[SemanticResolution],
 ) -> ExpressionTypeInput {
     ExpressionTypeInput::new()
-        .with_evidence(resolutions.iter().map(|resolution| {
-            ExpressionTypeEvidence::new(resolution.expression(), resolution.result_type())
+        .with_evidence(resolutions.iter().filter_map(|resolution| {
+            resolution
+                .result_type()
+                .map(|ty| ExpressionTypeEvidence::new(resolution.expression(), ty))
         }))
         .with_expectations(resolutions.iter().flat_map(|resolution| {
             resolution
@@ -459,7 +477,7 @@ pub(in crate::compilation) fn operation_type_input(
         .with_operation_selections(
             resolutions
                 .iter()
-                .filter_map(OperationResolution::selection_entry),
+                .filter_map(SemanticResolution::selection_entry),
         )
 }
 

@@ -5,8 +5,7 @@ use bray_base::{shared_slice, sorted_unique_shared_slice};
 use crate::{
     AnyBoundNodeId, BorrowCapabilityId, BoundBlockId, BoundExpressionId, BoundUnitId,
     BoundUnitKind, CheckedMemoryOperation, CheckedMemoryOperations, MemoryOperationDecision,
-    StorageAccessId, StorageAccessPurpose, StorageIdentityId, StoragePlan, StorageProjection,
-    storage_identity_transfers_at_unit_exit,
+    StorageAccessId, StorageAccessPurpose, StorageIdentityId,
 };
 
 /// The checker result for one evaluated storage operation.
@@ -99,37 +98,47 @@ impl StorageOperationDecision {
 /// Storage and borrow state immediately before one direct-await suspension.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageSuspensionState {
-    expression: BoundExpressionId,
+    occurrence: crate::BoundExecutionSite,
     live: Arc<[StorageIdentityId]>,
     initialized: Arc<[StorageIdentityId]>,
-    moved: Arc<[StorageAccessId]>,
+    moved: Arc<[crate::StoragePath]>,
     active_borrows: Arc<[BorrowCapabilityId]>,
+    cleanup_retention: Arc<[crate::BoundDependencySubject]>,
 }
 
 impl StorageSuspensionState {
     /// Creates one normalized suspension-state snapshot.
     pub fn new(
-        expression: BoundExpressionId,
+        occurrence: impl Into<crate::BoundExecutionSite>,
         live: impl IntoIterator<Item = StorageIdentityId>,
         initialized: impl IntoIterator<Item = StorageIdentityId>,
-        moved: impl IntoIterator<Item = StorageAccessId>,
+        moved: impl IntoIterator<Item = crate::StoragePath>,
         active_borrows: impl IntoIterator<Item = BorrowCapabilityId>,
+        cleanup_retention: impl IntoIterator<Item = crate::BoundDependencySubject>,
     ) -> Self {
         Self {
-            expression,
+            occurrence: occurrence.into(),
             live: sorted_unique_shared_slice(live),
             initialized: sorted_unique_shared_slice(initialized),
             moved: sorted_unique_shared_slice(moved),
             active_borrows: sorted_unique_shared_slice(active_borrows),
+            cleanup_retention: sorted_unique_shared_slice(cleanup_retention),
         }
     }
 
     /// Returns the direct-await expression.
     pub const fn expression(&self) -> BoundExpressionId {
-        self.expression
+        self.occurrence
+            .expression()
+            .expect("suspension has an expression owner")
     }
 
-    /// Returns storage known to be live before suspension.
+    /// Returns the exact suspension phase.
+    pub const fn occurrence(&self) -> crate::BoundExecutionSite {
+        self.occurrence
+    }
+
+    /// Returns storage that may be live before suspension.
     pub fn live(&self) -> &[StorageIdentityId] {
         &self.live
     }
@@ -140,13 +149,18 @@ impl StorageSuspensionState {
     }
 
     /// Returns storage accesses moved before suspension.
-    pub fn moved(&self) -> &[StorageAccessId] {
+    pub fn moved(&self) -> &[crate::StoragePath] {
         &self.moved
     }
 
     /// Returns borrow capabilities active before suspension.
     pub fn active_borrows(&self) -> &[BorrowCapabilityId] {
         &self.active_borrows
+    }
+
+    /// Returns dependencies required until the pending owners finish cleanup or transfer.
+    pub fn cleanup_retention(&self) -> &[crate::BoundDependencySubject] {
+        &self.cleanup_retention
     }
 }
 
@@ -181,9 +195,9 @@ pub struct StorageExitDecision {
     exit: AnyBoundNodeId,
     live: Arc<[StorageIdentityId]>,
     initialized: Arc<[StorageIdentityId]>,
-    moved: Arc<[StorageAccessId]>,
+    moved: Arc<[crate::StoragePath]>,
     fully_moved: Arc<[StorageIdentityId]>,
-    definitely_moved: Arc<[StorageAccessId]>,
+    definitely_absent: Arc<[crate::StoragePath]>,
     active_borrows: Arc<[BorrowCapabilityId]>,
     is_recovered: bool,
 }
@@ -195,8 +209,8 @@ impl StorageExitDecision {
         exit: AnyBoundNodeId,
         live: impl IntoIterator<Item = StorageIdentityId>,
         initialized: impl IntoIterator<Item = StorageIdentityId>,
-        moved: impl IntoIterator<Item = StorageAccessId>,
-        definitely_moved: impl IntoIterator<Item = StorageAccessId>,
+        moved: impl IntoIterator<Item = crate::StoragePath>,
+        definitely_absent: impl IntoIterator<Item = crate::StoragePath>,
         fully_moved: impl IntoIterator<Item = StorageIdentityId>,
         active_borrows: impl IntoIterator<Item = BorrowCapabilityId>,
         is_recovered: bool,
@@ -207,7 +221,7 @@ impl StorageExitDecision {
             live: sorted_unique_shared_slice(live),
             initialized: sorted_unique_shared_slice(initialized),
             moved: sorted_unique_shared_slice(moved),
-            definitely_moved: sorted_unique_shared_slice(definitely_moved),
+            definitely_absent: sorted_unique_shared_slice(definitely_absent),
             fully_moved: sorted_unique_shared_slice(fully_moved),
             active_borrows: sorted_unique_shared_slice(active_borrows),
             is_recovered,
@@ -235,13 +249,13 @@ impl StorageExitDecision {
     }
 
     /// Returns storage accesses whose reached values were moved before this exit.
-    pub fn moved(&self) -> &[StorageAccessId] {
+    pub fn moved(&self) -> &[crate::StoragePath] {
         &self.moved
     }
 
-    /// Returns storage paths known to be moved on every incoming path.
-    pub fn definitely_moved(&self) -> &[StorageAccessId] {
-        &self.definitely_moved
+    /// Returns storage paths with no live value on every incoming path, after moves or absence refinements.
+    pub fn definitely_absent(&self) -> &[crate::StoragePath] {
+        &self.definitely_absent
     }
 
     /// Returns storage identities known to be fully moved on every incoming path.
@@ -280,6 +294,13 @@ pub struct StorageFlow {
     kind: BoundUnitKind,
     operations: Arc<[StorageOperationDecision]>,
     suspensions: Arc<[StorageSuspensionState]>,
+    reachable_blocks: Arc<[BoundBlockId]>,
+    conditions: std::collections::BTreeMap<BoundExpressionId, bool>,
+    assignment_targets: std::collections::BTreeMap<BoundExpressionId, crate::StoragePath>,
+    dependencies: bray_symbols::DependencyContractTemplateData,
+    cleanup_mutations:
+        std::collections::BTreeMap<crate::StorageMutation, crate::StorageInvalidation>,
+    completions: std::collections::BTreeMap<crate::StorageMutation, crate::StorageCompletion>,
     reachable_exits: Arc<[StorageExitPoint]>,
     exits: Arc<[StorageExitDecision]>,
     memory_operations: Arc<[MemoryOperationDecision]>,
@@ -295,12 +316,14 @@ impl StorageFlow {
         kind: BoundUnitKind,
         operations: impl IntoIterator<Item = StorageOperationDecision>,
         suspensions: impl IntoIterator<Item = StorageSuspensionState>,
+        reachable_blocks: impl IntoIterator<Item = BoundBlockId>,
         reachable_exits: impl IntoIterator<Item = StorageExitPoint>,
         exits: impl IntoIterator<Item = StorageExitDecision>,
         is_recovered: bool,
     ) -> Result<Self, StorageFlowBuildError> {
         let operations = operations.into_iter().collect::<Vec<_>>();
         let mut suspensions = suspensions.into_iter().collect::<Vec<_>>();
+        let reachable_blocks = sorted_unique_shared_slice(reachable_blocks);
         let reachable_exits = sorted_unique_shared_slice(reachable_exits);
         let exits = exits.into_iter().collect::<Vec<_>>();
 
@@ -324,14 +347,19 @@ impl StorageFlow {
                 || suspension
                     .moved()
                     .iter()
-                    .any(|access| access.unit() != unit)
+                    .any(|access| !access.is_valid_for(unit))
+                || suspension
+                    .cleanup_retention()
+                    .iter()
+                    .any(|subject| !subject.is_valid_for(unit))
                 || suspension
                     .active_borrows()
                     .iter()
                     .any(|borrow| borrow.unit() != unit)
-        }) || reachable_exits
-            .iter()
-            .any(|exit| exit.scope().unit() != unit || exit.exit().unit() != unit)
+        }) || reachable_blocks.iter().any(|block| block.unit() != unit)
+            || reachable_exits
+                .iter()
+                .any(|exit| exit.scope().unit() != unit || exit.exit().unit() != unit)
             || exits.iter().any(|exit| {
                 exit.scope().unit() != unit
                     || exit.exit().unit() != unit
@@ -343,8 +371,8 @@ impl StorageFlow {
                     || exit
                         .moved()
                         .iter()
-                        .chain(exit.definitely_moved())
-                        .any(|access| access.unit() != unit)
+                        .chain(exit.definitely_absent())
+                        .any(|access| !access.is_valid_for(unit))
                     || exit
                         .fully_moved()
                         .iter()
@@ -358,11 +386,11 @@ impl StorageFlow {
             return Err(StorageFlowBuildError::ForeignUnit);
         }
 
-        suspensions.sort_unstable_by_key(StorageSuspensionState::expression);
+        suspensions.sort_unstable_by_key(StorageSuspensionState::occurrence);
 
         if suspensions
             .windows(2)
-            .any(|pair| pair[0].expression() == pair[1].expression())
+            .any(|pair| pair[0].occurrence() == pair[1].occurrence())
         {
             return Err(StorageFlowBuildError::DuplicateSuspension);
         }
@@ -372,13 +400,81 @@ impl StorageFlow {
             kind,
             operations: shared_slice(operations),
             suspensions: shared_slice(suspensions),
+            reachable_blocks,
+            conditions: Default::default(),
             reachable_exits,
             exits: shared_slice(exits),
             memory_operations: Arc::from([]),
             checked_memory_operations: Arc::from([]),
+            assignment_targets: std::collections::BTreeMap::new(),
+            dependencies: bray_symbols::DependencyContractTemplateData::new([]),
+            cleanup_mutations: Default::default(),
+            completions: Default::default(),
             replacements: Arc::from([]),
             is_recovered,
         })
+    }
+
+    /// Publishes resolved observations for cancellation and ordered cleanup steps.
+    pub fn with_cleanup_mutations(
+        mut self,
+        mutations: std::collections::BTreeMap<crate::StorageMutation, crate::StorageInvalidation>,
+    ) -> Self {
+        self.cleanup_mutations = mutations;
+
+        self
+    }
+
+    /// Returns the storage analysis result for one prepared cleanup transition.
+    pub fn cleanup_mutation(
+        &self,
+        mutation: crate::StorageMutation,
+    ) -> &crate::StorageInvalidation {
+        self.cleanup_mutations
+            .get(&mutation)
+            .expect("selected cleanup has a published mutation")
+    }
+
+    /// Publishes checked reference observations and retained origins at normal completion.
+    pub fn with_completions(
+        mut self,
+        observations: std::collections::BTreeMap<crate::StorageMutation, crate::StorageCompletion>,
+    ) -> Self {
+        self.completions = observations;
+
+        self
+    }
+
+    /// Returns facts established at a reachable normal completion.
+    /// Absence means there is no normal completion.
+    pub fn completion(
+        &self,
+        mutation: crate::StorageMutation,
+    ) -> Option<&crate::StorageCompletion> {
+        self.completions.get(&mutation)
+    }
+
+    /// Publishes carried dependencies, exact reference relations and possible mutations from this flow.
+    pub fn with_dependencies(
+        mut self,
+        dependencies: bray_symbols::DependencyContractTemplateData,
+    ) -> Self {
+        self.dependencies = if self.is_recovered {
+            // Recovery cannot establish exact identities or absence of effects.
+            // Required lifetimes remain obligations even when another analysis recovered.
+            bray_symbols::DependencyContractTemplateData::new(
+                dependencies.requirements().iter().cloned(),
+            )
+        } else {
+            dependencies
+        };
+
+        self
+    }
+
+    /// Returns the body boundary facts established by the composite flow.
+    pub const fn dependencies(&self) -> &bray_symbols::DependencyContractTemplateData {
+        &self.dependencies
     }
 
     /// Adds source-ordered replacement decisions, rejecting foreign and duplicate identities.
@@ -394,7 +490,8 @@ impl StorageFlow {
                 || decision
                     .moved()
                     .iter()
-                    .any(|access| access.unit() != self.unit)
+                    .chain(decision.definitely_absent())
+                    .any(|access| !access.is_valid_for(self.unit))
         }) {
             return Err(StorageFlowBuildError::ForeignUnit);
         }
@@ -472,15 +569,77 @@ impl StorageFlow {
         &self.suspensions
     }
 
+    /// Publishes boolean results established at their branch sites by correlated flow.
+    pub fn with_conditions(
+        mut self,
+        conditions: std::collections::BTreeMap<BoundExpressionId, bool>,
+    ) -> Result<Self, StorageFlowBuildError> {
+        if conditions
+            .keys()
+            .any(|expression| expression.unit() != self.unit)
+        {
+            return Err(StorageFlowBuildError::ForeignUnit);
+        }
+
+        self.conditions = conditions;
+
+        Ok(self)
+    }
+
+    /// Publishes exact assignment destinations agreed by every reachable evaluation.
+    pub fn with_assignment_targets(
+        mut self,
+        targets: std::collections::BTreeMap<BoundExpressionId, crate::StoragePath>,
+    ) -> Result<Self, StorageFlowBuildError> {
+        if targets.iter().any(|(expression, access)| {
+            expression.unit() != self.unit || !access.is_valid_for(self.unit)
+        }) {
+            return Err(StorageFlowBuildError::ForeignUnit);
+        }
+
+        self.assignment_targets = targets;
+
+        Ok(self)
+    }
+
+    /// Returns the physical destination established for an assignment through a reference.
+    pub fn assignment_target(&self, expression: BoundExpressionId) -> Option<&crate::StoragePath> {
+        self.assignment_targets.get(&expression)
+    }
+
+    /// Returns the established decision for a selected raw-memory operation.
+    pub fn memory_operation_status(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Option<crate::MemoryOperationStatus> {
+        self.memory_operations
+            .binary_search_by_key(&expression, |operation| operation.expression())
+            .ok()
+            .map(|index| self.memory_operations[index].status())
+    }
+
+    /// Returns a boolean result established on every reachable evaluation of a condition.
+    pub fn condition_value(&self, expression: BoundExpressionId) -> Option<bool> {
+        self.conditions.get(&expression).copied()
+    }
+
+    /// Whether the correlated flow can enter a lexical block.
+    pub fn is_block_reachable(&self, block: BoundBlockId) -> bool {
+        self.reachable_blocks.binary_search(&block).is_ok()
+    }
+
     /// Returns the exact scope exits proven reachable by checked control flow.
     pub fn reachable_exits(&self) -> &[StorageExitPoint] {
         &self.reachable_exits
     }
 
     /// Returns storage state immediately before one direct-await expression.
-    pub fn suspension(&self, expression: BoundExpressionId) -> Option<&StorageSuspensionState> {
+    pub fn suspension(
+        &self,
+        occurrence: impl Into<crate::BoundExecutionSite>,
+    ) -> Option<&StorageSuspensionState> {
         self.suspensions
-            .binary_search_by_key(&expression, StorageSuspensionState::expression)
+            .binary_search_by_key(&occurrence.into(), StorageSuspensionState::occurrence)
             .ok()
             .map(|index| &self.suspensions[index])
     }
@@ -488,33 +647,6 @@ impl StorageFlow {
     /// Returns lexical scope-exit decisions in control-flow order.
     pub fn exits(&self) -> &[StorageExitDecision] {
         &self.exits
-    }
-
-    /// Returns moved represented-part paths needed by this owner's cleanup or replacement.
-    ///
-    /// Retained inner-scope exits and transferred-out storage do not contribute exit paths.
-    pub fn cleanup_moved_projections<'a>(
-        &'a self,
-        storage: &'a StoragePlan,
-        identity: StorageIdentityId,
-        owner: Option<BoundBlockId>,
-    ) -> impl Iterator<Item = &'a [StorageProjection]> {
-        let transfers = storage_identity_transfers_at_unit_exit(storage, identity);
-
-        self.exits
-            .iter()
-            .filter(move |exit| owner == Some(exit.scope()) && !transfers)
-            .flat_map(|exit| exit.moved())
-            .chain(
-                self.replacements
-                    .iter()
-                    .flat_map(|replacement| replacement.moved()),
-            )
-            .filter(move |access| {
-                storage.root_identity(**access) == Some(identity)
-                    && !storage.is_root_access(**access)
-            })
-            .filter_map(move |access| storage.resolved_projections(*access))
     }
 
     /// Returns memory-operation decisions in bound-expression order.
@@ -572,21 +704,31 @@ mod tests {
             scope.into(),
             [storage, storage],
             [storage, storage],
-            [access, access],
+            [
+                crate::StoragePath::root(storage),
+                crate::StoragePath::root(storage),
+            ],
             [],
             [storage, storage],
             [],
             false,
         );
 
-        let suspension =
-            StorageSuspensionState::new(expression, [storage], [storage], [access], []);
+        let suspension = StorageSuspensionState::new(
+            expression,
+            [storage],
+            [storage],
+            [crate::StoragePath::root(storage)],
+            [],
+            [],
+        );
 
         let storage_flow = StorageFlow::try_new(
             unit,
             BoundUnitKind::CallableBody,
             [operation],
             [suspension],
+            [scope],
             [StorageExitPoint::new(scope, scope.into())],
             [exit],
             false,
@@ -603,9 +745,61 @@ mod tests {
         );
 
         assert_eq!(storage_flow.exits()[0].initialized(), &[storage]);
-        assert_eq!(storage_flow.exits()[0].moved(), &[access]);
+
+        assert_eq!(
+            storage_flow.exits()[0].moved(),
+            &[crate::StoragePath::root(storage)]
+        );
+
         assert_eq!(storage_flow.exits()[0].fully_moved(), &[storage]);
         assert!(!storage_flow.is_recovered());
+    }
+
+    #[test]
+    fn recovered_flow_retains_requirements_without_establishing_authority() {
+        use bray_symbols::{
+            DependencyBorrowRelation, DependencyContractTemplateData, DependencyReferenceKind,
+            DependencyRequirement, DependencyRequirementKind, DependencyStorageEffect,
+            DependencySubject, DependencySubjectRoot,
+        };
+
+        let receiver = DependencySubject::root(DependencySubjectRoot::Receiver);
+
+        let requirement = DependencyRequirement::direct(
+            receiver.clone(),
+            DependencyRequirementKind::StorageAlive,
+        );
+
+        let relation = DependencyBorrowRelation::new(
+            receiver,
+            DependencySubject::root(DependencySubjectRoot::Result),
+            DependencyReferenceKind::Borrow,
+        );
+
+        let flow = StorageFlow::try_new(
+            BoundUnitId::new(9),
+            BoundUnitKind::CallableBody,
+            [],
+            [],
+            [],
+            [],
+            [],
+            true,
+        )
+        .expect("empty recovered flow is valid")
+        .with_dependencies(
+            DependencyContractTemplateData::new([requirement.clone()])
+                .with_borrows([relation])
+                .with_effects([]),
+        );
+
+        assert_eq!(flow.dependencies().requirements(), &[requirement]);
+        assert!(flow.dependencies().borrows().is_empty());
+
+        assert_eq!(
+            flow.dependencies().effects(),
+            &[DependencyStorageEffect::Unknown]
+        );
     }
 
     #[test]
@@ -630,8 +824,32 @@ mod tests {
                 [],
                 [],
                 [],
+                [],
                 true,
             ),
+            Err(StorageFlowBuildError::ForeignUnit)
+        );
+    }
+
+    #[test]
+    fn derived_paths_reject_foreign_projection_occurrences() {
+        let unit = BoundUnitId::new(6);
+        let expression = BoundExpressionId::from_slot(unit, 0);
+
+        let target = crate::StoragePath {
+            root: StorageIdentityId::from_slot(unit, 0),
+            projections: [crate::StorageProjection::Element(
+                BoundExpressionId::from_slot(BoundUnitId::new(7), 0),
+            )]
+            .into(),
+        };
+
+        let flow =
+            StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], [], false)
+                .unwrap();
+
+        assert_eq!(
+            flow.with_assignment_targets([(expression, target)].into()),
             Err(StorageFlowBuildError::ForeignUnit)
         );
     }

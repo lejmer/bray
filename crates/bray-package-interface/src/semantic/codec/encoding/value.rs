@@ -299,6 +299,11 @@ pub(super) fn encode_constant_term(encoder: &mut WireEncoder, term: &InterfaceCo
             encoder.write_u32(operand.raw());
             encoder.write_u32(target.raw());
         }
+        InterfaceConstantTerm::VariantTest { subject, variant } => {
+            encoder.write_u32(19);
+            encoder.write_u32(subject.raw());
+            write_symbol_reference(encoder, variant);
+        }
         InterfaceConstantTerm::NullablePresent(value) => {
             write_tagged_id(encoder, 11, value.raw());
         }
@@ -386,6 +391,9 @@ pub(super) fn encode_constant_projection(
     match projection {
         InterfaceConstantProjection::TupleElement(ordinal) => {
             write_tagged_id(encoder, 1, ordinal.raw());
+        }
+        InterfaceConstantProjection::ArrayElementOrdinal(index) => {
+            write_tagged_id(encoder, 7, index.raw())
         }
         InterfaceConstantProjection::ArrayElement(term) => {
             write_tagged_id(encoder, 2, term.raw());

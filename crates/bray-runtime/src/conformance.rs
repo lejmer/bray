@@ -4,7 +4,8 @@ use std::pin::pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use bray_platform::{PlatformError, PlatformErrorKind, PlatformOperation, RuntimeThreadScope};
+use crate::bootstrap::RuntimeThreadScope;
+use bray_platform::{PlatformError, PlatformErrorKind, PlatformOperation};
 use bray_runtime_model::{ExecutionLaneRequirement, ProtectedFrameStateId, RuntimeCapability};
 
 use crate::context::with_task_execution_context;
@@ -628,5 +629,7 @@ fn nonzero(value: usize) -> NonZeroUsize {
 
 #[test]
 fn target_independent_runtime_satisfies_the_shared_conformance_suite() {
+    let _isolation = crate::native::test_runtime_isolation();
+
     assert_runtime_conformance(&BrayRuntime::default());
 }

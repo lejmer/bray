@@ -35,10 +35,11 @@ pub(crate) fn lower_lifecycle_call(
         None => MirOperand::Move(place),
     };
 
-    let call = MirCall::protocol(MirCallTarget::Direct(callable), result, [receiver], []);
+    let call = MirCall::protocol(MirCallTarget::Direct(callable), result, [receiver], [])
+        .with_cleanup(cleanup);
 
     let operation = match result {
-        BoundCallResult::Immediate(_) => MirOperationKind::Call(call.with_cleanup(cleanup)),
+        BoundCallResult::Immediate(_) => MirOperationKind::Call(call),
         BoundCallResult::LazyFuture(_) => MirOperationKind::Async(MirAsyncOperation::CreateFrame {
             frame: MirFrameReference::Erased,
             initializer: MirFrameInitializer::Callable(call),

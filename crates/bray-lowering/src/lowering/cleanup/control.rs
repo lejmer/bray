@@ -321,16 +321,23 @@ impl Lowerer<'_> {
         phase: MirCleanupPhase,
         plans: &[bray_bound_tree::AsyncScopeExitPlan],
         temporaries: &[InputTemporary],
-        mut value: Option<(bray_ir::MirValueId, TypeId)>,
+        pending: Option<&bray_ir::MirPlace>,
         failures: &std::collections::BTreeMap<
             BoundBlockId,
             (MirBlockId, MirBlockId, bray_ir::MirPlace),
         >,
-    ) -> Result<(MirBlockId, Option<(bray_ir::MirValueId, TypeId)>), LoweringError> {
+    ) -> Result<MirBlockId, LoweringError> {
         let mut temporaries = temporaries.iter().rev().peekable();
 
         for plan in plans {
             self.cleanup_failure_targets = failures.get(&plan.scope()).cloned();
+
+            if phase == MirCleanupPhase::LifecycleResolution
+                && let Some(expression) = plan.scoped_exit()
+            {
+                block =
+                    self.push_scope_exit(block, source, expression, Some(plan.exit()), pending)?;
+            }
 
             let depth = self
                 .active_scopes
@@ -352,15 +359,16 @@ impl Lowerer<'_> {
             } {
                 let completed = self.input.finalizer_is_complete(plan.exit(), *access);
 
-                (block, value) =
-                    self.push_cleanup_access(block, source, phase, *access, completed, value)?;
+                block = self
+                    .push_cleanup_access(block, source, phase, *access, completed, None)?
+                    .0;
             }
         }
 
         block = self.push_input_cleanup(block, phase, &mut temporaries, 0)?;
         self.cleanup_failure_targets = None;
 
-        Ok((block, value))
+        Ok(block)
     }
 
     pub(super) fn push_cleanup_access(
@@ -484,7 +492,7 @@ impl Lowerer<'_> {
                 let block = if let Some(outcome) = &lowerer.cleanup_outcome {
                     outcome.check(&mut lowerer.builder, block, source)?
                 } else {
-                    lowerer.check_ordinary_cleanup(block, source, release.map(|_| owner))?
+                    lowerer.check_ordinary_cleanup(block, source, release.map(|_| owner), false)?
                 };
 
                 if release.is_some() {

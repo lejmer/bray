@@ -26,7 +26,7 @@ struct ManualResetEvent
     {
         while core.atomic.load<u32, 1>(&self.state) == 0
         {
-            trusted internal std.atomic.platform_wait_word(&self.state, expected = 0);
+            core.atomic.wait<u32, 1>(&self.state, expected = 0);
         }
     }
 
@@ -34,7 +34,7 @@ struct ManualResetEvent
     {
         core.atomic.store<u32, 2>(&self.state, 1);
 
-        trusted internal std.atomic.platform_wake_all_words(&self.state);
+        core.atomic.notify_all<u32>(&self.state);
     }
 
     func reset()
@@ -81,7 +81,7 @@ struct AutoResetEvent
                 return unit;
             }
 
-            trusted internal std.atomic.platform_wait_word(&self.state, expected = 0);
+            core.atomic.wait<u32, 1>(&self.state, expected = 0);
         }
     }
 
@@ -91,7 +91,7 @@ struct AutoResetEvent
 
         if previous == 0
         {
-            trusted internal std.atomic.platform_wake_word(&self.state);
+            core.atomic.notify_one<u32>(&self.state);
         }
     }
 }

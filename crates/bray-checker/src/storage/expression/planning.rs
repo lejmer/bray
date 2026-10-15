@@ -1,13 +1,13 @@
 use bray_bound_tree::{
-    BoundCallableTarget, BoundControlTransferKind, BoundExpression, BoundExpressionId,
-    BoundPatternMode, BoundReferenceTarget, BoundStructuredExpressionKind, IndexTarget,
-    OperatorTarget, SelectedOperation, SemanticSelection, StorageAccessId, StorageAccessPurpose,
-    StorageIdentity, StorageProjection,
+    BoundControlTransferKind, BoundExpression, BoundExpressionId, BoundPatternMode,
+    BoundReferenceTarget, BoundStructuredExpressionKind, IndexTarget, OperatorTarget,
+    SelectedOperation, SemanticSelection, StorageAccessId, StorageAccessPurpose, StorageIdentity,
+    StorageProjection,
 };
-use bray_symbols::{BorrowKind, ReceiverMode, TypeData};
+use bray_symbols::{BorrowKind, TypeData};
 
 use super::super::plan::{PlanError, Planner, iteration_purpose, missing_node};
-use crate::{CheckerInfrastructureError, CheckerRequestContext};
+use crate::CheckerRequestContext;
 
 impl<C> Planner<'_, C>
 where
@@ -71,6 +71,11 @@ where
 
                 access
             }
+            BoundExpression::Structured(structured)
+                if structured.kind() == BoundStructuredExpressionKind::With =>
+            {
+                self.plan_scoped_use(id, structured)?
+            }
             BoundExpression::Structured(structured) => {
                 if matches!(
                     structured.kind(),
@@ -78,7 +83,9 @@ where
                         | BoundStructuredExpressionKind::PatternBinding
                 ) {
                     let [subject] = structured.operands() else {
-                        return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+                        panic!(
+                            "Storage-planning inputs or constructed records violate the requested unit contract. in plan_expression"
+                        );
                     };
 
                     let access =
@@ -125,6 +132,14 @@ where
                     .iter()
                     .map(bray_bound_tree::BoundArgument::expression),
             )?,
+            BoundExpression::Await(expression) => {
+                self.plan_expression(
+                    expression.operand(),
+                    Some(StorageAccessPurpose::ValueTransfer),
+                )?;
+
+                self.temporary_access(id)?
+            }
             BoundExpression::For(expression) => {
                 let source = self.plan_expression(expression.source(), None)?;
 
@@ -184,8 +199,12 @@ where
                             BoundPatternMode::MatchConsume | BoundPatternMode::MatchObserve => {
                                 StorageAccessPurpose::Read
                             }
-                            BoundPatternMode::Declaration | BoundPatternMode::Assignment => {
-                                return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+                            BoundPatternMode::Declaration
+                            | BoundPatternMode::Scoped
+                            | BoundPatternMode::Assignment => {
+                                panic!(
+                                    "Storage-planning inputs or constructed records violate the requested unit contract. in plan_expression"
+                                );
                             }
                         }
                     }
@@ -254,77 +273,6 @@ where
             expression,
             BoundExpression::Name(name) if name.target().is_compile_time_qualifier()
         ))
-    }
-
-    fn plan_call(
-        &mut self,
-        id: BoundExpressionId,
-        callee: BoundExpressionId,
-        arguments: impl IntoIterator<Item = BoundExpressionId>,
-    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
-        let semantic_selection = self.selections.expression(id);
-
-        let selection = semantic_selection.and_then(|selection| {
-            let SemanticSelection::Call(call) = selection else {
-                return None;
-            };
-
-            Some(call)
-        });
-
-        let direct = selection
-            .is_some_and(|call| matches!(call.target(), BoundCallableTarget::Declaration(_)))
-            || matches!(
-                semantic_selection,
-                Some(SemanticSelection::Operation(
-                    SelectedOperation::Construction(_)
-                ))
-            );
-
-        if !direct {
-            self.plan_expression(callee, Some(StorageAccessPurpose::Read))?;
-        }
-
-        if let Some(receiver) = selection.and_then(bray_bound_tree::SelectedCall::receiver) {
-            self.plan_expression(
-                receiver.expression(),
-                Some(Self::call_receiver_purpose(receiver.mode())),
-            )?;
-        }
-
-        let mut reborrows = selection
-            .into_iter()
-            .flat_map(|call| call.arguments())
-            .filter_map(|argument| match argument {
-                bray_bound_tree::SelectedArgument::Explicit { reborrow, .. } => Some(*reborrow),
-                bray_bound_tree::SelectedArgument::Default { .. } => None,
-            });
-
-        for argument in arguments {
-            if let Some(kind) = reborrows.next().flatten() {
-                self.plan_call_reborrow(argument, kind)?;
-            } else {
-                self.plan_expression(argument, Some(StorageAccessPurpose::ValueTransfer))?;
-            }
-        }
-
-        if let Some(call) = selection
-            && let Some(access) = self.returned_borrow_access(id, call)?
-        {
-            return Ok(access);
-        }
-
-        self.temporary_access(id)
-    }
-
-    const fn call_receiver_purpose(mode: ReceiverMode) -> StorageAccessPurpose {
-        match mode {
-            ReceiverMode::Shared => StorageAccessPurpose::Borrow(BorrowKind::Shared),
-            ReceiverMode::Mutable => StorageAccessPurpose::Borrow(BorrowKind::Mutable),
-            ReceiverMode::Consuming | ReceiverMode::ConsumingMutable => {
-                StorageAccessPurpose::ValueTransfer
-            }
-        }
     }
 
     fn plan_operator(
@@ -409,7 +357,7 @@ where
         destination: BoundExpressionId,
         access: StorageAccessId,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
-        let destination_type = self.expression_type(destination)?;
+        let destination_type = self.expression_type(destination);
 
         let data = self
             .request
@@ -460,9 +408,18 @@ where
                         BoundExpression::Structured(expression) => expression.borrow_kind(),
                         _ => None,
                     })
-                    .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "plan_structured requires checked structured borrow kind, id: {id:?}"
+                        )
+                    });
 
-                let access = self.borrow_access(id, operand_access, borrow_kind)?;
+                let access = self.borrow_access(
+                    id,
+                    operand_access,
+                    borrow_kind,
+                    self.expression_type(id).ty(),
+                )?;
 
                 self.record_purpose(id, Some(StorageAccessPurpose::Borrow(borrow_kind)), access)?;
 
@@ -473,9 +430,18 @@ where
                 Ok(access)
             }
             BoundStructuredExpressionKind::ElementIndex
-            | BoundStructuredExpressionKind::SliceIndex
-            | BoundStructuredExpressionKind::NullablePropagation => {
+            | BoundStructuredExpressionKind::SliceIndex => {
                 self.plan_structured_projection(id, kind, operands)
+            }
+            BoundStructuredExpressionKind::NullablePropagation
+            | BoundStructuredExpressionKind::ResultPropagation => {
+                for operand in operands {
+                    self.plan_expression(*operand, Some(StorageAccessPurpose::ValueTransfer))?;
+                }
+
+                // Propagation transfers the selected payload out of its container.
+                // Observers of the result must retain that new value, not the consumed input.
+                self.temporary_access(id)
             }
             BoundStructuredExpressionKind::BooleanAllFold
             | BoundStructuredExpressionKind::BooleanAnyFold => {
@@ -534,6 +500,71 @@ where
         }
     }
 
+    fn plan_scoped_use(
+        &mut self,
+        id: BoundExpressionId,
+        expression: &bray_bound_tree::BoundStructuredExpression,
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
+        let ([initializer], [pattern], [body]) = (
+            expression.operands(),
+            expression.patterns(),
+            expression.blocks(),
+        ) else {
+            panic!("with occurrence {id:?} retains its initializer, pattern and body");
+        };
+
+        let Some(SemanticSelection::ScopedUse(scoped)) = self.selections.expression(id) else {
+            self.plan_expression(*initializer, Some(StorageAccessPurpose::Read))?;
+            self.plan_block(*body)?;
+
+            return self.recovery_access(id);
+        };
+
+        let receiver = scoped
+            .enter()
+            .1
+            .receiver()
+            .expect("selected enter has a receiver");
+
+        let capability_type = scoped.capability_type();
+
+        self.plan_receiver(
+            bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+            *initializer,
+            receiver.mode(),
+        )?;
+
+        let capability = self.protocol_access(
+            id,
+            StorageIdentity::ScopedCapability {
+                expression: id,
+                pattern: *pattern,
+            },
+            capability_type,
+        )?;
+
+        self.builder_mut()
+            .plan_access(
+                (*pattern).into(),
+                id,
+                StorageAccessPurpose::Initialize,
+                capability,
+            ).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in plan_scoped_use: {error:?}"));
+
+        self.builder_mut()
+            .plan_occurrence_access(
+                bray_bound_tree::BoundExecutionSite::ScopedExit(id),
+                id,
+                StorageAccessPurpose::ValueTransfer,
+                capability,
+            ).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in plan_scoped_use: {error:?}"));
+
+        self.plan_pattern(*pattern, id, capability)?;
+        self.plan_block(*body)?;
+
+        self.temporary_access(id)
+    }
+
     fn plan_iteration_storage(
         &mut self,
         expression: BoundExpressionId,
@@ -545,13 +576,13 @@ where
         let cursor_type = selection.cursor_type();
         let element_type = selection.element_type();
 
-        let cursor = self.iteration_access(
+        let cursor = self.protocol_access(
             expression,
             StorageIdentity::IterationCursor(expression),
             cursor_type,
         )?;
 
-        let element = self.iteration_access(
+        let element = self.protocol_access(
             expression,
             StorageIdentity::IterationElement(expression),
             element_type,
@@ -582,12 +613,10 @@ where
         let custom_borrow_kind = target.and_then(IndexTarget::custom_borrow_kind);
         let custom = custom_borrow_kind.is_some();
 
-        let receiver_purpose = match kind {
-            BoundStructuredExpressionKind::NullablePropagation => Some(StorageAccessPurpose::Read),
-            _ => custom_borrow_kind.map(StorageAccessPurpose::Borrow),
-        };
-
-        let receiver_access = self.plan_expression(receiver, receiver_purpose)?;
+        let receiver_access = self.plan_expression(
+            receiver,
+            custom_borrow_kind.map(StorageAccessPurpose::Borrow),
+        )?;
 
         for selector in &operands[1..] {
             let purpose = match (kind, custom) {
@@ -613,7 +642,9 @@ where
                         | IndexTarget::TraitConstraint { .. },
                     ) => {}
                     Some(IndexTarget::ArraySlice | IndexTarget::Slice) => {
-                        return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+                        panic!(
+                            "Storage-planning inputs or constructed records violate the requested unit contract. in plan_structured_projection"
+                        );
                     }
                     None => {
                         let access = self.conservative_subject_access(id, receiver_access)?;
@@ -629,7 +660,18 @@ where
                 };
 
                 (
-                    StorageProjection::Element(selector),
+                    if matches!(
+                        target,
+                        Some(IndexTarget::ArrayElement | IndexTarget::SliceElement)
+                    ) {
+                        super::super::projection::element_projection(
+                            self.request,
+                            self.literals,
+                            selector,
+                        )
+                    } else {
+                        StorageProjection::Element(selector)
+                    },
                     StorageAccessPurpose::Index,
                 )
             }
@@ -642,7 +684,9 @@ where
                         | IndexTarget::TraitConstraint { .. },
                     ) => {}
                     Some(IndexTarget::ArrayElement | IndexTarget::SliceElement) => {
-                        return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+                        panic!(
+                            "Storage-planning inputs or constructed records violate the requested unit contract. in plan_structured_projection"
+                        );
                     }
                     None => {
                         let access = self.conservative_subject_access(id, receiver_access)?;
@@ -661,7 +705,11 @@ where
                         BoundExpression::Structured(expression) => expression.slice_bounds(),
                         _ => None,
                     })
-                    .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "plan_structured_projection requires checked slice bounds, id: {id:?}"
+                        )
+                    });
 
                 (
                     StorageProjection::SliceRange {
@@ -671,17 +719,15 @@ where
                     StorageAccessPurpose::Slice,
                 )
             }
-            BoundStructuredExpressionKind::NullablePropagation => (
-                StorageProjection::NullableValue,
-                StorageAccessPurpose::Projection,
+            _ => panic!(
+                "Storage-planning inputs or constructed records violate the requested unit contract. in plan_structured_projection"
             ),
-            _ => return Err(CheckerInfrastructureError::InvalidStoragePlan.into()),
         };
 
         let access = match custom_borrow_kind {
             Some(kind) => self.custom_index_access(id, receiver_access, kind)?,
             None => {
-                self.project_access(id, receiver_access, projection, self.expression_type(id)?)?
+                self.project_access(id, receiver_access, projection, self.expression_type(id))?
             }
         };
 
@@ -702,7 +748,9 @@ where
             Some(SemanticSelection::Operation(SelectedOperation::Index { target, .. })) => {
                 Ok(Some(*target))
             }
-            Some(_) => Err(CheckerInfrastructureError::InvalidStoragePlan.into()),
+            Some(_) => panic!(
+                "Storage-planning inputs or constructed records violate the requested unit contract. in selected_index_target"
+            ),
             None => {
                 let bound = self
                     .request
@@ -711,7 +759,9 @@ where
                     .unwrap_or_else(|| missing_node(expression));
 
                 let BoundExpression::Structured(structured) = bound else {
-                    return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+                    panic!(
+                        "Storage-planning inputs or constructed records violate the requested unit contract. in selected_index_target"
+                    );
                 };
 
                 if structured.is_recovered() {
@@ -724,8 +774,7 @@ where
 
                 let receiver = self
                     .types
-                    .expression(receiver)
-                    .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+                    .expression(receiver).unwrap_or_else(|| panic!("selected_index_target requires checked expression type or node, expression: {expression:?}, receiver: {receiver:?}"));
 
                 if receiver.is_recovered() {
                     return Ok(None);

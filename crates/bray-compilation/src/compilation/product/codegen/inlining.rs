@@ -674,6 +674,24 @@ mod tests {
     }
 
     #[test]
+    fn nonunwinding_call_splice_keeps_following_operations() {
+        let source = r#"
+            module app;
+            func unused() {}
+            func identity(pos value: bool) -> bool { return value; }
+            func main() {
+                if !identity(true) { unused(); }
+            }
+        "#;
+
+        let full = reachability(source, crate::BuildConfiguration::Release.codegen_options());
+
+        assert_eq!(direct_calls(&full), 0);
+        assert_eq!(full.graph().instances().len(), 1);
+        assert!(full.graph().instances()[0].mir().is_valid());
+    }
+
+    #[test]
     fn recursive_calls_close_without_query_cycles() {
         let mutual = r#"
             module app;
@@ -1249,7 +1267,13 @@ mod tests {
                     matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_))
                 }));
 
-                assert!(graph.graph().instances().iter().all(|instance| instance.mir().is_valid()));
+                assert!(
+                    graph
+                        .graph()
+                        .instances()
+                        .iter()
+                        .all(|instance| instance.mir().is_valid())
+                );
 
                 let symbols = graph
                     .graph()
@@ -1257,7 +1281,11 @@ mod tests {
                     .iter()
                     .filter_map(|instance| {
                         match consumer
-                            .codegen_native_boundary(instance, &BTreeSet::new(), &CancellationToken::new())
+                            .codegen_native_boundary(
+                                instance,
+                                &BTreeSet::new(),
+                                &CancellationToken::new(),
+                            )
                             .expect("native boundary")
                         {
                             Some(NativeBoundaryMapping::Direct { name, .. }) => Some(name),

@@ -7,7 +7,8 @@ use std::process::Command;
 use crate::process::output_detail;
 
 use super::source::{
-    instrument_instruction_sinking_source, instrument_lto_source, prepare_sources, write_native_sources,
+    instrument_instruction_sinking_source, instrument_lto_source, prepare_sources,
+    write_native_sources,
 };
 
 const BUILD_DIRECTORY: &str = "bray-lld-build";
@@ -208,10 +209,24 @@ fn run_native_tests(
         ("definition-sizes-test", "definition_sizes_test"),
         ("instruction-sinking-test", "instruction_sinking_test"),
     ] {
-        let object = compile(toolchain, source, build, stem, &build.join(format!("{stem}.cpp")), identity)?;
+        let object = compile(
+            toolchain,
+            source,
+            build,
+            stem,
+            &build.join(format!("{stem}.cpp")),
+            identity,
+        )?;
+
         let binary = build.join(executable(name));
 
-        link_objects(toolchain, &binary, None, &[writer_object.to_path_buf(), object])?;
+        link_objects(
+            toolchain,
+            &binary,
+            None,
+            &[writer_object.to_path_buf(), object],
+        )?;
+
         run(&mut Command::new(&binary), name)?;
     }
 
@@ -343,7 +358,10 @@ fn command_words(
         .collect())
 }
 
-pub(super) fn run(command: &mut Command, program: &'static str) -> Result<(), InstrumentationError> {
+pub(super) fn run(
+    command: &mut Command,
+    program: &'static str,
+) -> Result<(), InstrumentationError> {
     let output = command
         .output()
         .map_err(|error| InstrumentationError::ProcessStart { program, error })?;
@@ -516,8 +534,8 @@ impl fmt::Display for InstrumentationError {
 
 #[cfg(test)]
 mod tests {
-    use super::{HostFlavor, InstrumentationError};
     use super::super::source::{digest, identity, instrument_lto_source};
+    use super::{HostFlavor, InstrumentationError};
 
     #[test]
     fn staged_native_sources_match_the_authenticated_inputs() {
@@ -571,7 +589,11 @@ mod tests {
 
         assert_eq!(identity.len(), 64);
         assert_ne!(identity, super::super::source::identity("22.1.9", &source));
-        assert_ne!(identity, super::super::source::identity("22.1.8", &"b".repeat(64)));
+
+        assert_ne!(
+            identity,
+            super::super::source::identity("22.1.8", &"b".repeat(64))
+        );
     }
 
     #[test]

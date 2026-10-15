@@ -34,7 +34,7 @@ where
             return Ok(true);
         }
 
-        let span = pattern_span(self.request, id)?;
+        let span = pattern_span(self.request, id);
 
         self.diagnostics.push(
             Diagnostic::new(

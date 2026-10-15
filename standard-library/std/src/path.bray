@@ -95,6 +95,7 @@ struct Path
     }
 
     func to_native() -> &NativeText
+        executes(pure, total)
     {
         return &self.native;
     }
@@ -232,6 +233,7 @@ struct Path
 }
 
 internal func native_bytes(pos value: &NativeText) -> &[u8]
+    executes(pure, total)
 {
     return value.bytes.as_slice();
 }

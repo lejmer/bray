@@ -41,10 +41,20 @@ impl Lowerer<'_> {
         let source = self.source(expression.origin());
         let result_type = self.expression_type(id);
 
-        if self.constant_boolean(&condition) == Some(false) {
-            self.finish_assertion_failure(id, expression, current, &source)?;
+        match self.known_condition(condition_id, &condition) {
+            Some(true) => {
+                return Ok(LoweredExpression::continuing(
+                    current,
+                    Some(self.unit_operand(result_type)),
+                    source,
+                ));
+            }
+            Some(false) => {
+                self.finish_assertion_failure(id, expression, current, &source)?;
 
-            return Ok(LoweredExpression::terminated(source));
+                return Ok(LoweredExpression::terminated(source));
+            }
+            None => {}
         }
 
         let success = self
@@ -230,7 +240,6 @@ impl Lowerer<'_> {
         }
 
         let success_result = self.construct_result(
-            id,
             success,
             &source,
             result_type,
@@ -245,7 +254,6 @@ impl Lowerer<'_> {
         )?;
 
         let error_result = self.construct_result(
-            id,
             handler,
             &source,
             result_type,
@@ -259,11 +267,7 @@ impl Lowerer<'_> {
             MirTerminatorKind::Goto(MirEdge::new(join, [error_result])),
         )?;
 
-        Ok(LoweredExpression::continuing(
-            join,
-            Some(MirOperand::Value(result)),
-            source,
-        ))
+        self.finish_result_join(current, join, result, source)
     }
 
     fn lower_catch_operand(
@@ -282,6 +286,7 @@ impl Lowerer<'_> {
                 success,
                 success_type,
                 self.active_scopes.len(),
+                None,
             ),
             _ => panic!(
                 "lowering contract violation: UnsupportedExpression {value:?}",
@@ -415,9 +420,8 @@ impl Lowerer<'_> {
         Ok((completed, MirOperand::Value(result)))
     }
 
-    pub(super) fn construct_result(
+    pub(in crate::lowering) fn construct_result(
         &mut self,
-        id: BoundExpressionId,
         current: MirBlockId,
         source: &bray_ir::MirSourceAnchor,
         result_type: TypeId,
@@ -449,7 +453,7 @@ impl Lowerer<'_> {
         Ok(commit.result().map(MirOperand::Value).unwrap_or_else(|| {
             panic!(
                 "lowering contract violation: MissingOperationResult {value:?}",
-                value = id
+                value = source
             )
         }))
     }

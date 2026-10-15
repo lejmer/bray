@@ -2,7 +2,7 @@ use super::super::{
     DiagnosticInterfaceSymbolIdentityJson, DiagnosticOutputSinkJson,
     interface_symbol_graph_problem_json,
 };
-use super::checker_failure_context;
+
 use super::failure::{
     DiagnosticEmissionFieldJson, DiagnosticEmissionFieldValueJson, artifact_field, count_field,
     digest_field, field, text_field,
@@ -212,7 +212,6 @@ pub(super) fn evaluation_failure_context(
             context
         }
         Failure::SemanticValue(failure) => semantic_value_failure_context(*failure),
-        Failure::Checker(failure) => checker_failure_context(*failure),
         Failure::Binding(failure) => match failure.semantic_value_failure() {
             Some(failure) => semantic_value_failure_context(failure),
             None => diagnostic_failure_context(failure.context()),

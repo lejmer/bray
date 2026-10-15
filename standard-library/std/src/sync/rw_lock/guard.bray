@@ -1,0 +1,180 @@
+trusted module std.sync;
+
+using internal std.sync.rw_lock;
+
+struct RwLockReadGuard<T>
+{
+    lock: &RwLock<T>;
+    acquisition: std.sync.rw_lock.Marker;
+
+    trusted destruct()
+        requires(trusted std.sync.rw_lock.read.acquired(&self.acquisition))
+        ensures(trusted std.sync.rw_lock.valid(&self.lock.instance))
+        executes(total)
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = std.memory.uninit_pointer<std.sync.rw_lock.State<T>>(&self.lock.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.rw_lock.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.rw_lock.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.rw_lock.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
+        let state = trusted std.memory.borrow_from<std.sync.rw_lock.State<T>, RwLock<T>>(self.lock, pointer);
+        let previous: u32 = core.atomic.fetch_sub<u32, 2>(&state.state, 1);
+
+        if previous & std.sync.rw_lock.READER_COUNT_MASK == 1
+        {
+            core.atomic.notify_all<u32>(&state.state);
+        }
+    }
+
+    internal trusted func pointer() -> RawPointer<T>
+        requires(trusted std.sync.rw_lock.read.acquired(&self.acquisition))
+        ensures(
+            trusted core.memory.valid_read<T>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<T>(pointer = result),
+            trusted core.memory.initialized_as<T>(pointer = result),
+            trusted core.memory.shared_alias_valid<T>(pointer = result),
+            trusted core.memory.epoch_current<T>(pointer = result),
+            trusted core.memory.synchronized_access<T>(pointer = result),
+            trusted core.memory.movement_stable<T>(pointer = result),
+            trusted core.memory.finalization_pending<T>(pointer = result),
+        )
+        executes(pure, total)
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = std.memory.uninit_pointer<std.sync.rw_lock.State<T>>(&self.lock.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.rw_lock.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.rw_lock.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.rw_lock.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
+        let state = trusted std.memory.borrow_from<std.sync.rw_lock.State<T>, RwLock<T>>(self.lock, pointer);
+        let value = std.memory.uninit_pointer<T>(&state.value);
+
+        return value;
+    }
+
+    trusted func get() -> &T
+        requires(trusted std.sync.rw_lock.read.acquired(&self.acquisition))
+        ensures(trusted std.sync.rw_lock.read.acquired(&self.acquisition))
+        executes(pure, total)
+        uses(raw_memory, unchecked_alias)
+    {
+        let value = self.pointer();
+
+        return trusted std.memory.borrow_from<T, RwLockReadGuard<T>>(&self, value);
+    }
+
+    consume func unlock()
+        requires(trusted std.sync.rw_lock.read.acquired(&self.acquisition)) {}
+}
+
+struct RwLockWriteGuard<T>
+{
+    lock: &RwLock<T>;
+    acquisition: std.sync.rw_lock.Marker;
+
+    trusted destruct()
+        requires(trusted std.sync.rw_lock.write.acquired(&self.acquisition))
+        ensures(trusted std.sync.rw_lock.valid(&self.lock.instance))
+        executes(total)
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = std.memory.uninit_pointer<std.sync.rw_lock.State<T>>(&self.lock.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.rw_lock.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.rw_lock.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.rw_lock.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
+        let state = trusted std.memory.borrow_from<std.sync.rw_lock.State<T>, RwLock<T>>(self.lock, pointer);
+        let _: u32 = core.atomic.fetch_and<u32, 2>(&state.state, ~std.sync.rw_lock.WRITE_LOCKED);
+
+        core.atomic.notify_all<u32>(&state.state);
+    }
+
+    internal trusted func pointer() -> RawPointer<T>
+        requires(trusted std.sync.rw_lock.write.acquired(&self.acquisition))
+        ensures(
+            trusted core.memory.valid_write<T>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<T>(pointer = result),
+            trusted core.memory.initialized_as<T>(pointer = result),
+            trusted core.memory.exclusive_alias_valid<T>(pointer = result),
+            trusted core.memory.epoch_current<T>(pointer = result),
+            trusted core.memory.synchronized_access<T>(pointer = result),
+            trusted core.memory.movement_stable<T>(pointer = result),
+            trusted core.memory.finalization_pending<T>(pointer = result),
+        )
+        executes(pure, total)
+        uses(raw_memory, unchecked_alias)
+    {
+        let pointer = std.memory.uninit_pointer<std.sync.rw_lock.State<T>>(&self.lock.storage);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.rw_lock.State<T>>)
+            ensures(
+                trusted core.memory.valid_read<std.sync.rw_lock.State<T>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.rw_lock.State<T>>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.rw_lock.State<T>>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
+        let state = trusted std.memory.borrow_from<std.sync.rw_lock.State<T>, RwLock<T>>(self.lock, pointer);
+        let value = std.memory.uninit_pointer<T>(&state.value);
+
+        return value;
+    }
+
+    trusted mut func get() -> &mut T
+        requires(trusted std.sync.rw_lock.write.acquired(&self.acquisition))
+        ensures(trusted std.sync.rw_lock.write.acquired(&self.acquisition))
+        executes(pure, total)
+        uses(raw_memory, unchecked_alias)
+    {
+        let value = self.pointer();
+
+        return trusted std.memory.borrow_mut_from<T, RwLockWriteGuard<T>>(&mut self, value);
+    }
+
+    consume func unlock()
+        requires(trusted std.sync.rw_lock.write.acquired(&self.acquisition)) {}
+}

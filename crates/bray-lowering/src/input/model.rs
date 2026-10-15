@@ -14,7 +14,7 @@ use bray_symbols::{AvailableCompilerKnownSymbols, SemanticValueStore};
 
 use crate::result::requires_mir;
 
-use super::storage::{storage_operation_indices, storage_plan_indices, temporary_storage_indices};
+use super::storage::{storage_operation_indices, temporary_storage_indices};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum ScopeExitCleanupStatus {
@@ -32,6 +32,7 @@ pub(crate) enum ScopeExitCleanupStatus {
 /// only the indexes needed by its hot lookup paths instead of certifying those analyses again.
 #[derive(Clone)]
 pub struct LoweringInput<'unit> {
+    unwind: Option<&'unit bray_bound_tree::CheckedUnwind>,
     unit: &'unit BoundUnit,
     control_flow: &'unit CheckedControlFlow,
     expression_types: &'unit CheckedExpressionTypes,
@@ -41,18 +42,15 @@ pub struct LoweringInput<'unit> {
     pub(super) storage: &'unit StoragePlan,
     liveness: &'unit Liveness,
     pub(super) storage_flow: &'unit StorageFlow,
-    pub(super) storage_plans: Arc<[usize]>,
     pub(super) storage_operations: Arc<[usize]>,
     pub(super) temporary_storage: Arc<[(BoundExpressionId, StorageIdentityId)]>,
     dependencies: &'unit CheckedDependencyContracts,
     selections: &'unit CheckedSemanticSelections,
     symbols: &'unit AvailableCompilerKnownSymbols,
     async_analysis: &'unit CheckedAsync,
-    suspensions: BTreeMap<BoundExpressionId, usize>,
+    suspensions: BTreeMap<bray_bound_tree::BoundExecutionSite, usize>,
     task_operations: BTreeMap<BoundExpressionId, AsyncTaskOperationKind>,
-    scope_exits: BTreeMap<(BoundBlockId, AnyBoundNodeId), usize>,
     lifecycle_storage: BTreeSet<StorageIdentityId>,
-    replacements: BTreeMap<BoundExpressionId, usize>,
     completed: BTreeSet<(AnyBoundNodeId, StorageAccessId)>,
     body_behavior: &'unit CheckedBodyBehavior,
     semantic_values: &'unit SemanticValueStore,
@@ -68,6 +66,18 @@ pub struct LoweringInput<'unit> {
 }
 
 impl<'unit> LoweringInput<'unit> {
+    /// Borrows the owning analysis's checked unwind results.
+    pub fn with_unwind(mut self, unwind: &'unit bray_bound_tree::CheckedUnwind) -> Self {
+        self.unwind = Some(unwind);
+
+        self
+    }
+
+    pub(crate) fn call_cannot_unwind(&self, expression: BoundExpressionId) -> bool {
+        self.unwind
+            .is_some_and(|unwind| unwind.call_cannot_unwind(expression))
+    }
+
     /// Publishes checked semantic inputs and the indexes used directly by lowering.
     #[expect(
         clippy::too_many_arguments,
@@ -177,7 +187,7 @@ impl<'unit> LoweringInput<'unit> {
 
         for (index, suspension) in async_analysis.suspensions().iter().enumerate() {
             assert!(
-                suspensions.insert(suspension.expression(), index).is_none(),
+                suspensions.insert(suspension.occurrence(), index).is_none(),
                 "checked async analysis contains duplicate suspension for {:?}",
                 suspension.expression()
             );
@@ -195,19 +205,9 @@ impl<'unit> LoweringInput<'unit> {
             );
         }
 
-        let mut scope_exits = BTreeMap::new();
         let mut lifecycle_storage = BTreeSet::new();
 
-        for (index, plan) in async_analysis.scope_exits().iter().enumerate() {
-            assert!(
-                scope_exits
-                    .insert((plan.scope(), plan.exit()), index)
-                    .is_none(),
-                "checked async analysis contains duplicate scope-exit plan for {:?} at {:?}",
-                plan.scope(),
-                plan.exit()
-            );
-
+        for plan in async_analysis.scope_exits() {
             for decision in plan.storage() {
                 if let AsyncStorageExitDisposition::Cleanup { phases, .. } = decision.disposition()
                     && phases.includes_lifecycle()
@@ -217,19 +217,8 @@ impl<'unit> LoweringInput<'unit> {
             }
         }
 
-        let mut replacements = BTreeMap::new();
-
-        for (index, replacement) in async_analysis.replacements().iter().enumerate() {
-            assert!(
-                replacements
-                    .insert(replacement.expression(), index)
-                    .is_none(),
-                "checked async analysis contains duplicate replacement for {:?}",
-                replacement.expression()
-            );
-        }
-
         Self {
+            unwind: None,
             unit,
             control_flow,
             expression_types,
@@ -239,7 +228,6 @@ impl<'unit> LoweringInput<'unit> {
             storage,
             liveness,
             storage_flow,
-            storage_plans: storage_plan_indices(storage),
             storage_operations: storage_operation_indices(storage_flow),
             temporary_storage: temporary_storage_indices(storage),
             dependencies,
@@ -248,9 +236,7 @@ impl<'unit> LoweringInput<'unit> {
             async_analysis,
             suspensions,
             task_operations,
-            scope_exits,
             lifecycle_storage,
-            replacements,
             completed,
             body_behavior,
             semantic_values,
@@ -346,9 +332,7 @@ impl<'unit> LoweringInput<'unit> {
         &self,
         expression: BoundExpressionId,
     ) -> Option<&'unit StorageReplacementPlan> {
-        self.replacements
-            .get(&expression)
-            .and_then(|index| self.async_analysis.replacements().get(*index))
+        self.async_analysis.replacement(expression)
     }
 
     /// Returns frame dependencies in the order published by checked async analysis.
@@ -357,9 +341,12 @@ impl<'unit> LoweringInput<'unit> {
     }
 
     /// Returns the checked suspension plan for one suspending expression.
-    pub fn suspension(&self, expression: BoundExpressionId) -> Option<&AsyncSuspensionPoint> {
+    pub fn suspension(
+        &self,
+        occurrence: impl Into<bray_bound_tree::BoundExecutionSite>,
+    ) -> Option<&AsyncSuspensionPoint> {
         self.suspensions
-            .get(&expression)
+            .get(&occurrence.into())
             .and_then(|index| self.async_analysis.suspensions().get(*index))
     }
 
@@ -386,14 +373,21 @@ impl<'unit> LoweringInput<'unit> {
             .iter()
             .rev()
             .map(|scope| {
-                self.scope_exits
-                    .get(&(*scope, exit))
-                    .and_then(|index| self.async_analysis.scope_exits().get(*index))
+                self.async_analysis.scope_exit_plan(*scope, exit)
                     // Lowering mutates its builder while retaining these shared immutable plans.
                     .cloned()
                     .unwrap_or_else(|| {
                         panic!(
-                            "lowering cleanup contract violated: missing scope-exit plan for scope {scope:?} and exit {exit:?}"
+                            "lowering cleanup contract violated: missing scope-exit plan for scope {scope:?} and exit {exit:?} in {:?}, node: {:?}; selected operation: {:?}",
+                            self.unit.key(),
+                            match exit {
+                                AnyBoundNodeId::Expression(expression) => self.unit.view().expression(expression),
+                                _ => None,
+                            },
+                            match exit {
+                                AnyBoundNodeId::Expression(expression) => self.selections.expression(expression),
+                                _ => None,
+                            },
                         )
                     })
             })
@@ -406,7 +400,7 @@ impl<'unit> LoweringInput<'unit> {
         scope: BoundBlockId,
         exit: AnyBoundNodeId,
     ) -> ScopeExitCleanupStatus {
-        let Some(index) = self.scope_exits.get(&(scope, exit)) else {
+        let Some(plan) = self.async_analysis.scope_exit_plan(scope, exit) else {
             let point = StorageExitPoint::new(scope, exit);
 
             if self
@@ -422,16 +416,6 @@ impl<'unit> LoweringInput<'unit> {
 
             return ScopeExitCleanupStatus::Unreachable;
         };
-
-        let plan = self
-            .async_analysis
-            .scope_exits()
-            .get(*index)
-            .unwrap_or_else(|| {
-                panic!(
-                    "lowering cleanup contract violated: scope-exit index for scope {scope:?} and exit {exit:?} is absent"
-                )
-            });
 
         if !plan.has_cleanup() {
             ScopeExitCleanupStatus::NoCleanup
@@ -475,9 +459,7 @@ impl<'unit> LoweringInput<'unit> {
         identity: StorageIdentityId,
     ) -> Option<&'unit [bray_bound_tree::StorageCleanupPart]> {
         self.async_analysis
-            .storage_requirements()
-            .iter()
-            .find(|requirement| requirement.identity() == identity)
+            .storage_requirement(identity)
             .and_then(bray_bound_tree::AsyncStorageRequirement::parts)
     }
 
@@ -815,19 +797,25 @@ mod tests {
         analysis.storage = storage.finish();
 
         analysis.storage_flow =
-            StorageFlow::try_new(unit.unit(), kind, operations, [], [], [], false).unwrap();
+            StorageFlow::try_new(unit.unit(), kind, operations, [], [], [], [], false).unwrap();
 
         let control_flow = CheckedControlFlow::new(unit.unit(), kind, ControlCompletion::default());
         let input = lowering_input(&unit, &control_flow, (&analysis).into());
         let plans = analysis.storage.access_plans();
 
         assert_eq!(
-            input.expression_storage_plans(first).collect::<Vec<_>>(),
+            input
+                .storage_plan()
+                .expression_plans(first)
+                .collect::<Vec<_>>(),
             plans[1..]
         );
 
         assert_eq!(
-            input.expression_storage_plans(second).collect::<Vec<_>>(),
+            input
+                .storage_plan()
+                .expression_plans(second)
+                .collect::<Vec<_>>(),
             plans[..1]
         );
 
@@ -836,11 +824,6 @@ mod tests {
         assert!(std::sync::Arc::ptr_eq(
             &input.storage_operations,
             &input.clone().storage_operations
-        ));
-
-        assert!(std::sync::Arc::ptr_eq(
-            &input.storage_plans,
-            &input.clone().storage_plans
         ));
     }
 
@@ -887,6 +870,7 @@ mod tests {
         let storage_flow = StorageFlow::try_new(
             unit.unit(),
             kind,
+            [],
             [],
             [],
             [StorageExitPoint::new(scope, exit)],
@@ -1097,21 +1081,27 @@ mod tests {
         let storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind()).finish();
 
         let storage_flow =
-            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
+            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
                 .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
 
         let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
             .unwrap_or_else(|error| panic!("empty liveness must validate: {error:?}"));
 
-        let refinements = CheckedRefinements::try_new(unit.unit(), unit.key().kind(), [], false)
-            .unwrap_or_else(|error| panic!("empty refinements must validate: {error:?}"));
+        let refinements = CheckedRefinements::try_new(
+            unit.unit(),
+            unit.key().kind(),
+            [],
+            Default::default(),
+            false,
+        )
+        .unwrap_or_else(|error| panic!("empty refinements must validate: {error:?}"));
 
         let dependencies = CheckedDependencyContracts::try_new(
             unit,
             &storage,
             unit.tree()
                 .expressions()
-                .map(|(expression, _)| (expression, BoundDependencyContract::new([]))),
+                .map(|(expression, _)| (expression.into(), BoundDependencyContract::new([]))),
             [],
             [],
             [],

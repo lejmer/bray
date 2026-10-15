@@ -12,15 +12,8 @@ where
     let graph = match build_control_flow_graph(request) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
         ControlFlowGraphBuildOutcome::UpstreamFailure(error) => match error {},
     };
-
-    if !graph.is_well_formed() {
-        panic!("checker control-flow graph violated its construction invariants");
-    }
 
     let Some(reachability) = analyze_reachability(&graph, request) else {
         return CheckerOutcome::Cancelled;

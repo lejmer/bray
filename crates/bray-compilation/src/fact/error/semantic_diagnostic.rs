@@ -382,33 +382,6 @@ pub(crate) fn push_generic_substitution_failure(
     }
 }
 
-pub(crate) fn diagnostic_generic_substitution_failure(
-    cause: bray_symbols::GenericSubstitutionShapeError,
-) -> bray_diagnostics::DiagnosticGenericSubstitutionFailure {
-    use bray_diagnostics::DiagnosticGenericSubstitutionFailure as Diagnostic;
-    use bray_symbols::GenericSubstitutionShapeError as Error;
-
-    match cause {
-        Error::ArgumentCountMismatch {
-            parameter_count,
-            argument_count,
-        } => Diagnostic::ArgumentCountMismatch {
-            parameter_count,
-            argument_count,
-        },
-        Error::ArgumentKindMismatch {
-            ordinal,
-            expected,
-            actual,
-        } => Diagnostic::ArgumentKindMismatch {
-            ordinal,
-            expected: generic_argument_kind(expected),
-            actual: generic_argument_kind(actual),
-        },
-        Error::OrdinalOverflow => Diagnostic::OrdinalOverflow,
-    }
-}
-
 pub(crate) fn push_semantic_value_failure(
     context: &mut Vec<DiagnosticFailureField>,
     cause: bray_symbols::SemanticValueStoreError,

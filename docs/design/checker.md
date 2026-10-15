@@ -165,7 +165,10 @@ measures rather than elapsed time or available memory. Scheduling limits and cac
 ## Recovery and publication
 
 Each domain has a conservative recovery result that preserves useful context without establishing an unsupported proof.
-Unknown, disproven, recovered, unavailable, cancelled, and infrastructure failure are not interchangeable.
+Unknown, disproven, recovered, unavailable, cancelled, and failed prerequisite queries are not interchangeable.
+
+The checker relies on established bound and checked phase contracts. Violated internal invariants fail at their owning
+producer with the relevant identities and values. They are not transported as checker outcomes or source diagnostics.
 
 Diagnostics remain source-correlated and owned by the deciding operation. Independent errors survive recovery, while
 cascades of the same root cause are suppressed. Compilation merges diagnostic ownership deterministically.

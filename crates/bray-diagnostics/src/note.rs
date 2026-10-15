@@ -153,6 +153,10 @@ pub enum DiagnosticNoteKind {
     ReportCompilerDefect,
     /// Supply the declared result on each normal callable exit.
     ReturnRequiredResult,
+    /// Supply or expose a trusted condition at its callable boundary.
+    TrustedObligationEvidenceRequired,
+    /// Preserve the owner and dependencies when transferring a witness.
+    TrustedWitnessTransferRequired,
 }
 
 impl DiagnosticNoteKind {
@@ -231,6 +235,8 @@ impl DiagnosticNoteKind {
             Self::PublicDependencyRequired => "public_dependency_required",
             Self::ReportCompilerDefect => "report_compiler_defect",
             Self::ReturnRequiredResult => "return_required_result",
+            Self::TrustedObligationEvidenceRequired => "trusted_obligation_evidence_required",
+            Self::TrustedWitnessTransferRequired => "trusted_witness_transfer_required",
         }
     }
 }

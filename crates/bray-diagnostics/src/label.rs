@@ -139,6 +139,10 @@ pub enum DiagnosticLabelKind {
     RefinementCapacityExceeded,
     /// Label for the source expression whose memory operation fails.
     MemoryOperationFailure,
+    /// The selected call whose trusted obligation lacks live evidence.
+    TrustedObligationFailure,
+    /// Name of the callable whose trusted requirement cannot be established.
+    TrustedCallable,
     /// Label for the declaration that repeats an existing name.
     DuplicateDeclaration,
     /// Label for a declaration whose form violates its owning context.
@@ -237,6 +241,8 @@ impl DiagnosticLabelKind {
             Self::UnsupportedTargetRequirement => "unsupported_target_requirement",
             Self::RefinementCapacityExceeded => "refinement_capacity_exceeded",
             Self::MemoryOperationFailure => "memory_operation_failure",
+            Self::TrustedObligationFailure => "trusted_obligation_failure",
+            Self::TrustedCallable => "trusted_callable",
             Self::DuplicateDeclaration => "duplicate_declaration",
             Self::InvalidDeclaration => "invalid_declaration",
             Self::BoxStoragePolicy => "box_storage_policy",

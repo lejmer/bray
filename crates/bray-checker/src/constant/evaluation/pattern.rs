@@ -6,9 +6,9 @@ use bray_symbols::{
     AnyLocalSymbolId, ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind,
 };
 
+use crate::CheckerRequestContext;
 use crate::constant::literal::parse_literal;
 use crate::representation::type_representation;
-use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
 use super::engine::Evaluator;
 use super::flow::EvaluationFlow;
@@ -39,7 +39,7 @@ where
             self.locals = outer_locals;
         }
 
-        self.intern_value_term(ty, ConstantValueKind::Boolean(matched))
+        Ok(self.intern_value_term(ty, ConstantValueKind::Boolean(matched)))
     }
 
     pub(super) fn evaluate_match(
@@ -49,7 +49,7 @@ where
     ) -> Result<EvaluationFlow, EvaluationFailure> {
         let subject = self.evaluate(matched.subject())?;
         let subject_value = self.closed_value(subject, expression)?;
-        let result_type = self.expression_type(expression)?;
+        let result_type = self.expression_type(expression);
 
         for arm in matched.arms() {
             self.observe_cancellation()?;
@@ -71,7 +71,7 @@ where
                 continue;
             }
 
-            return self.evaluate_block(arm.body(), result_type);
+            return self.evaluate_block(arm.body(), result_type?);
         }
 
         Err(EvaluationFailure::invalid_expression(expression))
@@ -87,10 +87,7 @@ where
         let pattern_node =
             self.request
                 .view()
-                .pattern(pattern)
-                .ok_or(EvaluationFailure::constant(
-                    crate::CheckerConstantEvaluationFailure::MissingPattern { pattern },
-                ))?;
+                .pattern(pattern).unwrap_or_else(|| panic!("pattern_matches requires checked pattern, owner: {owner:?}, pattern: {pattern:?}, subject: {subject:?}, subject_value: {subject_value:?}"));
 
         if pattern_node.kind() == BoundPatternKind::Alternative {
             for alternative in pattern_node.children() {
@@ -106,15 +103,10 @@ where
             return Ok(false);
         }
 
-        let patterns = self.input.patterns().ok_or(EvaluationFailure::constant(
-            crate::CheckerConstantEvaluationFailure::MissingPatternInput { pattern },
-        ))?;
+        let patterns = self.input.patterns().unwrap_or_else(|| panic!("pattern_matches requires checked patterns, owner: {owner:?}, pattern: {pattern:?}, subject: {subject:?}, subject_value: {subject_value:?}"));
 
         let checked = patterns
-            .pattern(pattern)
-            .ok_or(EvaluationFailure::constant(
-                crate::CheckerConstantEvaluationFailure::MissingPattern { pattern },
-            ))?;
+            .pattern(pattern).unwrap_or_else(|| panic!("pattern_matches requires checked pattern, owner: {owner:?}, pattern: {pattern:?}, subject: {subject:?}, subject_value: {subject_value:?}"));
 
         if checked.is_recovered()
             || !self.predicate_matches(owner, pattern_node, checked.test(), subject_value)?
@@ -128,9 +120,7 @@ where
         }
 
         for child in pattern_node.children() {
-            let child_pattern = patterns.pattern(*child).ok_or(EvaluationFailure::constant(
-                crate::CheckerConstantEvaluationFailure::MissingPattern { pattern: *child },
-            ))?;
+            let child_pattern = patterns.pattern(*child).unwrap_or_else(|| panic!("pattern_matches requires checked pattern, owner: {owner:?}, pattern: {pattern:?}, subject: {subject:?}, subject_value: {subject_value:?}, child: {child:?}"));
 
             let (child_term, child_value) =
                 self.project_pattern_subject(subject_value, child_pattern.projection())?;
@@ -147,10 +137,7 @@ where
 
             let binding_type =
                 patterns
-                    .binding_type(binding)
-                    .ok_or(EvaluationFailure::constant(
-                        crate::CheckerConstantEvaluationFailure::MissingPatternBinding { binding },
-                    ))?;
+                    .binding_type(binding).unwrap_or_else(|| panic!("pattern_matches requires checked pattern binding type, owner: {owner:?}, pattern: {pattern:?}, subject: {subject:?}, subject_value: {subject_value:?}, binding: {binding:?}"));
 
             let (value, _) =
                 self.project_pattern_subject(subject_value, binding_type.projection())?;
@@ -196,21 +183,9 @@ where
             Some(PatternPredicate::Literal(literal)) => {
                 let literal = literal.literal();
 
-                let source = self
-                    .request
-                    .source(pattern.origin().source_anchor())
-                    .map_err(EvaluationFailure::Infrastructure)?;
+                let source = self.request.source(pattern.origin().source_anchor());
 
-                let spelling = source.text_for_range(literal.range()).ok_or_else(|| {
-                    EvaluationFailure::Infrastructure(
-                        CheckerInfrastructureError::InvalidSourceRange {
-                            span: bray_source::SourceSpan::new(
-                                source.span().source_id(),
-                                literal.range(),
-                            ),
-                        },
-                    )
-                })?;
+                let spelling = source.text_for_range(literal.range()).unwrap_or_else(|| panic!("predicate_matches requires constant literal source text, owner: {owner:?}, subject: {subject:?}"));
 
                 self.budget.charge_literal(owner, spelling.len())?;
 
@@ -219,12 +194,7 @@ where
                         self.request.semantic_values(),
                         pattern.input_type(),
                         spelling,
-                    )
-                    .map_err(|error| {
-                        EvaluationFailure::Infrastructure(
-                            CheckerInfrastructureError::SemanticValueStore(error),
-                        )
-                    })?
+                    ).unwrap_or_else(|error| panic!("predicate_matches must satisfy its checked construction contract: {error:?}"))
                 } else {
                     let representation = type_representation(self.request, pattern.input_type())
                         .ok_or_else(|| EvaluationFailure::invalid_expression(owner))?;
@@ -250,7 +220,6 @@ where
                     subject_id,
                     expected,
                 )
-                .map_err(EvaluationFailure::Infrastructure)?
             }
             Some(PatternPredicate::OwnedTarget) => {
                 return Err(EvaluationFailure::invalid_expression(owner));
@@ -271,8 +240,7 @@ where
                 fields
                     .iter()
                     .find(|entry| *entry.field() == field)
-                    .map(|entry| *entry.value())
-                    .ok_or(EvaluationFailure::invalid_input())?
+                    .map(|entry| *entry.value()).unwrap_or_else(|| panic!("project_pattern_subject requires constant pattern field, subject: {subject:?}"))
             }
             (
                 Some(PatternProjection::TupleElement(ordinal)),
@@ -283,16 +251,14 @@ where
                 ConstantValueKind::Array(elements),
             ) => elements
                 .get(ordinal.raw() as usize)
-                .copied()
-                .ok_or(EvaluationFailure::invalid_input())?,
+                .copied().unwrap_or_else(|| panic!("project_pattern_subject requires constant pattern element, subject: {subject:?}")),
             (
                 Some(PatternProjection::ElementFromEnd(ordinal)),
                 ConstantValueKind::Array(elements),
             ) => {
                 let index = elements
                     .len()
-                    .checked_sub(ordinal.raw() as usize + 1)
-                    .ok_or(EvaluationFailure::invalid_input())?;
+                    .checked_sub(ordinal.raw() as usize + 1).unwrap_or_else(|| panic!("project_pattern_subject requires constant suffix pattern index, subject: {subject:?}"));
 
                 elements[index]
             }
@@ -305,17 +271,16 @@ where
             ) if *active == variant => fields
                 .iter()
                 .find(|entry| *entry.field() == field)
-                .map(|entry| *entry.value())
-                .ok_or(EvaluationFailure::invalid_input())?,
+                .map(|entry| *entry.value()).unwrap_or_else(|| panic!("project_pattern_subject requires constant pattern field, subject: {subject:?}")),
             (Some(PatternProjection::NullableValue), ConstantValueKind::NullablePresent(value)) => {
                 *value
             }
             (Some(PatternProjection::OwnedTarget), _) | (Some(_), _) => {
-                return Err(EvaluationFailure::invalid_input());
+                panic!("checked pattern projection must match its constant subject {subject:?}");
             }
         };
 
-        let term = self.intern_term(ConstantTermData::Value(value))?;
+        let term = self.intern_term(ConstantTermData::Value(value));
 
         Ok((term, value))
     }

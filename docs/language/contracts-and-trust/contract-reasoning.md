@@ -50,6 +50,27 @@ Contract reasoning follows the ownership and borrowing validity rules.
 
 Those rules are defined in [Contract and borrow validity](../ownership-and-borrowing/contract-and-borrow-validity.md).
 
+## Observation dependencies
+
+A condition observes its semantic arguments and the dependency subjects exposed by their contracts. Keeping a resource
+alive and requiring its contents to remain unchanged are distinct dependencies.
+
+For a predicate with a body, the selected observations determine which changes can affect the condition. For a
+compiler-known predicate, its specified meaning determines the additional storage, allocation, capability and epoch
+dependencies. For an opaque user-defined predicate, all state reachable through its semantic arguments that its
+contract permits it to observe is conservatively relevant. Unknown raw-pointer reachability does not imply an empty
+observation set. An opaque predicate cannot silently depend on unrelated mutable ambient state.
+
+An immutable marker can identify a historical trusted introduction without observing mutable payload contents.
+Its evidence remains attached to the complete witness that carries it. Marker equality or ordinary field copying
+does not transfer evidence or permit pairing it with a different resource. A historical introduction alone does not
+establish present access permission. That permission also requires the live carrier and its valid dependencies.
+
+Mutation invalidates affected observations, not every lifetime dependency of the observing value. Legal whole-value
+movement transports its evidence and dependency relationships while revoking the old owner path. It does not repair
+pointers into physically relocated storage. A merge retains a guarantee only where every relevant incoming alternative
+supplies a valid complete carrier and matching dependencies. An absent nullable alternative supplies no carrier.
+
 ## Navigation
 
 - [Language index](../index.md)

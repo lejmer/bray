@@ -39,8 +39,21 @@ impl Lowerer<'_> {
             return self.lower_condition(*operand, current, matched, unmatched);
         }
 
+        if let BoundExpression::Unary(unary) = expression
+            && unary.operator() == BoundOperator::LogicalNot
+        {
+            let [operand] = unary.operands() else {
+                panic!("checked logical negation {id:?} has one operand");
+            };
+
+            return self.lower_condition(*operand, current, unmatched, matched);
+        }
+
         if let BoundExpression::Binary(binary) = expression
-            && binary.operator() == BoundOperator::LogicalAnd
+            && matches!(
+                binary.operator(),
+                BoundOperator::LogicalAnd | BoundOperator::LogicalOr
+            )
         {
             let [left, right] = binary.operands() else {
                 panic!(
@@ -57,13 +70,23 @@ impl Lowerer<'_> {
                 .builder
                 .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-            if !self.lower_condition(left, current, next, unmatched)? {
+            let (left_matched, left_unmatched) = if binary.operator() == BoundOperator::LogicalAnd {
+                (next, unmatched)
+            } else {
+                (matched, next)
+            };
+
+            if !self.lower_condition(left, current, left_matched, left_unmatched)? {
                 self.finish_unreachable_blocks(&[next], &source)?;
 
                 return Ok(false);
             }
 
-            self.lower_condition(right, next, matched, unmatched)?;
+            if self.is_reachable(current, next) {
+                self.lower_condition(right, next, matched, unmatched)?;
+            } else {
+                self.finish_unreachable_blocks(&[next], &source)?;
+            }
 
             return Ok(self.is_reachable(current, matched) || self.is_reachable(current, unmatched));
         }
@@ -87,7 +110,7 @@ impl Lowerer<'_> {
             );
         };
 
-        let terminator = match self.constant_boolean(&value) {
+        let terminator = match self.known_condition(id, &value) {
             Some(true) => MirTerminatorKind::Goto(MirEdge::new(matched, [])),
             Some(false) => MirTerminatorKind::Goto(MirEdge::new(unmatched, [])),
             None => MirTerminatorKind::Branch {
@@ -240,7 +263,15 @@ impl Lowerer<'_> {
         ))
     }
 
-    pub(super) fn constant_boolean(&self, operand: &MirOperand) -> Option<bool> {
+    pub(super) fn known_condition(
+        &self,
+        expression: BoundExpressionId,
+        operand: &MirOperand,
+    ) -> Option<bool> {
+        if let Some(value) = self.input.storage_flow().condition_value(expression) {
+            return Some(value);
+        }
+
         let MirOperand::Constant { value, .. } = operand else {
             return None;
         };

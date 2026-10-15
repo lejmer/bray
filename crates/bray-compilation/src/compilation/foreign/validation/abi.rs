@@ -33,9 +33,7 @@ pub(super) fn target_abi_value(
         compilation.semantic_value_store()?,
         template,
         checked.value(),
-    )
-    .map_err(FactQueryError::from)?
-    else {
+    ) else {
         return Ok(None);
     };
 

@@ -75,6 +75,13 @@ pub enum StorageIdentity {
     IterationCursor(BoundExpressionId),
     /// Current element produced by an iteration expression.
     IterationElement(BoundExpressionId),
+    /// Capability retained from successful entry until its matching scoped exit.
+    ScopedCapability {
+        /// The actual with occurrence selecting this capability.
+        expression: BoundExpressionId,
+        /// The pattern reached only after successful entry initializes the capability.
+        pattern: crate::BoundPatternId,
+    },
     /// Storage created by an allocation operation.
     Allocation(BoundExpressionId),
     /// Storage introduced by a compiler-required operation.
@@ -91,6 +98,31 @@ pub enum StorageIdentity {
 }
 
 impl StorageIdentity {
+    pub(crate) const fn owns_slot(self) -> bool {
+        matches!(
+            self,
+            StorageIdentity::LocalOwned(_)
+                | StorageIdentity::Parameter(_)
+                | StorageIdentity::Receiver(_)
+                | StorageIdentity::AnonymousParameter(_)
+                | StorageIdentity::PredicateParameter(_)
+                | StorageIdentity::PostconditionResult(_)
+                | StorageIdentity::Result(_)
+                | StorageIdentity::Temporary(_)
+                | StorageIdentity::IterationCursor(_)
+                | StorageIdentity::IterationElement(_)
+                | StorageIdentity::ScopedCapability { .. }
+                | StorageIdentity::Allocation(_)
+                | StorageIdentity::CompilerCreated(_)
+        )
+    }
+
+    /// Whether this identity denotes a distinct value slot owned by the current invocation.
+    /// Borrowed runtime-default inputs retain their caller's storage instead.
+    pub fn is_invocation_owned(self, unit: crate::BoundUnitKind) -> bool {
+        self.owns_slot() && !self.is_borrowed_provider_input(unit)
+    }
+
     /// Returns whether a runtime-default provider borrows this input from its caller.
     pub fn is_borrowed_provider_input(self, unit: crate::BoundUnitKind) -> bool {
         unit == crate::BoundUnitKind::RuntimeDefault
@@ -112,6 +144,7 @@ impl StorageIdentity {
             Self::CustomIndexBorrow(_) => "custom_index_borrow",
             Self::IterationCursor(_) => "iteration_cursor",
             Self::IterationElement(_) => "iteration_element",
+            Self::ScopedCapability { .. } => "scoped_capability",
             Self::Allocation(_) => "allocation",
             Self::CompilerCreated(_) => "compiler_created",
             Self::Alternative { .. } => "alternative",
@@ -141,7 +174,9 @@ impl StorageIdentity {
             | Self::IterationCursor(expression)
             | Self::IterationElement(expression)
             | Self::Allocation(expression) => Some(AnyBoundNodeId::Expression(expression)),
-            Self::Alternative { pattern, .. } => Some(AnyBoundNodeId::Pattern(pattern)),
+            Self::Alternative { pattern, .. } | Self::ScopedCapability { pattern, .. } => {
+                Some(AnyBoundNodeId::Pattern(pattern))
+            }
             Self::Parameter(_)
             | Self::Receiver(_)
             | Self::Static(_)
@@ -165,6 +200,10 @@ impl StorageIdentity {
                 pattern,
                 alternative,
             } => pattern.unit() == unit && alternative.unit() == unit,
+            Self::ScopedCapability {
+                expression,
+                pattern,
+            } => expression.unit() == unit && pattern.unit() == unit,
             Self::AnonymousParameter(parameter) => parameter.region().raw() == unit.raw(),
             Self::Parameter(_)
             | Self::Static(_)
@@ -267,9 +306,16 @@ pub enum StorageProjection {
     NullableValue,
     /// The storage owned through an indirection layer.
     OwnedTarget,
+    /// Inline protected storage. This projection establishes neither initialization nor access authority.
+    UninitPayload,
 }
 
 impl StorageProjection {
+    /// Whether this selector identifies one component independently of evaluation.
+    pub const fn is_exact(self) -> bool {
+        !matches!(self, Self::Element(_) | Self::SliceRange { .. })
+    }
+
     pub(super) fn is_valid_for(self, unit: BoundUnitId) -> bool {
         match self {
             Self::Element(selector) => selector.unit() == unit,
@@ -283,7 +329,8 @@ impl StorageProjection {
             | Self::ElementFromEnd(_)
             | Self::ActiveUnionPayloadField { .. }
             | Self::NullableValue
-            | Self::OwnedTarget => true,
+            | Self::OwnedTarget
+            | Self::UninitPayload => true,
         }
     }
 }

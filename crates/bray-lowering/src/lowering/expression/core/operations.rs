@@ -199,7 +199,37 @@ impl Lowerer<'_> {
             ),
         }?;
 
+        if let Some(current) = lowered.block
+            && (self.type_representation(self.expression_type(id))
+                == Some(RepresentationRole::Never)
+                || (self
+                    .input
+                    .dependency_contracts()
+                    .calls()
+                    .contains_key(&id.into())
+                    || matches!(expression, BoundExpression::Await(_)))
+                    && !self.invocation_completes(id.into()))
+        {
+            self.set_terminator(
+                current,
+                Self::retained_source(&lowered.source),
+                MirTerminatorKind::Unreachable,
+            )?;
+
+            return Ok(LoweredExpression::terminated(lowered.source));
+        }
+
         self.materialize_temporary(id, lowered)
+    }
+
+    pub(in crate::lowering) fn invocation_completes(
+        &self,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+    ) -> bool {
+        self.input
+            .storage_flow()
+            .completion(bray_bound_tree::StorageMutation::Operation(occurrence))
+            .is_some()
     }
 
     fn declared_callable_reference(
@@ -1127,26 +1157,17 @@ impl Lowerer<'_> {
             }
         }
 
-        let call = self.selected_mir_call(selection, target, arguments);
+        let call = self.selected_mir_call(id, selection, target, arguments);
 
         let (current, value) =
             self.lower_call_operation(id, current, Self::retained_source(&source), call)?;
-
-        if self.type_representation(self.expression_type(id)) == Some(RepresentationRole::Never) {
-            self.set_terminator(
-                current,
-                Self::retained_source(&source),
-                MirTerminatorKind::Unreachable,
-            )?;
-
-            return Ok(LoweredExpression::terminated(source));
-        }
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
     }
 
     fn selected_mir_call(
         &self,
+        expression: BoundExpressionId,
         selection: &bray_bound_tree::SelectedCall,
         target: MirCallTarget,
         arguments: Vec<MirCallArgument>,
@@ -1156,7 +1177,13 @@ impl Lowerer<'_> {
             target,
             selection.resolution().result(),
             arguments,
-            selection.phase_behaviors().clone(),
+            selection
+                .phase_behaviors()
+                .clone()
+                .with_invocation_may_unwind(
+                    !self.input.call_cannot_unwind(expression)
+                        && selection.phase_behaviors().invocation().may_unwind(),
+                ),
             selection.contract().cloned(),
             selection
                 .resolution()
@@ -1278,8 +1305,11 @@ impl Lowerer<'_> {
 
         operation.unwrap_or_else(|| {
             panic!(
-                "lowering contract violation: MissingSemanticSelection {value:?}",
-                value = expression
+                "expression {expression:?} must have a selected operation in {:?}, source: {:?}, selection: {:?}, node: {:?}",
+                self.input.unit().key(),
+                self.expression_source(expression),
+                self.input.semantic_selections().expression(expression),
+                self.input.unit().view().expression(expression),
             )
         })
     }
@@ -1421,7 +1451,7 @@ impl Lowerer<'_> {
             })
     }
 
-    pub(in crate::lowering::expression) fn expression_source(
+    pub(in crate::lowering) fn expression_source(
         &self,
         expression: BoundExpressionId,
     ) -> MirSourceAnchor {
@@ -1587,6 +1617,7 @@ fn storage_kind(identity: StorageIdentity, parameter_position: Option<u32>) -> M
         | StorageIdentity::PostconditionResult(_)
         | StorageIdentity::IterationCursor(_)
         | StorageIdentity::IterationElement(_)
+        | StorageIdentity::ScopedCapability { .. }
         | StorageIdentity::Allocation(_)
         | StorageIdentity::CompilerCreated(_)
         | StorageIdentity::Error(_) => MirStorageKind::Temporary,

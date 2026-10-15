@@ -1,5 +1,3 @@
-use bray_checker::CheckerInfrastructureError;
-
 use crate::compilation::{SemanticQueryError, SemanticQueryFailure};
 use crate::fact::{CompilationFactKey, FactRuntimeError, FactRuntimeFailure};
 
@@ -274,8 +272,6 @@ pub enum FactQueryError {
     AtomicInitializerResultUnavailable,
     /// The uninitialized-storage initializer result cannot be retained as a compile-time value.
     UninitInitializerResultUnavailable,
-    /// Semantic checking could not complete because a typed dependency was unavailable.
-    CheckerInfrastructure(CheckerInfrastructureError),
     /// Binding or semantic compilation violated an exact query contract.
     SemanticQuery(SemanticQueryError),
     /// Product specialization or realization violated an exact query contract.
@@ -299,12 +295,6 @@ impl FactQueryError {
 impl From<std::convert::Infallible> for FactQueryError {
     fn from(error: std::convert::Infallible) -> Self {
         match error {}
-    }
-}
-
-impl From<CheckerInfrastructureError> for FactQueryError {
-    fn from(error: CheckerInfrastructureError) -> Self {
-        Self::CheckerInfrastructure(error)
     }
 }
 
@@ -373,9 +363,6 @@ where
     fn from(error: bray_checker::CheckerQueryError<Upstream>) -> Self {
         match error {
             bray_checker::CheckerQueryError::Cancelled => Self::Cancelled,
-            bray_checker::CheckerQueryError::Infrastructure(error) => {
-                Self::CheckerInfrastructure(error)
-            }
             bray_checker::CheckerQueryError::Upstream(error) => error.into(),
         }
     }
@@ -430,12 +417,6 @@ impl std::fmt::Display for FactQueryError {
             }
             Self::UninitInitializerResultUnavailable => formatter
                 .write_str("the uninitialized-storage initializer result cannot be retained"),
-            Self::CheckerInfrastructure(error) => {
-                write!(
-                    formatter,
-                    "semantic checking infrastructure failed: {error:?}"
-                )
-            }
             Self::SemanticQuery(error) => write!(formatter, "{error}"),
             Self::Product(error) => write!(formatter, "product query failed: {error:?}"),
             Self::Foreign(error) => write!(formatter, "foreign query failed: {error:?}"),

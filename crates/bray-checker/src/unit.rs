@@ -12,8 +12,8 @@ use bray_symbols::{
 use bray_target::TargetProfile;
 
 use crate::{
-    CheckerInfrastructureError, CheckerQueryResult, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerSource, ImplementationHookResolution, SemanticUnitContext,
+    CheckerQueryResult, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerSource,
+    ImplementationHookResolution, SemanticUnitContext,
 };
 
 /// A read-only view of one bound unit for focused checker services.
@@ -24,6 +24,15 @@ where
     unit: &'view BoundUnit,
     semantic_context: &'view SemanticUnitContext,
     context: &'view C,
+    recursive_results: Option<&'view std::collections::BTreeSet<CallableSymbolId>>,
+    static_dependencies:
+        Option<&'view BTreeMap<bray_symbols::StaticSymbolId, bray_symbols::DependencySubjectRoot>>,
+    source_snapshot: Option<&'view bray_source::SourceSnapshot>,
+    unwind: Option<&'view bray_bound_tree::CheckedUnwind>,
+    trusted_contracts: Option<&'view crate::TrustedContractInputs>,
+    result_dependencies: Option<
+        &'view BTreeMap<bray_symbols::AnySymbolId, bray_symbols::DependencyContractTemplateId>,
+    >,
 }
 
 impl<C> Clone for CheckerUnitView<'_, C>
@@ -87,7 +96,129 @@ where
             unit,
             semantic_context,
             context,
+            source_snapshot: None,
+            recursive_results: None,
+            static_dependencies: None,
+            unwind: None,
+            trusted_contracts: None,
+            result_dependencies: None,
         }
+    }
+
+    /// Supplies the exact preparsed source snapshot owned by this unit's declaration fragment.
+    pub fn with_source_snapshot(mut self, source: &'view bray_source::SourceSnapshot) -> Self {
+        assert_eq!(
+            source.source_id(),
+            self.unit.key().source().syntax().source_id(),
+            "unit source identity must match its snapshot"
+        );
+
+        assert_eq!(
+            source.version(),
+            self.unit.key().source().source_version(),
+            "unit source version must match its snapshot"
+        );
+
+        self.source_snapshot = Some(source);
+
+        self
+    }
+
+    /// Supplies component approximations and already resolved callee summaries.
+    /// Every component member has an entry before inference starts. Witness specialization
+    /// may select additional external declarations whose summaries remain normal queries.
+    pub fn with_result_dependencies(
+        mut self,
+        dependencies: &'view BTreeMap<
+            bray_symbols::AnySymbolId,
+            bray_symbols::DependencyContractTemplateId,
+        >,
+        recursive: &'view std::collections::BTreeSet<CallableSymbolId>,
+    ) -> Self {
+        self.result_dependencies = Some(dependencies);
+        self.recursive_results = Some(recursive);
+
+        self
+    }
+
+    /// Supplies established product/thread identities for selected static references.
+    pub fn with_static_dependencies(
+        mut self,
+        roots: &'view BTreeMap<bray_symbols::StaticSymbolId, bray_symbols::DependencySubjectRoot>,
+    ) -> Self {
+        self.static_dependencies = Some(roots);
+
+        self
+    }
+
+    pub(crate) fn static_dependencies(
+        self,
+    ) -> &'view BTreeMap<bray_symbols::StaticSymbolId, bray_symbols::DependencySubjectRoot> {
+        self.static_dependencies
+            .expect("selected static reference has prepared storage identities")
+    }
+
+    pub(crate) fn is_recursive_result(self, callable: CallableSymbolId) -> bool {
+        self.recursive_results
+            .is_some_and(|members| members.contains(&callable))
+    }
+
+    pub(crate) fn callable_result_dependencies(
+        self,
+        callable: CallableSymbolId,
+    ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, C::UpstreamError> {
+        self.result_dependencies
+            .and_then(|dependencies| dependencies.get(&callable.into_any()).copied())
+            .map_or_else(|| self.context.callable_result_dependencies(callable), Ok)
+    }
+
+    pub(crate) fn static_result_dependencies(
+        self,
+        declaration: bray_symbols::StaticSymbolId,
+    ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, C::UpstreamError> {
+        self.result_dependencies
+            .and_then(|dependencies| dependencies.get(&declaration.into()).copied())
+            .map_or_else(|| self.context.static_result_dependencies(declaration), Ok)
+    }
+
+    pub(crate) fn default_result_dependencies(
+        self,
+        provider: bray_bound_tree::DefaultValueProvider,
+    ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, C::UpstreamError> {
+        self.result_dependencies
+            .and_then(|dependencies| dependencies.get(&provider.symbol()).copied())
+            .map_or_else(|| self.context.default_result_dependencies(provider), Ok)
+    }
+
+    /// Supplies the owning analysis's checked unwind results.
+    pub fn with_unwind(mut self, unwind: &'view bray_bound_tree::CheckedUnwind) -> Self {
+        self.unwind = Some(unwind);
+
+        self
+    }
+
+    pub(crate) fn call_cannot_unwind(self, expression: BoundExpressionId) -> bool {
+        self.unwind
+            .is_some_and(|unwind| unwind.call_cannot_unwind(expression))
+    }
+
+    pub(crate) fn target_cannot_unwind(self, target: bray_bound_tree::BoundCallableTarget) -> bool {
+        self.unwind
+            .is_some_and(|unwind| unwind.target_cannot_unwind(target))
+    }
+
+    /// Supplies normalized trusted predicate contracts for body checking.
+    pub const fn with_trusted_contracts(
+        mut self,
+        contracts: &'view crate::TrustedContractInputs,
+    ) -> Self {
+        self.trusted_contracts = Some(contracts);
+
+        self
+    }
+
+    pub(crate) const fn trusted_contracts(self) -> Option<&'view crate::TrustedContractInputs> {
+        self.trusted_contracts
     }
 
     pub(crate) fn anonymous_callable_unit(self, call: BoundExpressionId) -> Option<BoundUnitKey> {
@@ -321,11 +452,11 @@ where
             terms.insert(occurrence.key(), *result.value());
         }
 
-        let checked = crate::CheckedConstantTerms::try_from_terms(terms).map_err(|error| {
-            crate::CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::CheckedConstantTerms(error),
+        let checked = crate::CheckedConstantTerms::try_from_terms(terms).unwrap_or_else(|error| {
+            panic!(
+                "checked_constant_terms must satisfy its checked construction contract: {error:?}"
             )
-        })?;
+        });
 
         Ok(bray_diagnostics::DiagnosticResult::new(
             checked,
@@ -334,18 +465,48 @@ where
     }
 
     /// Resolves a bound source anchor without exposing its source snapshot.
-    pub fn source(
-        self,
-        anchor: bray_bound_tree::BoundSourceAnchor,
-    ) -> Result<CheckerSource<'view>, CheckerInfrastructureError> {
+    pub fn source(self, anchor: bray_bound_tree::BoundSourceAnchor) -> CheckerSource<'view> {
+        if let Some(source) = self.source_snapshot {
+            let syntax = anchor.syntax();
+
+            assert_eq!(
+                source.source_id(),
+                syntax.source_id(),
+                "fragment expression source must match its unit"
+            );
+
+            let span = bray_source::SourceSpan::new(syntax.source_id(), syntax.full_range());
+
+            let text = syntax
+                .full_range()
+                .slice_str(source.text())
+                .expect("bound fragment range must lie within its supplied snapshot");
+
+            return CheckerSource::new(span, text);
+        }
+
         self.context.source(anchor)
     }
 
     /// Resolves one declaration syntax anchor from the current compilation snapshot.
-    pub fn source_syntax(
-        self,
-        anchor: bray_declarations::SyntaxAnchor,
-    ) -> Result<CheckerSource<'view>, CheckerInfrastructureError> {
+    pub fn source_syntax(self, anchor: bray_declarations::SyntaxAnchor) -> CheckerSource<'view> {
+        if let Some(source) = self.source_snapshot {
+            assert_eq!(
+                source.source_id(),
+                anchor.source_id(),
+                "fragment syntax source must match its unit"
+            );
+
+            let span = bray_source::SourceSpan::new(anchor.source_id(), anchor.full_range());
+
+            let text = anchor
+                .full_range()
+                .slice_str(source.text())
+                .expect("fragment syntax range must lie within its supplied snapshot");
+
+            return CheckerSource::new(span, text);
+        }
+
         self.context.source_syntax(anchor)
     }
 

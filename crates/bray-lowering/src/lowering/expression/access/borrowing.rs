@@ -154,6 +154,12 @@ impl Lowerer<'_> {
             access,
             current,
             |lowerer, current, place| {
+                assert_eq!(
+                    decision.status(),
+                    bray_bound_tree::StorageOperationStatus::Valid,
+                    "executed borrow must be reachable: {access_expression:?}"
+                );
+
                 let mut projections = place.projections().to_vec();
 
                 let place_type =

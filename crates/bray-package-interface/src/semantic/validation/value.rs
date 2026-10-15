@@ -78,6 +78,62 @@ impl InterfaceSemantics {
                 ));
             }
 
+            if let Some(input) = contract.returned_input {
+                validate_index(input.to_index(), self.constant_terms.len())?;
+            }
+
+            for carrier in &*contract.carriers {
+                validate_index(carrier.guarantee().to_index(), self.constant_terms.len())?;
+
+                self.validate_dependency_projections(
+                    carrier.path(),
+                    symbol_count,
+                    dependency_count,
+                )?;
+            }
+
+            for relation in &*contract.borrows {
+                self.validate_dependency_subject(relation.entry(), symbol_count, dependency_count)?;
+                self.validate_dependency_subject(relation.exit(), symbol_count, dependency_count)?;
+
+                self.validate_dependency_projections(
+                    relation.target_projections(),
+                    symbol_count,
+                    dependency_count,
+                )?;
+            }
+
+            for effect in &*contract.effects {
+                use bray_symbols::DependencyStorageEffect;
+
+                match effect {
+                    DependencyStorageEffect::Atomic | DependencyStorageEffect::Unknown => {}
+                    DependencyStorageEffect::Cleanup(ty) => {
+                        validate_index(ty.to_index(), self.types.len())?
+                    }
+                    DependencyStorageEffect::Direct { subject, .. } => {
+                        self.validate_dependency_subject(subject, symbol_count, dependency_count)?
+                    }
+                    DependencyStorageEffect::Indirect {
+                        reference,
+                        projections,
+                        ..
+                    } => {
+                        self.validate_dependency_subject(
+                            reference,
+                            symbol_count,
+                            dependency_count,
+                        )?;
+
+                        self.validate_dependency_projections(
+                            projections,
+                            symbol_count,
+                            dependency_count,
+                        )?;
+                    }
+                }
+            }
+
             for requirement in &*contract.requirements {
                 self.validate_dependency_requirement(
                     requirement,
@@ -270,6 +326,10 @@ impl InterfaceSemantics {
                 validate_index(operand.to_index(), self.constant_terms.len())?;
                 validate_index(target.to_index(), self.types.len())?;
             }
+            InterfaceConstantTerm::VariantTest { subject, variant } => {
+                validate_index(subject.to_index(), self.constant_terms.len())?;
+                validate_symbol(variant, symbol_count, dependency_count)?;
+            }
             InterfaceConstantTerm::NullablePresent(value) => {
                 validate_index(value.to_index(), self.constant_terms.len())?;
             }
@@ -360,6 +420,7 @@ impl InterfaceSemantics {
                 validate_symbol(symbol, symbol_count, dependency_count)?;
             }
             InterfaceConstantProjection::TupleElement(_)
+            | InterfaceConstantProjection::ArrayElementOrdinal(_)
             | InterfaceConstantProjection::NullableValue => {}
         }
 
@@ -489,7 +550,22 @@ impl InterfaceSemantics {
             validate_index(id.to_index(), self.implementation_instances.len())?;
         }
 
-        for projection in &*subject.projections {
+        if let InterfaceDependencySubjectRoot::ProductStatic(symbol)
+        | InterfaceDependencySubjectRoot::ExactThreadStatic(symbol) = &subject.root
+        {
+            validate_symbol(symbol, symbol_count, dependency_count)?;
+        }
+
+        self.validate_dependency_projections(&subject.projections, symbol_count, dependency_count)
+    }
+
+    fn validate_dependency_projections(
+        &self,
+        projections: &[InterfaceDependencyProjection],
+        symbol_count: usize,
+        dependency_count: usize,
+    ) -> Result<(), InterfaceValidationError> {
+        for projection in projections {
             match projection {
                 InterfaceDependencyProjection::ProductField(symbol)
                 | InterfaceDependencyProjection::UnionPayloadField(symbol) => {
@@ -500,7 +576,8 @@ impl InterfaceSemantics {
                 }
                 InterfaceDependencyProjection::TupleElement(_)
                 | InterfaceDependencyProjection::NullableValue
-                | InterfaceDependencyProjection::OwnedTarget => {}
+                | InterfaceDependencyProjection::OwnedTarget
+                | InterfaceDependencyProjection::UninitPayload => {}
             }
         }
 

@@ -162,7 +162,7 @@ fn has_capability(capabilities: &[RuntimeCapability], capability: RuntimeCapabil
 
 #[cfg(test)]
 mod tests {
-    use bray_platform::RuntimeThreadScope;
+    use crate::bootstrap::RuntimeThreadScope;
 
     use super::{
         ExecutionLanePlacement, ExecutionLaneSelectionError, ExecutionWorkload,
@@ -172,6 +172,8 @@ mod tests {
 
     #[test]
     fn lane_selection_preserves_workload_and_affinity_requirements() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let main = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("main runtime thread must initialize: {error:?}"));
 
@@ -217,6 +219,8 @@ mod tests {
 
     #[test]
     fn incompatible_or_unavailable_lanes_are_rejected() {
+        let _isolation = crate::native::test_runtime_isolation();
+
         let main = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("main runtime thread must initialize: {error:?}"));
 

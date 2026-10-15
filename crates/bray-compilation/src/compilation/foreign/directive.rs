@@ -375,13 +375,13 @@ fn directive_integer_argument(
     let usize_type = named_type(
         compilation.semantic_value_store()?,
         NamedTypeSymbolId::Struct(usize_type),
-    )?;
+    );
 
     let expression = argument.expression();
 
     let occurrence = ConstantExpressionOccurrence::new(
         ConstantExpressionOccurrenceKey::new(expression.owner(), expression.syntax()),
-        ConstantExpressionExpectedType::Resolved(usize_type),
+        ConstantExpressionExpectedType::Resolved(usize_type?),
     );
 
     let value = compilation.embedded_constant_value_with_cancellation(occurrence, cancellation)?;
@@ -456,13 +456,13 @@ fn directive_string_argument(
     let string_type = named_type(
         compilation.semantic_value_store()?,
         NamedTypeSymbolId::Struct(string),
-    )?;
+    );
 
     let expression = argument.expression();
 
     let occurrence = ConstantExpressionOccurrence::new(
         ConstantExpressionOccurrenceKey::new(expression.owner(), expression.syntax()),
-        ConstantExpressionExpectedType::Resolved(string_type),
+        ConstantExpressionExpectedType::Resolved(string_type?),
     );
 
     let value = compilation.embedded_constant_value_with_cancellation(occurrence, cancellation)?;

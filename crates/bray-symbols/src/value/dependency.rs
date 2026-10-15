@@ -1,3 +1,4 @@
+use crate::DependencyStorageEffect;
 use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
@@ -45,6 +46,8 @@ pub enum DependencyProjection {
     UnionPayloadField(UnionPayloadFieldSymbolId),
     /// The target owned through an indirection layer.
     OwnedTarget,
+    /// Inline protected storage. This projection establishes neither initialization nor access authority.
+    UninitPayload,
 }
 
 /// A formal root plus its ordered source-independent projection path.
@@ -279,18 +282,233 @@ impl DependencyRequirement {
     }
 }
 
+/// The representation of a checked reference at normal completion.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DependencyReferenceKind {
+    /// A language borrow that observes its referent.
+    Borrow,
+    /// A raw address whose value does not itself observe its referent.
+    Address,
+}
+
+/// Proven identity of borrowed storage across one callable's normal completion.
+/// The exit subject, when initialized, refers to the entry subject's original storage.
+/// This relation grants no storage, initialization, or acquisition authority.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DependencyBorrowRelation<Subject = DependencySubject, Projection = DependencyProjection>
+{
+    entry: Subject,
+    exit: Subject,
+    kind: DependencyReferenceKind,
+    target_projections: Arc<[Projection]>,
+    dereferences: u32,
+}
+
+impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
+    /// Connects a normal-exit borrow to its proven entry storage.
+    pub fn new(entry: Subject, exit: Subject, kind: DependencyReferenceKind) -> Self {
+        Self {
+            entry,
+            exit,
+            kind,
+            target_projections: Arc::from([]),
+            dereferences: 0,
+        }
+    }
+
+    /// Selects additional nested borrow layers before reading the entry reference.
+    pub fn with_dereferences(mut self, count: u32) -> Self {
+        self.dereferences = count;
+
+        self
+    }
+
+    /// Additional borrow layers beyond the reference selected by the entry subject.
+    pub const fn dereferences(&self) -> u32 {
+        self.dereferences
+    }
+
+    /// Projects the reached storage without reading a reference value stored in the selected field.
+    pub fn with_target_projections(
+        mut self,
+        projections: impl IntoIterator<Item = Projection>,
+    ) -> Self {
+        self.target_projections = shared_slice(projections);
+
+        self
+    }
+
+    /// Returns the address path relative to the entry reference's target.
+    pub fn target_projections(&self) -> &[Projection] {
+        &self.target_projections
+    }
+
+    /// Returns the reference representation established by dependency inference.
+    pub const fn kind(&self) -> DependencyReferenceKind {
+        self.kind
+    }
+
+    /// Returns the storage observed at invocation entry.
+    pub const fn entry(&self) -> &Subject {
+        &self.entry
+    }
+
+    /// Returns the borrow observed after normal completion.
+    pub const fn exit(&self) -> &Subject {
+        &self.exit
+    }
+}
+
+/// A checked trusted condition carried by a complete returned owner.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DependencyWitnessCarrier<Projection = DependencyProjection, Condition = ConstantTermId> {
+    guarantee: Condition,
+    path: Arc<[Projection]>,
+}
+
+impl<Projection, Condition: Copy> DependencyWitnessCarrier<Projection, Condition> {
+    /// Records a checked carrier path relative to the complete returned value.
+    pub fn new(guarantee: Condition, path: impl IntoIterator<Item = Projection>) -> Self {
+        Self {
+            guarantee,
+            path: path.into_iter().collect(),
+        }
+    }
+
+    /// Returns the portable condition independently supported by this owner.
+    pub const fn guarantee(&self) -> Condition {
+        self.guarantee
+    }
+
+    /// Returns the complete carrier's owned path within the result.
+    pub fn path(&self) -> &[Projection] {
+        &self.path
+    }
+}
+
 /// A normalized source-independent dependency-contract template.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DependencyContractTemplateData {
     requirements: Arc<[DependencyRequirement]>,
+    borrows: Arc<[DependencyBorrowRelation]>,
+    returned_input: Option<ConstantTermId>,
+    carriers: Arc<[DependencyWitnessCarrier]>,
+    effects: Arc<[super::DependencyStorageEffect]>,
+    normal_completion: bool,
 }
 
 impl DependencyContractTemplateData {
+    /// Records an unchanged owned input returned as the complete result on every normal exit.
+    /// Normal completion must have no observable storage mutation or cleanup effects.
+    /// The term contains only a formal input and owned projections, never an equality or dereference.
+    pub fn with_returned_input(mut self, input: Option<ConstantTermId>) -> Self {
+        self.returned_input = input;
+
+        self
+    }
+
+    /// Returns the checked whole-value transport, without introducing trusted guarantees.
+    pub const fn returned_input(&self) -> Option<ConstantTermId> {
+        self.returned_input
+    }
+
+    /// Enumerates formal reference paths required by exact relations and mutation effects.
+    pub fn reference_subjects(&self) -> impl Iterator<Item = &DependencySubject> {
+        self.borrows()
+            .iter()
+            .flat_map(|relation| [relation.entry(), relation.exit()])
+            .chain(self.effects().iter().filter_map(|effect| match effect {
+                DependencyStorageEffect::Atomic
+                | DependencyStorageEffect::Unknown
+                | DependencyStorageEffect::Cleanup(_) => None,
+                DependencyStorageEffect::Direct { subject, .. } => Some(subject),
+                DependencyStorageEffect::Indirect { reference, .. } => Some(reference),
+            }))
+    }
+
     /// Creates a template after deterministic sorting and deduplication.
     pub fn new(requirements: impl IntoIterator<Item = DependencyRequirement>) -> Self {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
+            borrows: Arc::new([]),
+            returned_input: None,
+            carriers: Arc::new([]),
+            effects: Arc::new([super::DependencyStorageEffect::Unknown]),
+            normal_completion: true,
         }
+    }
+
+    /// Replaces requirements while retaining the checked reference, effect and completion summary.
+    pub fn with_requirements(
+        &self,
+        requirements: impl IntoIterator<Item = DependencyRequirement>,
+    ) -> Self {
+        Self {
+            requirements: sorted_unique_shared_slice(requirements),
+            // Transformations own a new contract while retaining the immutable checked summary.
+            borrows: Arc::clone(&self.borrows),
+            returned_input: self.returned_input,
+            carriers: Arc::clone(&self.carriers),
+            effects: Arc::clone(&self.effects),
+            normal_completion: self.normal_completion,
+        }
+    }
+
+    /// Attaches complete carrier paths proved by the owning body analysis.
+    pub fn with_carriers(
+        mut self,
+        carriers: impl IntoIterator<Item = DependencyWitnessCarrier>,
+    ) -> Self {
+        self.carriers = sorted_unique_shared_slice(carriers);
+
+        self
+    }
+
+    /// Returns the proven returned carriers of declared trusted guarantees.
+    pub fn carriers(&self) -> &[DependencyWitnessCarrier] {
+        &self.carriers
+    }
+
+    /// Records whether the checked body can produce a normal result.
+    pub fn with_normal_completion(mut self, possible: bool) -> Self {
+        self.normal_completion = possible;
+
+        self
+    }
+
+    /// False proves that execution has no normal result. Unknown callees default to true.
+    pub const fn normal_completion(&self) -> bool {
+        self.normal_completion
+    }
+
+    /// Attaches checked entry-to-exit borrow identities in deterministic order.
+    pub fn with_borrows(
+        mut self,
+        borrows: impl IntoIterator<Item = DependencyBorrowRelation>,
+    ) -> Self {
+        self.borrows = sorted_unique_shared_slice(borrows);
+
+        self
+    }
+
+    /// Returns proven borrow identities, distinct from required lifetime conditions.
+    pub fn borrows(&self) -> &[DependencyBorrowRelation] {
+        &self.borrows
+    }
+
+    /// Attaches the complete may-mutation summary proved by the owning body analysis.
+    pub fn with_effects(
+        mut self,
+        effects: impl IntoIterator<Item = super::DependencyStorageEffect>,
+    ) -> Self {
+        self.effects = super::DependencyStorageEffect::normalize(effects);
+
+        self
+    }
+
+    /// Returns possible mutations. An empty slice proves storage is unchanged.
+    pub fn effects(&self) -> &[super::DependencyStorageEffect] {
+        &self.effects
     }
 
     /// Returns the normalized requirements.
@@ -320,5 +538,34 @@ mod tests {
             DependencyContractTemplateData::new([requirement.clone(), requirement.clone()]);
 
         assert_eq!(template.requirements(), &[requirement]);
+    }
+    #[test]
+    fn replacing_requirements_retains_the_checked_summary() {
+        let subject = DependencySubject::root(DependencySubjectRoot::Receiver);
+
+        let relation = crate::DependencyBorrowRelation::new(
+            subject.clone(),
+            DependencySubject::root(DependencySubjectRoot::Result),
+            crate::DependencyReferenceKind::Borrow,
+        );
+
+        let template = DependencyContractTemplateData::new([])
+            .with_borrows([relation])
+            .with_effects([crate::DependencyStorageEffect::Direct {
+                subject: subject.clone(),
+                kind: crate::DependencyMutationKind::Write,
+            }])
+            .with_normal_completion(false);
+
+        let requirement =
+            DependencyRequirement::direct(subject, DependencyRequirementKind::StorageAlive);
+
+        let changed = template.with_requirements([requirement.clone(), requirement.clone()]);
+
+        assert_eq!(changed.requirements(), &[requirement]);
+        assert_eq!(changed.borrows(), template.borrows());
+        assert_eq!(changed.effects(), template.effects());
+        assert!(!changed.normal_completion());
+        assert!(template.requirements().is_empty());
     }
 }

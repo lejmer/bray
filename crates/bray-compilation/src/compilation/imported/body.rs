@@ -168,7 +168,9 @@ impl super::super::Compilation {
             return Ok(DiagnosticResult::new(None, artifact.diagnostics().clone()));
         };
 
-        if let Some(key) = artifact.executable_template_key(symbol.symbol(), owner, address.template()) {
+        if let Some(key) =
+            artifact.executable_template_key(symbol.symbol(), owner, address.template())
+        {
             return Ok(DiagnosticResult::without_diagnostics(Some(key)));
         }
 
@@ -176,7 +178,10 @@ impl super::super::Compilation {
             .dependency_interface_input(symbol.interface())
             .expect("imported executable identity must have a dependency input");
 
-        Ok(DiagnosticResult::new(None, executable_template_diagnostics(input)))
+        Ok(DiagnosticResult::new(
+            None,
+            executable_template_diagnostics(input),
+        ))
     }
 
     pub(in crate::compilation) fn imported_executable_template_with_cancellation(

@@ -412,16 +412,6 @@ pub(crate) enum ProductQueryFailure {
         /// The rejected declaration key.
         key: String,
     },
-    /// A recognized standard-library declaration key literal is invalid.
-    InvalidRecognizedStandardLibraryDeclarationKey {
-        /// The rejected declaration key.
-        key: String,
-    },
-    /// A package identity literal is invalid.
-    InvalidPackageIdentity {
-        /// The rejected package identity.
-        identity: String,
-    },
     /// An executable entry produced a result shape unsupported by the selected host contract.
     UnexpectedEntryResult {
         /// The unsupported entry result shape.
@@ -614,9 +604,7 @@ impl ProductQueryFailure {
             | Self::InvalidCodegenSourceFile { .. }
             | Self::SourceIndex { .. }
             | Self::ExternalSymbolIdentity { .. }
-            | Self::InvalidCompilerKnownDeclarationKey { .. }
-            | Self::InvalidRecognizedStandardLibraryDeclarationKey { .. }
-            | Self::InvalidPackageIdentity { .. } => ProductQueryErrorKind::Identity,
+            | Self::InvalidCompilerKnownDeclarationKey { .. } => ProductQueryErrorKind::Identity,
             Self::UnexpectedKind { .. }
             | Self::CountMismatch { .. }
             | Self::Conflict { .. }

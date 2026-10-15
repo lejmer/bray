@@ -209,7 +209,9 @@ fn static_initializer_behavior(
         let dependency_contract = context
             .semantic_values()
             .empty_dependency_contract_template()
-            .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+            .unwrap_or_else(|error| {
+                panic!("semantic_value_binding_error in static_initializer_behavior: {error:?}")
+            });
 
         return Ok((
             source_duration,
@@ -230,7 +232,9 @@ fn static_initializer_behavior(
         let dependency_contract = context
             .semantic_values()
             .empty_dependency_contract_template()
-            .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+            .unwrap_or_else(|error| {
+                panic!("semantic_value_binding_error in static_initializer_behavior: {error:?}")
+            });
 
         return Ok((
             duration,
@@ -289,7 +293,11 @@ fn static_initializer_behavior(
 
         let dependency_contract = extend_dependency_contract_with_statics(
             context,
-            checked.dependency_contract,
+            with_initializer_carriers(
+                context,
+                checked.dependency_contract,
+                checked.result_dependencies,
+            ),
             behavior.result().value().static_dependencies(),
         )?;
 
@@ -368,7 +376,11 @@ fn static_initializer_behavior(
 
     Ok((
         duration,
-        template.behavior().dependency_contract(),
+        with_initializer_carriers(
+            context,
+            template.behavior().dependency_contract(),
+            template.behavior().result_dependencies(),
+        ),
         template.behavior().lifecycle_obligations().to_vec(),
         template
             .behavior()
@@ -563,6 +575,26 @@ fn static_source_diagnostic(key: &BoundUnitKey, kind: DiagnosticKind) -> Diagnos
         DiagnosticLabelKind::InvalidConstantExpression,
         span,
     ))
+}
+
+fn with_initializer_carriers(
+    context: &CompilationBindingContext<'_>,
+    dependency: bray_symbols::DependencyContractTemplateId,
+    result: bray_symbols::DependencyContractTemplateId,
+) -> bray_symbols::DependencyContractTemplateId {
+    let values = context.semantic_values();
+    let dependency = values.dependency_contract_template_data(dependency);
+    let result = values.dependency_contract_template_data(result);
+
+    // The static template owns the initialization requirements and returned authority together.
+    values
+        .intern_dependency_contract_template(
+            dependency
+                .as_ref()
+                .clone()
+                .with_carriers(result.carriers().iter().cloned()),
+        )
+        .expect("checked static initializer summaries belong to the same semantic store")
 }
 
 #[cfg(test)]
@@ -1280,13 +1312,15 @@ mod tests {
 
     #[test]
     fn static_lifecycle_dependencies_through_helpers_report_cycles() {
-        let compilation = compilation(
-            r#"
-            module app;
+        for witness in ["", "let evidence = issue();"] {
+            let source = r#"
+            trusted module app;
+            trusted predicate valid(value: &bool);
+            trusted func issue() -> bool ensures(trusted valid(&result)) { return true; }
             static First: FirstResource = FirstResource {};
             static Second: SecondResource = SecondResource {};
-            func read_first() { let value = First; value; }
-            func read_second() { let value = Second; value; }
+            func read_first() { WITNESS let value = First; value; }
+            func read_second() { WITNESS let value = Second; value; }
             struct FirstResource {}
             impl FirstResource
             {
@@ -1297,22 +1331,24 @@ mod tests {
             {
                 finalize() { read_first(); }
             }
-            "#,
-        );
+            "#;
 
-        assert_eq!(
-            diagnostics_of_kind(
+            let compilation = compilation(&source.replace("WITNESS", witness));
+
+            assert_eq!(
+                diagnostics_of_kind(
+                    compilation.check_diagnostics(),
+                    DiagnosticKind::CheckingStaticLifecycleCycle,
+                )
+                .len(),
+                2
+            );
+
+            assert_goal_state_diagnostic_kind(
                 compilation.check_diagnostics(),
                 DiagnosticKind::CheckingStaticLifecycleCycle,
-            )
-            .len(),
-            2
-        );
-
-        assert_goal_state_diagnostic_kind(
-            compilation.check_diagnostics(),
-            DiagnosticKind::CheckingStaticLifecycleCycle,
-        );
+            );
+        }
     }
 
     #[test]

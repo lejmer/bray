@@ -5,7 +5,7 @@ use bray_symbols::{AnySymbolId, NamedTypeSymbolId, TypeId};
 
 use super::super::super::Compilation;
 use super::super::super::binder::CompilationBindingContext;
-use super::super::model::OperationResolution;
+use super::super::model::SemanticResolution;
 use super::super::query::{construction_operands, operation_contract_failure};
 use crate::compilation::operation::OperationSubject;
 use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
@@ -20,7 +20,7 @@ impl Compilation {
         types: &bray_bound_tree::CheckedExpressionTypes,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<OperationResolution>, FactQueryError> {
+    ) -> Result<Option<SemanticResolution>, FactQueryError> {
         let expression = unit.view().expression(key.expression()).ok_or_else(|| {
             operation_contract_failure(
                 key,
@@ -95,7 +95,7 @@ impl Compilation {
         };
 
         if candidate.is_none() && matches!(expression, BoundExpression::UnqualifiedVariant(_)) {
-            return Ok(Some(OperationResolution::new(
+            return Ok(Some(SemanticResolution::new(
                 key.expression(),
                 result_type,
                 [],
@@ -115,7 +115,7 @@ impl Compilation {
         )?;
 
         Ok(Some(selected.unwrap_or_else(|| {
-            OperationResolution::new(key.expression(), result_type, [], None)
+            SemanticResolution::new(key.expression(), result_type, [], None)
         })))
     }
 

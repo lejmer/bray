@@ -369,3 +369,441 @@ fn same_named_source_callables_are_not_memory_operations() {
     assert!(operations.value().operations().is_empty());
     assert!(operations.diagnostics().is_empty());
 }
+
+#[test]
+fn call_results_transfer_raw_state_only_from_checked_reference_inputs() {
+    for (result, initialized) in [
+        ("pointer", true),
+        ("other", false),
+        ("core.memory.null<u8>()", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            func forward(pos other: RawPointer<u8>, pos pointer: RawPointer<u8>) -> RawPointer<u8>
+            {{
+                return {result};
+            }}
+            trusted func main() -> u8 uses(manual_alloc, raw_memory, unchecked_init)
+            {{
+                let pointer = trusted core.memory.allocate(bytes = 1, align = 1);
+                trusted core.memory.write<u8>(pointer, 1);
+                let returned = forward(core.memory.null<u8>(), pointer);
+                return trusted core.memory.read<u8>(returned);
+            }}
+        "#
+        );
+
+        let compilation = compilation_with_target_operations(&source, true, true);
+
+        let forwarding = compilation
+            .storage_flow(crate::test_support::source_function_body_key(
+                &compilation,
+                "forward",
+            ))
+            .unwrap();
+
+        assert!(
+            forwarding.value().dependencies().effects().is_empty(),
+            "forwarding performs no caller-storage mutation: {:?}",
+            forwarding.value().dependencies().effects()
+        );
+
+        let flow = compilation
+            .storage_flow(crate::test_support::source_function_body_key(
+                &compilation,
+                "main",
+            ))
+            .unwrap_or_else(|error| panic!("returned pointer flow must publish: {error:?}"));
+
+        assert_eq!(
+            flow.diagnostics()
+                .by_kind(DiagnosticKind::CheckingUninitializedRawStorage)
+                .next()
+                .is_none(),
+            initialized,
+            "result {result}: {:?}",
+            flow.diagnostics()
+        );
+
+        let read = flow
+            .value()
+            .memory_operations()
+            .last()
+            .expect("read decision must publish");
+
+        assert_eq!(
+            read.status(),
+            if initialized {
+                bray_bound_tree::MemoryOperationStatus::Valid
+            } else {
+                bray_bound_tree::MemoryOperationStatus::UninitializedRawStorage
+            }
+        );
+    }
+}
+#[test]
+fn checked_writes_preserve_unrelated_raw_initialization() {
+    for target in ["left", "right"] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Cell {{ mut value: u8; }}
+            func rewrite(pos cell: &mut Cell) {{ cell.value = 2; }}
+            trusted func main() -> u8 uses(raw_memory, unchecked_init) {{
+                let mut left: Cell = {{ value = 1 }};
+                let mut right: Cell = {{ value = 1 }};
+                let pointer = core.memory.address_of_mut(&mut left.value);
+                rewrite(&mut {target});
+                return trusted core.memory.read<u8>(pointer);
+            }}
+        "#
+        );
+
+        let compilation = compilation_with_target_operations(&source, true, true);
+        let key = crate::test_support::source_function_body_key(&compilation, "main");
+        let flow = compilation.storage_flow(key).unwrap();
+        let status = flow.value().memory_operations().last().unwrap().status();
+
+        assert_eq!(
+            status,
+            bray_bound_tree::MemoryOperationStatus::Valid,
+            "{target}: {:?}",
+            flow.diagnostics()
+        );
+    }
+}
+
+#[test]
+fn raw_memory_aliases_share_consumption_and_retirement() {
+    use bray_bound_tree::MemoryOperationStatus;
+
+    for (body, expected) in [
+        (
+            r#"
+            let pointer = trusted core.memory.allocate(bytes = 1, align = 1);
+            let alias = pointer;
+            trusted core.memory.deallocate(pointer = alias, bytes = 1, align = 1);
+            trusted core.memory.write<u8>(pointer, 1);
+        "#,
+            MemoryOperationStatus::InvalidatedAllocation,
+        ),
+        (
+            r#"
+            let allocated = trusted core.memory.allocate(bytes = 1, align = 1);
+            let pointer = trusted core.memory.reinterpret<Payload, u8>(allocated);
+            let alias = pointer;
+            trusted core.memory.write<Payload>(pointer, { value = 1 });
+            let first = trusted core.memory.read<Payload>(alias);
+            let second = trusted core.memory.read<Payload>(pointer);
+        "#,
+            MemoryOperationStatus::UninitializedRawStorage,
+        ),
+        (
+            r#"
+            let mut pointer = trusted core.memory.allocate(bytes = 1, align = 1);
+            let alias = pointer;
+            trusted core.memory.write<u8>(pointer, 1);
+            pointer = core.memory.null<u8>();
+            let value = trusted core.memory.read<u8>(alias);
+        "#,
+            MemoryOperationStatus::Valid,
+        ),
+        (
+            r#"
+            let pointer = trusted core.memory.allocate(bytes = 2, align = 1);
+            let alias = core.memory.offset<u8>(pointer, elements = 1);
+            trusted core.memory.deallocate(pointer = pointer, bytes = 2, align = 1);
+            trusted core.memory.write<u8>(alias, 1);
+        "#,
+            MemoryOperationStatus::InvalidatedAllocation,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Payload {{ value: u8; }}
+            trusted func main() uses(manual_alloc, raw_memory, unchecked_init, layout_reinterpret)
+            {{
+                {body}
+            }}
+        "#
+        );
+
+        let compilation = compilation_with_target_operations(&source, true, true);
+
+        let flow = compilation
+            .storage_flow(crate::test_support::source_function_body_key(
+                &compilation,
+                "main",
+            ))
+            .expect("source alias flow must publish");
+
+        let decision = flow
+            .value()
+            .memory_operations()
+            .last()
+            .expect("last memory operation must publish");
+
+        assert_eq!(
+            decision.status(),
+            expected,
+            "{body}: {:?}",
+            flow.diagnostics()
+        );
+    }
+}
+
+#[test]
+fn conditional_raw_initialization_retains_the_possible_cleanup_obligation() {
+    let source = r#"
+        trusted module app;
+        trusted func main(pos initialize: bool) uses(manual_alloc, raw_memory, unchecked_init)
+        {
+            let pointer = trusted core.memory.allocate(bytes = 1, align = 1);
+            if initialize
+            {
+                trusted core.memory.write<u8>(pointer, 1);
+            }
+            trusted core.memory.deallocate(pointer = pointer, bytes = 1, align = 1);
+        }
+    "#;
+
+    let compilation = compilation_with_target_operations(source, true, true);
+
+    let flow = compilation
+        .storage_flow(source_callable_body_key(&compilation))
+        .expect("conditional initialization flow must publish");
+
+    assert_eq!(
+        flow.value()
+            .memory_operations()
+            .last()
+            .expect("deallocation decision")
+            .status(),
+        bray_bound_tree::MemoryOperationStatus::OutstandingObligations
+    );
+
+    let diagnostic = flow
+        .diagnostics()
+        .by_kind(DiagnosticKind::CheckingDeallocationWithOutstandingObligations)
+        .next()
+        .expect("possible value requires cleanup");
+
+    assert!(
+        diagnostic
+            .related_locations()
+            .iter()
+            .any(|location| location.kind() == DiagnosticRelatedLocationKind::InitializationOrigin)
+    );
+}
+
+#[test]
+fn ordinary_ownership_observes_raw_target_transitions() {
+    for (body, moved) in [
+        (
+            r#"
+            let mut payload: Payload = { value = 1 };
+            let pointer = core.memory.address_of_mut(&mut payload);
+            let first = trusted core.memory.read<Payload>(pointer);
+            let byte = trusted core.memory.reinterpret<u8, Payload>(pointer);
+            trusted core.memory.write<u8>(byte, 2);
+            let second = payload;
+        "#,
+            true,
+        ),
+        (
+            r#"
+            let mut payload: Payload = { value = 1 };
+            let pointer = core.memory.address_of_mut(&mut payload);
+            let alias = pointer;
+            let first = trusted core.memory.read<Payload>(alias);
+            let second = payload;
+        "#,
+            true,
+        ),
+        (
+            r#"
+            let mut payload: Payload = { value = 1 };
+            let pointer = core.memory.address_of_mut(&mut payload);
+            let first = trusted core.memory.read<Payload>(pointer);
+            trusted core.memory.write<Payload>(pointer, { value = 2 });
+            let second = payload;
+        "#,
+            false,
+        ),
+        (
+            r#"
+            let mut pair: Pair = { left = { value = 1 }, right = { value = 2 } };
+            let pointer = core.memory.address_of_mut(&mut pair.left);
+            let first = trusted core.memory.read<Payload>(pointer);
+            let second = pair.right;
+        "#,
+            false,
+        ),
+        (
+            r#"
+            let mut pair: Pair = { left = { value = 1 }, right = { value = 2 } };
+            let pointer = core.memory.address_of_mut(&mut pair.left);
+            let first = trusted core.memory.read<Payload>(pointer);
+            let second = pair.left;
+        "#,
+            true,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Payload {{ value: u8; }}
+            struct Pair {{ mut left: Payload; mut right: Payload; }}
+            trusted func main() uses(raw_memory, unchecked_init, layout_reinterpret)
+            {{
+                {body}
+            }}
+        "#
+        );
+
+        let compilation = compilation_with_target_operations(&source, true, true);
+
+        let flow = compilation
+            .storage_flow(crate::test_support::source_function_body_key(
+                &compilation,
+                "main",
+            ))
+            .expect("mixed ordinary and raw ownership flow must publish");
+
+        if !moved {
+            assert!(
+                !flow.diagnostics().has_errors(),
+                "{body}: {:?}",
+                flow.diagnostics()
+            );
+        }
+
+        assert_eq!(
+            flow.diagnostics()
+                .by_kind(DiagnosticKind::CheckingUseOfMovedStorage)
+                .next()
+                .is_some(),
+            moved,
+            "{body}: {:?}",
+            flow.diagnostics()
+        );
+
+        assert!(
+            flow.value().memory_operations().iter().all(
+                |operation| operation.status() == bray_bound_tree::MemoryOperationStatus::Valid
+            ),
+            "raw operations must succeed before checking later ownership: {:?}",
+            flow.diagnostics()
+        );
+    }
+}
+
+#[test]
+fn raw_moves_through_stored_borrows_reach_the_original_fields() {
+    for (use_after_move, moved) in [("pair", true), ("pair.left", true), ("pair.right", false)] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Payload {{ value: u8; }}
+            struct Pair {{ mut left: Payload; mut right: Payload; }}
+            trusted func main() uses(raw_memory, unchecked_init)
+            {{
+                let mut pair: Pair = {{ left = {{ value = 1 }}, right = {{ value = 2 }} }};
+                let alias = &mut pair;
+                let pointer = core.memory.address_of_mut(&mut alias.left);
+                let first = trusted core.memory.read<Payload>(pointer);
+                let second = {use_after_move};
+            }}
+        "#
+        );
+
+        let compilation = compilation_with_target_operations(&source, true, true);
+
+        let flow = compilation
+            .storage_flow(crate::test_support::source_function_body_key(
+                &compilation,
+                "main",
+            ))
+            .expect("derived physical field flow must publish");
+
+        assert_eq!(
+            flow.diagnostics()
+                .by_kind(DiagnosticKind::CheckingUseOfMovedStorage)
+                .next()
+                .is_some(),
+            moved,
+            "{source}: {:?}",
+            flow.diagnostics()
+        );
+
+        if !moved {
+            assert!(
+                !flow.diagnostics().has_errors(),
+                "{source}: {:?}",
+                flow.diagnostics()
+            );
+        }
+
+        if use_after_move == "pair" {
+            let key = crate::test_support::source_function_body_key(&compilation, "main");
+
+            let storage = compilation
+                .storage_plan(key.clone())
+                .expect("derived target plan");
+
+            let refinements = compilation
+                .refinements(key)
+                .expect("derived target effects");
+
+            assert!(
+                refinements.value().invalidations().values().any(|effect| {
+                    matches!(effect, bray_bound_tree::StorageInvalidation::Observed { accesses, .. }
+                    if accesses.values().flatten().any(|path| path.access_id(storage.value()).is_none()))
+                }),
+                "a raw alias must project its target into observations without requiring a source access"
+            );
+        }
+
+        assert!(
+            flow.value().memory_operations().iter().all(
+                |operation| operation.status() == bray_bound_tree::MemoryOperationStatus::Valid
+            ),
+            "{:?}",
+            flow.diagnostics()
+        );
+    }
+}
+
+#[test]
+fn cleanup_without_external_mutation_preserves_raw_initialization() {
+    let compilation = compilation_with_target_operations(
+        r#"
+        trusted module app;
+        struct Guard { flag: bool; consume func destroy() {} }
+        trusted func main() -> u8 uses(raw_memory, unchecked_init) {
+            let mut value: u8 = 1;
+            let pointer = core.memory.address_of_mut(&mut value);
+            { let guard: Guard = { flag = false }; }
+            return trusted core.memory.read<u8>(pointer);
+        }
+    "#,
+        true,
+        true,
+    );
+
+    let flow = compilation
+        .storage_flow(crate::test_support::source_function_body_key(
+            &compilation,
+            "main",
+        ))
+        .unwrap();
+
+    assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
+
+    assert_eq!(
+        flow.value().memory_operations().last().unwrap().status(),
+        bray_bound_tree::MemoryOperationStatus::Valid
+    );
+}

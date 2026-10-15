@@ -1,11 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
 
-use bray_compiler_known::{RecognizedStandardLibraryDeclarationKey, RepresentationRole};
+use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirCleanupPhase, MirGeneratedLifecycleRole, MirHelperReference};
 use bray_symbols::{
     DeclaredStorageShape, GenericArgument, GenericSubstitutionId, NamedTypeSymbolId,
-    PackageIdentity, StructSymbolId, TypeAssociatedLifecycleSlot, TypeData, TypeId,
+    TypeAssociatedLifecycleSlot, TypeData, TypeId,
 };
 
 use super::super::{CodegenPreparationError, Compilation};
@@ -244,7 +243,7 @@ impl Compilation {
         }
 
         let raw_buffer = self
-            .imported_raw_buffer_element(definition, substitution, cancellation)?
+            .raw_buffer_element(definition, substitution, cancellation)?
             .is_some();
 
         let surface =
@@ -406,48 +405,19 @@ impl Compilation {
         Ok(needs)
     }
 
-    pub(super) fn imported_raw_buffer_element(
+    pub(super) fn raw_buffer_element(
         &self,
         definition: NamedTypeSymbolId,
         substitution: GenericSubstitutionId,
         cancellation: &CancellationToken,
     ) -> Result<Option<TypeId>, CodegenPreparationError> {
-        let Some(key) = RecognizedStandardLibraryDeclarationKey::try_new("StandardRawBuffer")
-        else {
-            return Err(
-                ProductQueryFailure::InvalidRecognizedStandardLibraryDeclarationKey {
-                    key: "StandardRawBuffer".to_owned(),
-                }
-                .into(),
-            );
-        };
+        let context = self.binding_context(cancellation)?;
 
-        let Some(package) = PackageIdentity::try_new(
-            bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY,
-        ) else {
-            return Err(ProductQueryFailure::InvalidPackageIdentity {
-                identity: bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
-                    .to_owned(),
-            }
-            .into());
-        };
-
-        let imported = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
-
-        let Some(imported) = imported.value() else {
-            return Ok(None);
-        };
-
-        let target = self.selected_target().target();
-
-        let recognized =
-            Arc::clone(imported).recognize_standard_library(&package, |rule| target.supports(rule));
-
-        let Some(raw_buffer) = recognized.declaration_symbol::<StructSymbolId>(&key) else {
-            return Ok(None);
-        };
-
-        if definition != NamedTypeSymbolId::Struct(raw_buffer) {
+        if !crate::compilation::standard_library::recognized_declaration(
+            &context,
+            definition.into_any(),
+            "StandardRawBuffer",
+        )? {
             return Ok(None);
         }
 

@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use bray_runtime_abi::{NativeProductHostObservation, NativeProductIdentity};
 
@@ -7,7 +8,14 @@ use super::super::cleanup::run_static_cleanup;
 use super::model::{THREAD_STATICS, ThreadStaticEntry, product_hosts};
 use super::operations::{release_thread_attachment, report_incidents};
 
-pub(super) extern "C-unwind" fn drain_thread_statics() {
+pub(super) extern "C" fn thread_exit_cleanup(identity: u64) -> u32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        crate::bootstrap::with_thread_cleanup(identity, drain_thread_statics);
+    }))
+    .map_or(1, |()| 0)
+}
+
+fn drain_thread_statics() {
     let (mut entries, products) = THREAD_STATICS.with(|registry| {
         let mut registry = registry.borrow_mut();
         let entries = std::mem::take(&mut registry.entries);

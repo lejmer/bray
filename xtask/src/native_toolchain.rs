@@ -5,6 +5,20 @@ use std::process::Command;
 use bray_runtime_interface::RuntimeArtifactMetadata;
 use bray_target::NativeTarget;
 
+pub(crate) fn retain_failed_artifacts<E>(
+    directory: tempfile::TempDir,
+    result: Result<(), E>,
+) -> Result<(), E> {
+    if result.is_err() {
+        eprintln!(
+            "failed native artifacts retained at {}",
+            directory.keep().display()
+        );
+    }
+
+    result
+}
+
 pub(crate) fn build_compiler(root: &Path) -> Result<(), String> {
     let mut command = Command::new("cargo");
 

@@ -61,32 +61,32 @@ semantic_view!(
     selections
 );
 
-semantic_view!(LivenessView, CheckedBodySemantics, Liveness, liveness);
+semantic_view!(LivenessView, Arc<CheckedBodySemantics>, Liveness, liveness);
 
 semantic_view!(
     RefinementsView,
-    CheckedBodySemantics,
+    Arc<CheckedBodySemantics>,
     CheckedRefinements,
     refinements
 );
 
 semantic_view!(
     StorageFlowView,
-    CheckedBodySemantics,
+    Arc<CheckedBodySemantics>,
     StorageFlow,
     storage_flow
 );
 
 semantic_view!(
     DependencyContractsView,
-    CheckedBodySemantics,
+    Arc<CheckedBodySemantics>,
     CheckedDependencyContracts,
     dependencies
 );
 
 semantic_view!(
     AsyncAnalysisView,
-    CheckedBodySemantics,
+    Arc<CheckedBodySemantics>,
     CheckedAsync,
     asynchronous
 );

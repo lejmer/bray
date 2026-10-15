@@ -405,11 +405,12 @@ pub(super) const fn format_english_memory_operation(
         DiagnosticMemoryOperation::RawBufferSetInitializedCount => {
             "raw buffer initialized-count update"
         }
+        DiagnosticMemoryOperation::RawBufferPush => "raw buffer push",
+        DiagnosticMemoryOperation::RawBufferPop => "raw buffer pop",
         DiagnosticMemoryOperation::RawBufferRelease => "raw buffer release",
         DiagnosticMemoryOperation::RawBufferReplace => "raw buffer replacement",
         DiagnosticMemoryOperation::RawBufferRelocate => "raw buffer relocation",
         DiagnosticMemoryOperation::ByteBufferFill => "byte buffer fill",
-        DiagnosticMemoryOperation::ByteBufferCopy => "byte buffer copy",
         DiagnosticMemoryOperation::ByteBufferRead => "byte buffer read",
         DiagnosticMemoryOperation::SequenceLength => "sequence length access",
         DiagnosticMemoryOperation::VolatileRead => "volatile read",
@@ -508,6 +509,7 @@ pub(super) fn format_english_storage_access(access: &DiagnosticStorageAccess) ->
         DiagnosticStorageRoot::CustomIndexBorrow => "custom-index borrow storage",
         DiagnosticStorageRoot::IterationCursor => "iteration cursor storage",
         DiagnosticStorageRoot::IterationElement => "iteration element storage",
+        DiagnosticStorageRoot::ScopedCapability => "scoped capability storage",
         DiagnosticStorageRoot::Allocation => "allocated storage",
         DiagnosticStorageRoot::CompilerCreated => "compiler-provided storage",
         DiagnosticStorageRoot::Alternative => "pattern-selected storage",
@@ -549,6 +551,7 @@ pub(super) fn format_english_storage_access(access: &DiagnosticStorageAccess) ->
             }
             DiagnosticStorageProjection::NullableValue => path.push_str(".present value"),
             DiagnosticStorageProjection::OwnedTarget => path.push_str(".owned target"),
+            DiagnosticStorageProjection::UninitPayload => path.push_str(".protected payload"),
         }
     }
 

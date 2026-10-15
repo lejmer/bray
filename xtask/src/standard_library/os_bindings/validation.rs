@@ -412,6 +412,10 @@ fn validate_abi_types(target: &TargetDescription) -> Result<(), String> {
 
     for callback in &target.callbacks {
         validate_callable_types(target, &callback.parameters, &callback.result)?;
+
+        for condition in &callback.requires {
+            validate_text("callback precondition", condition)?;
+        }
     }
 
     for function in &target.functions {
@@ -423,6 +427,15 @@ fn validate_abi_types(target: &TargetDescription) -> Result<(), String> {
 
         for condition in &function.ensures {
             validate_text("function postcondition", condition)?;
+        }
+
+        for property in &function.executes {
+            if bray_symbols::ExecutionProperty::from_name(property).is_none() {
+                return Err(format!(
+                    "unknown execution property {property} on {}",
+                    function.name
+                ));
+            }
         }
     }
 

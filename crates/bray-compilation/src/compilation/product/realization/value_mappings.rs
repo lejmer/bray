@@ -1,14 +1,16 @@
 use std::collections::BTreeMap;
 
 use bray_codegen::{
-    CodegenCallableMapping, CodegenConstantMapping, CodegenInstance, CodegenConstantTermMapping, CodegenTarget,
-    CodegenTerminatorMapping, CodegenUnit, child_constants, demanded_callable_instances,
-    demanded_constant_terms, demanded_constants,
+    CodegenCallableMapping, CodegenConstantMapping, CodegenConstantTermMapping, CodegenInstance,
+    CodegenTarget, CodegenTerminatorMapping, CodegenUnit, child_constants,
+    demanded_callable_instances, demanded_constant_terms, demanded_constants,
 };
 use bray_symbols::{ConstantTermData, ConstantValueKind};
 
 use super::super::super::{CodegenPreparationError, Compilation};
-use super::super::specialization::{ConcreteCodegenCallee, ConcreteCodegenInstance, ConcreteCodegenReachability};
+use super::super::specialization::{
+    ConcreteCodegenCallee, ConcreteCodegenInstance, ConcreteCodegenReachability,
+};
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::CancellationToken;
 
@@ -66,8 +68,8 @@ impl Compilation {
         let mut pending = demands.values().iter().copied().collect::<Vec<_>>();
 
         for template_term in demanded_constant_terms(instance.mir()) {
-            let term = self
-                .substitute_codegen_constant_term(template_term, realization.substitution())?;
+            let term =
+                self.substitute_codegen_constant_term(template_term, realization.substitution())?;
 
             let data = values.constant_term_data(term);
 

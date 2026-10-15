@@ -11,7 +11,7 @@ const RESULT_PROPAGATION_LOWERING_SOURCE: &str = concat!(
     "{\n",
     "    let unwrapped: i32 = try value;\n",
     "\n",
-    "    return value;\n",
+    "    return Ok(unwrapped);\n",
     "}\n",
 );
 
@@ -54,6 +54,7 @@ fn propagated_nested_scope_exit_publishes_its_cleanup_plan() {
         include_str!("../../../../../../standard-library/std/src/bytes/buffer.bray"),
         include_str!("../../../../../../standard-library/std/src/collection/list.bray"),
         include_str!("../../../../../../standard-library/std/src/collection/deque.bray"),
+        include_str!("../../../../../../standard-library/std/src/collection/ring.bray"),
         r#"module app;
 
 using std.collection;
@@ -249,5 +250,144 @@ fn nullable_propagation_requires_a_nullable_lexical_boundary() {
     assert_goal_state_diagnostic_kind(
         selections.diagnostics(),
         bray_diagnostics::DiagnosticKind::CheckingNoCompatiblePropagationBoundary,
+    );
+}
+
+#[test]
+fn patterns_observe_the_transferred_propagation_payload() {
+    for (input, propagated, output, success, failure) in [
+        (
+            "Result<Choice, i32>",
+            "try input",
+            "Result<i32, i32>",
+            "Ok(first.read() + second.read())",
+            "Ok(0)",
+        ),
+        (
+            "RunResult<Choice>",
+            "try input",
+            "i32",
+            "first.read() + second.read()",
+            "0",
+        ),
+        (
+            "Choice?",
+            "input?",
+            "i32?",
+            "first.read() + second.read()",
+            "none",
+        ),
+    ] {
+        let application = compilation(&format!(
+            r#"
+            module app;
+
+            struct Value
+            {{
+                number: i32;
+
+                destruct() {{}}
+
+                func read() -> i32
+                {{
+                    return self.number;
+                }}
+            }}
+
+            union Choice
+            {{
+                Pair(pos first: Value, pos second: Value);
+                Empty;
+            }}
+
+            func inspect(pos input: {input}) -> {output}
+            {{
+                if let Pair(first, second) = {propagated}
+                {{
+                    return {success};
+                }}
+
+                return {failure};
+            }}
+        "#
+        ));
+
+        let diagnostics = application.check_diagnostics();
+
+        assert!(diagnostics.is_empty(), "{input}: {diagnostics:?}");
+
+        let result = application
+            .lowered_unit(source_function_body_key(&application, "inspect"))
+            .expect("propagated pattern subject must lower");
+
+        let mir = lowered_mir(&result);
+
+        let observed = mir
+            .operations()
+            .iter()
+            .filter_map(|operation| {
+                let MirOperationKind::Borrow { place, .. } = operation.kind() else {
+                    return None;
+                };
+
+                place
+                    .projections()
+                    .last()
+                    .is_some_and(|projection| {
+                        matches!(
+                            projection.kind(),
+                            bray_ir::MirProjectionKind::ActiveUnionPayloadField { .. }
+                        )
+                    })
+                    .then_some(place)
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            observed.len(),
+            2,
+            "both payload observers must be present: {mir:?}"
+        );
+
+        for place in observed {
+            assert_eq!(
+                place.projections().len(),
+                1,
+                "borrow must start at the transferred Choice, not its old container: {mir:?}"
+            );
+
+            assert!(mir.operations().iter().any(|operation| matches!(
+                operation.kind(), MirOperationKind::Store { destination, .. }
+                    if destination.storage() == place.storage() && destination.projections().is_empty()
+            )), "the observed result storage must be initialized: {mir:?}");
+        }
+    }
+}
+
+#[test]
+fn propagation_does_not_leave_the_consumed_container_available() {
+    let application = compilation(
+        r#"
+        module app;
+
+        struct Value
+        {
+            number: i32;
+
+            destruct() {}
+        }
+
+        func inspect(pos input: Result<Value, i32>) -> Result<Value, i32>
+        {
+            let extracted = try input;
+
+            return input;
+        }
+    "#,
+    );
+
+    assert_goal_state_diagnostic_kind(
+        application.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingUseOfMovedStorage,
     );
 }

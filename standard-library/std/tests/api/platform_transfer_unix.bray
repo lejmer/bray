@@ -2,6 +2,7 @@
 trusted module bray.standard_library_tests.platform_transfer_unix;
 
 using std.memory;
+using internal std.memory;
 using internal std.platform;
 using std.io;
 using std.io.IoErrorKindEquatable;
@@ -22,14 +23,14 @@ func descriptor_requests_are_bounded_without_signed_wraparound()
 trusted func descriptor_zero_length_and_failure_preserve_progress()
 {
     let mut transferred: u64 = 99;
-    let progress: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
     let bytes: RawPointer<u8> = std.memory.null<u8>();
+    let mut byte: u8 = 0;
 
     let empty_read: std.platform.PlatformStatus = trusted internal std.platform.descriptor_read(
         -1,
         destination = bytes,
         length = 0,
-        transferred = progress,
+        transferred = std.memory.address_of_mut<u64>(&mut transferred),
     );
 
     assert(empty_read.category == 0);
@@ -41,7 +42,7 @@ trusted func descriptor_zero_length_and_failure_preserve_progress()
         -1,
         source = bytes,
         length = 0,
-        transferred = progress,
+        transferred = std.memory.address_of_mut<u64>(&mut transferred),
     );
 
     assert(empty_write.category == 0);
@@ -51,9 +52,9 @@ trusted func descriptor_zero_length_and_failure_preserve_progress()
 
     let failed_read: std.platform.PlatformStatus = trusted internal std.platform.descriptor_read(
         -1,
-        destination = bytes,
+        destination = std.memory.address_of_mut<u8>(&mut byte),
         length = 1,
-        transferred = progress,
+        transferred = std.memory.address_of_mut<u64>(&mut transferred),
     );
 
     assert(failed_read.category != 0);
@@ -62,9 +63,12 @@ trusted func descriptor_zero_length_and_failure_preserve_progress()
 
     transferred = 99;
 
+    let source: [u8; 1] = b"x";
+    let progress: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
+
     let failed_write: std.platform.PlatformStatus = trusted internal std.platform.descriptor_write(
         -1,
-        source = bytes,
+        source = trusted internal std.memory.slice_pointer<u8>(&source[..], count = 1),
         length = 1,
         transferred = progress,
     );
@@ -73,34 +77,35 @@ trusted func descriptor_zero_length_and_failure_preserve_progress()
     assert(failed_write.native_code == 9);
     assert(transferred == 0);
 
-    let partial: std.platform.PlatformStatus = trusted internal std.platform.descriptor_transfer_result(
-        3,
-        transferred = progress,
+    let partial: usize = std.testing.assert_ok<usize, std.io.IoError>(
+        internal std.io.checked_transfer(
+            internal std.platform.success_status(),
+            transferred = 3,
+            maximum = 4,
+            require_progress = false
+        )
     );
 
-    assert(partial.category == 0);
-    assert(transferred == 3);
+    assert(partial == 3);
 
-    let eof: std.platform.PlatformStatus = trusted internal std.platform.descriptor_transfer_result(
-        0,
-        transferred = progress,
+    let eof: usize = std.testing.assert_ok<usize, std.io.IoError>(
+        internal std.io.checked_transfer(
+            internal std.platform.success_status(),
+            transferred = 0,
+            maximum = 4,
+            require_progress = false
+        )
     );
 
-    assert(eof.category == 0);
-    assert(transferred == 0);
+    assert(eof == 0);
 }
 
 trusted func assert_interrupted_transfer()
 {
-    let mut transferred: u64 = 0;
-
-    let status: std.platform.PlatformStatus = trusted internal std.platform.descriptor_transfer_result(
-        -1,
-        transferred = std.memory.address_of_mut<u64>(&mut transferred),
-    );
+    let status: std.platform.PlatformStatus = trusted internal std.platform.unix_error_status();
 
     let error: std.io.IoError = std.testing.assert_error<usize, std.io.IoError>(
-        internal std.io.checked_transfer(status, transferred = transferred, maximum = 4, require_progress = false)
+        internal std.io.checked_transfer(status, transferred = 0, maximum = 4, require_progress = false)
     );
 
     assert(error.kind == std.io.IoErrorKind.Interrupted);

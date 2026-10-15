@@ -69,7 +69,9 @@ pub struct StorageReplacementDecision {
     expression: BoundExpressionId,
     access: StorageAccessId,
     state: StorageReplacementState,
-    moved: Arc<[StorageAccessId]>,
+    moved: Arc<[crate::StoragePath]>,
+    definitely_absent: Arc<[crate::StoragePath]>,
+    root_initialized: bool,
     is_recovered: bool,
 }
 
@@ -79,7 +81,9 @@ impl StorageReplacementDecision {
         expression: BoundExpressionId,
         access: StorageAccessId,
         state: StorageReplacementState,
-        moved: impl IntoIterator<Item = StorageAccessId>,
+        moved: impl IntoIterator<Item = crate::StoragePath>,
+        definitely_absent: impl IntoIterator<Item = crate::StoragePath>,
+        root_initialized: bool,
         is_recovered: bool,
     ) -> Self {
         Self {
@@ -87,6 +91,8 @@ impl StorageReplacementDecision {
             access,
             state,
             moved: sorted_unique_shared_slice(moved),
+            definitely_absent: sorted_unique_shared_slice(definitely_absent),
+            root_initialized,
             is_recovered,
         }
     }
@@ -107,8 +113,19 @@ impl StorageReplacementDecision {
     }
 
     /// Returns moved accesses within the destination's storage root.
-    pub fn moved(&self) -> &[StorageAccessId] {
+    pub fn moved(&self) -> &[crate::StoragePath] {
         &self.moved
+    }
+
+    /// Returns paths moved on every incoming path before replacement.
+    pub fn definitely_absent(&self) -> &[crate::StoragePath] {
+        &self.definitely_absent
+    }
+
+    /// Returns whether the destination root was initialized on every incoming path.
+    /// Moved represented parts are described separately by `moved`.
+    pub const fn root_initialized(&self) -> bool {
+        self.root_initialized
     }
 
     /// Returns whether recovery prevented a complete decision.
@@ -130,13 +147,15 @@ mod tests {
         let unit = BoundUnitId::new(7);
         let expression = BoundExpressionId::from_slot(unit, 3);
         let destination = StorageAccessId::from_slot(unit, 1);
-        let moved = StorageAccessId::from_slot(unit, 2);
+        let moved = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 2));
 
         let decision = StorageReplacementDecision::new(
             expression,
             destination,
             StorageReplacementState::Conditional,
-            [moved, moved],
+            [moved.clone(), moved.clone()],
+            [moved.clone(), moved.clone()],
+            true,
             false,
         );
 
@@ -146,16 +165,21 @@ mod tests {
                 expression,
                 destination,
                 StorageReplacementState::Conditional,
-                [moved],
+                [moved.clone()],
+                [moved.clone()],
+                true,
                 false,
             )
         );
 
-        let flow = StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], false)
-            .unwrap()
-            .with_replacements([decision.clone()])
-            .unwrap();
+        let flow =
+            StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], [], false)
+                .unwrap()
+                .with_replacements([decision.clone()])
+                .unwrap();
 
+        assert!(decision.root_initialized());
+        assert_eq!(decision.definitely_absent(), &[moved]);
         assert_eq!(flow.replacements(), &[decision]);
     }
 
@@ -170,11 +194,14 @@ mod tests {
             access,
             StorageReplacementState::Present,
             [],
+            [],
+            true,
             false,
         );
 
         let flow = || {
-            StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], false).unwrap()
+            StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], [], false)
+                .unwrap()
         };
 
         assert_eq!(
@@ -196,7 +223,9 @@ mod tests {
             (
                 expression,
                 access,
-                vec![StorageAccessId::from_slot(BoundUnitId::new(8), 2)],
+                vec![crate::StoragePath::root(
+                    crate::StorageIdentityId::from_slot(BoundUnitId::new(8), 2),
+                )],
             ),
         ] {
             let decision = StorageReplacementDecision::new(
@@ -204,6 +233,8 @@ mod tests {
                 access,
                 StorageReplacementState::Conditional,
                 moved,
+                [],
+                true,
                 false,
             );
 

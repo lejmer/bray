@@ -255,7 +255,8 @@ fn collect_memory_helpers(
 ) {
     let standard = match memory.kind() {
         bray_bound_tree::CheckedMemoryOperationKind::RawAllocate
-        | bray_bound_tree::CheckedMemoryOperationKind::Allocate => {
+        | bray_bound_tree::CheckedMemoryOperationKind::Allocate
+        | bray_bound_tree::CheckedMemoryOperationKind::RawBufferAllocate => {
             Some(MirStandardLibraryHelper::MemoryAllocate)
         }
         bray_bound_tree::CheckedMemoryOperationKind::RawDeallocate

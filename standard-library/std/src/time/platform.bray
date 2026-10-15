@@ -110,6 +110,17 @@ extern trusted internal func platform_time_zone_name(
     pos written_or_required: RawPointer<u64>,
     pos outcome: RawPointer<u32>,
 ) -> std.platform.PlatformStatus
+    requires(
+        capacity == 0 || trusted core.memory.valid_write<u8>(pointer = destination, count = capacity as usize),
+        trusted core.memory.valid_write<u64>(pointer = written_or_required, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = written_or_required),
+        trusted core.memory.valid_write<u32>(pointer = outcome, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = outcome),
+    )
+    ensures(
+        result.category != 0 || trusted core.memory.initialized_as<u64>(pointer = written_or_required),
+        result.category != 0 || trusted core.memory.initialized_as<u32>(pointer = outcome),
+    )
     uses(foreign_call);
 
 @abi(c)
@@ -124,6 +135,20 @@ extern trusted internal func platform_time_observe(
     pos written_or_required: RawPointer<u64>,
     pos outcome: RawPointer<u32>,
 ) -> std.platform.PlatformStatus
+    requires(
+        capacity == 0 || trusted core.memory.valid_write<u8>(pointer = abbreviation, count = capacity as usize),
+        trusted core.memory.valid_write<PlatformTemporalObservation>(pointer = observation, count = 1),
+        trusted core.memory.aligned_for<PlatformTemporalObservation>(pointer = observation),
+        trusted core.memory.valid_write<u64>(pointer = written_or_required, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = written_or_required),
+        trusted core.memory.valid_write<u32>(pointer = outcome, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = outcome),
+    )
+    ensures(
+        result.category != 0 || trusted core.memory.initialized_as<PlatformTemporalObservation>(pointer = observation),
+        result.category != 0 || trusted core.memory.initialized_as<u64>(pointer = written_or_required),
+        result.category != 0 || trusted core.memory.initialized_as<u32>(pointer = outcome),
+    )
     uses(foreign_call);
 
 @abi(c)
@@ -155,6 +180,17 @@ extern trusted internal func platform_time_format(
     pos written_or_required: RawPointer<u64>,
     pos outcome: RawPointer<u32>,
 ) -> std.platform.PlatformStatus
+    requires(
+        capacity == 0 || trusted core.memory.valid_write<u8>(pointer = destination, count = capacity as usize),
+        trusted core.memory.valid_write<u64>(pointer = written_or_required, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = written_or_required),
+        trusted core.memory.valid_write<u32>(pointer = outcome, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = outcome),
+    )
+    ensures(
+        result.category != 0 || trusted core.memory.initialized_as<u64>(pointer = written_or_required),
+        result.category != 0 || trusted core.memory.initialized_as<u32>(pointer = outcome),
+    )
     uses(foreign_call);
 
 internal func platform_date_time(
@@ -185,7 +221,7 @@ internal func native_text_span(pos text: &string) -> std.platform.NativeTextSpan
 
     return
     {
-        address = internal std.memory.byte_slice_pointer(bytes),
+        address = internal std.memory.slice_pointer(bytes, count = bytes.length()),
         length = bytes.length() as u64,
     };
 }

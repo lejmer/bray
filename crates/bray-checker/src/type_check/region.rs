@@ -5,7 +5,7 @@ use bray_bound_tree::{
 };
 use bray_declarations::SyntaxAnchor;
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitView};
 
 use super::inference::{InferenceTypeId, TypeInferenceContext};
 
@@ -66,7 +66,7 @@ pub(super) fn initialize_expression_type_regions<C>(
     block_variables: &BTreeMap<BoundBlockId, InferenceTypeId>,
     block_owners: BTreeMap<BoundBlockId, BoundExpressionId>,
     inference: &mut TypeInferenceContext,
-) -> Result<ExpressionTypeRegions, CheckerInfrastructureError>
+) -> ExpressionTypeRegions
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -111,7 +111,9 @@ where
         };
 
         let Some(variable) = inference.fresh(bound.is_recovered()) else {
-            return Err(CheckerInfrastructureError::ExpressionTypeCapacityExceeded);
+            panic!(
+                "One unit contains more expression variables than the checker can identify compactly. in initialize_expression_type_regions"
+            );
         };
 
         results.insert(
@@ -126,11 +128,11 @@ where
 
     let break_variables = collect_break_variables(request, expressions, variables);
 
-    Ok(ExpressionTypeRegions {
+    ExpressionTypeRegions {
         block_owners,
         break_variables,
         results,
-    })
+    }
 }
 
 fn collect_break_variables<C>(

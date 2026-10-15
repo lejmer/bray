@@ -19,10 +19,7 @@ use bray_symbols::{
 use super::classification::classify_operation;
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::unit::assert_unit_inputs;
-use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitView,
-};
+use crate::{CheckerOutcome, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView};
 
 pub(crate) fn check_memory_operations<C>(
     request: CheckerUnitView<'_, C>,
@@ -70,9 +67,6 @@ where
         let resolution = match request.implementation_hook(instance.definition().symbol()) {
             Ok(resolution) => resolution,
             Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(crate::CheckerQueryError::Infrastructure(error)) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
             Err(crate::CheckerQueryError::Upstream(error)) => {
                 return CheckerOutcome::UpstreamFailure(error);
             }
@@ -89,10 +83,7 @@ where
                 continue;
             };
 
-            let span = match expression_span(request, entry.expression()) {
-                Ok(span) => span,
-                Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-            };
+            let span = expression_span(request, entry.expression());
 
             crate::memory_diagnostics::add_target_memory_operation_unavailable(
                 span,
@@ -114,10 +105,7 @@ where
             })
             .collect::<Vec<_>>();
 
-        let arguments = match selected_arguments(call.arguments()) {
-            Ok(arguments) => arguments,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-        };
+        let arguments = selected_arguments(call.arguments());
 
         let target_control = match crate::target_control::check_contract(
             request,
@@ -129,9 +117,6 @@ where
         ) {
             Ok(check) => check,
             Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(crate::CheckerQueryError::Infrastructure(error)) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
             Err(crate::CheckerQueryError::Upstream(error)) => {
                 return CheckerOutcome::UpstreamFailure(error);
             }
@@ -157,15 +142,12 @@ where
                 let Some(operation) =
                     crate::memory_diagnostics::diagnostic_memory_operation(resolution.hook())
                 else {
-                    return CheckerOutcome::InfrastructureFailure(
-                        CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                    panic!(
+                        "Semantic-selection inputs do not describe the requested bound unit or operation category. in check_memory_operations"
                     );
                 };
 
-                let span = match expression_span(request, entry.expression()) {
-                    Ok(span) => span,
-                    Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-                };
+                let span = expression_span(request, entry.expression());
 
                 diagnostics.add(
                     Diagnostic::new(
@@ -195,10 +177,7 @@ where
             };
 
             if let Some(problem) = problem {
-                let span = match expression_span(request, entry.expression()) {
-                    Ok(span) => span,
-                    Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-                };
+                let span = expression_span(request, entry.expression());
 
                 diagnostics.add(
                     Diagnostic::new(
@@ -236,8 +215,9 @@ where
     ) {
         Ok(operations) => operations,
         Err(error) => {
-            return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::MemoryOperations(error),
+            panic!(
+                "Final checked memory-operation table construction rejected one exact relationship. in check_memory_operations, value0: {:?}",
+                error
             );
         }
     };
@@ -259,9 +239,9 @@ where
         + ?Sized,
 {
     let [context] = arguments else {
-        return Err(CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidSemanticSelectionInput,
-        ));
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in callback_state_problem"
+        );
     };
 
     let Some(callable) = request.containing_callable() else {
@@ -273,9 +253,6 @@ where
     {
         Ok(signature) => signature,
         Err(crate::CheckerQueryError::Cancelled) => return Err(CheckerOutcome::Cancelled),
-        Err(crate::CheckerQueryError::Infrastructure(error)) => {
-            return Err(CheckerOutcome::InfrastructureFailure(error));
-        }
         Err(crate::CheckerQueryError::Upstream(error)) => {
             return Err(CheckerOutcome::UpstreamFailure(error));
         }
@@ -287,19 +264,18 @@ where
             let data = request.semantic_values().type_data(*ty);
 
             let TypeData::Callable(callable) = data.as_ref() else {
-                return Err(CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                ));
+                panic!(
+                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in callback_state_problem"
+                );
             };
 
             (callable.abi(), callable.trust())
         }
         actual => {
-            return Err(CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidCallbackSignatureInput {
-                    actual: actual.kind_name(),
-                },
-            ));
+            panic!(
+                "Callback validation received a non-callable type-expression template. in callback_state_problem, actual: {:?}",
+                actual.kind_name()
+            );
         }
     };
 
@@ -321,9 +297,6 @@ where
     {
         Ok(directives) => directives,
         Err(crate::CheckerQueryError::Cancelled) => return Err(CheckerOutcome::Cancelled),
-        Err(crate::CheckerQueryError::Infrastructure(error)) => {
-            return Err(CheckerOutcome::InfrastructureFailure(error));
-        }
         Err(crate::CheckerQueryError::Upstream(error)) => {
             return Err(CheckerOutcome::UpstreamFailure(error));
         }
@@ -340,9 +313,9 @@ where
 
     let Some((parameters, receiver)) = request.symbols().callable_parameters_and_receiver(callable)
     else {
-        return Err(CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidSemanticSelectionInput,
-        ));
+        panic!(
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in callback_state_problem"
+        );
     };
 
     if receiver.is_some() {
@@ -375,12 +348,11 @@ where
     };
 
     if ordinal != 0 {
-        let actual_ordinal = u64::try_from(ordinal).map_err(|_| {
-            // rust-style: allow(context-erasing-failure-conversion, reason = "integer conversion error has no payload and the exact ordinal is retained")
-            CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::CallbackParameterOrdinalUnrepresentable { ordinal },
+        let actual_ordinal = u64::try_from(ordinal).unwrap_or_else(|error| {
+            panic!(
+                "callback_state_problem must satisfy its checked construction contract: {error:?}"
             )
-        })?;
+        });
 
         return Ok(Some(
             DiagnosticCallbackStateProblem::ContextParameterNotFirst { actual_ordinal },
@@ -390,9 +362,7 @@ where
     Ok(None)
 }
 
-fn selected_arguments(
-    arguments: &[SelectedArgument],
-) -> Result<Vec<bray_bound_tree::BoundExpressionId>, CheckerInfrastructureError> {
+fn selected_arguments(arguments: &[SelectedArgument]) -> Vec<bray_bound_tree::BoundExpressionId> {
     let mut selected = arguments
         .iter()
         .map(|argument| match argument {
@@ -400,19 +370,19 @@ fn selected_arguments(
                 expression,
                 ordinal,
                 ..
-            } => Ok((*ordinal, *expression)),
+            } => (*ordinal, *expression),
             SelectedArgument::Default { .. } => {
-                Err(CheckerInfrastructureError::InvalidSemanticSelectionInput)
+                panic!("Semantic-selection inputs do not describe the requested bound unit or operation category. in selected_arguments")
             }
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Vec<_>>();
 
     selected.sort_unstable_by_key(|(ordinal, _)| *ordinal);
 
-    Ok(selected
+    selected
         .into_iter()
         .map(|(_, expression)| expression)
-        .collect())
+        .collect()
 }
 
 fn generic_arguments<C>(

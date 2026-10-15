@@ -279,6 +279,7 @@ impl Atomic<T>
     /// Waits while the observed value equals the expected value.
     /// Returns after observing a different value or waking spuriously, so callers must recheck the condition.
     func wait(pos expected: T, order: LoadOrder)
+        requires(blocking_execution())
     {
         match order
         {
@@ -333,6 +334,7 @@ impl Atomic<u32>
 }
 
 trusted internal func word_pointer(pos storage: &core.atomic.Atomic<u32>) -> RawPointer<u32>
+    uses(layout_reinterpret)
 {
     let pointer: RawPointer<core.atomic.Atomic<u32>> = std.memory.address_of<core.atomic.Atomic<u32>>(storage);
 

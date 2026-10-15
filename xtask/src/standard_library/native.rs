@@ -24,7 +24,7 @@ const LIBRARY_PRODUCT: &str = "library";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 159;
+const API_TEST_COUNT: usize = 160;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const CONCURRENCY_MODEL_TEST_COUNT: usize = 7;
 const CONCURRENCY_STRESS_TEST_COUNT: usize = 5;
@@ -110,7 +110,7 @@ const OUTCOME_CASES: [OutcomeCase; 25] = [
         "allocation-size-overflow",
         "allocation_size_overflow",
         OutcomeExpectation::Assertion {
-            message: "memory allocation size exceeds the target address range",
+            message: "memory allocation failed",
         },
     ),
     OutcomeCase::new(
@@ -159,18 +159,20 @@ const OUTCOME_CASES: [OutcomeCase; 25] = [
         },
     ),
     OutcomeCase::new(
-        "raw-buffer-release-deallocation-failure",
-        "raw_buffer_release_preserves_deallocation_failure",
-        OutcomeExpectation::Assertion {
-            message: "memory deallocation received an invalid allocation",
-        },
-    ),
-    OutcomeCase::new(
         "raw-buffer-cleanup-progress",
         "raw_buffer_release_finishes_each_element_once",
         OutcomeExpectation::Panic {
             cause: "message",
             message: "raw buffer cleanup progress checked",
+            source_available: true,
+        },
+    ),
+    OutcomeCase::new(
+        "channel-cleanup-progress",
+        "channel_close_finishes_each_panicking_element_once",
+        OutcomeExpectation::Panic {
+            cause: "message",
+            message: "channel cleanup progress checked",
             source_available: true,
         },
     ),
@@ -252,8 +254,24 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
         .tempdir()
         .map_err(BuildError::TemporaryDirectory)?;
 
-    let directory = temporary_directory.path();
+    let result = test_in(
+        &root,
+        temporary_directory.path(),
+        target,
+        parts,
+        profile_output,
+    );
 
+    crate::native_toolchain::retain_failed_artifacts(temporary_directory, result)
+}
+
+fn test_in(
+    root: &Path,
+    directory: &Path,
+    target: NativeTarget,
+    parts: &[TestPart],
+    profile_output: Option<&Path>,
+) -> Result<(), BuildError> {
     let runtime = directory.join("runtime");
 
     fs::create_dir(&runtime).map_err(|error| BuildError::write(&runtime, error))?;
@@ -266,19 +284,19 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
     let toolchain = directory.join("toolchain");
 
     crate::progress::run("Assembling the native test toolchain", || {
-        crate::native_toolchain::assemble(&root, target, &runtime, &toolchain)
+        crate::native_toolchain::assemble(root, target, &runtime, &toolchain)
     })
     .map_err(|error| BuildError::conformance("native toolchain", error))?;
 
     if selected(parts, TestPart::ProviderRetention) {
         crate::progress::run("Auditing native provider retention", || {
-            super::provider_retention::audit(&root, directory, &toolchain, target)
+            super::provider_retention::audit(root, directory, &toolchain, target)
         })?;
     }
 
     if selected(parts, TestPart::Interoperability) {
         crate::progress::run("Auditing native interoperability", || {
-            super::interoperability::audit(&root, directory, &toolchain, &runtime, target)
+            super::interoperability::audit(root, directory, &toolchain, &runtime, target)
         })?;
     }
 
@@ -286,7 +304,7 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
         let workspace = directory.join("workspace");
 
         crate::progress::run("Preparing the standard library test workspace", || {
-            copy_standard_library_workspace(&root, &workspace)
+            copy_standard_library_workspace(root, &workspace)
         })?;
 
         if selected(parts, TestPart::Api) {
@@ -294,7 +312,7 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
                 &format!(
                     "Running native standard library API tests ({API_TEST_COUNT} tests, 7 plans)"
                 ),
-                || audit_api(&root, &workspace, &toolchain, target, profile_output),
+                || audit_api(root, &workspace, &toolchain, target, profile_output),
             )?;
         }
 
@@ -304,7 +322,7 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
                     "Checking native test outcomes ({} cases)",
                     OUTCOME_CASES.len()
                 ),
-                || audit_outcomes(&root, &workspace, &toolchain, target, profile_output),
+                || audit_outcomes(root, &workspace, &toolchain, target, profile_output),
             )?;
         }
     }

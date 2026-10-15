@@ -491,6 +491,21 @@ fn refinements_are_lazy_cached_and_retain_branch_conditions() {
         Err(error) => panic!("refinement dependencies must be readable: {error:?}"),
     };
 
+    assert!(
+        dependencies.contains(&crate::fact::CompilationFactKey::ResultDependencyComponent(
+            key.clone()
+        ))
+    );
+
+    let dependencies = compilation
+        .state
+        .fact_runtime
+        .dependencies(&crate::fact::CompilationFactKey::ResultDependencyComponent(
+            key.clone(),
+        ))
+        .unwrap()
+        .expect("the shared component owns refinement prerequisites");
+
     assert!(dependencies.contains(&crate::fact::CompilationFactKey::BoundUnit(key.clone())));
 
     assert!(

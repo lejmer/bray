@@ -57,7 +57,7 @@ where
                 .context
                 .semantic_values()
                 .substitute_type(*ty, evaluator.substitution)
-                .map_err(TemplateEvaluationFailure::semantic_value)?;
+                .unwrap_or_else(|error| panic!("semantic_value in evaluate_term: {error:?}"));
 
             evaluator.evaluate_term(*term, ty)
         }
@@ -95,7 +95,7 @@ where
                 operation_failure(diagnostic_operation(binary_operator(*operation)), error)
             })?;
 
-            evaluator.intern_value(ty, kind)
+            Ok(evaluator.intern_value(ty, kind))
         }
         ConstantTermData::Conversion { operand, target } => {
             let operand = evaluator.evaluate_term(*operand, ty)?;
@@ -104,14 +104,31 @@ where
                 .context
                 .semantic_values()
                 .substitute_type(*target, evaluator.substitution)
-                .map_err(TemplateEvaluationFailure::semantic_value)?;
+                .unwrap_or_else(|error| panic!("semantic_value in evaluate_term: {error:?}"));
 
             evaluator.evaluate_conversion(operand, target)
+        }
+        ConstantTermData::VariantTest { subject, variant } => {
+            let subject = evaluator.evaluate_term(*subject, ty)?;
+
+            let value = evaluator
+                .context
+                .semantic_values()
+                .constant_value_data(subject);
+
+            let ConstantValueKind::Union {
+                variant: active, ..
+            } = value.kind()
+            else {
+                panic!("checked variant test must observe a union value");
+            };
+
+            Ok(evaluator.intern_value(ty, ConstantValueKind::Boolean(active == variant)))
         }
         ConstantTermData::NullablePresent(value) => {
             let value = evaluator.evaluate_term(*value, ty)?;
 
-            evaluator.intern_value(ty, ConstantValueKind::NullablePresent(value))
+            Ok(evaluator.intern_value(ty, ConstantValueKind::NullablePresent(value)))
         }
         ConstantTermData::Tuple(values) => {
             let values = values
@@ -124,7 +141,7 @@ where
                 .try_charge_elements(values.len())
                 .map_err(TemplateEvaluationFailure::Diagnostic)?;
 
-            evaluator.intern_value(ty, ConstantValueKind::Tuple(values.into()))
+            Ok(evaluator.intern_value(ty, ConstantValueKind::Tuple(values.into())))
         }
         ConstantTermData::Array(values) => {
             let values = values
@@ -137,7 +154,7 @@ where
                 .try_charge_elements(values.len())
                 .map_err(TemplateEvaluationFailure::Diagnostic)?;
 
-            evaluator.intern_value(ty, ConstantValueKind::Array(values.into()))
+            Ok(evaluator.intern_value(ty, ConstantValueKind::Array(values.into())))
         }
         ConstantTermData::Product(fields) => {
             let fields = fields
@@ -154,7 +171,7 @@ where
                 .try_charge_elements(fields.len())
                 .map_err(TemplateEvaluationFailure::Diagnostic)?;
 
-            evaluator.intern_value(ty, ConstantValueKind::Product(fields.into()))
+            Ok(evaluator.intern_value(ty, ConstantValueKind::Product(fields.into())))
         }
         ConstantTermData::Union { variant, fields } => {
             let fields = fields
@@ -171,13 +188,13 @@ where
                 .try_charge_elements(fields.len())
                 .map_err(TemplateEvaluationFailure::Diagnostic)?;
 
-            evaluator.intern_value(
+            Ok(evaluator.intern_value(
                 ty,
                 ConstantValueKind::Union {
                     variant: *variant,
                     fields: fields.into(),
                 },
-            )
+            ))
         }
         ConstantTermData::DefinitionApplication {
             definition,
@@ -245,16 +262,20 @@ where
                 ));
             }
 
-            evaluator.intern_value(ty, ConstantValueKind::Integer(value.clone()))
+            Ok(evaluator.intern_value(ty, ConstantValueKind::Integer(value.clone())))
         }
-        ConstantTermData::CallableArgument(ordinal) => ordinal
+        ConstantTermData::CallableArgument(ordinal) => Ok(ordinal
             .to_index()
             .and_then(|index| evaluator.arguments.get(index))
             .copied()
-            .ok_or_else(TemplateEvaluationFailure::invalid_input),
+            .unwrap_or_else(|| {
+                panic!("constant callable argument {ordinal:?} must exist in the application")
+            })),
         ConstantTermData::Parameter(_)
         | ConstantTermData::TargetProperty(_)
-        | ConstantTermData::PredicateCall { .. } => Err(TemplateEvaluationFailure::invalid_input()),
+        | ConstantTermData::PredicateCall { .. } => {
+            panic!("constant term must be closed before evaluation, term: {term:?}, type: {ty:?}")
+        }
     }
 }
 
@@ -280,6 +301,13 @@ where
                 .and_then(|index| elements.get(index))
                 .copied()
         }
+        (
+            ConstantValueKind::Array(elements),
+            ConstantProjectionKind::ArrayElementOrdinal(index),
+        ) => index
+            .to_index()
+            .and_then(|index| elements.get(index))
+            .copied(),
         (ConstantValueKind::Array(elements), ConstantProjectionKind::ArrayElement(index)) => {
             let index = evaluator.evaluate_term(index, ty)?;
 
@@ -327,7 +355,9 @@ where
                 .try_charge_elements(elements.len())
                 .map_err(TemplateEvaluationFailure::Diagnostic)?;
 
-            return evaluator.intern_value(ty, ConstantValueKind::array(elements.iter().copied()));
+            return Ok(
+                evaluator.intern_value(ty, ConstantValueKind::array(elements.iter().copied()))
+            );
         }
         (ConstantValueKind::Product(fields), ConstantProjectionKind::ProductField(field)) => fields
             .iter()
@@ -392,6 +422,8 @@ where
                 definition: *definition,
             }),
         ),
-        ConstantReferenceResolution::Invalid => Err(TemplateEvaluationFailure::invalid_input()),
+        ConstantReferenceResolution::Invalid => panic!(
+            "constant definition application must have a valid reference resolution, definition: {definition:?}"
+        ),
     }
 }

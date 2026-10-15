@@ -1739,6 +1739,10 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         use bray_bound_tree::CheckedMemoryOperationKind as Kind;
 
         match kind {
+            Kind::UninitFrom { element } => {
+                self.wire.write_u32(59);
+                self.ty(element)?;
+            }
             Kind::UninitNew { element } => {
                 self.wire.write_u32(48);
                 self.ty(element)?;
@@ -1836,6 +1840,15 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 });
             }
             Kind::RawAllocate => self.wire.write_u32(9),
+            Kind::RawBufferPush { element } => {
+                self.wire.write_u32(57);
+                self.ty(element)?;
+            }
+            Kind::RawBufferPop { element } => {
+                self.wire.write_u32(58);
+                self.ty(element)?;
+            }
+            Kind::RawBufferAllocate => self.wire.write_u32(56),
             Kind::RawDeallocate => self.wire.write_u32(10),
             Kind::Allocate => self.wire.write_u32(11),
             Kind::Deallocate => self.wire.write_u32(12),
@@ -1868,7 +1881,6 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(26);
                 self.ty(state)?;
             }
-            Kind::ByteBufferCopy => self.wire.write_u32(27),
             Kind::VolatileRead {
                 pointee,
                 address_space,

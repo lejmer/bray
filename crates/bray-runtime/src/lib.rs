@@ -2,6 +2,7 @@
 
 #![deny(unsafe_code)]
 
+mod bootstrap;
 mod cancellation;
 #[cfg(test)]
 mod conformance;

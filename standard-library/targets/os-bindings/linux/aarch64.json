@@ -500,7 +500,12 @@
             }
           ],
           "result": "RawPointer<u8>",
-          "native_result": "void *"
+          "native_result": "void *",
+          "trusted": true,
+          "requires": [
+            "blocking_execution()",
+            "compute_execution()"
+          ]
         },
         {
           "name": "ThreadStorageDestructor",
@@ -672,6 +677,7 @@
           "ownership": "the C runtime owns the current native thread storage",
           "ensures": [
             "trusted core.memory.valid_read<i32>(pointer = result, count = 1)",
+            "trusted core.memory.valid_write<i32>(pointer = result, count = 1)",
             "trusted core.memory.aligned_for<i32>(pointer = result)",
             "trusted core.memory.initialized_as<i32>(pointer = result)"
           ],
@@ -819,6 +825,13 @@
             "foreign_call",
             "native_thread",
             "raw_memory"
+          ],
+          "requires": [
+            "trusted core.memory.valid_write<u64>(pointer = thread, count = 1)",
+            "trusted core.memory.aligned_for<u64>(pointer = thread)"
+          ],
+          "ensures": [
+            "result != 0 || trusted core.memory.initialized_as<u64>(pointer = thread)"
           ]
         },
         {

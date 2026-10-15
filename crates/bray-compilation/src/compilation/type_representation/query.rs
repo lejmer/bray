@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_checker::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerSource, DeclaredStorageMember,
-    DeclaredTypeDefinition, DeclaredUnionVariant, RepresentationIntegerType,
-    TypeRepresentationContext, check_declared_type_representation,
+    CheckerOutcome, CheckerSource, DeclaredStorageMember, DeclaredTypeDefinition,
+    DeclaredUnionVariant, RepresentationIntegerType, TypeRepresentationContext,
+    check_declared_type_representation,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
@@ -31,7 +31,6 @@ use crate::fact::{
     CancellationToken, CompilationFactKey, FactQueryError, ImportedSemanticRecordKey,
 };
 
-type CheckerQueryError = bray_checker::CheckerQueryError<FactQueryError>;
 type CheckerQueryResult<T> = bray_checker::CheckerQueryResult<T, FactQueryError>;
 
 impl Compilation {
@@ -70,9 +69,6 @@ impl Compilation {
                 match check_declared_type_representation(&context, subject) {
                     CheckerOutcome::Complete(result) => Ok(Arc::new(result)),
                     CheckerOutcome::Cancelled => Err(FactQueryError::Cancelled),
-                    CheckerOutcome::InfrastructureFailure(error) => {
-                        Err(FactQueryError::CheckerInfrastructure(error))
-                    }
                     CheckerOutcome::UpstreamFailure(error) => Err(error),
                 }
             },
@@ -367,9 +363,9 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
             }
             [] => None,
             _ => {
-                return Err(CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
-                ));
+                panic!(
+                    "Canonical semantic value construction or lookup failed without an available store cause. in imported_type_representation"
+                );
             }
         };
 
@@ -379,23 +375,20 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
         ))
     }
 
-    fn source(
-        &self,
-        syntax: SyntaxAnchor,
-    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
+    fn source(&self, syntax: SyntaxAnchor) -> CheckerSource<'_> {
         let source_id = syntax.source_id();
 
         let Some(source) = self.compilation.source(source_id) else {
-            return Err(CheckerInfrastructureError::MissingSource { source_id });
+            panic!("bound source {source_id:?} must exist in the immutable compilation snapshot");
         };
 
         let span = SourceSpan::new(source_id, syntax.full_range());
 
         let Some(text) = source.text_slice(span.range()) else {
-            return Err(CheckerInfrastructureError::InvalidSourceRange { span });
+            panic!("bound source span {span:?} must be a valid UTF-8 range in its snapshot");
         };
 
-        Ok(CheckerSource::new(span, text))
+        CheckerSource::new(span, text)
     }
 
     fn unsigned_integer(
@@ -459,9 +452,7 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
         &self,
         expression: DeclarationExpressionTemplate,
     ) -> CheckerQueryResult<Option<RepresentationIntegerType>> {
-        let source = self
-            .source(expression.syntax())
-            .map_err(CheckerQueryError::Infrastructure)?;
+        let source = self.source(expression.syntax());
 
         let Some(role) = integer_role(source.text()) else {
             return Ok(None);
@@ -479,10 +470,7 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
             .map_err(checker_query_error)?;
 
         let representation =
-            role.integer_representation()
-                .ok_or(CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
-                ))?;
+            role.integer_representation().unwrap_or_else(|| panic!("integer_type_for_role requires retained checked input: role.integer_representation()"));
 
         let target_width = self
             .compilation
@@ -510,9 +498,10 @@ impl CompilationTypeRepresentationContext<'_> {
             .available_compiler_known_symbols()
             .representation_symbol::<StructSymbolId>(role)
         else {
-            return Err(FactQueryError::CheckerInfrastructure(
-                CheckerInfrastructureError::CompilerKnownRepresentationUnavailable { role },
-            ));
+            panic!(
+                "A required compiler-known representation is unavailable for the selected target. in representation_type, role: {:?}",
+                role
+            );
         };
 
         named_type(self.semantic_values, NamedTypeSymbolId::Struct(definition))

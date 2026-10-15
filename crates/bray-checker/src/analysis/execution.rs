@@ -10,13 +10,46 @@ use crate::CheckerRequestContext;
 use super::build::ControlFlowGraphBuilder;
 use super::id::AnalysisBlockId;
 use super::model::{
-    AnalysisEdgeKind, AnalysisExitKind, AnalysisSuspensionKind, AnalysisTaskOperationKind,
+    AnalysisCallPhase, AnalysisEdgeKind, AnalysisExitKind, AnalysisSuspensionKind,
+    AnalysisTaskOperationKind,
 };
 
 impl<C> ControlFlowGraphBuilder<'_, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    pub(super) fn push_invocation(
+        &mut self,
+        expression: BoundExpressionId,
+        current: AnalysisBlockId,
+        may_fail: bool,
+    ) -> AnalysisBlockId {
+        let continuation = self.push_block();
+
+        self.push_call(current, expression.into(), AnalysisCallPhase::Attempt);
+
+        self.push_edge(
+            current,
+            continuation,
+            AnalysisEdgeKind::Sequential,
+            Some(super::model::AnalysisRefinement::InvocationCompletion(
+                expression.into(),
+            )),
+        );
+
+        if may_fail {
+            self.push_dependency_failures(current, expression.into());
+        }
+
+        self.push_call(
+            continuation,
+            expression.into(),
+            AnalysisCallPhase::Completion,
+        );
+
+        continuation
+    }
+
     pub(super) fn build_await(
         &mut self,
         id: BoundExpressionId,
@@ -26,14 +59,28 @@ where
         let current = self.build_expression(expression.operand(), current)?;
         let current = current.unwrap_or_else(|| self.push_block());
 
-        self.push_suspension(current, id, AnalysisSuspensionKind::Await);
+        self.push_suspension(current, id.into(), AnalysisSuspensionKind::Await);
 
         let suspended = self.push_block();
         let resume = self.push_block();
         let cancellation = self.push_block();
 
         self.push_edge(current, suspended, AnalysisEdgeKind::Suspension, None);
-        self.push_edge(suspended, resume, AnalysisEdgeKind::Resume, None);
+
+        self.push_edge(
+            suspended,
+            resume,
+            AnalysisEdgeKind::Resume,
+            Some(super::model::AnalysisRefinement::InvocationCompletion(
+                id.into(),
+            )),
+        );
+
+        self.push_call(
+            resume,
+            id.into(),
+            super::model::AnalysisCallPhase::Completion,
+        );
 
         self.push_edge(
             suspended,
@@ -43,6 +90,19 @@ where
         );
 
         self.push_exit(cancellation, AnalysisExitKind::Cancellation, id.into());
+
+        let failure = self.push_block();
+
+        self.push_edge(
+            suspended,
+            failure,
+            AnalysisEdgeKind::Panic,
+            Some(super::model::AnalysisRefinement::InvocationFailure(
+                id.into(),
+            )),
+        );
+
+        self.push_exit(failure, AnalysisExitKind::Panic, id.into());
 
         Some(Some(resume))
     }
@@ -63,6 +123,15 @@ where
         let current = self.build_expressions(operands, current)?;
         let hook = self.implementation_hook(id, expression);
 
+        if hook == Some(ImplementationHook::CatastrophicAbort) {
+            // Catastrophic termination skips source cleanup. Record it before the
+            // later result analysis supplies the never type, matching MIR lowering.
+            self.push_bound(current, id.into());
+            self.push_exit(current, AnalysisExitKind::Divergence, id.into());
+
+            return Some(None);
+        }
+
         if hook == Some(ImplementationHook::CurrentRunCancellationPropagation) {
             self.push_bound(current, id.into());
             self.push_exit(current, AnalysisExitKind::Cancellation, id.into());
@@ -81,14 +150,24 @@ where
             hook,
             Some(ImplementationHook::TaskYield | ImplementationHook::TaskEventWait)
         ) {
-            self.push_suspension(current, id, AnalysisSuspensionKind::Yield);
+            self.push_suspension(current, id.into(), AnalysisSuspensionKind::Yield);
 
             let suspended = self.push_block();
             let resume = self.push_block();
             let cancellation = self.push_block();
 
             self.push_edge(current, suspended, AnalysisEdgeKind::Suspension, None);
-            self.push_edge(suspended, resume, AnalysisEdgeKind::Resume, None);
+
+            self.push_edge(
+                suspended,
+                resume,
+                AnalysisEdgeKind::Resume,
+                Some(super::model::AnalysisRefinement::InvocationCompletion(
+                    id.into(),
+                )),
+            );
+
+            self.push_call(resume, id.into(), AnalysisCallPhase::Completion);
 
             self.push_edge(
                 suspended,
@@ -102,15 +181,15 @@ where
             return Some(Some(resume));
         }
 
-        if self.dependency_failures == super::build::DependencyFailureMode::PotentialExits
-            && self.call_may_propagate_panic(id, hook)
-        {
-            return Some(Some(self.push_propagating_call(id, current)));
+        if self.call_may_propagate_panic(id, hook) {
+            return Some(Some(self.push_invocation(id, current, true)));
         }
 
         match hook.and_then(AnalysisTaskOperationKind::from_implementation_hook) {
             Some(kind) => self.push_task_operation(current, id, kind),
-            None => self.push_bound(current, id.into()),
+            None => {
+                return Some(Some(self.push_invocation(id, current, false)));
+            }
         }
 
         Some(Some(current))
@@ -130,7 +209,13 @@ where
         match selections.expression(expression) {
             Some(SemanticSelection::Call(selection)) => {
                 selection.evaluates_defaults()
-                    || (hook_may_panic
+                    || (selection.phase_behaviors().invocation().may_unwind()
+                        && hook_may_panic
+                        && !selection
+                            .phase_behaviors()
+                            .invocation()
+                            .execution_properties()
+                            .contains(&bray_symbols::ExecutionProperty::Total)
                         && selection.abi() == CallableAbi::Bray
                         && matches!(
                             selection.resolution().result(),
@@ -166,7 +251,8 @@ where
     }
 }
 
-const fn implementation_hook_may_propagate_synchronous_panic(
+/// Whether a compiler hook can propagate synchronous failure on valid inputs.
+pub const fn implementation_hook_may_propagate_synchronous_panic(
     hook: Option<ImplementationHook>,
 ) -> bool {
     matches!(
@@ -175,6 +261,7 @@ const fn implementation_hook_may_propagate_synchronous_panic(
             ImplementationHook::NativeThreadStart
                 | ImplementationHook::BranchingInlineAssembly
                 | ImplementationHook::RawAllocate
+                | ImplementationHook::RawBufferAllocate
                 | ImplementationHook::RawDeallocate
                 | ImplementationHook::Allocate
                 | ImplementationHook::Deallocate
@@ -182,6 +269,25 @@ const fn implementation_hook_may_propagate_synchronous_panic(
                 | ImplementationHook::RawBufferReplace
         )
     )
+}
+
+pub(crate) fn exclude_non_unwinding_edges<C: CheckerRequestContext + ?Sized>(
+    graph: &super::model::ControlFlowGraph,
+    request: crate::CheckerUnitView<'_, C>,
+    excluded: &mut std::collections::BTreeSet<super::id::AnalysisEdgeId>,
+) {
+    excluded.extend(graph.edges().iter().filter_map(|edge| {
+        let Some(super::model::AnalysisRefinement::InvocationFailure(
+            bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(
+                expression,
+            )),
+        )) = edge.refinement()
+        else {
+            return None;
+        };
+
+        request.call_cannot_unwind(expression).then_some(edge.id())
+    }));
 }
 
 #[cfg(test)]
@@ -202,6 +308,7 @@ mod tests {
 
         for hook in [
             ImplementationHook::RawAllocate,
+            ImplementationHook::RawBufferAllocate,
             ImplementationHook::RawDeallocate,
             ImplementationHook::Allocate,
             ImplementationHook::Deallocate,

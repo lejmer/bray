@@ -2,10 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AnyBoundNodeId, BoundDependencySubject, BoundExpression, BoundExpressionId, BoundUnit,
-    CheckedMemoryOperations, CheckedSemanticSelections, DependencyContractInstantiationError,
-    SemanticSelection, StoragePlan,
+    CheckedMemoryOperations, CheckedSemanticSelections, SemanticSelection, StoragePlan,
 };
-use bray_symbols::CallableSignatureQuery;
 
 use super::retention::retained_subtree_subjects;
 use super::subjects::{
@@ -14,11 +12,8 @@ use super::subjects::{
 };
 
 use crate::analysis::model::{AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind};
-use crate::dependency::{ValueInputs, selected_call_contracts};
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitView,
-};
+use crate::dependency::ValueInputs;
+use crate::{CheckerRequestContext, CheckerUnitView};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::analysis::liveness) struct OperationEffect {
@@ -27,43 +22,43 @@ pub(in crate::analysis::liveness) struct OperationEffect {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(in crate::analysis::liveness) struct OperationEffects {
-    pub(super) by_node: BTreeMap<AnyBoundNodeId, OperationEffect>,
+pub(crate) struct OperationEffects {
+    pub(super) by_occurrence: BTreeMap<bray_bound_tree::BoundExecutionSite, OperationEffect>,
     operation_result_definitions: BTreeMap<BoundExpressionId, BTreeSet<BoundDependencySubject>>,
     pub(in crate::analysis::liveness) universe: BTreeSet<BoundDependencySubject>,
     pub(in crate::analysis::liveness) owner_dependencies:
-        BTreeMap<BoundExpressionId, BTreeSet<BoundDependencySubject>>,
+        BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
     exit_dependencies: BTreeMap<AnyBoundNodeId, BTreeSet<BoundDependencySubject>>,
     pub(super) value_inputs: ValueInputs,
     pub(in crate::analysis::liveness) recovered_nodes: BTreeSet<AnyBoundNodeId>,
 }
 
 impl OperationEffects {
-    pub(in crate::analysis::liveness) fn from_checked_inputs<C>(
+    pub(crate) fn value_inputs(&self) -> &ValueInputs {
+        &self.value_inputs
+    }
+
+    pub(crate) fn from_checked_inputs<C>(
         request: CheckerUnitView<'_, C>,
-        selections: &CheckedSemanticSelections,
-        types: &bray_bound_tree::CheckedExpressionTypes,
-        patterns: &bray_bound_tree::CheckedPatterns,
+        semantics: &bray_bound_tree::CheckedExpressionSemantics,
+        value_inputs: ValueInputs,
+        dependencies: &bray_bound_tree::CheckedDependencyContracts,
         storage: &StoragePlan,
         memory: &CheckedMemoryOperations,
-    ) -> Result<Self, CheckerQueryError<C::UpstreamError>>
+    ) -> Self
     where
-        C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
+        C: CheckerRequestContext + ?Sized,
     {
         let mut effects = Self::from_storage_plan(request.unit(), storage, memory);
+        let selections = semantics.selections();
 
-        effects.value_inputs =
-            ValueInputs::prepare(request, types, selections, patterns, |callable| {
-                request.context().callable_result_dependencies(callable)
-            })?;
-
-        effects.retain_call_input_dependencies(request.unit());
-        effects.add_selected_call_dependencies(request, selections, storage)?;
+        effects.value_inputs = value_inputs;
+        effects.add_selected_call_dependencies(selections, storage, dependencies);
 
         for plan in storage.access_plans() {
-            let Some(access) = storage.access(plan.access()) else {
-                continue;
-            };
+            let access = storage
+                .access(plan.access())
+                .expect("liveness access plan retains its access");
 
             let Some(capability) = access.root().borrow_capability() else {
                 continue;
@@ -72,25 +67,48 @@ impl OperationEffects {
             let ty = request.semantic_values().type_data(access.reached_type());
 
             if matches!(ty.as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+                let owner = match storage
+                    .root_identity(plan.access())
+                    .and_then(|root| storage.identity(root))
+                {
+                    Some(bray_bound_tree::StorageIdentity::ScopedCapability {
+                        expression, ..
+                    }) if expression == plan.expression() => {
+                        bray_bound_tree::BoundExecutionSite::ScopedEnter(expression)
+                    }
+                    _ => plan.expression().into(),
+                };
+
                 effects
                     .owner_dependencies
-                    .entry(plan.expression())
+                    .entry(owner)
                     .or_default()
                     .extend(borrow_capability_subjects(storage, capability));
             }
         }
 
         for (borrow, capability) in storage.borrow_capability_entries() {
-            if let Some(expression) = capability.expression() {
+            if let Some(expression) = capability.expression()
+                // A scoped receiver loan belongs to entry evaluation. Its returned
+                // capability retains only the dependencies published by that call.
+                && !matches!(selections.expression(expression), Some(SemanticSelection::ScopedUse(_)))
+                && semantics.types().expression(expression).is_some_and(|ty| {
+                    matches!(
+                        request.semantic_values().type_data(ty.ty()).as_ref(),
+                        bray_symbols::TypeData::Borrow { .. }
+                    )
+                })
+            {
                 effects
                     .owner_dependencies
-                    .entry(expression)
+                    .entry(expression.into())
                     .or_default()
                     .extend(borrow_capability_subjects(storage, borrow));
             }
         }
 
         effects.retain_owned_call_dependencies(request, storage);
+        effects.retain_invocation_input_dependencies(request.unit());
 
         if let bray_bound_tree::BoundUnitRoot::Expression(root) = request.unit().root() {
             let retained =
@@ -100,14 +118,14 @@ impl OperationEffects {
 
             effects
                 .owner_dependencies
-                .entry(root)
+                .entry(root.into())
                 .or_default()
                 .extend(retained);
         }
 
         effects.retain_owner_control_transfer_dependencies(request.unit());
 
-        Ok(effects)
+        effects
     }
 
     pub(in crate::analysis::liveness) fn from_storage_plan(
@@ -127,8 +145,8 @@ impl OperationEffects {
             };
 
             effects
-                .by_node
-                .entry(node)
+                .by_occurrence
+                .entry(node.into())
                 .or_default()
                 .definitions
                 .insert(subject);
@@ -145,17 +163,15 @@ impl OperationEffects {
         for plan in storage.access_plans() {
             let subject = BoundDependencySubject::StorageAccess(plan.access());
             let node = plan.node();
-            let effect = effects.by_node.entry(node).or_default();
+            let effect = effects.by_occurrence.entry(plan.occurrence()).or_default();
 
             effect.uses.insert(subject);
             effect.definitions.insert(subject);
             effects.universe.insert(subject);
 
-            let Some(access) = storage.access(plan.access()) else {
-                effects.recovered_nodes.insert(node);
-
-                continue;
-            };
+            let access = storage
+                .access(plan.access())
+                .expect("liveness access plan retains its access");
 
             if access.is_recovered() {
                 effects.recovered_nodes.insert(node);
@@ -176,8 +192,16 @@ impl OperationEffects {
                 continue;
             };
 
-            let node = AnyBoundNodeId::Expression(expression);
-            let effect = effects.by_node.entry(node).or_default();
+            let occurrence = match unit.tree().expression(expression) {
+                Some(BoundExpression::Structured(scoped))
+                    if scoped.kind() == bray_bound_tree::BoundStructuredExpressionKind::With =>
+                {
+                    bray_bound_tree::BoundExecutionSite::ScopedEnter(expression)
+                }
+                _ => expression.into(),
+            };
+
+            let effect = effects.by_occurrence.entry(occurrence).or_default();
 
             effect.definitions.insert(subject);
 
@@ -185,11 +209,13 @@ impl OperationEffects {
                 .uses
                 .insert(BoundDependencySubject::StorageAccess(planned.access()));
 
-            if let Some(access) = storage.access(planned.access()) {
-                effect
-                    .uses
-                    .extend(access_root_subjects(storage, access.root()));
-            }
+            let access = storage
+                .access(planned.access())
+                .expect("liveness borrow retains its planned access");
+
+            effect
+                .uses
+                .extend(access_root_subjects(storage, access.root()));
 
             if let Some(parent) = planned.parent() {
                 let parent = BoundDependencySubject::BorrowCapability(parent);
@@ -209,8 +235,8 @@ impl OperationEffects {
                     .child_expressions()
                     .flat_map(|child| {
                         effects
-                            .by_node
-                            .get(&child.into())
+                            .by_occurrence
+                            .get(&bray_bound_tree::BoundExecutionSite::Node(child.into()))
                             .into_iter()
                             .flat_map(|effect| {
                                 effect
@@ -237,22 +263,6 @@ impl OperationEffects {
             effects.extend_uses(expression, subjects);
         }
 
-        let await_uses = unit
-            .tree()
-            .expressions()
-            .filter_map(|(expression, node)| match node {
-                BoundExpression::Await(awaited) => Some((
-                    expression,
-                    effects.subtree_subjects(unit, awaited.operand()),
-                )),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-
-        for (expression, subjects) in await_uses {
-            effects.extend_uses(expression, subjects);
-        }
-
         for operation in memory.operations() {
             let subjects = operation
                 .arguments()
@@ -266,111 +276,64 @@ impl OperationEffects {
         effects
     }
 
-    pub(in crate::analysis::liveness) fn retain_call_input_dependencies(
+    pub(in crate::analysis::liveness) fn retain_invocation_input_dependencies(
         &mut self,
         unit: &BoundUnit,
     ) {
-        let call_inputs = unit
+        let inputs = unit
             .tree()
             .expressions()
-            .filter_map(|(expression, node)| {
-                let BoundExpression::Call(call) = node else {
-                    return None;
-                };
-
-                let subjects = std::iter::once(call.callee())
-                    .chain(
-                        call.arguments()
-                            .iter()
-                            .map(bray_bound_tree::BoundArgument::expression),
-                    )
+            .filter(|(_, node)| {
+                matches!(node, BoundExpression::Call(_) | BoundExpression::Await(_))
+            })
+            .map(|(expression, node)| {
+                let subjects = node
+                    .child_expressions()
                     .flat_map(|input| self.subtree_subjects(unit, input))
                     .collect::<BTreeSet<_>>();
 
-                Some((expression, subjects))
+                (expression, subjects)
             })
             .collect::<Vec<_>>();
 
-        for (expression, subjects) in call_inputs {
+        for (expression, subjects) in inputs {
             self.extend_uses(expression, subjects);
         }
     }
 
-    fn add_selected_call_dependencies<C>(
+    fn add_selected_call_dependencies(
         &mut self,
-        request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
-    ) -> Result<(), CheckerQueryError<C::UpstreamError>>
-    where
-        C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
-    {
-        for entry in selections.entries() {
-            let SemanticSelection::Call(call) = entry.selection() else {
-                continue;
-            };
+        dependencies: &bray_bound_tree::CheckedDependencyContracts,
+    ) {
+        for (occurrence, contracts) in dependencies.calls() {
+            let mut invocation =
+                dependency_subjects(contracts.invocation().requirements(), storage);
 
-            let contracts = match selected_call_contracts(
-                request,
-                storage,
-                entry.expression(),
-                call,
-                &self.value_inputs,
-            ) {
-                Ok(contracts) => contracts,
-                Err(DependencyContractInstantiationError::Resolution(
-                    CheckerQueryError::Infrastructure(
-                        CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                    ),
-                )) => {
-                    self.recovered_nodes
-                        .insert(AnyBoundNodeId::Expression(entry.expression()));
+            let mut returned = dependency_subjects(contracts.result().requirements(), storage);
 
-                    continue;
-                }
-                Err(DependencyContractInstantiationError::Resolution(error)) => {
-                    return Err(error);
-                }
-                Err(DependencyContractInstantiationError::UnresolvedWitness) => {
-                    return Err(CheckerInfrastructureError::StorageFlow(
-                        crate::CheckerStorageFlowFailure::UnresolvedDependencyWitness {
-                            expression: entry.expression(),
-                        },
-                    )
-                    .into());
-                }
-                Err(DependencyContractInstantiationError::ForeignUnit) => {
-                    return Err(CheckerInfrastructureError::InvalidLiveness.into());
-                }
-            };
-
-            let invocation = dependency_subjects(contracts.invocation().requirements(), storage);
-            let returned = dependency_subjects(contracts.result().requirements(), storage);
+            if occurrence.expression().is_some_and(|expression| {
+                matches!(selections.expression(expression), Some(SemanticSelection::Call(call))
+                    if call.implementation_hook() == Some(bray_compiler_known::ImplementationHook::NativeThreadStart))
+            }) {
+                // The structured thread result retains its invocation contract.
+                returned.clear();
+                returned.extend(invocation.iter().copied());
+            }
 
             self.owner_dependencies
-                .entry(entry.expression())
+                .entry(*occurrence)
                 .or_default()
                 .extend(returned);
 
-            if call.implementation_hook()
-                == Some(bray_compiler_known::ImplementationHook::NativeThreadStart)
-            {
-                // The structured thread result retains the same contract used during invocation.
-                self.owner_dependencies
-                    .insert(entry.expression(), invocation.clone());
-            }
-
-            let mut subjects = invocation;
-
             if let Some(deferred) = contracts.deferred() {
-                collect_dependency_subjects(deferred.requirements(), storage, &mut subjects);
+                collect_dependency_subjects(deferred.requirements(), storage, &mut invocation);
             }
 
-            self.universe.extend(subjects.iter().copied());
-            self.extend_uses(entry.expression(), subjects);
+            self.universe.extend(invocation.iter().copied());
+            self.extend_uses(*occurrence, invocation);
         }
-
-        Ok(())
     }
 
     fn retain_owner_control_transfer_dependencies(&mut self, unit: &BoundUnit) {
@@ -412,11 +375,11 @@ impl OperationEffects {
 
     pub(super) fn extend_uses(
         &mut self,
-        expression: BoundExpressionId,
+        occurrence: impl Into<bray_bound_tree::BoundExecutionSite>,
         subjects: impl IntoIterator<Item = BoundDependencySubject>,
     ) {
-        self.by_node
-            .entry(AnyBoundNodeId::Expression(expression))
+        self.by_occurrence
+            .entry(occurrence.into())
             .or_default()
             .uses
             .extend(subjects);
@@ -433,14 +396,17 @@ impl OperationEffects {
         while let Some(expression) = pending.pop() {
             let node = AnyBoundNodeId::Expression(expression);
 
-            if let Some(effect) = self.by_node.get(&node) {
+            if let Some(effect) = self.by_occurrence.get(&node.into()) {
                 subjects.extend(effect.uses.iter().copied());
                 subjects.extend(effect.definitions.iter().copied());
             }
 
-            if let Some(node) = unit.tree().expression(expression) {
-                pending.extend(node.child_expressions());
-            }
+            let node = unit
+                .tree()
+                .expression(expression)
+                .expect("liveness subtree retains its bound expression");
+
+            pending.extend(node.child_expressions());
         }
 
         subjects
@@ -450,25 +416,45 @@ impl OperationEffects {
         &self,
         node: AnyBoundNodeId,
     ) -> Option<&OperationEffect> {
-        self.by_node.get(&node)
+        self.by_occurrence.get(&node.into())
     }
 
     pub(in crate::analysis::liveness) fn operation_effect(
         &self,
         operation: &AnalysisOperation,
     ) -> Option<OperationEffectView<'_>> {
-        if matches!(operation.kind(), AnalysisOperationKind::ScopeExit { .. }) {
-            return None;
-        }
+        use crate::analysis::model::AnalysisSuspensionKind;
 
-        let effect = self.effect(operation.kind().node())?;
+        let phase = match operation.kind() {
+            AnalysisOperationKind::ScopeExit { .. }
+            | AnalysisOperationKind::Suspension {
+                kind: AnalysisSuspensionKind::ScopedCall,
+                ..
+            } => {
+                // Scope cleanup is resolved by storage flow. A scoped suspension sits
+                // between its separate call attempt and completion and has no new transfer.
+                return None;
+            }
+            AnalysisOperationKind::Suspension {
+                kind: AnalysisSuspensionKind::Await | AnalysisSuspensionKind::Yield,
+                ..
+            } => Some(AnalysisCallPhase::Attempt),
+            AnalysisOperationKind::Call { phase, .. } => Some(phase),
+            AnalysisOperationKind::Bound(_)
+            | AnalysisOperationKind::PatternObservation(_)
+            | AnalysisOperationKind::TaskOperation { .. }
+            | AnalysisOperationKind::Recovery(_) => None,
+        };
 
-        let (phase, result_definitions) = match operation.kind() {
-            AnalysisOperationKind::Call { expression, phase } => (
-                Some(phase),
-                self.operation_result_definitions.get(&expression),
-            ),
-            _ => (None, None),
+        // The index is sparse: literals and operations without storage uses have no entry.
+        let effect = self.by_occurrence.get(&operation.kind().occurrence())?;
+
+        let result_definitions = match operation.kind().occurrence() {
+            bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)) => {
+                self.operation_result_definitions.get(&expression)
+            }
+            // Scoped capability storage is introduced by its binding pattern.
+            _ => None,
         };
 
         Some(OperationEffectView {

@@ -377,7 +377,16 @@ impl BoundOperator {
     pub const fn builtin_may_panic(self) -> bool {
         !matches!(
             self,
-            Self::LogicalNot
+            // Machine addition, subtraction and multiplication wrap without trapping.
+            // Contract arithmetic is evaluated separately with exact integer semantics.
+            Self::Add
+                | Self::Subtract
+                | Self::Multiply
+                | Self::LogicalNot
+                | Self::BitwiseNot
+                | Self::BitwiseAnd
+                | Self::BitwiseOr
+                | Self::BitwiseXor
                 | Self::LogicalAnd
                 | Self::LogicalOr
                 | Self::Equal

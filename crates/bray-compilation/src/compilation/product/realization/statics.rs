@@ -335,7 +335,7 @@ impl Compilation {
 
             let mut demanded = instance.mir().referenced_types();
 
-            demanded.extend(self.active_union_referent_types(
+            demanded.extend(self.operation_referent_types(
                 instance.mir(),
                 realization,
                 cancellation,

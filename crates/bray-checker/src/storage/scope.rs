@@ -1,15 +1,11 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{
-    BoundBlockItem, BoundExpression, BoundExpressionId, BoundPatternId, BoundUnitView,
-    StorageBinding, StorageBindingTarget, StorageIdentityId, StoragePlan, StorageScopeBuildError,
-    StorageScopeOwners,
+    BoundBlockItem, BoundExpressionId, BoundPatternId, BoundUnitView, StorageBinding,
+    StorageBindingTarget, StorageIdentityId, StoragePlan, StorageScopeOwners,
 };
 
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
-    CheckerStorageFlowFailure, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 pub(crate) fn storage_scope_owners<C>(
     request: CheckerUnitView<'_, C>,
@@ -17,16 +13,11 @@ pub(crate) fn storage_scope_owners<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    StorageScopeOwners::collect(request.unit()).map_err(|error| {
-        CheckerQueryError::Infrastructure(CheckerInfrastructureError::StorageFlow(match error {
-            StorageScopeBuildError::UnbalancedScopes { open_scope } => {
-                CheckerStorageFlowFailure::UnbalancedScopes { open_scope }
-            }
-            StorageScopeBuildError::MissingPattern { pattern } => {
-                CheckerStorageFlowFailure::MissingPattern { pattern }
-            }
-        }))
-    })
+    Ok(
+        StorageScopeOwners::collect(request.unit()).unwrap_or_else(|error| {
+            panic!("storage_scope_owners must satisfy its checked construction contract: {error:?}")
+        }),
+    )
 }
 pub(crate) fn local_initialization_bindings<C>(
     request: CheckerUnitView<'_, C>,
@@ -43,11 +34,9 @@ where
                 continue;
             };
 
-            let bindings = binding
-                .bindings()
-                .iter()
-                .filter_map(|binding| storage.binding(StorageBindingTarget::Local(*binding)))
-                .collect::<Vec<_>>();
+            let mut bindings = Vec::new();
+
+            extend_pattern_bindings(request.view(), storage, binding.pattern(), &mut bindings);
 
             if !bindings.is_empty() {
                 result.insert(binding.initializer(), bindings);
@@ -65,41 +54,15 @@ pub(crate) fn value_transfer_bindings<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut result = local_initialization_bindings(request, storage);
+    let mut result = BTreeMap::new();
 
-    for (_, expression) in request.unit().tree().expressions() {
-        match expression {
-            BoundExpression::For(value) => {
-                let bindings = result.entry(value.source()).or_default();
-
-                extend_pattern_bindings(request.view(), storage, value.pattern(), bindings);
-            }
-            BoundExpression::Generator(value) => {
-                let bindings = result.entry(value.source()).or_default();
-
-                extend_pattern_bindings(request.view(), storage, value.pattern(), bindings);
-            }
-            BoundExpression::Match(expression) => {
-                let bindings = result.entry(expression.subject()).or_default();
-
-                for arm in expression.arms() {
-                    extend_pattern_bindings(request.view(), storage, arm.pattern(), bindings);
-                }
-            }
-            BoundExpression::Structured(test)
-                if test.kind()
-                    == bray_bound_tree::BoundStructuredExpressionKind::PatternBinding =>
-            {
-                if let Some(subject) = test.operands().first() {
-                    let bindings = result.entry(*subject).or_default();
-
-                    for pattern in test.patterns() {
-                        extend_pattern_bindings(request.view(), storage, *pattern, bindings);
-                    }
-                }
-            }
-            _ => {}
-        }
+    for (pattern, source) in crate::pattern::binding_subjects(request.unit()) {
+        extend_pattern_bindings(
+            request.view(),
+            storage,
+            pattern,
+            result.entry(source).or_default(),
+        );
     }
 
     result
@@ -114,19 +77,30 @@ fn extend_pattern_bindings(
     let mut pending = vec![root];
 
     while let Some(pattern) = pending.pop() {
-        let Some(pattern) = view.pattern(pattern) else {
+        let id = pattern;
+
+        let Some(pattern) = view.pattern(id) else {
             continue;
         };
+
+        if pattern.kind() == bray_bound_tree::BoundPatternKind::Discard {
+            bindings.extend(storage.binding(StorageBindingTarget::PatternDiscard(id)));
+        }
 
         bindings.extend(
             pattern
                 .bindings()
                 .iter()
-                .filter_map(|binding| storage.binding(StorageBindingTarget::Local(*binding))),
+                .copied()
+                .chain(pattern.entries().iter().filter_map(|entry| entry.binding()))
+                .filter_map(|binding| storage.binding(StorageBindingTarget::Local(binding))),
         );
 
         pending.extend(pattern.children().iter().copied());
     }
+
+    bindings.sort_unstable();
+    bindings.dedup();
 }
 
 pub(crate) fn local_initialization_destinations<C>(
@@ -143,4 +117,55 @@ where
             [StorageBinding::Access(_)] | [] | [_, _, ..] => None,
         })
         .collect()
+}
+
+pub(crate) fn pattern_binding_sources<'a>(
+    view: BoundUnitView<'a>,
+    storage: &'a StoragePlan,
+    pattern: BoundPatternId,
+) -> impl Iterator<
+    Item = (
+        StorageBindingTarget,
+        BoundExpressionId,
+        bray_bound_tree::StorageAccessId,
+    ),
+> + 'a {
+    let bound = view.pattern(pattern).expect("checked pattern must exist");
+
+    let expression = storage
+        .node_plans(pattern.into())
+        .next()
+        .map(|plan| plan.expression());
+
+    let mut plans = storage.node_plans(pattern.into()).filter(|plan| {
+        !matches!(
+            plan.purpose(),
+            bray_bound_tree::StorageAccessPurpose::Projection
+                | bray_bound_tree::StorageAccessPurpose::Initialize
+        )
+    });
+
+    bound
+        .bindings()
+        .iter()
+        .copied()
+        .chain(bound.entries().iter().filter_map(|entry| entry.binding()))
+        .map(StorageBindingTarget::Local)
+        .chain(
+            (bound.kind() == bray_bound_tree::BoundPatternKind::Discard)
+                .then_some(StorageBindingTarget::PatternDiscard(pattern)),
+        )
+        .filter_map(move |binding| {
+            let (expression, access) = match storage.binding(binding) {
+                Some(StorageBinding::Access(access)) => (expression?, access),
+                Some(StorageBinding::Identity(_)) => {
+                    let plan = plans.next()?;
+
+                    (plan.expression(), plan.access())
+                }
+                None => return None,
+            };
+
+            Some((binding, expression, access))
+        })
 }

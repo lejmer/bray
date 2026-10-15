@@ -8,6 +8,11 @@ trusted internal func platform_process_pipe_read(
     pos length: u64,
     pos transferred: RawPointer<u64>,
 ) -> std.platform.PlatformStatus
+    requires(
+        length == 0 || trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize),
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
 {
     let descriptor: i32 = match internal std.platform.checked_descriptor(handle)
     {
@@ -30,6 +35,12 @@ trusted internal func platform_process_pipe_write(
     pos length: u64,
     pos transferred: RawPointer<u64>,
 ) -> std.platform.PlatformStatus
+    requires(
+        length == 0 || trusted core.memory.valid_read<u8>(pointer = source, count = length as usize),
+        length == 0 || trusted core.memory.initialized_range_as<u8>(pointer = source, count = length as usize),
+        trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = transferred),
+    )
 {
     let descriptor: i32 = match internal std.platform.checked_descriptor(handle)
     {

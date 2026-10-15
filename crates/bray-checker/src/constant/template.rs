@@ -7,8 +7,6 @@ use bray_symbols::{
     TraitApplicationData, TraitApplicationTemplate, TypeData, TypeExpressionTemplate, TypeId,
 };
 
-use crate::CheckerInfrastructureError;
-
 /// Checked constant terms keyed by their stable source occurrence.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CheckedConstantTerms {
@@ -64,12 +62,11 @@ pub(crate) fn checked_substituted_type<C: crate::CheckerRequestContext + ?Sized>
     let constants = request.checked_constant_terms(template)?;
 
     let ty =
-        resolve_type_expression_template(request.semantic_values(), template, constants.value())?;
+        resolve_type_expression_template(request.semantic_values(), template, constants.value());
 
     let ty = ty
         .map(|ty| request.semantic_values().substitute_type(ty, substitution))
-        .transpose()
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .transpose().unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in checked_substituted_type: {error:?}"));
 
     Ok(bray_diagnostics::DiagnosticResult::new(
         ty,
@@ -84,29 +81,29 @@ pub fn resolve_type_expression_template(
     values: &SemanticValueStore,
     template: &TypeExpressionTemplate,
     constants: &CheckedConstantTerms,
-) -> Result<Option<TypeId>, CheckerInfrastructureError> {
+) -> Option<TypeId> {
     let data = match template {
-        TypeExpressionTemplate::Resolved(ty) => return Ok(Some(*ty)),
+        TypeExpressionTemplate::Resolved(ty) => return Some(*ty),
         TypeExpressionTemplate::Named {
             definition,
             parameters,
             arguments,
         } => {
             let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
-                return Err(CheckerInfrastructureError::SemanticValueUnavailable);
+                panic!(
+                    "Canonical semantic value construction or lookup failed without an available store cause. in resolve_type_expression_template"
+                );
             };
 
-            let Some(arguments) = resolve_arguments(values, arguments, constants)? else {
-                return Ok(None);
+            let Some(arguments) = resolve_arguments(values, arguments, constants) else {
+                return None;
             };
 
             let substitution =
-                GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments)
-                    .map_err(CheckerInfrastructureError::GenericSubstitution)?;
+                GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments).unwrap_or_else(|error| panic!("Generic substitution construction rejected an exact parameter-to-argument relationship. in resolve_type_expression_template: {error:?}"));
 
             let substitution = values
-                .intern_generic_substitution(substitution)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                .intern_generic_substitution(substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in resolve_type_expression_template: {error:?}"));
 
             TypeData::Named {
                 definition: *definition,
@@ -119,45 +116,43 @@ pub fn resolve_type_expression_template(
             parameters,
             arguments,
         } => {
-            let Some(target) = resolve_type_expression_template(values, target, constants)? else {
-                return Ok(None);
+            let Some(target) = resolve_type_expression_template(values, target, constants) else {
+                return None;
             };
 
-            let Some(arguments) = resolve_arguments(values, arguments, constants)? else {
-                return Ok(None);
+            let Some(arguments) = resolve_arguments(values, arguments, constants) else {
+                return None;
             };
 
             let Some(owner) = GenericOwnerId::try_new((*definition).into()) else {
-                return Err(CheckerInfrastructureError::SemanticValueUnavailable);
+                panic!(
+                    "Canonical semantic value construction or lookup failed without an available store cause. in resolve_type_expression_template"
+                );
             };
 
             let substitution =
-                GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments)
-                    .map_err(CheckerInfrastructureError::GenericSubstitution)?;
+                GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments).unwrap_or_else(|error| panic!("Generic substitution construction rejected an exact parameter-to-argument relationship. in resolve_type_expression_template: {error:?}"));
 
             let substitution = values
-                .intern_generic_substitution(substitution)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                .intern_generic_substitution(substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in resolve_type_expression_template: {error:?}"));
 
             return values
                 .substitute_type(target, substitution)
-                .map(Some)
-                .map_err(CheckerInfrastructureError::SemanticValueStore);
+                .map(Some).unwrap_or_else(|error| panic!("resolve_type_expression_template must satisfy its checked construction contract: {error:?}"));
         }
         TypeExpressionTemplate::TypeValuedMemberProjection {
             subject,
             application,
             member,
         } => {
-            let Some(subject) = resolve_type_expression_template(values, subject, constants)?
-            else {
-                return Ok(None);
+            let Some(subject) = resolve_type_expression_template(values, subject, constants) else {
+                return None;
             };
 
             let Some(application) =
-                resolve_trait_application_template(values, application, constants)?
+                resolve_trait_application_template(values, application, constants)
             else {
-                return Ok(None);
+                return None;
             };
 
             TypeData::TypeValuedMemberProjection {
@@ -167,49 +162,47 @@ pub fn resolve_type_expression_template(
             }
         }
         TypeExpressionTemplate::Tuple(elements) => {
-            let Some(elements) = resolve_types(values, elements, constants)? else {
-                return Ok(None);
+            let Some(elements) = resolve_types(values, elements, constants) else {
+                return None;
             };
 
             TypeData::tuple(elements)
         }
         TypeExpressionTemplate::Array { element, length } => {
-            let Some(element) = resolve_type_expression_template(values, element, constants)?
-            else {
-                return Ok(None);
+            let Some(element) = resolve_type_expression_template(values, element, constants) else {
+                return None;
             };
 
             let Some(length) = constants.term(length.key()) else {
-                return Ok(None);
+                return None;
             };
 
             TypeData::Array { element, length }
         }
         TypeExpressionTemplate::FlexibleArray(element) => {
-            let Some(element) = resolve_type_expression_template(values, element, constants)?
-            else {
-                return Ok(None);
+            let Some(element) = resolve_type_expression_template(values, element, constants) else {
+                return None;
             };
 
             TypeData::FlexibleArray(element)
         }
         TypeExpressionTemplate::Slice(target) => {
-            let Some(target) = resolve_type_expression_template(values, target, constants)? else {
-                return Ok(None);
+            let Some(target) = resolve_type_expression_template(values, target, constants) else {
+                return None;
             };
 
             TypeData::Slice(target)
         }
         TypeExpressionTemplate::Nullable(target) => {
-            let Some(target) = resolve_type_expression_template(values, target, constants)? else {
-                return Ok(None);
+            let Some(target) = resolve_type_expression_template(values, target, constants) else {
+                return None;
             };
 
             TypeData::Nullable(target)
         }
         TypeExpressionTemplate::Borrow { kind, target } => {
-            let Some(target) = resolve_type_expression_template(values, target, constants)? else {
-                return Ok(None);
+            let Some(target) = resolve_type_expression_template(values, target, constants) else {
+                return None;
             };
 
             TypeData::Borrow {
@@ -219,21 +212,20 @@ pub fn resolve_type_expression_template(
         }
         TypeExpressionTemplate::TraitView(application) => {
             let Some(application) =
-                resolve_trait_application_template(values, application, constants)?
+                resolve_trait_application_template(values, application, constants)
             else {
-                return Ok(None);
+                return None;
             };
 
             TypeData::TraitView(application)
         }
         TypeExpressionTemplate::OwnedIndirection { storage, target } => {
-            let Some(storage) = resolve_type_expression_template(values, storage, constants)?
-            else {
-                return Ok(None);
+            let Some(storage) = resolve_type_expression_template(values, storage, constants) else {
+                return None;
             };
 
-            let Some(target) = resolve_type_expression_template(values, target, constants)? else {
-                return Ok(None);
+            let Some(target) = resolve_type_expression_template(values, target, constants) else {
+                return None;
             };
 
             TypeData::OwnedIndirection { storage, target }
@@ -242,9 +234,9 @@ pub fn resolve_type_expression_template(
             let mut parameters = Vec::with_capacity(callable.parameters().len());
 
             for parameter in callable.parameters() {
-                let Some(ty) = resolve_type_expression_template(values, parameter.ty(), constants)?
+                let Some(ty) = resolve_type_expression_template(values, parameter.ty(), constants)
                 else {
-                    return Ok(None);
+                    return None;
                 };
 
                 // Callable parameter names are immutable canonical payloads.
@@ -257,9 +249,9 @@ pub fn resolve_type_expression_template(
             }
 
             let Some(result) =
-                resolve_type_expression_template(values, callable.result(), constants)?
+                resolve_type_expression_template(values, callable.result(), constants)
             else {
-                return Ok(None);
+                return None;
             };
 
             // The resolved callable type owns the Arc-backed phase behavior snapshot.
@@ -281,8 +273,7 @@ pub fn resolve_type_expression_template(
 
     values
         .intern_type(data)
-        .map(Some)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)
+        .map(Some).unwrap_or_else(|error| panic!("resolve_type_expression_template must satisfy its checked construction contract: {error:?}"))
 }
 
 /// Resolves and substitutes one callable signature template.
@@ -293,28 +284,21 @@ pub fn resolve_callable_signature_template(
     template: &CallableSignatureTemplate,
     substitution: GenericSubstitutionId,
     constants: &CheckedConstantTerms,
-) -> Result<Option<CallableSignature>, CheckerInfrastructureError> {
+) -> Option<CallableSignature> {
     let Some(callable_type) =
-        resolve_type_expression_template(values, template.callable_type(), constants)?
+        resolve_type_expression_template(values, template.callable_type(), constants)
     else {
-        return Ok(None);
+        return None;
     };
 
-    let Some(result) = resolve_type_expression_template(values, template.result(), constants)?
+    let Some(result) = resolve_type_expression_template(values, template.result(), constants)
     else {
-        return Ok(None);
+        return None;
     };
 
     let parameter_templates =
         template
-            .parameter_type_templates(values)
-            .map_err(|error| match error {
-                bray_symbols::CallableSignatureTemplateError::InvalidCallableType
-                | bray_symbols::CallableSignatureTemplateError::ParameterCountMismatch
-                | bray_symbols::CallableSignatureTemplateError::ParameterIdentityMismatch => {
-                    CheckerInfrastructureError::InvalidSemanticSelectionInput
-                }
-            })?;
+            .parameter_type_templates(values).unwrap_or_else(|error| panic!("resolve_callable_signature_template must satisfy its checked construction contract: {error:?}"));
 
     let mut parameters = Vec::with_capacity(parameter_templates.len());
 
@@ -324,9 +308,9 @@ pub fn resolve_callable_signature_template(
         .copied()
         .zip(parameter_templates)
     {
-        let Some(ty) = resolve_type_expression_template(values, &parameter_template, constants)?
+        let Some(ty) = resolve_type_expression_template(values, &parameter_template, constants)
         else {
-            return Ok(None);
+            return None;
         };
 
         parameters.push(CallableParameterSignature::new(parameter, ty));
@@ -335,18 +319,23 @@ pub fn resolve_callable_signature_template(
     let signature = CallableSignature::new(callable_type, template.receiver(), parameters, result);
 
     signature
-        .try_map_types(|ty| substitute_type(values, ty, substitution))
-        .map(Some)
+        .try_map_types(|ty| {
+            Ok::<_, std::convert::Infallible>(substitute_type(values, ty, substitution))
+        })
+        .unwrap_or_else(|error| match error {})
+        .into()
 }
 
 fn substitute_type(
     values: &SemanticValueStore,
     ty: TypeId,
     substitution: GenericSubstitutionId,
-) -> Result<TypeId, CheckerInfrastructureError> {
+) -> TypeId {
     values
         .substitute_type(ty, substitution)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)
+        .unwrap_or_else(|error| {
+            panic!("substitute_type must satisfy its checked construction contract: {error:?}")
+        })
 }
 
 /// Resolves one trait-application template after checking its constant arguments.
@@ -354,53 +343,51 @@ pub fn resolve_trait_application_template(
     values: &SemanticValueStore,
     template: &TraitApplicationTemplate,
     constants: &CheckedConstantTerms,
-) -> Result<Option<bray_symbols::TraitApplicationId>, CheckerInfrastructureError> {
+) -> Option<bray_symbols::TraitApplicationId> {
     let Some(owner) = GenericOwnerId::try_new(template.definition().into()) else {
-        return Err(CheckerInfrastructureError::SemanticValueUnavailable);
+        panic!(
+            "Canonical semantic value construction or lookup failed without an available store cause. in resolve_trait_application_template"
+        );
     };
 
-    let Some(arguments) = resolve_arguments(values, template.arguments(), constants)? else {
-        return Ok(None);
+    let Some(arguments) = resolve_arguments(values, template.arguments(), constants) else {
+        return None;
     };
 
     let substitution =
-        GenericSubstitutionData::try_new(owner, template.parameters().iter().copied(), arguments)
-            .map_err(CheckerInfrastructureError::GenericSubstitution)?;
+        GenericSubstitutionData::try_new(owner, template.parameters().iter().copied(), arguments).unwrap_or_else(|error| panic!("Generic substitution construction rejected an exact parameter-to-argument relationship. in resolve_trait_application_template: {error:?}"));
 
     let substitution = values
-        .intern_generic_substitution(substitution)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .intern_generic_substitution(substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in resolve_trait_application_template: {error:?}"));
 
     values
         .intern_trait_application(TraitApplicationData::new(
             template.definition(),
             substitution,
         ))
-        .map(Some)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)
+        .map(Some).unwrap_or_else(|error| panic!("resolve_trait_application_template must satisfy its checked construction contract: {error:?}"))
 }
 
 fn resolve_arguments(
     values: &SemanticValueStore,
     templates: &[GenericArgumentTemplate],
     constants: &CheckedConstantTerms,
-) -> Result<Option<Vec<GenericArgument>>, CheckerInfrastructureError> {
+) -> Option<Vec<GenericArgument>> {
     let mut arguments = Vec::with_capacity(templates.len());
 
     for template in templates {
         let argument = match template {
             GenericArgumentTemplate::Resolved(argument) => *argument,
             GenericArgumentTemplate::Type(template) => {
-                let Some(ty) = resolve_type_expression_template(values, template, constants)?
-                else {
-                    return Ok(None);
+                let Some(ty) = resolve_type_expression_template(values, template, constants) else {
+                    return None;
                 };
 
                 GenericArgument::Type(ty)
             }
             GenericArgumentTemplate::Constant(occurrence) => {
                 let Some(term) = constants.term(occurrence.key()) else {
-                    return Ok(None);
+                    return None;
                 };
 
                 GenericArgument::Constant(term)
@@ -410,25 +397,25 @@ fn resolve_arguments(
         arguments.push(argument);
     }
 
-    Ok(Some(arguments))
+    Some(arguments)
 }
 
 fn resolve_types(
     values: &SemanticValueStore,
     templates: &[TypeExpressionTemplate],
     constants: &CheckedConstantTerms,
-) -> Result<Option<Vec<TypeId>>, CheckerInfrastructureError> {
+) -> Option<Vec<TypeId>> {
     let mut types = Vec::with_capacity(templates.len());
 
     for template in templates {
-        let Some(ty) = resolve_type_expression_template(values, template, constants)? else {
-            return Ok(None);
+        let Some(ty) = resolve_type_expression_template(values, template, constants) else {
+            return None;
         };
 
         types.push(ty);
     }
 
-    Ok(Some(types))
+    Some(types)
 }
 
 #[cfg(test)]
@@ -448,7 +435,7 @@ mod tests {
     use super::{
         CheckedConstantTerms, CheckedConstantTermsBuildError, resolve_type_expression_template,
     };
-    use crate::CheckerInfrastructureError;
+
     use crate::test_support::semantic_values;
 
     #[test]
@@ -508,13 +495,6 @@ mod tests {
             ))
         );
 
-        assert_eq!(
-            duplicate.map_err(CheckerInfrastructureError::CheckedConstantTerms),
-            Err(CheckerInfrastructureError::CheckedConstantTerms(
-                CheckedConstantTermsBuildError::DuplicateOccurrence(occurrence.key())
-            ))
-        );
-
         let template = TypeExpressionTemplate::Array {
             element: Arc::new(TypeExpressionTemplate::Resolved(element)),
             length: occurrence,
@@ -522,7 +502,7 @@ mod tests {
 
         assert_eq!(
             resolve_type_expression_template(values, &template, &CheckedConstantTerms::new()),
-            Ok(None)
+            None
         );
 
         let checked = CheckedConstantTerms::try_from_terms([(occurrence.key(), length)]);
@@ -533,7 +513,7 @@ mod tests {
 
         let resolved = resolve_type_expression_template(values, &template, &checked);
 
-        let Ok(Some(resolved)) = resolved else {
+        let Some(resolved) = resolved else {
             panic!("checked array template must resolve");
         };
 

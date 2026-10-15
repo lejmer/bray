@@ -52,7 +52,10 @@ pub use dependency::{
     DependencyContractInstantiationContext, DependencyContractInstantiationError,
     GuardedBoundDependencyRequirement, LifecycleObligationId, ScopedCapabilityId,
 };
-pub use dependency_table::{CheckedDependencyContracts, DependencyContractsBuildError};
+pub use dependency_table::{
+    BoundCallDependencyContracts, BoundCallReference, CheckedDependencyContracts,
+    DependencyContractsBuildError,
+};
 pub use lifecycle::{LifecycleAction, LifecycleCallable, LifecyclePhase};
 pub use literal::{
     CheckedLiteralValueEntry, CheckedLiteralValueTableBuildError, CheckedLiteralValues,
@@ -73,8 +76,8 @@ pub use node::{
     BoundCallableBodyId, BoundCallableBodyKind, BoundCallableTarget,
     BoundControlTransferExpression, BoundControlTransferKind, BoundConversionExpression,
     BoundErrorCallExpression, BoundErrorCallableBody, BoundErrorConversionExpression,
-    BoundErrorExpression, BoundExpression, BoundExpressionId, BoundForExpression,
-    BoundFutureComposition, BoundFutureConstruction, BoundGeneratorExpression,
+    BoundErrorExpression, BoundExecutionSite, BoundExpression, BoundExpressionId,
+    BoundForExpression, BoundFutureComposition, BoundFutureConstruction, BoundGeneratorExpression,
     BoundGenericArgument, BoundIterationSource, BoundLeadingDotVariantExpression,
     BoundLiteralExpression, BoundLiteralKind, BoundLocalBinding, BoundLocalConstant, BoundMatchArm,
     BoundMatchExpression, BoundMemberAccessExpression, BoundMemberSelector, BoundNameExpression,
@@ -97,6 +100,7 @@ pub use pattern::{
 };
 pub use refinement::{
     CheckedRefinements, Refinement, RefinementKind, RefinementOccurrence, RefinementSetBuildError,
+    StorageInvalidation,
 };
 pub use selection::{
     CallableDeclarationTemplate, CallableParameterDefaultTemplate, CheckedSemanticSelections,
@@ -106,10 +110,11 @@ pub use selection::{
     SelectedImplementationWitness, SelectedIterationProtocolOperation, SelectedIterationSource,
     SelectedIterationTypes, SelectedOperation, SelectedPredicateApplication,
     SelectedPredicateArgument, SelectedPropagation, SelectedPropagationBoundary, SelectedReceiver,
-    SelectionKind, SemanticSelection, SemanticSelectionEntry, SemanticSelectionTableBuildError,
+    SelectedScopedUse, SelectionKind, SemanticSelection, SemanticSelectionEntry,
+    SemanticSelectionTableBuildError,
 };
 pub use semantic::{
-    CheckedBodySemantics, CheckedExpressionSemantics, SemanticSnapshotBuildError,
+    CheckedBodySemantics, CheckedExpressionSemantics, CheckedUnwind, SemanticSnapshotBuildError,
     SemanticSnapshotInputKind,
 };
 pub use storage::{
@@ -118,11 +123,12 @@ pub use storage::{
     StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot,
     StorageAlternative, StorageAlternativeId, StorageBinding, StorageBindingTarget,
     StorageCleanupPart, StorageCleanupProjection, StorageCleanupProjectionKind, StorageCleanupType,
-    StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError, StorageIdentity,
-    StorageIdentityId, StorageOperationDecision, StorageOperationStatus, StoragePlan,
-    StoragePlanBuildError, StoragePlanBuilder, StorageProjection, StorageProtocolCall,
-    StorageRelationship, StorageReplacementDecision, StorageReplacementPlan,
-    StorageReplacementState, StorageScopeBuildError, StorageScopeOwners, StorageSuspensionState,
+    StorageCompletion, StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError,
+    StorageIdentity, StorageIdentityId, StorageMutation, StorageOperationDecision,
+    StorageOperationStatus, StoragePath, StoragePlan, StoragePlanBuildError, StoragePlanBuilder,
+    StorageProjection, StorageProtocolCall, StorageReferencePath, StorageRelationship,
+    StorageReplacementDecision, StorageReplacementPlan, StorageReplacementState,
+    StorageScopeBuildError, StorageScopeOwners, StorageSuspensionState,
     storage_expression_republishes_destructor_receiver, storage_identity_is_destructor_receiver,
     storage_identity_transfers_at_unit_exit,
 };

@@ -14,6 +14,10 @@ impl StructuralValueEncoder<'_, '_> {
                 self.tag(0);
                 self.ordinal(ordinal);
             }
+            ConstantProjectionKind::ArrayElementOrdinal(index) => {
+                self.tag(6);
+                self.ordinal(index);
+            }
             ConstantProjectionKind::ArrayElement(index) => {
                 self.tag(1);
                 self.constant_term(index)?;

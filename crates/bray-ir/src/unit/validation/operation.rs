@@ -535,7 +535,6 @@ mod tests {
                 false,
             ),
             (CheckedMemoryOperationKind::ByteBufferFill, 3, false),
-            (CheckedMemoryOperationKind::ByteBufferCopy, 3, false),
             (CheckedMemoryOperationKind::ByteBufferRead, 2, true),
             (CheckedMemoryOperationKind::SequenceLength, 1, true),
             (

@@ -721,6 +721,12 @@ fn diagnostic_callable_contract_mismatch(
                 index: diagnostic_count(index)?,
             }
         }
+        CallableContractMismatch::PredicateCondition { surface, index } => {
+            DiagnosticCallableContractMismatch::PredicateCondition {
+                surface: diagnostic_callable_contract_surface(surface),
+                index: diagnostic_count(index)?,
+            }
+        }
         CallableContractMismatch::TraitSatisfaction { surface, index } => {
             DiagnosticCallableContractMismatch::TraitSatisfaction {
                 surface: diagnostic_callable_contract_surface(surface),
@@ -1992,7 +1998,7 @@ mod tests {
             "func select(pos holder: Holder<usize>) -> usize\n",
             "{\n",
             "    let selector: usize = 0;\n",
-            "    let selected: &usize = holder[selector];\n",
+            "    let selected: &usize = &holder[selector];\n",
             "\n",
             "    return 0;\n",
             "}\n",

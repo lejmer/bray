@@ -1,5 +1,5 @@
 use super::super::source::{format_english_artifact_digest, format_english_artifact_kind};
-use super::checker::format_english_checker_failure;
+
 use super::foreign_query::format_english_foreign_query_failure;
 use super::linking::format_english_native_link_input_failure;
 use super::product_failure::native_product_failure_is_internal;
@@ -85,7 +85,6 @@ fn format_english_emission_evaluation_failure_detail(
         }
         Failure::Product(failure) => return format_english_product_query_failure(failure),
         Failure::Foreign(failure) => return format_english_foreign_query_failure(failure),
-        Failure::Checker(failure) => return format_english_checker_failure(*failure),
     };
 
     message.to_owned()
@@ -165,10 +164,6 @@ fn format_english_native_product_failure_detail(
         }
         Kind::EvaluationProduct(failure) => return format_english_product_query_failure(failure),
         Kind::EvaluationForeign(failure) => return format_english_foreign_query_failure(failure),
-        Kind::CheckingInfrastructureFailure => "semantic checking could not complete",
-        Kind::EvaluationChecker(failure) => {
-            return format_english_checker_failure(*failure);
-        }
         Kind::CodegenTargetUnsupportedProfile => {
             "the selected target profile cannot generate native code"
         }
@@ -454,16 +449,14 @@ pub(crate) const fn format_english_semantic_value_failure_detail(
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        DiagnosticCheckerSymbol, DiagnosticFactRuntimeFailure, DiagnosticFailureField,
-        DiagnosticFailureValue, DiagnosticProductQueryFailure, DiagnosticSemanticQueryFailure,
+        DiagnosticFactRuntimeFailure, DiagnosticFailureField, DiagnosticFailureValue,
+        DiagnosticProductQueryFailure, DiagnosticSemanticQueryFailure,
     };
-    use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 
     use super::{
-        format_english_binding_failure, format_english_checker_failure,
-        format_english_emission_evaluation_failure, format_english_fact_runtime_failure,
-        format_english_native_product_failure, format_english_product_query_failure,
-        format_english_semantic_query_failure,
+        format_english_binding_failure, format_english_emission_evaluation_failure,
+        format_english_fact_runtime_failure, format_english_native_product_failure,
+        format_english_product_query_failure, format_english_semantic_query_failure,
     };
     use crate::catalog::english::INTERNAL_COMPILER_ERROR;
 
@@ -523,7 +516,6 @@ mod tests {
 
         let failures = [
             bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationProduct(nested),
-            bray_diagnostics::DiagnosticNativeProductFailureKind::CheckingInfrastructureFailure,
             bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenMirCapacityExceeded,
             bray_diagnostics::DiagnosticNativeProductFailureKind::InstanceTemplateMismatch,
         ];
@@ -584,62 +576,5 @@ mod tests {
         assert!(owner.starts_with(INTERNAL_COMPILER_ERROR));
         assert!(!syntax.contains("binding_missing"));
         assert!(!syntax.contains(';'));
-    }
-
-    #[test]
-    fn checker_failures_render_distinct_source_level_operations() {
-        use bray_diagnostics::DiagnosticCheckerFailure as Failure;
-
-        let pattern = format_english_checker_failure(Failure::ConstantEvaluation(
-            bray_diagnostics::DiagnosticConstantEvaluationFailure::MissingPattern(
-                bray_diagnostics::DiagnosticCheckerNode::new("pattern", 1, 2),
-            ),
-        ));
-
-        let storage = format_english_checker_failure(Failure::InvalidStoragePlan);
-
-        assert_ne!(pattern, storage);
-        assert!(pattern.contains("pattern"));
-        assert!(storage.contains("local values"));
-        assert!(!pattern.contains("checked"));
-        assert!(!storage.contains("storage plan"));
-    }
-
-    #[test]
-    fn checker_failures_keep_internal_identities_out_of_user_messages() {
-        use bray_diagnostics::DiagnosticCheckerFailure as Failure;
-
-        let missing = format_english_checker_failure(Failure::MissingSource {
-            source_id: SourceId::new(7),
-        });
-
-        let version = format_english_checker_failure(Failure::SourceVersionMismatch {
-            source_id: SourceId::new(8),
-            expected: SourceVersion::new(13),
-            actual: SourceVersion::new(21),
-        });
-
-        let range = format_english_checker_failure(Failure::InvalidSourceRange {
-            span: SourceSpan::new(
-                SourceId::new(9),
-                TextRange::new(TextSize::new(34), TextSize::new(55)),
-            ),
-        });
-
-        let query = format_english_checker_failure(Failure::SemanticQueryUnavailable {
-            symbol: DiagnosticCheckerSymbol::new("module", 11),
-            query: "members",
-        });
-
-        for message in [&missing, &version, &range, &query] {
-            assert!(message.starts_with(INTERNAL_COMPILER_ERROR));
-            assert!(!message.contains('#'));
-        }
-
-        assert!(missing.contains("source text"));
-        assert!(version.contains("wrong source-text revision"));
-        assert!(range.contains("source range"));
-        assert!(query.contains("member declarations"));
-        assert!(query.contains("highlighted module declaration"));
     }
 }

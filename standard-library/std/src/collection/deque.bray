@@ -1,16 +1,17 @@
 module std.collection;
 
 using std.memory;
+using internal std.collection.ring;
 
 struct Deque<T>
 {
-    internal mut storage: std.memory.RawBuffer<Uninit<T>>;
+    internal mut storage: std.memory.RawBuffer<(T?)>;
     internal mut head: usize;
     internal mut count: usize;
 
     trusted construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>
     {
-        let storage: std.memory.RawBuffer<Uninit<T>> = try trusted internal std.memory.uninit_buffer<T>(
+        let storage: std.memory.RawBuffer<(T?)> = try trusted internal std.memory.nullable_buffer<T>(
             capacity = capacity
         );
 
@@ -35,7 +36,7 @@ struct Deque<T>
 
     func capacity() -> usize
     {
-        return std.memory.capacity<Uninit<T>>(&self.storage);
+        return std.memory.capacity<(T?)>(&self.storage);
     }
 
     func is_empty() -> bool
@@ -155,7 +156,7 @@ struct Deque<T>
     {
         try trusted self.reserve(additional = 1);
 
-        let index: usize = wrapped_deque_index(
+        let index: usize = internal std.collection.ring.index(
             head = self.head,
             storage_capacity = self.capacity(),
             logical_index = self.count,
@@ -206,61 +207,63 @@ struct Deque<T>
     }
 }
 
-internal func wrapped_deque_index(head: usize, storage_capacity: usize, logical_index: usize) -> usize
-{
-    let contiguous: usize = storage_capacity - head;
-
-    if logical_index < contiguous
-    {
-        return head + logical_index;
-    }
-
-    return logical_index - contiguous;
-}
-
 trusted internal func borrow_deque_element<T>(pos deque: &Deque<T>, logical_index: usize) -> &T
+    uses(raw_memory)
 {
-    let index: usize = wrapped_deque_index(
+    let index: usize = internal std.collection.ring.index(
         head = deque.head,
         storage_capacity = deque.capacity(),
         logical_index = logical_index,
     );
 
-    let slots: &[Uninit<T>] = trusted std.memory.initialized_slice<Uninit<T>>(&deque.storage);
-    let pointer: RawPointer<T> = std.memory.uninit_pointer<T>(&slots[index]);
+    let slots: &[(T?)] = trusted std.memory.initialized_slice(&deque.storage);
 
-    return trusted std.memory.borrow_from<T, Deque<T>>(deque, pointer);
+    return match slots[index]
+    {
+        case ?value { yield &value; }
+        case none { panic("deque slot is empty"); }
+    };
 }
 
 trusted internal func borrow_deque_element_mut<T>(pos deque: &mut Deque<T>, logical_index: usize) -> &mut T
+    uses(raw_memory)
 {
-    let index: usize = wrapped_deque_index(
+    let index: usize = internal std.collection.ring.index(
         head = deque.head,
         storage_capacity = deque.capacity(),
         logical_index = logical_index,
     );
 
-    let pointer: RawPointer<T> =
+    let slots: &mut [(T?)] = trusted std.memory.initialized_slice_mut(&mut deque.storage);
+
+    return match slots[index]
     {
-        let slots: &mut [Uninit<T>] = trusted std.memory.initialized_slice_mut<Uninit<T>>(&mut deque.storage);
-
-        yield std.memory.uninit_pointer_mut<T>(&mut slots[index]);
+        case ?value { yield &mut value; }
+        case none { panic("deque slot is empty"); }
     };
-
-    return trusted std.memory.borrow_mut_from<T, Deque<T>>(deque, pointer);
 }
 
 trusted internal func write_deque_slot<T>(pos deque: &mut Deque<T>, pos value: T, physical_index: usize)
+    uses(raw_memory)
 {
-    let slots: &mut [Uninit<T>] = trusted std.memory.initialized_slice_mut<Uninit<T>>(&mut deque.storage);
-    let _: &mut T = std.memory.uninit_write<T>(&mut slots[physical_index], value);
+    let slots: &mut [(T?)] = trusted std.memory.initialized_slice_mut(&mut deque.storage);
+
+    assert(slots[physical_index].is_absent(), "deque slot is occupied");
+
+    slots[physical_index] = value;
 }
 
 trusted internal func take_deque_slot<T>(pos deque: &mut Deque<T>, physical_index: usize) -> T
+    uses(raw_memory)
 {
-    let slots: &mut [Uninit<T>] = trusted std.memory.initialized_slice_mut<Uninit<T>>(&mut deque.storage);
+    let slots: &mut [(T?)] = trusted std.memory.initialized_slice_mut(&mut deque.storage);
+    let pending: T? = std.memory.replace_value(&mut slots[physical_index], none);
 
-    return trusted std.memory.move_initialized<T>(&mut slots[physical_index]);
+    return match consume pending
+    {
+        case ?value { yield value; }
+        case none { panic("deque slot is empty"); }
+    };
 }
 
 trusted internal func take_deque_front<T>(pos deque: &mut Deque<T>) -> T
@@ -287,7 +290,7 @@ trusted internal func take_deque_front<T>(pos deque: &mut Deque<T>) -> T
 
 trusted internal func take_deque_back<T>(pos deque: &mut Deque<T>) -> T
 {
-    let index: usize = wrapped_deque_index(
+    let index: usize = internal std.collection.ring.index(
         head = deque.head,
         storage_capacity = deque.capacity(),
         logical_index = deque.count - 1,
@@ -346,8 +349,9 @@ trusted internal func reallocate_deque<T>(
     pos deque: &mut Deque<T>,
     new_capacity: usize
 ) -> Result<unit, std.memory.MemoryLayoutError>
+    uses(manual_alloc, raw_memory)
 {
-    let mut replacement: std.memory.RawBuffer<Uninit<T>> = try trusted internal std.memory.uninit_buffer<T>(
+    let mut replacement: std.memory.RawBuffer<(T?)> = try trusted internal std.memory.nullable_buffer<T>(
         capacity = new_capacity
     );
 
@@ -358,23 +362,21 @@ trusted internal func reallocate_deque<T>(
 
     while moved < retained
     {
-        let source_index: usize = wrapped_deque_index(
+        let source_index: usize = internal std.collection.ring.index(
             head = source_head,
             storage_capacity = source_capacity,
             logical_index = moved,
         );
 
         let value: T = trusted take_deque_slot<T>(&mut deque, physical_index = source_index);
-        let slots: &mut [Uninit<T>] = trusted std.memory.initialized_slice_mut<Uninit<T>>(&mut replacement);
-        let _: &mut T = std.memory.uninit_write<T>(&mut slots[moved], value);
+        let slots: &mut [(T?)] = trusted std.memory.initialized_slice_mut<(T?)>(&mut replacement);
+
+        slots[moved] = value;
 
         moved += 1;
     }
 
-    trusted internal std.memory.raw_buffer_replace<Uninit<T>>(
-        destination = &mut deque.storage,
-        source = &mut replacement,
-    );
+    trusted internal std.memory.raw_buffer_replace<(T?)>(destination = &mut deque.storage, source = &mut replacement);
 
     deque.head = 0;
 

@@ -207,7 +207,6 @@ impl HashSetReadCursorIterator = HashSetReadCursor<Value>(Iterator)
     mut func next() -> (&Value)?
     {
         let bucket_count: usize = std.memory.capacity<u8>(&self.set.table.states);
-        let states: &[u8] = trusted std.memory.initialized_slice<u8>(&self.set.table.states);
 
         while self.index < bucket_count
         {
@@ -215,7 +214,7 @@ impl HashSetReadCursorIterator = HashSetReadCursor<Value>(Iterator)
 
             self.index += 1;
 
-            if states[index] == HASH_TABLE_OCCUPIED
+            if trusted hash_table_occupied(&self.set.table.states, index = index)
             {
                 let item: &SetItem<Value> = trusted hash_table_item<SetItem<Value>>(&self.set.table, index = index);
 
@@ -264,7 +263,7 @@ impl HashSetMoveCursorIterator = HashSetMoveCursor<Value>(Iterator)
         while self.index < bucket_count
         {
             let index: usize = self.index;
-            let occupied: bool = trusted hash_table_occupied(self.set.table.states.pointer, index = index);
+            let occupied: bool = trusted hash_table_occupied(&self.set.table.states, index = index);
 
             self.index += 1;
 

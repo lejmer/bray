@@ -445,7 +445,7 @@ impl Compilation {
         Ok((domains, mapping, diagnostics))
     }
 
-    pub(super) fn execution_callable_inputs(
+    pub(in crate::compilation) fn execution_callable_inputs(
         &self,
         symbol: AnySymbolId,
         cancellation: &CancellationToken,

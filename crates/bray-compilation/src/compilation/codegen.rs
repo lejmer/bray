@@ -119,7 +119,9 @@ impl Compilation {
                 let output = self.source_output_unit(key.clone(), cancellation)?;
 
                 if output.has_errors() {
-                    return Err(CodegenPreparationError::Diagnostics(output.diagnostic_bag()));
+                    return Err(CodegenPreparationError::Diagnostics(
+                        output.diagnostic_bag(),
+                    ));
                 }
 
                 let lowered = output
@@ -468,6 +470,13 @@ pub enum CodegenPreparationError {
         expected: CodegenCallableSignature,
         /// Target-classified ABI produced by the source declaration.
         actual: CodegenCallableSignature,
+    },
+    /// A runtime source entry lacks the authority contract granted by its native boundary.
+    InvalidRuntimeRoleSourceContract {
+        /// Closed runtime role selected by build metadata.
+        role: bray_runtime_interface::RuntimeAbiRole,
+        /// Source implementation whose contract was rejected.
+        instance: bray_codegen::CodegenInstanceKey,
     },
     /// A constant term needed by code generation still contains unresolved parameters.
     OpenConstantTerm(bray_symbols::ConstantTermId),

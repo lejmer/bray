@@ -2,8 +2,8 @@ use bray_diagnostics::DiagnosticArgValue;
 use serde::Serialize;
 
 use super::emission::{
-    DiagnosticEmissionFieldJson, checker_failure_context, diagnostic_failure_context,
-    fact_runtime_failure_context, foreign_query_failure_context, native_link_input_failure_context,
+    DiagnosticEmissionFieldJson, diagnostic_failure_context, fact_runtime_failure_context,
+    foreign_query_failure_context, native_link_input_failure_context,
     product_query_failure_context, push_source_span, semantic_value_failure_context, text_field,
 };
 use super::{
@@ -509,7 +509,6 @@ impl DiagnosticNativeProductFailureJson {
                 context
             }
             Kind::EvaluationSemanticValue(failure) => semantic_value_failure_context(*failure),
-            Kind::EvaluationChecker(failure) => checker_failure_context(*failure),
             Kind::EvaluationBinding(failure) => match failure.semantic_value_failure() {
                 Some(failure) => semantic_value_failure_context(failure),
                 None => diagnostic_failure_context(failure.context()),
@@ -565,7 +564,6 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::EvaluationAtomicInitializerResultUnavailable
             | Kind::EvaluationUninitInitializerResultUnavailable
             | Kind::EvaluationImportedExecutableTemplateMismatch
-            | Kind::CheckingInfrastructureFailure
             | Kind::CodegenTargetUnsupportedProfile
             | Kind::CodegenTargetEmptyTriple
             | Kind::CodegenTargetEmptyCpu

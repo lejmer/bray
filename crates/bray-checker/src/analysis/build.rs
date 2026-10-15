@@ -6,7 +6,7 @@ use bray_bound_tree::{
 use bray_compiler_known::ImplementationHook;
 use bray_declarations::SyntaxAnchor;
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitRoot, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitRoot, CheckerUnitView};
 
 use super::assembly::ControlFlowGraphAssembler;
 use super::id::AnalysisBlockId;
@@ -15,16 +15,9 @@ use super::model::{
     AnalysisSuspensionKind, ControlFlowGraph,
 };
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub(super) enum DependencyFailureMode {
-    PotentialExits,
-    ProofDependencies,
-}
-
 pub(crate) enum ControlFlowGraphBuildOutcome<E = std::convert::Infallible> {
     Complete(ControlFlowGraph),
     Cancelled,
-    InfrastructureFailure(CheckerInfrastructureError),
     UpstreamFailure(E),
 }
 
@@ -39,58 +32,39 @@ where
         None,
         None,
         Default::default(),
-        DependencyFailureMode::PotentialExits,
+        Default::default(),
+        None,
         None,
     )
 }
 
 pub(crate) fn build_storage_control_flow_graph<C: CheckerRequestContext + ?Sized>(
+    cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     selections: &bray_bound_tree::CheckedSemanticSelections,
-    completion_semantics: Option<(
-        &bray_bound_tree::CheckedExpressionSemantics,
-        &bray_bound_tree::CheckedPatterns,
-        &super::cleanup::CleanupFreeExits,
-    )>,
+    patterns: Option<&bray_bound_tree::CheckedPatterns>,
+    completion_semantics: Option<&bray_bound_tree::CheckedExpressionSemantics>,
 ) -> ControlFlowGraphBuildOutcome<C::UpstreamError> {
-    let scopes = match crate::asynchronous::cleanup_scopes(request, storage) {
-        Ok(scopes) => scopes,
-        Err(crate::CheckerQueryError::Cancelled) => return ControlFlowGraphBuildOutcome::Cancelled,
-        Err(crate::CheckerQueryError::Infrastructure(error)) => {
-            return ControlFlowGraphBuildOutcome::InfrastructureFailure(error);
-        }
-        Err(crate::CheckerQueryError::Upstream(error)) => {
-            return ControlFlowGraphBuildOutcome::UpstreamFailure(error);
-        }
-    };
+    let (scopes, cleanup_free_operations) =
+        match crate::asynchronous::cleanup_scopes(cleanup_shapes, request, storage) {
+            Ok(scopes) => scopes,
+            Err(crate::CheckerQueryError::Cancelled) => {
+                return ControlFlowGraphBuildOutcome::Cancelled;
+            }
+            Err(crate::CheckerQueryError::Upstream(error)) => {
+                return ControlFlowGraphBuildOutcome::UpstreamFailure(error);
+            }
+        };
 
     build_control_flow_graph_with_storage(
         request,
         Some(storage),
         Some(selections),
         scopes,
-        DependencyFailureMode::PotentialExits,
+        cleanup_free_operations,
+        patterns,
         completion_semantics,
-    )
-}
-
-pub(crate) fn build_execution_control_flow_graph<C>(
-    request: CheckerUnitView<'_, C>,
-    storage: &StoragePlan,
-    selections: &bray_bound_tree::CheckedSemanticSelections,
-) -> ControlFlowGraphBuildOutcome<C::UpstreamError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    // Call and cleanup failures are obligations of selected dependency proofs.
-    build_control_flow_graph_with_storage(
-        request,
-        Some(storage),
-        Some(selections),
-        Default::default(),
-        DependencyFailureMode::ProofDependencies,
-        None,
     )
 }
 
@@ -99,20 +73,22 @@ fn build_control_flow_graph_with_storage<C, E>(
     checked_storage: Option<&StoragePlan>,
     selections: Option<&bray_bound_tree::CheckedSemanticSelections>,
     cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
-    dependency_failures: DependencyFailureMode,
-    completion_semantics: Option<(
-        &bray_bound_tree::CheckedExpressionSemantics,
-        &bray_bound_tree::CheckedPatterns,
-        &super::cleanup::CleanupFreeExits,
-    )>,
+    cleanup_free_operations: std::collections::BTreeSet<BoundExpressionId>,
+    patterns: Option<&bray_bound_tree::CheckedPatterns>,
+    completion_semantics: Option<&bray_bound_tree::CheckedExpressionSemantics>,
 ) -> ControlFlowGraphBuildOutcome<E>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut builder =
-        ControlFlowGraphBuilder::new(request, checked_storage, selections, cleanup_scopes);
+    let mut builder = ControlFlowGraphBuilder::new(
+        request,
+        checked_storage,
+        selections,
+        cleanup_scopes,
+        cleanup_free_operations,
+    );
 
-    builder.dependency_failures = dependency_failures;
+    builder.patterns = patterns;
     builder.completion_semantics = completion_semantics;
 
     let entry = builder.push_block();
@@ -155,12 +131,10 @@ where
     checked_storage: Option<&'view StoragePlan>,
     selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
     pub(super) cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
-    pub(super) dependency_failures: DependencyFailureMode,
-    pub(super) completion_semantics: Option<(
-        &'view bray_bound_tree::CheckedExpressionSemantics,
-        &'view bray_bound_tree::CheckedPatterns,
-        &'view super::cleanup::CleanupFreeExits,
-    )>,
+    cleanup_free_operations: std::collections::BTreeSet<BoundExpressionId>,
+    pub(super) scoped_uses: std::collections::BTreeMap<BoundBlockId, BoundExpressionId>,
+    pub(super) patterns: Option<&'view bray_bound_tree::CheckedPatterns>,
+    pub(super) completion_semantics: Option<&'view bray_bound_tree::CheckedExpressionSemantics>,
 }
 
 #[derive(Clone, Copy)]
@@ -192,8 +166,32 @@ where
         request: CheckerUnitView<'view, C>,
         checked_storage: Option<&'view StoragePlan>,
         selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
-        cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
+        mut cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
+        cleanup_free_operations: std::collections::BTreeSet<BoundExpressionId>,
     ) -> Self {
+        let scoped_uses: std::collections::BTreeMap<_, _> = selections
+            .into_iter()
+            .flat_map(|selections| selections.entries())
+            .filter_map(|entry| match entry.selection() {
+                SemanticSelection::ScopedUse(scoped) => {
+                    let Some(BoundExpression::Structured(expression)) =
+                        request.view().expression(scoped.expression())
+                    else {
+                        panic!("selected scoped use retains its structured expression");
+                    };
+
+                    let [body] = expression.blocks() else {
+                        panic!("selected scoped use retains its sole body");
+                    };
+
+                    Some((*body, scoped.expression()))
+                }
+                _ => None,
+            })
+            .collect();
+
+        cleanup_scopes.extend(scoped_uses.keys().copied());
+
         Self {
             request,
             view: request.view(),
@@ -206,7 +204,9 @@ where
             checked_storage,
             selections,
             cleanup_scopes,
-            dependency_failures: DependencyFailureMode::PotentialExits,
+            cleanup_free_operations,
+            scoped_uses,
+            patterns: None,
             completion_semantics: None,
         }
     }
@@ -413,15 +413,14 @@ where
 
         let mut current = self.push_source_operation(id, current);
 
-        if self.dependency_failures == DependencyFailureMode::PotentialExits
-            && matches!(expression, BoundExpression::Assignment(_))
+        if matches!(expression, BoundExpression::Assignment(_))
+            && !self.cleanup_free_operations.contains(&id)
         {
             // Old cleanup failure is observable only after the replacement is installed.
             let continuation = self.push_block();
 
             self.push_edge(current, continuation, AnalysisEdgeKind::Sequential, None);
-            self.push_exit(current, AnalysisExitKind::Panic, id.into());
-            self.push_exit(current, AnalysisExitKind::Cancellation, id.into());
+            self.push_dependency_failures(current, id.into());
             current = continuation;
         }
 
@@ -433,31 +432,13 @@ where
         expression: BoundExpressionId,
         current: AnalysisBlockId,
     ) -> AnalysisBlockId {
-        if self.dependency_failures == DependencyFailureMode::ProofDependencies
-            || !self.source_operation_may_propagate_panic(expression)
-        {
+        if !self.source_operation_may_propagate_panic(expression) {
             self.push_bound(current, expression.into());
 
             return current;
         }
 
-        self.push_propagating_call(expression, current)
-    }
-
-    pub(super) fn push_propagating_call(
-        &mut self,
-        expression: BoundExpressionId,
-        current: AnalysisBlockId,
-    ) -> AnalysisBlockId {
-        let continuation = self.push_block();
-
-        self.push_call(current, expression, AnalysisCallPhase::Attempt);
-        self.push_edge(current, continuation, AnalysisEdgeKind::Sequential, None);
-        self.push_exit(current, AnalysisExitKind::Panic, expression.into());
-        self.push_exit(current, AnalysisExitKind::Cancellation, expression.into());
-        self.push_call(continuation, expression, AnalysisCallPhase::Completion);
-
-        continuation
+        self.push_invocation(expression, current, true)
     }
 
     fn source_operation_may_propagate_panic(&self, expression: BoundExpressionId) -> bool {
@@ -477,6 +458,24 @@ where
             .and_then(|selections| selections.expression(expression))
         {
             Some(SemanticSelection::Operation(operation)) => {
+                if let bray_bound_tree::SelectedOperation::Construction(construction) = operation
+                    && self.cleanup_free_operations.contains(&expression)
+                    && !matches!(
+                        construction.target(),
+                        bray_bound_tree::ConstructionTarget::TypeForm { .. }
+                    )
+                    && construction.inputs().iter().all(|input| {
+                        matches!(
+                            input,
+                            bray_bound_tree::SelectedConstructionInput::Explicit { .. }
+                        )
+                    })
+                {
+                    // Explicit inputs have their own failure edges. This owner adds
+                    // neither an implicit call nor any cleanup admission.
+                    return false;
+                }
+
                 operation.may_propagate_synchronous_panic()
             }
             Some(SemanticSelection::Iteration(selection)) => !matches!(
@@ -491,6 +490,7 @@ where
                 | SemanticSelection::StaticReference(_)
                 | SemanticSelection::Call(_)
                 | SemanticSelection::Predicate(_)
+                | SemanticSelection::ScopedUse(_)
                 | SemanticSelection::Propagation(_),
             )
             | None => false,
@@ -627,7 +627,7 @@ where
                 if let Some(context) = target_result {
                     self.push_cleanup_failures(block, context.scope_depth, id.into());
 
-                    let block = self.resolve_scopes(block, context.scope_depth, id.into());
+                    let block = self.resolve_scopes(block, context.scope_depth, id.into(), true);
 
                     self.push_edge(block, context.completion, AnalysisEdgeKind::Yield, None);
 
@@ -655,7 +655,7 @@ where
                 Some(context) => {
                     self.push_cleanup_failures(block, context.scope_depth, id.into());
 
-                    let block = self.resolve_scopes(block, context.scope_depth, id.into());
+                    let block = self.resolve_scopes(block, context.scope_depth, id.into(), true);
 
                     self.push_edge(block, context.completion, AnalysisEdgeKind::LoopBreak, None);
 
@@ -672,7 +672,8 @@ where
                     Some(header) => {
                         self.push_cleanup_failures(block, context.scope_depth, id.into());
 
-                        let block = self.resolve_scopes(block, context.scope_depth, id.into());
+                        let block =
+                            self.resolve_scopes(block, context.scope_depth, id.into(), true);
 
                         self.push_edge(block, header, AnalysisEdgeKind::LoopContinue, None);
 
@@ -707,11 +708,15 @@ where
     pub(super) fn push_call(
         &mut self,
         block: AnalysisBlockId,
-        expression: BoundExpressionId,
+        invocation: bray_bound_tree::BoundExecutionSite,
         phase: AnalysisCallPhase,
     ) {
+        let expression = invocation
+            .expression()
+            .expect("selected invocation retains its actual expression owner");
+
         match self.view.node_is_recovered(expression.into()) {
-            Some(false) => self.storage.push_call(block, expression, phase),
+            Some(false) => self.storage.push_call(block, invocation, phase),
             Some(true) | None => self.storage.push_recovery(block, expression.into()),
         }
     }
@@ -723,12 +728,12 @@ where
     pub(super) fn push_suspension(
         &mut self,
         block: AnalysisBlockId,
-        expression: BoundExpressionId,
+        occurrence: bray_bound_tree::BoundExecutionSite,
         kind: AnalysisSuspensionKind,
     ) {
-        match self.view.node_is_recovered(expression.into()) {
-            Some(false) => self.storage.push_suspension(block, expression, kind),
-            Some(true) | None => self.storage.push_recovery(block, expression.into()),
+        match self.view.node_is_recovered(occurrence.node()) {
+            Some(false) => self.storage.push_suspension(block, occurrence, kind),
+            Some(true) | None => self.storage.push_recovery(block, occurrence.node()),
         }
     }
 
@@ -1160,9 +1165,9 @@ mod tests {
         assert!(graph.operations().iter().any(|operation| matches!(
             operation.kind(),
             AnalysisOperationKind::Suspension {
-                expression,
+                occurrence,
                 kind: AnalysisSuspensionKind::Await,
-            } if expression == await_expression
+            } if occurrence == await_expression.into()
         )));
     }
 
@@ -1434,6 +1439,10 @@ mod tests {
                 SemanticSelection::Propagation(SelectedPropagation::Result {
                     boundary: SelectedPropagationBoundary::Callable,
                     result_type: error_type(),
+                    success: (
+                        crate::test_support::compiler_known_symbol("ResultVariant0Ok"),
+                        crate::test_support::compiler_known_symbol("ResultVariant0OkValue"),
+                    ),
                     error_conversion: SelectedConversion::new(
                         error_type(),
                         error_type(),
@@ -1450,9 +1459,14 @@ mod tests {
 
         let request = CheckerUnitView::new(&unit, &entry, &context);
 
-        let ControlFlowGraphBuildOutcome::Complete(graph) =
-            build_storage_control_flow_graph(request, &storage, &selections, None)
-        else {
+        let ControlFlowGraphBuildOutcome::Complete(graph) = build_storage_control_flow_graph(
+            &mut crate::asynchronous::CleanupShapeResolver::new(request),
+            request,
+            &storage,
+            &selections,
+            None,
+            None,
+        ) else {
             panic!("checked storage graph construction must complete");
         };
 

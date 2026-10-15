@@ -27,15 +27,20 @@ mod target;
 mod target_control;
 mod target_control_contract;
 mod target_control_symbol;
+mod trusted_contracts;
 mod type_check;
 mod type_normalization;
 mod type_representation;
 mod unit;
 
+pub use trusted_contracts::{TrustedCallContract, TrustedContractInputs};
+
 #[cfg(test)]
 mod test_support;
 
-pub use analysis::check_execution_candidate;
+pub use analysis::implementation_hook_may_propagate_synchronous_panic;
+pub use analysis::{PreparedBodyAnalysis, prepare_body_analysis};
+pub use analysis::{UnwindCandidate, check_execution_candidate, check_unwind_candidate};
 pub use analysis::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};
 pub use atomic::atomic_target_representation;
 pub use constant::{
@@ -51,12 +56,9 @@ pub use constant::{
     resolve_trait_application_template, resolve_type_expression_template,
 };
 pub use context::{
-    CheckerConstantEvaluationFailure, CheckerConstantOperationFailure, CheckerInfrastructureError,
-    CheckerLiteralValueFailure, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerSource, CheckerStorageFlowFailure,
-    ImplementationHookResolution,
+    CheckerQueryError, CheckerQueryResult, CheckerRequestContext, CheckerSemanticQueryProvider,
+    CheckerSource, ImplementationHookResolution,
 };
-pub use dependency::infer_result_dependencies;
 pub use diagnostic::diagnostic_type;
 pub use execution_guarantees::{
     DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,
@@ -64,14 +66,15 @@ pub use execution_guarantees::{
     ExecutionCompletionDependency, ExecutionCondition, ExecutionDeclaration, ExecutionDependency,
     ExecutionDomain, ExecutionObligation, ExecutionPlace, ExecutionProperty,
     check_execution_guarantees, declared_execution_properties, execution_condition_from_term,
-    execution_condition_is_implied, execution_condition_term, execution_conditions,
-    remap_execution_condition_inputs,
+    execution_condition_from_type_term, execution_condition_is_implied, execution_condition_term,
+    execution_conditions, map_execution_condition_substitutions, predicate_conditions,
+    predicate_conditions_with_inputs, remap_execution_condition_inputs,
 };
-pub use expression::{NestedCallableEvidence, check_generic_arguments};
+pub use expression::{NestedCallableEvidence, call_result, check_generic_arguments};
 pub use lifecycle::{LifecycleSelectionContext, LifecycleSelectionError, select_lifecycle_action};
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use pattern::{
-    GuardConstantEvidence, IterationPatternType, PatternCheckInput, PatternConstantEvidence,
+    GuardConstantEvidence, PatternCheckInput, PatternConstantEvidence, PatternSubjectType,
 };
 pub use selection::{
     CallableCandidate, CallableCandidateState, CallableCandidateTemplate,
@@ -93,16 +96,14 @@ pub use semantic_context::{
     AnonymousCallableContext, ContractClauseContext, DeclaredUnitContext, SemanticUnitContext,
 };
 pub use service::{
-    AsyncChecker, BodyBehaviorCollector, BodySemanticChecker, ConstantChecker, ConstantEvaluator,
-    ControlFlowChecker, DefaultAsyncChecker, DefaultBodyBehaviorCollector,
-    DefaultBodySemanticChecker, DefaultConstantChecker, DefaultConstantEvaluator,
-    DefaultControlFlowChecker, DefaultDependencyContractChecker, DefaultExpressionSemanticChecker,
-    DefaultExpressionTypeChecker, DefaultLivenessAnalyzer, DefaultMemoryOperationChecker,
-    DefaultPatternChecker, DefaultRefinementAnalyzer, DefaultSemanticSelector,
-    DefaultStorageFlowChecker, DefaultStoragePlanner, DefaultTargetValidityChecker,
-    DependencyContractChecker, ExpressionSemanticChecker, ExpressionTypeChecker, LivenessAnalyzer,
-    MemoryOperationChecker, PatternChecker, RefinementAnalyzer, SemanticSelector,
-    StorageFlowChecker, StoragePlanner, TargetValidityChecker,
+    BodyBehaviorCollector, BodySemanticChecker, ConstantChecker, ConstantEvaluator,
+    ControlFlowChecker, DefaultBodyBehaviorCollector, DefaultBodySemanticChecker,
+    DefaultConstantChecker, DefaultConstantEvaluator, DefaultControlFlowChecker,
+    DefaultExpressionSemanticChecker, DefaultExpressionTypeChecker, DefaultMemoryOperationChecker,
+    DefaultPatternChecker, DefaultSemanticSelector, DefaultStoragePlanner,
+    DefaultTargetValidityChecker, ExpressionSemanticChecker, ExpressionTypeChecker,
+    MemoryOperationChecker, PatternChecker, SemanticSelector, StoragePlanner,
+    TargetValidityChecker,
 };
 pub use target::{
     TargetAbiValue, TargetAggregateAbi, TargetCallableAbiRequirement, TargetLayoutRequirement,
@@ -110,9 +111,7 @@ pub use target::{
     TargetValidityRequirement,
 };
 pub use type_check::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
-pub use type_normalization::{
-    normalize_callable_signature_type_valued_members, normalize_type_valued_members,
-};
+pub use type_normalization::{normalize_callable_signature, normalize_type_valued_members};
 pub use type_representation::{
     DeclaredStorageMember, DeclaredStorageMemberIdentity, DeclaredTypeDefinition,
     DeclaredUnionVariant, RepresentationIntegerType, TypeRepresentationContext,
