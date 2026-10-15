@@ -22,18 +22,24 @@ current implementation contract. No chat transcript is needed.
 
 ## Current implementation checkpoint
 
-Steps 1-4 are complete on `feature/trusted-storage-integration` in [draft PR #607](https://github.com/lejmer/bray/pull/607).
+Steps 1-4 are complete on `feature/trusted-storage-integration` in [PR #607](https://github.com/lejmer/bray/pull/607).
 Step 3 is published at `a3de1083` with [clean review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5526203497).
 Its native acceptance passes all 160 API cases, seven API plans and 25 outcome cases. All five original PR histories
 are included and their branches are preserved. Follow [BRA-620 remaining work](BRA-620-remaining-work.md) and the
 [Step 4 map](BRA-620-step4.md) for current work and evidence.
 
-BRA-619 remains part of this PR. Its included selected-scope implementation still needs admitted typed incident
-transport. [Plan Step 5](runtime-stack-rule-coverage.md#5-complete-the-backing-entry-and-incident-prerequisites)
-completes BRA-502 -> BRA-554 -> BRA-558. [Plan Step 6](runtime-stack-rule-coverage.md#6-finish-bra-619-scoped-execution-and-native-acceptance-in-this-pr)
-then finishes BRA-619's native execution and acceptance. Its pending-outcome, lifetime and denied-allocation contracts
-constrain Steps 4 and 5 now. The original missing-role test remains enabled and blocks final PR acceptance.
-This publication does not authorize merging or mark the incomplete original stack contracts complete.
+## Delivery decision, 2026-10-15
+
+The user authorized readying and squash-merging #607 into develop at the completed Steps 1-4 boundary.
+BRA-619's earlier implementation is included, but its native `CleanupIncidentTransfer` gap remains open and its
+regression stays enabled. The merge does not complete that issue or the broader runtime initiative.
+
+Continue with one PR per issue from updated develop after prerequisites land: BRA-502, BRA-554, BRA-558, then
+BRA-619's remaining native acceptance. Continue Step 7 in the existing dependency order, also one PR per issue.
+Keep the old branches and review history. Do not replay the squashed integration commits. Every issue retains its
+own acceptance and independent review cycle. BRA-619's pending-outcome, typed-payload and provider-lifetime contracts
+continue to constrain prerequisite design. This decision supersedes earlier instructions to keep #607 draft or finish
+Steps 5-6 inside it.
 
 ## Original recovery checkpoint, retained as history
 
@@ -84,22 +90,13 @@ of this plan. If the model cannot express a required rule, discuss that specific
 
 ## Execution and publication
 
-1. Shared compiler consolidation, production migration and bounded Step 4 are complete on the combined checkpoint. Preserve their checked contracts when completing the following steps.
-   BRA-609 retains trusted-caller acceptance, performed through this implementation. Its blocking relation does not
-   require a second branch or an independent reimplementation.
-2. Recheck BRA-621 and BRA-553 against the consolidated production contracts. Preserve their completed migration.
-3. Complete BRA-502 physical backing, BRA-554 entry and BRA-558 typed incident consumption in dependency order.
-   Then complete the explicit BRA-619 acceptance step in this PR, including its synchronous and asynchronous native scope outcomes.
-   Apply BRA-619's retained typed incident and pending-outcome contracts during the preceding work.
-4. Continue on the published `feature/trusted-storage-integration` branch. Incorporate only genuinely missing later
-   commits after ancestry inspection.
-   Preserve the old PRs as review history. Do not merge the five old PRs into develop individually.
-5. Once all five original contracts and their necessary backing/entry/incident prerequisites are complete, reviewed and
-   verified, make integration PR #607 ready for review and the eventual user merge. Link every included issue and the old PRs. Reconcile remaining review
-   comments and issue links before retiring superseded PRs. Publication is not permission to merge.
-6. After that integration lands, continue the remaining protocol issues from the landed base. Each complete consumer
-   migration switches real callers and removes replaced Rust policy in the same unit.
-7. Finish packaging, native conformance and all numerical cost gates. Keep each failed requirement with its open owner.
+1. Land the reviewed Steps 1-4 integration through the user-authorized squash merge of #607 into develop.
+2. Keep BRA-619 open and retain its failing native regression. Its included partial implementation is the starting point.
+3. Deliver BRA-502 physical backing, BRA-554 entry and BRA-558 incident consumption in dependency order, one PR per issue.
+4. Finish BRA-619 in its own PR using those shared contracts, including sync/async native scope outcomes.
+5. Continue the remaining protocol issues from updated develop, one issue and one PR at a time. Each consumer migration
+   switches real callers and removes replaced Rust policy in that issue.
+6. Complete packaging, native conformance and numerical cost gates through their existing issue owners.
 
 The later sequence is synchronous teardown/TLS BRA-556/557 -> synchronous checkpoint BRA-608 -> providers BRA-555.
 Activation BRA-561 can proceed after its own BRA-502/553 prerequisites. Continue BRA-505 -> BRA-506 -> BRA-508 and

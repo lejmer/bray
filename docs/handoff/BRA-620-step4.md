@@ -51,7 +51,8 @@ formatting and the [independent published review](https://github.com/lejmer/bray
 findings and no inline comments. Each obligation has supporting evidence below. All identified concrete gaps are
 repaired in their owning analysis and pushed to PR #607.
 
-BRA-619 is an explicit later acceptance step in this PR, after its backing/entry/incident prerequisites. Its pending
+BRA-619 is an explicit later acceptance step in its own PR, after its backing/entry/incident prerequisites.
+The user authorized landing Steps 1-4 through #607 on 2026-10-15, retaining this known unfinished path. Its pending
 outcome and retained typed-incident contracts constrain this step. Step 4 does not establish physical incident
 transport or final native acceptance, and BRA-619 must re-run affected compositions when that transport is complete.
 

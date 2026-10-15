@@ -486,6 +486,17 @@ runtime witness registry or public request/context wrapper is justified by this 
 Each unit below replaces a complete mechanism and includes all applicable rules from the map. The list is not an
 instruction to implement only the example consumer mentioned beside it.
 
+### Delivery boundary agreed on 2026-10-15
+
+The user authorized moving PR #607 to review and squash-merging the completed Steps 1-4 into develop.
+The known BRA-619 native incident-transfer gap is deliberately retained as open work. Do not suppress its regression
+or claim that merging this integration completes that issue or the runtime initiative.
+
+Continue Steps 5-7 with one PR per Linear issue, in dependency order. Start each issue from updated develop after its
+prerequisites land. Preserve the combined implementation and old branches as history. Do not replay pre-squash commits
+or grow the integration branch into another stack. Each issue owns its implementation, acceptance, independent review
+and merge. Shared architectural requirements still constrain every issue, without combining their delivery boundaries.
+
 ### 1. Establish the semantic contract
 
 Complete. The semantic proof and normative contracts establish the interpretation used by the remaining steps.
@@ -549,15 +560,15 @@ The allowance service must admit the concrete cleanup expansion, and the entry a
 that backing through their final users. Existing activation/runtime components may remain only for explicitly
 unfinished runtime migration issues. Audit migrated consumers separately and retain the remaining consumers' open owners.
 
-The combined integration branch and PR #607 already contain the five superseded PRs. Continue there without replaying
-included commits or rewriting the old branches. Complete this step and Step 6 before marking #607 ready. Merging remains
-a separate user action.
+PR #607 contains the five superseded PRs and lands as the completed foundation. Deliver BRA-502, BRA-554 and BRA-558
+as three subsequent issue PRs, preserving the shared ownership contract across their published interfaces.
 
-### 6. Finish BRA-619 scoped execution and native acceptance in this PR
+### 6. Finish BRA-619 scoped execution and native acceptance
 
-The combined PR already contains the selected enter/exit implementation from #602. It is incomplete until this step
-passes on the same integration branch. The current failure is `MissingRole(CleanupIncidentTransfer)` in
-`scoped_selected_calls_emit_native_artifacts`. It blocks this PR's final acceptance and readiness.
+The integration contains the selected enter/exit implementation from #602. Finish the remaining work in a dedicated
+BRA-619 PR after its prerequisites land. The current failure is `MissingRole(CleanupIncidentTransfer)` in
+`scoped_selected_calls_emit_native_artifacts`. It remains enabled and blocks BRA-619 completion, while the user has
+explicitly accepted it as outstanding work when landing #607.
 
 Before changing shared cleanup semantics in Step 4 or implementing Step 5, preserve these design inputs:
 
@@ -576,9 +587,9 @@ Accept this step only with native execution for sync/async `with`, failed entry 
 pending return/break/continue and nullable/result/run-result propagation, panic/cancellation shields and precedence,
 denied allocation, exact-once exit and payload disposal, stale capability rejection and explicit valid authority
 transfer through source/imported contracts. Re-run the original failing native regression, the affected compositions
-from Step 4 and final combined-stack checks. Complete a published independent review and push its fixes to #607.
+from Step 4 and final combined-stack checks. Complete a published independent review and push its fixes to the BRA-619 PR.
 
-If this work exposes a defect in an earlier step's shared contract, repair that owner in this PR and repeat the affected
+If this work exposes a defect in an earlier step's shared contract, repair that owner in the issue PR and repeat the affected
 acceptance. An earlier step's passing tests do not waive BRA-619 or freeze an incompatible architecture.
 
 ### 7. Complete runtime protocols using the established contracts
@@ -746,10 +757,10 @@ A discovered defect belongs to one of these categories:
 The third category must not be relabeled a small bug to keep implementation moving. Conversely, a normal coding error
 does not require reopening the entire architecture. The map identifies the affected owner and consumers.
 
-The current stack is ready to land only when its issue contracts, source/imported authority, actual std/bootstrap
-consumers, required native scope outcomes, removal ledger and review are complete. The full destination is complete only
-when all later protocol owners, native provenance and final cost gates are complete as well. No closed issue is used as
-a place to hide remaining work.
+The user-approved landing boundary for #607 is the reviewed Steps 1-4 checkpoint, with the BRA-619 native failure
+explicitly outstanding. Later issue PRs must satisfy their own contracts and review gates. The full destination is
+complete only when every remaining protocol, native provenance and cost gate is complete. No closed issue is used
+as a place to hide remaining work.
 
 The old proposal is explicitly superseded. Follow the execution guide and current Linear issue contracts.
 The assessment itself made no implementation changes. The subsequent issue preparation preserves the inherited repair

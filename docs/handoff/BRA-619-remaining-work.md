@@ -5,15 +5,14 @@ Recorded on 2026-10-10. This is an implementation handoff, not a change to the l
 Updated on 2026-10-11: use the [current stack completion plan](stack-completion.md) for work order and status.
 This document retains BRA-619's evidence and acceptance details. The earlier boundary before BRA-553 is retired.
 
-## Current integration, 2026-10-15
+## Current delivery, 2026-10-15
 
-PR #602 is closed as superseded by [#607](https://github.com/lejmer/bray/pull/607). Its implementation and history
-are already included in `feature/trusted-storage-integration`. Keep the original branch. BRA-619 remains In Progress.
-[Plan Step 6](runtime-stack-rule-coverage.md#6-finish-bra-619-scoped-execution-and-native-acceptance-in-this-pr)
-explicitly completes this work in #607 after Step 5's BRA-502 -> BRA-554 -> BRA-558 prerequisites. The typed incident,
-pending-outcome and provider/backing lifetime contracts below constrain the current Step 4 analysis and Step 5 design.
-The missing-role regression remains enabled and blocks final PR acceptance. Do not treat separate issue ownership
-as exclusion from this PR or as permission to declare the stack complete.
+The user authorized squash-merging #607 as the reviewed Steps 1-4 foundation. It includes #602's selected-scope
+implementation. Keep the original branches. BRA-619 remains unfinished and must not be closed by that merge.
+Finish its remaining native incident transfer and acceptance in a dedicated issue PR after BRA-502, BRA-554 and
+BRA-558 land through their own PRs. Start from updated develop without replaying the old implementation.
+The missing-role regression remains enabled. Its typed incident, pending-outcome and provider/backing lifetime
+contracts constrain prerequisite design. Follow [the execution guide](runtime-stack-linear-execution.md).
 
 ## Original issue and stack checkpoint
 

@@ -4,8 +4,7 @@ Updated on 2026-10-12 with the specification-derived rule coverage and replaceme
 
 This is the shared completion plan for the current stack. The issue-specific handoffs retain investigation evidence,
 reproductions and acceptance details. Their dated branch heads and earlier task boundaries are historical snapshots.
-The former instruction to stop before BRA-553 is retired. The active implementation and publication decisions below supersede earlier task boundaries. They do not authorize
-merging the final integration PR.
+The former instruction to stop before BRA-553 is retired. The active implementation and publication decisions below supersede earlier task boundaries. The approved landing boundary below records the later authorization to squash-merge #607.
 
 ## Current plan and Linear execution
 
@@ -21,14 +20,17 @@ The user accepted the groundwork and requested actionable issues. Start from BRA
 [Linear execution guide](runtime-stack-linear-execution.md), which records the recoverable checkpoint and current order.
 Issue preparation preserved inherited work and published the plan. The implementation checkpoint below records subsequent work.
 
-## Published integration checkpoint, 2026-10-13
+## Approved landing boundary, 2026-10-15
 
-[Draft PR #607](https://github.com/lejmer/bray/pull/607) targets `develop` from `feature/trusted-storage-integration`.
-It contains all five original PR heads. Steps 1 and 2 are complete at `5144e732`, with
-[no remaining actionable Step 2 review findings](https://github.com/lejmer/bray/pull/607#pullrequestreview-5509446980).
-Continue on that integration branch, using the current matrix and evidence in
-[BRA-620 remaining work](BRA-620-remaining-work.md). The old repair branch retains `ffbff1f5`. Step 3 is complete at `a3de1083` and bounded Step 4 at `246c4db3`, both with clean published review. Backing/entry/incident prerequisites and
-the explicit BRA-619 native acceptance step remain in the [current plan](runtime-stack-rule-coverage.md#implementation-order), so the integration remains draft and BRA-620 remains In Progress.
+The user authorized moving #607 to review and squash-merging the completed Steps 1-4 into develop.
+Step 3 is complete at `a3de1083` and Step 4 at `246c4db3`, both with clean published review. #607 includes
+all five original PR histories. BRA-619's native incident-transfer failure remains explicitly open and its test stays
+enabled. Merging the foundation does not certify the unfinished runtime initiative.
+
+Continue from updated develop with one PR per issue: BRA-502 -> BRA-554 -> BRA-558 -> remaining BRA-619 acceptance,
+then the existing Step 7 dependency order. Keep original branches and PR review history. Do not replay squashed commits.
+The [execution guide](runtime-stack-linear-execution.md) owns current sequencing. This decision supersedes earlier
+instructions to keep #607 draft or complete the downstream issues inside it.
 
 ## Earlier baseline, retained as evidence
 
@@ -39,7 +41,7 @@ Revalidate live branch heads before implementation. Earlier handoff commit IDs r
 BRA-621 and BRA-553 are In Review in Linear. PR #605 is still draft, while #606 is ready. BRA-609, BRA-619 and BRA-620
 remain In Progress with draft PRs. Readiness of an individual issue does not establish completion of the combined stack.
 
-## Active BRA-620 repair
+## Earlier BRA-620 repair boundary, retained as history
 
 The original repair branch was `feature/bra-620-repair-synchronization-authority`, based on BRA-553 commit
 `cca4bd4429d0648cae0493db72045b7d4a7a3e73`. Live remote ancestry was verified on 2026-10-11: original BRA-620 head
@@ -51,7 +53,7 @@ exact-reference summaries and observation dependencies are complete. Next apply 
 immutable-marker representation to production APIs. No new storage-identity or entry-state language feature is needed
 by the agreed plan. Do not implement these findings independently on the original BRA-620 branch.
 
-## Integration and publication
+## Earlier integration decision, superseded by the approved landing boundary
 
 The user selected one master feature branch and one final PR into `develop` on 2026-10-11. Finish BRA-620 against the
 combined source. Continue on the now-published `feature/trusted-storage-integration` branch and reconcile every

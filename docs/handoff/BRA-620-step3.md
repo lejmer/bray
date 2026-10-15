@@ -41,8 +41,8 @@ Retain logs under C:/Users/anton/source/repos/bray/target/bra-620-authority. Do 
 
 Branch: `feature/trusted-storage-integration`. Worktree:
 `C:/Users/anton/.codex/worktrees/bra-553-host-bootstrap/bray`. Step 3 is complete at `a3de1083`, with
-[clean independent review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5526203497). PR #607 remains
-draft for bounded Step 4 and the explicit backing/entry/incident and BRA-619 acceptance steps in the integration plan.
+[clean independent review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5526203497). The user authorized landing
+PR #607 at the completed Steps 1-4 boundary. Later backing/entry/incident and BRA-619 work use separate issue PRs.
 The chronological evidence below preserves earlier intermediate results. The final acceptance section supersedes
 their pending-status statements.
 
@@ -159,7 +159,7 @@ allocation was introduced.
 - The user-requested `expression_is_borrowed` helper is shared by memory and reference transfer.
 - Strong channel requirements remain. Optional File conditional cleanup was restored. Atomic waiting remains blocking,
   nonpure and nontotal. Existing checked `when` guarantees describe inactive HostLease/channel registration cleanup.
-- BRA-619 remains a final-stack blocker, now explicit Step 6 in this PR, and does not excuse any Step 3 failure.
+- BRA-619 remains a final-stack blocker, now explicit Step 6 in its own issue PR, and does not excuse any Step 3 failure.
 - Non-32-bit atomic wait/notify helper over-demand belongs to active BRA-568's existing R27-R31 artifact-publication
   contract. Native code uses the word helpers only for encoded 32-bit storage, while MIR demand currently selects them
   for every width. BRA-568 must unify demand with representation and verify source/imported feature subtraction.
