@@ -25,13 +25,13 @@ current implementation contract. No chat transcript is needed.
 Steps 1-4 landed through [PR #607](https://github.com/lejmer/bray/pull/607), squash commit
 `f188b2b6226b0457211e16f092369c8e2570003a`. The five original branches remain historical.
 
-Step 5 is the following stack, reviewed against each direct predecessor:
+Step 5 is complete in the following stack, reviewed against each direct predecessor:
 
 | Issue | PR | Status and evidence |
 | --- | --- | --- |
 | BRA-502 | [#608](https://github.com/lejmer/bray/pull/608) | Ready, In Review. See [physical backing record](BRA-502-implementation.md). |
 | BRA-554 | [#609](https://github.com/lejmer/bray/pull/609) | Ready, In Review at `5b4831a0`, [clean review](https://github.com/lejmer/bray/pull/609#pullrequestreview-5534605036). |
-| BRA-558 | [#610](https://github.com/lejmer/bray/pull/610) | Published at `812b4122`. [Incident record](BRA-558-implementation.md) retains acceptance. Independent review found callback-time capture allocation that must be repaired before readying. |
+| BRA-558 | [#610](https://github.com/lejmer/bray/pull/610) | Ready, In Review at `08234a71`, [clean re-review](https://github.com/lejmer/bray/pull/610#pullrequestreview-5536988875). [Incident record](BRA-558-implementation.md) retains acceptance and the resolved capture finding. |
 
 Continue from the head of BRA-558, not an old BRA-619 branch. Step 6 completes BRA-619's retained
 selected-scope implementation and native transfer acceptance. Then follow the Step 7 order below.
