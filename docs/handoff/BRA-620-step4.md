@@ -29,6 +29,9 @@ per-operation allocation or a second cleanup/lifetime solve.
 
 - `LastUse` currently documents unconditional lifetime termination, although storage flow intentionally adds cleanup
   and surviving-owner conditions. This is a contract documentation gap.
+- Suspension retention combines ordinary liveness and invocation dependencies, but omits owners retained solely for
+  pending cleanup. The same omission loses their retained loans and thread/product roots across suspension. Publish
+  this obligation from storage flow using the existing cleanup-retention index.
 - Liveness treats Yield suspension as an ordinary completed operation. The graph now publishes completion only on
   resume, as for Await. ScopedCall already has a separate attempt operation, so its suspension must not repeat it.
 - Liveness duplicates scope-exit retention, recovery and use/definition transfer between block preparation and
@@ -43,12 +46,10 @@ per-operation allocation or a second cleanup/lifetime solve.
 
 ## Acceptance status
 
-Mapping is complete for the selected boundaries. The first implementation and composition batch is running. Each obligation needs supporting evidence,
-all identified concrete gaps resolved, final repository audit, committed and pushed changes, and a published fresh
-independent review with any resulting fixes pushed. BRA-619 is an explicit later acceptance step in this PR, after its backing/entry/incident prerequisites. Its pending
+Mapping, implementation and compiler/native checks are complete for the selected boundaries. Published independent review remains before completion. Each obligation has supporting evidence below. All identified
+concrete gaps are repaired in their owning analysis. Review findings must be fixed and pushed before closing this step. BRA-619 is an explicit later acceptance step in this PR, after its backing/entry/incident prerequisites. Its pending
 outcome and retained typed-incident contracts constrain this step. Step 4 does not establish physical incident
 transport or final native acceptance, and BRA-619 must re-run affected compositions when that transport is complete.
-
 
 ## Cross-step contract: BRA-619
 
@@ -65,7 +66,6 @@ MIR tests for propagation, failed entry and preserved pending outcomes remain pa
 assumes a fixed panic record, immediate incident destruction, or allocation after failure. These are mandatory design
 inputs for Steps 5 and 6, not deferred architectural choices.
 
-
 ## First implementation batch
 
 The cleanup-retention index now records checked dependency subjects and their possible owners, using the already
@@ -75,7 +75,7 @@ that result alongside ordinary liveness and invocation requirements. This includ
 than retaining only local borrow IDs. No additional solve or downstream cleanup traversal was added.
 
 Backward block preparation now calls the same operation transfer used for last-use collection. Missing internal graph
-and storage-plan records fail fast. The liveness operation match handles every current operation kind and distinguishes
+and storage-plan records fail fast in both dependency and evaluated-value liveness. The liveness operation match handles every current operation kind and distinguishes
 Await/Yield attempts, normal completion and scoped suspension between separate invocation phases. Cleanup transition
 matches explicitly name operations with no disposal work. Diagnosed source cleanup-order recovery is named Recovery,
 remaining distinct from opaque native effects and missing implementation.
@@ -83,8 +83,7 @@ remaining distinct from opaque native effects and missing implementation.
 The first composition batch includes source/imported task ownership, moved and discarded owners, branch-specific join
 and cancellation, nested construction, replacement, and suspension with an unused cleanup owner. The imported fixture
 initially started a task in a synchronous factory, which Bray forbids. It now returns an inactive Future and starts it
-inside the async caller, preserving the intended imported dependency test. Test results and final audit remain pending.
-
+inside the async caller, preserving the intended imported dependency test. The corrected fixture and the consumed-owner suspension case both pass. See the acceptance evidence below.
 
 ## Composition evidence map
 
@@ -101,3 +100,38 @@ inside the async caller, preserving the intended imported dependency test. Test 
 These tests exercise distinct operations and their compositions. Source and imported calls share checked summaries,
 so no new interface format or second imported cleanup algorithm is required. Partial owners conservatively retain
 loans while represented cleanup remains. No test treats a passing production suite as proof of this entire map.
+
+## Acceptance evidence and maintainability audit
+
+The first composition batch ran 327 tests covering the mapped trusted contracts, async queries, storage retirement,
+imported dependencies and lowering. It passed 326 cases. The sole failure was the invalid synchronous test factory
+noted above. After correcting it, all three selected task/import/suspension tests pass, including the consumed-owner
+case. The final bound-tree and checker run passes all 123 and 321 tests respectively. Logs are
+`step4-composition-1.log`, `step4-focused-2.log` and `step4-analysis-2.log` in the shared target's
+`bra-620-authority` directory. The final sibling-path audit also replaces silent graph/expression lookup skips in evaluated-value liveness and
+explicitly lists refinements that do not read cached values. The same audit makes a missing selected dependency contract, bound subtree node or bound Await node fail fast instead
+of silently losing dependencies or becoming source recovery. With the final changes, all 123 bound-tree tests, 321
+checker tests and 73 selected composition/lowering tests pass (`step4-analysis-4.log`, `step4-focused-4.log`).
+
+Native acceptance passes all 160 API cases, seven API plans and 25 outcome cases (`step4-native.log`). This covers the
+behavior changes. The later evaluated-value edits only replace impossible missing-record fallbacks with assertions
+and spell out existing no-read refinement cases. All later invariant-only changes pass focused compiler checks without repeating unchanged native
+acceptance. Rustfmt, mutating `cargo xtask style` and final maintained Bray formatting pass. The separate `cargo xtask format` command also passes.
+
+Re-read AGENTS.md and reviewed every changed file against crate ownership, API contracts, visibility, module/function
+size, error handling, numerical policy, comments, ownership, unsafe code and formatting rules. No new crate, type,
+unsafe operation, numeric conversion, runtime allocation or runtime authority check is introduced. Existing large
+cohesive modules receive small changes to their existing operations, with no new size exemption.
+
+Repo-wide behavior searches covered last-use transfer and `SetTransfer`, scope-exit retention, cleanup requirements,
+live/fully-moved owner checks, operation/access identity lookups, every `CleanupMutation` arm, every suspension-state
+constructor and every retained-suspension consumer. Ordinary retirement and suspension publication now use one existing
+retention index and one live-owner predicate. Shared backward transfer replaces the duplicated equation. The new
+snapshot field publishes an established result through the existing immutable storage-flow boundary. It does not add
+a solver, interface format, downstream proof or cleanup traversal.
+
+Production Rust changes before any review fixes are +243/-136 physical lines, a net +107. Test changes are +240/-4.
+The production growth buys explicit suspension-retained cleanup dependencies, exhaustive operation handling and
+contextual invariant failures. The existing index is widened instead of adding a parallel representation. Extra
+snapshot work is proportional to indexed cleanup dependencies at suspension points, with no new ordinary-operation
+allocation. Compilation and generated-code performance claims still require the planned cost acceptance.

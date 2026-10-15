@@ -59,7 +59,11 @@ impl ValueRetention {
             if block
                 .successors()
                 .iter()
-                .filter_map(|edge| graph.edge(*edge))
+                .map(|edge| {
+                    graph
+                        .edge(*edge)
+                        .expect("value liveness successor belongs to its graph")
+                })
                 .any(|edge| {
                     graph.component_order(edge.target()) == graph.component_order(block.id())
                 })
@@ -68,7 +72,11 @@ impl ValueRetention {
                     block
                         .operations()
                         .iter()
-                        .filter_map(|id| graph.operation(*id))
+                        .map(|id| {
+                            graph
+                                .operation(*id)
+                                .expect("value liveness block retains its operation")
+                        })
                         .filter_map(|operation| operation.kind().occurrence().expression()),
                 );
             }
@@ -103,7 +111,11 @@ fn transfers(
     for block in graph.blocks() {
         let transfer = &mut transfers[block.id().to_index().expect("flow block has an index")];
 
-        for edge in block.successors().iter().filter_map(|id| graph.edge(*id)) {
+        for edge in block.successors().iter().map(|id| {
+            graph
+                .edge(*id)
+                .expect("value liveness successor belongs to its graph")
+        }) {
             match edge.refinement() {
                 Some(
                     AnalysisRefinement::Condition { expression, .. }
@@ -115,22 +127,31 @@ fn transfers(
                 Some(AnalysisRefinement::PatternOutcome { subject, .. }) => {
                     transfer.generated.insert(subject);
                 }
-                _ => {}
+                // These edges select control flow without reading another cached value.
+                Some(
+                    AnalysisRefinement::TrustBoundary(_)
+                    | AnalysisRefinement::InvocationFailure(_)
+                    | AnalysisRefinement::InvocationCompletion(_)
+                    | AnalysisRefinement::CleanupRequired { .. },
+                )
+                | None => {}
             }
         }
 
-        for operation in block
-            .operations()
-            .iter()
-            .rev()
-            .filter_map(|id| graph.operation(*id))
-        {
+        for operation in block.operations().iter().rev().map(|id| {
+            graph
+                .operation(*id)
+                .expect("value liveness block retains its operation")
+        }) {
             match operation.kind() {
                 AnalysisOperationKind::ScopeExit { .. } => {}
                 kind => {
-                    if let Some(expression) = kind.occurrence().expression()
-                        && let Some(node) = unit.view().expression(expression)
-                    {
+                    if let Some(expression) = kind.occurrence().expression() {
+                        let node = unit
+                            .view()
+                            .expression(expression)
+                            .expect("value liveness occurrence retains its bound expression");
+
                         transfer.generated.remove(&expression);
                         transfer.killed.insert(expression);
                         transfer.generated.extend(node.child_expressions());

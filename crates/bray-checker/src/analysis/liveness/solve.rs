@@ -95,44 +95,23 @@ fn block_transfer(
 ) -> SetTransfer<BoundDependencySubject> {
     let mut transfer = SetTransfer::default();
 
-    for operation in block.operations().iter().rev() {
-        let Some(operation) = graph.operation(*operation) else {
-            continue;
-        };
+    for id in block.operations().iter().rev() {
+        let operation = graph
+            .operation(*id)
+            .expect("liveness block retains its operation");
+
+        transfer_operation(
+            &mut transfer.generated,
+            operation,
+            effects,
+            &effects.universe,
+        );
 
         if OperationEffects::operation_requires_conservative_liveness(operation) {
-            transfer.generated = effects.universe.clone();
             transfer.killed.clear();
-
-            continue;
+        } else if let Some(effect) = effects.operation_effect(operation) {
+            transfer.killed.extend(effect.definitions().copied());
         }
-
-        if let AnalysisOperationKind::ScopeExit {
-            exit,
-            phase,
-            preserves_exit_value,
-            ..
-        } = operation.kind()
-        {
-            if preserves_exit_value && phase == AnalysisScopeExitPhase::LifecycleResolution {
-                transfer
-                    .generated
-                    .extend(effects.retained_at_exit(exit).copied());
-            }
-
-            continue;
-        }
-
-        let Some(effect) = effects.operation_effect(operation) else {
-            continue;
-        };
-
-        transfer
-            .generated
-            .retain(|subject| !effect.defines(subject));
-
-        transfer.generated.extend(effect.uses().copied());
-        transfer.killed.extend(effect.definitions().copied());
     }
 
     transfer
@@ -191,16 +170,16 @@ fn collect_liveness(
             continue;
         }
 
-        let Some(live_out) = result.state(block.id()) else {
-            continue;
-        };
+        let live_out = result
+            .state(block.id())
+            .expect("reachable liveness block has a solved state");
 
         let mut state = live_out.clone();
 
         for operation in block.operations().iter().rev() {
-            let Some(operation) = graph.operation(*operation) else {
-                continue;
-            };
+            let operation = graph
+                .operation(*operation)
+                .expect("liveness block retains its operation");
 
             if let AnalysisOperationKind::ScopeExit {
                 block,
@@ -330,11 +309,11 @@ fn collect_edge_lifetime_ends(
 
         let live_in = FixedPointDomain::transfer(domain, target, live_out);
 
-        for edge in target
-            .predecessors()
-            .iter()
-            .filter_map(|id| graph.edge(*id))
-        {
+        for edge in target.predecessors().iter().map(|id| {
+            graph
+                .edge(*id)
+                .expect("liveness predecessor edge belongs to its graph")
+        }) {
             if !reachability.is_edge_reachable(edge.id()) {
                 continue;
             }
@@ -345,8 +324,14 @@ fn collect_edge_lifetime_ends(
 
             let source_operation = graph
                 .block(edge.source())
-                .and_then(|block| block.operations().last())
-                .and_then(|id| graph.operation(*id));
+                .expect("liveness edge retains its source block")
+                .operations()
+                .last()
+                .map(|id| {
+                    graph
+                        .operation(*id)
+                        .expect("liveness block retains its final operation")
+                });
 
             let bypassed_attempt = source_operation.filter(|operation| {
                 let AnalysisOperationKind::Call {
@@ -831,6 +816,73 @@ mod tests {
             effect
                 .uses
                 .contains(&BoundDependencySubject::BorrowCapability(capability))
+        );
+    }
+
+    #[test]
+    fn suspended_results_are_defined_only_on_normal_completion() {
+        use crate::analysis::model::{AnalysisCallPhase, AnalysisSuspensionKind};
+
+        let unit = BoundUnitId::new(22);
+
+        let (bound_unit, expression, _) = test_expression(unit);
+
+        let mut builder = StoragePlanBuilder::new(unit, bound_unit.key().kind());
+
+        let identity = builder
+            .push_identity(StorageIdentity::Temporary(expression))
+            .unwrap();
+
+        let subject = BoundDependencySubject::Storage(identity);
+
+        let effects = OperationEffects::from_storage_plan(
+            &bound_unit,
+            &builder.finish(),
+            &empty_memory_operations(unit),
+        );
+
+        let operation = |kind| {
+            AnalysisOperation::new(
+                AnalysisOperationId::from_slot(unit, 0),
+                kind,
+                ProgramPointId::from_slot(unit, 0),
+                ProgramPointId::from_slot(unit, 1),
+            )
+        };
+
+        for kind in [AnalysisSuspensionKind::Await, AnalysisSuspensionKind::Yield] {
+            let suspended = operation(AnalysisOperationKind::Suspension {
+                occurrence: expression.into(),
+                kind,
+            });
+
+            let completed = operation(AnalysisOperationKind::Call {
+                invocation: expression.into(),
+                phase: AnalysisCallPhase::Completion,
+            });
+
+            let mut state = BTreeSet::from([subject]);
+
+            transfer_operation(&mut state, &suspended, &effects, &effects.universe);
+
+            assert_eq!(
+                state,
+                BTreeSet::from([subject]),
+                "a suspended invocation has not produced its result"
+            );
+
+            transfer_operation(&mut state, &completed, &effects, &effects.universe);
+            assert!(state.is_empty(), "the result is born only on completion");
+        }
+
+        let suspended = operation(AnalysisOperationKind::Suspension {
+            occurrence: expression.into(),
+            kind: AnalysisSuspensionKind::ScopedCall,
+        });
+
+        assert!(
+            effects.operation_effect(&suspended).is_none(),
+            "scoped calls already have separate attempt and completion operations"
         );
     }
 

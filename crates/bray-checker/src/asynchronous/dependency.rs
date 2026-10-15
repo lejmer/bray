@@ -430,10 +430,10 @@ mod tests {
         let storage = builder.finish();
 
         let mutable_state =
-            StorageSuspensionState::new(expression, [identity], [identity], [], [mutable]);
+            StorageSuspensionState::new(expression, [identity], [identity], [], [mutable], []);
 
         let shared_state =
-            StorageSuspensionState::new(expression, [identity], [identity], [], [shared]);
+            StorageSuspensionState::new(expression, [identity], [identity], [], [shared], []);
 
         let moved_borrow_state = StorageSuspensionState::new(
             expression,
@@ -441,6 +441,7 @@ mod tests {
             [identity],
             [storage.logical_path(access).cloned().unwrap()],
             [mutable],
+            [],
         );
 
         let reborrow_state = StorageSuspensionState::new(
@@ -449,6 +450,7 @@ mod tests {
             [identity],
             [storage.logical_path(access).cloned().unwrap()],
             [mutable, reborrow],
+            [],
         );
 
         assert!(

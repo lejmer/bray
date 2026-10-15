@@ -277,3 +277,89 @@ fn asynchronous_calls_publish_target_specific_future_types() {
         RepresentationRole::Future,
     );
 }
+
+#[test]
+fn suspension_retains_unused_cleanup_owners_and_their_dependencies() {
+    for (consume, pending) in [("", true), ("try await owner.join();", false)] {
+        let application = compilation(&format!(
+            r#"
+            module app;
+            extern async func work(pos value: &u32);
+            async func main() {{
+                let value: u32 = 1;
+                let owner = work(&value).start();
+                {consume}
+                await pause();
+            }}
+            async func pause() {{}}
+        "#
+        ));
+
+        let key = crate::test_support::source_function_body_key(&application, "main");
+        let storage = application.storage_plan(key.clone()).unwrap();
+        let flow = application.storage_flow(key.clone()).unwrap();
+        let analysis = application.async_analysis(key).unwrap();
+
+        assert!(
+            !analysis.diagnostics().has_errors(),
+            "{:?}",
+            analysis.diagnostics()
+        );
+
+        let suspension = analysis
+            .value()
+            .suspensions()
+            .last()
+            .expect("pause suspends after any explicit consumption");
+
+        let snapshot = flow.value().suspension(suspension.occurrence()).unwrap();
+
+        let cleanup_owners = analysis
+            .value()
+            .storage_requirements()
+            .iter()
+            .filter(|requirement| {
+                matches!(
+                    requirement.cleanup(),
+                    bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_)
+                ) && snapshot.initialized().contains(&requirement.identity())
+                    && matches!(
+                        storage.value().identity(requirement.identity()),
+                        Some(bray_bound_tree::StorageIdentity::LocalOwned(_))
+                    )
+            })
+            .map(|requirement| {
+                bray_bound_tree::BoundDependencySubject::Storage(requirement.identity())
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            !cleanup_owners.is_empty(),
+            pending,
+            "only an unresolved task still owns cleanup"
+        );
+
+        for subject in cleanup_owners {
+            assert!(
+                suspension.retained_subjects().contains(&subject),
+                "cleanup owner must survive suspension: {subject:?}"
+            );
+        }
+
+        assert_eq!(
+            snapshot.cleanup_retention().iter().any(|subject| matches!(
+                subject,
+                bray_bound_tree::BoundDependencySubject::BorrowCapability(_)
+            )),
+            pending,
+            "cleanup keeps the loan until consumption, even without an ordinary read"
+        );
+
+        assert!(
+            snapshot
+                .cleanup_retention()
+                .iter()
+                .all(|subject| suspension.retained_subjects().contains(subject))
+        );
+    }
+}

@@ -102,13 +102,27 @@ impl StorageFlowState {
         input: &StorageFlowInput,
     ) -> bool {
         input
-            .cleanup_borrow_owners
-            .get(&borrow)
-            .is_some_and(|owners| {
-                owners
-                    .iter()
-                    .any(|owner| self.live.contains(owner) && !self.fully_moved.contains(owner))
-            })
+            .cleanup_dependency_owners
+            .get(&bray_bound_tree::BoundDependencySubject::BorrowCapability(
+                borrow,
+            ))
+            .is_some_and(|owners| self.has_live_cleanup_owner(owners))
+    }
+
+    pub(in crate::analysis::storage_flow) fn retained_cleanup_dependencies<'a>(
+        &'a self,
+        input: &'a StorageFlowInput,
+    ) -> impl Iterator<Item = bray_bound_tree::BoundDependencySubject> + 'a {
+        input
+            .cleanup_dependency_owners
+            .iter()
+            .filter_map(|(subject, owners)| self.has_live_cleanup_owner(owners).then_some(*subject))
+    }
+
+    fn has_live_cleanup_owner(&self, owners: &BTreeSet<StorageIdentityId>) -> bool {
+        owners
+            .iter()
+            .any(|owner| self.live.contains(owner) && !self.fully_moved.contains(owner))
     }
 
     pub(in crate::analysis::storage_flow) fn end_borrows(

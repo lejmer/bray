@@ -26,7 +26,8 @@ pub(in crate::analysis) struct LifecycleInvocation<'a> {
 }
 
 pub(in crate::analysis) enum CleanupMutation<'a> {
-    Unknown,
+    /// Source cleanup ordering was diagnosed and has no valid selected order.
+    Recovery,
     Opaque {
         ty: bray_symbols::TypeId,
         access: StorageAccessId,
@@ -125,7 +126,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     );
                 }
             }
-            _ => {}
+            // These operations do not dispose storage. Their explicit invocation
+            // effects are handled by the ordinary operation transition.
+            AnalysisOperationKind::Bound(_)
+            | AnalysisOperationKind::PatternObservation(_)
+            | AnalysisOperationKind::Call { .. }
+            | AnalysisOperationKind::Suspension { .. }
+            | AnalysisOperationKind::TaskOperation { .. }
+            | AnalysisOperationKind::Recovery(_) => {}
         }
     }
 
@@ -191,7 +199,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             {
                                 lifecycle.push(access)
                             }
-                            _ => {}
+                            AnalysisScopeExitPhase::TaskCancellationBroadcast
+                            | AnalysisScopeExitPhase::LifecycleResolution => {}
                         }
                     }
                 }
@@ -219,7 +228,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             mutate(
                                 state,
                                 StorageMutation::Operation(operation.occurrence()),
-                                CleanupMutation::Unknown,
+                                CleanupMutation::Recovery,
                             );
                         }
                     }
@@ -261,7 +270,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 }
             }
-            _ => {}
+            // These operations do not dispose storage. Their explicit invocation
+            // effects are handled by the ordinary operation transition.
+            AnalysisOperationKind::Bound(_)
+            | AnalysisOperationKind::PatternObservation(_)
+            | AnalysisOperationKind::Call { .. }
+            | AnalysisOperationKind::Suspension { .. }
+            | AnalysisOperationKind::TaskOperation { .. }
+            | AnalysisOperationKind::Recovery(_) => {}
         }
     }
 

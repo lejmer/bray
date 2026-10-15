@@ -7,7 +7,10 @@ use crate::{
     BoundUnitKind, StorageIdentityId,
 };
 
-/// A subject's final required operation on every continuation from that operation.
+/// A subject's final ordinary use on every continuation from that operation.
+///
+/// This is a retirement candidate. Storage flow must also discharge pending cleanup
+/// and dependencies retained by surviving owners before ending the subject's lifetime.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LastUse {
     subject: BoundDependencySubject,
@@ -26,7 +29,7 @@ impl LastUse {
         }
     }
 
-    /// Returns the subject whose lifetime can end after the operation.
+    /// Returns the subject whose ordinary uses end after the operation.
     pub const fn subject(self) -> BoundDependencySubject {
         self.subject
     }

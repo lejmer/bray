@@ -17,7 +17,8 @@ pub(crate) struct Cleanup<'a> {
 
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct Plan {
-    pub(super) requirements: std::sync::Arc<[bray_bound_tree::AsyncStorageRequirement]>,
+    pub(in crate::analysis) requirements:
+        std::sync::Arc<[bray_bound_tree::AsyncStorageRequirement]>,
     pub(super) replacements:
         BTreeMap<StorageAccessId, bray_bound_tree::AsyncStorageCleanupRequirement>,
     pub(super) steps: BTreeMap<StorageAccessId, Vec<Step>>,

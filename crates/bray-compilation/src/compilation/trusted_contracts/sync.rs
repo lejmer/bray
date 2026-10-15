@@ -3812,13 +3812,38 @@ fn task_cleanup_retains_loans_until_the_task_is_consumed() {
             "{ let task = work(&value).start(); opaque(); } value = 1;",
             true,
         ),
+        (
+            "let task = work(&value).start(); try await task.cancel(); value = 1;",
+            true,
+        ),
+        (
+            "let task = work(&value).start(); if flag { try await task.join(); } value = 1;",
+            false,
+        ),
+        (
+            "let task = work(&value).start(); if flag { try await task.join(); } else { try await task.cancel(); } value = 1;",
+            true,
+        ),
+        (
+            "let owner = { let task = work(&value).start(); Holder { task = task } }; opaque(); value = 1;",
+            false,
+        ),
+        (
+            "{ let owner = Holder { task = work(&value).start() }; opaque(); } value = 1;",
+            true,
+        ),
+        (
+            "let mut task = work(&value).start(); task = work(&value).start(); value = 1;",
+            false,
+        ),
     ] {
         let application = compilation(&format!(
             r#"
             module app;
             extern async func work(pos value: &u32);
             extern func opaque();
-            async func caller() {{
+            struct Holder {{ task: Task<unit>; }}
+            async func caller(pos flag: bool) {{
                 let mut value: u32 = 0;
                 {body}
             }}

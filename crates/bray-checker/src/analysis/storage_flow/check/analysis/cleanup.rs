@@ -56,11 +56,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     CleanupMutation::Lifecycle(call) => {
                         self.cleanup_receiver(&memory, call.access, call.path)
                     }
-                    CleanupMutation::Unknown => None,
+                    CleanupMutation::Recovery => None,
                 };
 
                 let effects = match mutation {
-                    CleanupMutation::Unknown => None,
+                    CleanupMutation::Recovery => None,
                     CleanupMutation::Opaque { ty, .. } => Some(vec![Effect::Cleanup(ty)]),
                     CleanupMutation::Lifecycle(ref call) => {
                         self.lifecycle_effects(&memory, call.access, call.path, call.lifecycle)

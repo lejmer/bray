@@ -94,9 +94,9 @@ where
                         let Some(BoundExpression::Await(await_expression)) =
                             request.view().expression(expression)
                         else {
-                            is_recovered = true;
-
-                            continue;
+                            panic!(
+                                "await suspension retains its bound await expression: {expression:?}"
+                            );
                         };
 
                         let operand = await_expression.operand();
@@ -133,16 +133,17 @@ where
                     }
                 };
 
+                let suspension_state = flow.suspension(occurrence);
+
                 let retained = liveness.retained_suspension_subjects(
                     dependencies,
                     storage,
                     occurrence,
                     dependency_contract,
+                    suspension_state,
                 );
 
                 frame_dependencies.extend(retained.iter().copied());
-
-                let suspension_state = flow.suspension(occurrence);
 
                 let dependency_failure = match &kind {
                     AsyncSuspensionKind::Await { .. } | AsyncSuspensionKind::ScopedCall => {
@@ -892,7 +893,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("empty test refinements must validate: {error:?}"));
 
         let suspension = include_suspension_state
-            .then(|| StorageSuspensionState::new(expressions[1], [], [], [], []));
+            .then(|| StorageSuspensionState::new(expressions[1], [], [], [], [], []));
 
         let flow = StorageFlow::try_new(
             unit.unit(),

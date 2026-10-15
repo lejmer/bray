@@ -56,9 +56,9 @@ impl OperationEffects {
         effects.add_selected_call_dependencies(selections, storage, dependencies);
 
         for plan in storage.access_plans() {
-            let Some(access) = storage.access(plan.access()) else {
-                continue;
-            };
+            let access = storage
+                .access(plan.access())
+                .expect("liveness access plan retains its access");
 
             let Some(capability) = access.root().borrow_capability() else {
                 continue;
@@ -169,11 +169,9 @@ impl OperationEffects {
             effect.definitions.insert(subject);
             effects.universe.insert(subject);
 
-            let Some(access) = storage.access(plan.access()) else {
-                effects.recovered_nodes.insert(node);
-
-                continue;
-            };
+            let access = storage
+                .access(plan.access())
+                .expect("liveness access plan retains its access");
 
             if access.is_recovered() {
                 effects.recovered_nodes.insert(node);
@@ -211,11 +209,13 @@ impl OperationEffects {
                 .uses
                 .insert(BoundDependencySubject::StorageAccess(planned.access()));
 
-            if let Some(access) = storage.access(planned.access()) {
-                effect
-                    .uses
-                    .extend(access_root_subjects(storage, access.root()));
-            }
+            let access = storage
+                .access(planned.access())
+                .expect("liveness borrow retains its planned access");
+
+            effect
+                .uses
+                .extend(access_root_subjects(storage, access.root()));
 
             if let Some(parent) = planned.parent() {
                 let parent = BoundDependencySubject::BorrowCapability(parent);
@@ -401,9 +401,12 @@ impl OperationEffects {
                 subjects.extend(effect.definitions.iter().copied());
             }
 
-            if let Some(node) = unit.tree().expression(expression) {
-                pending.extend(node.child_expressions());
-            }
+            let node = unit
+                .tree()
+                .expression(expression)
+                .expect("liveness subtree retains its bound expression");
+
+            pending.extend(node.child_expressions());
         }
 
         subjects
@@ -420,35 +423,38 @@ impl OperationEffects {
         &self,
         operation: &AnalysisOperation,
     ) -> Option<OperationEffectView<'_>> {
-        if matches!(operation.kind(), AnalysisOperationKind::ScopeExit { .. }) {
-            return None;
-        }
+        use crate::analysis::model::AnalysisSuspensionKind;
 
+        let phase = match operation.kind() {
+            AnalysisOperationKind::ScopeExit { .. }
+            | AnalysisOperationKind::Suspension {
+                kind: AnalysisSuspensionKind::ScopedCall,
+                ..
+            } => {
+                // Scope cleanup is resolved by storage flow. A scoped suspension sits
+                // between its separate call attempt and completion and has no new transfer.
+                return None;
+            }
+            AnalysisOperationKind::Suspension {
+                kind: AnalysisSuspensionKind::Await | AnalysisSuspensionKind::Yield,
+                ..
+            } => Some(AnalysisCallPhase::Attempt),
+            AnalysisOperationKind::Call { phase, .. } => Some(phase),
+            AnalysisOperationKind::Bound(_)
+            | AnalysisOperationKind::PatternObservation(_)
+            | AnalysisOperationKind::TaskOperation { .. }
+            | AnalysisOperationKind::Recovery(_) => None,
+        };
+
+        // The index is sparse: literals and operations without storage uses have no entry.
         let effect = self.by_occurrence.get(&operation.kind().occurrence())?;
 
-        let (phase, result_definitions) = match operation.kind() {
-            AnalysisOperationKind::Suspension {
-                occurrence:
-                    bray_bound_tree::BoundExecutionSite::Node(
-                        bray_bound_tree::AnyBoundNodeId::Expression(expression),
-                    ),
-                kind: crate::analysis::model::AnalysisSuspensionKind::Await,
-            } => (
-                Some(AnalysisCallPhase::Attempt),
-                self.operation_result_definitions.get(&expression),
-            ),
-            AnalysisOperationKind::Call {
-                invocation:
-                    bray_bound_tree::BoundExecutionSite::Node(
-                        bray_bound_tree::AnyBoundNodeId::Expression(expression),
-                    ),
-                phase,
-            } => (
-                Some(phase),
-                self.operation_result_definitions.get(&expression),
-            ),
-            AnalysisOperationKind::Call { phase, .. } => (Some(phase), None),
-            _ => (None, None),
+        let result_definitions = match operation.kind().occurrence() {
+            bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)) => {
+                self.operation_result_definitions.get(&expression)
+            }
+            // Scoped capability storage is introduced by its binding pattern.
+            _ => None,
         };
 
         Some(OperationEffectView {

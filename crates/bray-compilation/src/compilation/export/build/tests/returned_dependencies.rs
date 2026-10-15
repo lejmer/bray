@@ -1224,3 +1224,69 @@ fn generic_owner_forwarding_preserves_only_the_transferred_witness() {
         }
     }
 }
+
+#[test]
+fn imported_task_owners_retain_dependencies_through_cleanup_and_consumption() {
+    let provider = compilation(
+        r#"
+        module api;
+        extern async func work(pos value: &u32);
+        func pending(pos value: &u32) -> Future<unit> {
+            return work(value);
+        }
+    "#,
+    );
+
+    for (body, valid) in [
+        (
+            "let owner = example.package.api.pending(&value).start(); value = 1;",
+            false,
+        ),
+        (
+            "let _ = example.package.api.pending(&value).start(); value = 1;",
+            false,
+        ),
+        (
+            "let owner = example.package.api.pending(&value).start(); let moved = owner; value = 1;",
+            false,
+        ),
+        (
+            "let owner = example.package.api.pending(&value).start(); try await owner.join(); value = 1;",
+            true,
+        ),
+        (
+            "{ let owner = example.package.api.pending(&value).start(); } value = 1;",
+            true,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            using example.package.api.pending;
+            async func caller() {{
+                let mut value: u32 = 0;
+                {body}
+            }}
+        "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        let flow = consumer
+            .storage_flow(source_function_body_key(&consumer, "caller"))
+            .unwrap();
+
+        if valid {
+            assert!(
+                !flow.diagnostics().has_errors(),
+                "{body}: {:?}",
+                flow.diagnostics()
+            );
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                flow.diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow,
+            );
+        }
+    }
+}

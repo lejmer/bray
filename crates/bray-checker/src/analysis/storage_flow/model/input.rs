@@ -31,7 +31,8 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     pub(in crate::analysis::storage_flow) opaque_candidates: Vec<bray_bound_tree::StoragePath>,
     pub(super) unused_entry_storage: BTreeSet<StorageIdentityId>,
     pub(super) cleanup_free_storage: BTreeSet<StorageIdentityId>,
-    pub(super) cleanup_borrow_owners: BTreeMap<BorrowCapabilityId, BTreeSet<StorageIdentityId>>,
+    pub(super) cleanup_dependency_owners:
+        BTreeMap<BoundDependencySubject, BTreeSet<StorageIdentityId>>,
     pub(in crate::analysis::storage_flow) lifecycle_paths: BTreeMap<
         (
             bray_symbols::CallableInstanceData,
@@ -267,7 +268,7 @@ impl StorageFlowInput {
         let (cleanup_free, diagnostics) =
             crate::asynchronous::cleanup_free_storage(cleanup_shapes, request, storage)?;
 
-        input.prepare_cleanup_retention(request, storage, liveness, &cleanup_free);
+        input.prepare_cleanup_retention(request, storage, liveness, cleanup);
         input.prepare_storage_retirement(storage, liveness, &cleanup_free);
         input.cleanup_free_storage = cleanup_free;
 
@@ -342,10 +343,30 @@ impl StorageFlowInput {
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
         liveness: &Liveness,
-        cleanup_free: &BTreeSet<StorageIdentityId>,
+        cleanup: &crate::analysis::guarantee::CleanupPlan,
     ) {
         // Cleanup still uses retained loans after the last ordinary read of its owner.
         // Index established value retention, never physical referents or invocation inputs.
+        let owners = cleanup
+            .requirements
+            .iter()
+            .filter(|requirement| {
+                !requirement.transfers()
+                    && matches!(
+                        requirement.cleanup(),
+                        bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_)
+                    )
+            })
+            .map(|requirement| requirement.identity())
+            .collect::<BTreeSet<_>>();
+
+        for owner in &owners {
+            self.cleanup_dependency_owners
+                .entry(BoundDependencySubject::Storage(*owner))
+                .or_default()
+                .insert(*owner);
+        }
+
         let bindings = crate::storage::value_transfer_bindings(request, storage);
 
         let occurrences = bindings
@@ -374,17 +395,15 @@ impl StorageFlowInput {
             );
 
         for (owner, occurrence) in occurrences {
-            if cleanup_free.contains(&owner) {
+            if !owners.contains(&owner) {
                 continue;
             }
 
             for subject in liveness.retained_by(occurrence) {
-                if let BoundDependencySubject::BorrowCapability(borrow) = subject {
-                    self.cleanup_borrow_owners
-                        .entry(borrow)
-                        .or_default()
-                        .insert(owner);
-                }
+                self.cleanup_dependency_owners
+                    .entry(subject)
+                    .or_default()
+                    .insert(owner);
             }
         }
     }

@@ -11,6 +11,7 @@ impl Liveness {
         storage: &StoragePlan,
         occurrence: impl Into<crate::BoundExecutionSite>,
         dependency_contract: Option<BoundDependencyContractId>,
+        state: Option<&super::StorageSuspensionState>,
     ) -> Vec<BoundDependencySubject> {
         let occurrence = occurrence.into();
 
@@ -21,9 +22,20 @@ impl Liveness {
             .map(|entry| entry.subject())
             .collect::<BTreeSet<_>>();
 
-        if let Some(contract) = dependency_contract.and_then(|id| dependencies.contract(id)) {
+        if let Some(id) = dependency_contract {
+            let contract = dependencies
+                .contract(id)
+                .expect("suspension retains its checked dependency contract");
+
             retained.extend(contract.required_subjects());
         }
+
+        retained.extend(
+            state
+                .into_iter()
+                .flat_map(|state| state.cleanup_retention())
+                .copied(),
+        );
 
         retained
             .into_iter()

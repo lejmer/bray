@@ -1539,6 +1539,7 @@ where
             state.initialized.iter().copied(),
             state.moved.keys().cloned(),
             state.definitely_active_borrows.iter().copied(),
+            state.retained_cleanup_dependencies(self.input),
         );
 
         self.suspensions
@@ -1557,6 +1558,11 @@ where
                         previous.active_borrows().iter().copied().filter(|borrow| {
                             snapshot.active_borrows().binary_search(borrow).is_ok()
                         }),
+                        previous
+                            .cleanup_retention()
+                            .iter()
+                            .chain(snapshot.cleanup_retention())
+                            .copied(),
                     );
             })
             .or_insert(snapshot);

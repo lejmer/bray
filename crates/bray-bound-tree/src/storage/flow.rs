@@ -103,6 +103,7 @@ pub struct StorageSuspensionState {
     initialized: Arc<[StorageIdentityId]>,
     moved: Arc<[crate::StoragePath]>,
     active_borrows: Arc<[BorrowCapabilityId]>,
+    cleanup_retention: Arc<[crate::BoundDependencySubject]>,
 }
 
 impl StorageSuspensionState {
@@ -113,6 +114,7 @@ impl StorageSuspensionState {
         initialized: impl IntoIterator<Item = StorageIdentityId>,
         moved: impl IntoIterator<Item = crate::StoragePath>,
         active_borrows: impl IntoIterator<Item = BorrowCapabilityId>,
+        cleanup_retention: impl IntoIterator<Item = crate::BoundDependencySubject>,
     ) -> Self {
         Self {
             occurrence: occurrence.into(),
@@ -120,6 +122,7 @@ impl StorageSuspensionState {
             initialized: sorted_unique_shared_slice(initialized),
             moved: sorted_unique_shared_slice(moved),
             active_borrows: sorted_unique_shared_slice(active_borrows),
+            cleanup_retention: sorted_unique_shared_slice(cleanup_retention),
         }
     }
 
@@ -135,7 +138,7 @@ impl StorageSuspensionState {
         self.occurrence
     }
 
-    /// Returns storage known to be live before suspension.
+    /// Returns storage that may be live before suspension.
     pub fn live(&self) -> &[StorageIdentityId] {
         &self.live
     }
@@ -153,6 +156,11 @@ impl StorageSuspensionState {
     /// Returns borrow capabilities active before suspension.
     pub fn active_borrows(&self) -> &[BorrowCapabilityId] {
         &self.active_borrows
+    }
+
+    /// Returns dependencies required until the pending owners finish cleanup or transfer.
+    pub fn cleanup_retention(&self) -> &[crate::BoundDependencySubject] {
+        &self.cleanup_retention
     }
 }
 
@@ -340,6 +348,10 @@ impl StorageFlow {
                     .moved()
                     .iter()
                     .any(|access| !access.is_valid_for(unit))
+                || suspension
+                    .cleanup_retention()
+                    .iter()
+                    .any(|subject| !subject.is_valid_for(unit))
                 || suspension
                     .active_borrows()
                     .iter()
@@ -707,6 +719,7 @@ mod tests {
             [storage],
             [storage],
             [crate::StoragePath::root(storage)],
+            [],
             [],
         );
 
