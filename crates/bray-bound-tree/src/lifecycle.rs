@@ -10,6 +10,8 @@ use bray_symbols::{
 pub enum LifecyclePhase {
     /// Invoke whole-value graceful finalization.
     Finalize,
+    /// Resolve child runs while retaining an error for later incident destruction.
+    Quiesce,
     /// Destroy the remaining represented value.
     Destroy,
     /// Broadcast cancellation before resolving owners.

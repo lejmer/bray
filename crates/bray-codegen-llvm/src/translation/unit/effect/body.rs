@@ -171,6 +171,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 None
             }
+            MirOperationKind::Quiesce(place) => {
+                self.translate_lifecycle_helper(
+                    id,
+                    MirHelperReference::Quiesce(place.ty()),
+                    place,
+                )?;
+
+                None
+            }
             MirOperationKind::Finalize(place) => {
                 self.translate_lifecycle_helper(
                     id,

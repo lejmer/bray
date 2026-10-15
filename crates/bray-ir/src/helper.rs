@@ -34,6 +34,8 @@ pub enum MirHelperReference {
     StandardLibrary(MirStandardLibraryHelper),
     /// Run checked finalization for a value of the retained type.
     Finalize(TypeId),
+    /// Resolve child runs while retaining the initialized incident representation.
+    Quiesce(TypeId),
     /// Invoke one static finalizer and preserve its completion value.
     StaticFinalize(TypeId),
     /// Destroy a value of the retained type.
@@ -69,6 +71,7 @@ impl MirHelperReference {
             | Self::FinishGenerator
             | Self::PanicReport
             | Self::StandardLibrary(_)
+            | Self::Quiesce(_)
             | Self::Finalize(_)
             | Self::StaticFinalize(_)
             | Self::Destroy(_)
@@ -83,7 +86,8 @@ impl MirHelperReference {
     /// Returns the semantic value type retained by a lifecycle helper.
     pub const fn lifecycle_type(&self) -> Option<TypeId> {
         match self {
-            Self::Finalize(ty)
+            Self::Quiesce(ty)
+            | Self::Finalize(ty)
             | Self::StaticFinalize(ty)
             | Self::Destroy(ty)
             | Self::Cleanup { ty, .. } => Some(*ty),
@@ -120,6 +124,7 @@ impl MirHelperReference {
             | Self::TypeForm(_)
             | Self::Conversion(_)
             | Self::StandardLibrary(_)
+            | Self::Quiesce(_)
             | Self::Finalize(_)
             | Self::StaticFinalize(_)
             | Self::Destroy(_)
@@ -179,6 +184,7 @@ impl MirOperationKind {
                 }
             }
             Self::Finalize(place) => helpers.push(MirHelperReference::Finalize(place.ty())),
+            Self::Quiesce(place) => helpers.push(MirHelperReference::Quiesce(place.ty())),
             Self::Destroy(place) => helpers.push(MirHelperReference::Destroy(place.ty())),
             Self::Cleanup { phase, place } => helpers.push(MirHelperReference::Cleanup {
                 phase: *phase,

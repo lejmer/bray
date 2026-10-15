@@ -153,7 +153,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     MirTerminatorKind::Return(return_value),
                 );
             }
-            MirHelperReference::Finalize(_) | MirHelperReference::Destroy(_) => {
+            MirHelperReference::Finalize(_)
+            | MirHelperReference::Quiesce(_)
+            | MirHelperReference::Destroy(_) => {
                 let end = self.push_generated_lifecycle_operations(
                     &mut builder,
                     entry,

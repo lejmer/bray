@@ -151,7 +151,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     .map_err(|cause| self.capacity_error(cause))?;
             }
             bray_bound_tree::LifecycleAction::Task => match role {
-                bray_ir::MirGeneratedLifecycleRole::Finalize
+                bray_ir::MirGeneratedLifecycleRole::Quiesce
+                | bray_ir::MirGeneratedLifecycleRole::Finalize
                 | bray_ir::MirGeneratedLifecycleRole::StaticFinalize
                 | bray_ir::MirGeneratedLifecycleRole::Cleanup(
                     bray_ir::MirCleanupPhase::LifecycleResolution,
@@ -218,6 +219,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
+        role: bray_ir::MirGeneratedLifecycleRole,
         place: MirPlace,
         storage: TypeId,
         target: TypeId,
@@ -236,17 +238,14 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         )?;
 
         let Some(teardown) = teardown else {
-            self.push_lifecycle_operation(
+            return self.resolve_lifecycle_sequence(
                 builder,
                 block,
                 source,
-                MirOperationKind::Cleanup {
-                    phase: bray_ir::MirCleanupPhase::TaskCancellation,
-                    place: target_place,
-                },
-            )?;
-
-            return Ok(block);
+                super::representation::child_lifecycle_operations(role, target_place)
+                    .into_iter()
+                    .flatten(),
+            );
         };
 
         let outcome = self.cleanup_outcome(builder, block, source)?;

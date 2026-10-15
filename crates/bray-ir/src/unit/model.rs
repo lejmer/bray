@@ -14,6 +14,8 @@ use crate::{
 pub enum MirGeneratedLifecycleRole {
     /// Runs semantic finalization.
     Finalize,
+    /// Resolves child runs without consuming the retained incident.
+    Quiesce,
     /// Runs semantic finalization while preserving its completion.
     StaticFinalize,
     /// Runs semantic destruction.
@@ -27,6 +29,7 @@ impl MirGeneratedLifecycleRole {
     pub const fn from_reference(reference: &MirHelperReference) -> Option<Self> {
         match reference {
             MirHelperReference::Finalize(_) => Some(Self::Finalize),
+            MirHelperReference::Quiesce(_) => Some(Self::Quiesce),
             MirHelperReference::StaticFinalize(_) => Some(Self::StaticFinalize),
             MirHelperReference::Destroy(_) => Some(Self::Destroy),
             MirHelperReference::Cleanup { phase, .. } => Some(Self::Cleanup(*phase)),
