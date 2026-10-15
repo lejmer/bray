@@ -5,9 +5,7 @@ use std::process::Command;
 
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 
-use super::core::{
-    inspect_objects, native_output, object_files, product_output, standard_library_root,
-};
+use super::core::{native_output, product_output, standard_library_root};
 
 pub(super) fn audit_native_libraries(
     root: &Path,
@@ -47,6 +45,7 @@ pub(super) fn audit_native_libraries(
                 .arg(&profiles)
                 .args([
                     "build",
+                    "--linker-map",
                     "--package",
                     "fixture.application",
                     "--product",
@@ -85,7 +84,7 @@ pub(super) fn audit_native_libraries(
             }
 
             if case == "cross" {
-                require_selected_archive_static(root, target, &output, &executable)?;
+                require_selected_archive_static(&output, &executable)?;
             }
 
             for (provider, consumer) in [("base", "middle"), ("middle", "application")] {
@@ -97,12 +96,7 @@ pub(super) fn audit_native_libraries(
     Ok(())
 }
 
-fn require_selected_archive_static(
-    root: &Path,
-    target: NativeTarget,
-    output: &Path,
-    executable: &Path,
-) -> Result<(), String> {
+fn require_selected_archive_static(output: &Path, executable: &Path) -> Result<(), String> {
     let artifact = bray_package_interface::PackageArtifactInput::file(
         output.join("fixture.base").join("cross.brayimpl"),
         None,
@@ -121,11 +115,10 @@ fn require_selected_archive_static(
         .flat_map(|unit| unit.statics())
         .collect::<BTreeSet<_>>();
 
-    // Linked PE images do not retain their COFF symbol tables. Inspect the final
-    // consumer's emitted references; execution above independently checks that
-    // selected cleanup runs and the hidden archive owner does not.
-    let objects = object_files(&output.join("fixture.application"), target)?;
-    let report = inspect_objects(root, &objects)?;
+    let map = output.join("fixture.application/cross.map");
+
+    let report = fs::read_to_string(&map)
+        .map_err(|error| crate::workspace::io_error("read", &map, error))?;
 
     for (name, expected) in [("STORED", true), ("HIDDEN_RESOURCE", false)] {
         let symbols = statics
@@ -145,9 +138,9 @@ fn require_selected_archive_static(
             .first()
             .expect("fixture static must have its symbol");
 
-        if report.contains(*symbol) != expected {
+        if crate::link_map::contains_symbol(&report, symbol) != expected {
             return Err(format!(
-                "native archive consumer expected {name} reference to be {expected}"
+                "native executable expected {name} retention to be {expected}"
             ));
         }
     }
@@ -157,7 +150,7 @@ fn require_selected_archive_static(
         .len();
 
     eprintln!(
-        "native archive selection: used static referenced and finalized, unused static omitted, {bytes} executable bytes"
+        "native archive selection: used static retained and finalized, unused static omitted, {bytes} executable bytes"
     );
 
     Ok(())

@@ -335,3 +335,22 @@ memory source has one fixture constant and no partial declaration copy. Pointer 
 the memory fixture are restricted to its fixed initialized arrays and native instructions, with
 real bounds and non-overlap authority; no reusable production mechanism was added. The bounded
 acceptance correction still needs publication and independent re-review before readying #608.
+
+### Final-link retention review correction
+
+Independent review [5528473448](https://github.com/lejmer/bray/pull/608#pullrequestreview-5528473448)
+found that inspecting consumer objects did not establish absence of unused storage from the final
+executable. The earlier object-reference evidence above is superseded by actual linker maps.
+
+Tack's opt-in `build --linker-map` forwards the existing compiler map option only for linked
+products, placing the map beside each product under its target/configuration/package directory.
+The readiness fixture reads that map with the existing shared symbol matcher. It no longer emits
+extra relocatable objects. The matcher excludes Mach-O dead-stripped entries. Runtime `MF` still
+independently proves cleanup selection. Both debug and release retain STORED and omit HIDDEN_RESOURCE.
+
+The full native workflow passed in 205.1 seconds, logged in
+`target/bra-620-authority/bra-502-final-link-execution.log`. The focused Tack test covers opt-in,
+executable/shared-library output, debug/release paths and exclusion of unlinked artifacts. Both
+map-reader unit tests passed using `rustc --test xtask/src/link_map.rs` and the retained test binary.
+The mechanical audit reused existing linker configuration and map matching. No additional compiler
+invocation or alternate fixture link was introduced. Final formatting and re-review follow this fix.
