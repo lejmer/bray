@@ -173,7 +173,7 @@ pub type NativeStaticAccessCallback = extern "C" fn() -> usize;
 /// Compiler-generated callback cleaning one initialized static instance.
 pub type NativeStaticCleanupCallback = extern "C-unwind" fn(&mut crate::NativeRunOutcome);
 
-/// Compiler-generated callback starting finalization into caller-owned storage.
+/// Starts finalization with a caller-owned result or incident destination.
 pub type NativeStaticFinalizerStartCallback =
     extern "C-unwind" fn(usize, &mut crate::NativeRunOutcome) -> NativeStaticFinalizerStatus;
 
@@ -182,8 +182,11 @@ pub type NativeCleanupIncidentReportCallback = extern "C-unwind" fn(usize) -> Na
 
 /// Compiler-generated callback destroying and releasing one owned cleanup incident payload.
 /// The destinations retain destruction and backing-release outcomes independently.
-pub type NativeCleanupIncidentDestroyCallback =
-    extern "C-unwind" fn(usize, &mut crate::NativeRunOutcome, &mut crate::NativeRunOutcome);
+pub type NativeCleanupIncidentDestroyCallback = extern "C-unwind" fn(
+    &mut NativeCleanupIncident,
+    &mut crate::NativeRunOutcome,
+    &mut crate::NativeRunOutcome,
+);
 
 /// Owned type-erased finalizer error transferred to its cleanup domain.
 #[repr(C)]
@@ -194,6 +197,7 @@ pub struct NativeCleanupIncident {
     source: NativeSourceAnchor,
     report: NativeCleanupIncidentReportCallback,
     destroy: NativeCleanupIncidentDestroyCallback,
+    backing: crate::NativeCleanupStorageLease,
 }
 
 impl NativeCleanupIncident {
@@ -211,7 +215,30 @@ impl NativeCleanupIncident {
             source,
             report,
             destroy,
+            backing: crate::NativeCleanupStorageLease::empty(),
         }
+    }
+
+    /// Transfers admitted backing to this payload's disposal callback.
+    pub fn retain_backing(&mut self, backing: crate::NativeCleanupStorageLease) {
+        assert_eq!(
+            self.backing,
+            crate::NativeCleanupStorageLease::empty(),
+            "incident already owns backing"
+        );
+
+        assert_eq!(
+            backing.address(),
+            self.payload,
+            "incident backing must identify its admitted payload"
+        );
+
+        self.backing = backing;
+    }
+
+    /// Returns the lease consumed by the final backing release operation.
+    pub fn backing_mut(&mut self) -> &mut crate::NativeCleanupStorageLease {
+        &mut self.backing
     }
 
     /// Returns whether every data field satisfies the native ownership contract.
@@ -245,7 +272,7 @@ impl NativeCleanupIncident {
     }
 }
 
-/// Compiler-generated callback consuming one completed finalizer result.
+/// Consumes a completed result into the supplied incident destination.
 pub type NativeStaticFinalizerResolveCallback =
     extern "C-unwind" fn(usize, usize, &mut crate::NativeRunOutcome) -> NativeStaticFinalizerStatus;
 
@@ -295,14 +322,16 @@ impl NativeStaticFinalizerStatus {
     }
 }
 
+/// Acquires a static owner's concrete allowance or discharges it before activation.
+/// The operation is zero for admission and one for discharge. The caller initializes the outcome.
+pub type NativeStaticAdmissionCallback = extern "C" fn(u32, &mut crate::NativeRunOutcome);
+
 /// Closed execution and completion contract for one static finalizer.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct NativeStaticFinalizer {
     execution: NativeStaticFinalizerExecution,
-    outgoing_capacity: u32,
-    result_size: usize,
-    result_alignment: usize,
+    admission: NativeStaticAdmissionCallback,
     start: NativeStaticFinalizerStartCallback,
     resolve: NativeStaticFinalizerResolveCallback,
 }
@@ -311,40 +340,26 @@ impl NativeStaticFinalizer {
     /// Creates one immutable compiler-generated finalizer contract.
     pub const fn new(
         execution: NativeStaticFinalizerExecution,
-        outgoing_capacity: u32,
-        result_size: usize,
-        result_alignment: usize,
+        admission: NativeStaticAdmissionCallback,
         start: NativeStaticFinalizerStartCallback,
         resolve: NativeStaticFinalizerResolveCallback,
     ) -> Self {
         Self {
             execution,
-            outgoing_capacity,
-            result_size,
-            result_alignment,
+            admission,
             start,
             resolve,
         }
     }
 
-    /// Returns the record allowance for all owners in the static value.
-    pub const fn outgoing_capacity(self) -> u32 {
-        self.outgoing_capacity
+    /// Returns the concrete backing transition for every owner in the static value.
+    pub const fn admission(self) -> NativeStaticAdmissionCallback {
+        self.admission
     }
 
     /// Returns how finalization reaches completion.
     pub const fn execution(self) -> NativeStaticFinalizerExecution {
         self.execution
-    }
-
-    /// Returns the completed result size in bytes.
-    pub const fn result_size(self) -> usize {
-        self.result_size
-    }
-
-    /// Returns the completed result alignment in bytes.
-    pub const fn result_alignment(self) -> usize {
-        self.result_alignment
     }
 
     /// Returns the callback starting finalization.

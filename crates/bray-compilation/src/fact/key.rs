@@ -523,6 +523,8 @@ pub(crate) enum CompilationFactKey {
     CodegenArtifact(Arc<CodegenArtifactQueryKey>),
     /// One optimized concrete MIR body for exact instance and generation policy.
     OptimizedMir(Arc<OptimizedMirQueryKey>),
+    /// Generated execution and local requirements for an exact lifecycle specialization.
+    GeneratedLifecycle(bray_codegen::CodegenInstanceKey, bray_ir::MirUnitId),
     /// The complete native product for exact product and host selections.
     NativeProduct(Arc<NativeProductQueryKey>),
     /// Source-declared value type templates and equality constraints for one bound unit.
@@ -688,6 +690,7 @@ impl CompilationFactKey {
             | Self::ConstantCallCycle(_)
             | Self::CodegenArtifact(_)
             | Self::OptimizedMir(_)
+            | Self::GeneratedLifecycle(..)
             | Self::DeclarationChunk(_)
             | Self::DeclarationTable
             | Self::ProductSourceGraph

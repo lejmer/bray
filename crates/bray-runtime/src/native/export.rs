@@ -650,6 +650,55 @@ mod tests {
     const AWAITED_BLOCKING_CHILD_COUNT: usize = 8;
 
     #[test]
+    fn root_completion_accepts_large_and_overaligned_backing() {
+        extern "C-unwind" fn check_alignment(alignment: usize, destination: usize) {
+            assert_ne!(destination, 0);
+            assert_eq!(destination % alignment, 0);
+        }
+
+        for (size, alignment) in [(0, 1), (65537, 256), (4096, 4096)] {
+            let frame = NativeProtectedFrame::new(
+                alignment,
+                [7; 32],
+                2,
+                8,
+                8,
+                size,
+                alignment,
+                frame_state,
+                resume_frame,
+                cancel_frame,
+                ignore_action,
+                ignore_resolution,
+                check_alignment,
+                ignore_action,
+            );
+
+            let start = execute_test_root(frame, NativeRuntimeConfiguration::new(2, 1));
+
+            let root = start
+                .root()
+                .expect("concrete completion layout must be accepted");
+
+            let outcome = bray_runtime_root_terminal_observation(root);
+
+            assert_eq!(outcome.state(), NativeRunState::COMPLETED);
+            assert_ne!(outcome.payload(), 0);
+            assert_eq!(outcome.payload() % alignment, 0);
+
+            assert_eq!(
+                bray_runtime_root_completion_resolution(root),
+                NativeRuntimeStatus::SUCCESS
+            );
+
+            assert_eq!(
+                bray_runtime_structured_shutdown(),
+                NativeRuntimeStatus::SUCCESS
+            );
+        }
+    }
+
+    #[test]
     fn root_execution_moves_completion_before_frame_destruction() {
         ROOT_DESTROYED.store(0, Ordering::Relaxed);
         ROOT_COMPLETION_DESTINATION.store(0, Ordering::Relaxed);

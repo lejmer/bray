@@ -1,25 +1,22 @@
-use bray_bound_tree::{LifecycleAction, LifecycleCallable, LifecyclePhase};
-use bray_codegen::CodegenTarget;
+use bray_codegen::{CodegenCleanupRequirement, CodegenTarget};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirCallTarget, MirCleanupPhase, MirHelperReference, MirOperationKind};
-use bray_lowering::SyntheticLoweringContext;
 use bray_symbols::{CallableExecution, CallableInstanceData, TypeId};
 
 use super::super::specialization::ConcreteCodegenInstance;
-use super::synthetic::CompilationSyntheticLoweringContext;
 use crate::compilation::{
     CodegenPreparationError, Compilation, ProductDataKind, ProductQueryContext, ProductQueryFailure,
 };
 use crate::fact::CancellationToken;
 
 impl Compilation {
-    pub(super) fn operation_outgoing_capacity(
+    pub(super) fn operation_outgoing_requirements(
         &self,
         owner: &ConcreteCodegenInstance,
         operation: &MirOperationKind,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<Option<u32>, CodegenPreparationError> {
+    ) -> Result<Option<Vec<CodegenCleanupRequirement>>, CodegenPreparationError> {
         match operation {
             MirOperationKind::AdmitOutgoing { ty, .. }
             | MirOperationKind::DischargeOutgoing { ty, .. } => {
@@ -30,7 +27,7 @@ impl Compilation {
                     cancellation,
                 )?;
 
-                self.owner_outgoing_capacity(ty, cancellation).map(Some)
+                self.owner_outgoing_requirements(ty, cancellation).map(Some)
             }
             MirOperationKind::Call(call) if call.is_cleanup() => {
                 let MirCallTarget::Direct(reference) = call.target() else {
@@ -56,98 +53,145 @@ impl Compilation {
                     )
                 })?;
 
+                let (execution, result) = match call.result() {
+                    bray_bound_tree::BoundCallResult::Immediate(ty) => {
+                        (CallableExecution::Synchronous, ty)
+                    }
+                    bray_bound_tree::BoundCallResult::LazyFuture(future) => {
+                        (CallableExecution::Asynchronous, future.completion_type())
+                    }
+                };
+
                 let result = self.concrete_codegen_type(
-                    call.result().ty(),
+                    result,
                     owner.substitution(),
                     Some(owner),
                     cancellation,
                 )?;
 
-                self.call_outgoing_capacity(
-                    callable,
-                    CallableExecution::Synchronous,
-                    result,
-                    cancellation,
-                )
-                .map(Some)
+                let requirements =
+                    if self.call_requires_outgoing(callable, execution, result, cancellation)? {
+                        vec![CodegenCleanupRequirement::new(
+                            super::names::generated_identity("cleanup_storage", callee.key()),
+                            callee.key().clone(),
+                            result,
+                            execution,
+                        )]
+                    } else {
+                        Vec::new()
+                    };
+
+                Ok(Some(requirements))
             }
             _ => Ok(None),
         }
     }
 
-    pub(super) fn owner_outgoing_capacity(
+    pub(super) fn owner_outgoing_requirements(
         &self,
         ty: TypeId,
         cancellation: &CancellationToken,
-    ) -> Result<u32, CodegenPreparationError> {
-        let context = CompilationSyntheticLoweringContext::new(self, cancellation)?;
-        let mut capacity = 0;
+    ) -> Result<Vec<CodegenCleanupRequirement>, CodegenPreparationError> {
+        Ok(self
+            .owner_outgoing_calls(ty, cancellation)?
+            .into_iter()
+            .map(|(callee, result, execution)| {
+                CodegenCleanupRequirement::new(
+                    super::names::generated_identity("cleanup_storage", callee.key()),
+                    callee.key().clone(),
+                    result,
+                    execution,
+                )
+            })
+            .collect())
+    }
 
-        for (phase, helper) in [
-            (LifecyclePhase::Finalize, MirHelperReference::Finalize(ty)),
-            (LifecyclePhase::Destroy, MirHelperReference::Destroy(ty)),
-            (
-                LifecyclePhase::Cancel,
-                MirHelperReference::Cleanup {
-                    phase: MirCleanupPhase::TaskCancellation,
-                    ty,
-                },
-            ),
+    pub(super) fn owner_outgoing_calls(
+        &self,
+        ty: TypeId,
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<(ConcreteCodegenInstance, TypeId, CallableExecution)>, CodegenPreparationError>
+    {
+        let target = self
+            .selected_target()
+            .target()
+            .codegen_target()
+            .expect("selected target must support concrete cleanup realization");
+
+        let mut requirements = Vec::new();
+
+        for helper in [
+            MirHelperReference::Finalize(ty),
+            MirHelperReference::Destroy(ty),
+            MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::TaskCancellation,
+                ty,
+            },
         ] {
             if self.codegen_lifecycle_is_trivial(&helper, cancellation)? {
                 continue;
             }
 
-            let mut add = |call: LifecycleCallable| -> Result<(), CodegenPreparationError> {
-                capacity += self.call_outgoing_capacity(
+            let instance = self.concrete_codegen_lifecycle(helper.clone(), &target)?;
+
+            let lowered = self.codegen_generated_lifecycle(
+                instance.key(),
+                &helper,
+                bray_ir::MirUnitId::new(0),
+                cancellation,
+            )?;
+
+            for call in lowered.local_calls() {
+                if self.call_requires_outgoing(
                     call.callable,
                     call.execution,
                     call.result,
                     cancellation,
-                )?;
+                )? {
+                    let callee = self.concrete_codegen_callable_data(
+                        &instance,
+                        &call.callable,
+                        &target,
+                        cancellation,
+                    )?;
 
-                Ok(())
-            };
-
-            match context.lifecycle_action(ty, phase)? {
-                LifecycleAction::Call(call) => add(call)?,
-                LifecycleAction::Owned {
-                    borrow, teardown, ..
-                } => {
-                    add(borrow)?;
-
-                    for call in teardown.into_iter().flatten() {
-                        add(call)?;
-                    }
+                    requirements.push((callee, call.result, call.execution));
                 }
-                // Structural forwarding uses the child owner's existing allowance.
-                _ => {}
             }
         }
 
-        Ok(capacity)
+        Ok(requirements)
     }
 
-    fn call_outgoing_capacity(
+    fn call_requires_outgoing(
         &self,
         callable: CallableInstanceData,
         execution: CallableExecution,
         result: TypeId,
         cancellation: &CancellationToken,
-    ) -> Result<u32, CodegenPreparationError> {
+    ) -> Result<bool, CodegenPreparationError> {
         let unit = self.codegen_representation_type(RepresentationRole::Unit)?;
 
-        // Capacity measures a checked invocation. Its caller authority was established
-        // by analysis. Only a certificate covering every legal input can remove backing.
-        let empty = execution == CallableExecution::Synchronous
+        // Only a certificate covering every legal input can remove backing.
+        Ok(!(execution == CallableExecution::Synchronous
             && result == unit
             && self.certified_entry_property(
                 callable,
                 bray_checker::ExecutionProperty::Total,
                 cancellation,
-            )?;
+            )?))
+    }
 
-        Ok(u32::from(!empty))
+    #[cfg(test)]
+    pub(super) fn owner_outgoing_capacity(
+        &self,
+        ty: TypeId,
+        cancellation: &CancellationToken,
+    ) -> Result<u32, CodegenPreparationError> {
+        Ok(
+            u32::try_from(self.owner_outgoing_requirements(ty, cancellation)?.len())
+                .expect("local cleanup requirement count must fit its native descriptor"),
+        )
     }
 }
 

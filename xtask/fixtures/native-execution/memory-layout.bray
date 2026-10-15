@@ -1,4 +1,4 @@
-trusted module std.memory;
+module std.memory;
 
 @layout(c)
 struct Packet

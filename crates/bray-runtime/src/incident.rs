@@ -51,7 +51,7 @@ impl OwnedCleanupIncident {
     }
 
     fn dispose(&mut self, report: bool) -> NativeRuntimeStatus {
-        let incident = match self.kind.take() {
+        let mut incident = match self.kind.take() {
             Some(IncidentKind::Native(incident)) => incident,
             Some(IncidentKind::Panic(payload)) => return dispose_panic(payload),
             Some(IncidentKind::Report(mut owned)) => return owned.consume(report),
@@ -68,7 +68,7 @@ impl OwnedCleanupIncident {
             bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
 
         let destruction = catch_unwind(AssertUnwindSafe(|| {
-            (incident.destroy())(incident.payload(), &mut published, &mut released)
+            (incident.destroy())(&mut incident, &mut published, &mut released)
         }));
 
         let mut status = match reporting {
@@ -172,10 +172,12 @@ mod tests {
     }
 
     extern "C-unwind" fn destroy(
-        payload: usize,
+        incident: &mut NativeCleanupIncident,
         _: &mut bray_runtime_abi::NativeRunOutcome,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) {
+        let payload = incident.payload();
+
         record("release", payload);
     }
 
@@ -192,6 +194,50 @@ mod tests {
             destroy,
         ))
         .unwrap()
+    }
+
+    #[test]
+    fn admitted_backing_moves_into_an_incident_and_outlives_its_producer() {
+        extern "C-unwind" fn release_backing(
+            incident: &mut NativeCleanupIncident,
+            _: &mut bray_runtime_abi::NativeRunOutcome,
+            _: &mut bray_runtime_abi::NativeRunOutcome,
+        ) {
+            record("release", incident.payload());
+
+            assert_eq!(
+                crate::report_provider::bray_runtime_cleanup_storage_release(
+                    incident.backing_mut()
+                ),
+                0
+            );
+        }
+
+        let backing = crate::backing::Backing::admit(65537, 256).unwrap();
+        let address = backing.address();
+
+        let incidents = crate::product::collect_finalizer_incidents(|destination, _| {
+            *destination = NativeCleanupIncident::new(
+                address,
+                NativeTypeIdentity::new([7; 32]),
+                NativeSourceAnchor::unavailable(),
+                report,
+                release_backing,
+            );
+
+            destination.retain_backing(backing.transfer());
+
+            bray_runtime_abi::NativeStaticFinalizerStatus::INCIDENT
+        });
+
+        assert!(events().is_empty());
+        assert_eq!(incidents.iter().flatten().count(), 1);
+
+        for incident in incidents.into_iter().flatten() {
+            assert!(incident.report().is_success());
+        }
+
+        assert_eq!(events(), [("report", address), ("release", address)]);
     }
 
     #[test]
@@ -253,10 +299,12 @@ mod tests {
     }
 
     extern "C-unwind" fn published_then_panicking_destroy(
-        payload: usize,
+        incident: &mut NativeCleanupIncident,
         outcome: &mut bray_runtime_abi::NativeRunOutcome,
         release: &mut bray_runtime_abi::NativeRunOutcome,
     ) {
+        let payload = incident.payload();
+
         *outcome = published_panic(payload);
         *release = published_panic(payload + 1);
 
@@ -412,10 +460,12 @@ mod tests {
     }
 
     extern "C-unwind" fn failing_destroy(
-        payload: usize,
+        incident: &mut NativeCleanupIncident,
         _: &mut bray_runtime_abi::NativeRunOutcome,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) {
+        let payload = incident.payload();
+
         record("release", payload);
         panic_any(Release(2));
     }
@@ -515,7 +565,7 @@ mod tests {
     }
 
     extern "C-unwind" fn reentrant_destroy(
-        payload: usize,
+        incident: &mut NativeCleanupIncident,
         outcome: &mut bray_runtime_abi::NativeRunOutcome,
         release: &mut bray_runtime_abi::NativeRunOutcome,
     ) {
@@ -526,7 +576,7 @@ mod tests {
             sink.drain(|_| panic!("nested release must defer to the active drain"));
         });
 
-        destroy(payload, outcome, release);
+        destroy(incident, outcome, release);
     }
 
     #[test]

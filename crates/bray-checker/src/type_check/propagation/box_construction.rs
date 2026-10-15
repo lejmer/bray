@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use bray_bound_tree::{BoundBoxConstructionExpression, BoundExpressionId};
 use bray_symbols::TypeData;
 
+use super::super::constraints::add_operand_expectation;
 use super::super::dependencies::ExpressionTypeDependencies;
 use super::super::inference::{InferenceTypeId, TypeInferenceContext};
 use crate::{CheckerRequestContext, CheckerUnitView};
@@ -53,7 +54,7 @@ pub(super) fn infer_box<C>(
     });
 
     if let Some((_, target)) = expected {
-        inference.add_expectation(operand_variable, target, expression);
+        add_operand_expectation(request, Some(operand), Some(target), variables, inference);
     }
 
     let Some(target) = expected

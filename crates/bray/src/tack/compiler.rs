@@ -29,6 +29,7 @@ pub(crate) struct ProjectCompiler<'project> {
     output_format: OutputFormat,
     profile: Option<&'project TackProfileConfiguration>,
     native_link_inputs: Vec<String>,
+    linker_map: bool,
     executor: &'project dyn ToolExecutor,
     interfaces: BTreeMap<(ProductIdentity, TargetIdentity), CheckedInterface>,
 }
@@ -69,9 +70,16 @@ impl<'project> ProjectCompiler<'project> {
             output_format,
             profile,
             native_link_inputs: Vec::new(),
+            linker_map: false,
             executor,
             interfaces: BTreeMap::new(),
         }
+    }
+
+    pub(crate) const fn with_linker_map(mut self, linker_map: bool) -> Self {
+        self.linker_map = linker_map;
+
+        self
     }
 
     pub(crate) fn with_native_link_inputs(mut self, native_link_inputs: Vec<String>) -> Self {
@@ -583,7 +591,7 @@ impl<'project> ProjectCompiler<'project> {
             request.arg("--expected-source-digest").arg(digest);
         }
 
-        action.add_arguments(&mut request, product, runtime);
+        action.add_arguments(&mut request, product, runtime, self.linker_map);
 
         request.args(
             product
@@ -1132,6 +1140,7 @@ impl CompilerAction {
         request: &mut ToolRequest,
         product: &ProjectProduct,
         runtime: Option<PathBuf>,
+        linker_map: bool,
     ) {
         match self {
             Self::Check { interface, .. } => {
@@ -1151,8 +1160,24 @@ impl CompilerAction {
                 build_identity,
                 expected_source_digest: _,
             } => {
+                request.arg("build");
+
+                if linker_map
+                    && product.outputs().iter().any(|kind| {
+                        matches!(
+                            kind,
+                            TargetOutputKind::Executable | TargetOutputKind::SharedLibrary
+                        )
+                    })
+                {
+                    request.arg("--linker-map-output").arg(
+                        output_root
+                            .join(&output_directory)
+                            .join(format!("{}.map", product.identity().name())),
+                    );
+                }
+
                 request
-                    .arg("build")
                     .arg("--output")
                     .arg(output_root.into_os_string())
                     .arg("--managed-output-directory")

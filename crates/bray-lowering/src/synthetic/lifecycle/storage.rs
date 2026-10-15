@@ -12,7 +12,7 @@ use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLowering
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     pub(super) fn storage_target_place(
-        &self,
+        &mut self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
@@ -56,7 +56,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     }
 
     pub(super) fn push_selected_runtime_lifecycle(
-        &self,
+        &mut self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
@@ -214,7 +214,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     }
 
     pub(super) fn push_owned_indirection_lifecycle_operations(
-        &self,
+        &mut self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,

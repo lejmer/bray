@@ -14,6 +14,7 @@ mod records;
 mod run_result;
 mod runtime;
 mod signature;
+mod storage;
 pub mod symbols;
 mod temporal;
 
@@ -31,12 +32,12 @@ pub use product::{
     NativeCleanupIncident, NativeCleanupIncidentDestroyCallback,
     NativeCleanupIncidentReportCallback, NativeProductHostDescriptor, NativeProductHostObservation,
     NativeProductHostOperation, NativeProductHostState, NativeProductHostStatus,
-    NativeProductIdentity, NativeStaticAccessCallback, NativeStaticCleanupCallback,
-    NativeStaticDuration, NativeStaticFinalizer, NativeStaticFinalizerExecution,
-    NativeStaticFinalizerResolveCallback, NativeStaticFinalizerStartCallback,
-    NativeStaticFinalizerStatus, NativeStaticHostEntry, NativeStaticIdentity,
-    NativeStaticTransitionCallback, NativeThreadStaticCleanupRegistration, NativeTypeIdentity,
-    PRODUCT_HOST_ABI_VERSION,
+    NativeProductIdentity, NativeStaticAccessCallback, NativeStaticAdmissionCallback,
+    NativeStaticCleanupCallback, NativeStaticDuration, NativeStaticFinalizer,
+    NativeStaticFinalizerExecution, NativeStaticFinalizerResolveCallback,
+    NativeStaticFinalizerStartCallback, NativeStaticFinalizerStatus, NativeStaticHostEntry,
+    NativeStaticIdentity, NativeStaticTransitionCallback, NativeThreadStaticCleanupRegistration,
+    NativeTypeIdentity, PRODUCT_HOST_ABI_VERSION,
 };
 pub use records::{NativeReportRecords, NativeReportSegment};
 pub use run_result::NativeRunResultLayout;
@@ -64,3 +65,7 @@ pub use temporal::{
 };
 
 pub use signature::{PlatformAbiType, PlatformAbiValue, platform_signature_matches};
+
+pub use storage::{
+    NativeCleanupStorageBundle, NativeCleanupStorageLease, NativeCleanupStorageShape,
+};

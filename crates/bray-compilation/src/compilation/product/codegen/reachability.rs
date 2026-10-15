@@ -166,11 +166,11 @@ impl Compilation {
 
         let cell = self.state.optimized_mir.cell(key.clone())?;
 
-        let result = cell.get_or_compute(
+        let result = cell.get_or_compute_requested(
             &self.state.fact_runtime,
             CompilationFactKey::OptimizedMir(Arc::new(key)),
             cancellation,
-            || {
+            |cancellation| {
                 let optimized = match options.optimization() {
                     OptimizationLevel::None => Ok(raw.clone()),
                     OptimizationLevel::Basic => {

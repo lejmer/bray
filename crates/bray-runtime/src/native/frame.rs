@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use bray_runtime_abi::{
     NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
-    NativeLaneRequirements, NativeProtectedFrame,
+    NativeLaneRequirements, NativeProtectedFrame, NativeRuntimeStatus,
 };
 use bray_runtime_model::{
     BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
@@ -22,56 +22,35 @@ pub(super) struct NativeFrame {
     descriptor: ProtectedFrameDescriptor,
     abi: NativeProtectedFrame,
     terminal: Arc<NativeTerminalState>,
+    completion: Option<crate::backing::Backing>,
     pub(in crate::native) outgoing: crate::outgoing::OutgoingRecords,
 }
 
 pub(super) struct NativeTerminalState {
-    payload: Mutex<Option<NativeTerminalPayload>>,
+    payload: Mutex<Option<crate::backing::Backing>>,
     cleanup_incidents: Mutex<[Option<RuntimePanic>; 4]>,
 }
 
-pub(super) struct NativeTerminalPayload {
-    address: usize,
-    _storage: Box<[u128]>,
-}
-
-impl NativeTerminalPayload {
-    fn completion(size: usize, alignment: usize) -> Option<Self> {
-        if alignment > align_of::<u128>() {
-            return None;
-        }
-
-        let word_count = size.div_ceil(size_of::<u128>()).max(1);
-        let storage = vec![0_u128; word_count].into_boxed_slice();
-        let address = storage.as_ptr() as usize;
-
-        Some(Self {
-            address,
-            _storage: storage,
-        })
-    }
-
-    pub(super) const fn handle(&self) -> usize {
-        self.address
-    }
-}
-
 impl NativeFrame {
-    pub(super) fn try_new(abi: NativeProtectedFrame) -> Option<Self> {
+    pub(super) fn try_new(abi: NativeProtectedFrame) -> Result<Self, NativeRuntimeStatus> {
         let mut transfer = NativeFrameTransfer::new(abi);
         let abi = transfer.frame();
 
-        let alignment = NonZeroUsize::new(abi.alignment())?;
+        let alignment =
+            NonZeroUsize::new(abi.alignment()).ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
-        let completion_alignment = NonZeroUsize::new(abi.completion_alignment())?;
+        let completion_alignment = NonZeroUsize::new(abi.completion_alignment())
+            .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
-        let layout = ProtectedFrameLayout::try_new(abi.size(), alignment).ok()?;
+        let layout = ProtectedFrameLayout::try_new(abi.size(), alignment)
+            .map_err(|_| NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
         let completion_layout =
-            ProtectedFrameLayout::try_new(abi.completion_size(), completion_alignment).ok()?;
+            ProtectedFrameLayout::try_new(abi.completion_size(), completion_alignment)
+                .map_err(|_| NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
-        let states = states(abi)?;
-        let operations = operations(abi.identity())?;
+        let states = states(abi).ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
+        let operations = operations(abi.identity()).ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
         let version = RuntimeAbiVersion::new(1, 0);
 
         let descriptor = ProtectedFrameDescriptor::try_new(
@@ -83,9 +62,13 @@ impl NativeFrame {
             operations,
             states,
         )
-        .ok()?;
+        .map_err(|_| NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
-        Some(Self {
+        let completion =
+            crate::backing::Backing::admit(abi.completion_size(), abi.completion_alignment())?;
+
+        Ok(Self {
+            completion: Some(completion),
             descriptor,
             abi: transfer.take(),
             outgoing: crate::outgoing::OutgoingRecords::default(),
@@ -100,7 +83,7 @@ impl NativeFrame {
         self.terminal.clone()
     }
 
-    fn record_terminal_payload(&self, payload: NativeTerminalPayload) {
+    fn record_terminal_payload(&self, payload: crate::backing::Backing) {
         *self
             .terminal
             .payload
@@ -207,22 +190,19 @@ impl ProtectedFrame for NativeFrame {
         }
 
         if kind == NativeFrameProgressKind::COMPLETED {
-            let Some(payload) = NativeTerminalPayload::completion(
-                frame.abi.completion_size(),
-                frame.abi.completion_alignment(),
-            ) else {
-                return FrameProgress::RuntimeFailure;
-            };
+            let payload = frame.completion.take().expect(
+                "completion backing is admitted before frame execution and transferred once",
+            );
 
             if let Err(incident) = catch_unwind(AssertUnwindSafe(|| {
-                frame.abi.move_completion()(frame.abi.context(), payload.handle());
+                frame.abi.move_completion()(frame.abi.context(), payload.address());
             })) {
                 frame.record_cleanup_incident(incident);
 
                 return FrameProgress::RuntimeFailure;
             }
 
-            let handle = payload.handle();
+            let handle = payload.address();
 
             frame.record_terminal_payload(payload);
 

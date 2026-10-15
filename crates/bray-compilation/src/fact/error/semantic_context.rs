@@ -282,6 +282,14 @@ fn push_fact_context(
 
             "codegen_artifact"
         }
+        Fact::GeneratedLifecycle(instance, unit) => {
+            fields.extend([
+                identity_field("codegen_instance", instance),
+                identity_field("mir_unit", unit),
+            ]);
+
+            "generated_lifecycle"
+        }
         Fact::OptimizedMir(key) => {
             fields.extend([
                 identity_field("codegen_instance", key.instance()),

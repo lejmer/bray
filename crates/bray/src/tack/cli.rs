@@ -304,6 +304,7 @@ impl CliCommand {
                 TackCommand::Build {
                     selection: build.selection.into(),
                     configuration,
+                    linker_map: build.linker_map,
                 }
             }
             Self::Run(execution) => {
@@ -432,6 +433,8 @@ struct CliSelection {
 struct CliBuild {
     #[command(flatten)]
     selection: CliSelection,
+    #[arg(long, hide = true)]
+    linker_map: bool,
     #[arg(long, help = help::RELEASE)]
     release: bool,
 }

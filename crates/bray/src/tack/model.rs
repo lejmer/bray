@@ -171,6 +171,7 @@ pub(crate) enum TackCommand {
     Build {
         selection: TackSelection,
         configuration: TackBuildConfiguration,
+        linker_map: bool,
     },
     Run {
         selection: TackSelection,

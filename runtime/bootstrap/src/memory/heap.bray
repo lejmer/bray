@@ -3,6 +3,7 @@ trusted internal module bray.runtime.bootstrap.heap;
 using std.memory;
 using internal std.runtime.memory;
 
+@abi(c)
 trusted internal func allocate(pos bytes: usize, align: usize) -> RawPointer<u8>
     ensures(
         std.memory.is_null<u8>(result) || trusted core.memory.owned_allocation(
@@ -16,6 +17,7 @@ trusted internal func allocate(pos bytes: usize, align: usize) -> RawPointer<u8>
     return trusted internal std.runtime.memory.try_allocate(bytes, align);
 }
 
+@abi(c)
 trusted internal func deallocate_bytes(pos pointer: RawPointer<u8>, pos bytes: usize, align: usize)
     requires(trusted core.memory.owned_allocation(pointer = pointer, bytes = bytes, align = align))
     uses(manual_alloc)
@@ -79,4 +81,57 @@ trusted internal func allocation_pointer<T>(pos pointer: RawPointer<u8>, pos cap
     uses(layout_reinterpret)
 {
     return trusted std.memory.reinterpret<T, u8>(pointer);
+}
+
+// Grow an owned metadata buffer only at a fallible admission boundary.
+trusted internal func reserve<T>(pos buffer: &mut std.memory.RawBuffer<T>?) -> bool
+    uses(manual_alloc, raw_memory, unchecked_init)
+{
+    if buffer matches none
+    {
+        let allocation: std.memory.RawBuffer<T>? = trusted try_buffer<T>(1);
+
+        if allocation matches none
+        {
+            return false;
+        }
+
+        buffer = allocation;
+        return true;
+    }
+
+    if let ?storage = buffer
+    {
+        let count: usize = std.memory.initialized_count<T>(&storage);
+        let capacity: usize = std.memory.capacity<T>(&storage);
+
+        if count < capacity
+        {
+            return true;
+        }
+
+        let maximum: usize = ~0;
+
+        if capacity > maximum / 2
+        {
+            return false;
+        }
+
+        let allocation: std.memory.RawBuffer<T>? = trusted try_buffer<T>(capacity * 2);
+
+        return match consume allocation
+        {
+            case ?replacement
+            {
+                let mut grown: std.memory.RawBuffer<T> = replacement;
+
+                trusted internal std.memory.raw_buffer_relocate<T>(&mut storage, &mut grown);
+                trusted internal std.memory.raw_buffer_replace<T>(&mut storage, &mut grown);
+                yield true;
+            }
+            case none { yield false; }
+        };
+    }
+
+    return false;
 }

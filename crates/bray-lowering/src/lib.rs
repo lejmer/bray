@@ -19,6 +19,6 @@ pub use input::LoweringInput;
 pub use lowering::{LoweringError, lower_unit};
 pub use result::{CompileTimeUnit, LoweredUnit};
 pub use synthetic::{
-    HeapStorageLoweringInput, HeapStorageMethod, SyntheticLoweringContext, SyntheticLoweringError,
-    lower_heap_storage, lower_lifecycle,
+    HeapStorageLoweringInput, HeapStorageMethod, LoweredLifecycle, SyntheticLoweringContext,
+    SyntheticLoweringError, lower_heap_storage, lower_lifecycle,
 };

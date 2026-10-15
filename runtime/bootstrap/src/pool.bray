@@ -19,6 +19,9 @@ internal static STORAGE: Uninit<std.sync.SpinLock<bray.runtime.bootstrap.ReportP
             available = 0,
             total = 0,
             credits = 0,
+            storage = none,
+            next_epoch = 1,
+            remaining_epochs = 0xffff_ffff_ffff_fffe,
         }
     )
 );
@@ -79,6 +82,11 @@ trusted internal func release() -> bool
         return false;
     }
 
+    if !trusted bray.runtime.bootstrap.storage.release(pool)
+    {
+        return false;
+    }
+
     // Every record is free, including records that retained panic-message storage.
     // Release in place so teardown creates no new owner requiring this pool's backing.
     if let ?slabs = pool.slabs
@@ -91,4 +99,12 @@ trusted internal func release() -> bool
     pool.available = 0;
     pool.total = 0;
     return true;
+}
+
+trusted internal func identity() -> usize
+    uses(intrinsic)
+{
+    return trusted core.target.expose_address<Uninit<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>>(
+        std.memory.address_of<Uninit<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>>(&STORAGE)
+    );
 }

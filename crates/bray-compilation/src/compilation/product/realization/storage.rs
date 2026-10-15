@@ -379,6 +379,15 @@ impl Compilation {
                         runtime_dependencies,
                         requires_host: consumer.requires_host(),
                         requires_main_thread_cleanup: requires_main_thread,
+                        has_cleanup_storage: !consumer.outgoing_requirements.is_empty(),
+                        has_cleanup_incident: consumer.finalization.as_ref().is_some_and(
+                            |finalization| {
+                                matches!(
+                                    finalization.result,
+                                    bray_runtime_interface::ExecutableEntryResult::Fallible { .. }
+                                )
+                            },
+                        ),
                     },
                 ))
             })
@@ -448,6 +457,8 @@ pub(in crate::compilation::product) struct ProductStaticHostEntry {
     runtime_dependencies: Vec<CodegenStaticInstanceKey>,
     requires_host: bool,
     requires_main_thread_cleanup: bool,
+    has_cleanup_storage: bool,
+    has_cleanup_incident: bool,
 }
 
 impl ProductStaticHostEntry {
@@ -475,6 +486,14 @@ impl ProductStaticHostEntry {
 
     pub(in crate::compilation::product) const fn requires_main_thread_cleanup(&self) -> bool {
         self.requires_main_thread_cleanup
+    }
+
+    pub(in crate::compilation::product) const fn has_cleanup_storage(&self) -> bool {
+        self.has_cleanup_storage
+    }
+
+    pub(in crate::compilation::product) const fn has_cleanup_incident(&self) -> bool {
+        self.has_cleanup_incident
     }
 
     pub(in crate::compilation::product) fn lowering_entry(

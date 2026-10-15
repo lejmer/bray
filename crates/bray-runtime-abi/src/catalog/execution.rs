@@ -568,43 +568,83 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [DestroyPanicReport]
             }
-            OutgoingAdmission {
-                "Reserve local outgoing records before accepting an owner.", "outgoing_admission",
-                native: (OUTGOING_ADMISSION_SYMBOL = "bray_runtime_outgoing_admission", [Usize, Pointer] -> Void),
+            CleanupStorageAdmission {
+                "Acquire concrete backing before accepting a cleanup obligation.", "cleanup_storage_admission",
+                native: (CLEANUP_STORAGE_ADMISSION_SYMBOL = "bray_runtime_cleanup_storage_admission", [Pointer, Pointer] -> U32),
                 service: Host,
                 call_hook: (),
-                compiler: C [Usize, Pointer] -> Void,
-                owner: Host, availability: All, bootstrap: ("outgoing_admission"), host_control: false,
+                compiler: C [Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("storage.admit"), host_control: false,
+                capabilities: [],
+                effects: [AdmitCleanupStorage]
+            }
+            CleanupStorageActivation {
+                "Activate a matching reserved cleanup region once.", "cleanup_storage_activation",
+                native: (CLEANUP_STORAGE_ACTIVATION_SYMBOL = "bray_runtime_cleanup_storage_activation", [Pointer, Pointer] -> Pointer),
+                service: Host,
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> Pointer,
+                owner: Host, availability: All, bootstrap: ("storage.activate"), host_control: false,
+                capabilities: [],
+                effects: [ActivateCleanupStorage]
+            }
+            CleanupStorageClaim {
+                "Transfer admitted owner backing to a concrete cleanup activation.", "cleanup_storage_claim",
+                native: (CLEANUP_STORAGE_CLAIM_SYMBOL = "bray_runtime_cleanup_storage_claim", [Pointer, Pointer] -> Void),
+                service: Host,
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("storage.claim"), host_control: false,
+                capabilities: [],
+                effects: [ActivateCleanupStorage]
+            }
+            CleanupStorageRelease {
+                "Release concrete backing after its final initialized user.", "cleanup_storage_release",
+                native: (CLEANUP_STORAGE_RELEASE_SYMBOL = "bray_runtime_cleanup_storage_release", [Pointer] -> U32),
+                service: Host,
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("storage.retire"), host_control: false,
+                capabilities: [],
+                effects: [ReleaseCleanupStorage]
+            }
+            OutgoingAdmission {
+                "Reserve local outgoing records before accepting an owner.", "outgoing_admission",
+                native: (OUTGOING_ADMISSION_SYMBOL = "bray_runtime_outgoing_admission", [Pointer, Pointer] -> Void),
+                service: Host,
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("outgoing.admission"), host_control: false,
                 capabilities: [],
                 effects: [ConstructPanicReport]
             }
             OutgoingDischarge {
                 "Discharge a consumed owner without reclaiming transferred records.", "outgoing_discharge",
-                native: (OUTGOING_DISCHARGE_SYMBOL = "bray_runtime_outgoing_discharge", [Usize] -> Void),
+                native: (OUTGOING_DISCHARGE_SYMBOL = "bray_runtime_outgoing_discharge", [Pointer] -> Void),
                 service: Host,
                 call_hook: (),
-                compiler: C [Usize] -> Void,
-                owner: Host, availability: All, bootstrap: ("outgoing_discharge"), host_control: false,
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("outgoing.discharge"), host_control: false,
                 capabilities: [],
                 effects: [DestroyPanicReport]
             }
             OutgoingActivation {
                 "Activate an admitted outgoing record before entering a local cleanup action.", "outgoing_activation",
-                native: (OUTGOING_ACTIVATION_SYMBOL = "bray_runtime_outgoing_activation", [] -> Usize),
+                native: (OUTGOING_ACTIVATION_SYMBOL = "bray_runtime_outgoing_activation", [Pointer, Pointer] -> Usize),
                 service: Host,
                 call_hook: (),
-                compiler: C [] -> Usize,
-                owner: Host, availability: All, bootstrap: ("outgoing_activation"), host_control: false,
+                compiler: C [Pointer, Pointer] -> Usize,
+                owner: Host, availability: All, bootstrap: ("outgoing.activation"), host_control: false,
                 capabilities: [],
                 effects: [TransferCleanupIncident]
             }
             OutgoingRetirement {
                 "Retire an action record or transfer it with its outgoing report.", "outgoing_retirement",
-                native: (OUTGOING_RETIREMENT_SYMBOL = "bray_runtime_outgoing_retirement", [Usize, Pointer] -> Void),
+                native: (OUTGOING_RETIREMENT_SYMBOL = "bray_runtime_outgoing_retirement", [Usize, Pointer, Pointer] -> Void),
                 service: Host,
                 call_hook: (),
-                compiler: C [Usize, Pointer] -> Void,
-                owner: Host, availability: All, bootstrap: ("outgoing_retirement"), host_control: false,
+                compiler: C [Usize, Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("outgoing.retirement"), host_control: false,
                 capabilities: [],
                 effects: [TransferCleanupIncident]
             }

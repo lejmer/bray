@@ -10,12 +10,25 @@ use crate::incident::OwnedCleanupIncident as CleanupIncident;
 
 pub(super) struct StaticAdmission {
     task: Option<crate::TaskAdmission>,
-    source: usize,
+    source: Option<bray_runtime_abi::NativeStaticAdmissionCallback>,
 }
 
 impl Drop for StaticAdmission {
     fn drop(&mut self) {
-        crate::outgoing::OutgoingRecords::discharge_source(self.source);
+        if let Some(release) = self.source {
+            let mut outcome = bray_runtime_abi::NativeRunOutcome::new(
+                bray_runtime_abi::NativeRunState::COMPLETED,
+                0,
+            );
+
+            release(1, &mut outcome);
+
+            assert_eq!(
+                outcome.state(),
+                bray_runtime_abi::NativeRunState::COMPLETED,
+                "unused static cleanup allowance must discharge without failure"
+            );
+        }
     }
 }
 
@@ -26,12 +39,25 @@ pub(super) fn admit_finalizer(
         .then(crate::TaskAdmission::new)
         .transpose()?;
 
-    let source = finalizer.outgoing_capacity() as usize;
+    let source = finalizer.admission();
 
-    crate::outgoing::OutgoingRecords::admit_source(source)
-        .map_err(|_| crate::TaskStartError::OutgoingStorageUnavailable)?;
+    let mut outcome =
+        bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
 
-    Ok(StaticAdmission { task, source })
+    source(0, &mut outcome);
+
+    if outcome.state() != bray_runtime_abi::NativeRunState::COMPLETED {
+        drop(crate::incident::OwnedCleanupIncident::report_owner(
+            outcome.take_report(),
+        ));
+
+        return Err(crate::TaskStartError::OutgoingStorageUnavailable);
+    }
+
+    Ok(StaticAdmission {
+        task,
+        source: Some(source),
+    })
 }
 
 pub(super) fn run_static_cleanup(
@@ -43,7 +69,7 @@ pub(super) fn run_static_cleanup(
 ) -> [Option<CleanupIncident>; 8] {
     // Generated owner destruction discharges the accepted allowance. Drop rolls it back only
     // if formation fails before cleanup starts.
-    admission.source = 0;
+    admission.source = None;
 
     let prepare = catch_unwind(AssertUnwindSafe(|| prepare()))
         .err()
@@ -155,7 +181,7 @@ const fn empty_native_incident() -> NativeCleanupIncident {
     }
 
     extern "C-unwind" fn invalid_destroy(
-        _: usize,
+        _: &mut NativeCleanupIncident,
         _: &mut bray_runtime_abi::NativeRunOutcome,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) {

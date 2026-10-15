@@ -22,6 +22,14 @@ pub(crate) fn declare_symbols<'context, 'mappings>(
     for mapping in mappings.symbols() {
         let defines_symbol = mapping.defines_in(mappings.unit());
 
+        if matches!(
+            mapping.key(),
+            bray_codegen::CodegenSymbolKey::CleanupStorage(_)
+        ) {
+            super::cleanup::declare(module, types.context(), target, mapping, defines_symbol);
+            continue;
+        }
+
         declare_symbol(module, mapping, target, defines_symbol, types)?;
 
         if !defines_symbol {

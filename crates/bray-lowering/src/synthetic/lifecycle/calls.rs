@@ -20,7 +20,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     }
 
     pub(super) fn push_lifecycle_call(
-        &self,
+        &mut self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
@@ -46,7 +46,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     }
 
     pub(super) fn push_static_finalizer_call(
-        &self,
+        &mut self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
@@ -90,7 +90,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     }
 
     pub(super) fn push_selected_call(
-        &self,
+        &mut self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
@@ -98,6 +98,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         callable: bray_bound_tree::LifecycleCallable,
         result: bray_bound_tree::BoundCallResult,
     ) -> Result<bray_ir::MirValueId, C::Error> {
+        self.local_calls.push(callable);
+
         let receiver = self.context.semantic_values().type_data(callable.receiver);
 
         let borrow = match receiver.as_ref() {

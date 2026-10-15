@@ -8,19 +8,51 @@ use bray_symbols::{BorrowKind, TypeData, TypeId};
 
 use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
 
-/// Lowers one closed lifecycle specialization into its generated MIR body.
+/// Execution and local storage needs produced by the same lifecycle expansion.
+#[derive(Clone, Debug, Hash)]
+pub struct LoweredLifecycle {
+    /// Generated execution body before optimization.
+    mir: MirUnit,
+    /// Each local invocation in expansion order, retaining repeated calls.
+    /// Structural child operations use their children's existing allowances.
+    local_calls: std::sync::Arc<[bray_bound_tree::LifecycleCallable]>,
+}
+
+impl LoweredLifecycle {
+    /// Returns execution before optimization, sharing the selected expansion with admission.
+    pub const fn mir(&self) -> &MirUnit {
+        &self.mir
+    }
+
+    /// Returns local invocations with their substituted completion and execution kinds.
+    pub fn local_calls(&self) -> &[bray_bound_tree::LifecycleCallable] {
+        &self.local_calls
+    }
+}
+
+/// Expands one closed lifecycle specialization and its local storage requirements.
 pub fn lower_lifecycle<C: SyntheticLoweringContext + ?Sized>(
     context: &C,
     key: MirUnitKey,
     reference: &MirHelperReference,
     unit: MirUnitId,
     target: &MirTargetContract,
-) -> Result<MirUnit, C::Error> {
-    SyntheticLowerer { context }.lower_lifecycle(key, reference, unit, target)
+) -> Result<LoweredLifecycle, C::Error> {
+    let mut lowerer = SyntheticLowerer {
+        context,
+        local_calls: Vec::new(),
+    };
+
+    let mir = lowerer.lower_lifecycle(key, reference, unit, target)?;
+
+    Ok(LoweredLifecycle {
+        mir,
+        local_calls: lowerer.local_calls.into(),
+    })
 }
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     fn lower_lifecycle(
-        &self,
+        &mut self,
         key: MirUnitKey,
         reference: &MirHelperReference,
         unit: MirUnitId,
@@ -178,7 +210,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         reason = "cleanup lowering retains its body, phase, target, and entry place"
     )]
     fn lower_cleanup_body(
-        &self,
+        &mut self,
         builder: &mut MirUnitBuilder,
         entry: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
@@ -371,7 +403,7 @@ mod tests {
                 [9; 32],
             ));
 
-            let mir = lower_lifecycle(
+            let lowered = lower_lifecycle(
                 &context,
                 key,
                 &reference,
@@ -379,6 +411,13 @@ mod tests {
                 &bray_testing::test_mir_target(),
             )
             .unwrap();
+
+            assert!(
+                lowered.local_calls().is_empty(),
+                "elements retain their own allowances"
+            );
+
+            let mir = lowered.mir();
 
             sizes.push((mir.blocks().len(), mir.operations().len()));
 
@@ -421,7 +460,8 @@ mod tests {
             MirUnitId::new(3),
             &bray_testing::test_mir_target(),
         )
-        .unwrap();
+        .unwrap()
+        .mir;
 
         assert_eq!(mir.key(), &key);
 
@@ -475,7 +515,8 @@ mod tests {
                 MirUnitId::new(5),
                 &bray_testing::test_mir_target(),
             )
-            .unwrap();
+            .unwrap()
+            .mir;
 
             assert!(mir.operations().iter().all(|operation| operation.source()
                 == &bray_ir::MirSourceAnchor::generated_lifecycle(reference.clone())));

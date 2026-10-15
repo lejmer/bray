@@ -1,0 +1,114 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.storage;
+
+using std.memory;
+using internal bray.runtime.bootstrap;
+
+trusted internal func reserve_bundle(
+    pos pool: &mut bray.runtime.bootstrap.ReportPool,
+    pos descriptors: &[Descriptor]
+) -> bool
+{
+    let count: usize = descriptors.length();
+
+    // One activation and one retained-result transfer may reuse the same bytes.
+    if count as u64 > pool.remaining_epochs / 2
+    {
+        return false;
+    }
+
+    let mut acquired: usize = 0;
+
+    while acquired < count
+    {
+        let accepted: bool = trusted reserve_requirement(pool, descriptors[acquired]);
+
+        if !accepted
+        {
+            trusted discharge_bundle(pool, descriptors, acquired);
+            return false;
+        }
+
+        acquired += 1;
+    }
+
+    pool.remaining_epochs -= (count as u64) * 2;
+    return true;
+}
+
+trusted internal func discharge_bundle(
+    pos pool: &mut bray.runtime.bootstrap.ReportPool,
+    pos descriptors: &[Descriptor],
+    pos acquired: usize
+)
+    requires(acquired <= descriptors.length())
+    uses(intrinsic)
+{
+    let mut ordinal: usize = 0;
+
+    while ordinal < acquired
+    {
+        let descriptor = descriptors[ordinal];
+
+        ordinal += 1;
+
+        if descriptor.bytes == 0
+        {
+            continue;
+        }
+
+        let index = trusted find(pool, &descriptor);
+
+        if index == 0
+        {
+            trusted core.target.abort();
+        }
+
+        let values = trusted shapes(pool);
+        let shape = &mut values[index - 1];
+
+        if shape.credits == 0
+        {
+            trusted core.target.abort();
+        }
+
+        shape.credits -= 1;
+    }
+}
+
+trusted internal func reserve_requirement(
+    pos pool: &mut bray.runtime.bootstrap.ReportPool,
+    pos descriptor: Descriptor
+) -> bool
+{
+    if descriptor.bytes == 0
+    {
+        return valid_layout(&descriptor);
+    }
+
+    let index: usize = trusted register(pool, descriptor);
+
+    if index == 0
+    {
+        return false;
+    }
+
+    let values = trusted shapes(pool);
+    let shape = &mut values[index - 1];
+    let limit: usize = ~0;
+
+    if shape.credits == limit
+    {
+        return false;
+    }
+
+    let requested: usize = shape.credits + 1;
+
+    if !trusted reserve(shape, requested)
+    {
+        return false;
+    }
+
+    shape.credits += 1;
+    return true;
+}

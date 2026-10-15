@@ -112,6 +112,7 @@ impl Compilation {
         product: &bray_symbols::ProductIdentity,
         unit: &CodegenUnit,
         operations: &[CodegenOperationMapping],
+        static_storages: &[bray_codegen::CodegenStaticStorageMapping],
         executable_host: Option<&ExecutableHostContract>,
         platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
         target: &CodegenTarget,
@@ -306,6 +307,48 @@ impl Compilation {
 
             assert_symbol_contract(target, &symbol);
             symbols.push(symbol);
+        }
+
+        let mut storage = unit
+            .instances()
+            .iter()
+            .filter(|instance| instance.protected_frame_identity().is_some())
+            .map(|instance| instance.key().clone())
+            .collect::<BTreeSet<_>>();
+
+        storage.extend(
+            operations
+                .iter()
+                .filter_map(CodegenOperationMapping::outgoing_requirements)
+                .flatten()
+                .chain(
+                    static_storages
+                        .iter()
+                        .flat_map(bray_codegen::CodegenStaticStorageMapping::outgoing_requirements),
+                )
+                .filter(|requirement| {
+                    requirement.execution() == bray_symbols::CallableExecution::Asynchronous
+                })
+                .map(|requirement| requirement.callable().clone()),
+        );
+
+        for instance in storage {
+            let linkage = if unit
+                .instances()
+                .iter()
+                .any(|member| member.key() == &instance)
+            {
+                CodegenLinkage::LinkOnce
+            } else {
+                CodegenLinkage::Import
+            };
+
+            symbols.push(CodegenSymbolMapping::new(
+                CodegenSymbolKey::CleanupStorage(instance.clone()),
+                super::names::generated_symbol_name(target, linkage, "cleanup_storage", &instance)?,
+                linkage,
+                void_signature(CallableAbi::C),
+            ));
         }
 
         Ok(symbols)

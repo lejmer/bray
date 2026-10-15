@@ -43,7 +43,7 @@ impl Compilation {
             for (operation, data) in instance.mir().operations_with_ids() {
                 let references = data.kind().helper_references();
 
-                let outgoing = self.operation_outgoing_capacity(
+                let outgoing = self.operation_outgoing_requirements(
                     realization,
                     data.kind(),
                     target,
@@ -72,7 +72,7 @@ impl Compilation {
 
                 mappings.push(
                     CodegenOperationMapping::new(instance.key().clone(), operation, helpers)
-                        .with_outgoing_capacity(outgoing),
+                        .with_outgoing_requirements(outgoing),
                 );
             }
         }
@@ -328,6 +328,17 @@ impl Compilation {
         unit: MirUnitId,
         cancellation: &CancellationToken,
     ) -> Result<MirUnit, CodegenPreparationError> {
+        self.codegen_generated_lifecycle(instance, reference, unit, cancellation)
+            .map(|lowered| lowered.mir().clone())
+    }
+
+    pub(super) fn codegen_generated_lifecycle(
+        &self,
+        instance: &bray_codegen::CodegenInstanceKey,
+        reference: &MirHelperReference,
+        unit: MirUnitId,
+        cancellation: &CancellationToken,
+    ) -> Result<std::sync::Arc<bray_lowering::LoweredLifecycle>, CodegenPreparationError> {
         let MirUnitKey::GeneratedLifecycle(key) = instance.template() else {
             return Err(ProductQueryFailure::missing(
                 ProductQueryContext::Instance(instance.clone()),
@@ -347,15 +358,33 @@ impl Compilation {
             .into());
         }
 
-        let context =
-            super::synthetic::CompilationSyntheticLoweringContext::new(self, cancellation)?;
+        let query = (instance.clone(), unit);
+        let cell = self.state.generated_lifecycle.cell(query.clone())?;
 
-        bray_lowering::lower_lifecycle(
-            &context,
-            instance.template().clone(),
-            reference,
-            unit,
-            instance.target(),
-        )
+        let result = cell.get_or_compute_requested(
+            &self.state.fact_runtime,
+            crate::fact::CompilationFactKey::GeneratedLifecycle(query.0, query.1),
+            cancellation,
+            |cancellation| {
+                Ok(
+                    super::synthetic::CompilationSyntheticLoweringContext::new(self, cancellation)
+                        .and_then(|context| {
+                            bray_lowering::lower_lifecycle(
+                                &context,
+                                instance.template().clone(),
+                                reference,
+                                unit,
+                                instance.target(),
+                            )
+                        })
+                        .map(std::sync::Arc::new),
+                )
+            },
+        )?;
+
+        result
+            .as_ref()
+            .map(std::sync::Arc::clone)
+            .map_err(Clone::clone)
     }
 }

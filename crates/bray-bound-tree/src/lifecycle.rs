@@ -19,7 +19,7 @@ pub enum LifecyclePhase {
 }
 
 /// One selected lifecycle invocation with its substituted signature.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct LifecycleCallable {
     /// Exact selected implementation.
     pub callable: CallableInstanceData,

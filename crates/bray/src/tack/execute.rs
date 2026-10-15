@@ -374,7 +374,9 @@ fn execute_invocation_with_progress(
         TackCommand::Build {
             selection,
             configuration,
+            linker_map,
         } => run_build(
+            linker_map,
             &workspace_root,
             &graph,
             &toolchain,
@@ -512,6 +514,7 @@ fn run_check(
     reason = "build routing keeps the selected project, process, and command inputs explicit"
 )]
 fn run_build(
+    linker_map: bool,
     workspace_root: &Path,
     graph: &ProjectGraph,
     toolchain: &Toolchain,
@@ -536,7 +539,8 @@ fn run_build(
         output_format,
         profile,
         executor,
-    );
+    )
+    .with_linker_map(linker_map);
 
     let mut outputs = Vec::new();
 
@@ -2223,6 +2227,74 @@ mod tests {
             "--managed-output-directory",
             "native/release/example.application"
         ));
+    }
+
+    #[test]
+    fn linker_maps_are_opt_in_and_follow_linked_product_output_directories() {
+        for (artifact, enabled, release, expected) in [
+            ("executable", false, false, false),
+            ("executable", true, false, true),
+            ("shared_library", true, true, true),
+            ("relocatable_object", true, false, false),
+        ] {
+            let workspace = ProjectWorkspace::basic();
+
+            workspace.set_product_outputs(&[artifact]);
+
+            let executor = RecordingExecutor::default();
+
+            let mut arguments = vec![
+                OsString::from("bray"),
+                OsString::from("--workspace"),
+                workspace.path().as_os_str().to_os_string(),
+                OsString::from("build"),
+            ];
+
+            if enabled {
+                arguments.push("--linker-map".into());
+            }
+
+            if release {
+                arguments.push("--release".into());
+            }
+
+            let result = run_tack_result_with_input(arguments, &executor, Cursor::new(Vec::new()));
+
+            assert_eq!(
+                result.exit_code(),
+                ExitCode::SUCCESS,
+                "{artifact}: {}",
+                result.stderr()
+            );
+
+            let requests = executor.requests();
+
+            let [request] = requests.as_slice() else {
+                panic!("build should invoke exactly one compiler: {requests:#?}");
+            };
+
+            let map = request
+                .arguments
+                .windows(2)
+                .find(|pair| pair[0] == "--linker-map-output")
+                .map(|pair| PathBuf::from(&pair[1]));
+
+            assert_eq!(map.is_some(), expected, "{artifact}/{enabled}/{release}");
+
+            if let Some(map) = map {
+                let configuration = if release { "release" } else { "debug" };
+
+                assert_eq!(
+                    map,
+                    workspace
+                        .path()
+                        .join("build")
+                        .join("native")
+                        .join(configuration)
+                        .join("example.application/application.map")
+                );
+            }
+        }
     }
 
     #[test]

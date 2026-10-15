@@ -83,6 +83,8 @@ impl CodegenNativeEntryMapping {
 pub enum CodegenSymbolKey {
     /// One concrete Bray definition.
     Instance(CodegenInstanceKey),
+    /// Concrete cleanup backing layout emitted beside an asynchronous callable.
+    CleanupStorage(CodegenInstanceKey),
     /// One external runtime ABI role.
     Runtime(MirRuntimeReference),
     /// One compiler-generated protected-frame operation.
@@ -146,7 +148,7 @@ impl CodegenSymbolMapping {
     /// Whether this unit emits the mapped definition rather than a reference.
     pub fn defines_in(&self, unit: &CodegenUnitKey) -> bool {
         match &self.key {
-            CodegenSymbolKey::Instance(instance) => {
+            CodegenSymbolKey::Instance(instance) | CodegenSymbolKey::CleanupStorage(instance) => {
                 unit.instances().contains(instance) && self.linkage != CodegenLinkage::Import
             }
             CodegenSymbolKey::Runtime(_) | CodegenSymbolKey::ProtectedFrame { .. } => false,

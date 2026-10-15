@@ -1,4 +1,4 @@
-use super::support::artifacts::generated_artifacts;
+use super::support::artifacts::{generated_artifacts, generated_artifacts_of_kind};
 use super::support::compilation::{codegen_compilation_for_product, test_product_identity};
 use super::support::dependencies::{
     GenericDependencyFixture, generic_consumer_for_target_with_source,
@@ -344,7 +344,7 @@ fn static_mapping_retains_selected_lifecycle_helpers() {
 
     assert!(mapping.finalization().is_some());
     assert!(mapping.destroy().is_some());
-    assert!(mapping.outgoing_capacity() >= 2);
+    assert!(mapping.outgoing_requirements().len() >= 2);
 
     let lifecycle_symbols = plan
         .mappings()
@@ -393,7 +393,7 @@ fn static_admission_counts_repeated_constant_owners() {
         .mappings()
         .iter()
         .flat_map(bray_codegen::CodegenMappings::static_storages)
-        .map(bray_codegen::CodegenStaticStorageMapping::outgoing_capacity)
+        .map(|mapping| mapping.outgoing_requirements().len())
         .filter(|capacity| *capacity != 0)
         .collect::<BTreeSet<_>>();
 
@@ -493,6 +493,14 @@ fn static_mapping_retains_asynchronous_fallible_finalizer() {
             ))
     );
 
+    assert!(
+        plan.executable_host()
+            .unwrap()
+            .requirements()
+            .roles()
+            .contains(&bray_runtime_interface::RuntimeAbiRole::CleanupStorageRelease,)
+    );
+
     let finalization = plan
         .mappings()
         .iter()
@@ -504,6 +512,42 @@ fn static_mapping_retains_asynchronous_fallible_finalizer() {
         finalization.execution(),
         bray_symbols::CallableExecution::Asynchronous
     );
+
+    let asynchronous = plan
+        .mappings()
+        .iter()
+        .flat_map(bray_codegen::CodegenMappings::operations)
+        .filter_map(bray_codegen::CodegenOperationMapping::outgoing_requirements)
+        .flatten()
+        .filter(|requirement| {
+            requirement.execution() == bray_symbols::CallableExecution::Asynchronous
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        !asynchronous.is_empty(),
+        "async cleanup retains its physical requirement"
+    );
+
+    let bray_runtime_interface::ExecutableEntryResult::Fallible { ty, .. } = finalization.result()
+    else {
+        panic!("fixture must retain its fallible completion");
+    };
+
+    for requirement in asynchronous {
+        assert_eq!(
+            requirement.completion(),
+            ty,
+            "reserve the completion, not the lazy Future handle"
+        );
+
+        assert!(plan.mappings().iter().any(|mapping| {
+            mapping
+                .ty(ty)
+                .and_then(bray_codegen::CodegenTypeMapping::layout)
+                .is_some()
+        }));
+    }
 
     assert!(
         generated_artifacts(&backend, &plan)
@@ -522,4 +566,69 @@ fn static_mapping_retains_asynchronous_fallible_finalizer() {
             .iter()
             .all(|artifact| !artifact.is_empty())
     );
+}
+
+#[test]
+fn generic_static_failure_uses_its_selected_overaligned_requirement() {
+    for (alignment, artifact) in [
+        (64, bray_codegen::BackendArtifactKind::RelocatableObject),
+        (4096, bray_codegen::BackendArtifactKind::BackendIr),
+    ] {
+        let source = r#"
+        module app;
+        @layout(stable, align = ALIGNMENT)
+        struct Failure { value: u8; }
+        struct Resource<T> {
+            value: T;
+            finalize() -> Result<unit, Failure> {
+                return Error(Failure { value = 7 });
+            }
+            destruct() {}
+        }
+        static RESOURCE: Resource<i32> = { value = 42 };
+        func main() {}
+    "#
+        .replace("ALIGNMENT", &alignment.to_string());
+
+        let (backend, plan) = runtime_native_plan(&source);
+
+        let (mapping, storage) = plan
+            .mappings()
+            .iter()
+            .find_map(|mapping| {
+                mapping
+                    .static_storages()
+                    .iter()
+                    .find(|storage| storage.finalization().is_some())
+                    .map(|storage| (mapping, storage))
+            })
+            .expect("generic resource must retain its static finalizer");
+
+        let finalization = storage.finalization().unwrap();
+
+        let requirement = storage
+            .outgoing_requirements()
+            .iter()
+            .find(|requirement| Some(requirement.callable()) == finalization.selected())
+            .expect("retained error capture must select the same admitted source action");
+
+        let layout = mapping
+            .instance_ty(storage.owner(), requirement.completion())
+            .and_then(bray_codegen::CodegenTypeMapping::layout)
+            .unwrap();
+
+        assert!(layout.size() >= alignment);
+        assert_eq!(layout.alignment().get(), alignment);
+
+        let roles = plan.executable_host().unwrap().requirements().roles();
+
+        assert!(roles.contains(&RuntimeAbiRole::CleanupStorageClaim));
+        assert!(roles.contains(&RuntimeAbiRole::CleanupStorageRelease));
+
+        assert!(
+            generated_artifacts_of_kind(&backend, &plan, artifact)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
 }

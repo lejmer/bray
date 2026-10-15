@@ -1,18 +1,34 @@
 module static_cleanup_failure;
 
-struct Resource
+@layout(stable, align = 64)
+struct Failure
 {
     value: i32;
 
-    finalize() -> Result<unit, i32>
+    destruct()
     {
-        return Error(7);
+        assert(self.value == 7);
+    }
+}
+
+struct Resource<T>
+{
+    value: T;
+
+    finalize() -> Result<unit, Failure>
+    {
+        return Error(
+            Failure
+            {
+                value = 7
+            }
+        );
     }
 
     destruct() {}
 }
 
-static RESOURCE: Resource = Resource
+static RESOURCE: Resource<i32> =
 {
     value = 42
 };

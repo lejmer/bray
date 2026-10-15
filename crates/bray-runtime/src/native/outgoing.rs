@@ -32,7 +32,10 @@ mod tests {
     fn admit(count: usize) -> bool {
         let mut outcome = NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
 
-        bray_runtime_outgoing_admission(count, &mut outcome);
+        bray_runtime_outgoing_admission(
+            &bray_runtime_abi::NativeCleanupStorageBundle::new(count, &[]),
+            &mut outcome,
+        );
 
         outcome.state() == bray_runtime_abi::NativeRunState::COMPLETED
     }
@@ -61,17 +64,17 @@ mod tests {
 
         assert!(admit(2));
 
-        let first = bray_runtime_outgoing_activation();
-        let second = bray_runtime_outgoing_activation();
+        let first = bray_runtime_outgoing_activation(std::ptr::null(), std::ptr::null_mut());
+        let second = bray_runtime_outgoing_activation(std::ptr::null(), std::ptr::null_mut());
 
         assert!(!admit(usize::MAX));
 
         let mut primary = outcome(1);
         let mut incident = outcome(2);
 
-        bray_runtime_outgoing_retirement(first, &mut primary);
-        bray_runtime_outgoing_retirement(second, &mut incident);
-        bray_runtime_outgoing_discharge(2);
+        bray_runtime_outgoing_retirement(first, std::ptr::null(), &mut primary);
+        bray_runtime_outgoing_retirement(second, std::ptr::null(), &mut incident);
+        bray_runtime_outgoing_discharge(&bray_runtime_abi::NativeCleanupStorageBundle::new(2, &[]));
 
         assert!(!admit(usize::MAX));
 

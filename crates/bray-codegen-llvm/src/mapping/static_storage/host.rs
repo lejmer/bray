@@ -24,9 +24,7 @@ pub(super) struct StaticLifecycleCallbacks<'context> {
 #[derive(Clone, Copy)]
 pub(super) struct StaticFinalizerCallbacks<'context> {
     pub(super) execution: u64,
-    pub(super) outgoing_capacity: u32,
-    pub(super) result_size: u64,
-    pub(super) result_alignment: u64,
+    pub(super) admission: FunctionValue<'context>,
     pub(super) start: FunctionValue<'context>,
     pub(super) resolve: FunctionValue<'context>,
 }
@@ -64,7 +62,7 @@ pub(super) fn declare_thread_static_registration<'context>(
             pointer.into(),
             static_identity_type(context).into(),
             pointer.into(),
-            static_finalizer_type(context, pointer, usize).into(),
+            static_finalizer_type(context, pointer).into(),
             pointer.into(),
             pointer.into(),
         ],
@@ -79,7 +77,7 @@ pub(super) fn declare_thread_static_registration<'context>(
             .as_global_value()
             .as_pointer_value()
             .into(),
-        static_finalizer_value(context, callbacks.finalizer, pointer, usize).into(),
+        static_finalizer_value(context, callbacks.finalizer, pointer).into(),
         callbacks
             .destroy
             .as_global_value()
@@ -160,7 +158,7 @@ pub(super) fn declare_static_host_entry<'context>(
             .as_global_value()
             .as_pointer_value()
             .into(),
-        static_finalizer_value(context, callbacks.finalizer, pointer, usize).into(),
+        static_finalizer_value(context, callbacks.finalizer, pointer).into(),
         callbacks
             .destroy
             .as_global_value()
@@ -507,7 +505,7 @@ fn static_host_entry_type<'context>(
             pointer.into(),
             pointer.into(),
             pointer.into(),
-            static_finalizer_type(context, pointer, usize).into(),
+            static_finalizer_type(context, pointer).into(),
             pointer.into(),
             pointer.into(),
             pointer.into(),
@@ -520,14 +518,11 @@ fn static_host_entry_type<'context>(
 fn static_finalizer_type<'context>(
     context: &'context inkwell::context::Context,
     pointer: PointerType<'context>,
-    usize: IntType<'context>,
 ) -> StructType<'context> {
     context.struct_type(
         &[
             context.i32_type().into(),
-            context.i32_type().into(),
-            usize.into(),
-            usize.into(),
+            pointer.into(),
             pointer.into(),
             pointer.into(),
         ],
@@ -539,19 +534,17 @@ fn static_finalizer_value<'context>(
     context: &'context inkwell::context::Context,
     finalizer: StaticFinalizerCallbacks<'context>,
     pointer: PointerType<'context>,
-    usize: IntType<'context>,
 ) -> inkwell::values::StructValue<'context> {
-    static_finalizer_type(context, pointer, usize).const_named_struct(&[
+    static_finalizer_type(context, pointer).const_named_struct(&[
         context
             .i32_type()
             .const_int(finalizer.execution, false)
             .into(),
-        context
-            .i32_type()
-            .const_int(u64::from(finalizer.outgoing_capacity), false)
+        finalizer
+            .admission
+            .as_global_value()
+            .as_pointer_value()
             .into(),
-        usize.const_int(finalizer.result_size, false).into(),
-        usize.const_int(finalizer.result_alignment, false).into(),
         finalizer.start.as_global_value().as_pointer_value().into(),
         finalizer
             .resolve

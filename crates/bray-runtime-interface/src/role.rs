@@ -210,6 +210,12 @@ pub enum RuntimeRoleContractEffect {
     EstablishRootRun,
     /// Transfer ownership of a protected frame.
     TransferFrame,
+    /// Acquire concrete storage before accepting a cleanup obligation.
+    AdmitCleanupStorage,
+    /// Activate one previously admitted region for its selected cleanup.
+    ActivateCleanupStorage,
+    /// Release storage after its final initialized user.
+    ReleaseCleanupStorage,
     /// Allocate runtime-owned task storage.
     AllocateTask,
     /// Publish work for execution by a compatible lane.

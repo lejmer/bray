@@ -356,8 +356,6 @@ pub(crate) enum ProductQueryFailure {
         /// The exact product coordination component whose lock was poisoned.
         component: ProductSynchronizationComponent,
     },
-    /// A constant owner requires more outgoing records than the native descriptor can express.
-    OutgoingCapacityOverflow { value: ConstantValueId },
     /// Two concrete realizations use one stable code generation identity.
     ConflictingConcreteInstance {
         /// The colliding stable code generation instance identity.
@@ -597,9 +595,7 @@ impl ProductQueryFailure {
             | Self::ConflictingImplementationWitness { .. } => {
                 ProductQueryErrorKind::Specialization
             }
-            Self::SynchronizationPoisoned { .. } | Self::OutgoingCapacityOverflow { .. } => {
-                ProductQueryErrorKind::Coordination
-            }
+            Self::SynchronizationPoisoned { .. } => ProductQueryErrorKind::Coordination,
             Self::UnsupportedConstantValue { .. }
             | Self::InvalidCodegenSourceFile { .. }
             | Self::SourceIndex { .. }

@@ -100,11 +100,11 @@ impl Compilation {
             .map_err(|error| Arc::new(NativeProductPlanningError::from(error)))?;
 
         let result = cell
-            .get_or_compute(
+            .get_or_compute_requested(
                 &self.state.fact_runtime,
                 CompilationFactKey::NativeProduct(Arc::new(key)),
                 cancellation,
-                || {
+                |cancellation| {
                     Ok(self
                         .compute_native_product_plan(
                             product,

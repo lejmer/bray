@@ -615,6 +615,27 @@ pub(super) fn native_host_runtime_roles(
 
     if statics
         .iter()
+        .any(super::super::realization::ProductStaticHostEntry::has_cleanup_storage)
+    {
+        roles.extend([
+            RuntimeAbiRole::OutgoingAdmission,
+            RuntimeAbiRole::OutgoingDischarge,
+        ]);
+    }
+
+    if statics
+        .iter()
+        .any(super::super::realization::ProductStaticHostEntry::has_cleanup_incident)
+    {
+        roles.extend([
+            RuntimeAbiRole::EntryFailureReporting,
+            RuntimeAbiRole::CleanupStorageRelease,
+            RuntimeAbiRole::CleanupStorageClaim,
+        ]);
+    }
+
+    if statics
+        .iter()
         .any(|entry| entry.key().duration() == bray_symbols::StaticStorageDuration::ExactThread)
         || native_statics
             .iter()

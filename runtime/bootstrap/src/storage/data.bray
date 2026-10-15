@@ -1,0 +1,104 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.storage;
+
+using std.memory;
+
+@copy
+@layout(c)
+internal struct Descriptor
+{
+    identity: [u8; 32];
+    bytes: usize;
+    align: usize;
+}
+
+// The native caller retains the immutable descriptor range for the entire transition.
+@copy
+@layout(c)
+internal struct Bundle
+{
+    records: usize;
+    descriptors: &[Descriptor];
+}
+
+// A native boundary value. Runtime checks establish ownership before any access.
+@copy
+@layout(c)
+internal struct Lease
+{
+    domain: usize;
+    shape: usize;
+    slot: usize;
+    epoch: u64;
+    address: usize;
+}
+
+internal struct Slot
+{
+    mut epoch: u64;
+    mut state: u32;
+    mut next: usize;
+    address: usize;
+}
+
+internal struct Slab
+{
+    first: usize;
+    mut slots: std.memory.RawBuffer<Slot>;
+    mut bytes: std.memory.RawBuffer<u8>;
+}
+
+internal struct Shape
+{
+    descriptor: Descriptor;
+    mut slabs: std.memory.RawBuffer<Slab>?;
+    mut free: usize;
+    mut available: usize;
+    mut total: usize;
+    mut credits: usize;
+}
+
+internal const FREE: u32 = 0;
+
+internal const RESERVED: u32 = 1;
+
+internal const ACTIVE: u32 = 2;
+
+internal func empty_lease() -> Lease
+{
+    return
+    {
+        domain = 0,
+        shape = 0,
+        slot = 0,
+        epoch = 0,
+        address = 0
+    };
+}
+
+internal func same_shape(pos left: &Descriptor, pos right: &Descriptor) -> bool
+{
+    if left.bytes != right.bytes || left.align != right.align
+    {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index < 32
+    {
+        if left.identity[index] != right.identity[index]
+        {
+            return false;
+        }
+
+        index += 1;
+    }
+
+    return true;
+}
+
+internal func valid_layout(pos descriptor: &Descriptor) -> bool
+{
+    return descriptor.align != 0 && descriptor.align & (descriptor.align - 1) == 0;
+}

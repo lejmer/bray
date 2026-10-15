@@ -122,10 +122,6 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
                 product_synchronization_component(*component),
             )],
         ),
-        Failure::OutgoingCapacityOverflow { value } => (
-            "product_query_outgoing_capacity_overflow",
-            vec![identity_field("constant_value", value)],
-        ),
         Failure::ConflictingConcreteInstance { key } => (
             "product_query_conflicting_concrete_instance",
             vec![identity_field("instance", key)],

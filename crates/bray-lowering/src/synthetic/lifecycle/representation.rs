@@ -11,7 +11,7 @@ use super::support::lifecycle_operation_block_kind;
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     pub(super) fn push_generated_lifecycle_operations(
-        &self,
+        &mut self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
@@ -35,7 +35,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     }
 
     pub(super) fn expand_lifecycle_action(
-        &self,
+        &mut self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
@@ -135,7 +135,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     }
 
     pub(super) fn push_nullable_lifecycle_operations(
-        &self,
+        &mut self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
@@ -189,7 +189,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         reason = "union lifecycle dispatch keeps its checked type and MIR context explicit"
     )]
     pub(super) fn push_union_lifecycle_operations(
-        &self,
+        &mut self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
@@ -263,7 +263,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     }
 
     pub(super) fn push_child_lifecycle_operations(
-        &self,
+        &mut self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
