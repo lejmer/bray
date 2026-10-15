@@ -4,6 +4,7 @@ pub(crate) fn run_static_finalizer(
     admission: crate::TaskAdmission,
     frame: bray_runtime_abi::NativeInactiveFrame,
     resolve: bray_runtime_abi::NativeStaticFinalizerResolveCallback,
+    backing: Option<crate::backing::Backing>,
 ) -> [Option<OwnedCleanupIncident>; 4] {
     use bray_runtime_abi::{NativeRootHandle, NativeRunState};
 
@@ -40,11 +41,17 @@ pub(crate) fn run_static_finalizer(
         let mut outcome = runtime.observe_root(root);
 
         let [first, second, third] = match outcome.state() {
-            NativeRunState::COMPLETED => {
-                crate::product::collect_finalizer_incidents(|incident, destination| {
-                    resolve(outcome.payload(), (&raw mut *incident).addr(), destination)
-                })
-            }
+            NativeRunState::COMPLETED => crate::product::collect_finalizer_incidents(
+                backing,
+                |incident, backing, destination| {
+                    resolve(
+                        outcome.payload(),
+                        (&raw mut *incident).addr(),
+                        backing,
+                        destination,
+                    )
+                },
+            ),
             NativeRunState::PANICKED => [
                 Some(OwnedCleanupIncident::report_owner(outcome.take_report())),
                 None,
@@ -145,7 +152,7 @@ mod tests {
         assert!(crate::TaskAdmission::new().is_err());
 
         let (incidents, runtime_incident) =
-            with_static_cleanup_runtime(|| run_static_finalizer(admission, frame, resolve));
+            with_static_cleanup_runtime(|| run_static_finalizer(admission, frame, resolve, None));
 
         assert!(incidents.iter().all(Option::is_none));
         assert!(runtime_incident.is_none());
@@ -164,6 +171,7 @@ mod tests {
                     NativeLaneRequirements::NONE,
                 ),
                 resolve,
+                None,
             )
         });
 
@@ -193,6 +201,7 @@ mod tests {
                         crate::test_support::admit_task(),
                         inactive_frame(affinity, requirements),
                         resolve,
+                        None,
                     )
                 })
                 .collect::<Vec<_>>()
@@ -212,7 +221,12 @@ mod tests {
         };
 
         let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
-            run_static_finalizer(crate::test_support::admit_task(), main_frame(), resolve)
+            run_static_finalizer(
+                crate::test_support::admit_task(),
+                main_frame(),
+                resolve,
+                None,
+            )
         });
 
         assert_eq!(incidents.iter().flatten().count(), 1);
@@ -226,7 +240,12 @@ mod tests {
         );
 
         let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
-            run_static_finalizer(crate::test_support::admit_task(), main_frame(), resolve)
+            run_static_finalizer(
+                crate::test_support::admit_task(),
+                main_frame(),
+                resolve,
+                None,
+            )
         });
 
         assert!(incidents.iter().all(Option::is_none));
@@ -303,6 +322,7 @@ mod tests {
     extern "C-unwind" fn resolve(
         _: usize,
         _: usize,
+        _backing: usize,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus {
         NativeStaticFinalizerStatus::SUCCESS

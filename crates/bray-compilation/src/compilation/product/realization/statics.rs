@@ -2,9 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::{
     CodegenConstantTermMapping, CodegenLinkage, CodegenMappings, CodegenStaticFinalization,
-    CodegenStaticIncidentMemory, CodegenStaticInstanceKey, CodegenStaticRelocation,
-    CodegenStaticStorageMapping, CodegenTarget, CodegenTerminatorMapping, CodegenUnit,
-    demanded_callable_instances_for_mir,
+    CodegenStaticInstanceKey, CodegenStaticRelocation, CodegenStaticStorageMapping, CodegenTarget,
+    CodegenTerminatorMapping, CodegenUnit, demanded_callable_instances_for_mir,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirStorageKind, MirUnit, MirUnitKey};
@@ -55,12 +54,7 @@ pub(super) struct ConcreteStaticFinalization {
     error_type_identity: Option<[u8; 32]>,
     source: Option<bray_ir::MirSourceAnchor>,
     incident_cleanup: Option<ConcreteCodegenInstance>,
-    incident_memory: Option<ConcreteStaticIncidentMemory>,
-}
-
-struct ConcreteStaticIncidentMemory {
-    allocation: ConcreteCodegenInstance,
-    deallocation: ConcreteCodegenInstance,
+    incident_release: Option<ConcreteCodegenInstance>,
 }
 
 impl Compilation {
@@ -239,11 +233,8 @@ impl Compilation {
                     dependencies.push(ConcreteCodegenDemand::static_lifecycle(cleanup));
                 }
 
-                if let Some(memory) = finalization.incident_memory {
-                    dependencies.extend(
-                        [memory.allocation, memory.deallocation]
-                            .map(ConcreteCodegenDemand::static_lifecycle),
-                    );
+                if let Some(release) = finalization.incident_release {
+                    dependencies.push(ConcreteCodegenDemand::static_lifecycle(release));
                 }
             }
 
@@ -478,12 +469,9 @@ impl Compilation {
                             finalization
                                 .incident_cleanup
                                 .map(|cleanup| cleanup.key().clone()),
-                            finalization.incident_memory.map(|memory| {
-                                CodegenStaticIncidentMemory::new(
-                                    memory.allocation.key().clone(),
-                                    memory.deallocation.key().clone(),
-                                )
-                            }),
+                            finalization
+                                .incident_release
+                                .map(|release| release.key().clone()),
                         )
                     }),
                     realization.destroy.map(|destroy| destroy.key().clone()),
@@ -623,7 +611,7 @@ impl Compilation {
                 },
             )?;
 
-            let (incident_cleanup, incident_memory) = match result {
+            let (incident_cleanup, incident_release) = match result {
                 ExecutableEntryResult::Fallible { error, .. } => {
                     let cleanup = self.concrete_codegen_lifecycle(
                         bray_ir::MirHelperReference::Cleanup {
@@ -633,20 +621,13 @@ impl Compilation {
                         target,
                     )?;
 
-                    let memory = ConcreteStaticIncidentMemory {
-                        allocation: self.concrete_standard_library_helper(
-                            bray_ir::MirStandardLibraryHelper::MemoryAllocate,
-                            target,
-                            cancellation,
-                        )?,
-                        deallocation: self.concrete_standard_library_helper(
-                            bray_ir::MirStandardLibraryHelper::MemoryDeallocate,
-                            target,
-                            cancellation,
-                        )?,
-                    };
+                    let release = self.concrete_standard_library_helper(
+                        bray_ir::MirStandardLibraryHelper::MemoryDeallocate,
+                        target,
+                        cancellation,
+                    )?;
 
-                    (Some(cleanup), Some(memory))
+                    (Some(cleanup), Some(release))
                 }
                 ExecutableEntryResult::Unit => (None, None),
                 ExecutableEntryResult::I32 => {
@@ -668,7 +649,7 @@ impl Compilation {
                 error_type_identity,
                 source,
                 incident_cleanup,
-                incident_memory,
+                incident_release,
             })
         })
         .transpose()?;

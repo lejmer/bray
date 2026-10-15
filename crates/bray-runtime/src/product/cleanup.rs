@@ -11,6 +11,7 @@ use crate::incident::OwnedCleanupIncident as CleanupIncident;
 pub(super) struct StaticAdmission {
     task: Option<crate::TaskAdmission>,
     source: usize,
+    backing: Option<crate::backing::Backing>,
 }
 
 impl Drop for StaticAdmission {
@@ -26,12 +27,23 @@ pub(super) fn admit_finalizer(
         .then(crate::TaskAdmission::new)
         .transpose()?;
 
+    let backing = (finalizer.result_size() != 0)
+        .then(|| {
+            crate::backing::Backing::admit(finalizer.result_size(), finalizer.result_alignment())
+        })
+        .transpose()
+        .map_err(|_| crate::TaskStartError::OutgoingStorageUnavailable)?;
+
     let source = finalizer.outgoing_capacity() as usize;
 
     crate::outgoing::OutgoingRecords::admit_source(source)
         .map_err(|_| crate::TaskStartError::OutgoingStorageUnavailable)?;
 
-    Ok(StaticAdmission { task, source })
+    Ok(StaticAdmission {
+        task,
+        source,
+        backing,
+    })
 }
 
 pub(super) fn run_static_cleanup(
@@ -52,9 +64,12 @@ pub(super) fn run_static_cleanup(
     let [first, second, third, resolution] = match finalizer.execution() {
         NativeStaticFinalizerExecution::NONE => [None, None, None, None],
         NativeStaticFinalizerExecution::SYNCHRONOUS => {
-            let [first, second, third] = collect_finalizer_incidents(|incident, outcome| {
-                (finalizer.start())((&raw mut *incident).addr(), outcome)
-            });
+            let [first, second, third] = collect_finalizer_incidents(
+                admission.backing.take(),
+                |incident, backing, outcome| {
+                    (finalizer.start())((&raw mut *incident).addr(), backing, outcome)
+                },
+            );
 
             [first, second, third, None]
         }
@@ -64,6 +79,7 @@ pub(super) fn run_static_cleanup(
                 .take()
                 .expect("asynchronous finalizer storage was admitted with its static owner"),
             finalizer,
+            admission.backing.take(),
         ),
         _ => [Some(CleanupIncident::runtime_failure()), None, None, None],
     };
@@ -94,6 +110,7 @@ pub(super) fn run_static_cleanup(
 fn run_asynchronous_finalizer(
     admission: crate::TaskAdmission,
     finalizer: NativeStaticFinalizer,
+    backing: Option<crate::backing::Backing>,
 ) -> [Option<CleanupIncident>; 4] {
     extern "C" fn invalid_frame(_: usize) -> bray_runtime_abi::NativeProtectedFrame {
         panic!("inactive static finalizer frame was not initialized")
@@ -106,7 +123,11 @@ fn run_asynchronous_finalizer(
         bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
 
     let started = catch_unwind(AssertUnwindSafe(|| {
-        (finalizer.start())(destination, &mut published)
+        (finalizer.start())(
+            destination,
+            backing.as_ref().map_or(0, crate::backing::Backing::address),
+            &mut published,
+        )
     }));
 
     let incident = CleanupIncident::outcome(published);
@@ -114,7 +135,7 @@ fn run_asynchronous_finalizer(
     match started {
         Ok(_) if incident.is_some() => [incident, None, None, None],
         Ok(NativeStaticFinalizerStatus::SUCCESS) => {
-            crate::native::run_static_finalizer(admission, frame, finalizer.resolve())
+            crate::native::run_static_finalizer(admission, frame, finalizer.resolve(), backing)
         }
         Ok(_) => [Some(CleanupIncident::runtime_failure()), None, None, None],
         Err(payload) => [incident, Some(CleanupIncident::panic(payload)), None, None],
@@ -122,8 +143,10 @@ fn run_asynchronous_finalizer(
 }
 
 pub(crate) fn collect_finalizer_incidents(
+    backing: Option<crate::backing::Backing>,
     callback: impl FnOnce(
         &mut NativeCleanupIncident,
+        usize,
         &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus,
 ) -> [Option<CleanupIncident>; 3] {
@@ -133,8 +156,24 @@ pub(crate) fn collect_finalizer_incidents(
         bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
 
     let outcome = catch_unwind(AssertUnwindSafe(|| {
-        callback(&mut destination, &mut published)
+        callback(
+            &mut destination,
+            backing.as_ref().map_or(0, crate::backing::Backing::address),
+            &mut published,
+        )
     }));
+
+    if destination.is_valid()
+        && let Some(backing) = backing
+    {
+        assert_eq!(
+            destination.payload(),
+            backing.address(),
+            "generated finalizer must transfer its admitted payload backing"
+        );
+
+        backing.transfer();
+    }
 
     let incident = CleanupIncident::native(destination);
 

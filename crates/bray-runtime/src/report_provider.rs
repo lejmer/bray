@@ -10,6 +10,17 @@ use bray_runtime_abi::{
     reason = "the linked Bray provider supplies the record ownership ABI"
 )]
 unsafe extern "C" {
+    pub(crate) safe fn bray_runtime_cleanup_storage_admission(
+        bytes: usize,
+        align: usize,
+    ) -> *mut u8;
+
+    pub(crate) safe fn bray_runtime_cleanup_storage_release(
+        pointer: *mut u8,
+        bytes: usize,
+        align: usize,
+    );
+
     pub(crate) safe fn bray_runtime_report_records_admit(
         count: usize,
         destination: &mut NativeReportRecords,

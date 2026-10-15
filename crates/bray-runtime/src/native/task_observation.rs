@@ -1,4 +1,3 @@
-use std::alloc::{Layout, alloc_zeroed, dealloc};
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -17,7 +16,7 @@ const TASK_OBSERVATION_FRAME_IDENTITY: [u8; 32] = *b"bray.task.observation.frame
 pub(super) type NativeValueCleanupCallback = extern "C-unwind" fn(*mut u8);
 
 struct TaskObservation {
-    result: RunResultStorage,
+    result: crate::backing::Backing,
     outgoing: Mutex<crate::outgoing::OutgoingRecords>,
     task: NativeTaskHandle,
     layout: NativeRunResultLayout,
@@ -147,48 +146,6 @@ impl TaskObservation {
     }
 }
 
-struct RunResultStorage {
-    pointer: *mut u8,
-    layout: Layout,
-}
-
-impl RunResultStorage {
-    #[expect(
-        unsafe_code,
-        reason = "the validated compiler layout determines this admitted native allocation"
-    )]
-    fn new(result: NativeRunResultLayout) -> Result<Self, NativeRuntimeStatus> {
-        let layout = Layout::from_size_align(result.size(), result.alignment())
-            .map_err(|_| NativeRuntimeStatus::INVALID_ARGUMENT)?;
-
-        let pointer = unsafe { alloc_zeroed(layout) };
-
-        if pointer.is_null() {
-            return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
-        }
-
-        Ok(Self { pointer, layout })
-    }
-
-    const fn pointer(&self) -> *mut u8 {
-        self.pointer
-    }
-
-    fn address(&self) -> usize {
-        self.pointer.addr()
-    }
-}
-
-impl Drop for RunResultStorage {
-    #[expect(
-        unsafe_code,
-        reason = "the result backing is released with the exact layout used to allocate it"
-    )]
-    fn drop(&mut self) {
-        unsafe { dealloc(self.pointer, self.layout) };
-    }
-}
-
 pub(super) fn create(
     task: NativeTaskHandle,
     request_cancellation: bool,
@@ -201,7 +158,7 @@ pub(super) fn create(
     }
 
     let context = Box::new(TaskObservation {
-        result: RunResultStorage::new(layout).ok()?,
+        result: crate::backing::Backing::admit(layout.size(), layout.alignment()).ok()?,
         outgoing: Mutex::new(crate::outgoing::OutgoingRecords::admit(3).ok()?),
         task,
         layout,
@@ -401,7 +358,7 @@ mod tests {
         NativeRuntimeStatus,
     };
 
-    use super::{RunResultStorage, TaskObservation, transfer_outcome};
+    use super::{TaskObservation, transfer_outcome};
 
     thread_local! {
         static CLEANUP_EVENTS: RefCell<Vec<(&'static str, u8)>> = const { RefCell::new(Vec::new()) };
@@ -467,7 +424,11 @@ mod tests {
         lifecycle: Option<super::NativeValueCleanupCallback>,
     ) -> TaskObservation {
         TaskObservation {
-            result: RunResultStorage::new(result_layout()).unwrap(),
+            result: crate::backing::Backing::admit(
+                result_layout().size(),
+                result_layout().alignment(),
+            )
+            .unwrap(),
             outgoing: Mutex::new(crate::outgoing::OutgoingRecords::admit(3).unwrap()),
             task: bray_runtime_abi::NativeTaskHandle::new(1).unwrap(),
             layout: result_layout(),

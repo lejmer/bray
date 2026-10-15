@@ -11,8 +11,7 @@ use inkwell::{AddressSpace, IntPredicate};
 
 use super::super::LlvmTypeMappings;
 use super::boundary::{
-    branch_on_static_failure, clean_failed_static_allocation, invoke_static_boundary,
-    mapped_instance_function, static_outcome,
+    branch_on_static_failure, invoke_static_boundary, mapped_instance_function, static_outcome,
 };
 use super::host::StaticFinalizerCallbacks;
 use super::storage::declare_static_callback_with_type;
@@ -99,6 +98,7 @@ fn declare_static_finalizer_start<'context>(
         "static.finalize",
         context.i32_type().fn_type(
             &[
+                usize.into(),
                 usize.into(),
                 context.ptr_type(AddressSpace::default()).into(),
             ],
@@ -205,6 +205,10 @@ fn declare_static_finalizer_start<'context>(
                     &[
                         completion.into(),
                         supplied_destination.into(),
+                        callback
+                            .get_nth_param(1)
+                            .expect("static finalizer receives admitted backing")
+                            .into(),
                         static_outcome(callback).into(),
                     ],
                     "static.finalize.status",
@@ -250,6 +254,7 @@ fn declare_static_finalizer_resolver<'context>(
         "static.finalize.resolve",
         context.i32_type().fn_type(
             &[
+                usize.into(),
                 usize.into(),
                 usize.into(),
                 context.ptr_type(AddressSpace::default()).into(),
@@ -376,47 +381,16 @@ fn declare_static_finalizer_resolver<'context>(
 
     let pointer = context.ptr_type(AddressSpace::default());
 
-    let memory = finalization
-        .incident_memory()
-        .expect("static-storage realization requires an established mapping or value");
-
-    let (allocation, allocation_signature) =
-        mapped_instance_function(module, mappings, memory.allocation());
-
-    let allocation_call = invoke_static_boundary(
-        &builder,
-        allocation,
-        allocation_signature,
-        &[
-            usize.const_int(error_layout.size(), false).into(),
-            usize
-                .const_int(error_layout.alignment().get(), false)
-                .into(),
-        ],
-        static_outcome(callback),
-        "static.finalize.incident.payload",
-        types,
-    )?;
-
-    let continued = branch_on_static_failure(&builder, callback, types)?;
-
-    clean_failed_static_allocation(
-        module,
-        mappings,
-        mapping,
-        &builder,
-        error_address,
-        static_outcome(callback),
-        types,
-    )?;
-
-    builder.position_at_end(continued);
-
-    let payload = allocation_call
-        .try_as_basic_value()
-        .basic()
-        .expect("static-storage realization requires an established mapping or value")
-        .into_pointer_value();
+    let payload = builder
+        .build_int_to_ptr(
+            callback
+                .get_nth_param(2)
+                .expect("static resolver receives admitted backing")
+                .into_int_value(),
+            pointer,
+            "static.finalize.incident.payload",
+        )
+        .map_err(CodegenFailure::backend_library)?;
 
     let error_pointer = builder
         .build_int_to_ptr(error_address, pointer, "static.finalize.error.pointer")
@@ -439,12 +413,16 @@ fn declare_static_finalizer_resolver<'context>(
 
     let report = declare_static_incident_reporter(module, mapping, error_layout.size(), types)?;
 
+    let backing = result_mapping
+        .layout()
+        .expect("finalizer result has a concrete layout");
+
     let destroy = declare_static_incident_destroyer(
         module,
         mappings,
         mapping,
-        error_layout.size(),
-        error_layout.alignment().get(),
+        backing.size(),
+        backing.alignment().get(),
         types,
     )?;
 
@@ -610,13 +588,13 @@ fn declare_static_incident_destroyer<'context>(
         types,
     )?;
 
-    let memory = mapping
+    let release = mapping
         .finalization()
-        .and_then(bray_codegen::CodegenStaticFinalization::incident_memory)
+        .and_then(bray_codegen::CodegenStaticFinalization::incident_release)
         .expect("static-storage realization requires an established mapping or value");
 
     let (deallocation, deallocation_signature) =
-        mapped_instance_function(module, mappings, memory.deallocation());
+        mapped_instance_function(module, mappings, release);
 
     invoke_static_boundary(
         &builder,

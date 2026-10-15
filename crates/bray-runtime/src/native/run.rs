@@ -226,8 +226,9 @@ impl NativeRun {
             Err(status) => return status,
         };
 
-        let Some(mut frame) = NativeFrame::try_new(frame.into_protected()) else {
-            return NativeRuntimeStatus::INVALID_ARGUMENT;
+        let mut frame = match NativeFrame::try_new(frame.into_protected()) {
+            Ok(frame) => frame,
+            Err(status) => return status,
         };
 
         frame.outgoing = outgoing.take(4);

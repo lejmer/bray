@@ -1,7 +1,7 @@
 use crate::{NativeRuntimeStatus, NativeSourceAnchor};
 
 /// Version of the native product-host descriptor and static-entry records.
-pub const PRODUCT_HOST_ABI_VERSION: u32 = 1;
+pub const PRODUCT_HOST_ABI_VERSION: u32 = 2;
 
 /// Stable identity of one loaded product instance.
 #[repr(transparent)]
@@ -173,9 +173,9 @@ pub type NativeStaticAccessCallback = extern "C" fn() -> usize;
 /// Compiler-generated callback cleaning one initialized static instance.
 pub type NativeStaticCleanupCallback = extern "C-unwind" fn(&mut crate::NativeRunOutcome);
 
-/// Compiler-generated callback starting finalization into caller-owned storage.
+/// Starts finalization with a destination and admitted incident backing address.
 pub type NativeStaticFinalizerStartCallback =
-    extern "C-unwind" fn(usize, &mut crate::NativeRunOutcome) -> NativeStaticFinalizerStatus;
+    extern "C-unwind" fn(usize, usize, &mut crate::NativeRunOutcome) -> NativeStaticFinalizerStatus;
 
 /// Compiler-generated callback reporting one owned cleanup incident payload.
 pub type NativeCleanupIncidentReportCallback = extern "C-unwind" fn(usize) -> NativeRuntimeStatus;
@@ -245,9 +245,14 @@ impl NativeCleanupIncident {
     }
 }
 
-/// Compiler-generated callback consuming one completed finalizer result.
-pub type NativeStaticFinalizerResolveCallback =
-    extern "C-unwind" fn(usize, usize, &mut crate::NativeRunOutcome) -> NativeStaticFinalizerStatus;
+/// Consumes a completed result into the supplied incident destination and backing.
+pub type NativeStaticFinalizerResolveCallback = extern "C-unwind" fn(
+    usize,
+    usize,
+    usize,
+    &mut crate::NativeRunOutcome,
+)
+    -> NativeStaticFinalizerStatus;
 
 /// How one static finalizer reaches completion.
 #[repr(transparent)]

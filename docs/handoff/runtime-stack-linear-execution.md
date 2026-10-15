@@ -34,8 +34,10 @@ The user authorized readying and squash-merging #607 into develop at the complet
 BRA-619's earlier implementation is included, but its native `CleanupIncidentTransfer` gap remains open and its
 regression stays enabled. The merge does not complete that issue or the broader runtime initiative.
 
-Continue with one PR per issue from updated develop after prerequisites land: BRA-502, BRA-554, BRA-558, then
+Continue with one PR per issue: BRA-502, BRA-554, BRA-558, then
 BRA-619's remaining native acceptance. Continue Step 7 in the existing dependency order, also one PR per issue.
+Stack dependent PRs on their prerequisite branches without waiting for merges, as authorized on 2026-10-15.
+BRA-502 starts from squash commit `f188b2b6` on develop. Retarget descendants as prerequisites merge.
 Keep the old branches and review history. Do not replay the squashed integration commits. Every issue retains its
 own acceptance and independent review cycle. BRA-619's pending-outcome, typed-payload and provider-lifetime contracts
 continue to constrain prerequisite design. This decision supersedes earlier instructions to keep #607 draft or finish

@@ -776,8 +776,52 @@ static int check_pool_retirement(void)
     return 0;
 }
 
+extern void* bray_runtime_cleanup_storage_admission(uintptr_t bytes, uintptr_t alignment);
+extern void bray_runtime_cleanup_storage_release(void* pointer, uintptr_t bytes, uintptr_t alignment);
+
+static int check_cleanup_backing(void)
+{
+    unsigned live = atomic_load(&live_allocations);
+    unsigned char* backing = bray_runtime_cleanup_storage_admission(65537, 8);
+
+    if (backing == NULL || (uintptr_t)backing % 8 != 0)
+        return 60;
+
+    backing[0] = 7;
+    backing[65536] = 9;
+    atomic_store(&reject_allocations, 1);
+
+    if (bray_runtime_cleanup_storage_admission(64, 8) != NULL)
+        return 61;
+
+    unsigned attempts = atomic_load(&allocation_attempts);
+
+    if (backing[0] != 7 || backing[65536] != 9)
+        return 62;
+
+    bray_runtime_cleanup_storage_release(backing, 65537, 8);
+    atomic_store(&reject_allocations, 0);
+
+    if (atomic_load(&allocation_attempts) != attempts)
+        return 63;
+
+#ifdef _WIN32
+    if (atomic_load(&live_allocations) != live)
+        return 64;
+#else
+    (void)live;
+#endif
+
+    return 0;
+}
+
 int main(void)
 {
+    int backing_status = check_cleanup_backing();
+
+    if (backing_status != 0)
+        return backing_status;
+
     int attachment_status = check_primitive_attachment();
 
     if (attachment_status != 0)

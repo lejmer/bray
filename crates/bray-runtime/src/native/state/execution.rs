@@ -112,8 +112,9 @@ impl NativeRuntime {
         handle: NativeTaskHandle,
         frame: NativeProtectedFrame,
     ) -> NativeRuntimeStatus {
-        let Some(mut frame) = NativeFrame::try_new(frame) else {
-            return NativeRuntimeStatus::INVALID_ARGUMENT;
+        let mut frame = match NativeFrame::try_new(frame) {
+            Ok(frame) => frame,
+            Err(status) => return status,
         };
 
         let mut tasks = self

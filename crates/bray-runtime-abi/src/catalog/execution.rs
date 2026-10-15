@@ -568,6 +568,26 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [DestroyPanicReport]
             }
+            CleanupStorageAdmission {
+                "Acquire concrete backing before accepting a cleanup obligation.", "cleanup_storage_admission",
+                native: (CLEANUP_STORAGE_ADMISSION_SYMBOL = "bray_runtime_cleanup_storage_admission", [Usize, Usize] -> Pointer),
+                service: Host,
+                call_hook: (),
+                compiler: C [Usize, Usize] -> Pointer,
+                owner: Host, availability: All, bootstrap: ("heap.allocate"), host_control: false,
+                capabilities: [],
+                effects: [AdmitCleanupStorage]
+            }
+            CleanupStorageRelease {
+                "Release concrete backing after its final initialized user.", "cleanup_storage_release",
+                native: (CLEANUP_STORAGE_RELEASE_SYMBOL = "bray_runtime_cleanup_storage_release", [Pointer, Usize, Usize] -> Void),
+                service: Host,
+                call_hook: (),
+                compiler: C [Pointer, Usize, Usize] -> Void,
+                owner: Host, availability: All, bootstrap: ("heap.deallocate_bytes"), host_control: false,
+                capabilities: [],
+                effects: [ReleaseCleanupStorage]
+            }
             OutgoingAdmission {
                 "Reserve local outgoing records before accepting an owner.", "outgoing_admission",
                 native: (OUTGOING_ADMISSION_SYMBOL = "bray_runtime_outgoing_admission", [Usize, Pointer] -> Void),
