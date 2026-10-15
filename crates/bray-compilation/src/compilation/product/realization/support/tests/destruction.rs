@@ -285,7 +285,7 @@ fn generator_destruction_reaches_required_element_lifecycle_and_releases_storage
     };
 
     assert!(
-        matches!(discharge.kind(), MirOperationKind::DischargeOutgoing { ty, .. } if *ty == generator)
+        matches!(discharge.kind(), MirOperationKind::DischargeOutgoing { owner: bray_ir::MirOutgoingOwner::Value(ty), .. } if *ty == generator)
     );
 
     let MirOperationKind::Generator(MirGeneratorOperation::Destroy {

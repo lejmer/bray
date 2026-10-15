@@ -574,7 +574,7 @@ mod tests {
                 entry,
                 source.clone(),
                 MirOperationKind::AdmitOutgoing {
-                    ty,
+                    owner: bray_ir::MirOutgoingOwner::Value(ty),
                     runtime: MirRuntimeReference::new(
                         RuntimeAbiRole::OutgoingAdmission,
                         builder.target().runtime_abi(),

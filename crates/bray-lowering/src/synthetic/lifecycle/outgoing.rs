@@ -30,7 +30,10 @@ pub(super) fn discharge_owner(
         builder.push_operation(
             block,
             source,
-            MirOperationKind::DischargeOutgoing { ty, runtime },
+            MirOperationKind::DischargeOutgoing {
+                owner: bray_ir::MirOutgoingOwner::Value(ty),
+                runtime,
+            },
             None,
         )?;
     }

@@ -170,6 +170,99 @@ fn scoped_invocations_retain_distinct_inputs_and_clear_activity_before_exit() {
         let mut entered = false;
         let mut exited = false;
 
+        let admitted = mir
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                MirOperationKind::AdmitOutgoing {
+                    owner: bray_ir::MirOutgoingOwner::ScopedExit { callable, result },
+                    ..
+                } => Some((*callable, *result)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            admitted.len(),
+            1,
+            "one scoped exit allowance, independent of capability cleanup"
+        );
+        assert_eq!(admitted[0].0.instance(), scoped.exit().0);
+        assert_eq!(admitted[0].1, scoped.exit_result());
+
+        let releases = mir
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                MirOperationKind::DischargeOutgoing {
+                    owner: bray_ir::MirOutgoingOwner::ScopedExit { callable, result },
+                    ..
+                } => Some((*callable, *result)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(!releases.is_empty());
+        assert!(releases.iter().all(|release| *release == admitted[0]));
+
+        let admission = mir
+            .blocks()
+            .iter()
+            .find(|block| {
+                block.operations().iter().any(|id| {
+                    matches!(
+                        mir.operation(*id).unwrap().kind(),
+                        MirOperationKind::AdmitOutgoing {
+                            owner: bray_ir::MirOutgoingOwner::ScopedExit { .. },
+                            ..
+                        }
+                    )
+                })
+            })
+            .unwrap();
+
+        let MirTerminatorKind::CheckCallOutcome {
+            completed,
+            panicked,
+            cancelled,
+        } = admission.terminator().kind()
+        else {
+            panic!("admission must be checked before entry establishes an exit obligation");
+        };
+
+        assert!(mir.block(completed.target()).unwrap().operations().iter().any(|id|
+            matches!(mir.operation(*id).unwrap().kind(), MirOperationKind::Call(call)
+                if matches!(call.target(), bray_ir::MirCallTarget::Direct(target) if target.instance() == scoped.enter().0))
+        ));
+
+        let mut pending = vec![panicked.target(), cancelled.target()];
+        let mut visited = BTreeSet::new();
+
+        while let Some(block) = pending.pop() {
+            if !visited.insert(block) {
+                continue;
+            }
+
+            let block = mir.block(block).unwrap();
+
+            for id in block.operations() {
+                if let MirOperationKind::Call(call) = mir.operation(*id).unwrap().kind()
+                    && let bray_ir::MirCallTarget::Direct(target) = call.target()
+                {
+                    assert!(
+                        target.instance() != scoped.enter().0
+                            && target.instance() != scoped.exit().0,
+                        "failed admission must invoke neither selected lifecycle declaration"
+                    );
+                }
+            }
+
+            block
+                .terminator()
+                .kind()
+                .for_each_successor(|next| pending.push(next));
+        }
+
         for block in mir.blocks() {
             for (position, id) in block.operations().iter().enumerate() {
                 let MirOperationKind::Call(call) = mir.operation(*id).unwrap().kind() else {

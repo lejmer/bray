@@ -13,13 +13,21 @@ pub(super) struct InputTemporary {
     source: MirSourceAnchor,
     pub(super) scope_depth: usize,
     catch_depth: usize,
-    phases: Option<AsyncCleanupPhases>,
+    cleanup: Option<InputCleanup>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum InputCleanup {
+    Value(AsyncCleanupPhases),
+    Outgoing(bray_ir::MirOutgoingOwner),
 }
 
 impl InputTemporary {
     pub(super) const fn requires_cleanup(&self, phase: MirCleanupPhase) -> bool {
-        let Some(phases) = self.phases else {
-            return false;
+        let phases = match self.cleanup {
+            None => return false,
+            Some(InputCleanup::Value(phases)) => phases,
+            Some(InputCleanup::Outgoing(_)) => AsyncCleanupPhases::Lifecycle,
         };
 
         match phase {
@@ -153,16 +161,36 @@ impl Lowerer<'_> {
             source: Self::retained_source(source),
             scope_depth: self.active_scopes.len(),
             catch_depth: self.catch_targets.len(),
-            phases,
+            cleanup: phases.map(InputCleanup::Value),
         });
 
         Ok(MirOperand::Move(place))
     }
 
+    pub(super) fn register_scoped_outgoing(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        owner: bray_ir::MirOutgoingOwner,
+    ) -> Result<MirPlace, LoweringError> {
+        let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
+        let guard = self.new_initialization_guard(block, source, boolean, &[], true)?;
+
+        self.input_temporaries.push(InputTemporary {
+            place: Self::retained_place(&guard),
+            source: Self::retained_source(source),
+            scope_depth: self.active_scopes.len(),
+            catch_depth: self.catch_targets.len(),
+            cleanup: Some(InputCleanup::Outgoing(owner)),
+        });
+
+        Ok(guard)
+    }
+
     pub(super) fn input_cleanup(&self, exit: InputExit) -> Vec<InputTemporary> {
         self.input_temporaries
             .iter()
-            .filter(|temporary| temporary.phases.is_some() && exit.crosses(temporary))
+            .filter(|temporary| temporary.cleanup.is_some() && exit.crosses(temporary))
             // Cleanup mutates the builder while retaining these shallow storage paths.
             .cloned()
             .collect()
@@ -197,6 +225,15 @@ impl Lowerer<'_> {
     ) -> Result<MirBlockId, LoweringError> {
         if !temporary.requires_cleanup(phase) {
             return Ok(block);
+        }
+
+        if let Some(InputCleanup::Outgoing(owner)) = temporary.cleanup {
+            return self.discharge_scoped_outgoing(
+                block,
+                &temporary.source,
+                owner,
+                &temporary.place,
+            );
         }
 
         let guard = self
@@ -235,7 +272,7 @@ mod tests {
             source: bray_ir::MirSourceAnchor::from(bray_testing::test_bound_unit(1).key().source()),
             scope_depth: 2,
             catch_depth: 1,
-            phases: Some(AsyncCleanupPhases::Lifecycle),
+            cleanup: Some(super::InputCleanup::Value(AsyncCleanupPhases::Lifecycle)),
         };
 
         assert!(!InputExit::Scope(2).crosses(&temporary));

@@ -626,8 +626,8 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.ty(query.nullable_type())?;
                 self.ty(query.result_type())?;
             }
-            MirOperationKind::AdmitOutgoing { ty, runtime }
-            | MirOperationKind::DischargeOutgoing { ty, runtime } => {
+            MirOperationKind::AdmitOutgoing { owner, runtime }
+            | MirOperationKind::DischargeOutgoing { owner, runtime } => {
                 self.wire.write_u32(
                     if matches!(operation, MirOperationKind::AdmitOutgoing { .. }) {
                         22
@@ -636,7 +636,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                     },
                 );
 
-                self.ty(*ty)?;
+                self.outgoing_owner(*owner)?;
                 self.runtime_reference(*runtime);
             }
             MirOperationKind::Host(operation)
@@ -856,6 +856,26 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.operand(operand)?;
             }
             None => self.wire.write_u32(0),
+        }
+
+        Ok(())
+    }
+
+    fn outgoing_owner(
+        &mut self,
+        owner: bray_ir::MirOutgoingOwner,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        match owner {
+            bray_ir::MirOutgoingOwner::Value(ty) => {
+                self.wire.write_u32(0);
+                self.ty(ty)?;
+            }
+            bray_ir::MirOutgoingOwner::ScopedExit { callable, result } => {
+                self.wire.write_u32(1);
+                self.callable_instance(callable.instance())?;
+                self.callable_abi(callable.abi());
+                self.call_result(result)?;
+            }
         }
 
         Ok(())

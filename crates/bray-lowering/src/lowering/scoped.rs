@@ -62,6 +62,19 @@ impl Lowerer<'_> {
 
         let callable = MirCallableReference::new(scoped.enter().0, callable_type.abi());
         let initializer = scoped.initializer();
+        let exit_type = self
+            .input
+            .semantic_values()
+            .type_data(scoped.exit().1.callable_type());
+
+        let TypeData::Callable(exit_type) = exit_type.as_ref() else {
+            panic!("selected exit retains its callable type");
+        };
+
+        let outgoing = bray_ir::MirOutgoingOwner::ScopedExit {
+            callable: MirCallableReference::new(scoped.exit().0, exit_type.abi()),
+            result: scoped.exit_result(),
+        };
 
         let access = self
             .input
@@ -86,6 +99,14 @@ impl Lowerer<'_> {
                 );
 
                 let place = bray_ir::MirPlace::new(place.storage(), projections, reached);
+
+                // Secure exit backing before entry can establish the scoped obligation.
+                let (current, reservation) =
+                    lowerer.admit_scoped_outgoing(expression, current, &source, outgoing)?;
+
+                lowerer
+                    .scoped_outgoing
+                    .insert(expression, (outgoing, Self::retained_place(&reservation)));
 
                 let value = crate::lifecycle_call::lower_lifecycle_call(
                     callable,
@@ -151,6 +172,13 @@ impl Lowerer<'_> {
                 let (current, value) = if result != capability_type {
                     let (success, capability, error, failure) =
                         lowerer.branch_result_value(expression, current, &source, value, result)?;
+
+                    let error = lowerer.discharge_scoped_outgoing(
+                        error,
+                        &source,
+                        outgoing,
+                        &reservation,
+                    )?;
 
                     let failure = lowerer.construct_result(
                         error,
@@ -263,7 +291,7 @@ impl Lowerer<'_> {
 
         let clear = Self::retained_place(&guard);
 
-        self.guarded_cleanup_region(
+        let block = self.guarded_cleanup_region(
             block,
             source,
             place,
@@ -372,7 +400,15 @@ impl Lowerer<'_> {
                 Ok((block, value))
             },
         )
-        .map(|(block, _)| block)
+        .map(|(block, _)| block)?;
+
+        let (owner, guard) = self
+            .scoped_outgoing
+            .get(&expression)
+            .map(|(owner, guard)| (*owner, Self::retained_place(guard)))
+            .expect("scoped cleanup retains its admitted exit allowance");
+
+        self.discharge_scoped_outgoing(block, source, owner, &guard)
     }
 
     fn check_scoped_exit_call(

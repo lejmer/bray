@@ -555,6 +555,50 @@ fn generic_container_lifecycle_bodies_publish_executable_templates() {
 }
 
 #[test]
+fn scoped_exit_allowances_publish_with_generic_executable_templates() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Resource<T> {}
+        impl Resource<T> {
+            enter() -> bool { return true; }
+            exit(pos lease: bool) {}
+        }
+        func scoped<T>(pos resource: Resource<T>) -> bool {
+            return with lease = resource { yield lease; };
+        }
+    "#,
+    );
+
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+
+    assert_eq!(bundle.executable_templates().len(), 3);
+
+    let imported = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api;
+        func caller(pos resource: example.package.api.Resource<bool>) -> bool {
+            return example.package.api.scoped<bool>(resource);
+        }
+    "#,
+    );
+
+    assert!(
+        imported.check_diagnostics().is_empty(),
+        "{:?}",
+        imported.check_diagnostics()
+    );
+}
+
+#[test]
 fn aggregate_static_initializers_export_for_source_independent_consumers() {
     let provider = compilation(
         r#"

@@ -191,7 +191,11 @@ impl Compilation {
         for (operation_id, operation) in mir.operations_with_ids() {
             let result_type = operation_result_type(mir, operation);
 
-            if let bray_ir::MirOperationKind::AdmitOutgoing { ty, .. } = operation.kind() {
+            if let bray_ir::MirOperationKind::AdmitOutgoing {
+                owner: bray_ir::MirOutgoingOwner::Value(ty),
+                ..
+            } = operation.kind()
+            {
                 let ty = self.concrete_codegen_type(
                     *ty,
                     owner.substitution(),
@@ -207,6 +211,26 @@ impl Compilation {
                         ));
                     }
                 }
+            }
+
+            if let bray_ir::MirOperationKind::AdmitOutgoing {
+                owner:
+                    bray_ir::MirOutgoingOwner::ScopedExit {
+                        callable,
+                        result: bray_bound_tree::BoundCallResult::LazyFuture(_),
+                    },
+                ..
+            } = operation.kind()
+            {
+                dependencies.push(ConcreteCodegenDemand::definition(
+                    self.concrete_codegen_callable_data(
+                        owner,
+                        &callable.instance(),
+                        target,
+                        cancellation,
+                    )?,
+                    NativeDemandReason::GeneratedHelper,
+                ));
             }
 
             for reference in operation.kind().helper_references() {

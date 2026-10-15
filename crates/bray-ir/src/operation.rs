@@ -565,6 +565,20 @@ pub enum MirAsyncOperation {
     },
 }
 
+/// Local cleanup obligations secured by one outgoing reservation.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum MirOutgoingOwner {
+    /// The selected lifecycle actions of a concrete value.
+    Value(TypeId),
+    /// One selected scoped exit, independent of the capability's destructor.
+    ScopedExit {
+        /// Selected exit declaration and substitutions.
+        callable: crate::MirCallableReference,
+        /// Immediate result or inactive asynchronous frame.
+        result: bray_bound_tree::BoundCallResult,
+    },
+}
+
 /// Explicit compiler-generated product-host operation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MirHostOperation {
@@ -715,14 +729,14 @@ pub enum MirOperationKind {
     /// Admit this owner's local outgoing records before ownership commits.
     AdmitOutgoing {
         /// Owner whose selected local actions determine the requirement.
-        ty: TypeId,
+        owner: MirOutgoingOwner,
         /// Runtime admission boundary.
         runtime: MirRuntimeReference,
     },
     /// Discharge a consumed owner's credits without reclaiming transferred reports.
     DischargeOutgoing {
         /// Owner whose local credits are no longer live.
-        ty: TypeId,
+        owner: MirOutgoingOwner,
         /// Runtime discharge boundary.
         runtime: MirRuntimeReference,
     },

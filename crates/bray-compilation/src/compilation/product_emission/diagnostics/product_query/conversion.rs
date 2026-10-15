@@ -3,7 +3,7 @@ use bray_diagnostics::{
 };
 
 use super::context::product_query_context;
-use super::mir::{push_mir_call_target, push_mir_helper};
+use super::mir::push_mir_helper;
 use crate::compilation::product::ProductSynchronizationComponent;
 use crate::compilation::{
     ProductDataKind, ProductQueryContext, ProductQueryError, ProductQueryFailure, ProductValueKind,
@@ -251,13 +251,6 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
             fields.push(text_field("operation", mir_operation_kind(operation)));
 
             ("product_query_invalid_helper_operation", fields)
-        }
-        Failure::InvalidCleanupCallTarget { context, target } => {
-            let mut fields = product_query_context(context);
-
-            push_mir_call_target(&mut fields, target);
-
-            ("product_query_invalid_cleanup_call_target", fields)
         }
         Failure::LifecycleRoleMismatch {
             instance,
@@ -648,10 +641,7 @@ mod tests {
     use bray_diagnostics::DiagnosticFailureValue;
     use bray_symbols::{AnySymbolId, FunctionSymbolId, SymbolId, SymbolKind};
 
-    use super::{
-        diagnostic_product_query_failure, product_query_context, push_mir_call_target,
-        push_mir_helper,
-    };
+    use super::{diagnostic_product_query_failure, product_query_context, push_mir_helper};
     use crate::compilation::{
         ProductQueryError, ProductQueryFailure, ProductSynchronizationComponent,
     };
@@ -743,38 +733,5 @@ mod tests {
             fields[2].value(),
             &DiagnosticFailureValue::Text("generator_begin".to_owned())
         );
-    }
-
-    #[test]
-    fn mir_call_target_context_preserves_runtime_contract() {
-        let mut fields = Vec::new();
-
-        let target = bray_ir::MirCallTarget::Runtime(bray_ir::MirRuntimeReference::new(
-            bray_runtime_interface::RuntimeAbiRole::TaskStart,
-            bray_runtime_interface::RuntimeAbiVersion::new(3, 7),
-        ));
-
-        push_mir_call_target(&mut fields, &target);
-
-        let names: Vec<_> = fields.iter().map(|field| field.name()).collect();
-
-        assert_eq!(
-            names,
-            [
-                "call_target_kind",
-                "call_target_abi",
-                "call_target_runtime_role",
-                "call_target_runtime_abi_major",
-                "call_target_runtime_abi_minor",
-            ]
-        );
-
-        assert_eq!(
-            fields[2].value(),
-            &DiagnosticFailureValue::Text("task_start".to_owned())
-        );
-
-        assert_eq!(fields[3].value(), &DiagnosticFailureValue::Count(3));
-        assert_eq!(fields[4].value(), &DiagnosticFailureValue::Count(7));
     }
 }

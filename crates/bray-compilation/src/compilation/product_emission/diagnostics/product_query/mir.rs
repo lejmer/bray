@@ -1,6 +1,6 @@
 use bray_diagnostics::{DiagnosticFailureField, DiagnosticFailureValue};
 
-use crate::fact::diagnostic_context::{count_field, identity_field, push_symbol, text_field};
+use crate::fact::diagnostic_context::{identity_field, push_symbol, text_field};
 
 pub(super) fn push_mir_helper(
     fields: &mut Vec<DiagnosticFailureField>,
@@ -71,97 +71,6 @@ pub(super) fn push_mir_helper(
         | Helper::FinishGenerator
         | Helper::PanicReport
         | Helper::DestroyTerminalTask => {}
-    }
-}
-
-pub(super) fn push_mir_call_target(
-    fields: &mut Vec<DiagnosticFailureField>,
-    target: &bray_ir::MirCallTarget,
-) {
-    use bray_ir::MirCallTarget as Target;
-
-    fields.push(text_field(
-        "call_target_kind",
-        match target {
-            Target::Direct(_) => "direct",
-            Target::DefaultValue { .. } => "default_value",
-            Target::Runtime(_) => "runtime",
-            Target::Indirect { .. } => "indirect",
-        },
-    ));
-
-    fields.push(text_field("call_target_abi", callable_abi(target.abi())));
-
-    match target {
-        Target::Direct(reference) => {
-            fields.push(identity_field(
-                "call_target_callable_instance",
-                &reference.instance(),
-            ));
-        }
-        Target::DefaultValue { owner, provider } => {
-            fields.extend([
-                identity_field("default_owner", owner),
-                identity_field("default_provider", provider),
-            ]);
-        }
-        Target::Runtime(reference) => {
-            let version = reference.abi_version();
-
-            fields.extend([
-                text_field("call_target_runtime_role", reference.role().as_str()),
-                count_field("call_target_runtime_abi_major", u64::from(version.major())),
-                count_field("call_target_runtime_abi_minor", u64::from(version.minor())),
-            ]);
-        }
-        Target::Indirect { callee, .. } => push_mir_operand(fields, callee),
-    }
-}
-
-fn push_mir_operand(fields: &mut Vec<DiagnosticFailureField>, operand: &bray_ir::MirOperand) {
-    use bray_ir::MirOperand as Operand;
-
-    match operand {
-        Operand::Value(value) => {
-            fields.push(text_field("call_target_callee_kind", "value"));
-            fields.push(identity_field("call_target_callee_value", value));
-        }
-        Operand::Constant { value, ty } => {
-            fields.push(text_field("call_target_callee_kind", "constant"));
-            fields.push(identity_field("call_target_callee_value", value));
-            fields.push(identity_field("call_target_callee_type", ty));
-        }
-        Operand::ConstantTerm { term, ty } => {
-            fields.push(text_field("call_target_callee_kind", "constant_term"));
-            fields.push(identity_field("call_target_callee_value", term));
-            fields.push(identity_field("call_target_callee_type", ty));
-        }
-        Operand::Immediate { value, ty } => {
-            fields.push(text_field(
-                "call_target_callee_kind",
-                match value {
-                    bray_ir::MirImmediateValue::Boolean(false) => "boolean_false",
-                    bray_ir::MirImmediateValue::Boolean(true) => "boolean_true",
-                    bray_ir::MirImmediateValue::Unit => "unit",
-                    bray_ir::MirImmediateValue::NullableAbsent => "nullable_absent",
-                },
-            ));
-
-            fields.push(identity_field("call_target_callee_type", ty));
-        }
-        Operand::Copy(place) | Operand::Move(place) => {
-            fields.push(text_field(
-                "call_target_callee_kind",
-                if matches!(operand, Operand::Copy(_)) {
-                    "copy"
-                } else {
-                    "move"
-                },
-            ));
-
-            fields.push(identity_field("call_target_callee_place", place));
-            fields.push(identity_field("call_target_callee_type", &place.ty()));
-        }
     }
 }
 

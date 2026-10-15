@@ -737,9 +737,15 @@ mod tests {
                 );
 
                 let operation = if index % 2 == 0 {
-                    bray_ir::MirOperationKind::AdmitOutgoing { ty, runtime }
+                    bray_ir::MirOperationKind::AdmitOutgoing {
+                        owner: bray_ir::MirOutgoingOwner::Value(ty),
+                        runtime,
+                    }
                 } else {
-                    bray_ir::MirOperationKind::DischargeOutgoing { ty, runtime }
+                    bray_ir::MirOperationKind::DischargeOutgoing {
+                        owner: bray_ir::MirOutgoingOwner::Value(ty),
+                        runtime,
+                    }
                 };
 
                 builder

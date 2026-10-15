@@ -594,11 +594,11 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     fn operation(&mut self) -> Result<MirOperationKind, ExecutableTemplateDecodeError> {
         match read_u32(&mut self.reader)? {
             22 => Ok(MirOperationKind::AdmitOutgoing {
-                ty: self.ty()?,
+                owner: self.outgoing_owner()?,
                 runtime: self.runtime_reference()?,
             }),
             23 => Ok(MirOperationKind::DischargeOutgoing {
-                ty: self.ty()?,
+                owner: self.outgoing_owner()?,
                 runtime: self.runtime_reference()?,
             }),
             1 => Ok(MirOperationKind::Store {
@@ -1083,6 +1083,22 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             dependency_contract,
             cancellation,
         ))
+    }
+
+    fn outgoing_owner(
+        &mut self,
+    ) -> Result<bray_ir::MirOutgoingOwner, ExecutableTemplateDecodeError> {
+        match read_u32(&mut self.reader)? {
+            0 => Ok(bray_ir::MirOutgoingOwner::Value(self.ty()?)),
+            1 => Ok(bray_ir::MirOutgoingOwner::ScopedExit {
+                callable: MirCallableReference::new(
+                    self.callable_instance()?,
+                    self.callable_abi()?,
+                ),
+                result: self.call_result()?,
+            }),
+            _ => Err(ExecutableTemplateDecodeError::Malformed),
+        }
     }
 
     fn call_result(&mut self) -> Result<BoundCallResult, ExecutableTemplateDecodeError> {
