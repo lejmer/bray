@@ -36,6 +36,7 @@
         }
       ],
       "outputs": [
+        "relocatable_object",
         "executable"
       ]
     },
@@ -60,6 +61,7 @@
         }
       ],
       "outputs": [
+        "relocatable_object",
         "executable"
       ]
     }

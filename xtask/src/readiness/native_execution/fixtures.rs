@@ -33,6 +33,5 @@ pub(super) const MEMORY_LAYOUT_FIXTURE: &str = "xtask/fixtures/native-execution/
 pub(super) const STANDARD_TEXT_FIXTURE: &str = "standard-library/std/src/string.bray";
 pub(super) const TEXT_CURSOR_FIXTURE: &str =
     "xtask/fixtures/native-execution/standard-text-cursor.bray";
-pub(super) const STANDARD_MEMORY_FIXTURE: &str =
-    "xtask/fixtures/native-execution/standard-memory.bray";
+pub(super) const STANDARD_MEMORY_SOURCE: &str = "standard-library/std/src/memory.bray";
 pub(super) const PRODUCT_NAME: &str = "application";

@@ -1,5 +1,8 @@
 trusted module application;
 
+using std.memory;
+using internal std.memory;
+
 func alternate() -> never
 {
     loop {}
@@ -19,28 +22,32 @@ trusted func main() -> i32
 
     trusted core.memory.deallocate(pointer = empty, bytes = 0, align = 64);
 
-    let pointer: RawPointer<u8> = trusted core.memory.allocate(bytes = 16, align = 4);
-    let next: RawPointer<u8> = core.memory.offset<u8>(pointer, elements = 1);
-    let destination: RawPointer<u8> = core.memory.offset<u8>(pointer, elements = 4);
-    let overlapping_destination: RawPointer<u8> = core.memory.offset<u8>(destination, elements = 1);
+    let source: [u8; 2] = [12, 9];
+    let mut value: u8 = 0;
+    let mut second: u8 = 0;
+    let mut copied_bytes: [u8; 3] = [0, 0, 0];
+    let pointer = core.memory.address_of_mut<u8>(&mut value);
 
     trusted core.memory.write<u8>(pointer, 7);
-    trusted core.memory.write<u8>(next, 9);
     trusted core.target.volatile_store<u8>(pointer, 11);
-
-    trusted core.target.assembly<(RawPointer<u8>, ), unit>(
-        template = "incb $0",
-        constraints = "m",
-        clobbers = "memory",
-        features = "",
-        options = 0,
-        inputs = (pointer,),
-    );
-
-    trusted core.memory.copy<u8>(source = pointer, destination = destination, count = 2);
-    trusted core.memory.copy_overlapping<u8>(source = destination, destination = overlapping_destination, count = 2);
+    trusted increment(pointer);
 
     let volatile: u8 = trusted core.target.volatile_load<u8>(pointer);
+
+    let next = core.memory.address_of_mut<u8>(&mut second);
+
+    trusted core.memory.write<u8>(next, 9);
+
+    let (source_pointer, destination) = trusted separate_pointers(&source, &mut copied_bytes);
+
+    trusted core.memory.copy<u8>(source = source_pointer, destination = destination, count = 2);
+
+    let overlap = internal std.memory.slice_pointer_mut<u8>(&mut copied_bytes[..], count = 3);
+    let (overlap_source, overlap_destination) = trusted overlap_pointers(overlap);
+
+    trusted core.memory.copy_overlapping<u8>(source = overlap_source, destination = overlap_destination, count = 2);
+
+    let overlapping_destination = core.memory.address_of<u8>(&copied_bytes[1]);
     let copied: u8 = trusted core.memory.read<u8>(overlapping_destination);
 
     let bytes: RawPointer<u8> = trusted core.memory.reinterpret<u8, u8>(overlapping_destination);
@@ -84,7 +91,7 @@ trusted func main() -> i32
         labels = (alternate,),
     );
 
-    let copied_ok = copied == 12 && volatile == 12;
+    let copied_ok = copied == 12 && volatile == 12 && second == 9;
     let advanced_ok = trusted core.target.address_equal<u8>(advanced, reconstructed);
     let null_ok = core.memory.is_null<u8>(null);
     let target_feature_known = target_feature || !target_feature;
@@ -98,4 +105,61 @@ trusted func main() -> i32
     }
 
     return 1;
+}
+
+// The fixed instruction changes one initialized byte and cannot change its storage.
+trusted func increment(pos pointer: RawPointer<u8>)
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = pointer, count = 1),
+        trusted core.memory.valid_write<u8>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<u8>(pointer = pointer),
+        trusted core.memory.initialized_as<u8>(pointer = pointer),
+    )
+    ensures(
+        trusted core.memory.valid_read<u8>(pointer = pointer, count = 1),
+        trusted core.memory.valid_write<u8>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<u8>(pointer = pointer),
+        trusted core.memory.initialized_as<u8>(pointer = pointer),
+    )
+    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
+{
+    trusted core.target.assembly<(RawPointer<u8>, ), unit>(
+        template = "incb $0",
+        constraints = "m",
+        clobbers = "memory",
+        features = "",
+        options = 0,
+        inputs = (pointer,),
+    );
+}
+
+// Two overlapping ranges within one three-byte exclusive view. Pointer arithmetic
+// itself grants no authority; these bounds are the trusted projection contract.
+trusted func overlap_pointers(pos pointer: RawPointer<u8>) -> (RawPointer<u8>, RawPointer<u8>)
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = pointer, count = 3),
+        trusted core.memory.valid_write<u8>(pointer = pointer, count = 3),
+        trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = 3),
+    )
+    ensures(
+        trusted core.memory.valid_read<u8>(pointer = result.0, count = 2),
+        trusted core.memory.initialized_range_as<u8>(pointer = result.0, count = 2),
+        trusted core.memory.valid_write<u8>(pointer = result.1, count = 2),
+    )
+    executes(pure, total)
+{
+    return (pointer, core.memory.offset<u8>(pointer, elements = 1));
+}
+
+// The exclusive destination borrow excludes overlap with the readable source.
+trusted func separate_pointers(pos source: &[u8; 2], pos destination: &mut [u8; 3]) -> (RawPointer<u8>, RawPointer<u8>)
+    ensures(
+        trusted core.memory.valid_read<u8>(pointer = result.0, count = 2),
+        trusted core.memory.initialized_range_as<u8>(pointer = result.0, count = 2),
+        trusted core.memory.valid_write<u8>(pointer = result.1, count = 2),
+        trusted core.memory.non_overlapping<u8>(left = result.0, left_count = 2, right = result.1, right_count = 2),
+    )
+    executes(pure)
+{
+    return (core.memory.address_of<u8>(&source[0]), core.memory.address_of_mut<u8>(&mut destination[0]));
 }

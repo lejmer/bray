@@ -5,7 +5,9 @@ use std::process::Command;
 
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 
-use super::core::{inspect_objects, native_output, product_output, standard_library_root};
+use super::core::{
+    inspect_objects, native_output, object_files, product_output, standard_library_root,
+};
 
 pub(super) fn audit_native_libraries(
     root: &Path,
@@ -83,7 +85,7 @@ pub(super) fn audit_native_libraries(
             }
 
             if case == "cross" {
-                require_selected_archive_static(root, &output, &executable)?;
+                require_selected_archive_static(root, target, &output, &executable)?;
             }
 
             for (provider, consumer) in [("base", "middle"), ("middle", "application")] {
@@ -97,6 +99,7 @@ pub(super) fn audit_native_libraries(
 
 fn require_selected_archive_static(
     root: &Path,
+    target: NativeTarget,
     output: &Path,
     executable: &Path,
 ) -> Result<(), String> {
@@ -118,7 +121,11 @@ fn require_selected_archive_static(
         .flat_map(|unit| unit.statics())
         .collect::<BTreeSet<_>>();
 
-    let report = inspect_objects(root, &[executable.to_path_buf()])?;
+    // Linked PE images do not retain their COFF symbol tables. Inspect the final
+    // consumer's emitted references; execution above independently checks that
+    // selected cleanup runs and the hidden archive owner does not.
+    let objects = object_files(&output.join("fixture.application"), target)?;
+    let report = inspect_objects(root, &objects)?;
 
     for (name, expected) in [("STORED", true), ("HIDDEN_RESOURCE", false)] {
         let symbols = statics
@@ -140,7 +147,7 @@ fn require_selected_archive_static(
 
         if report.contains(*symbol) != expected {
             return Err(format!(
-                "native archive consumer expected {name} retention to be {expected}"
+                "native archive consumer expected {name} reference to be {expected}"
             ));
         }
     }
@@ -150,7 +157,7 @@ fn require_selected_archive_static(
         .len();
 
     eprintln!(
-        "native archive selection: used static retained, unused static omitted, {bytes} executable bytes"
+        "native archive selection: used static referenced and finalized, unused static omitted, {bytes} executable bytes"
     );
 
     Ok(())

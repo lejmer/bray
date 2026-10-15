@@ -14,7 +14,7 @@ use super::fixtures::{
     ASYNC_UNIT_FIXTURE, ATOMIC_FIXTURE, CALL_REBORROWS_FIXTURE, ENTRY_RESULT_FIXTURE,
     GUARDED_PART_CLEANUP_FIXTURE, GUARDED_ROOT_CLEANUP_FIXTURE, HEAP_STORAGE_FIXTURE,
     MEMORY_FIXTURE, MEMORY_LAYOUT_FIXTURE, PATTERN_CONDITIONS_FIXTURE, PRODUCT_NAME, RANGE_FIXTURE,
-    STANDARD_MEMORY_FIXTURE, STANDARD_RUN_SOURCE, STANDARD_TASK_SOURCE, STANDARD_TESTING_SOURCE,
+    STANDARD_MEMORY_SOURCE, STANDARD_RUN_SOURCE, STANDARD_TASK_SOURCE, STANDARD_TESTING_SOURCE,
     STANDARD_TEXT_FIXTURE, STARTUP_FIXTURE, SYNC_CATCH_PROPAGATION_FIXTURE, SYNC_PANIC_FIXTURE,
     TEXT_CURSOR_FIXTURE, VALUE_REPLACEMENT_FIXTURE,
 };
@@ -242,7 +242,7 @@ fn audit_atomic_operations(
 }
 
 fn audit_memory_layout(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
-    let fixtures = [STANDARD_MEMORY_FIXTURE, MEMORY_LAYOUT_FIXTURE];
+    let fixtures = [STANDARD_MEMORY_SOURCE, MEMORY_LAYOUT_FIXTURE];
 
     let first = BuiltFixture::build_standard_library(
         "bray-native-memory-layout-first-",
@@ -291,7 +291,7 @@ fn require_lowered_layout_operations(root: &Path, target: NativeTarget) -> Resul
     let compilation = standard_library_compilation(
         root,
         target,
-        &[STANDARD_MEMORY_FIXTURE, MEMORY_LAYOUT_FIXTURE],
+        &[STANDARD_MEMORY_SOURCE, MEMORY_LAYOUT_FIXTURE],
     )?;
 
     let inspection = render_lowered_inspection(

@@ -9,7 +9,7 @@ use bray_target::NativeTarget;
 use bray_tooling::{load_llvm_compilation, source_inputs_from_file_arguments};
 
 use super::core::execute_product;
-use super::fixtures::{PRODUCT_NAME, STANDARD_MEMORY_FIXTURE};
+use super::fixtures::{PRODUCT_NAME, STANDARD_MEMORY_SOURCE};
 
 const STANDARD_BUFFER_FIXTURES: &[&str] = &[
     "xtask/fixtures/native-execution/standard-raw-buffer.bray",
@@ -24,7 +24,6 @@ const STANDARD_BUFFER_FIXTURES: &[&str] = &[
     "xtask/fixtures/native-execution/standard-buffer-pop.bray",
 ];
 const STANDARD_ROOT_SOURCE: &str = "standard-library/std/src/std.bray";
-const STANDARD_MEMORY_SOURCE: &str = "standard-library/std/src/memory.bray";
 const STANDARD_BYTES_ROOT_SOURCE: &str = "standard-library/std/src/bytes.bray";
 const STANDARD_BYTES_SOURCE: &str = "standard-library/std/src/bytes/buffer.bray";
 const STANDARD_CHARACTER_SOURCE: &str = "standard-library/std/src/character.bray";
@@ -148,7 +147,7 @@ pub(super) fn standard_library_compilation(
         source_paths.push(root.join(STANDARD_ROOT_SOURCE));
     }
 
-    if !fixtures.contains(&STANDARD_MEMORY_SOURCE) && !fixtures.contains(&STANDARD_MEMORY_FIXTURE) {
+    if !fixtures.contains(&STANDARD_MEMORY_SOURCE) {
         source_paths.push(root.join(STANDARD_MEMORY_SOURCE));
     }
 
@@ -228,8 +227,8 @@ mod tests {
 
     use super::{
         STANDARD_BUFFER_FIXTURES, STANDARD_BYTES_ROOT_SOURCE, STANDARD_BYTES_SOURCE,
-        STANDARD_FORMAT_FIXTURES, STANDARD_MEMORY_FIXTURE, STANDARD_MEMORY_SOURCE,
-        STANDARD_ROOT_SOURCE, STANDARD_STRING_SOURCE, standard_library_compilation,
+        STANDARD_FORMAT_FIXTURES, STANDARD_MEMORY_SOURCE, STANDARD_ROOT_SOURCE,
+        STANDARD_STRING_SOURCE, standard_library_compilation,
     };
 
     #[test]
@@ -259,7 +258,7 @@ mod tests {
     #[test]
     fn memory_layout_fixture_source_authority_is_complete() {
         assert_source_authority(&[
-            STANDARD_MEMORY_FIXTURE,
+            STANDARD_MEMORY_SOURCE,
             "xtask/fixtures/native-execution/memory-layout.bray",
         ]);
     }

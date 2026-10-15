@@ -280,3 +280,58 @@ transfer. Moved implementation is included in gross additions/deletions, not cou
 This is a recovery checkpoint, not BRA-502 completion. Still required: full artifact smoke after
 fixture corrections, generated static execution using the updated ABI, independent PR review and
 its fixes. Then continue BRA-554 and BRA-558 without waiting for merges.
+
+
+### Native acceptance follow-through
+
+The complete runtime artifact smoke passed at `7a6deb12`, including the storage admission,
+allocation-denial, rollback, occupied destination, shape/epoch mismatch and final zero-live-allocation
+checks. Independent review [5528190374](https://github.com/lejmer/bray/pull/608#pullrequestreview-5528190374)
+was published and verified on that commit with no actionable findings.
+
+Native execution passed static storage, retained typed static cleanup errors, cleanup panics,
+repeated products, independently loaded libraries and imported archive storage with the changed ABI.
+The broader run exposed three legacy readiness fixture problems. Linked PE images have no COFF
+symbol table: archive selection now inspects the final consumer's relocatable references and retains
+the native `MF` output check, proving selected cleanup runs while hidden cleanup does not. Both
+debug and release pass, producing 2,266,624-byte and 1,366,016-byte executables respectively.
+The buffer push fixture inspected its owner while holding an exclusive slice; owner checks now
+precede that borrow, preserving every assertion. All sibling buffer variants were inspected.
+
+The raw-memory fixture used raw allocation and offsets without their required access contracts,
+and assumed memory-clobbering assembly preserved initialization automatically. It now uses
+initialized typed owners for access, an explicit preservation contract for its fixed byte increment,
+and bounded pointer projections for the overlapping and non-overlapping copy cases. The original
+raw allocation/deallocation, volatile, memory-copy, pointer, fence and assembly operations remain
+covered. The previous final raw allocation no longer leaks. These are fixture corrections, not
+compiler authority exemptions. Native execution of the corrected full batch remains in progress.
+
+The large-aggregate cost finding is now linked from active BRA-542 in Linear comment
+`720fe6c0-e5d4-4064-8254-b76c29a12710`. Publication of a link to the pushed finding succeeded; the
+earlier blocked detailed comment is no longer an outstanding action.
+
+
+The corrected raw-memory fixture passed native execution, followed by the atomic fixture. The
+next layout stage exposed a stale partial `std.memory` fixture missing `null`, now required by
+production allocation. That duplicate declaration fixture is removed; layout, buffer and format
+checks use the same production memory source. The existing source-authority test covers this
+loader contract. No production memory or authority implementation changed for these corrections.
+
+
+### Completed native verification
+
+`cargo xtask readiness native-execution` passed the full workflow in 130.1 seconds after the
+fixture corrections. This includes semantic rejections; static storage and typed cleanup;
+transitive native libraries in debug and release; hello world; formatting; all byte-buffer cases;
+text iteration; startup; ranges; nullable queries; guarded root and represented-part cleanup;
+heap ownership; child panic shutdown; value replacement; reborrowing; pattern conditions; entry
+results; raw memory; atomic operations; production memory layout; synchronous and asynchronous
+host behavior; and the runtime artifact smoke workflow. The final log is
+`target/bra-620-authority/bra-502-native-execution-verified.log` in the shared target.
+
+The end audit re-read AGENTS and checked every changed acceptance file. Object discovery reuses
+`native_execution::core::object_files`; no PE-specific fallback was introduced. The production
+memory source has one fixture constant and no partial declaration copy. Pointer projections in
+the memory fixture are restricted to its fixed initialized arrays and native instructions, with
+real bounds and non-overlap authority; no reusable production mechanism was added. The bounded
+acceptance correction still needs publication and independent re-review before readying #608.
