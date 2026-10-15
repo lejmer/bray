@@ -549,3 +549,99 @@ fn completed_unit_finalizer_omits_only_its_invocation() {
             matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Direct(_)))).count(), 1);
     }
 }
+
+#[test]
+fn cancelling_lifecycle_expansion_owner_preserves_waiters_and_cached_result() {
+    use std::sync::{Arc, Mutex, mpsc};
+    use std::time::Duration;
+
+    use crate::fact::{FactCellTestEvent, FactCellTestObserver};
+
+    let compilation = compilation("module app; func main() {}");
+    let target = codegen_target(&compilation);
+
+    let heap = compilation
+        .available_compiler_known_symbols()
+        .declaration_symbol::<bray_symbols::StructSymbolId>(
+            &CompilerKnownDeclarationKey::try_new("Heap").unwrap(),
+        )
+        .unwrap();
+
+    let storage = named_type(
+        compilation.semantic_value_store().unwrap(),
+        NamedTypeSymbolId::Struct(heap),
+    )
+    .unwrap();
+
+    let reference = MirHelperReference::Destroy(storage);
+
+    let instance = compilation
+        .concrete_codegen_lifecycle(reference.clone(), &target)
+        .unwrap();
+
+    let unit = MirUnitId::new(0);
+
+    let cell = compilation
+        .state
+        .generated_lifecycle
+        .cell((instance.key().clone(), unit))
+        .unwrap();
+
+    let (started_tx, started_rx) = mpsc::channel();
+
+    let (waiting_tx, waiting_rx) = mpsc::sync_channel(1);
+
+    let (release_tx, release_rx) = mpsc::channel();
+
+    let release_rx = Mutex::new(release_rx);
+
+    cell.set_test_observer(FactCellTestObserver::new(move |event| match event {
+        FactCellTestEvent::Computing => {
+            started_tx.send(()).unwrap();
+
+            release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(10))
+                .unwrap();
+        }
+        FactCellTestEvent::Waiting => {
+            let _ = waiting_tx.try_send(());
+        }
+        FactCellTestEvent::Computed => {}
+    }))
+    .unwrap();
+
+    let owner_token = CancellationToken::new();
+    let waiter_token = CancellationToken::new();
+
+    let query = |token: &CancellationToken| {
+        compilation.codegen_generated_lifecycle(instance.key(), &reference, unit, token)
+    };
+
+    let (owner, waiter) = std::thread::scope(|scope| {
+        let owner = scope.spawn(|| query(&owner_token));
+
+        started_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+
+        let waiter = scope.spawn(|| query(&waiter_token));
+
+        waiting_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        owner_token.cancel();
+        release_tx.send(()).unwrap();
+
+        (owner.join().unwrap(), waiter.join().unwrap())
+    });
+
+    assert!(matches!(
+        owner,
+        Err(crate::compilation::CodegenPreparationError::Query(
+            crate::FactQueryError::Cancelled
+        ))
+    ));
+
+    let waiter = waiter.expect("active waiter must receive a successful expansion");
+    let later = query(&CancellationToken::new()).expect("later requests must reuse success");
+
+    assert!(Arc::ptr_eq(&waiter, &later));
+}

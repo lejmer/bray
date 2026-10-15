@@ -133,3 +133,19 @@ checkpoint, not BRA-502 acceptance or completion of Step 5.
 Broader checkpoint verification: all 42 realization support tests and 12 static-lifecycle tests
 passed, covering imported/generic storage, repeated constant owners and asynchronous fallible
 static finalizers. This batch changes no native calling convention or execution body semantics.
+
+
+### Shared cancellation review repair
+
+Review 5527130283 identified caller cancellation being cached as a lifecycle expansion failure
+while another request still needed the same result. The expansion now uses FactCell's shared
+request token. The structural audit found the same wrapped-result pattern in optimized MIR and
+native product planning, and both now use that token as well. Other inspected query callbacks
+return cancellation through FactQueryError rather than publishing it as a successful cached value.
+The existing cache owns retry and publication policy. No new cancellation mechanism was added.
+
+A deterministic two-request lifecycle regression blocks computation until a waiter has registered,
+cancels the initiating request, and verifies successful reuse by the waiter and a later request.
+The product test batch finished with 249 passes and the existing BRA-619
+MissingRole(CleanupIncidentTransfer) failure in scoped_selected_calls_emit_native_artifacts.
+That failure remains enabled and owned by plan Step 6. This is not a clean whole-product test claim.
