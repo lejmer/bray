@@ -143,6 +143,7 @@ pub enum SelectedArgument {
 /// One exact callable, ABI, implementation witnesses, and normalized argument mapping.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SelectedCall {
+    invocation: bray_symbols::CallableInvocation,
     resolution: BoundResolvedCall,
     abi: CallableAbi,
     phase_behaviors: Arc<CallablePhaseBehaviors>,
@@ -154,6 +155,18 @@ pub struct SelectedCall {
 }
 
 impl SelectedCall {
+    /// Retains the declaration's selected body or native invocation mechanism.
+    pub const fn with_invocation(mut self, invocation: bray_symbols::CallableInvocation) -> Self {
+        self.invocation = invocation;
+
+        self
+    }
+
+    /// Returns the selected mechanism for a direct call to this declaration.
+    pub const fn invocation(&self) -> bray_symbols::CallableInvocation {
+        self.invocation
+    }
+
     /// Creates a complete callable selection.
     pub fn new(
         resolution: BoundResolvedCall,
@@ -164,6 +177,7 @@ impl SelectedCall {
         witnesses: impl IntoIterator<Item = SelectedImplementationWitness>,
     ) -> Self {
         Self {
+            invocation: bray_symbols::CallableInvocation::for_abi(abi),
             resolution,
             abi,
             phase_behaviors: Arc::new(phase_behaviors),

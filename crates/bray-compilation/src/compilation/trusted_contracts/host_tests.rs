@@ -8,10 +8,13 @@ use crate::{Compilation, CompilationRequest};
 fn production_host_nested_bodies_and_contracts_are_checked() {
     let compilation = production_host_compilation("module app;");
 
+    // Platform calls in this fixture resolve to source bodies. Their imported foreign-call
+    // capabilities are checked by the runtime artifact smoke, not this source-only fixture.
     let owners = [
         "initialize_host",
         "shutdown_host",
         "structured_shutdown",
+        "thread_attachment_enter",
         "lock",
         "release",
     ]
@@ -21,17 +24,41 @@ fn production_host_nested_bodies_and_contracts_are_checked() {
             .syntax()
     });
 
+    let acquisition_source = source_function_body_key(&compilation, "acquire")
+        .source()
+        .syntax()
+        .source_id();
+
+    let report_source = source_function_body_key(&compilation, "admit")
+        .source()
+        .syntax()
+        .source_id();
+
+    let bridge_source = source_function_body_key(&compilation, "install")
+        .source()
+        .syntax()
+        .source_id();
+
+    let entry_source = source_function_body_key(&compilation, "dispatch")
+        .source()
+        .syntax()
+        .source_id();
+
     let diagnostics = compilation.check_diagnostics();
 
     let failures = diagnostics
         .iter()
         .filter(|diagnostic| {
             diagnostic.primary_span().is_some_and(|span| {
-                owners.iter().any(|owner| {
-                    span.source_id() == owner.source_id()
-                        && span.start() >= owner.full_range().start()
-                        && span.end() <= owner.full_range().end()
-                })
+                span.source_id() == acquisition_source
+                    || span.source_id() == report_source
+                    || span.source_id() == bridge_source
+                    || span.source_id() == entry_source
+                    || owners.iter().any(|owner| {
+                        span.source_id() == owner.source_id()
+                            && span.start() >= owner.full_range().start()
+                            && span.end() <= owner.full_range().end()
+                    })
             })
         })
         .collect::<Vec<_>>();
@@ -178,7 +205,7 @@ fn native_exit_authority_is_required_by_actual_production_operations() {
     for (operation, valid) in [
         (
             "let scope = trusted bray.runtime.bootstrap.thread.destruction.explicit_exit_scope(); let _ = trusted bray.runtime.bootstrap.host.finish_attachment(&scope);",
-            true,
+            false,
         ),
         (
             "let scope: bray.runtime.bootstrap.thread.destruction.ExitScope = { identity = 1, native = true }; let _ = trusted bray.runtime.bootstrap.host.finish_attachment(&scope);",
@@ -193,6 +220,42 @@ fn native_exit_authority_is_required_by_actual_production_operations() {
             false,
         ),
         (
+            "let _ = trusted bray.runtime.bootstrap.host.thread_attachment_leave();",
+            false,
+        ),
+        (
+            "let _ = trusted bray.runtime.bootstrap.host.thread_attachment_enter();",
+            false,
+        ),
+        (
+            "let owner = trusted bray.runtime.bootstrap.host.attachment.acquire();",
+            false,
+        ),
+        (
+            "let _ = trusted bray.runtime.bootstrap.host.thread_attachment_mark_main();",
+            false,
+        ),
+        (
+            "let _ = trusted bray.runtime.bootstrap.entry.bridge.install(std.memory.null<u8>(), std.memory.null<usize>());",
+            false,
+        ),
+        (
+            "let _ = trusted bray.runtime.bootstrap.entry.bridge.current();",
+            false,
+        ),
+        (
+            "let owner: bray.runtime.bootstrap.host.attachment.Owner = { status = 0, identity = 1 };",
+            false,
+        ),
+        (
+            "let mut owner = trusted bray.runtime.bootstrap.host.attachment.acquire(); owner.identity = 1;",
+            false,
+        ),
+        (
+            "let owner = trusted bray.runtime.bootstrap.host.attachment.acquire(); let fake: bray.runtime.bootstrap.host.attachment.Owner = { status = owner.status, identity = owner.identity };",
+            false,
+        ),
+        (
             "trusted bray.runtime.bootstrap.thread.destruction.thread_storage_exit(std.memory.null<u8>());",
             false,
         ),
@@ -202,7 +265,7 @@ fn native_exit_authority_is_required_by_actual_production_operations() {
         ),
     ] {
         let source = format!(
-            "module app; using internal bray.runtime.bootstrap.host; using internal bray.runtime.bootstrap.thread.destruction; func production_probe() {{ {operation} }}"
+            "module app; using internal bray.runtime.bootstrap.host; using internal bray.runtime.bootstrap.thread.destruction; using internal bray.runtime.bootstrap.host.attachment; using internal bray.runtime.bootstrap.entry.bridge; func production_probe() {{ {operation} }}"
         );
 
         let compilation = production_host_compilation(&source);
@@ -215,6 +278,101 @@ fn native_exit_authority_is_required_by_actual_production_operations() {
             !checked.diagnostics().has_errors(),
             valid,
             "{operation}: {checked:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn source_attachment_owner_requires_the_native_thread_protocol() {
+    for (body, valid) in [
+        ("let owner = trusted acquire();", true),
+        (
+            "let owner = trusted acquire(); let _ = trusted finish(owner);",
+            true,
+        ),
+        (
+            "let mut owner = trusted acquire(); owner.identity = 1;",
+            false,
+        ),
+        (
+            "let owner = trusted acquire(); let copied: Owner = { status = owner.status, identity = owner.identity };",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap.host.attachment;
+            func production_probe() requires(trusted native_acquisition()) {{ {body} }}
+        "#
+        );
+
+        let compilation = production_host_compilation(&source);
+
+        let checked = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{body}: {checked:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn source_report_chain_requires_unchanged_exclusive_ownership() {
+    for (body, valid) in [
+        ("let owner = trusted admit(2);", true),
+        (
+            "let owner: Owner = { records = bray.runtime.bootstrap.ReportRecords { head = 1, tail = 1, count = 1 }, status = 0 };",
+            false,
+        ),
+        (
+            "let owner = trusted admit(2); let copied: Owner = { records = owner.records, status = owner.status };",
+            false,
+        ),
+        (
+            "let mut owner = trusted admit(2); owner.records.head = 1;",
+            false,
+        ),
+        (
+            "let mut owner = trusted admit(2); let other = trusted admit(2); owner.records = other.records;",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap.report.chain;
+            using internal bray.runtime.bootstrap;
+            func production_probe() {{ {body} }}
+        "#
+        );
+
+        let compilation = production_host_compilation(&source);
+
+        let checked = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{body}: {checked:#?}"
         );
 
         if !valid {
@@ -452,6 +610,34 @@ fn production_host_authority_cannot_be_constructed_from_fields() {
 }
 
 #[test]
+fn production_report_pool_mutation_requires_protocol_authority() {
+    for operation in [
+        "let mut guard = trusted bray.runtime.bootstrap.pool.lock(); let pool = guard.get(); pool.credits = 0; pool.free = 1;",
+        "let mut records: bray.runtime.bootstrap.ReportRecords = bray.runtime.bootstrap.empty_records(); let status = trusted bray.runtime.bootstrap.report_records_admit(1, std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records));",
+        "let mut records: bray.runtime.bootstrap.ReportRecords = { head = 1, tail = 1, count = 1 }; let mut primary = trusted bray.runtime.bootstrap.empty_primary(); trusted bray.runtime.bootstrap.report_records_pop(std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records), std.memory.address_of_mut<bray.runtime.bootstrap.ReportPrimary>(&mut primary));",
+    ] {
+        let source = format!(
+            r#"module app;
+            using std.memory;
+            using internal bray.runtime.bootstrap;
+            using internal bray.runtime.bootstrap.pool;
+            func production_probe() {{ {operation} }}"#,
+        );
+
+        let compilation = production_host_compilation(&source);
+
+        let checked = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .expect("production report-pool probe must retain its checked result");
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            checked.diagnostics(),
+            DiagnosticKind::CheckingTrustedObligationNotProven,
+        );
+    }
+}
+
+#[test]
 fn production_host_partial_lifecycle_cannot_escape_the_complete_operation() {
     for operation in [
         "let prepared = trusted prepare_host_storage();",
@@ -511,13 +697,18 @@ fn production_attachment_scan_keeps_its_returned_mutable_borrow_live() {
 fn production_exit_completion_validates_its_producer_and_total_retirement() {
     let compilation = production_host_compilation("module app;");
 
+    let exit_source = source_function_body_key(&compilation, "thread_attachment_leave")
+        .source()
+        .syntax()
+        .source_id();
+
     for key in compilation
         .declared_unit_keys_for_test()
         .unwrap()
         .into_iter()
         .filter(|key| {
             key.kind() == bray_bound_tree::BoundUnitKind::CallableBody
-                && key.source().syntax().source_id() == bray_source::SourceId::new(8)
+                && key.source().syntax().source_id() == exit_source
         })
     {
         let checked = compilation.lowered_unit(key.clone()).unwrap();
@@ -563,6 +754,11 @@ fn production_exit_completion_validates_its_producer_and_total_retirement() {
 fn production_lease_destructor_checks_and_remains_total() {
     let compilation = production_host_compilation("module app;");
 
+    let access_source = source_function_body_key(&compilation, "host_access")
+        .source()
+        .syntax()
+        .source_id();
+
     let key = compilation
         .declared_unit_keys_for_test()
         .unwrap()
@@ -570,7 +766,7 @@ fn production_lease_destructor_checks_and_remains_total() {
         .find(|key| {
             key.kind() == bray_bound_tree::BoundUnitKind::CallableBody
                 && key.declared_owner().kind() == bray_symbols::SymbolKind::Destructor
-                && key.source().syntax().source_id() == bray_source::SourceId::new(5)
+                && key.source().syntax().source_id() == access_source
         })
         .expect("actual acquisition lease destructor must exist");
 
@@ -594,6 +790,11 @@ fn production_lease_destructor_checks_and_remains_total() {
 fn production_selected_exit_destructor_checks_its_mandatory_cleanup() {
     let compilation = production_host_compilation("module app;");
 
+    let exit_source = source_function_body_key(&compilation, "thread_attachment_leave")
+        .source()
+        .syntax()
+        .source_id();
+
     let key = compilation
         .declared_unit_keys_for_test()
         .unwrap()
@@ -601,7 +802,7 @@ fn production_selected_exit_destructor_checks_its_mandatory_cleanup() {
         .find(|key| {
             key.kind() == bray_bound_tree::BoundUnitKind::CallableBody
                 && key.declared_owner().kind() == bray_symbols::SymbolKind::Destructor
-                && key.source().syntax().source_id() == bray_source::SourceId::new(8)
+                && key.source().syntax().source_id() == exit_source
         })
         .expect("actual selected exit destructor must exist");
 
@@ -805,12 +1006,13 @@ fn execution_domains_use_live_witnesses_without_accepting_fabricated_or_stale_on
 fn completion_witnesses_require_proven_preservation_across_calls() {
     for (body, valid) in [
         ("", true),
+        ("mutate(&mut completed);", false),
         ("let incidents = completed.incidents;", true),
         ("let value = observe();", true),
-        ("let value = acquire();", false),
+        ("let value = acquire();", true),
         (
             "let incidents = completed.incidents; let value = acquire();",
-            false,
+            true,
         ),
     ] {
         let source = r#"
@@ -821,6 +1023,7 @@ fn completion_witnesses_require_proven_preservation_across_calls() {
         trusted predicate done(owner: &Completed);
         extern trusted func owner() -> Owner ensures(trusted live(owner = &result));
         extern func acquire() -> u64;
+        extern func mutate(pos value: &mut Completed);
         func observe() -> u64 executes(pure, total) { return 0; }
         trusted func complete(pos selected: Owner) -> Completed
             requires(trusted live(owner = &selected))
@@ -829,7 +1032,7 @@ fn completion_witnesses_require_proven_preservation_across_calls() {
         extern trusted func consume_completion(pos completed: Completed) requires(trusted done(owner = &completed));
         func caller() {
             let selected = trusted owner();
-            let completed = trusted complete(selected);
+            let mut completed = trusted complete(selected);
             BODY
             trusted consume_completion(completed);
         }
@@ -1189,18 +1392,27 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
         include_str!("../../../../../standard-library/std/src/memory.bray"),
         include_str!("../../../../../standard-library/std/src/platform.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/entry.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/entry/protocol.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/entry/execution.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/entry/bridge.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/owner.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/access.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/attachment.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/attachment/entry.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/host/attachment/acquisition.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/attachment/exit.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/attachment/cleanup.bray"),
         include_str!("../../../../../runtime/bootstrap/src/bootstrap.bray"),
         include_str!("../../../../../runtime/bootstrap/src/pool.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/pool/access.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/pool/growth.bray"),
         include_str!("../../../../../runtime/bootstrap/src/record_pool.bray"),
         include_str!("../../../../../runtime/bootstrap/src/records.bray"),
         include_str!("../../../../../runtime/bootstrap/src/panic.bray"),
         include_str!("../../../../../runtime/bootstrap/src/report/transfer.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/report.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/report/chain.bray"),
         include_str!("../../../../../runtime/bootstrap/src/report_consumer.bray"),
         include_str!("../../../../../standard-library/std/src/sync.bray"),
         include_str!("../../../../../standard-library/std/src/sync/spin_lock.bray"),
@@ -1381,7 +1593,7 @@ fn production_storage_lease_requires_admission_evidence() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap.storage;
-            func probe() {{
+            func probe() requires(trusted bray.runtime.bootstrap.pool.protocol_access()) {{
                 let descriptor: Descriptor = {{ identity = [0; 32], bytes = 64, align = 32 }};
                 let mut lease: Lease = empty_lease();
                 let pointer = std.memory.address_of_mut<Lease>(&mut lease);

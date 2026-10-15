@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use bray_base::NonEmptySharedStr;
 use bray_compilation::{BuildConfiguration, WorkerBudget};
@@ -103,6 +103,12 @@ pub(super) fn cache_identity(
     super::reuse::content_identity(input, &paths)
 }
 
+pub(super) fn standard_library_directory(root: &Path, target: NativeTarget) -> PathBuf {
+    crate::workspace::cargo_target(root)
+        .join("runtime-bootstrap-standard-library")
+        .join(target.as_str())
+}
+
 /// Builds the trusted bootstrap and its selected native dependencies for a Rust host.
 /// Returns libraries that the host must supply in addition to the completed archive.
 pub fn build(
@@ -127,9 +133,7 @@ pub fn build(
     .load_implementation()
     .map_err(|error| format!("bootstrap implementation could not load: {error:?}"))?;
 
-    let standard_library = crate::workspace::cargo_target(root)
-        .join("runtime-bootstrap-standard-library")
-        .join(target.as_str());
+    let standard_library = standard_library_directory(root, target);
 
     let (inputs, mut links) = crate::native_package::standard_library_inputs(
         &[owned],
@@ -220,9 +224,7 @@ fn build_components(
         .tempdir()
         .map_err(|error| format!("could not create bootstrap build directory: {error}"))?;
 
-    let standard_library = crate::workspace::cargo_target(root)
-        .join("runtime-bootstrap-standard-library")
-        .join(target.as_str());
+    let standard_library = standard_library_directory(root, target);
 
     crate::standard_library::build_target_bundle(
         &root.join("standard-library"),

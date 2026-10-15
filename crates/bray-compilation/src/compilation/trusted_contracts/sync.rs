@@ -830,11 +830,11 @@ fn task_cleanup_revokes_preceding_guarantees() {
         let source = format!(
             r#"
             trusted module app;
-            trusted predicate ready();
+            trusted predicate ready(state: &core.atomic.Atomic<u64>);
             async func work() {{}}
-            trusted func establish() ensures(trusted ready()) executes(total) {{}}
-            func observe() requires(trusted ready()) executes(pure, total) {{}}
-            func caller() {{ {{ {pending} establish(); }} observe(); }}
+            trusted func establish(pos state: &core.atomic.Atomic<u64>) ensures(trusted ready(state)) executes(total) {{}}
+            func observe(pos state: &core.atomic.Atomic<u64>) requires(trusted ready(state)) executes(pure, total) {{}}
+            async func caller(pos state: &core.atomic.Atomic<u64>) {{ {{ {pending} establish(state); }} observe(state); }}
         "#
         );
 

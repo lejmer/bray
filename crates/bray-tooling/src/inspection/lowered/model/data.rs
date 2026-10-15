@@ -1609,6 +1609,7 @@ fn host_operation(operation: &MirHostOperation, parts: &mut OperationParts) -> &
 
             "report_cleanup_incidents"
         }
+        MirHostOperation::BeginProductEntry => "begin_product_entry",
         MirHostOperation::BeginStaticCleanup => "begin_static_cleanup",
         MirHostOperation::StructuredShutdown { runtime } => {
             runtime_reference("runtime", *runtime, parts);

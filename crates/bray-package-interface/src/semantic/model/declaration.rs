@@ -337,6 +337,7 @@ impl InterfaceCallableReceiver {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceCallableSignature {
     pub(crate) owner: InterfaceSymbolReference,
+    pub(crate) invocation: bray_symbols::CallableInvocation,
     pub(crate) callable_type: InterfaceTypeId,
     pub(crate) receiver: Option<InterfaceCallableReceiver>,
     pub(crate) parameters: Arc<[InterfaceSymbolReference]>,
@@ -346,6 +347,18 @@ pub struct InterfaceCallableSignature {
 }
 
 impl InterfaceCallableSignature {
+    /// Retains the invocation mechanism selected by the producer.
+    pub const fn with_invocation(mut self, invocation: bray_symbols::CallableInvocation) -> Self {
+        self.invocation = invocation;
+
+        self
+    }
+
+    /// Returns the mechanism used for direct calls to this declaration.
+    pub const fn invocation(&self) -> bray_symbols::CallableInvocation {
+        self.invocation
+    }
+
     /// Creates one durable callable signature in declaration parameter order.
     pub fn new(
         owner: InterfaceSymbolReference,
@@ -356,6 +369,7 @@ impl InterfaceCallableSignature {
         result_dependencies: crate::InterfaceDependencyContractId,
     ) -> Self {
         Self {
+            invocation: bray_symbols::CallableInvocation::Bray,
             owner,
             callable_type,
             receiver,

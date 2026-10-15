@@ -16,8 +16,8 @@ pub(super) use layout::{
 pub(in crate::compilation::product) use queries::closed_array_length;
 pub(super) use queries::codegen_checker_error;
 pub(super) use signatures::{
-    callable_type_signature, is_void_result, operation_result_type, receiver_codegen_type,
-    signature_types, synchronous_bray_signature, void_signature,
+    callable_type_signature, invocation_signature, is_void_result, operation_result_type,
+    receiver_codegen_type, signature_types, void_signature,
 };
 pub(super) use symbols::{
     dependency_symbol, direct_helper_symbol, helper_runtime_symbol, native_boundary_mapping,

@@ -21,7 +21,7 @@ pub use artifact::{
     RuntimeArtifactPurpose, RuntimeArtifactSelection, RuntimeArtifactSelectionError,
     RuntimeNativeIndexMetadata, RuntimeNativeUnit,
 };
-pub use binding::SourceRoleBinding;
+pub use binding::{NativeEntryKind, SourceRoleBinding};
 pub use bray_runtime_model::{
     BinarySymbolName, ExecutionLaneRequirement, PanicAbiIdentity, ProtectedAsyncFrameId,
     ProtectedFrameAbiOperation, ProtectedFrameAbiVersions, ProtectedFrameAffinity,

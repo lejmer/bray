@@ -1,4 +1,4 @@
-use bray_runtime_abi::NativeRunOutcome;
+use bray_runtime_abi::{NativeRunOutcome, NativeRunState};
 
 pub(super) fn allocation_failure() -> NativeRunOutcome {
     NativeRunOutcome::panicked(crate::frame::native_report(
@@ -8,6 +8,25 @@ pub(super) fn allocation_failure() -> NativeRunOutcome {
             bray_runtime_abi::NativePanicMessage::empty(),
         ),
     ))
+}
+
+/// Appends a later panic without replacing an already-published primary owner.
+pub(super) fn append_panic(
+    outcome: &mut NativeRunOutcome,
+    panic: crate::RuntimePanic,
+    admitted: &mut crate::outgoing::OutgoingRecords,
+) {
+    let report = if outcome.state() == NativeRunState::PANICKED {
+        let mut report = crate::RuntimePanic::from_native(outcome.take_report());
+
+        report.append(panic, admitted);
+
+        report
+    } else {
+        panic
+    };
+
+    *outcome = NativeRunOutcome::panicked(report.into_native());
 }
 
 #[cfg(test)]

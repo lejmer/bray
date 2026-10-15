@@ -138,6 +138,8 @@ mod tests {
             RuntimeAbiRole::ReportSegmentMark,
             RuntimeAbiRole::ReportSegmentTake,
             RuntimeAbiRole::ReportConsumer,
+            RuntimeAbiRole::ReportMessageCopy,
+            RuntimeAbiRole::ReportMessageRelease,
             RuntimeAbiRole::OutgoingAdmission,
             RuntimeAbiRole::OutgoingDischarge,
             RuntimeAbiRole::OutgoingActivation,

@@ -1282,7 +1282,9 @@ mod tests {
                     .filter_map(|instance| {
                         match consumer
                             .codegen_native_boundary(
-                                instance,
+                                graph
+                                    .instance(instance)
+                                    .expect("reachable concrete instance"),
                                 &BTreeSet::new(),
                                 &CancellationToken::new(),
                             )

@@ -7,7 +7,7 @@ mod unselected;
 pub use selected::{NativeHostCallbacks, register_host_callbacks};
 #[cfg(feature = "test-output")]
 pub(super) use selected::{
-    active, finish, record_cleanup_failure, record_outcome, record_panic, record_returned_error,
+    active, finish, initialize_thread_context, record_cleanup_failure, record_outcome, record_panic, record_returned_error,
     register_timeout, with_output,
 };
 #[cfg(not(feature = "test-output"))]

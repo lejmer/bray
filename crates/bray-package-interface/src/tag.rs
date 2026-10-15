@@ -450,3 +450,8 @@ wire_tags!(bray_symbols::CallableExecutionOrigin {
     2 => bray_symbols::CallableExecutionOrigin::Requirement,
     3 => bray_symbols::CallableExecutionOrigin::CompilerIntrinsic,
 });
+
+wire_tags!(bray_symbols::CallableInvocation {
+    1 => bray_symbols::CallableInvocation::Bray,
+    2 => bray_symbols::CallableInvocation::Native,
+});

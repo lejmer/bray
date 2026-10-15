@@ -411,6 +411,7 @@ fn collect_host_types(operation: &MirHostOperation, types: &mut BTreeSet<TypeId>
         | MirHostOperation::ExecuteRoot { .. }
         | MirHostOperation::ObserveRootTerminal { .. }
         | MirHostOperation::ResolveRootTerminal { error: None, .. }
+        | MirHostOperation::BeginProductEntry
         | MirHostOperation::BeginStaticCleanup
         | MirHostOperation::ReportCleanupIncidents { .. }
         | MirHostOperation::StructuredShutdown { .. } => {}

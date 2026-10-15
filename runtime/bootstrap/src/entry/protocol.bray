@@ -1,0 +1,45 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.entry;
+
+// The native caller owns the outcome destination and retains the callback and its
+// context. Invocation stays synchronous on this thread and contains native unwind.
+trusted internal predicate native_entry();
+
+using internal bray.runtime.bootstrap;
+
+// Native implementations return abnormal execution through the supplied outcome.
+// They return the unused exclusive chain and never unwind through the Bray caller.
+internal callable Callback = @abi(c) trusted func(
+    pos context: usize,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>
+)
+    requires(
+        trusted native_entry(),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportRecords>(pointer = records),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = records)
+    )
+    ensures(
+        trusted core.memory.valid_read<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportRecords>(pointer = records),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = records)
+    );
+
+// The compiler-bound caller supplies this live, exclusive outcome slot. Projection
+// stays inside the native entry protocol and grants no general raw-memory access.
+trusted internal func output(
+    pos pointer: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> RawPointer<bray.runtime.bootstrap.ReportOutcome>
+    requires(trusted native_entry())
+    ensures(
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = result)
+    )
+    executes(pure, total)
+{
+    return pointer;
+}

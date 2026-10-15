@@ -63,6 +63,15 @@ fn validate_host_sequence(unit: &MirUnit) -> Option<()> {
         preceding
     };
 
+    let (admission, preceding) = preceding.split_first()?;
+
+    if !matches!(
+        admission,
+        crate::MirOperationKind::Host(crate::MirHostOperation::BeginProductEntry)
+    ) {
+        return None;
+    }
+
     let materialized = preceding.partition_point(|operation| {
         matches!(
             operation,

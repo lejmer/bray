@@ -112,6 +112,22 @@ pub(in super::super) fn dependency_from_fixture_with_native(
     fixture: GenericDependencyFixture,
     native: Option<(CodegenOptions, bool, bool, Option<NativeUnitKind>)>,
 ) -> DependencyInterfaceInput {
+    dependency_from_fixture_for_target(
+        include_implementation,
+        malformed_templates,
+        fixture,
+        native,
+        SelectedTarget::baseline(),
+    )
+}
+
+pub(in super::super) fn dependency_from_fixture_for_target(
+    include_implementation: bool,
+    malformed_templates: bool,
+    fixture: GenericDependencyFixture,
+    native: Option<(CodegenOptions, bool, bool, Option<NativeUnitKind>)>,
+    target: SelectedTarget,
+) -> DependencyInterfaceInput {
     let package = PackageIdentity::try_new("example.dependency")
         .unwrap_or_else(|| panic!("dependency package identity must be valid"));
 
@@ -132,11 +148,7 @@ pub(in super::super) fn dependency_from_fixture_with_native(
     let request = CompilationRequest::with_options(
         package.clone(),
         vec![crate::test_support::source_input(fixture.source, 0)],
-        CompilationOptions::new(
-            WorkerBudget::serial(),
-            ProductKind::Library,
-            SelectedTarget::baseline(),
-        ),
+        CompilationOptions::new(WorkerBudget::serial(), ProductKind::Library, target),
     )
     .with_package_interface_export(export)
     .with_platform_services(fixture.platform_service.map(|(role, declaration)| {
@@ -155,8 +167,9 @@ pub(in super::super) fn dependency_from_fixture_with_native(
 
     let bundle = compilation
         .package_interface_export_bundle()
-        .and_then(|result| result.as_ref().ok())
-        .unwrap_or_else(|| panic!("dependency interface bundle must build"));
+        .expect("dependency requests interface export")
+        .as_ref()
+        .unwrap_or_else(|error| panic!("dependency interface bundle must build: {error:?}"));
 
     match fixture.runtime_frames {
         Some(expected) => {

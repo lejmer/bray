@@ -314,6 +314,8 @@ pub(super) fn decode_callable_signature(
     let has_body =
         super::common::decode_bool(reader, crate::InterfaceValidationField::Declaration)?;
 
+    let invocation = decode_tag(read_u32(reader)?)?;
+
     Ok(InterfaceCallableSignature::new(
         owner,
         callable_type,
@@ -322,7 +324,8 @@ pub(super) fn decode_callable_signature(
         result,
         result_dependencies,
     )
-    .with_body(has_body))
+    .with_body(has_body)
+    .with_invocation(invocation))
 }
 
 pub(super) fn decode_generic_declaration(

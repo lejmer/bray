@@ -890,6 +890,9 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     fn call(&mut self) -> Result<MirCall, ExecutableTemplateDecodeError> {
         let cleanup = read_bool(&mut self.reader)?;
 
+        let invocation = crate::tag::WireTag::from_wire(read_u32(&mut self.reader)?)
+            .ok_or(ExecutableTemplateDecodeError::Malformed)?;
+
         let target = match read_u32(&mut self.reader)? {
             0 => MirCallTarget::Direct(MirCallableReference::new(
                 self.callable_instance()?,
@@ -987,7 +990,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             intrinsic,
             witnesses,
         )
-        .with_cleanup(cleanup))
+        .with_cleanup(cleanup)
+        .with_invocation(invocation))
     }
 
     fn phase_behaviors(

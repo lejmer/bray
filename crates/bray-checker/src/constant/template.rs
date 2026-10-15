@@ -316,7 +316,8 @@ pub fn resolve_callable_signature_template(
         parameters.push(CallableParameterSignature::new(parameter, ty));
     }
 
-    let signature = CallableSignature::new(callable_type, template.receiver(), parameters, result);
+    let signature = CallableSignature::new(callable_type, template.receiver(), parameters, result)
+        .with_invocation(template.invocation());
 
     signature
         .try_map_types(|ty| {

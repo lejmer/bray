@@ -528,7 +528,35 @@ fn bind_callable_signature(
         surface.qualifiers,
     )?;
 
-    Ok(result.map(|signature| signature.with_body(surface.has_body)))
+    let native_body = if let CallableSymbolId::Function(function) = callable {
+        let compilation = context.compilation();
+
+        let platform =
+            crate::compilation::foreign::platform::platform_service_role(compilation, function)
+                .map_err(super::binding::binder_error)?;
+
+        let runtime = crate::compilation::foreign::runtime::runtime_role(compilation, function)
+            .map_err(super::binding::binder_error)?;
+
+        platform.is_some()
+            || runtime.is_some_and(|role| {
+                bray_runtime_interface::NativeEntryKind::for_runtime_role(role).is_none()
+            })
+    } else {
+        false
+    };
+
+    Ok(result.map(|signature| {
+        let invocation = if surface.has_body && !native_body {
+            bray_symbols::CallableInvocation::Bray
+        } else {
+            signature.invocation()
+        };
+
+        signature
+            .with_body(surface.has_body)
+            .with_invocation(invocation)
+    }))
 }
 
 #[cfg(test)]

@@ -258,6 +258,11 @@ impl NativeRuntime {
             wake.clone(),
         );
 
+        let _bridge = match super::super::bridge::Scope::enter() {
+            Ok(scope) => scope,
+            Err(status) => return status,
+        };
+
         let status = with_current_task(handle, || {
             with_task_execution_context(context, || task.resume())
         });

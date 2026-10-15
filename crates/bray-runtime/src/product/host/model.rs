@@ -38,7 +38,7 @@ pub(super) struct ProductCleanup {
 
 pub(super) struct ProductHost {
     pub(super) identity: NativeProductIdentity,
-    pub(super) runtime: crate::native::RetainedRuntime,
+    pub(super) runtime: Option<crate::native::RetainedRuntime>,
     pub(super) state: NativeProductHostState,
     pub(super) active_entries: usize,
     pub(super) external_roots: usize,
@@ -87,7 +87,7 @@ impl ProductHost {
 
 pub(super) struct PendingCleanup {
     pub(super) product: usize,
-    pub(super) runtime: crate::native::RetainedRuntime,
+    pub(super) runtime: Option<crate::native::RetainedRuntime>,
     pub(super) statics: Vec<ProductCleanup>,
 }
 
@@ -174,7 +174,7 @@ pub(super) fn product_hosts() -> &'static Mutex<BTreeMap<usize, ProductHost>> {
     PRODUCT_HOSTS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
-pub(in crate::product) fn initialize_thread_static_registry() {
+pub(crate) fn initialize_thread_static_registry() {
     THREAD_STATICS.with(|_| {});
 }
 

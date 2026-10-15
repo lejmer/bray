@@ -2,6 +2,7 @@
 trusted internal module bray.runtime.bootstrap;
 
 using std.memory;
+using internal bray.runtime.bootstrap.pool.growth;
 using internal bray.runtime.bootstrap.pool;
 using internal std.memory;
 
@@ -34,11 +35,15 @@ trusted internal func slab_index(pos pool: &mut ReportPool) -> &mut std.memory.R
     trusted core.target.abort();
 }
 
-trusted internal func reserve_records(pos pool: &mut ReportPool, pos count: usize) -> bool
+trusted internal func reserve_records(
+    pos pool: &mut ReportPool,
+    pos count: usize,
+    pos prepared: &mut bray.runtime.bootstrap.pool.growth.Prepared
+) -> Result<bool, bray.runtime.bootstrap.pool.growth.Request>
 {
     if count <= pool.available
     {
-        return true;
+        return Ok(true);
     }
 
     let required: usize = count - pool.available;
@@ -47,7 +52,7 @@ trusted internal func reserve_records(pos pool: &mut ReportPool, pos count: usiz
 
     if required > limit
     {
-        return false;
+        return Ok(false);
     }
 
     let mut additional: usize = required;
@@ -57,20 +62,43 @@ trusted internal func reserve_records(pos pool: &mut ReportPool, pos count: usiz
         additional = pool.total;
     }
 
-    let allocation: std.memory.RawBuffer<ReportRecord>? = trusted internal bray.runtime.bootstrap.heap.try_buffer<
-        ReportRecord
-    >(additional);
+    match consume trusted internal bray.runtime.bootstrap.heap.reserve<ReportSlab>(
+        &mut pool.slabs,
+        &mut prepared.record_slabs
+    )
+    {
+        case Ok(ready)
+        {
+            if !ready
+            {
+                return Ok(false);
+            }
+        }
+        case Error(capacity) { return Error(bray.runtime.bootstrap.pool.growth.Request.RecordSlabs(capacity)); }
+    }
 
-    return match consume allocation
+    if let ?records = prepared.records
+    {
+        if records.capacity < additional || records.initialized != 0
+        {
+            return Error(bray.runtime.bootstrap.pool.growth.Request.Records(additional));
+        }
+    }
+    else
+    {
+        return Error(bray.runtime.bootstrap.pool.growth.Request.Records(additional));
+    }
+
+    let allocation = trusted std.memory.replace_value<(std.memory.RawBuffer<ReportRecord>?)>(
+        &mut prepared.records,
+        none
+    );
+
+    match consume allocation
     {
         case ?storage
         {
             let mut slab: std.memory.RawBuffer<ReportRecord> = storage;
-
-            if !trusted internal bray.runtime.bootstrap.heap.reserve<ReportSlab>(&mut pool.slabs)
-            {
-                return false;
-            }
 
             let first: usize = pool.total + 1;
             let mut head: usize = pool.free;
@@ -110,10 +138,10 @@ trusted internal func reserve_records(pos pool: &mut ReportPool, pos count: usiz
             pool.free = head;
             pool.available += additional;
             pool.total += additional;
-            yield true;
+            return Ok(true);
         }
-        case none { yield false; }
-    };
+        case none { return Ok(false); }
+    }
 }
 
 trusted internal func record(pos pool: &mut ReportPool, pos handle: usize) -> &mut ReportRecord
@@ -177,6 +205,7 @@ trusted internal func activate_record(pos pool: &mut ReportPool) -> usize
 @abi(c)
 trusted internal func report_records_admit(pos count: usize, pos destination: RawPointer<ReportRecords>) -> u32
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
         trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
         trusted core.memory.valid_read<ReportRecords>(pointer = destination, count = 1),
@@ -197,6 +226,7 @@ trusted internal func admit_record_values(
     pos destination: RawPointer<ReportRecords>
 ) -> (u32, ReportRecords)
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
         trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
     )
@@ -205,33 +235,53 @@ trusted internal func admit_record_values(
         trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
     )
 {
-    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
-    let pool: &mut ReportPool = guard.get();
-    let maximum: usize = ~0;
+    let mut prepared = bray.runtime.bootstrap.pool.growth.empty();
 
-    if count > maximum - pool.credits
+    while true
     {
-        return (1, output);
+        let request =
+        {
+            let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+            let pool = guard.get();
+            let maximum: usize = ~0;
+
+            if count > maximum - pool.credits
+            {
+                return (1, output);
+            }
+
+            let requested = pool.credits + count;
+
+            yield match consume trusted reserve_records(pool, requested, &mut prepared)
+            {
+                case Error(request) { yield request; }
+                case Ok(ready)
+                {
+                    if !ready
+                    {
+                        return (1, output);
+                    }
+
+                    let mut remaining = count;
+
+                    while remaining != 0
+                    {
+                        let handle = trusted activate_record(pool);
+
+                        trusted append_record(pool, &mut output, handle);
+                        remaining -= 1;
+                    }
+
+                    return (0, output);
+                }
+            };
+        };
+
+        if !trusted bray.runtime.bootstrap.pool.growth.prepare(&mut prepared, request)
+        {
+            return (1, output);
+        }
     }
-
-    let requested: usize = pool.credits + count;
-
-    if !trusted reserve_records(pool, requested)
-    {
-        return (1, output);
-    }
-
-    let mut remaining: usize = count;
-
-    while remaining != 0
-    {
-        let handle: usize = trusted activate_record(pool);
-
-        trusted append_record(pool, &mut output, handle);
-        remaining -= 1;
-    }
-
-    return (0, output);
 }
 
 @abi(c)
@@ -240,6 +290,7 @@ trusted internal func report_records_pop(
     pos destination: RawPointer<ReportPrimary>
 )
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
         trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
         trusted core.memory.valid_read<ReportRecords>(pointer = chain, count = 1),
@@ -269,6 +320,7 @@ trusted internal func pop_record_value(
     pos destination: RawPointer<ReportPrimary>
 ) -> (ReportRecords, ReportPrimary)
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
         trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
         trusted core.memory.valid_write<ReportPrimary>(pointer = destination, count = 1),

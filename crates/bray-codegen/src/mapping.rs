@@ -33,7 +33,7 @@ pub use static_storage::{
     CodegenStaticStorageMapping,
 };
 pub use symbol::{
-    CodegenNativeEntryKind, CodegenNativeEntryMapping, CodegenSymbolKey, CodegenSymbolMapping,
+    CodegenNativeEntryMapping, CodegenSymbolKey, CodegenSymbolMapping,
     FOREIGN_CALLBACK_RUNTIME_ROLES,
 };
 pub use ty::{

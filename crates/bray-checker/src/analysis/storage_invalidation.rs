@@ -171,3 +171,29 @@ const fn access_invalidates_refinements(purpose: StorageAccessPurpose) -> bool {
             | StorageAccessPurpose::Assignment
     )
 }
+
+/// Presence and variant observations depend on the descriptor, not its selected payload.
+pub(in crate::analysis) fn discriminant_invalidated(
+    invalidation: &StorageInvalidation,
+    path: &bray_bound_tree::StoragePath,
+    storage: &StoragePlan,
+    discriminants: &BTreeMap<bray_bound_tree::StorageIdentityId, Vec<bray_bound_tree::StoragePath>>,
+) -> bool {
+    match invalidation {
+        StorageInvalidation::All {
+            stable_descriptors, ..
+        } => {
+            !stable_descriptors.contains(&bray_bound_tree::StoragePath::root(path.root))
+                || !discriminants
+                    .get(&path.root)
+                    .is_some_and(|paths| paths.contains(path))
+        }
+        StorageInvalidation::Observed { accesses, .. } => {
+            accesses.values().flatten().any(|changed| {
+                changed.projections.len() <= path.projections.len()
+                    && changed.relationship(path) != bray_bound_tree::StorageRelationship::Disjoint
+            })
+        }
+        StorageInvalidation::Paths(_) => invalidation.invalidates_path(path, storage),
+    }
+}

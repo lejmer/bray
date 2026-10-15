@@ -15,8 +15,7 @@ use crate::{
 };
 
 use super::core::{
-    NativeRuntime, RetainedRuntime, current_runtime, current_task, retain_runtime,
-    with_bound_runtime,
+    NativeRuntime, RetainedRuntime, current_runtime, current_task, with_bound_runtime,
 };
 
 pub(in crate::native) fn current_thread_lanes(
@@ -56,51 +55,49 @@ pub(in crate::native) fn current_thread_lanes(
 }
 
 pub(in crate::native) fn with_cleanup_runtime<T>(
-    retained: Option<&RetainedRuntime>,
-    callback: impl FnOnce() -> T,
-) -> Result<(T, NativeRuntimeStatus), NativeRuntimeStatus> {
-    let owned = retained.is_none().then(retain_runtime).transpose()?;
-    let _owned = owned.as_ref().map(OwnedRuntimeScope);
-
-    let retained = retained
-        .or(owned.as_ref())
-        .ok_or(NativeRuntimeStatus::RUNTIME_FAILURE)?;
-
-    let result = with_retained_runtime(retained, callback)?;
-
-    Ok((result, NativeRuntimeStatus::SUCCESS))
-}
-
-fn with_retained_runtime<T>(
     retained: &RetainedRuntime,
     callback: impl FnOnce() -> T,
-) -> Result<T, NativeRuntimeStatus> {
+) -> Result<(T, NativeRuntimeStatus), NativeRuntimeStatus> {
+    // A retiring attachment already owns this callback. Its native TLS slot is clear and
+    // its closing row rejects nested entry, so it cannot install or need another bridge.
+    let bridge = (!crate::bootstrap::in_thread_cleanup())
+        .then(super::super::bridge::Scope::enter)
+        .transpose()?;
+
     let current = current_runtime();
 
-    if let Some(runtime) = current.as_ref()
+    let result = if let Some(runtime) = current.as_ref()
         && Arc::ptr_eq(&runtime.core, &retained.core)
     {
-        return Ok(with_bound_runtime(Rc::clone(runtime), || {
+        with_bound_runtime(Rc::clone(runtime), || {
             runtime.with_cleanup_driving(callback)
-        }));
-    }
+        })
+    } else {
+        let thread = RuntimeThreadScope::enter_or_reuse()
+            .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)?;
 
-    let thread =
-        RuntimeThreadScope::enter_or_reuse().map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)?;
+        let main_thread_lane = retained.main_thread == Some(thread.runtime().id());
 
-    let main_thread_lane = retained.main_thread == Some(thread.runtime().id());
+        let runtime = Rc::new(NativeRuntime {
+            thread,
+            main_thread_lane,
+            cleanup_workloads: Cell::new(true),
+            worker: None,
+            core: Arc::clone(&retained.core),
+            #[cfg(test)]
+            _test_isolation: None,
+        });
 
-    let runtime = Rc::new(NativeRuntime {
-        thread,
-        main_thread_lane,
-        cleanup_workloads: Cell::new(true),
-        worker: None,
-        core: Arc::clone(&retained.core),
-        #[cfg(test)]
-        _test_isolation: None,
-    });
+        with_bound_runtime(runtime, callback)
+    };
 
-    Ok(with_bound_runtime(runtime, callback))
+    let status = if bridge.map_or(0, super::super::bridge::Scope::finish) == 0 {
+        NativeRuntimeStatus::SUCCESS
+    } else {
+        NativeRuntimeStatus::RUNTIME_FAILURE
+    };
+
+    Ok((result, status))
 }
 
 pub(in crate::native) struct CleanupWorkloadScope<'a> {
@@ -111,14 +108,6 @@ pub(in crate::native) struct CleanupWorkloadScope<'a> {
 impl Drop for CleanupWorkloadScope<'_> {
     fn drop(&mut self) {
         self.runtime.cleanup_workloads.set(self.previous);
-    }
-}
-
-struct OwnedRuntimeScope<'a>(&'a RetainedRuntime);
-
-impl Drop for OwnedRuntimeScope<'_> {
-    fn drop(&mut self) {
-        self.0.release();
     }
 }
 

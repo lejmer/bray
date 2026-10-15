@@ -711,6 +711,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.runtime_reference(*panic);
                 self.runtime_reference(*entry_failure);
             }
+            MirHostOperation::BeginProductEntry => self.wire.write_u32(9),
             MirHostOperation::BeginStaticCleanup => self.wire.write_u32(5),
             MirHostOperation::ReportCleanupIncidents { runtime } => {
                 self.wire.write_u32(6);
@@ -862,6 +863,9 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
 
     fn call(&mut self, call: &MirCall) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
         write_bool(&mut self.wire, call.is_cleanup());
+
+        self.wire
+            .write_u32(crate::tag::WireTag::to_wire(call.invocation()));
 
         match call.target() {
             MirCallTarget::Direct(reference) => {

@@ -31,7 +31,16 @@ impl Compilation {
         >,
         target: &CodegenTarget,
     ) -> Result<Option<CodegenProductHostMapping>, NativeProductPlanningError> {
-        if entries.is_empty() && native_statics.is_empty() {
+        let foreign_entry = mappings
+            .iter()
+            .flat_map(CodegenMappings::symbols)
+            .any(|symbol| {
+                symbol.native_entry().is_some_and(|entry| {
+                    entry.kind() == bray_runtime_interface::NativeEntryKind::ForeignCallback
+                })
+            });
+
+        if entries.is_empty() && native_statics.is_empty() && !foreign_entry {
             return Ok(None);
         }
 
@@ -570,12 +579,7 @@ pub(super) fn native_runtime_static_dependencies(
         // unit references may also belong to functions co-emitted with its data.
         .filter(|entry| entry.requires_host())
         .filter_map(|entry| {
-            let symbol = bray_symbols::NativeSymbolContract::required_name(
-                bray_base::NonEmptySharedStr::try_new(
-                    target.object_symbol_name(entry.symbol()).as_ref(),
-                )
-                .expect("retained native static host symbol must be nonempty"),
-            );
+            let symbol = super::link::required_native_symbol(&target, entry.symbol());
 
             let accesses = selected
                 .static_accesses(&symbol)

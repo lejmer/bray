@@ -420,6 +420,12 @@ After it lands, retire superseded PRs and continue the remaining milestones from
 
 Owners: BRA-556 -> BRA-557 -> BRA-608 -> BRA-555.
 
+BRA-623 is an additional BRA-608 prerequisite. The entry audit found that ordinary runtime requirements
+are retained in checked contracts but not emitted before calls. Implement those checks in lowering before
+invocation and ownership transfer, using established proofs and the existing panic/cleanup path. Keep
+opaque authority requirements compile-time obligations. BRA-554 separately preserves native versus Bray
+invocation conventions. See [BRA-623](https://linear.app/bray-lang/issue/BRA-623) for the acceptance matrix.
+
 Use compiler-provided static dependencies and one terminal host state for graceful shutdown and resident fallback.
 A blocked shutdown preserves the caller owner and returns. It must not wait for roots held by that caller. Drain
 teardown incidents before dependency release, with internal static edges ordering cleanup rather than blocking it.

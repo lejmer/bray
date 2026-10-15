@@ -274,7 +274,7 @@ fn bootstrap_status_entries_contain_body_failures_without_attaching() {
 
             assert_eq!(
                 mapping.native_entry().unwrap().kind(),
-                bray_codegen::CodegenNativeEntryKind::RuntimeStatus
+                bray_runtime_interface::NativeEntryKind::RuntimeStatus
             );
 
             assert!(mapping.signature().has_panic_report_context());
@@ -335,16 +335,6 @@ fn bootstrap_status_cancellation_returns_native_failure_without_reporting_a_pani
         [binding],
     );
 
-    let directory = tempfile::tempdir().unwrap();
-    let mut objects = Vec::new();
-
-    for (index, bytes) in generated_artifacts(&backend, &plan).into_iter().enumerate() {
-        let path = directory.path().join(format!("unit-{index}.obj"));
-
-        std::fs::write(&path, bytes).unwrap();
-        objects.push(path);
-    }
-
     let caller = format!(
         r#"
         static unsigned reports;
@@ -360,32 +350,7 @@ fn bootstrap_status_cancellation_returns_native_failure_without_reporting_a_pani
         failure = bray_runtime_abi::NativeRuntimeStatus::RUNTIME_FAILURE.code(),
     );
 
-    let source = directory.path().join("caller.c");
-    let executable = directory.path().join("caller.exe");
-
-    std::fs::write(&source, caller).unwrap();
-
-    let compiler = std::path::Path::new(bray_codegen_llvm::COMPILED_LLVM_PREFIX.unwrap())
-        .join("bin/clang.exe");
-
-    let linked = std::process::Command::new(compiler)
-        .args(["--target=x86_64-pc-windows-msvc", "-fuse-ld=lld"])
-        .arg(&source)
-        .args(objects)
-        .arg("-o")
-        .arg(&executable)
-        .output()
-        .unwrap();
-
-    assert!(
-        linked.status.success(),
-        "{}",
-        String::from_utf8_lossy(&linked.stderr)
-    );
-
-    let result = std::process::Command::new(executable).status().unwrap();
-
-    assert_eq!(result.code(), Some(0));
+    super::support::linker::run_native_caller(&backend, &plan, &caller);
 }
 
 #[test]
@@ -629,4 +594,358 @@ fn native_atomic_word_production_source_bindings_export() {
             "{target:?}"
         );
     }
+}
+
+#[test]
+#[cfg(all(windows, target_arch = "x86_64"))]
+fn foreign_callbacks_preserve_abnormal_outcomes_for_scalar_and_indirect_results() {
+    let source = r#"
+        trusted module app;
+        @link(name = "native")
+        @symbol(name = "record_cleanup")
+        @abi(c)
+        extern trusted func record_cleanup() executes(total) uses(foreign_call);
+        struct Local {
+            tag: u32;
+            trusted destruct() executes(total) uses(foreign_call) {
+                trusted record_cleanup();
+            }
+        }
+        @layout(c)
+        struct Aggregate { first: u64; second: u64; third: u64; }
+        @symbol(name = "scalar")
+        @abi(c)
+        func scalar(pos mode: u32) -> u32 {
+            if mode == 1 {
+                let outcome: RunResult<unit> = Cancelled;
+                try outcome;
+            }
+            if mode == 2 { panic("scalar"); }
+            return 73;
+        }
+        @symbol(name = "aggregate")
+        @abi(c)
+        func aggregate(pos mode: u32) -> Aggregate {
+            if mode == 1 {
+                let outcome: RunResult<unit> = Cancelled;
+                try outcome;
+            }
+            if mode == 2 { panic("aggregate"); }
+            return { first = 17, second = 29, third = 41 };
+        }
+        @abi(c)
+        func plain(pos mode: u32) -> u32 { return scalar(mode); }
+        callable Callback = @abi(c) func(pos mode: u32) -> u32;
+        @symbol(name = "through_pointer")
+        @abi(c)
+        func through_pointer(pos mode: u32) -> u32 {
+            let callback: Callback = plain;
+            return callback(mode);
+        }
+        @symbol(name = "through_lambda")
+        @abi(c)
+        func through_lambda(pos mode: u32) -> u32 {
+            let callback = @abi(c) lambda(pos value: u32) -> u32 { return scalar(value); };
+            return callback(mode);
+        }
+        @symbol(name = "nested")
+        @abi(c)
+        func nested(pos mode: u32) -> u32 {
+            let local: Local = { tag = 1 };
+            return plain(mode);
+        }
+    "#;
+
+    let caller = format!(
+        r#"
+        #include <stdint.h>
+        #include <stdlib.h>
+        typedef struct {{ _Alignas({report_align}) unsigned char data[{report_size}]; }} Report;
+        typedef struct {{ uint32_t state; uintptr_t payload; Report report; }} Outcome;
+        typedef struct {{ uint64_t first, second, third; }} Aggregate;
+        static unsigned cleanups;
+        void record_cleanup(void) {{ ++cleanups; }}
+        static unsigned shield_depth;
+        void {shield_enter}(void) {{ ++shield_depth; }}
+        void {shield_leave}(void) {{ if (!shield_depth) _Exit(10); --shield_depth; }}
+        void {propagate_panic}(Report report) {{ (void)report; _Exit(11); }}
+        void {propagate_cancellation}(void) {{ _Exit(12); }}
+        Report {suppress}(Report first, Report second) {{ (void)first; (void)second; _Exit(13); }}
+        static unsigned reports;
+        static unsigned cancelled;
+        static unsigned terminal_status;
+        static unsigned reject_entry;
+        // The C final image supplies the descriptor consumed by this stubbed control.
+        const unsigned char bray_linked_product_host = 0;
+        typedef struct {{ uint32_t status, state; uintptr_t entries, external, threads, initialized, cleaned, incidents; unsigned char identity[32]; }} Observation;
+        void {control}(Observation* result, const void* descriptor, unsigned operation) {{
+            (void)descriptor; *result = (Observation){{0}};
+            if (operation == {acquire} && reject_entry) result->status = {closed};
+        }}
+        unsigned {consumer}(Report* value, unsigned reporting) {{
+            (void)value; (void)reporting; return 0;
+        }}
+        unsigned {boundary}(void (*callback)(uintptr_t, Outcome*, void*), uintptr_t context, Outcome* outcome) {{
+            callback(context, outcome, NULL);
+            if (outcome->state == {cancelled}) ++cancelled;
+            if (terminal_status == {represented}) ++reports;
+            return terminal_status;
+        }}
+        Report {construction}(uint32_t cause, uint32_t present, uint32_t identity,
+            uint32_t start, uint32_t end, uint64_t version, uint64_t n0, uint64_t n1,
+            uint64_t n2, uint64_t n3, const void* message, uintptr_t length) {{
+            Report report = {{0}};
+            return report;
+        }}
+        unsigned {report}(Report value) {{ (void)value; ++reports; return 0; }}
+        extern uint32_t scalar(uint32_t mode);
+        extern uint32_t nested(uint32_t mode);
+        extern uint32_t through_pointer(uint32_t mode);
+        extern uint32_t through_lambda(uint32_t mode);
+        extern Aggregate aggregate(uint32_t mode);
+        int main(void) {{
+            if (scalar(0) != 73 || scalar(1) != 0 || scalar(2) != 0) return 1;
+            Aggregate normal = aggregate(0), failure = aggregate(1), panic = aggregate(2);
+            if (normal.first != 17 || normal.second != 29 || normal.third != 41) return 2;
+            if (failure.first || failure.second || failure.third) return 3;
+            if (panic.first || panic.second || panic.third) return 4;
+            if (nested(0) != 73 || nested(1) != 0 || nested(2) != 0) return 6;
+            if (through_pointer(0) != 73 || through_pointer(1) != 0 || through_pointer(2) != 0) return 7;
+            if (through_lambda(0) != 73 || through_lambda(1) != 0 || through_lambda(2) != 0) return 8;
+            if (reports != 5 || cleanups != 3 || shield_depth != 0 || cancelled != 5) return 5;
+            terminal_status = {represented};
+            if (scalar(0) != 73 || reports != 6) return 14;
+            terminal_status = {unrepresented};
+            if (scalar(0) != 73 || reports != 7) return 15;
+            terminal_status = {represented};
+            normal = aggregate(0);
+            if (normal.first != 17 || normal.second != 29 || normal.third != 41 || reports != 8) return 16;
+            reject_entry = 1;
+            if (nested(0) != 0 || cleanups != 3) return 17;
+            failure = aggregate(0);
+            if (failure.first || failure.second || failure.third || reports != 8) return 18;
+            return 0;
+        }}
+    "#,
+        shield_enter = RuntimeAbiRole::CleanupShieldEnter.native_symbol().unwrap(),
+        shield_leave = RuntimeAbiRole::CleanupShieldLeave.native_symbol().unwrap(),
+        propagate_panic = RuntimeAbiRole::PanicPropagation.native_symbol().unwrap(),
+        propagate_cancellation = RuntimeAbiRole::CurrentRunCancellationPropagation
+            .native_symbol()
+            .unwrap(),
+        construction = RuntimeAbiRole::PanicReportConstruction
+            .native_symbol()
+            .unwrap(),
+        suppress = RuntimeAbiRole::PanicReportSuppression
+            .native_symbol()
+            .unwrap(),
+        acquire = bray_runtime_abi::NativeProductHostOperation::ACQUIRE_ENTRY.code(),
+        closed = bray_runtime_abi::NativeProductHostStatus::CLOSED.code(),
+        represented = bray_runtime_abi::NativeRuntimeStatus::PANICKED.code(),
+        unrepresented = bray_runtime_abi::NativeRuntimeStatus::RUNTIME_FAILURE.code(),
+        report_align = std::mem::align_of::<bray_runtime_abi::NativePanicReport>(),
+        report_size = std::mem::size_of::<bray_runtime_abi::NativePanicReport>(),
+        boundary = RuntimeAbiRole::ForeignCallbackExecution
+            .native_symbol()
+            .unwrap(),
+        cancelled = bray_runtime_abi::NativeRunState::CANCELLED.code(),
+        control = RuntimeAbiRole::ProductHostControl.native_symbol().unwrap(),
+        consumer = RuntimeAbiRole::ReportConsumer.native_symbol().unwrap(),
+        report = RuntimeAbiRole::PanicReporting.native_symbol().unwrap(),
+    );
+
+    use super::support::dependencies::{
+        GenericDependencyFixture, dependency_from_fixture_for_target,
+    };
+
+    use bray_codegen::{CodeGenerator, CodeGeneratorRegistry, CodegenConfiguration};
+
+    let backend = std::sync::Arc::new(bray_codegen_llvm::LlvmCodeGenerator::try_new().unwrap());
+
+    let registry = CodeGeneratorRegistry::try_new([
+        std::sync::Arc::clone(&backend) as std::sync::Arc<dyn CodeGenerator>
+    ])
+    .unwrap();
+
+    let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone()).unwrap();
+    let target = SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc);
+
+    for imported in [false, true] {
+        let mut dependencies = vec![crate::test_support::runtime_standard_library_dependency(
+            &target,
+        )];
+
+        let source = if imported {
+            dependencies.push(dependency_from_fixture_for_target(
+                true,
+                false,
+                GenericDependencyFixture {
+                    source: r#"
+                    module templates;
+                    @abi(c)
+                    func leaf(pos mode: u32) -> u32 {
+                        if mode == 1 {
+                            let outcome: RunResult<unit> = Cancelled;
+                            try outcome;
+                        }
+                        if mode == 2 { panic("imported"); }
+                        return 73;
+                    }
+                    @abi(c)
+                    public func forwarded(pos mode: u32) -> u32 { return leaf(mode); }
+                "#,
+                    runtime_frames: None,
+                    executable_templates: 2,
+                    platform_service: None,
+                },
+                None,
+                target.clone(),
+            ));
+
+            source
+                .replace(
+                    "trusted module app;",
+                    "trusted module app; using example.dependency.templates.forwarded;",
+                )
+                .replace(
+                    "return scalar(mode);",
+                    "return example.dependency.templates.forwarded(mode);",
+                )
+        } else {
+            source.to_owned()
+        };
+
+        let request = crate::CompilationRequest::with_options(
+            crate::test_support::package_identity(),
+            vec![crate::test_support::source_input(&source, 0)],
+            crate::CompilationOptions::new(
+                crate::WorkerBudget::serial(),
+                ProductKind::Library,
+                target.clone(),
+            )
+            .with_native_link_inputs([bray_symbols::NativeLinkRequirement::new(
+                bray_base::NonEmptySharedStr::try_new("native").unwrap(),
+                bray_symbols::NativeLinkKind::Static,
+            )]),
+        )
+        .with_dependency_interfaces(dependencies);
+
+        let compilation = crate::Compilation::load_with_codegen(request, codegen.clone()).unwrap();
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let archive = bray_testing::TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
+        let runtime = super::support::runtime::runtime_artifact(&compilation, archive.path());
+
+        let plan = compilation
+            .native_product_plan(
+                super::support::compilation::test_product_identity(),
+                crate::BuildConfiguration::Development,
+                Some(runtime),
+                [],
+                Some((
+                    &super::support::linker::test_linker(),
+                    super::support::linker::test_linked_product(ProductKind::Library),
+                )),
+            )
+            .unwrap();
+
+        super::support::linker::run_native_caller(&backend, &plan, &caller);
+    }
+}
+
+#[test]
+#[cfg(all(windows, target_arch = "x86_64"))]
+fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
+    let source = r#"
+        trusted module app;
+        trusted internal predicate native_entry();
+        @abi(c)
+        trusted internal func invoke(pos callback: RawPointer<u8>, pos context: usize,
+            pos main: u32, pos outcome: RawPointer<u8>) -> u32
+            requires(trusted native_entry()) {
+            let _ = callback;
+            let _ = context;
+            let _ = main;
+            let _ = outcome;
+            panic("entry cleanup");
+        }
+    "#;
+
+    let role = RuntimeAbiRole::EntryContinuation;
+
+    let binding =
+        bray_runtime_interface::RuntimeRoleSourceBinding::try_new(role, "app.invoke").unwrap();
+
+    let (backend, plan) = runtime_native_plan_with_source_roles(
+        &[source],
+        ProductKind::Library,
+        SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc),
+        [binding],
+    );
+
+    let caller = format!(
+        r#"
+        #include <stdint.h>
+        #include <stdlib.h>
+        typedef struct {{ _Alignas({align}) unsigned char data[{size}]; }} Report;
+        typedef struct {{ uint32_t state; uintptr_t payload; Report report; }} Outcome;
+        static unsigned reported, merged, shield_depth;
+        void {shield_enter}(void) {{ ++shield_depth; }}
+        void {shield_leave}(void) {{ if (!shield_depth) _Exit(8); --shield_depth; }}
+        void {propagate_panic}(Report* report) {{ (void)report; _Exit(9); }}
+        void {propagate_cancellation}(void) {{ _Exit(10); }}
+        Report {construct}(uint32_t cause, uint32_t present, uint32_t identity,
+            uint32_t start, uint32_t end, uint64_t version, uint64_t n0,
+            uint64_t n1, uint64_t n2, uint64_t n3, const void* text, uintptr_t length) {{
+            Report result = {{0}};
+            result.data[0] = 22;
+            return result;
+        }}
+        unsigned {report}(Report value) {{ if (value.data[0] != 22) _Exit(1); ++reported; return 0; }}
+        Report {suppress}(Report* first, Report* second) {{
+            if (first->data[0] != 11 || second->data[0] != 22) _Exit(2);
+            Report result = *first;
+            *first = (Report){{0}}; *second = (Report){{0}};
+            result.data[1] = 22;
+            ++merged;
+            return result;
+        }}
+        extern unsigned {entry}(void*, uintptr_t, unsigned, Outcome*);
+        int main(void) {{
+            Outcome completed = {{0, 73, {{0}}}};
+            if ({entry}(0, 0, 0, &completed) != {represented}) return 3;
+            if (completed.state || completed.payload != 73 || reported != 1 || merged) return 4;
+            Outcome panicked = {{{panicked}, 0, {{0}}}};
+            panicked.report.data[0] = 11;
+            if ({entry}(0, 0, 0, &panicked) != {represented}) return 5;
+            if (panicked.state != {panicked} || panicked.report.data[0] != 11 || panicked.report.data[1] != 22) return 6;
+            return reported == 1 && merged == 1 && shield_depth == 0 ? 0 : 7;
+        }}
+    "#,
+        shield_enter = RuntimeAbiRole::CleanupShieldEnter.native_symbol().unwrap(),
+        shield_leave = RuntimeAbiRole::CleanupShieldLeave.native_symbol().unwrap(),
+        propagate_panic = RuntimeAbiRole::PanicPropagation.native_symbol().unwrap(),
+        propagate_cancellation = RuntimeAbiRole::CurrentRunCancellationPropagation
+            .native_symbol()
+            .unwrap(),
+        align = std::mem::align_of::<bray_runtime_abi::NativePanicReport>(),
+        size = std::mem::size_of::<bray_runtime_abi::NativePanicReport>(),
+        construct = RuntimeAbiRole::PanicReportConstruction
+            .native_symbol()
+            .unwrap(),
+        report = RuntimeAbiRole::PanicReporting.native_symbol().unwrap(),
+        suppress = RuntimeAbiRole::PanicReportSuppression
+            .native_symbol()
+            .unwrap(),
+        entry = role.native_symbol().unwrap(),
+        represented = bray_runtime_abi::NativeRuntimeStatus::PANICKED.code(),
+        panicked = bray_runtime_abi::NativeRunState::PANICKED.code(),
+    );
+
+    super::support::linker::run_native_caller(&backend, &plan, &caller);
 }

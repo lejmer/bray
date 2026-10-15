@@ -773,6 +773,21 @@ mod tests {
                 );
             }
 
+            let consumer =
+                super::runtime_function_type(&context, &target, RuntimeAbiRole::ReportConsumer)
+                    .expect("the report consumer has a native ABI");
+
+            assert_eq!(
+                consumer.get_param_types(),
+                [
+                    context.ptr_type(inkwell::AddressSpace::default()).into(),
+                    context.i32_type().into(),
+                ],
+                "{native:?}"
+            );
+
+            assert_eq!(consumer.get_return_type(), Some(context.i32_type().into()));
+
             let report = super::runtime_function_type(
                 &context,
                 &target,

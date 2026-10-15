@@ -1,0 +1,209 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.entry.bridge;
+
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.entry;
+
+// The native scope owns an attachment acquisition on this thread, retains the
+// callback provider, and restores the previous callback before releasing either.
+// The previous-address destination is exclusive and does not alias host storage.
+trusted internal predicate native_provider();
+
+internal callable Callback = @abi(c) trusted func(
+    pos continuation: RawPointer<u8>,
+    pos callback: RawPointer<u8>,
+    pos context: usize,
+    pos main: u32,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> u32
+    requires(trusted bray.runtime.bootstrap.entry.native_entry());
+
+@abi(c)
+trusted internal func install(pos pointer: RawPointer<u8>, pos previous: RawPointer<usize>) -> u32
+    requires(trusted native_provider())
+    uses(layout_reinterpret)
+{
+    let address = trusted lambda(pos pointer: RawPointer<u8>) -> RawPointer<Callback>
+        requires(trusted native_provider())
+        ensures(trusted core.memory.callable_address_valid<Callback>(pointer = result))
+        executes(pure, total)
+        uses(layout_reinterpret)
+    {
+        return trusted std.memory.reinterpret<Callback, u8>(pointer);
+    };
+
+    let mut selected: Callback? = none;
+
+    if !std.memory.is_null<u8>(pointer)
+    {
+        selected = trusted std.memory.callable_from_pointer<Callback>(trusted address(pointer));
+    }
+
+    let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+    if !lease.active
+    {
+        return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+    }
+
+    let identity = trusted bray.runtime.bootstrap.host.current_attachment_locked(&lease);
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+    return trusted exchange(&lease, &mut anchor, identity, selected, previous);
+}
+
+trusted internal func exchange(
+    pos lease: &bray.runtime.bootstrap.host.HostLease,
+    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
+    pos identity: u64,
+    pos selected: Callback?,
+    pos previous: RawPointer<usize>
+) -> u32
+    requires(
+        trusted native_provider(),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.attachment_cleanup_completed(owner = lease)
+    )
+    executes(total)
+    uses(raw_memory, unchecked_init)
+{
+    let destination = trusted lambda(pos pointer: RawPointer<usize>) -> RawPointer<usize>
+        requires(trusted native_provider())
+        ensures(
+            trusted core.memory.valid_write<usize>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<usize>(pointer = result)
+        )
+        executes(pure, total)
+    {
+        return pointer;
+    };
+
+    let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
+
+    if let ?storage = host.storage
+    {
+        let found = trusted bray.runtime.bootstrap.host.find_attachment(&mut storage, identity, 0);
+
+        if let ?attachment = found
+        {
+            if attachment.closing
+            {
+                return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+            }
+
+            let old = trusted code_address(attachment.context_bridge);
+            let next = trusted code_address(selected);
+
+            // Different Rust providers have distinct TLS contexts. Their composition
+            // needs provider formation authority, not a silent callback replacement.
+            if old != 0 && next != 0 && old != next
+            {
+                return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+            }
+
+            attachment.context_bridge = selected;
+            trusted std.memory.write<usize>(trusted destination(previous), old);
+            return bray.runtime.bootstrap.STATUS_SUCCESS;
+        }
+    }
+
+    return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+}
+
+trusted internal func current() -> Result<Callback?, u32>
+    requires(trusted bray.runtime.bootstrap.entry.native_entry())
+    uses(layout_reinterpret)
+{
+    let native_address = trusted lambda(pos value: usize) -> RawPointer<Callback>
+        requires(trusted bray.runtime.bootstrap.entry.native_entry(), value != 0)
+        ensures(trusted core.memory.callable_address_valid<Callback>(pointer = result))
+        executes(total)
+        uses(intrinsic)
+    {
+        // Lookup and invocation stay within the native scope retaining this provider.
+        return trusted core.target.from_exposed_address<Callback>(address = value);
+    };
+
+    let address: usize =
+    {
+        let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+        if !lease.active
+        {
+            return Error(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+        }
+
+        let identity = trusted bray.runtime.bootstrap.host.current_attachment_locked(&lease);
+        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+        yield trusted read(&lease, &mut anchor, identity);
+    };
+
+    if address == 0
+    {
+        return Ok(none);
+    }
+
+    let mut selected: Callback? = none;
+
+    selected = trusted std.memory.callable_from_pointer<Callback>(trusted native_address(address));
+
+    return Ok(selected);
+}
+
+trusted internal func read(
+    pos lease: &bray.runtime.bootstrap.host.HostLease,
+    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
+    pos identity: u64
+) -> usize
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.attachment_cleanup_completed(owner = lease)
+    )
+    executes(total)
+{
+    let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
+
+    if let ?storage = host.storage
+    {
+        let found = trusted bray.runtime.bootstrap.host.find_attachment(&mut storage, identity, 0);
+
+        if let ?attachment = found
+        {
+            return trusted code_address(attachment.context_bridge);
+        }
+    }
+
+    return 0;
+}
+
+trusted internal func code_address(pos callback: Callback?) -> usize
+    executes(total)
+    uses(layout_reinterpret, intrinsic)
+{
+    if let ?selected = callback
+    {
+        return trusted core.target.expose_address<Callback>(
+            trusted std.memory.pointer_from_callable<Callback>(selected)
+        );
+    }
+
+    return 0;
+}

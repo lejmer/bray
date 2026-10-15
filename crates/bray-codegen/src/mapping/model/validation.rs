@@ -128,19 +128,27 @@ pub fn frame_creation_runtime_role(initializer: &MirFrameInitializer) -> Option<
 
 /// Returns runtime roles required by a mapped callable symbol.
 pub fn mapped_symbol_runtime_roles(
-    native_entry: Option<crate::CodegenNativeEntryKind>,
+    native_entry: Option<bray_runtime_interface::NativeEntryKind>,
     panic_report_context: bool,
 ) -> impl Iterator<Item = RuntimeAbiRole> {
     FOREIGN_CALLBACK_RUNTIME_ROLES
         .into_iter()
         .filter(move |role| match native_entry {
-            Some(crate::CodegenNativeEntryKind::ForeignCallback) => true,
+            Some(bray_runtime_interface::NativeEntryKind::ForeignCallback) => true,
             Some(
-                crate::CodegenNativeEntryKind::ThreadStorageExit
-                | crate::CodegenNativeEntryKind::RuntimeStatus,
+                bray_runtime_interface::NativeEntryKind::ThreadStorageExit
+                | bray_runtime_interface::NativeEntryKind::RuntimeStatus,
             ) => *role == RuntimeAbiRole::PanicReporting,
+            Some(bray_runtime_interface::NativeEntryKind::EntryStatus) => {
+                *role == RuntimeAbiRole::PanicReporting
+            }
             None => false,
         })
+        .chain(
+            std::iter::once(RuntimeAbiRole::PanicReportSuppression).filter(move |_| {
+                native_entry == Some(bray_runtime_interface::NativeEntryKind::EntryStatus)
+            }),
+        )
         .chain(
             [
                 RuntimeAbiRole::PanicPropagation,
@@ -282,7 +290,9 @@ fn operation_runtime_references(
         | MirOperationKind::Destroy(_)
         | MirOperationKind::Cleanup { .. }
         | MirOperationKind::Host(
-            MirHostOperation::MaterializeStatic { .. } | MirHostOperation::BeginStaticCleanup,
+            MirHostOperation::MaterializeStatic { .. }
+            | MirHostOperation::BeginProductEntry
+            | MirHostOperation::BeginStaticCleanup,
         )
         | MirOperationKind::Async(
             MirAsyncOperation::CreateFrame {
@@ -402,14 +412,31 @@ mod tests {
     #[test]
     fn terminal_thread_callbacks_report_panics_without_recursive_attachment() {
         for kind in [
-            crate::CodegenNativeEntryKind::ThreadStorageExit,
-            crate::CodegenNativeEntryKind::RuntimeStatus,
+            bray_runtime_interface::NativeEntryKind::ThreadStorageExit,
+            bray_runtime_interface::NativeEntryKind::RuntimeStatus,
         ] {
             let roles: BTreeSet<_> =
                 super::mapped_symbol_runtime_roles(Some(kind), false).collect();
 
             assert_eq!(roles, BTreeSet::from([RuntimeAbiRole::PanicReporting]));
         }
+    }
+
+    #[test]
+    fn entry_cleanup_preserves_body_reports_without_recursive_entry() {
+        let roles: BTreeSet<_> = super::mapped_symbol_runtime_roles(
+            Some(bray_runtime_interface::NativeEntryKind::EntryStatus),
+            false,
+        )
+        .collect();
+
+        assert_eq!(
+            roles,
+            BTreeSet::from([
+                RuntimeAbiRole::PanicReporting,
+                RuntimeAbiRole::PanicReportSuppression,
+            ])
+        );
     }
 
     #[test]

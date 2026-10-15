@@ -1,8 +1,7 @@
 use std::fs;
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
-use std::time::{Duration, Instant};
+use std::process::{Command, Output};
 
 use bray_compilation::{
     BuildConfiguration, Compilation, CompilationOptions, CompilationRequest, SelectedTarget,
@@ -10,17 +9,18 @@ use bray_compilation::{
 };
 use bray_emitter::{ArtifactKind, resolve_published_artifact};
 use bray_source::{SourceIdentity, SourceInput, SourceVersion};
-use bray_standard_library::StandardLibraryRoot;
 use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 use bray_target::NativeTarget;
 use bray_tooling::load_llvm_compilation;
 
 use super::command::{CommandError, Package, RuntimeArchiveKind};
-use super::smoke::{audit_link_symbols, compile_c_smoke, component_archives};
+use super::smoke::{
+    audit_link_symbols, command_output, compile_c_smoke, component_archives, native_links,
+    standard_library,
+};
 
 const C_SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-observation-smoke.c");
 const PRODUCT_SOURCE: &str = include_str!("../../fixtures/runtime-observation-product.bray");
-const EXECUTION_TIMEOUT: Duration = Duration::from_secs(30);
 const CONCURRENT_THREAD_COUNT: usize = 32;
 const CONCURRENT_RECORDS_PER_THREAD: usize = 256;
 
@@ -58,28 +58,7 @@ fn smoke_test_direct_hooks(
         ],
     )?;
 
-    let metadata = crate::native_toolchain::runtime_artifact_metadata(&package.metadata)
-        .map_err(CommandError::ObservationSmoke)?;
-
-    let artifact = bray_tooling::load_runtime_artifact(
-        &package.metadata,
-        metadata.contract().target(),
-        metadata.contract().abi_version(),
-    )
-    .map_err(|error| {
-        CommandError::ObservationSmoke(format!("could not load runtime native units: {error:?}"))
-    })?;
-
-    let native_links = artifact.native_indexes()[0]
-        .index()
-        .units()
-        .iter()
-        .flat_map(bray_native_artifact::NativeUnit::native_links)
-        .chain(&package.native_links)
-        .cloned()
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>();
+    let native_links = native_links(package).map_err(CommandError::ObservationSmoke)?;
 
     let map = directory.join("runtime-observation-smoke.map");
 
@@ -339,7 +318,7 @@ fn observation_product(
         vec![source],
         CompilationOptions::new(WorkerBudget::default(), ProductKind::Executable, selected),
     )
-    .with_standard_library_root(observation_standard_library(target)?);
+    .with_standard_library_root(standard_library(target)?);
 
     let compilation = load_llvm_compilation(request).map_err(|error| {
         CommandError::ObservationSmoke(format!(
@@ -356,20 +335,6 @@ fn observation_product(
     }
 
     Ok((compilation, product))
-}
-
-fn observation_standard_library(target: NativeTarget) -> Result<StandardLibraryRoot, CommandError> {
-    let root = crate::workspace::root().map_err(CommandError::Workspace)?;
-
-    let path = crate::workspace::cargo_target(&root)
-        .join("runtime-bootstrap-standard-library")
-        .join(target.as_str());
-
-    StandardLibraryRoot::try_new(path).ok_or_else(|| {
-        CommandError::ObservationSmoke(
-            "runtime observation standard-library bundle path is invalid".to_owned(),
-        )
-    })
 }
 
 #[expect(
@@ -456,40 +421,6 @@ fn require_mode_success(
     let execution = command_output(&mut command, "observation")?;
 
     require_clean_success(mode.unwrap_or("generated product"), &execution)
-}
-
-fn command_output(command: &mut Command, name: &'static str) -> Result<Output, CommandError> {
-    let mut child = command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| CommandError::SmokeExecution { name, error })?;
-
-    let deadline = Instant::now() + EXECUTION_TIMEOUT;
-
-    loop {
-        if child
-            .try_wait()
-            .map_err(|error| CommandError::SmokeExecution { name, error })?
-            .is_some()
-        {
-            return child
-                .wait_with_output()
-                .map_err(|error| CommandError::SmokeExecution { name, error });
-        }
-
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-
-            return Err(CommandError::ObservationSmoke(format!(
-                "{name} exceeded the {} second execution limit",
-                EXECUTION_TIMEOUT.as_secs()
-            )));
-        }
-
-        std::thread::sleep(Duration::from_millis(10));
-    }
 }
 
 fn require_clean_success(name: &str, execution: &Output) -> Result<(), CommandError> {

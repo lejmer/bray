@@ -99,12 +99,18 @@ impl Compilation {
                     cancellation,
                 )?,
                 None => match reachability.selected_native(key) {
-                    Some(selected) => (selected.symbol.clone(), CodegenLinkage::Import, None),
+                    Some(selected) => {
+                        self.codegen_selected_native_boundary(selected, realization, cancellation)?
+                    }
                     None => self.codegen_callable_symbol_boundary(
                         product,
                         target,
                         realization,
-                        self.codegen_native_boundary(key, &platform_overrides, cancellation)?,
+                        self.codegen_native_boundary(
+                            realization,
+                            &platform_overrides,
+                            cancellation,
+                        )?,
                         CodegenLinkage::Import,
                         cancellation,
                     )?,
@@ -127,23 +133,28 @@ impl Compilation {
             );
 
             if linkage == CodegenLinkage::Import {
-                native_roots.push(bray_symbols::NativeSymbolContract::required_name(
-                    bray_base::NonEmptySharedStr::try_new(
-                        native_target.object_symbol_name(name.as_str()).as_ref(),
-                    )
-                    .expect("mapped native import must be nonempty"),
+                native_roots.push(super::link::required_native_symbol(
+                    &native_target,
+                    name.as_str(),
                 ));
             } else if let Some(binding) = super::link::product_symbol_binding(linkage) {
                 super::link::insert_product_definition(&mut definitions, name, binding);
             }
 
             if let Some(entry) = native_entry {
-                super::link::insert_product_definition(
-                    &mut definitions,
-                    entry.name().clone(),
-                    super::link::product_symbol_binding(entry.linkage())
-                        .expect("emitted callback must have definition linkage"),
-                );
+                if entry.linkage() == CodegenLinkage::Import {
+                    native_roots.push(super::link::required_native_symbol(
+                        &native_target,
+                        entry.name().as_str(),
+                    ));
+                } else {
+                    super::link::insert_product_definition(
+                        &mut definitions,
+                        entry.name().clone(),
+                        super::link::product_symbol_binding(entry.linkage())
+                            .expect("emitted callback must have definition linkage"),
+                    );
+                }
             }
 
             if let Some(instance) = graph.instance(key)
@@ -192,11 +203,9 @@ impl Compilation {
             match contract.direction {
                 bray_symbols::ForeignCallableDirection::Import => {
                     if contract.symbol.presence() == bray_symbols::NativeSymbolPresence::Required {
-                        native_roots.push(bray_symbols::NativeSymbolContract::required_name(
-                            bray_base::NonEmptySharedStr::try_new(
-                                native_target.object_symbol_name(name.as_str()).as_ref(),
-                            )
-                            .expect("mapped native import must be nonempty"),
+                        native_roots.push(super::link::required_native_symbol(
+                            &native_target,
+                            name.as_str(),
                         ));
                     }
                 }

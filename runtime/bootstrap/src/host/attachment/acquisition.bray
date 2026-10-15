@@ -1,0 +1,138 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.attachment;
+
+using std.memory;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.thread.destruction;
+
+// The trusted entry keeps acquisition on this native thread until retirement.
+// Only the native enter adapter may transfer it to a same-thread paired leave.
+trusted internal predicate native_acquisition();
+
+// Field mutation invalidates this whole-value witness, including identity changes.
+trusted internal predicate acquired(owner: &Owner);
+
+internal struct Owner
+{
+    mut status: u32;
+    mut identity: u64;
+
+    trusted destruct()
+        requires(trusted acquired(owner = &self))
+        when(self.status != bray.runtime.bootstrap.STATUS_SUCCESS)
+        {
+            executes(total)
+        }
+    {
+        if self.status == bray.runtime.bootstrap.STATUS_SUCCESS
+        {
+            let scope = trusted retire(&mut self);
+            let _: u32 = trusted bray.runtime.bootstrap.host.finish_attachment(&scope);
+        }
+    }
+}
+
+// Consume the acquisition before arbitrary cleanup can reenter the host.
+trusted internal func retire(pos owner: &mut Owner) -> bray.runtime.bootstrap.thread.destruction.ExitScope
+    requires(trusted acquired(owner = &owner), owner.status == bray.runtime.bootstrap.STATUS_SUCCESS)
+    ensures(
+        trusted acquired(owner = &owner),
+        trusted bray.runtime.bootstrap.thread.destruction.exit_scope_live(owner = &result)
+    )
+    executes(total)
+{
+    let identity = owner.identity;
+
+    owner.status = bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+
+    return
+    {
+        identity = identity,
+        native = false,
+    };
+}
+
+trusted internal func finish(pos mut owner: Owner) -> u32
+    requires(trusted acquired(owner = &owner))
+{
+    if owner.status != bray.runtime.bootstrap.STATUS_SUCCESS
+    {
+        return owner.status;
+    }
+
+    let scope = trusted retire(&mut owner);
+
+    return trusted bray.runtime.bootstrap.host.finish_attachment(&scope);
+}
+
+trusted internal func acquire() -> Owner
+    requires(trusted native_acquisition())
+    ensures(trusted acquired(owner = &result))
+{
+    let inactive = trusted lambda() -> Owner
+        ensures(trusted acquired(owner = &result))
+    {
+        return
+        {
+            status = bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE,
+            identity = 0
+        };
+    };
+
+    let commit = trusted lambda(pos owner: &mut Owner, pos status: u32, pos identity: u64)
+        requires(trusted acquired(owner = &owner))
+        ensures(trusted acquired(owner = &owner))
+        executes(total)
+    {
+        owner.status = status;
+        owner.identity = identity;
+    };
+
+    // Secure cleanup backing before accepting the attachment obligation.
+    let mut owner = trusted inactive();
+
+    let status = trusted bray.runtime.bootstrap.host.initialize_host();
+
+    if status != bray.runtime.bootstrap.STATUS_SUCCESS
+    {
+        trusted commit(&mut owner, status, 0);
+        return owner;
+    }
+
+    let mut prepared: std.memory.RawBuffer<bray.runtime.bootstrap.host.Attachment>? = none;
+
+    while true
+    {
+        let entered: Result<(u32, u64), usize> =
+        {
+            let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+            if !lease.active
+            {
+                return owner;
+            }
+
+            yield trusted bray.runtime.bootstrap.host.enter_attachment_locked(&lease, &mut prepared);
+        };
+
+        let capacity: usize = match consume entered
+        {
+            case Ok(value)
+            {
+                trusted commit(&mut owner, value.0, value.1);
+                return owner;
+            }
+            case Error(capacity) { yield capacity; }
+        };
+
+        // Reentrant allocation runs outside the host lock, before publication.
+        prepared = trusted internal bray.runtime.bootstrap.heap.try_buffer<bray.runtime.bootstrap.host.Attachment>(
+            capacity
+        );
+
+        if prepared matches none
+        {
+            return owner;
+        }
+    }
+}

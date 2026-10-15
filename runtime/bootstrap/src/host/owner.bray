@@ -4,6 +4,7 @@ trusted internal module bray.runtime.bootstrap.host;
 using std.memory;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.thread.destruction;
+using internal bray.runtime.bootstrap.entry.bridge;
 using internal std.platform;
 using internal std.memory;
 using internal std.thread;
@@ -17,6 +18,7 @@ internal struct Attachment
     mut depth: usize;
     mut closing: bool;
     mut cleanup: AttachmentExit?;
+    mut context_bridge: bray.runtime.bootstrap.entry.bridge.Callback?;
 }
 
 internal struct HostOwner
@@ -379,33 +381,16 @@ trusted internal func insert_attachment(
 
     let buffer: &mut std.memory.RawBuffer<Attachment> = &mut host.attachments;
 
-    if buffer.initialized == buffer.capacity
+    match consume trusted internal bray.runtime.bootstrap.heap.grow<Attachment>(buffer, prepared)
     {
-        let maximum: usize = ~0;
-
-        if buffer.capacity > maximum - buffer.capacity
+        case Ok(ready)
         {
-            return Ok(false);
-        }
-
-        let required: usize = buffer.capacity * 2;
-
-        if let ?replacement = prepared
-        {
-            if replacement.capacity < required || replacement.initialized != 0
+            if !ready
             {
-                return Error(required);
+                return Ok(false);
             }
-
-            let backing: &mut std.memory.RawBuffer<Attachment> = &mut replacement;
-
-            trusted internal std.memory.raw_buffer_relocate<Attachment>(buffer, backing);
-            trusted internal std.memory.swap_values<(std.memory.RawBuffer<Attachment>)>(buffer, backing);
         }
-        else
-        {
-            return Error(required);
-        }
+        case Error(capacity) { return Error(capacity); }
     }
 
     trusted internal std.memory.raw_buffer_push<Attachment>(
@@ -416,6 +401,7 @@ trusted internal func insert_attachment(
             native_thread = native_thread,
             depth = 1,
             closing = false,
+            context_bridge = none,
             cleanup = none
         }
     );

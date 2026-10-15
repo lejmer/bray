@@ -2,38 +2,48 @@
 trusted internal module bray.runtime.bootstrap.storage;
 
 using std.memory;
+using internal bray.runtime.bootstrap.pool.growth;
 using internal bray.runtime.bootstrap;
 
 trusted internal func reserve_bundle(
     pos pool: &mut bray.runtime.bootstrap.ReportPool,
-    pos descriptors: &[Descriptor]
-) -> bool
+    pos descriptors: &[Descriptor],
+    pos prepared: &mut bray.runtime.bootstrap.pool.growth.Prepared
+) -> Result<bool, bray.runtime.bootstrap.pool.growth.Request>
 {
     let count: usize = descriptors.length();
 
     // One activation and one retained-result transfer may reuse the same bytes.
     if count as u64 > pool.remaining_epochs / 2
     {
-        return false;
+        return Ok(false);
     }
 
     let mut acquired: usize = 0;
 
     while acquired < count
     {
-        let accepted: bool = trusted reserve_requirement(pool, descriptors[acquired]);
+        let accepted = match consume trusted reserve_requirement(pool, descriptors[acquired], prepared)
+        {
+            case Ok(accepted) { yield accepted; }
+            case Error(request)
+            {
+                trusted discharge_bundle(pool, descriptors, acquired);
+                return Error(request);
+            }
+        };
 
         if !accepted
         {
             trusted discharge_bundle(pool, descriptors, acquired);
-            return false;
+            return Ok(false);
         }
 
         acquired += 1;
     }
 
     pool.remaining_epochs -= (count as u64) * 2;
-    return true;
+    return Ok(true);
 }
 
 trusted internal func discharge_bundle(
@@ -78,19 +88,24 @@ trusted internal func discharge_bundle(
 
 trusted internal func reserve_requirement(
     pos pool: &mut bray.runtime.bootstrap.ReportPool,
-    pos descriptor: Descriptor
-) -> bool
+    pos descriptor: Descriptor,
+    pos prepared: &mut bray.runtime.bootstrap.pool.growth.Prepared
+) -> Result<bool, bray.runtime.bootstrap.pool.growth.Request>
 {
     if descriptor.bytes == 0
     {
-        return valid_layout(&descriptor);
+        return Ok(valid_layout(&descriptor));
     }
 
-    let index: usize = trusted register(pool, descriptor);
+    let index = match consume trusted register(pool, descriptor, prepared)
+    {
+        case Ok(index) { yield index; }
+        case Error(request) { return Error(request); }
+    };
 
     if index == 0
     {
-        return false;
+        return Ok(false);
     }
 
     let values = trusted shapes(pool);
@@ -99,16 +114,23 @@ trusted internal func reserve_requirement(
 
     if shape.credits == limit
     {
-        return false;
+        return Ok(false);
     }
 
     let requested: usize = shape.credits + 1;
 
-    if !trusted reserve(shape, requested)
+    match consume trusted reserve(shape, requested, prepared)
     {
-        return false;
+        case Ok(ready)
+        {
+            if !ready
+            {
+                return Ok(false);
+            }
+        }
+        case Error(request) { return Error(request); }
     }
 
     shape.credits += 1;
-    return true;
+    return Ok(true);
 }

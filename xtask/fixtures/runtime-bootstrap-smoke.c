@@ -20,7 +20,14 @@ static atomic_uint allocation_attempts;
 static atomic_uint live_allocations;
 static atomic_size_t allocated_bytes;
 static atomic_bool reenter_allocation;
+static atomic_bool reenter_deallocation;
+static unsigned deallocation_reentries;
+static unsigned deallocation_reentry_status;
+static void reenter_pool_on_release(void);
 static atomic_uint recursive_attachment_status;
+static atomic_uint recursive_attachment_leave_status;
+extern uint32_t bray_runtime_thread_attachment_enter(void);
+extern uint32_t bray_runtime_thread_attachment_leave(void);
 
 #ifdef _WIN32
 static atomic_bool reject_key_creation;
@@ -28,6 +35,8 @@ static atomic_bool reject_key_destruction;
 static atomic_uint key_creation_attempts;
 static atomic_uint key_destruction_attempts;
 static atomic_uint live_keys;
+static atomic_bool reenter_key_creation;
+static atomic_uint recursive_key_status;
 
 DWORD WINAPI FlsAlloc(PFLS_CALLBACK_FUNCTION callback)
 {
@@ -38,6 +47,9 @@ DWORD WINAPI FlsAlloc(PFLS_CALLBACK_FUNCTION callback)
         SetLastError(ERROR_NOT_ENOUGH_MEMORY);
         return FLS_OUT_OF_INDEXES;
     }
+
+    if (atomic_exchange(&reenter_key_creation, 0))
+        atomic_store(&recursive_key_status, bray_runtime_thread_attachment_enter());
 
     DWORD (WINAPI *allocate)(PFLS_CALLBACK_FUNCTION) =
         (DWORD (WINAPI *)(PFLS_CALLBACK_FUNCTION))GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "FlsAlloc");
@@ -87,7 +99,13 @@ static void* allocate_report_memory(size_t bytes, size_t alignment)
     atomic_fetch_add(&allocation_attempts, 1);
 
     if (atomic_exchange(&reenter_allocation, 0))
-        atomic_store(&recursive_attachment_status, bray_runtime_thread_attachment_enter());
+    {
+        uint32_t status = bray_runtime_thread_attachment_enter();
+        atomic_store(&recursive_attachment_status, status);
+
+        if (status == 0)
+            atomic_store(&recursive_attachment_leave_status, bray_runtime_thread_attachment_leave());
+    }
 
     if (atomic_load(&reject_allocations))
         return NULL;
@@ -115,7 +133,11 @@ void* _aligned_malloc(size_t bytes, size_t alignment)
 void _aligned_free(void* memory)
 {
     if (memory != NULL)
+    {
         atomic_fetch_sub(&live_allocations, 1);
+        if (atomic_exchange(&reenter_deallocation, 0))
+            reenter_pool_on_release();
+    }
 
     free(memory);
 }
@@ -164,7 +186,7 @@ struct PanicReport
     uintptr_t tail;
     uintptr_t count;
     uintptr_t reserved;
-    uint32_t (*consume)(PanicReport*, _Bool);
+    uint32_t (*consume)(PanicReport*, uint32_t);
 };
 
 struct RunOutcome
@@ -283,11 +305,23 @@ extern void bray_runtime_outgoing_admission(const CleanupBundle* bundle, RunOutc
 extern uintptr_t bray_runtime_outgoing_activation(const void* descriptor, void* lease);
 extern void bray_runtime_outgoing_retirement(uintptr_t record, const void* lease, RunOutcome* outcome);
 extern void bray_runtime_outgoing_discharge(const CleanupBundle* bundle);
+
+static void reenter_pool_on_release(void)
+{
+    CleanupBundle empty = { 0 };
+    RunOutcome outcome = { 0 };
+    bray_runtime_outgoing_admission(&empty, &outcome);
+    deallocation_reentries += 1;
+    deallocation_reentry_status = outcome.state;
+    if (outcome.state == 0)
+        bray_runtime_outgoing_discharge(&empty);
+}
+
 extern PanicReport bray_runtime_panic_report_suppression(PanicReport* primary, PanicReport* incident);
 
-typedef uint32_t (*ReportConsumer)(PanicReport*, _Bool);
+typedef uint32_t (*ReportConsumer)(PanicReport*, uint32_t);
 
-extern ReportConsumer bray_runtime_report_consumer(void);
+extern uint32_t bray_runtime_report_consumer(PanicReport*, uint32_t);
 
 static PanicReport* reentrant_report;
 static unsigned reentrant_releases;
@@ -390,7 +424,7 @@ static int consume_after_allocator_failure(void)
     )
         return 13;
 
-    PanicReport reentrant = {.release_message = reentrant_release, .consume = bray_runtime_report_consumer()};
+    PanicReport reentrant = {.release_message = reentrant_release, .consume = bray_runtime_report_consumer};
 
     reentrant_report = &reentrant;
 
@@ -496,9 +530,22 @@ static int check_primitive_attachment(void)
     if (bray_runtime_thread_attachment_enter() != 4 ||
         bray_runtime_current_native_thread_identity() != 0 ||
         atomic_load(&key_creation_attempts) != 1 ||
-        atomic_load(&live_keys) != 0 ||
-        atomic_load(&live_allocations) != initial_live_allocations)
+        atomic_load(&live_keys) != 0)
         return 33;
+
+    // Failed acquisition returns every reservation. Free pool capacity remains
+    // reusable until shutdown, which must reclaim it without allocating.
+    unsigned rollback_allocations = atomic_load(&allocation_attempts);
+    atomic_store(&reject_allocations, 1);
+    atomic_store(&reenter_deallocation, 1);
+
+    if (bray_runtime_structured_shutdown() != 1 ||
+        atomic_load(&allocation_attempts) != rollback_allocations ||
+        atomic_load(&live_allocations) != initial_live_allocations ||
+        deallocation_reentries != 1 || deallocation_reentry_status != 0)
+        return 33;
+
+    atomic_store(&reject_allocations, 0);
 
     atomic_store(&reject_key_creation, 0);
 #endif
@@ -510,6 +557,9 @@ static int check_primitive_attachment(void)
 
     atomic_store(&reject_allocations, 0);
     atomic_store(&reenter_allocation, 1);
+#ifdef _WIN32
+    atomic_store(&reenter_key_creation, 1);
+#endif
     unsigned startup_allocations = atomic_load(&allocation_attempts);
     size_t startup_bytes = atomic_load(&allocated_bytes);
 
@@ -519,6 +569,11 @@ static int check_primitive_attachment(void)
     printf("bootstrap startup: allocations=%u bytes=%zu\n",
         atomic_load(&allocation_attempts) - startup_allocations,
         atomic_load(&allocated_bytes) - startup_bytes);
+
+#ifdef _WIN32
+    if (atomic_load(&recursive_key_status) != 4)
+        return 34;
+#endif
 
     unsigned empty_exit_allocations = atomic_load(&allocation_attempts);
     atomic_store(&reject_allocations, 1);
@@ -534,6 +589,14 @@ static int check_primitive_attachment(void)
         return 31;
 
     uint64_t rejected_owner_identity = bray_runtime_current_native_thread_identity();
+
+    // The cumulative allocation byte count exceeds twice the pool's record count.
+    // Reserve that much capacity so registration must grow instead of using warm records.
+    CleanupBundle held = { atomic_load(&allocated_bytes) + 1, NULL, 0 };
+    RunOutcome reserved = { 0 };
+    bray_runtime_outgoing_admission(&held, &reserved);
+    if (reserved.state != 0) return 32;
+
     atomic_store(&reject_allocations, 1);
     uint32_t rejected_registration = bray_runtime_thread_attachment_cleanup(attachment_cleanup);
 
@@ -547,6 +610,7 @@ static int check_primitive_attachment(void)
         return 32;
     }
 
+    bray_runtime_outgoing_discharge(&held);
     atomic_store(&reject_allocations, 0);
 
     int status = attach_with_cleanup();
@@ -555,7 +619,8 @@ static int check_primitive_attachment(void)
         return status;
 
     if (
-        atomic_load(&recursive_attachment_status) != 4 ||
+        atomic_load(&recursive_attachment_status) != 0 ||
+        atomic_load(&recursive_attachment_leave_status) != 0 ||
         bray_runtime_thread_attachment_mark_main() != 0 ||
         bray_runtime_main_native_thread_identity() != previous_attachment ||
         bray_runtime_thread_attachment_leave() != 0 ||

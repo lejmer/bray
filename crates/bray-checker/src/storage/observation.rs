@@ -14,6 +14,53 @@ enum Observation {
     Discriminant,
 }
 
+struct Shape {
+    observations: Vec<(Vec<StorageProjection>, Observation)>,
+    complete_value: bool,
+}
+
+impl Shape {
+    fn unknown() -> Self {
+        Self {
+            observations: vec![(Vec::new(), Observation::Mutable)],
+            complete_value: false,
+        }
+    }
+}
+
+fn known_shape(role: bray_compiler_known::RepresentationRole, reference: bool) -> Shape {
+    use bray_compiler_known::RepresentationRole;
+
+    if matches!(role, RepresentationRole::Unit | RepresentationRole::Never) {
+        return Shape {
+            observations: Vec::new(),
+            complete_value: !reference,
+        };
+    }
+
+    let scalar = role.numeric_kind().is_some()
+        || matches!(
+            role,
+            RepresentationRole::ScalarBool | RepresentationRole::ScalarChar
+        );
+
+    let observation = if scalar && !reference {
+        Observation::Scalar
+    } else if matches!(
+        role,
+        RepresentationRole::RawPointer | RepresentationRole::DevicePointer
+    ) {
+        Observation::Address
+    } else {
+        Observation::Mutable
+    };
+
+    Shape {
+        observations: vec![(Vec::new(), observation)],
+        complete_value: scalar && !reference,
+    }
+}
+
 pub(crate) struct Footprint {
     pub(crate) atomic: StorageInvalidation,
     pub(crate) scalars: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
@@ -76,7 +123,13 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
             shapes.insert(ty, paths(request, ty, &mut BTreeSet::new())?);
         }
 
-        let mut observations = shapes[&ty].iter().cloned().collect::<BTreeSet<_>>();
+        let mut observations = shapes[&ty]
+            .observations
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+
+        let mut complete_value = shapes[&ty].complete_value;
 
         // Aliasing groups static specializations by declaration. Preserve a marker
         // only when every selected storage shape proves that same observation.
@@ -85,16 +138,29 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                 shapes.insert(*ty, paths(request, *ty, &mut BTreeSet::new())?);
             }
 
+            complete_value &= shapes[ty].complete_value;
+
             observations.retain(|observation| {
-                observation.1 != Observation::Identity || shapes[ty].contains(observation)
+                observation.1 != Observation::Identity
+                    || shapes[ty].observations.contains(observation)
             });
 
             observations.extend(
                 shapes[ty]
+                    .observations
                     .iter()
                     .filter(|(_, observation)| *observation != Observation::Identity)
                     .cloned(),
             );
+        }
+
+        if shared.is_none() && identity.is_invocation_owned(storage.kind()) && complete_value {
+            // A call that cannot reach any part of this value cannot change its
+            // whole-value contract. Scalar fields alone do not retain that contract.
+            scalars
+                .entry(root)
+                .or_insert_with(Vec::new)
+                .push(StoragePath::root(root));
         }
 
         let paths: Vec<_> = observations
@@ -173,7 +239,7 @@ fn paths<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
     visiting: &mut BTreeSet<NamedTypeSymbolId>,
-) -> Result<Vec<(Vec<StorageProjection>, Observation)>, CheckerQueryError<C::UpstreamError>> {
+) -> Result<Shape, CheckerQueryError<C::UpstreamError>> {
     if request.is_cancelled() {
         return Err(CheckerQueryError::Cancelled);
     }
@@ -214,48 +280,12 @@ fn paths<C: CheckerRequestContext + ?Sized>(
                         | bray_compiler_known::RepresentationRole::RunResult
                 )
             }) {
-                if matches!(
-                    role,
-                    bray_compiler_known::RepresentationRole::Unit
-                        | bray_compiler_known::RepresentationRole::Never
-                ) {
-                    return Ok(Vec::new());
-                }
-
-                if role.numeric_kind().is_some()
-                    || matches!(
-                        role,
-                        bray_compiler_known::RepresentationRole::ScalarBool
-                            | bray_compiler_known::RepresentationRole::ScalarChar
-                    )
-                {
-                    return Ok(vec![(
-                        Vec::new(),
-                        if reference {
-                            Observation::Mutable
-                        } else {
-                            Observation::Scalar
-                        },
-                    )]);
-                }
-
-                return Ok(vec![(
-                    Vec::new(),
-                    if matches!(
-                        role,
-                        bray_compiler_known::RepresentationRole::RawPointer
-                            | bray_compiler_known::RepresentationRole::DevicePointer
-                    ) {
-                        Observation::Address
-                    } else {
-                        Observation::Mutable
-                    },
-                )]);
+                return Ok(known_shape(role, reference));
             }
 
             // A recursive reference widens only that component, not its siblings.
             if !visiting.insert(*definition) {
-                return Ok(vec![(Vec::new(), Observation::Mutable)]);
+                return Ok(Shape::unknown());
             }
 
             let representation = request.declared_type_representation(*definition)?;
@@ -292,7 +322,7 @@ fn paths<C: CheckerRequestContext + ?Sized>(
                 let Some(projection) = projection else {
                     visiting.remove(definition);
 
-                    return Ok(vec![(Vec::new(), Observation::Mutable)]);
+                    return Ok(Shape::unknown());
                 };
 
                 let checked =
@@ -301,7 +331,7 @@ fn paths<C: CheckerRequestContext + ?Sized>(
                 let Some(ty) = *checked.value() else {
                     visiting.remove(definition);
 
-                    return Ok(vec![(Vec::new(), Observation::Mutable)]);
+                    return Ok(Shape::unknown());
                 };
 
                 fields.push((projection, ty));
@@ -328,7 +358,7 @@ fn paths<C: CheckerRequestContext + ?Sized>(
 
             None
         }
-        _ => return Ok(vec![(Vec::new(), Observation::Mutable)]),
+        _ => return Ok(Shape::unknown()),
     };
 
     let mut result = if matches!(definition, Some(NamedTypeSymbolId::Struct(_)))
@@ -351,13 +381,20 @@ fn paths<C: CheckerRequestContext + ?Sized>(
         result.push((Vec::new(), Observation::Discriminant));
     }
 
+    let mut complete_value = !reference
+        && !result
+            .iter()
+            .any(|(_, observation)| *observation == Observation::Discriminant);
+
     for (field, ty) in fields {
+        let shape = paths(request, ty, visiting)?;
+
+        complete_value &= shape.complete_value;
+
         result.extend(
-            paths(request, ty, visiting)?
-                .into_iter()
-                .map(|(path, descriptor)| {
-                    (std::iter::once(field).chain(path).collect(), descriptor)
-                }),
+            shape.observations.into_iter().map(|(path, descriptor)| {
+                (std::iter::once(field).chain(path).collect(), descriptor)
+            }),
         );
     }
 
@@ -378,7 +415,10 @@ fn paths<C: CheckerRequestContext + ?Sized>(
         visiting.remove(&definition);
     }
 
-    Ok(result)
+    Ok(Shape {
+        observations: result,
+        complete_value,
+    })
 }
 
 /// Intersects physical may-alias observations with the atomic operation's closed write domain.

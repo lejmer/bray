@@ -6,8 +6,12 @@ using internal bray.runtime.bootstrap;
 using internal std.platform;
 using internal std.thread;
 
+// Only a native root-entry protocol may establish main-thread lane authority.
+trusted internal predicate native_main_entry();
+
 @abi(c)
 trusted internal func thread_attachment_mark_main() -> u32
+    requires(trusted native_main_entry())
     uses(raw_memory, unchecked_alias)
 {
     let identity: u64 = trusted current_native_thread_identity();

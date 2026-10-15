@@ -105,7 +105,7 @@ pub use representation::{
     DeclaredUnionTag,
 };
 pub use signature::{
-    CallableParameterSignature, CallableSignature, CallableSignatureTemplate,
+    CallableInvocation, CallableParameterSignature, CallableSignature, CallableSignatureTemplate,
     CallableSignatureTemplateError, ReceiverMode, ReceiverParameterSignature,
 };
 pub use static_storage::{

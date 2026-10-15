@@ -21,6 +21,7 @@ pub(in super::super) fn assert_native_callback_entry(
         })
         .unwrap_or_else(|| panic!("native callback entry must be mapped"));
 
+    assert!(callback.signature().has_panic_report_context());
     assert_eq!(callback.linkage(), CodegenLinkage::LinkOnce);
     assert_ne!(callback.name().as_str(), entry_name);
 

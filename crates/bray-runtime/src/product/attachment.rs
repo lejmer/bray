@@ -5,13 +5,12 @@ use bray_runtime_abi::{NativeProductHostObservation, NativeProductHostStatus};
 
 use super::host::{
     acquire_thread_attachment, discard_thread_attachment, drain_product_thread_statics,
-    initialize_thread_static_registry, mark_thread_attachment_acquired, observation_with_status,
-    prepare_thread_attachment,
+    mark_thread_attachment_acquired, observation_with_status, prepare_thread_attachment,
 };
 
 thread_local! {
     static FOREIGN_ATTACHMENTS: RefCell<ForeignAttachments> =
-        const { RefCell::new(ForeignAttachments::new()) };
+        RefCell::new(ForeignAttachments::new());
 }
 
 struct ForeignAttachments {
@@ -20,7 +19,11 @@ struct ForeignAttachments {
 }
 
 impl ForeignAttachments {
-    const fn new() -> Self {
+    fn new() -> Self {
+        // TLS owners retire in reverse initialization order. Establish every context and registry
+        // borrowed by attachment cleanup before publishing this owner, including observation-first use.
+        crate::native::initialize_thread_context();
+
         Self {
             scope: None,
             products: BTreeMap::new(),
@@ -28,11 +31,11 @@ impl ForeignAttachments {
     }
 }
 
-pub(super) fn attach_current_thread(product: usize) -> NativeProductHostObservation {
-    // The attachment owns the runtime scope whose destructor drains thread statics. Initialize the
-    // registry first so it remains alive until that scope has finished during native thread exit.
-    initialize_thread_static_registry();
+pub(crate) fn initialize_thread_attachment_storage() {
+    FOREIGN_ATTACHMENTS.with(|_| {});
+}
 
+pub(super) fn attach_current_thread(product: usize) -> NativeProductHostObservation {
     let inserted = FOREIGN_ATTACHMENTS.with(|attachments| {
         let mut attachments = attachments.borrow_mut();
 
@@ -125,6 +128,26 @@ pub(super) fn detach_current_thread(product: usize) -> NativeProductHostObservat
     let observation = outermost
         .then(|| drain_product_thread_statics(product))
         .flatten();
+
+    if observation
+        .as_ref()
+        .is_some_and(|observation| observation.status() == NativeProductHostStatus::RUNTIME_FAILURE)
+    {
+        FOREIGN_ATTACHMENTS.with_borrow_mut(|attachments| {
+            attachments.products.insert(product, 1);
+
+            if let Some(scope) = scope {
+                assert!(
+                    attachments.scope.is_none(),
+                    "detached scope remains uniquely owned"
+                );
+
+                attachments.scope = Some(scope);
+            }
+        });
+
+        return observation.expect("failed cleanup retains its observation");
+    }
 
     drop(scope);
 

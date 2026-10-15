@@ -143,6 +143,7 @@ pub(crate) fn transfer_operation(
     universe: &RefinementUniverse,
     storage: &StoragePlan,
     invalidation: Option<&bray_bound_tree::StorageInvalidation>,
+    discriminants: &BTreeMap<bray_bound_tree::StorageIdentityId, Vec<bray_bound_tree::StoragePath>>,
 ) {
     match operation.kind() {
         AnalysisOperationKind::Recovery(_) => state.clear(),
@@ -152,14 +153,20 @@ pub(crate) fn transfer_operation(
             ..
         } => {}
         AnalysisOperationKind::Bound(node) => {
-            universe.invalidate_for_operation(state, node, storage, invalidation);
+            universe.invalidate_for_operation(state, node, storage, invalidation, discriminants);
             universe.finish_operation(state, node);
         }
         AnalysisOperationKind::Call {
             invocation,
             phase: AnalysisCallPhase::Attempt,
         } => {
-            universe.invalidate_for_operation(state, invocation, storage, invalidation);
+            universe.invalidate_for_operation(
+                state,
+                invocation,
+                storage,
+                invalidation,
+                discriminants,
+            );
         }
         AnalysisOperationKind::Call {
             invocation,
@@ -170,7 +177,13 @@ pub(crate) fn transfer_operation(
             }
         }
         AnalysisOperationKind::Suspension { occurrence, .. } => {
-            universe.invalidate_for_operation(state, occurrence, storage, invalidation);
+            universe.invalidate_for_operation(
+                state,
+                occurrence,
+                storage,
+                invalidation,
+                discriminants,
+            );
 
             if let bray_bound_tree::BoundExecutionSite::Node(node) = occurrence {
                 universe.finish_operation(state, node);
@@ -179,7 +192,7 @@ pub(crate) fn transfer_operation(
         AnalysisOperationKind::TaskOperation { expression, .. } => {
             let node = AnyBoundNodeId::Expression(expression);
 
-            universe.invalidate_for_operation(state, node, storage, invalidation);
+            universe.invalidate_for_operation(state, node, storage, invalidation, discriminants);
             universe.finish_operation(state, node);
         }
         AnalysisOperationKind::ScopeExit {

@@ -24,6 +24,15 @@ thread_local! {
         const { Cell::new(None) };
 }
 
+/// Establishes the TLS storage that native attachment retirement borrows.
+pub(crate) fn initialize_thread_context() {
+    CURRENT_CONTEXT.with(|_| {});
+    CURRENT_RUN_CANCELLATION.with(|_| {});
+    NATIVE_THREAD_CANCELLATION.with(|_| {});
+
+    let _ = current_task_output();
+}
+
 #[derive(Clone, Copy)]
 struct NativeThreadCancellation {
     callback: NativeThreadCancellationCallback,

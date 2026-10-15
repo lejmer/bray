@@ -2,6 +2,7 @@
 trusted internal module bray.runtime.bootstrap.storage;
 
 using std.memory;
+using internal bray.runtime.bootstrap.pool.growth;
 using internal std.memory;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.heap;
@@ -40,23 +41,34 @@ trusted internal func find(pos pool: &mut bray.runtime.bootstrap.ReportPool, pos
     return 0;
 }
 
-trusted internal func register(pos pool: &mut bray.runtime.bootstrap.ReportPool, pos descriptor: Descriptor) -> usize
+trusted internal func register(
+    pos pool: &mut bray.runtime.bootstrap.ReportPool,
+    pos descriptor: Descriptor,
+    pos prepared: &mut bray.runtime.bootstrap.pool.growth.Prepared
+) -> Result<usize, bray.runtime.bootstrap.pool.growth.Request>
 {
     let existing: usize = trusted find(pool, &descriptor);
 
     if existing != 0
     {
-        return existing;
+        return Ok(existing);
     }
 
     if !valid_layout(&descriptor)
     {
-        return 0;
+        return Ok(0);
     }
 
-    if !trusted bray.runtime.bootstrap.heap.reserve<Shape>(&mut pool.storage)
+    match consume trusted bray.runtime.bootstrap.heap.reserve<Shape>(&mut pool.storage, &mut prepared.shapes)
     {
-        return 0;
+        case Ok(ready)
+        {
+            if !ready
+            {
+                return Ok(0);
+            }
+        }
+        case Error(count) { return Error(bray.runtime.bootstrap.pool.growth.Request.Shapes(count)); }
     }
 
     if let ?storage = pool.storage
@@ -73,18 +85,22 @@ trusted internal func register(pos pool: &mut bray.runtime.bootstrap.ReportPool,
             }
         );
 
-        return std.memory.initialized_count<Shape>(&storage);
+        return Ok(std.memory.initialized_count<Shape>(&storage));
     }
 
-    return 0;
+    return Ok(0);
 }
 
-trusted internal func reserve(pos shape: &mut Shape, pos count: usize) -> bool
+trusted internal func reserve(
+    pos shape: &mut Shape,
+    pos count: usize,
+    pos prepared: &mut bray.runtime.bootstrap.pool.growth.Prepared
+) -> Result<bool, bray.runtime.bootstrap.pool.growth.Request>
     uses(intrinsic)
 {
     if count <= shape.available
     {
-        return true;
+        return Ok(true);
     }
 
     let maximum: usize = (~0) >> 1;
@@ -92,7 +108,7 @@ trusted internal func reserve(pos shape: &mut Shape, pos count: usize) -> bool
 
     if padding >= maximum || shape.descriptor.bytes > maximum - padding
     {
-        return false;
+        return Ok(false);
     }
 
     let stride: usize = (shape.descriptor.bytes + padding) & ~padding;
@@ -106,34 +122,67 @@ trusted internal func reserve(pos shape: &mut Shape, pos count: usize) -> bool
 
     if stride != 0 && additional > (maximum - padding - 1) / stride
     {
-        return false;
+        return Ok(false);
     }
 
     if additional > maximum - shape.total
     {
-        return false;
+        return Ok(false);
     }
 
     let bytes: usize = stride * additional + padding + 1;
 
-    let mut region: std.memory.RawBuffer<u8> = match consume trusted bray.runtime.bootstrap.heap.try_buffer<u8>(bytes)
+    match consume trusted bray.runtime.bootstrap.heap.reserve<Slab>(&mut shape.slabs, &mut prepared.storage_slabs)
     {
-        case ?buffer { yield buffer; }
-        case none { return false; }
+        case Ok(ready)
+        {
+            if !ready
+            {
+                return Ok(false);
+            }
+        }
+        case Error(capacity) { return Error(bray.runtime.bootstrap.pool.growth.Request.StorageSlabs(capacity)); }
+    }
+
+    let ready = if let ?region = prepared.bytes
+    {
+        yield if let ?entries = prepared.slots
+        {
+            yield region.capacity >= bytes && entries.capacity >= additional && region.initialized == 0 &&
+                entries.initialized == 0;
+        }
+        else
+        {
+            yield false;
+        };
+    }
+    else
+    {
+        yield false;
     };
 
-    let mut entries: std.memory.RawBuffer<Slot> = match consume trusted bray.runtime.bootstrap.heap.try_buffer<Slot>(
-        additional
+    if !ready
+    {
+        return Error(bray.runtime.bootstrap.pool.growth.Request.Storage((bytes, additional)));
+    }
+
+    let mut region = match consume trusted std.memory.replace_value<(std.memory.RawBuffer<u8>?)>(
+        &mut prepared.bytes,
+        none
     )
     {
         case ?buffer { yield buffer; }
-        case none { return false; }
+        case none { return trusted core.target.abort(); }
     };
 
-    if !trusted bray.runtime.bootstrap.heap.reserve<Slab>(&mut shape.slabs)
+    let mut entries = match consume trusted std.memory.replace_value<(std.memory.RawBuffer<Slot>?)>(
+        &mut prepared.slots,
+        none
+    )
     {
-        return false;
-    }
+        case ?buffer { yield buffer; }
+        case none { return trusted core.target.abort(); }
+    };
 
     let pointer: RawPointer<u8> = std.memory.pointer<u8>(&region);
     let address: usize = trusted core.target.expose_address<u8>(pointer);
@@ -172,40 +221,31 @@ trusted internal func reserve(pos shape: &mut Shape, pos count: usize) -> bool
         shape.free = head;
         shape.total += additional;
         shape.available += additional;
-        return true;
+        return Ok(true);
     }
 
     trusted core.target.abort();
 }
 
-trusted internal func release(pos pool: &mut bray.runtime.bootstrap.ReportPool) -> bool
-    uses(manual_alloc)
+trusted internal func can_release(pos pool: &mut bray.runtime.bootstrap.ReportPool) -> bool
 {
     if pool.storage matches none
     {
         return true;
     }
 
-    {
-        let values = trusted shapes(pool);
-        let mut index: usize = 0;
+    let values = trusted shapes(pool);
+    let mut index: usize = 0;
 
-        while index < values.length()
+    while index < values.length()
+    {
+        if values[index].credits != 0 || values[index].available != values[index].total
         {
-            if values[index].credits != 0 || values[index].available != values[index].total
-            {
-                return false;
-            }
-
-            index += 1;
+            return false;
         }
+
+        index += 1;
     }
 
-    if let ?storage = pool.storage
-    {
-        trusted internal std.memory.raw_buffer_release<Shape>(&mut storage);
-    }
-
-    pool.storage = none;
     return true;
 }

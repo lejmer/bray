@@ -88,6 +88,34 @@ fn library_preserves_main_thread_cleanup_without_selecting_a_runtime() {
         ))
     ));
 
+    let operations = host.mir().operations();
+
+    let position = |predicate: fn(&bray_ir::MirHostOperation) -> bool| {
+        operations.iter().position(|operation| matches!(operation.kind(), bray_ir::MirOperationKind::Host(operation) if predicate(operation))).unwrap()
+    };
+
+    let admitted =
+        position(|operation| matches!(operation, bray_ir::MirHostOperation::BeginProductEntry));
+
+    let materialized = position(|operation| {
+        matches!(
+            operation,
+            bray_ir::MirHostOperation::MaterializeStatic { .. }
+        )
+    });
+
+    let resolved = position(|operation| {
+        matches!(
+            operation,
+            bray_ir::MirHostOperation::ResolveRootTerminal { .. }
+        )
+    });
+
+    let retired =
+        position(|operation| matches!(operation, bray_ir::MirHostOperation::BeginStaticCleanup));
+
+    assert!(admitted < materialized && materialized < resolved && resolved < retired);
+
     assert!(
         executable
             .executable_host()

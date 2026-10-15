@@ -1,11 +1,14 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::NativeTarget;
 
 use super::command::{CommandError, Package, PackageComponent, RuntimeArchiveKind};
+
+const EXECUTION_TIMEOUT: Duration = Duration::from_secs(30);
 
 const PANIC_REPORT_SOURCE: &str = include_str!("../../fixtures/runtime-panic-report.rs");
 const SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-smoke.rs");
@@ -100,6 +103,7 @@ pub(super) fn smoke_test(
     audit_synchronous_link_map(&map)?;
     smoke_test_bootstrap(package, target, directory)?;
     super::observation_smoke::smoke_test(package, target, directory)?;
+    super::entry_smoke::smoke_test(package, target, directory)?;
 
     Ok(())
 }
@@ -109,11 +113,7 @@ pub(super) fn add_package_dependencies(
     target: NativeTarget,
     directory: &Path,
 ) -> Result<(), CommandError> {
-    let root = crate::workspace::root().map_err(CommandError::Workspace)?;
-
-    let standard_library = crate::workspace::cargo_target(&root)
-        .join("runtime-bootstrap-standard-library")
-        .join(target.as_str());
+    let standard_library = standard_library(target)?;
 
     let output = package
         .metadata
@@ -139,7 +139,7 @@ pub(super) fn add_package_dependencies(
     let (inputs, links) = crate::native_package::standard_library_inputs(
         &owned,
         target,
-        &standard_library,
+        standard_library.path(),
         directory,
     )
     .map_err(CommandError::Bootstrap)?;
@@ -501,4 +501,73 @@ pub(super) fn audit_link_symbols(
     }
 
     Ok(())
+}
+
+pub(super) fn command_output(
+    command: &mut Command,
+    name: &'static str,
+) -> Result<Output, CommandError> {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| CommandError::SmokeExecution { name, error })?;
+
+    let deadline = Instant::now() + EXECUTION_TIMEOUT;
+
+    loop {
+        if child
+            .try_wait()
+            .map_err(|error| CommandError::SmokeExecution { name, error })?
+            .is_some()
+        {
+            return child
+                .wait_with_output()
+                .map_err(|error| CommandError::SmokeExecution { name, error });
+        }
+
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+
+            return Err(CommandError::SmokeTimeout {
+                name,
+                seconds: EXECUTION_TIMEOUT.as_secs(),
+            });
+        }
+
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+pub(super) fn standard_library(
+    target: NativeTarget,
+) -> Result<bray_standard_library::StandardLibraryRoot, CommandError> {
+    let root = crate::workspace::root().map_err(CommandError::Workspace)?;
+    let path = super::bootstrap::standard_library_directory(&root, target);
+
+    Ok(bray_standard_library::StandardLibraryRoot::try_new(path)
+        .expect("workspace target resolves an absolute standard-library bundle path"))
+}
+
+pub(super) fn native_links(package: &Package) -> Result<Vec<NativeLinkRequirement>, String> {
+    let metadata = crate::native_toolchain::runtime_artifact_metadata(&package.metadata)?;
+
+    let artifact = bray_tooling::load_runtime_artifact(
+        &package.metadata,
+        metadata.contract().target(),
+        metadata.contract().abi_version(),
+    )
+    .map_err(|error| format!("could not load runtime native units: {error:?}"))?;
+
+    Ok(artifact.native_indexes()[0]
+        .index()
+        .units()
+        .iter()
+        .flat_map(bray_native_artifact::NativeUnit::native_links)
+        .chain(&package.native_links)
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>())
 }

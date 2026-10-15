@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::hash::{Hash, Hasher};
 
 use bray_base::StableDigestHasher;
-use bray_binder::BindingQueryContext;
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_codegen::{
     CodegenDefinitionVisibility, CodegenInstance, CodegenLinkage, CodegenNativeEntryMapping,
     CodegenOperationMapping, CodegenPartitionCompatibility, CodegenSymbolKey, CodegenSymbolMapping,
@@ -20,6 +20,7 @@ use super::super::super::binder::CompilationBindingContext;
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::names::{
     binary_symbol_name, generated_frame_symbol_name, generated_instance_symbol_name,
+    native_entry_name,
 };
 use super::support::{native_boundary_mapping, source_backed_symbol_key, void_signature};
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
@@ -52,10 +53,14 @@ fn assert_symbol_contract(target: &CodegenTarget, symbol: &CodegenSymbolMapping)
     assert!(
         matches!(symbol.key(), CodegenSymbolKey::Instance(_))
             && symbol.name() != entry.name()
-            && symbol.linkage() != CodegenLinkage::Import
+            && ((symbol.linkage() == CodegenLinkage::Import)
+                == (entry.linkage() == CodegenLinkage::Import))
             && matches!(
                 entry.linkage(),
-                CodegenLinkage::Export | CodegenLinkage::Weak
+                CodegenLinkage::Export
+                    | CodegenLinkage::Weak
+                    | CodegenLinkage::LinkOnce
+                    | CodegenLinkage::Import
             )
             && symbol.signature().abi() != CallableAbi::Bray,
         "native entry {:?} with {:?} linkage contradicts codegen symbol {:?} with name {:?}, {:?} linkage, and {:?} ABI",
@@ -91,9 +96,9 @@ pub(in crate::compilation::product) enum NativeBoundaryMapping {
         linkage: CodegenLinkage,
     },
     Callback {
-        name: BinarySymbolName,
+        name: Option<BinarySymbolName>,
         linkage: CodegenLinkage,
-        kind: bray_codegen::CodegenNativeEntryKind,
+        kind: bray_runtime_interface::NativeEntryKind,
     },
 }
 
@@ -143,41 +148,17 @@ impl Compilation {
                         .instance(instance.key())
                         .expect("retained codegen instance must have a concrete realization");
 
-                    let signature = self.codegen_instance_signature(realization, cancellation)?;
+                    let mut signature =
+                        self.codegen_instance_signature(realization, cancellation)?;
 
                     if let Some(role) = self.codegen_runtime_source_role(instance.key())? {
-                        if !super::runtime_source::runtime_source_contract_matches(
+                        signature = super::runtime_source::checked_runtime_source_signature(
                             self,
                             role,
-                            instance.key().template(),
+                            instance.key(),
+                            signature,
                             cancellation,
-                        )? {
-                            return Err(
-                                CodegenPreparationError::InvalidRuntimeRoleSourceContract {
-                                    role,
-                                    // Retain the rejected identity only on the diagnostic path.
-                                    instance: instance.key().clone(),
-                                },
-                            );
-                        }
-
-                        let expected = self.codegen_runtime_signature(role)?;
-
-                        let matches = super::runtime_source::runtime_source_signature_matches(
-                            self,
-                            role,
-                            &signature,
-                            cancellation,
-                        )?
-                        .unwrap_or(signature == expected);
-
-                        if !matches {
-                            return Err(CodegenPreparationError::InvalidRuntimeRoleSourceBinding {
-                                role,
-                                expected,
-                                actual: signature,
-                            });
-                        }
+                        )?;
                     }
 
                     signature
@@ -209,10 +190,15 @@ impl Compilation {
 
             let (name, linkage, native_entry) = match reachability.selected_native(instance) {
                 // The mapping owns the published symbol after reachability is released.
-                Some(selected) => (selected.symbol.clone(), CodegenLinkage::Import, None),
+                Some(selected) => {
+                    self.codegen_selected_native_boundary(selected, realization, cancellation)?
+                }
                 None => {
-                    let boundary =
-                        self.codegen_native_boundary(instance, platform_overrides, cancellation)?;
+                    let boundary = self.codegen_native_boundary(
+                        realization,
+                        platform_overrides,
+                        cancellation,
+                    )?;
 
                     self.codegen_callable_symbol_boundary(
                         product,
@@ -390,7 +376,7 @@ impl Compilation {
                     .expect("retained codegen instance must have a concrete realization");
 
                 let boundary =
-                    self.codegen_native_boundary(instance.key(), platform_overrides, cancellation)?;
+                    self.codegen_native_boundary(realization, platform_overrides, cancellation)?;
 
                 self.codegen_callable_symbol_boundary(
                     product,
@@ -434,10 +420,12 @@ impl Compilation {
                     cancellation,
                 )?;
 
+                let entry_name = name.unwrap_or_else(|| native_entry_name(&body_name));
+
                 Ok((
                     body_name,
                     CALLBACK_BODY_LINKAGE,
-                    Some(CodegenNativeEntryMapping::new(name, linkage).with_kind(kind)),
+                    Some(CodegenNativeEntryMapping::new(entry_name, linkage).with_kind(kind)),
                 ))
             }
             Some(NativeBoundaryMapping::Direct { name, linkage }) => Ok((name, linkage, None)),
@@ -468,7 +456,7 @@ impl Compilation {
             MirUnitKind::ExecutableHost(_) => CodegenLinkage::Export,
             MirUnitKind::GeneratedLifecycle(_) => CodegenLinkage::LinkOnce,
             MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => self
-                .codegen_native_boundary(instance.key(), &BTreeSet::new(), cancellation)?
+                .codegen_native_boundary(realization, &BTreeSet::new(), cancellation)?
                 .map_or_else(
                     || default_instance_linkage(instance, roots),
                     |boundary| boundary.definition_linkage(),
@@ -558,12 +546,57 @@ impl Compilation {
         Ok(key.package_identity().unwrap_or(product_package).clone())
     }
 
+    pub(in crate::compilation::product) fn codegen_selected_native_boundary(
+        &self,
+        selected: &super::super::codegen::reuse::SelectedNativeUnit,
+        realization: &ConcreteCodegenInstance,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        (
+            BinarySymbolName,
+            CodegenLinkage,
+            Option<CodegenNativeEntryMapping>,
+        ),
+        CodegenPreparationError,
+    > {
+        let signature = self.codegen_instance_signature(realization, cancellation)?;
+
+        let entry = (signature.abi() != CallableAbi::Bray && signature.has_panic_report_context())
+            .then(|| {
+                CodegenNativeEntryMapping::new(
+                    native_entry_name(&selected.symbol),
+                    CodegenLinkage::Import,
+                )
+            });
+
+        // Explicit native exports are selected through their published boundary instead.
+        Ok((selected.symbol.clone(), CodegenLinkage::Import, entry))
+    }
+
     pub(in crate::compilation::product) fn codegen_native_boundary(
         &self,
-        instance: &bray_codegen::CodegenInstanceKey,
+        realization: &ConcreteCodegenInstance,
         platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
         cancellation: &CancellationToken,
     ) -> Result<Option<NativeBoundaryMapping>, CodegenPreparationError> {
+        if let Some(ty) = realization.anonymous_callable_type() {
+            let data = self.semantic_value_store()?.type_data(ty);
+
+            let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
+                panic!("anonymous callable realization must retain its callable type");
+            };
+
+            return Ok((callable.abi() != CallableAbi::Bray).then_some(
+                NativeBoundaryMapping::Callback {
+                    name: None,
+                    linkage: CodegenLinkage::LinkOnce,
+                    kind: bray_runtime_interface::NativeEntryKind::ForeignCallback,
+                },
+            ));
+        }
+
+        let instance = realization.key();
+
         if matches!(
             instance.template(),
             MirUnitKey::GeneratedLifecycle(_)
@@ -609,9 +642,9 @@ impl Compilation {
             let name = BinarySymbolName::try_new(symbol)
                 .ok_or(CodegenPreparationError::InvalidSymbolName)?;
 
-            if let Some(kind) = bray_codegen::CodegenNativeEntryKind::for_runtime_role(role) {
+            if let Some(kind) = bray_runtime_interface::NativeEntryKind::for_runtime_role(role) {
                 return Ok(Some(NativeBoundaryMapping::Callback {
-                    name,
+                    name: Some(name),
                     linkage: CodegenLinkage::Export,
                     kind,
                 }));
@@ -668,17 +701,54 @@ impl Compilation {
         let boundary =
             self.imported_native_boundary_with_cancellation(function.into(), cancellation)?;
 
-        boundary
-            .map(|boundary| {
-                let name = boundary
-                    .symbol()
-                    .identity()
-                    .name()
-                    .ok_or(CodegenPreparationError::InvalidSymbolName)?;
+        if let Some(boundary) = boundary {
+            let name = boundary
+                .symbol()
+                .identity()
+                .name()
+                .ok_or(CodegenPreparationError::InvalidSymbolName)?;
 
-                native_boundary_mapping(name, boundary.direction(), boundary.symbol().binding())
-            })
-            .transpose()
+            return native_boundary_mapping(
+                name,
+                boundary.direction(),
+                boundary.symbol().binding(),
+            )
+            .map(Some);
+        }
+
+        let binding_context = self.binding_context(cancellation)?;
+
+        let signature = binding_context
+            .resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
+                bray_symbols::CallableSignatureQuery,
+            >::new(function.into()))
+            .map_err(crate::compilation::binder::binding_query_error)?;
+
+        let values = self.semantic_value_store()?;
+
+        let abi = match signature.value().callable_type() {
+            bray_symbols::TypeExpressionTemplate::Callable(callable) => callable.abi(),
+            bray_symbols::TypeExpressionTemplate::Resolved(ty) => {
+                let data = values.type_data(*ty);
+
+                let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
+                    panic!("callable signature must retain a callable type");
+                };
+
+                callable.abi()
+            }
+            _ => panic!("callable signature must retain a callable type"),
+        };
+
+        Ok(
+            (signature.value().invocation() == bray_symbols::CallableInvocation::Bray
+                && abi != CallableAbi::Bray)
+                .then_some(NativeBoundaryMapping::Callback {
+                    name: None,
+                    linkage: CodegenLinkage::LinkOnce,
+                    kind: bray_runtime_interface::NativeEntryKind::ForeignCallback,
+                }),
+        )
     }
 
     pub(super) fn codegen_runtime_source_role(

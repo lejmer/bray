@@ -271,8 +271,15 @@ impl ExecutionState {
         self.witness_dependencies
             .retain(|carrier, _| self.witness_carriers.contains_key(carrier));
 
-        self.trusted_assumptions
-            .retain(|fact| retained.contains(fact));
+        // Opaque predicates cannot observe mutable state absent from their arguments.
+        // Preserve established facts with no observations, without creating new evidence.
+        let no_values = BTreeSet::new();
+
+        let preserves = |fact: &(ExecutionCondition, bool)| {
+            retained.contains(fact) || fact.0.observes_only(&no_values)
+        };
+
+        self.trusted_assumptions.retain(preserves);
 
         self.allocation_owners.clear();
 
@@ -285,9 +292,7 @@ impl ExecutionState {
                 .assumptions
                 .retain(|(condition, _)| condition.observes_only(stable_values));
 
-            entry
-                .trusted_assumptions
-                .retain(|fact| retained.contains(fact));
+            entry.trusted_assumptions.retain(preserves);
 
             entry.trusted_boundary = false;
         }

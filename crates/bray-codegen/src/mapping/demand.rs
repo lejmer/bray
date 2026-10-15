@@ -339,6 +339,7 @@ fn collect_host_values(operation: &MirHostOperation, _demands: &mut ConstantDema
         | MirHostOperation::ExecuteRoot { .. }
         | MirHostOperation::ObserveRootTerminal { .. }
         | MirHostOperation::ResolveRootTerminal { .. }
+        | MirHostOperation::BeginProductEntry
         | MirHostOperation::BeginStaticCleanup
         | MirHostOperation::ReportCleanupIncidents { .. }
         | MirHostOperation::StructuredShutdown { .. } => {}
