@@ -75,6 +75,14 @@ pub(in crate::native) fn with_independent_execution_context<T>(callback: impl Fn
     crate::context::with_independent_execution_context(callback)
 }
 
+/// A returned root handle remains owned by the caller's runtime after entry returns.
+pub(in crate::native) fn with_root_execution_context<T>(callback: impl FnOnce() -> T) -> T {
+    let previous = NATIVE_CONTEXT.with_borrow_mut(|context| context.task.take());
+    let _scope = NativeTaskScope(previous);
+
+    crate::context::with_independent_execution_context(callback)
+}
+
 pub(in crate::native) fn with_current_task<T>(
     task: NativeTaskHandle,
     callback: impl FnOnce() -> T,

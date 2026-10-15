@@ -595,12 +595,15 @@ fn reused_native_c_body_retains_its_distinct_callable_address() {
 
     let compilation = native_fixture_compilation(dependency, ProductKind::Library, None);
     let cancellation = CancellationToken::new();
+
     let target = compilation
         .selected_target()
         .target()
         .codegen_target()
         .unwrap();
+
     let semantic = compilation.product_semantics().unwrap();
+
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
         .unwrap();
@@ -626,6 +629,7 @@ fn reused_native_c_body_retains_its_distinct_callable_address() {
     let selected = reachability
         .selected_native(key)
         .expect("exact C body uses its native artifact");
+
     let realization = reachability.instance(key).unwrap();
 
     let (name, linkage, entry) = compilation
@@ -639,12 +643,14 @@ fn reused_native_c_body_retains_its_distinct_callable_address() {
     assert_eq!(linkage, bray_codegen::CodegenLinkage::Import);
     assert_eq!(entry.name().as_str(), "bray_test_precompiled.native");
     assert_eq!(entry.linkage(), bray_codegen::CodegenLinkage::Import);
+
     assert!(
         compilation
             .codegen_instance_signature(realization, &cancellation)
             .unwrap()
             .has_panic_report_context()
     );
+
     super::support::mappings::realize_codegen_mappings(
         &compilation,
         &target,

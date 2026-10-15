@@ -71,7 +71,6 @@ Run batched focused checks after coherent edits, then required native checks, st
 Audit correctness and structural cost separately. Publish a stacked draft PR, obtain an independent
 published review, fix findings, and ready it only after acceptance is complete.
 
-
 ## Outcome and context checkpoint
 
 All native callback bodies now receive the explicit panic/cancellation destination. The generated
@@ -155,7 +154,6 @@ Before source entry migration, repair these production authority boundaries:
 
 These are BRA-554 implementation obligations, not completion claims or new language proposals.
 
-
 ### Invocation repair verification
 
 The full product-codegen group passed 116 tests, with only the retained BRA-619 failure.
@@ -175,3 +173,144 @@ serialization, named/anonymous realizations, native callable values, and importe
 No new language syntax or runtime state was introduced. The additional stored enum records the
 invocation distinction that native ABI alone cannot express. Required style and format passed,
 and the installed Rust formatter and `git diff --check` completed without errors.
+
+## Source attachment ownership checkpoint
+
+The source acquisition now returns a noncopyable `host.attachment.Owner`. Its whole-value
+`acquired` witness is required by destruction. Inactive owners exist before attachment publication,
+and only a local verified-total commit changes their status and exact identity. The native entry
+adapter transfers that owner under its existing opaque native-boundary requirement. Its local
+transfer operation cannot escape the boundary. Native leave and explicit exit-scope construction
+now require native release authority. Observing an identity or acknowledging an internal module
+cannot acquire those contracts.
+
+The owning storage analysis was missing whole-value observations for reference-free aggregates.
+It already preserved their individual scalar fields across an opaque call that could not reach
+them, but lost an opaque predicate over the aggregate. The existing cached shape traversal now
+records whether the complete value contains only direct data. Existing reachability analysis
+selects unexposed complete values along with scalar fields. Downstream witness analysis consumes
+that result unchanged. Borrowed, raw-pointer, protected and unknown components remain conservative.
+No runtime metadata or new language feature is needed.
+
+Anonymous callable contracts also omitted referenced declaration types and constant inputs.
+Anonymous and catalog clause checking now reuse the existing declared-value binder for references.
+Anonymous normalization consumes the established constant inputs, as named and catalog clauses do.
+Production cleanup uses the named status constant again.
+
+The test audit replaced source-position assumptions with declaration-derived source identities.
+Two old fixtures expected unrelated opaque calls to revoke unexposed scalar evidence. Completion
+coverage now accepts that case and rejects mutable exposure. Deferred execution coverage observes
+an atomic payload, whose opaque mutation must still revoke its witness when driven.
+
+Checkpoint review matrix:
+
+- Complete-value stability: scalar and nested tuple owners survive unrelated calls. Mutable
+  arguments and escaped addresses do not. Borrowed, raw-pointer, atomic and uninitialized payloads
+  do not acquire this proof.
+- Production authority: acquisition succeeds, forged owners and copied fields fail, identity
+  mutation revokes authority, and source callers cannot invoke native enter/leave contracts.
+- Native lifetime: retain recursive-entry and allocator-failure smoke coverage. Active source
+  owner destruction, entry closure and optional Rust-context bridge acceptance remain outstanding.
+- Contract binding: qualified constants in anonymous requirements check through the shared binder.
+  Existing named, catalog, imported and trusted-contract coverage must continue to pass.
+- Structure: cached type traversal supplies the additional observation. No second reachability
+  pass or downstream witness validator was introduced. Runtime-role binding checks moved intact
+  into their existing owning module to keep symbol assembly within the enforced function limit.
+
+BRA-554 remains incomplete. Report-chain source ownership, entry consumer migration, the optional
+Rust-only context bridge, product closure integration and their native acceptance follow this
+checkpoint. BRA-558 has not started. Step 5 is not complete.
+
+## Native ownership and protocol audit
+
+The retained native smoke exposed an asynchronous root regression in the previous context
+isolation checkpoint. Clearing and restoring the runtime around root creation discarded the
+runtime owning the returned handle. Root creation now retains that runtime and uses the existing
+task scope to restore the enclosing task. Synchronous and foreign entry still isolate both fields.
+The existing suspend/resume regression passed. No additional context representation was added.
+
+Report consumption also recursed through ordinary foreign-entry admission. With further admission
+denied, consuming the admission failure recursively tried to admit another callback. The existing
+ReportConsumer role now binds the actual consumer instead of a pointer getter. Native callers
+retain that function directly. Its reporting selector is an explicit u32 across Bray, Rust and C.
+The two retained message callbacks likewise have explicit native report roles. These operations
+consume their existing protocol ownership without fresh entry admission. The 54 native runtime
+tests passed after the consumer repair, including denied-admission cleanup. Final verification of
+the subsequent protocol restrictions and message bindings is pending.
+
+A production-declaration probe proved that safe internal callers could obtain the resident pool
+lock and overwrite credits and free-list state. An explicit opaque protocol requirement now gates
+the raw pool operation and its transitive record, storage and message consumers. This permission is
+supplied by native protocol boundaries, not by header initialization, numeric handles or internal
+acknowledgement. Source acquisition wrappers must expose actual owning values rather than publish
+that permission. The negative probe now rejects the mutation. Header admission and fabrication
+probes cover the same restriction. Existing HostLease tests already reject equivalent resident
+host mutations and remain enabled.
+
+The protocol propagation exposed another over-invalidation: established opaque predicates with no
+mutable observations were erased by unknown execution. Contract reasoning explicitly disallows
+hidden mutable ambient dependencies. The existing observation traversal now handles its empty set
+correctly, and cleanup retains established observation-free facts. This never introduces a fact.
+The regression covers both zero arguments and literal arguments, with corresponding unproved
+calls rejected. Mutable arguments and protected payloads retain the negative coverage above.
+
+The corrected trusted-contract suite passed all 224 tests. Storage admission tests declare their
+native protocol prerequisite. Task-cleanup invalidation observes an atomic input and starts its task
+inside an async callable. Both retain their original negative obligations. Step 5 remains active.
+
+## Reentrant pool growth
+
+Native bootstrap execution exposed a deadlock when the allocator reentered attachment acquisition.
+The source attachment owner reserves cleanup records before publication. The old record admission
+called the allocator while holding the pool lock, so recursive admission tried to acquire the same
+lock. This is a concrete BRA-554 entry-composition defect.
+
+Record slabs, their indexes, cleanup shapes, storage slab indexes, and typed storage regions now
+prepare owned capacity outside the lock. The existing metadata-buffer operation installs prepared
+capacity and leaves replaced backing with the caller. It no longer allocates or frees under the
+lock. Each retry reacquires the pool and rechecks current capacity. A partial bundle rolls back its
+credits before requesting more capacity. No pointer into a growable index crosses the unlock.
+Unused or replaced buffers are destroyed after unlocking. Pool shutdown also detaches free backing
+before destruction and notices capacity created by reentrant admission.
+
+`pool.growth.Request` describes the five concrete allocation requests used by these existing
+consumers. `Prepared` owns the six buffer kinds, including paired bytes and slot metadata. These are
+internal admission state, not another allocator or a public admission framework. Geometric growth,
+record ordinals, storage epochs, and the shared pool remain unchanged. The former allocating
+`heap.reserve` and in-lock storage-release interpretation have been removed.
+
+The native acceptance now distinguishes successful balanced allocator reentry from rejected key-
+construction reentry. Key-creation failure must leave identity and key state empty, and shutdown
+must reclaim all unused backing while allocation is denied. Registration rejection reserves the
+available record capacity before denying allocation, so the check does not depend on a cold pool.
+The deallocation reentry check exercises empty admission while backing is being released.
+
+Evidence before the final deallocation probe:
+
+- `bra-554-pool-growth-contracts.log`: 224 trusted-contract tests passed.
+- `bra-554-protocol-core.log`: 321 checker tests, the cross-target consumer ABI test, and production
+  pool mutation/header-forgery probes passed.
+- `bra-554-pool-growth-native-acceptance.log`: the complete native workflow passed, including
+  asynchronous, synchronous, bootstrap and observation smoke products and their link-map audits.
+- The bootstrap startup sample used six allocations and 672 bytes. The two 65,537-byte cleanup
+  payloads with 4,096-byte alignment used nine allocations and 148,280 bytes including metadata and
+  alignment slack. These are smoke observations, not comparative final entry performance claims.
+
+The 54 native runtime tests passed in `bra-554-native-protocol-final.log`. The final deallocation
+reentry probe and full native workflow passed in `bra-554-pool-reentry-native.log`.
+
+The maintainability audit also found the same prepared-buffer installation in host attachment
+growth. Both consumers now use the existing heap module, including its verified-total installation
+operation. Optional metadata buffers add only the first-allocation case. The complete native
+workflow passed again in `bra-554-shared-growth-complete.log`. `cargo xtask style`, `cargo xtask
+format`, the installed Rust formatter, and `git diff --check` passed. Existing module-size warnings
+remain. Published review of this checkpoint is pending. The remaining entry/report ownership and consumer migration above
+remain required. BRA-554 and Step 5 are not complete.
+
+The checkpoint audit reread AGENTS.md and searched the compiler/runtime/fixture consumers for
+whole-value observation, observation-free facts, declaration type binding, root-context restoration,
+report consumer/message ABI mapping, and prepared capacity installation. Binding and observation
+reuse the owning analyses. Native report callback identities remain in the closed role catalog.
+Root creation reuses the existing task scope. Prepared-buffer publication now has one heap-module
+implementation shared by attachment and pool growth. The split pool root contains only its module
+declaration. No new language feature, downstream validator, allocator, or scheduler was added.

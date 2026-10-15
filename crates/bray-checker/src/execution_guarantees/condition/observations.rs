@@ -226,11 +226,9 @@ impl ExecutionCondition {
     /// Whether every observed value is in the established unchanged set.
     pub(crate) fn observes_only(&self, stable: &std::collections::BTreeSet<Self>) -> bool {
         let mut pending = vec![self];
-        let mut observed = false;
 
         while let Some(value) = pending.pop() {
             if stable.contains(value) {
-                observed = true;
                 continue;
             }
 
@@ -248,7 +246,7 @@ impl ExecutionCondition {
             }
         }
 
-        observed
+        true
     }
 
     pub(crate) fn observations(&self) -> impl Iterator<Item = &Self> {

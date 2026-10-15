@@ -54,6 +54,7 @@ internal struct AttachmentRetirement
 
 @abi(c)
 trusted internal func thread_attachment_leave() -> u32
+    requires(trusted bray.runtime.bootstrap.thread.destruction.native_attachment_release())
 {
     let scope = trusted bray.runtime.bootstrap.thread.destruction.explicit_exit_scope();
 

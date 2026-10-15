@@ -13,7 +13,7 @@ struct PanicReport {
     tail: usize,
     count: usize,
     reserved: usize,
-    consume: Option<extern "C" fn(&mut Self, bool) -> u32>,
+    consume: Option<extern "C" fn(&mut Self, u32) -> u32>,
 }
 
 impl PanicReport {

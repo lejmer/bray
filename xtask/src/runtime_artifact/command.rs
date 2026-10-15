@@ -1176,6 +1176,8 @@ mod tests {
                 RuntimeAbiRole::ReportSegmentMark,
                 RuntimeAbiRole::ReportSegmentTake,
                 RuntimeAbiRole::ReportConsumer,
+                RuntimeAbiRole::ReportMessageCopy,
+                RuntimeAbiRole::ReportMessageRelease,
                 RuntimeAbiRole::RuntimeInitialization,
                 RuntimeAbiRole::MemoryObservationBegin,
                 RuntimeAbiRole::MemoryAllocationObservation,

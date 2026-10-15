@@ -1,9 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use bray_binder::{BindingQueryContext, BindingQueryError, bind_callable_type_clause};
 use bray_bound_tree::{
-    BoundSourceAnchor, BoundUnitId, BoundUnitKey, DeclaredValueTypeEvidence,
-    DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
+    BoundSourceAnchor, BoundUnitId, BoundUnitKey, DeclaredValueTypeEvidence, DeclaredValueTypeTerm,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
@@ -104,60 +103,50 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
 
         let guard_expressions = callable_type_guard_expressions(bound, guard_count);
 
-        let evidence = bound
-            .tree()
-            .expressions()
-            .filter_map(|(expression, bound)| {
-                let bray_bound_tree::BoundExpression::Name(name) = bound else {
-                    return None;
-                };
-
-                if matches!(
-                    name.target(),
-                    bray_bound_tree::BoundReferenceTarget::Local(
-                        bray_symbols::AnyLocalSymbolId::PostconditionResult(_)
-                    )
-                ) {
-                    return Some(DeclaredValueTypeEvidence::new(
-                        DeclaredValueTypeTerm::Expression(expression),
-                        TypeExpressionTemplate::Resolved(callable.result()),
-                    ));
-                }
-
-                references
-                    .iter()
-                    .position(|reference| *reference == name.target())
-                    .map(|ordinal| {
-                        DeclaredValueTypeEvidence::new(
-                            DeclaredValueTypeTerm::Expression(expression),
-                            TypeExpressionTemplate::Resolved(parameters[ordinal].1),
-                        )
-                    })
-            });
-
-        let declared = DeclaredValueTypeTemplates::new(
-            bound.unit(),
-            bound.key().kind(),
-            evidence,
-            [],
-            None,
-            postcondition.then_some(TypeExpressionTemplate::Resolved(callable.result())),
-        );
-
-        let ((semantics, patterns), checked_diagnostics) =
-            super::shared::checked_bound_contract(context, bound, &declared, None)?.into_parts();
-
-        let inputs = references
+        let evidence = references
             .iter()
-            .map(|reference| {
-                let place = bray_checker::ExecutionPlace::from(*reference);
-
-                (
-                    place.clone(),
-                    bray_checker::ExecutionCondition::Input(place),
+            .zip(&parameters)
+            .map(|(reference, parameter)| {
+                DeclaredValueTypeEvidence::new(
+                    DeclaredValueTypeTerm::Value(*reference),
+                    TypeExpressionTemplate::Resolved(parameter.1),
                 )
             })
-            .collect::<BTreeMap<_, _>>();
+            .chain(bound.local_symbols().scopes().iter().filter_map(|scope| {
+                scope.postcondition_result().map(|result| {
+                    DeclaredValueTypeEvidence::new(
+                        DeclaredValueTypeTerm::Value(bray_bound_tree::BoundReferenceTarget::Local(
+                            result.into(),
+                        )),
+                        TypeExpressionTemplate::Resolved(callable.result()),
+                    )
+                })
+            }));
+
+        let declared = crate::compilation::binder::value_type::bind_contract_value_type_templates(
+            context,
+            bound,
+            owner,
+            evidence,
+            postcondition.then_some(TypeExpressionTemplate::Resolved(callable.result())),
+        )?;
+
+        let ((semantics, patterns), checked_diagnostics) =
+            super::shared::checked_bound_contract(context, bound, declared.value(), None)?
+                .into_parts();
+
+        let mut inputs = compilation
+            .execution_constant_inputs(bound, &semantics, context.cancellation, &mut diagnostics)
+            .map_err(super::super::binding::binder_error)?;
+
+        inputs.extend(references.iter().map(|reference| {
+            let place = bray_checker::ExecutionPlace::from(*reference);
+
+            (
+                place.clone(),
+                bray_checker::ExecutionCondition::Input(place),
+            )
+        }));
 
         let conditions = bray_checker::predicate_conditions_with_inputs(
             bound,
@@ -212,8 +201,12 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
         }
 
         diagnostics.add_range(
-            DiagnosticBag::merged_all([computation.result().diagnostics(), &checked_diagnostics])
-                .into_iter(),
+            DiagnosticBag::merged_all([
+                computation.result().diagnostics(),
+                declared.diagnostics(),
+                &checked_diagnostics,
+            ])
+            .into_iter(),
         );
     }
 

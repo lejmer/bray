@@ -8,51 +8,28 @@ using internal std.thread;
 
 @abi(c)
 trusted internal func thread_attachment_enter() -> u32
+    requires(trusted bray.runtime.bootstrap.host.attachment.native_acquisition_transfer())
 {
-    let status: u32 = trusted initialize_host();
-
-    if status != bray.runtime.bootstrap.STATUS_SUCCESS
+    let transfer = trusted lambda(pos owner: &mut bray.runtime.bootstrap.host.attachment.Owner) -> u32
+        requires(trusted bray.runtime.bootstrap.host.attachment.acquired(owner = &owner))
+        ensures(trusted bray.runtime.bootstrap.host.attachment.acquired(owner = &owner))
+        executes(total)
     {
+        let status = owner.status;
+
+        owner.status = bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
         return status;
-    }
+    };
 
-    let mut prepared: std.memory.RawBuffer<Attachment>? = none;
+    let mut owner = trusted bray.runtime.bootstrap.host.attachment.acquire();
 
-    while true
-    {
-        let entered: Result<u32, usize> =
-        {
-            let lease: HostLease = trusted host_access();
-
-            if !lease.active
-            {
-                return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
-            }
-
-            yield trusted enter_attachment_locked(&lease, &mut prepared);
-        };
-
-        let capacity: usize = match consume entered
-        {
-            case Ok(entered_status) { return entered_status; }
-            case Error(capacity) { yield capacity; }
-        };
-
-        // Allocation and retirement run after releasing the lease. Reentry sees
-        // the initialized host and either an existing epoch or independent backing.
-        prepared = trusted internal bray.runtime.bootstrap.heap.try_buffer<Attachment>(capacity);
-
-        if prepared matches none
-        {
-            return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
-        }
-    }
+    return trusted transfer(&mut owner);
 }
 
 trusted internal func enter_attachment_locked(
     pos lease: &HostLease,
     pos prepared: &mut(std.memory.RawBuffer<Attachment>?)
-) -> Result<u32, usize>
+) -> Result<(u32, u64), usize>
     requires(
         lease.active,
         trusted host_access_idle(owner = lease),
@@ -66,6 +43,9 @@ trusted internal func enter_attachment_locked(
     executes(total)
     uses(foreign_call, intrinsic, raw_memory, unchecked_alias)
 {
+    let no_identity: u64 = 0;
+    let unavailable = (bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE, no_identity);
+
     let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
         lease.synchronization,
         trusted lease_synchronization_pointer(lease)
@@ -76,7 +56,7 @@ trusted internal func enter_attachment_locked(
 
     if !lease.active
     {
-        return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+        return Ok(unavailable);
     }
 
     let mut anchor = trusted host_anchor(lease);
@@ -84,7 +64,7 @@ trusted internal func enter_attachment_locked(
 
     if host.storage matches none
     {
-        return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+        return Ok(unavailable);
     }
 
     let next: u64 = host.next_identity;
@@ -93,7 +73,7 @@ trusted internal func enter_attachment_locked(
     {
         if next == ~0
         {
-            return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+            return Ok(unavailable);
         }
 
         host.next_identity += 1;
@@ -105,7 +85,7 @@ trusted internal func enter_attachment_locked(
     }
     else
     {
-        return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+        return Ok(unavailable);
     };
 
     let key: u64 = storage.key;
@@ -120,21 +100,21 @@ trusted internal func enter_attachment_locked(
             {
                 if entry.closing || entry.native_thread != native_thread || entry.depth == ~0
                 {
-                    return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+                    return Ok(unavailable);
                 }
 
                 entry.depth += 1;
-                return Ok(bray.runtime.bootstrap.STATUS_SUCCESS);
+                return Ok((bray.runtime.bootstrap.STATUS_SUCCESS, identity));
             }
             case none {}
         }
 
-        return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+        return Ok(unavailable);
     }
 
     if storage.active == ~0
     {
-        return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+        return Ok(unavailable);
     }
 
     let inserted: bool = match consume trusted insert_attachment(storage, next, native_thread, prepared)
@@ -145,7 +125,7 @@ trusted internal func enter_attachment_locked(
 
     if !inserted
     {
-        return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+        return Ok(unavailable);
     }
 
     storage.active += 1;
@@ -174,8 +154,8 @@ trusted internal func enter_attachment_locked(
         }
 
         storage.active -= 1;
-        return Ok(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+        return Ok(unavailable);
     }
 
-    return Ok(bray.runtime.bootstrap.STATUS_SUCCESS);
+    return Ok((bray.runtime.bootstrap.STATUS_SUCCESS, next));
 }

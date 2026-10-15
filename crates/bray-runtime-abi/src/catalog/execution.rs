@@ -94,11 +94,29 @@ macro_rules! runtime_role_catalog {
                 effects: [TransferCleanupIncident]
             }
             ReportConsumer {
-                "Return the linked Bray report consumer.", "report_consumer",
-                native: (REPORT_CONSUMER_SYMBOL = "bray_runtime_report_consumer", [] -> Pointer),
+                "Consume an exclusively transferred report without fresh entry admission.", "report_consumer",
+                native: (REPORT_CONSUMER_SYMBOL = "bray_runtime_report_consumer", [Pointer, U32] -> U32),
                 call_hook: (),
-                compiler: C [] -> Pointer,
-                owner: Host, availability: All, bootstrap: ("consume_pointer"), host_control: false,
+                compiler: C [Pointer, U32] -> U32,
+                owner: Host, availability: All, bootstrap: ("consume_report"), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
+            ReportMessageCopy {
+                "Copy retained report bytes under the native report ownership contract.", "report_message_copy",
+                native: (REPORT_MESSAGE_COPY_SYMBOL = "bray_runtime_report_message_copy", [Usize, Usize, Pointer, Usize] -> U32),
+                call_hook: (),
+                compiler: C [Usize, Usize, Pointer, Usize] -> U32,
+                owner: Host, availability: All, bootstrap: ("panic_message_copy"), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
+            ReportMessageRelease {
+                "Release retained report backing without fresh entry admission.", "report_message_release",
+                native: (REPORT_MESSAGE_RELEASE_SYMBOL = "bray_runtime_report_message_release", [Usize, Usize, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Usize, Usize, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("panic_message_release"), host_control: false,
                 capabilities: [],
                 effects: [TransferCleanupIncident]
             }

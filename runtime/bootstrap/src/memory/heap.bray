@@ -83,55 +83,74 @@ trusted internal func allocation_pointer<T>(pos pointer: RawPointer<u8>, pos cap
     return trusted std.memory.reinterpret<T, u8>(pointer);
 }
 
-// Grow an owned metadata buffer only at a fallible admission boundary.
-trusted internal func reserve<T>(pos buffer: &mut std.memory.RawBuffer<T>?) -> bool
-    uses(manual_alloc, raw_memory, unchecked_init)
+// Install prepared capacity without allocating or releasing storage under a caller's lock.
+// Replaced empty backing stays in prepared until the caller has released its lock.
+trusted internal func reserve<T>(
+    pos buffer: &mut(std.memory.RawBuffer<T>?),
+    pos prepared: &mut(std.memory.RawBuffer<T>?)
+) -> Result<bool, usize>
+    executes(total)
 {
-    if buffer matches none
-    {
-        let allocation: std.memory.RawBuffer<T>? = trusted try_buffer<T>(1);
-
-        if allocation matches none
-        {
-            return false;
-        }
-
-        buffer = allocation;
-        return true;
-    }
-
     if let ?storage = buffer
     {
-        let count: usize = std.memory.initialized_count<T>(&storage);
-        let capacity: usize = std.memory.capacity<T>(&storage);
-
-        if count < capacity
-        {
-            return true;
-        }
-
-        let maximum: usize = ~0;
-
-        if capacity > maximum / 2
-        {
-            return false;
-        }
-
-        let allocation: std.memory.RawBuffer<T>? = trusted try_buffer<T>(capacity * 2);
-
-        return match consume allocation
-        {
-            case ?replacement
-            {
-                let mut grown: std.memory.RawBuffer<T> = replacement;
-
-                trusted internal std.memory.raw_buffer_relocate<T>(&mut storage, &mut grown);
-                trusted internal std.memory.raw_buffer_replace<T>(&mut storage, &mut grown);
-                yield true;
-            }
-            case none { yield false; }
-        };
+        return trusted grow<T>(&mut storage, prepared);
     }
 
-    return false;
+    if let ?replacement = prepared
+    {
+        if replacement.capacity < 1 || replacement.initialized != 0
+        {
+            return Error(1);
+        }
+    }
+    else
+    {
+        return Error(1);
+    }
+
+    trusted internal std.memory.swap_values<(std.memory.RawBuffer<T>?)>(buffer, prepared);
+    return Ok(true);
+}
+
+trusted internal func grow<T>(
+    pos buffer: &mut std.memory.RawBuffer<T>,
+    pos prepared: &mut(std.memory.RawBuffer<T>?)
+) -> Result<bool, usize>
+    executes(total)
+    uses(raw_memory, unchecked_init)
+{
+    if buffer.initialized < buffer.capacity
+    {
+        return Ok(true);
+    }
+
+    let maximum: usize = ~0;
+
+    if buffer.capacity > maximum - buffer.capacity
+    {
+        return Ok(false);
+    }
+
+    let required: usize = if buffer.capacity == 0
+    {
+        yield 1;
+    }
+    else
+    {
+        yield buffer.capacity * 2;
+    };
+
+    if let ?replacement = prepared
+    {
+        if replacement.capacity < required || replacement.initialized != 0
+        {
+            return Error(required);
+        }
+
+        trusted internal std.memory.raw_buffer_relocate<T>(buffer, &mut replacement);
+        trusted internal std.memory.swap_values<std.memory.RawBuffer<T>>(buffer, &mut replacement);
+        return Ok(true);
+    }
+
+    return Error(required);
 }

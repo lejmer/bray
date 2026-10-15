@@ -9,6 +9,6 @@ pub(crate) use core::test_runtime_isolation;
 pub(super) use core::with_current_task;
 pub(super) use core::{
     NativeRuntimeCore, initialize, run_worker, shutdown, with_independent_execution_context,
-    with_runtime,
+    with_root_execution_context, with_runtime,
 };
 pub(crate) use core::{RetainedRuntime, retain_runtime};

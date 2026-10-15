@@ -2,6 +2,7 @@
 trusted internal module bray.runtime.bootstrap.outgoing;
 
 using std.memory;
+using internal bray.runtime.bootstrap.pool.growth;
 using internal bray.runtime.bootstrap;
 
 @abi(c)
@@ -10,6 +11,7 @@ trusted internal func admission(
     pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
 )
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_read<bray.runtime.bootstrap.storage.Bundle>(pointer = pointer, count = 1),
         trusted core.memory.initialized_as<bray.runtime.bootstrap.storage.Bundle>(pointer = pointer),
         trusted core.memory.aligned_for<bray.runtime.bootstrap.storage.Bundle>(pointer = pointer),
@@ -45,6 +47,7 @@ trusted internal func accept(
     pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> bool
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
         trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
     )
@@ -53,34 +56,76 @@ trusted internal func accept(
         trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
     )
 {
-    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
-    let pool = guard.get();
+    let mut prepared = bray.runtime.bootstrap.pool.growth.empty();
+
+    while true
+    {
+        let request =
+        {
+            let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+
+            yield match consume trusted accept_locked(guard.get(), bundle, &mut prepared)
+            {
+                case Ok(accepted) { return accepted; }
+                case Error(request) { yield request; }
+            };
+        };
+
+        if !trusted bray.runtime.bootstrap.pool.growth.prepare(&mut prepared, request)
+        {
+            return false;
+        }
+    }
+}
+
+trusted internal func accept_locked(
+    pos pool: &mut bray.runtime.bootstrap.ReportPool,
+    pos bundle: bray.runtime.bootstrap.storage.Bundle,
+    pos prepared: &mut bray.runtime.bootstrap.pool.growth.Prepared
+) -> Result<bool, bray.runtime.bootstrap.pool.growth.Request>
+{
+
     let maximum: usize = ~0;
 
     if bundle.records > maximum - pool.credits
     {
-        return false;
+        return Ok(false);
     }
 
     let requested = pool.credits + bundle.records;
 
-    if !trusted bray.runtime.bootstrap.reserve_records(pool, requested)
+    match consume trusted bray.runtime.bootstrap.reserve_records(pool, requested, prepared)
     {
-        return false;
+        case Ok(ready)
+        {
+            if !ready
+            {
+                return Ok(false);
+            }
+        }
+        case Error(request) { return Error(request); }
     }
 
-    if !trusted bray.runtime.bootstrap.storage.reserve_bundle(pool, bundle.descriptors)
+    match consume trusted bray.runtime.bootstrap.storage.reserve_bundle(pool, bundle.descriptors, prepared)
     {
-        return false;
+        case Ok(ready)
+        {
+            if !ready
+            {
+                return Ok(false);
+            }
+        }
+        case Error(request) { return Error(request); }
     }
 
     pool.credits += bundle.records;
-    return true;
+    return Ok(true);
 }
 
 @abi(c)
 trusted internal func discharge(pos pointer: RawPointer<bray.runtime.bootstrap.storage.Bundle>)
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_read<bray.runtime.bootstrap.storage.Bundle>(pointer = pointer, count = 1),
         trusted core.memory.initialized_as<bray.runtime.bootstrap.storage.Bundle>(pointer = pointer),
         trusted core.memory.aligned_for<bray.runtime.bootstrap.storage.Bundle>(pointer = pointer),

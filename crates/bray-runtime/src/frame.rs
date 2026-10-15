@@ -494,7 +494,7 @@ pub(crate) fn native_report(
 ) -> bray_runtime_abi::NativePanicReport {
     bray_runtime_abi::NativePanicReport::new(
         primary,
-        crate::report_provider::bray_runtime_report_consumer(),
+        crate::report_provider::bray_runtime_report_consumer,
     )
 }
 

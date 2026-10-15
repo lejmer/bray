@@ -207,6 +207,7 @@ trusted internal func report_records_take(
     pos destination: RawPointer<ReportRecords>,
 )
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<ReportRecords>(pointer = source, count = 1),
         trusted core.memory.aligned_for<ReportRecords>(pointer = source),
         trusted core.memory.valid_read<ReportRecords>(pointer = source, count = 1),
@@ -234,6 +235,7 @@ trusted internal func take_record_values(
     pos destination: RawPointer<ReportRecords>
 ) -> (ReportRecords, ReportRecords)
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<ReportRecords>(pointer = source, count = 1),
         trusted core.memory.aligned_for<ReportRecords>(pointer = source),
         trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
@@ -267,6 +269,7 @@ trusted internal func report_records_append(
     pos source: RawPointer<ReportRecords>
 )
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<ReportRecords>(pointer = source, count = 1),
         trusted core.memory.aligned_for<ReportRecords>(pointer = source),
         trusted core.memory.valid_read<ReportRecords>(pointer = source, count = 1),
@@ -293,6 +296,7 @@ trusted internal func append_record_values(
     pos source: RawPointer<ReportRecords>
 ) -> (ReportRecords, ReportRecords)
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
         trusted core.memory.aligned_for<ReportRecords>(pointer = destination),
         trusted core.memory.valid_write<ReportRecords>(pointer = source, count = 1),
@@ -330,7 +334,7 @@ trusted internal func append_record_values(
 }
 
 trusted internal func exchange_primary(pos handle: usize, pos value: ReportPrimary) -> ReportPrimary
-    requires(trusted native_primary_callbacks(primary = &value))
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access(), trusted native_primary_callbacks(primary = &value))
     ensures(trusted native_primary_callbacks(primary = &result))
 {
     let replacement: StoredReportPrimary = trusted stored_primary(value);
@@ -348,6 +352,7 @@ trusted internal func exchange_primary(pos handle: usize, pos value: ReportPrima
 @abi(c)
 trusted internal func report_record_exchange(pos handle: usize, pos primary: RawPointer<ReportPrimary>)
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted native_primary_slot_callbacks(pointer = primary),
         trusted core.memory.valid_write<ReportPrimary>(pointer = primary, count = 1),
         trusted core.memory.aligned_for<ReportPrimary>(pointer = primary),
@@ -369,6 +374,7 @@ trusted internal func exchange_record_value(
     pos primary: RawPointer<ReportPrimary>
 ) -> ReportPrimary
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted native_primary_callbacks(primary = &value),
         trusted core.memory.valid_write<ReportPrimary>(pointer = primary, count = 1),
         trusted core.memory.aligned_for<ReportPrimary>(pointer = primary),
@@ -384,6 +390,7 @@ trusted internal func exchange_record_value(
 @abi(c)
 trusted internal func report_segment_mark(pos chain: RawPointer<ReportRecords>, pos metadata: RawPointer<ReportSegment>)
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
         trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
         trusted core.memory.valid_read<ReportRecords>(pointer = chain, count = 1),
@@ -413,6 +420,7 @@ trusted internal func report_segment_take(
     pos destination: RawPointer<ReportRecords>,
 )
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
         trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
         trusted core.memory.valid_read<ReportRecords>(pointer = chain, count = 1),
@@ -439,6 +447,7 @@ trusted internal func take_segment_values(
     pos destination: RawPointer<ReportRecords>
 ) -> (ReportRecords, ReportSegment, ReportRecords)
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
         trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
         trusted core.memory.valid_write<ReportSegment>(pointer = metadata, count = 1),

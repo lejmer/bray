@@ -75,6 +75,7 @@ trusted internal func runtime_initialization(pos worker_capacity: usize, pos tim
 @abi(c)
 trusted internal func structured_shutdown() -> u32
     uses(foreign_call)
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
 {
     let status: u32 = trusted substrate_shutdown();
 

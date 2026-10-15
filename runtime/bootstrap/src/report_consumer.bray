@@ -22,11 +22,10 @@ trusted internal predicate native_primary_slot_callbacks(pointer: RawPointer<Rep
 
 trusted internal predicate native_report_slot_callbacks(pointer: RawPointer<PanicReportData>);
 
-internal callable ReportConsumer = @abi(c) trusted func(
-    pos pointer: RawPointer<PanicReportData>,
-    pos reporting: bool
-) -> u32
+internal callable ReportConsumer = @abi(c) trusted func(pos pointer: RawPointer<PanicReportData>, pos reporting: u32) ->
+    u32
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
         trusted core.memory.valid_write<PanicReportData>(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<PanicReportData>(pointer = pointer),
@@ -153,6 +152,7 @@ trusted internal func release_primary(
 ) -> (u32, PanicReportData)
     ensures(trusted native_report_callbacks(report = &result.1))
     uses(layout_reinterpret)
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
 {
     let mut outcome: ReportOutcome =
     {
@@ -176,6 +176,7 @@ trusted internal func release_primary(
 @abi(c)
 trusted internal func recycle_reservation(pos handle: usize)
     uses(intrinsic)
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
 {
     if handle == 0
     {
@@ -206,8 +207,9 @@ trusted internal func recycle_reservation(pos handle: usize)
 }
 
 @abi(c)
-trusted internal func consume_report(pos pointer: RawPointer<PanicReportData>, pos reporting: bool) -> u32
+trusted internal func consume_report(pos pointer: RawPointer<PanicReportData>, pos reporting: u32) -> u32
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
         trusted core.memory.valid_write<PanicReportData>(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<PanicReportData>(pointer = pointer),
@@ -236,7 +238,7 @@ trusted internal func consume_report(pos pointer: RawPointer<PanicReportData>, p
 
     loop
     {
-        if reporting
+        if reporting != 0
         {
             let found: u32 = trusted substrate_report_primary(std.memory.address_of<ReportPrimary>(&primary));
 

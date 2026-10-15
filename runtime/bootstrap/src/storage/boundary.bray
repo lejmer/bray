@@ -2,6 +2,7 @@
 trusted internal module bray.runtime.bootstrap.storage;
 
 using std.memory;
+using internal bray.runtime.bootstrap.pool.growth;
 using internal bray.runtime.bootstrap;
 
 trusted internal predicate lease_slot(pointer: RawPointer<Lease>);
@@ -9,6 +10,7 @@ trusted internal predicate lease_slot(pointer: RawPointer<Lease>);
 @abi(c)
 trusted internal func admit(pos descriptor: RawPointer<Descriptor>, pos destination: RawPointer<Lease>) -> u32
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_read<Descriptor>(pointer = descriptor, count = 1),
         trusted core.memory.initialized_as<Descriptor>(pointer = descriptor),
         trusted core.memory.aligned_for<Descriptor>(pointer = descriptor),
@@ -53,6 +55,7 @@ trusted internal func admit(pos descriptor: RawPointer<Descriptor>, pos destinat
 
 trusted internal func admit_value(pos descriptor: Descriptor, pos destination: RawPointer<Lease>) -> Lease
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<Lease>(pointer = destination, count = 1),
         trusted core.memory.aligned_for<Lease>(pointer = destination),
     )
@@ -61,19 +64,49 @@ trusted internal func admit_value(pos descriptor: Descriptor, pos destination: R
         trusted core.memory.aligned_for<Lease>(pointer = destination),
     )
 {
-    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
-    let pool = guard.get();
+    let mut prepared = bray.runtime.bootstrap.pool.growth.empty();
+
+    while true
+    {
+        let request =
+        {
+            let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+
+            yield match consume trusted admit_locked(guard.get(), descriptor, &mut prepared)
+            {
+                case Ok(lease) { return lease; }
+                case Error(request) { yield request; }
+            };
+        };
+
+        if !trusted bray.runtime.bootstrap.pool.growth.prepare(&mut prepared, request)
+        {
+            return empty_lease();
+        }
+    }
+}
+
+trusted internal func admit_locked(
+    pos pool: &mut bray.runtime.bootstrap.ReportPool,
+    pos descriptor: Descriptor,
+    pos prepared: &mut bray.runtime.bootstrap.pool.growth.Prepared
+) -> Result<Lease, bray.runtime.bootstrap.pool.growth.Request>
+{
 
     if pool.remaining_epochs == 0
     {
-        return empty_lease();
+        return Ok(empty_lease());
     }
 
-    let index: usize = trusted register(pool, descriptor);
+    let index = match consume trusted register(pool, descriptor, prepared)
+    {
+        case Ok(index) { yield index; }
+        case Error(request) { return Error(request); }
+    };
 
     if index == 0
     {
-        return empty_lease();
+        return Ok(empty_lease());
     }
 
     {
@@ -83,24 +116,32 @@ trusted internal func admit_value(pos descriptor: Descriptor, pos destination: R
 
         if shape.credits == limit
         {
-            return empty_lease();
+            return Ok(empty_lease());
         }
 
         let requested: usize = shape.credits + 1;
 
-        if !trusted reserve(shape, requested)
+        match consume trusted reserve(shape, requested, prepared)
         {
-            return empty_lease();
+            case Ok(ready)
+            {
+                if !ready
+                {
+                    return Ok(empty_lease());
+                }
+            }
+            case Error(request) { return Error(request); }
         }
     }
 
     pool.remaining_epochs -= 1;
-    return trusted reserve_lease(pool, index);
+    return Ok(trusted reserve_lease(pool, index));
 }
 
 @abi(c)
 trusted internal func activate(pos pointer: RawPointer<Lease>, pos descriptor: RawPointer<Descriptor>) -> RawPointer<u8>
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted lease_slot(pointer = pointer),
         trusted core.memory.valid_read<Lease>(pointer = pointer, count = 1),
         trusted core.memory.initialized_as<Lease>(pointer = pointer),
@@ -122,6 +163,7 @@ trusted internal func activate(pos pointer: RawPointer<Lease>, pos descriptor: R
 @abi(c)
 trusted internal func retire(pos pointer: RawPointer<Lease>) -> u32
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted lease_slot(pointer = pointer),
         trusted core.memory.valid_read<Lease>(pointer = pointer, count = 1),
         trusted core.memory.valid_write<Lease>(pointer = pointer, count = 1),
@@ -144,6 +186,7 @@ trusted internal func retire(pos pointer: RawPointer<Lease>) -> u32
 
 trusted internal func retire_value(pos lease: &Lease, pos pointer: RawPointer<Lease>) -> bool
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<Lease>(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<Lease>(pointer = pointer),
     )
@@ -160,6 +203,7 @@ trusted internal func retire_value(pos lease: &Lease, pos pointer: RawPointer<Le
 @abi(c)
 trusted internal func claim(pos descriptor: RawPointer<Descriptor>, pos destination: RawPointer<Lease>)
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_read<Descriptor>(pointer = descriptor, count = 1),
         trusted core.memory.initialized_as<Descriptor>(pointer = descriptor),
         trusted core.memory.aligned_for<Descriptor>(pointer = descriptor),
@@ -182,6 +226,7 @@ trusted internal func claim(pos descriptor: RawPointer<Descriptor>, pos destinat
 
 trusted internal func claim_locked(pos descriptor: Descriptor, pos destination: RawPointer<Lease>) -> Lease
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<Lease>(pointer = destination, count = 1),
         trusted core.memory.aligned_for<Lease>(pointer = destination),
     )

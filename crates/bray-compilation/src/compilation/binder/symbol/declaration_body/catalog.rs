@@ -1,7 +1,5 @@
-use bray_binder::{
-    BindingQueryContext, BindingQueryError, SymbolQueryProvider, bind_contract_clause_expressions,
-};
-use bray_bound_tree::{BoundSourceAnchor, BoundUnitId, BoundUnitKey, DeclaredValueTypeTemplates};
+use bray_binder::{BindingQueryContext, BindingQueryError, bind_contract_clause_expressions};
+use bray_bound_tree::{BoundSourceAnchor, BoundUnitId, BoundUnitKey};
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{AnySymbolId, PredicateSemanticSummary};
 use bray_syntax::{ExpressionSyntax, SyntaxNodeView};
@@ -37,68 +35,13 @@ pub(in crate::compilation::binder::symbol) fn checked_catalog_predicates(
 
     let bound = computation.result().value();
 
-    let callable = bray_symbols::CallableSymbolId::try_from_any(owner)
-        .expect("catalog predicate owner is callable");
-
-    let signature = context.resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
-        bray_symbols::CallableSignatureQuery,
-    >::new(callable))?;
-
-    let mut evidence = Vec::new();
-
-    for (expression, node) in bound.tree().expressions() {
-        let bray_bound_tree::BoundExpression::Name(name) = node else {
-            continue;
-        };
-
-        let template = match name.target() {
-            bray_bound_tree::BoundReferenceTarget::Surface(AnySymbolId::CallableParameter(
-                parameter,
-            )) => {
-                let ordinal = signature
-                    .value()
-                    .parameters()
-                    .iter()
-                    .position(|candidate| *candidate == parameter)
-                    .expect("bound catalog clause parameter belongs to its signature");
-
-                Some(
-                    signature
-                        .value()
-                        .parameter_type_template(
-                            parameter,
-                            u32::try_from(ordinal).expect("signature ordinal fits"),
-                            context.semantic_values(),
-                        )
-                        .expect("signature retains every parameter type"),
-                )
-            }
-            bray_bound_tree::BoundReferenceTarget::Local(
-                bray_symbols::AnyLocalSymbolId::PostconditionResult(_),
-            ) => Some(signature.value().result().clone()),
-            _ => None,
-        };
-
-        if let Some(template) = template {
-            evidence.push(bray_bound_tree::DeclaredValueTypeEvidence::new(
-                bray_bound_tree::DeclaredValueTypeTerm::Expression(expression),
-                template,
-            ));
-        }
-    }
-
-    let declared = DeclaredValueTypeTemplates::new(
-        bound.unit(),
-        bound.key().kind(),
-        evidence,
-        [],
-        None,
-        Some(signature.value().result().clone()),
-    );
+    let declared = crate::compilation::binder::bind_declared_value_type_templates(context, bound)?;
 
     let ((semantics, patterns), mut diagnostics) =
-        super::shared::checked_bound_contract(context, bound, &declared, Some(clause))?
+        super::shared::checked_bound_contract(context, bound, declared.value(), Some(clause))?
             .into_parts();
+
+    diagnostics.add_range(declared.into_parts().1);
 
     let constants = compilation
         .execution_constant_inputs(bound, &semantics, context.cancellation, &mut diagnostics)

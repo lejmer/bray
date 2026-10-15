@@ -1,0 +1,96 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.pool.growth;
+
+using std.memory;
+using internal std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.storage;
+using internal bray.runtime.bootstrap.heap;
+
+internal union Request
+{
+    Records(pos count: usize);
+    RecordSlabs(pos count: usize);
+    Shapes(pos count: usize);
+    StorageSlabs(pos count: usize);
+    Storage(pos counts: (usize, usize));
+}
+
+// These buffers own only prepared capacity or empty backing replaced under the lock.
+// Their destruction, and every allocator call, happens after the lock is released.
+internal struct Prepared
+{
+    mut records: std.memory.RawBuffer<bray.runtime.bootstrap.ReportRecord>?;
+    mut record_slabs: std.memory.RawBuffer<bray.runtime.bootstrap.ReportSlab>?;
+    mut shapes: std.memory.RawBuffer<bray.runtime.bootstrap.storage.Shape>?;
+    mut storage_slabs: std.memory.RawBuffer<bray.runtime.bootstrap.storage.Slab>?;
+    mut slots: std.memory.RawBuffer<bray.runtime.bootstrap.storage.Slot>?;
+    mut bytes: std.memory.RawBuffer<u8>?;
+}
+
+internal func empty() -> Prepared
+{
+    return
+    {
+        records = none,
+        record_slabs = none,
+        shapes = none,
+        storage_slabs = none,
+        slots = none,
+        bytes = none
+    };
+}
+
+trusted internal func prepare(pos prepared: &mut Prepared, pos request: Request) -> bool
+{
+    return match consume request
+    {
+        case Records(count)
+        {
+            prepared.records = trusted bray.runtime.bootstrap.heap.try_buffer<bray.runtime.bootstrap.ReportRecord>(
+                count
+            );
+
+            yield prepared.records matches ?_;
+        }
+        case RecordSlabs(count)
+        {
+            prepared.record_slabs = trusted bray.runtime.bootstrap.heap.try_buffer<bray.runtime.bootstrap.ReportSlab>(
+                count
+            );
+
+            yield prepared.record_slabs matches ?_;
+        }
+        case Shapes(count)
+        {
+            prepared.shapes = trusted bray.runtime.bootstrap.heap.try_buffer<bray.runtime.bootstrap.storage.Shape>(
+                count
+            );
+
+            yield prepared.shapes matches ?_;
+        }
+        case StorageSlabs(count)
+        {
+            prepared.storage_slabs = trusted bray.runtime.bootstrap.heap.try_buffer<
+                bray.runtime.bootstrap.storage.Slab
+            >(count);
+
+            yield prepared.storage_slabs matches ?_;
+        }
+        case Storage(counts)
+        {
+            prepared.bytes = trusted bray.runtime.bootstrap.heap.try_buffer<u8>(counts.0);
+
+            if prepared.bytes matches none
+            {
+                return false;
+            }
+
+            prepared.slots = trusted bray.runtime.bootstrap.heap.try_buffer<bray.runtime.bootstrap.storage.Slot>(
+                counts.1
+            );
+
+            yield prepared.slots matches ?_;
+        }
+    };
+}

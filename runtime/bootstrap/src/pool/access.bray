@@ -1,0 +1,125 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.pool;
+
+using std.memory;
+using internal std.memory;
+using internal std.sync;
+using internal std.sync.spin_lock;
+using internal bray.runtime.bootstrap;
+
+// Native protocol callers retain exclusive record ownership and the linked provider.
+// A source acknowledgement or a well-formed numeric header supplies no such authority.
+trusted internal predicate protocol_access();
+
+// The record allocator must outlive product cleanup and retirement of its backing records.
+// Host shutdown releases the allocations. Ordinary static cleanup must not destroy this owner.
+internal static STORAGE: Uninit<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>> = core.memory.uninit_from<
+    std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>
+>(
+    std.sync.spin_lock.initialize<bray.runtime.bootstrap.ReportPool>(
+        {
+            slabs = none,
+            free = 0,
+            available = 0,
+            total = 0,
+            credits = 0,
+            storage = none,
+            next_epoch = 1,
+            remaining_epochs = 0xffff_ffff_ffff_fffe,
+        }
+    )
+);
+
+trusted internal func lock() -> std.sync.SpinLockGuard<bray.runtime.bootstrap.ReportPool>
+    ensures(trusted std.sync.spin_lock.acquired(&result.acquisition))
+    uses(raw_memory, unchecked_alias)
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    let pointer = std.memory.uninit_pointer<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(&STORAGE);
+
+    let authorize = trusted lambda(pos pointer: RawPointer<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>)
+        ensures(
+            trusted core.memory.valid_read<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(
+                pointer = pointer,
+                count = 1
+            ),
+            trusted core.memory.aligned_for<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(pointer = pointer),
+            trusted core.memory.initialized_as<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(
+                pointer = pointer
+            ),
+            trusted core.memory.epoch_current<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(pointer = pointer),
+            trusted core.memory.synchronized_access<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(
+                pointer = pointer
+            ),
+            trusted core.memory.movement_stable<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(
+                pointer = pointer
+            ),
+            trusted core.memory.finalization_pending<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(
+                pointer = pointer
+            ),
+        )
+        executes(pure, total) {};
+
+    authorize(pointer);
+
+    let pool = trusted std.memory.borrow_from<
+        std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>,
+        Uninit<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>
+    >(&STORAGE, pointer);
+
+    let initialized = trusted lambda(pos pool: &std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>)
+        ensures(trusted std.sync.spin_lock.valid(&pool.instance))
+        executes(pure, total) {};
+
+    initialized(pool);
+    return pool.lock();
+}
+
+trusted internal func release() -> bool
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    {
+        let retired =
+        {
+            let mut guard = trusted lock();
+            let pool = guard.get();
+
+            if pool.credits != 0 || pool.available != pool.total || !trusted bray.runtime.bootstrap.storage.can_release(
+                pool
+            )
+            {
+                return false;
+            }
+
+            let slabs = trusted std.memory.replace_value<(std.memory.RawBuffer<bray.runtime.bootstrap.ReportSlab>?)>(
+                &mut pool.slabs,
+                none
+            );
+
+            let storage = trusted std.memory.replace_value<
+                (std.memory.RawBuffer<bray.runtime.bootstrap.storage.Shape>?)
+            >(&mut pool.storage, none);
+
+            pool.free = 0;
+            pool.available = 0;
+            pool.total = 0;
+            yield(slabs, storage);
+        };
+    }
+
+    // Deallocation may reenter admission. A newly allocated pool needs a later drain.
+    let mut guard = trusted lock();
+
+    let pool = guard.get();
+
+    return pool.slabs matches none && pool.storage matches none && pool.credits == 0;
+}
+
+trusted internal func identity() -> usize
+    uses(intrinsic)
+{
+    return trusted core.target.expose_address<Uninit<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>>(
+        std.memory.address_of<Uninit<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>>(&STORAGE)
+    );
+}

@@ -7,6 +7,9 @@ using internal bray.runtime.bootstrap.host;
 // Only the compiler-bound native callback owns this exact-thread exit scope.
 trusted internal predicate native_attachment_exit();
 
+// The bound native leave adapter consumes an acquisition held by its caller.
+trusted internal predicate native_attachment_release();
+
 trusted internal predicate exit_scope_live(owner: &ExitScope);
 
 internal struct ExitScope
@@ -28,6 +31,7 @@ trusted internal func native_exit_scope(pos value: RawPointer<u8>) -> ExitScope
 }
 
 trusted internal func explicit_exit_scope() -> ExitScope
+    requires(trusted native_attachment_release())
     ensures(trusted exit_scope_live(owner = &result))
 {
     return

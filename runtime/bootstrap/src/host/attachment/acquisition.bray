@@ -1,0 +1,115 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.attachment;
+
+using std.memory;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.thread.destruction;
+
+// The native caller retains the successful acquisition until its paired leave.
+trusted internal predicate native_acquisition_transfer();
+
+// Field mutation invalidates this whole-value witness, including identity changes.
+trusted internal predicate acquired(owner: &Owner);
+
+internal struct Owner
+{
+    mut status: u32;
+    mut identity: u64;
+
+    trusted destruct()
+        requires(trusted acquired(owner = &self))
+        when(self.status != bray.runtime.bootstrap.STATUS_SUCCESS)
+        {
+            executes(total)
+        }
+    {
+        let exit_scope = trusted lambda(pos owner: &Owner) -> bray.runtime.bootstrap.thread.destruction.ExitScope
+            requires(trusted acquired(owner = owner), owner.status == bray.runtime.bootstrap.STATUS_SUCCESS)
+            ensures(trusted bray.runtime.bootstrap.thread.destruction.exit_scope_live(owner = &result))
+            executes(pure, total)
+        {
+            return
+            {
+                identity = owner.identity,
+                native = false
+            };
+        };
+
+        if self.status == bray.runtime.bootstrap.STATUS_SUCCESS
+        {
+            let scope = trusted exit_scope(&self);
+            let _: u32 = trusted bray.runtime.bootstrap.host.finish_attachment(&scope);
+        }
+    }
+}
+
+trusted internal func acquire() -> Owner
+    ensures(trusted acquired(owner = &result))
+{
+    let inactive = trusted lambda() -> Owner
+        ensures(trusted acquired(owner = &result))
+    {
+        return
+        {
+            status = bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE,
+            identity = 0
+        };
+    };
+
+    let commit = trusted lambda(pos owner: &mut Owner, pos status: u32, pos identity: u64)
+        requires(trusted acquired(owner = &owner))
+        ensures(trusted acquired(owner = &owner))
+        executes(total)
+    {
+        owner.status = status;
+        owner.identity = identity;
+    };
+
+    // Secure cleanup backing before accepting the attachment obligation.
+    let mut owner = trusted inactive();
+
+    let status = trusted bray.runtime.bootstrap.host.initialize_host();
+
+    if status != bray.runtime.bootstrap.STATUS_SUCCESS
+    {
+        trusted commit(&mut owner, status, 0);
+        return owner;
+    }
+
+    let mut prepared: std.memory.RawBuffer<bray.runtime.bootstrap.host.Attachment>? = none;
+
+    while true
+    {
+        let entered: Result<(u32, u64), usize> =
+        {
+            let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+            if !lease.active
+            {
+                return owner;
+            }
+
+            yield trusted bray.runtime.bootstrap.host.enter_attachment_locked(&lease, &mut prepared);
+        };
+
+        let capacity: usize = match consume entered
+        {
+            case Ok(value)
+            {
+                trusted commit(&mut owner, value.0, value.1);
+                return owner;
+            }
+            case Error(capacity) { yield capacity; }
+        };
+
+        // Reentrant allocation runs outside the host lock, before publication.
+        prepared = trusted internal bray.runtime.bootstrap.heap.try_buffer<bray.runtime.bootstrap.host.Attachment>(
+            capacity
+        );
+
+        if prepared matches none
+        {
+            return owner;
+        }
+    }
+}

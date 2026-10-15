@@ -148,41 +148,17 @@ impl Compilation {
                         .instance(instance.key())
                         .expect("retained codegen instance must have a concrete realization");
 
-                    let signature = self.codegen_instance_signature(realization, cancellation)?;
+                    let mut signature =
+                        self.codegen_instance_signature(realization, cancellation)?;
 
                     if let Some(role) = self.codegen_runtime_source_role(instance.key())? {
-                        if !super::runtime_source::runtime_source_contract_matches(
+                        signature = super::runtime_source::checked_runtime_source_signature(
                             self,
                             role,
-                            instance.key().template(),
+                            instance.key(),
+                            signature,
                             cancellation,
-                        )? {
-                            return Err(
-                                CodegenPreparationError::InvalidRuntimeRoleSourceContract {
-                                    role,
-                                    // Retain the rejected identity only on the diagnostic path.
-                                    instance: instance.key().clone(),
-                                },
-                            );
-                        }
-
-                        let expected = self.codegen_runtime_signature(role)?;
-
-                        let matches = super::runtime_source::runtime_source_signature_matches(
-                            self,
-                            role,
-                            &signature,
-                            cancellation,
-                        )?
-                        .unwrap_or(signature == expected);
-
-                        if !matches {
-                            return Err(CodegenPreparationError::InvalidRuntimeRoleSourceBinding {
-                                role,
-                                expected,
-                                actual: signature,
-                            });
-                        }
+                        )?;
                     }
 
                     signature

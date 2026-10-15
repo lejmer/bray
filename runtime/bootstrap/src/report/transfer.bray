@@ -75,6 +75,7 @@ trusted internal func panic_report_suppression(
     pos incident: RawPointer<PanicReportData>
 ) -> PanicReportData
     requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted native_report_slot_callbacks(pointer = primary),
         trusted native_report_slot_callbacks(pointer = incident),
         trusted core.memory.non_overlapping<PanicReportData>(

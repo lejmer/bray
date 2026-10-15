@@ -60,6 +60,8 @@ native_export! {
 }
 
 native_export! {
+    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this callback export to the Bray provider"))]
+    #[cfg_attr(test, unsafe(no_mangle))]
     pub extern "C" fn bray_runtime_foreign_callback_execution(
         callback: NativeSynchronousRootCallback,
         destination: usize,

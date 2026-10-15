@@ -1,6 +1,6 @@
 use bray_runtime_abi::{
-    NativePanicPrimary, NativePanicReport, NativePanicReportConsumer, NativeReportRecords,
-    NativeReportSegment, NativeRunOutcome,
+    NativePanicPrimary, NativePanicReport, NativeReportRecords, NativeReportSegment,
+    NativeRunOutcome,
 };
 
 // These declarations bind the compiler-owned trusted Bray provider. The private callers
@@ -61,7 +61,10 @@ unsafe extern "C" {
         destination: &mut NativeReportRecords,
     );
 
-    pub(crate) safe fn bray_runtime_report_consumer() -> NativePanicReportConsumer;
+    pub(crate) safe fn bray_runtime_report_consumer(
+        report: &mut NativePanicReport,
+        reporting: u32,
+    ) -> bray_runtime_abi::NativeRuntimeStatus;
 
     pub(crate) safe fn bray_runtime_outgoing_admission(
         bundle: &bray_runtime_abi::NativeCleanupStorageBundle<'_>,

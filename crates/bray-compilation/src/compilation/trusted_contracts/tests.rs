@@ -2967,9 +2967,9 @@ fn deferred_body_effects_apply_when_driven_and_harmless_await_preserves_evidence
         let source = format!(
             r#"
             trusted module app;
-            struct Owner {{ epoch: u64; }}
+            struct Owner {{ epoch: core.atomic.Atomic<u64>; }}
             trusted predicate live(value: &Owner);
-            trusted func owner() -> Owner ensures(trusted live(&result)) {{ return {{ epoch = 1 }}; }}
+            trusted func owner() -> Owner ensures(trusted live(&result)) {{ return {{ epoch = core.atomic.initialize<u64>(1) }}; }}
             func observe(pos value: &Owner) requires(trusted live(value)) {{}}
             extern func opaque();
             async func work() {{ {body} }}
@@ -3411,5 +3411,127 @@ fn content_writes_keep_spatial_facts_about_copied_pointer_values() {
             valid,
             "{source}: {diagnostics:?}"
         );
+    }
+}
+
+#[test]
+fn opaque_calls_preserve_whole_unexposed_values_only_without_indirect_storage() {
+    for (field, exposure, parameter, argument, valid) in [
+        ("u64", "", "", "", true),
+        ("(u64, bool)", "", "", "", true),
+        ("u64", "", "pos owner: &mut Owner", "&mut owner", false),
+        (
+            "u64",
+            "let escaped = core.memory.address_of_mut<Owner>(&mut owner);",
+            "",
+            "",
+            false,
+        ),
+        ("RawPointer<u8>", "", "", "", false),
+        ("&u64", "", "", "", false),
+        ("core.memory.Uninit<u64>", "", "", "", false),
+        ("core.atomic.Atomic<u64>", "", "", "", false),
+    ] {
+        let capabilities = if exposure.is_empty() {
+            ""
+        } else {
+            "uses(raw_memory)"
+        };
+
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Owner {{ mut value: {field}; }}
+            trusted predicate acquired(owner: &Owner);
+            trusted extern func acquire() -> Owner ensures(trusted acquired(&result));
+            extern func opaque({parameter});
+            func inspect(pos owner: &Owner) requires(trusted acquired(owner)) executes(pure, total) {{}}
+            trusted func run() {capabilities} {{
+                let mut owner = trusted acquire();
+                {exposure}
+                opaque({argument});
+                inspect(&owner);
+            }}
+            "#,
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                &diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn anonymous_contracts_resolve_qualified_constants() {
+    let application = compilation(
+        r#"
+        module app;
+        const SUCCESS: u32 = 0;
+        func run() {
+            let inspect = lambda(pos status: u32)
+                requires(status == app.SUCCESS)
+                executes(pure, total)
+            {};
+            inspect(0);
+        }
+    "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+}
+
+#[test]
+fn established_observation_free_predicates_survive_opaque_execution() {
+    for (arguments, values) in [("", ""), ("value: u64", "7")] {
+        for established in [false, true] {
+            let requirement = if established {
+                format!("requires(trusted permitted({values}))")
+            } else {
+                String::new()
+            };
+
+            let source = format!(
+                r#"
+                trusted module app;
+                trusted predicate permitted({arguments});
+                extern func opaque();
+                func restricted() requires(trusted permitted({values})) executes(pure, total) {{}}
+                func run() {requirement} {{
+                    opaque();
+                    restricted();
+                }}
+                "#,
+            );
+
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                established,
+                "{source}: {diagnostics:#?}"
+            );
+
+            if !established {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
+        }
     }
 }
