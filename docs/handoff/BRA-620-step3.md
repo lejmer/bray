@@ -40,11 +40,13 @@ Retain logs under C:/Users/anton/source/repos/bray/target/bra-620-authority. Do 
 ## Current checkpoint, 2026-10-15
 
 Branch: `feature/trusted-storage-integration`. Worktree:
-`C:/Users/anton/.codex/worktrees/bra-553-host-bootstrap/bray`. Published recovery checkpoint: `f5e41a20`.
-PR #607 remains draft. The published checkpoint preserves the cleanup/import certification repair and formatted
-source. The current working tree repairs the native acceptance failures below. Acceptance passes. Published independent review remains open.
+`C:/Users/anton/.codex/worktrees/bra-553-host-bootstrap/bray`. Step 3 is complete at `a3de1083`, with
+[clean independent review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5526203497). PR #607 remains
+draft for bounded Step 4 and the explicit backing/entry/incident and BRA-619 acceptance steps in the integration plan.
+The chronological evidence below preserves earlier intermediate results. The final acceptance section supersedes
+their pending-status statements.
 
-Implemented candidates include synchronization markers and protected control state, Once attempt identity and rollback,
+The implementation includes synchronization markers and protected control state, Once attempt identity and rollback,
 native atomic32 wait/notify roles, channel ring detachment and cleanup outside its lock, host/environment/thread
 contracts, shared call/cleanup effects, exact result propagation, source/interface witness carriers, and observation
 and reference transport. No new Bray syntax or language feature was introduced.
@@ -269,4 +271,6 @@ Bray formatting cover the changed files. Existing cohesive module-size warnings 
 Final native acceptance 19 passes all 25 outcome cases through the normal xtask audit, including exact failure
 messages and source anchors, in 31.3 seconds (step3-native-19.log). Together with native acceptance 17, all 160
 API cases, seven API plans and 25 outcome cases pass. Rustfmt, mutating style pass 8 and final Bray formatting pass.
-The remaining Step 3 gate is the fresh review of the published commit and any resulting fixes.
+Step 3 is complete at `a3de108339f01a2f6487a721a6d85e1d938105bf`. The fresh independent
+[review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5526203497) reports no actionable findings.
+The review was verified on the PR. Continue with [bounded Step 4](BRA-620-step4.md).

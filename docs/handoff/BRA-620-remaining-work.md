@@ -11,7 +11,8 @@ in [contract reasoning](../language/contracts-and-trust/contract-reasoning.md),
 Continue on `feature/trusted-storage-integration`, the published combined branch. The implementation baseline is `e3f56424`, with proof checkpoint `7f300ef2`.
 Steps 1 and 2 are complete. Shared authority analysis and its required removals passed published review at
 `5144e732`. The user subsequently authorized completing Step 3, including the production API migration.
-The [Step 3 task record](BRA-620-step3.md) owns current progress and remaining acceptance. Dated Step 2 entries below
+Step 3 is complete at `a3de1083` with [clean published review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5526203497).
+The [bounded Step 4 record](BRA-620-step4.md) owns current work. The [Step 3 record](BRA-620-step3.md) retains its acceptance evidence. Dated Step 2 entries below
 retain historical evidence and do not restrict the current authorization.
 
 Recorded on 2026-10-10. This handoff covers the remaining trusted synchronization authority defect and review requirements.

@@ -5,10 +5,20 @@ Recorded on 2026-10-10. This is an implementation handoff, not a change to the l
 Updated on 2026-10-11: use the [current stack completion plan](stack-completion.md) for work order and status.
 This document retains BRA-619's evidence and acceptance details. The earlier boundary before BRA-553 is retired.
 
-## Issue and stack
+## Current integration, 2026-10-15
+
+PR #602 is closed as superseded by [#607](https://github.com/lejmer/bray/pull/607). Its implementation and history
+are already included in `feature/trusted-storage-integration`. Keep the original branch. BRA-619 remains In Progress.
+[Plan Step 6](runtime-stack-rule-coverage.md#6-finish-bra-619-scoped-execution-and-native-acceptance-in-this-pr)
+explicitly completes this work in #607 after Step 5's BRA-502 -> BRA-554 -> BRA-558 prerequisites. The typed incident,
+pending-outcome and provider/backing lifetime contracts below constrain the current Step 4 analysis and Step 5 design.
+The missing-role regression remains enabled and blocks final PR acceptance. Do not treat separate issue ownership
+as exclusion from this PR or as permission to declare the stack complete.
+
+## Original issue and stack checkpoint
 
 - [BRA-619](https://linear.app/bray-lang/issue/BRA-619/implement-selected-scope-enter-and-exit-invocation): implement selected scope enter and exit invocation.
-- [PR #602](https://github.com/lejmer/bray/pull/602), currently draft. Linear remains In Progress.
+- [PR #602](https://github.com/lejmer/bray/pull/602), draft at this original checkpoint. Linear remains In Progress.
 - Branch: `feature/bra-619-implement-selected-scope-enter-and-exit-invocation`.
 - Head: `3f6e93090ec11968a6df225f927353d444f6239e`.
 - Base: BRA-609 branch at `a96404055a81bfa7e9d0db2ba35d8df893f5fe21`.

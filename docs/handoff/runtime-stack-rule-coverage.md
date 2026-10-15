@@ -486,7 +486,11 @@ runtime witness registry or public request/context wrapper is justified by this 
 Each unit below replaces a complete mechanism and includes all applicable rules from the map. The list is not an
 instruction to implement only the example consumer mentioned beside it.
 
-### 1. Preserve the stack and fix the shared compiler owner
+### 1. Establish the semantic contract
+
+Complete. The semantic proof and normative contracts establish the interpretation used by the remaining steps.
+
+### 2. Preserve the stack and fix the shared compiler owner
 
 Keep the existing repair worktree. Save a recoverable checkpoint of all tracked and untracked work before restructuring.
 Retain the original issue branches and their PR history. The current combined tip already includes the five previously
@@ -509,7 +513,7 @@ Under BRA-620, with BRA-609's obligations preserved:
 Finish this unit only when every affected rule has one state owner, all its variants are routed there, and the removal
 ledger has no surviving competing implementation. A compile success or one repaired lock test is insufficient.
 
-### 2. Apply the authority representation to all current consumers
+### 3. Apply the authority representation to all current consumers
 
 Still under BRA-620, apply the complete-carrier/marker representation and protected protocol boundaries to SpinLock,
 Mutex, RwLock and Once/Lazy. Preserve the consuming ConditionVariable API and its simpler released-failure path.
@@ -525,26 +529,59 @@ same contracts. Repair the bootstrap report-pool initializer through its actual 
 This unit completes the currently known authority repair. It must not introduce library-name recognition, additional
 protected types, per-lock identity checks or standalone token factories.
 
-### 3. Finish backing and current-stack native acceptance
+### 4. Establish dependency retirement and cleanup composition
+
+Under BRA-620, follow [the bounded Step 4 map and acceptance record](BRA-620-step4.md). Establish retirement
+including pending cleanup and surviving owners, consistent guarded cleanup operations and outcomes, explicit missing
+internal handling, and composition across construction, moves, mutation, branches, cancellation, destruction,
+temporary/discarded owners and imported contracts. Map evidence before edits. Repair only concrete gaps in their
+owning analysis and reuse the established results downstream. Add no language features, general framework or
+validation pass. Every obligation needs evidence and every identified gap must be resolved before completion.
+
+### 5. Complete the backing, entry and incident prerequisites
 
 Implement BRA-502's physical allowance service and concrete requirement projection over the selected cleanup expansion.
-Then BRA-554's entry owner and BRA-558's incident/sink path consume that same service. Complete BRA-619's pending native
-scope-exit acceptance using those consumers.
+Then BRA-554's entry owner and BRA-558's incident/sink path consume that same service. These are prerequisites
+for the included BRA-619 implementation, not unrelated future work. Use its required typed incident transfer and
+pending-outcome semantics as inputs to the backing and consumer design.
 
-This includes synchronous and asynchronous scoped forms, entry failure, every pending transfer, and typed exit errors
-under denied allocation. Existing activation/runtime components may remain only for the explicitly unfinished runtime
-migration issues. Their use is not evidence that the new Bray incident or admission consumer is independent of Rust.
-Audit the migrated consumers separately and retain the remaining consumers' open owners.
+The allowance service must admit the concrete cleanup expansion, and the entry and incident consumers must retain
+that backing through their final users. Existing activation/runtime components may remain only for explicitly
+unfinished runtime migration issues. Audit migrated consumers separately and retain the remaining consumers' open owners.
 
-Merge the current stack into the agreed feature integration branch, not develop issue by issue. In practice, branch
-from the checkpointed combined repair and incorporate only genuinely missing commits. Do not backmerge descendants into
-old BRA-620, replay already contained changes or rewrite the old branch stack.
+The combined integration branch and PR #607 already contain the five superseded PRs. Continue there without replaying
+included commits or rewriting the old branches. Complete this step and Step 6 before marking #607 ready. Merging remains
+a separate user action.
 
-Open one integration PR to develop once the five current stack contracts and their required native acceptance are
-complete. Retain review history and reconcile their Linear/PR links. Retire the superseded PRs only with the final
-integration accounted for. This is a proposed publication sequence, not authorization to merge.
+### 6. Finish BRA-619 scoped execution and native acceptance in this PR
 
-### 4. Complete runtime protocols using the established contracts
+The combined PR already contains the selected enter/exit implementation from #602. It is incomplete until this step
+passes on the same integration branch. The current failure is `MissingRole(CleanupIncidentTransfer)` in
+`scoped_selected_calls_emit_native_artifacts`. It blocks this PR's final acceptance and readiness.
+
+Before changing shared cleanup semantics in Step 4 or implementing Step 5, preserve these design inputs:
+
+- An exit error during a pending return, break, continue, propagation, panic or cancellation becomes a retained typed
+  incident. It must not replace the pending outcome or release storage/providers needed by either owner.
+- The concrete error's size, alignment, destructor effects and backing release must be admitted before the obligation
+  becomes live. A fixed panic record or allocation after failure does not satisfy that contract.
+- Selected scope exit, ordinary cleanup, incident destruction and backing release consume the same established
+  lifecycle/dependency results. No second cleanup walker or downstream authority proof is permitted.
+
+After BRA-502, BRA-554 and BRA-558 supply those contracts, connect the emitted `TransferCleanupIncident` operation
+to the admitted native consumer. Reuse typed finalizer representations and callbacks where their ownership contract
+applies. Keep the original pending value, incident payload and provider alive independently through their last users.
+
+Accept this step only with native execution for sync/async `with`, failed entry without exit, normal/yield exit failure,
+pending return/break/continue and nullable/result/run-result propagation, panic/cancellation shields and precedence,
+denied allocation, exact-once exit and payload disposal, stale capability rejection and explicit valid authority
+transfer through source/imported contracts. Re-run the original failing native regression, the affected compositions
+from Step 4 and final combined-stack checks. Complete a published independent review and push its fixes to #607.
+
+If this work exposes a defect in an earlier step's shared contract, repair that owner in this PR and repeat the affected
+acceptance. An earlier step's passing tests do not waive BRA-619 or freeze an incompatible architecture.
+
+### 7. Complete runtime protocols using the established contracts
 
 Proceed in dependency order from the landed integration. The protocol table determines implementation, not a Rust-file
 translation. Every migrated consumer switches its real callers and removes its replaced Rust policy in that unit.

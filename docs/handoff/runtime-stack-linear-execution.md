@@ -10,7 +10,8 @@ in [contract reasoning](../language/contracts-and-trust/contract-reasoning.md),
 
 Continue on `feature/trusted-storage-integration`, the published combined branch. The implementation baseline is `e3f56424`, with proof checkpoint `7f300ef2`.
 Steps 1 and 2 are complete. Shared authority analysis and its required removals passed published review at
-`5144e732`. Production API migration is Step 3 and remains the next work, outside this completed authorization.
+`5144e732`. Step 3 production migration is complete at `a3de1083` with clean published review.
+The authorized [Step 4 map](BRA-620-step4.md) owns current dependency-retirement and cleanup-composition work.
 Dated progress entries below are historical evidence. The current verification checkpoint supersedes their status.
 
 Updated 2026-10-12. The user accepted the architectural groundwork and requested executable Linear issues.
@@ -20,14 +21,18 @@ current implementation contract. No chat transcript is needed.
 
 ## Current implementation checkpoint
 
-Steps 1 and 2 are complete at `5144e732b63b27e1d405fff4439d26cbc866e817` on `feature/trusted-storage-integration`
-in [draft PR #607](https://github.com/lejmer/bray/pull/607), targeting `develop`.
-[Published re-review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5509446980) has no remaining actionable
-Step 2 findings. Use [BRA-620 remaining work](BRA-620-remaining-work.md) for the matrix, verification and failure ownership.
-The final compilation run has 1571 passes and 18 deferred failures, 17 for production Step 3 and one for BRA-619.
-All five heads below were rechecked on 2026-10-13 and are included.
-The repair branch retains `ffbff1f5`. Continue on the integration branch and preserve the old PRs as history.
-This draft publication does not complete production Step 3, later stack prerequisites, or authorize a merge.
+Steps 1-3 are complete on `feature/trusted-storage-integration` in [draft PR #607](https://github.com/lejmer/bray/pull/607).
+Step 3 is published at `a3de1083` with [clean review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5526203497).
+Its native acceptance passes all 160 API cases, seven API plans and 25 outcome cases. All five original PR histories
+are included and their branches are preserved. Follow [BRA-620 remaining work](BRA-620-remaining-work.md) and the
+[Step 4 map](BRA-620-step4.md) for current work and evidence.
+
+BRA-619 remains part of this PR. Its included selected-scope implementation still needs admitted typed incident
+transport. [Plan Step 5](runtime-stack-rule-coverage.md#5-complete-the-backing-entry-and-incident-prerequisites)
+completes BRA-502 -> BRA-554 -> BRA-558. [Plan Step 6](runtime-stack-rule-coverage.md#6-finish-bra-619-scoped-execution-and-native-acceptance-in-this-pr)
+then finishes BRA-619's native execution and acceptance. Its pending-outcome, lifetime and denied-allocation contracts
+constrain Steps 4 and 5 now. The original missing-role test remains enabled and blocks final PR acceptance.
+This publication does not authorize merging or mark the incomplete original stack contracts complete.
 
 ## Original recovery checkpoint, retained as history
 
@@ -78,12 +83,13 @@ of this plan. If the model cannot express a required rule, discuss that specific
 
 ## Execution and publication
 
-1. Shared compiler consolidation is complete. Continue with BRA-620 Step 3 production authority repairs on the combined checkpoint.
+1. Shared compiler consolidation and production migration are complete. Finish BRA-620 bounded Step 4 on the combined checkpoint.
    BRA-609 retains trusted-caller acceptance, performed through this implementation. Its blocking relation does not
    require a second branch or an independent reimplementation.
 2. Recheck BRA-621 and BRA-553 against the consolidated production contracts. Preserve their completed migration.
 3. Complete BRA-502 physical backing, BRA-554 entry and BRA-558 typed incident consumption in dependency order.
-   Then complete BRA-619's synchronous and asynchronous native scope outcomes.
+   Then complete the explicit BRA-619 acceptance step in this PR, including its synchronous and asynchronous native scope outcomes.
+   Apply BRA-619's retained typed incident and pending-outcome contracts during the preceding work.
 4. Continue on the published `feature/trusted-storage-integration` branch. Incorporate only genuinely missing later
    commits after ancestry inspection.
    Preserve the old PRs as review history. Do not merge the five old PRs into develop individually.
