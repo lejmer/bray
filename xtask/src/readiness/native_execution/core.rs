@@ -381,7 +381,14 @@ fn audit_host_behavior(root: &Path, target: NativeTarget, runtime: &Path) -> Res
             "async Result.Error",
             ASYNC_ERROR_FIXTURE,
             1,
-            Some("[2a, 00, 00, 00]"),
+            Some("entry returned an error"),
+            false,
+        ),
+        (
+            "synchronous Result.Error cleanup",
+            "xtask/fixtures/native-execution/sync-result-cleanup.bray",
+            1,
+            Some("entry returned an error\nentry error finalizer\nentry error destructor"),
             false,
         ),
         (

@@ -19,8 +19,8 @@ trusted internal func windows_optional_text_pointer(pos buffer: &std.memory.RawB
 
 internal func write_windows_unit(pos destination: &mut [u8], pos value: u16, index: usize) -> unit
 {
-    destination[index * 2] = std.truncate_to<u8>(value);
-    destination[index * 2 + 1] = std.truncate_to<u8>(value >> 8);
+    destination[index * 2] = std.numeric.truncate_to<u8>(value);
+    destination[index * 2 + 1] = std.numeric.truncate_to<u8>(value >> 8);
 }
 
 internal func write_windows_u32(pos destination: &mut [u64], pos value: u32, offset: usize) -> unit

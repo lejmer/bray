@@ -305,7 +305,7 @@ trusted internal func prepare_thread_storage_load(
 
     trusted std.os.windows.set_last_error(0);
 
-    let stored: RawPointer<u8> = trusted std.os.windows.fls_get_value(std.truncate_to<u32>(key));
+    let stored: RawPointer<u8> = trusted std.os.windows.fls_get_value(std.numeric.truncate_to<u32>(key));
 
     if std.memory.is_null<u8>(stored) && trusted std.os.windows.get_last_error() != 0
     {
@@ -328,7 +328,7 @@ trusted internal func platform_thread_storage_store(
         return internal std.platform.invalid_input_status();
     }
 
-    if trusted std.os.windows.fls_set_value(std.truncate_to<u32>(key), value) == 0
+    if trusted std.os.windows.fls_set_value(std.numeric.truncate_to<u32>(key), value) == 0
     {
         return trusted internal std.platform.windows_error_status();
     }
@@ -345,7 +345,7 @@ trusted internal func platform_thread_storage_destroy(pos key: u64) -> std.platf
         return internal std.platform.invalid_input_status();
     }
 
-    if trusted std.os.windows.fls_free(std.truncate_to<u32>(key)) == 0
+    if trusted std.os.windows.fls_free(std.numeric.truncate_to<u32>(key)) == 0
     {
         return trusted internal std.platform.windows_error_status();
     }

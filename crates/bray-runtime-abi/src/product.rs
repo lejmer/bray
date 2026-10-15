@@ -178,11 +178,12 @@ pub type NativeStaticFinalizerStartCallback =
     extern "C-unwind" fn(usize, &mut crate::NativeRunOutcome) -> NativeStaticFinalizerStatus;
 
 /// Compiler-generated callback reporting one owned cleanup incident payload.
-pub type NativeCleanupIncidentReportCallback = extern "C-unwind" fn(usize) -> NativeRuntimeStatus;
+pub type NativeCleanupIncidentReportCallback =
+    extern "C" fn(usize, &mut crate::NativeRunOutcome) -> NativeRuntimeStatus;
 
 /// Compiler-generated callback destroying and releasing one owned cleanup incident payload.
 /// The destinations retain destruction and backing-release outcomes independently.
-pub type NativeCleanupIncidentDestroyCallback = extern "C-unwind" fn(
+pub type NativeCleanupIncidentDestroyCallback = extern "C" fn(
     &mut NativeCleanupIncident,
     &mut crate::NativeRunOutcome,
     &mut crate::NativeRunOutcome,

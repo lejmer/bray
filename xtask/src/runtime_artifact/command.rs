@@ -786,6 +786,7 @@ pub(super) enum CommandError {
         status: std::process::ExitStatus,
     },
     NativeSmokeLinkFailed(String),
+    BootstrapSmokeOutput,
     BootstrapSmokeExecution(std::io::Error),
     BootstrapSmokeExecutionFailed(std::process::ExitStatus),
     ObservationSmoke(String),
@@ -932,6 +933,7 @@ impl fmt::Display for CommandError {
             Self::NativeSmokeLinkFailed(name) => {
                 write!(formatter, "{name} runtime smoke link failed")
             }
+            Self::BootstrapSmokeOutput => formatter.write_str("bootstrap report output did not preserve the complete streamed message and opaque entry failure"),
             Self::BootstrapSmokeExecution(error) => {
                 write!(
                     formatter,

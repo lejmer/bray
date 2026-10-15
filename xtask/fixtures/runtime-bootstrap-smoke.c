@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #ifdef _WIN32
 #define FlsAlloc SystemFlsAlloc
@@ -254,34 +255,8 @@ void bray_runtime_current_run_cancellation_propagation(void)
     abort();
 }
 
-// Reporting remains a host service. The Bray provider owns consumption and release.
-typedef struct PanicPrimary
-{
-    SourceAnchor source;
-    uint32_t cause;
-    uintptr_t message;
-    uintptr_t message_length;
-    uint32_t (*copy_message)(uintptr_t, uintptr_t, uint8_t*, uintptr_t);
-    void (*release_message)(uintptr_t, uintptr_t, RunOutcome*);
-} PanicPrimary;
-
-uint32_t bray_runtime_substrate_report_primary(const PanicPrimary* primary)
-{
-    return primary->cause > 4 ||
-        primary->source.present > 1 ||
-        primary->source.start > primary->source.end ||
-        (primary->message_length != 0 && primary->message == 0) ? 3 : 0;
-}
-
-uint32_t bray_runtime_panic_reporting(PanicReport* report)
-{
-    return report->consume == NULL ? 0 : report->consume(report, 1);
-}
-
-uint32_t bray_runtime_panic_report_destruction(PanicReport* report)
-{
-    return report->consume == NULL ? 0 : report->consume(report, 0);
-}
+extern uint32_t bray_runtime_panic_reporting(PanicReport*);
+extern uint32_t bray_runtime_panic_report_destruction(PanicReport*);
 
 extern PanicReport bray_runtime_panic_report_construction(
     uint32_t cause,
@@ -375,6 +350,61 @@ void bray_runtime_panic_propagation(PanicReport* report)
     (void)report;
 
     abort();
+}
+
+static unsigned streamed_releases;
+static unsigned streamed_chunks;
+
+static uint32_t copy_streamed_message(uintptr_t message, uintptr_t offset, uint8_t* destination, uintptr_t length)
+{
+    if (length > 512 || offset + length > 16385) abort();
+    memcpy(destination, (const uint8_t*)message + offset, length);
+    ++streamed_chunks;
+    return 0;
+}
+
+static void release_streamed_message(uintptr_t message, uintptr_t length, RunOutcome* outcome)
+{
+    (void)message;
+    if (length != 16385 || outcome->state != 0) abort();
+    ++streamed_releases;
+}
+
+extern uint32_t bray_runtime_entry_failure_reporting(uintptr_t, uintptr_t);
+typedef struct {
+    uint64_t ordinal;
+    uint64_t task;
+    uint8_t frame[32];
+    uint32_t state;
+} ReportSegment;
+extern uint32_t bray_runtime_report_segment_consumer(ReportSegment*, PanicReport*);
+
+static int stream_without_allocation(void)
+{
+    uint8_t message[16385];
+    for (size_t index = 0; index < sizeof(message); ++index)
+        message[index] = (uint8_t)('a' + index % 26);
+
+    PanicReport report = {
+        .message = (uintptr_t)message,
+        .message_length = sizeof(message),
+        .copy_message = copy_streamed_message,
+        .release_message = release_streamed_message,
+        .consume = bray_runtime_report_consumer,
+    };
+    unsigned before = atomic_load(&allocation_attempts);
+    atomic_store(&reject_allocations, 1);
+    uint32_t status = bray_runtime_panic_reporting(&report);
+    // An unknown error object is opaque, even when its address cannot be read.
+    uint32_t entry = bray_runtime_entry_failure_reporting(1, SIZE_MAX);
+    ReportSegment origin = { .ordinal = 7, .task = 19, .state = 23 };
+    memset(origin.frame, 5, sizeof(origin.frame));
+    PanicReport cleanup = { .cause = 1, .consume = bray_runtime_report_consumer };
+    uint32_t segment = bray_runtime_report_segment_consumer(&origin, &cleanup);
+    atomic_store(&reject_allocations, 0);
+    if (status != 0 || entry != 0 || segment != 0 || streamed_releases != 1 || streamed_chunks != 33 ||
+        atomic_load(&allocation_attempts) != before) return 100;
+    return 0;
 }
 
 static int consume_after_allocator_failure(void)
@@ -1011,6 +1041,9 @@ int main(void)
 
     if (bray_runtime_initialization(1, 1) != 0 || bray_runtime_initialization(1, 1) != 2)
         return 1;
+
+    int stream_status = stream_without_allocation();
+    if (stream_status != 0) return stream_status;
 
     int allocation_status = consume_after_allocator_failure();
 

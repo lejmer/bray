@@ -225,7 +225,7 @@ trusted internal func pointer_handle(pos pointer: RawPointer<u8>) -> u64
 trusted internal func handle_pointer(pos handle: u64) -> RawPointer<u8>
     uses(intrinsic)
 {
-    return trusted core.target.from_exposed_address<u8>(address = std.truncate_to<usize>(handle));
+    return trusted core.target.from_exposed_address<u8>(address = std.numeric.truncate_to<usize>(handle));
 }
 
 internal const func successful_status(pos status: PlatformStatus) -> bool

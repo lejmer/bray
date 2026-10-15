@@ -92,7 +92,6 @@ pub(super) fn support_exports(kind: RuntimeArchiveKind) -> impl Iterator<Item = 
     .then_some([
         "bray_runtime_substrate_initialization",
         "bray_runtime_substrate_shutdown",
-        "bray_runtime_substrate_report_primary",
     ])
     .into_iter()
     .flatten()

@@ -106,7 +106,7 @@ internal func hash_table_is_empty<Item>(pos table: &HashTable<Item>) -> bool
 
 internal func hash_table_bucket_index(pos hash: u128, pos bucket_count: usize) -> usize
 {
-    return std.truncate_to<usize>(hash % bucket_count as u128);
+    return std.numeric.truncate_to<usize>(hash % bucket_count as u128);
 }
 
 internal func hash_table_next(pos index: usize, pos bucket_count: usize) -> usize

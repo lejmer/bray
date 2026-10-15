@@ -293,7 +293,7 @@ trusted internal func seek_file(
 
     let status: std.platform.PlatformStatus = trusted platform_file_seek(
         handle = file.handle,
-        offset_bits = std.truncate_to<u64>(offset),
+        offset_bits = std.numeric.truncate_to<u64>(offset),
         origin = seek_origin_value(origin),
         position = position_pointer,
     );

@@ -126,19 +126,13 @@ fn run_product_thread_cleanups(
 
     let cleanup = || {
         for entry in &mut entries {
-            let incidents = run_static_cleanup(
+            let count = run_static_cleanup(
                 &mut entry.admission,
                 entry.prepare,
                 entry.finalizer,
                 entry.destroy,
                 entry.detach,
             );
-
-            let count = incidents.iter().flatten().count();
-
-            for incident in incidents.into_iter().flatten() {
-                let _ = incident.report();
-            }
 
             report_incidents(entry.product, entry.static_identity, count);
         }

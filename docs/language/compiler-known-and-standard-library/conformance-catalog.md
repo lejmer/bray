@@ -169,9 +169,11 @@ standard-library packages and their declarations.
 
 ## Recognized standard-library entries
 
-The recognized declarations under the `std` root are:
+The general checked-conversion facade is `std.convert<Target, Source>(source)`. It is an ordinary
+standard-library function, not a recognized declaration.
 
-- `convert<Target, Source>(source)`,
+The recognized numeric-policy declarations under `std.numeric` are:
+
 - `RoundingRule`,
 - `RoundingRule.NearestEven`,
 - `RoundingRule.TowardZero`,

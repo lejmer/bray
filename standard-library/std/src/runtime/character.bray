@@ -49,23 +49,23 @@ trusted internal func utf8_byte(pos value: u32, pos index: usize) -> u8
 
     if length == 1
     {
-        return std.truncate_to<u8>(value);
+        return std.numeric.truncate_to<u8>(value);
     }
 
     if index == 0
     {
         match length
         {
-            case 2 { return std.truncate_to<u8>(0xc0 | value >> 6); }
-            case 3 { return std.truncate_to<u8>(0xe0 | value >> 12); }
-            case 4 { return std.truncate_to<u8>(0xf0 | value >> 18); }
+            case 2 { return std.numeric.truncate_to<u8>(0xc0 | value >> 6); }
+            case 3 { return std.numeric.truncate_to<u8>(0xe0 | value >> 12); }
+            case 4 { return std.numeric.truncate_to<u8>(0xf0 | value >> 18); }
             case _ { assert(false, "character UTF-8 length must be between one and four bytes"); }
         }
     }
 
-    let shift: u32 = std.truncate_to<u32>((length - index - 1) * 6);
+    let shift: u32 = std.numeric.truncate_to<u32>((length - index - 1) * 6);
 
-    return std.truncate_to<u8>(0x80 | value >> shift & 0x3f);
+    return std.numeric.truncate_to<u8>(0x80 | value >> shift & 0x3f);
 }
 
 trusted internal func is_alphabetic(pos value: u32) -> bool

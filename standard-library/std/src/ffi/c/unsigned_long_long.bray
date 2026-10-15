@@ -34,7 +34,7 @@ func unsigned_long_long_checked(pos value: u128) -> Result<UnsignedLongLong, Con
 
     return Ok(
         {
-            raw = std.truncate_to<u64>(value)
+            raw = std.numeric.truncate_to<u64>(value)
         }
     );
 }
@@ -44,6 +44,6 @@ func unsigned_long_long_wrapping(pos value: u128) -> UnsignedLongLong
 {
     return
     {
-        raw = std.truncate_to<u64>(value)
+        raw = std.numeric.truncate_to<u64>(value)
     };
 }

@@ -76,12 +76,12 @@ internal func utf16_units(pos scalar: u32) -> (u16, u16?)
 {
     if scalar < 65_536
     {
-        return (std.truncate_to<u16>(scalar), none);
+        return (std.numeric.truncate_to<u16>(scalar), none);
     }
 
     let supplementary: u32 = scalar - 65_536;
-    let first: u16 = std.truncate_to<u16>(55_296 + (supplementary >> 10));
-    let second: u16 = std.truncate_to<u16>(56_320 + (supplementary & 1_023));
+    let first: u16 = std.numeric.truncate_to<u16>(55_296 + (supplementary >> 10));
+    let second: u16 = std.numeric.truncate_to<u16>(56_320 + (supplementary & 1_023));
     let mut optional_second: u16? = none;
 
     optional_second = second;

@@ -58,7 +58,7 @@ trusted internal func platform_child_spawn(
     trusted internal write_windows_u32(
         &mut security[..],
         offset = std.os.windows.SECURITY_ATTRIBUTES_LENGTH_OFFSET,
-        value = std.truncate_to<u32>(std.os.windows.SECURITY_ATTRIBUTES_SIZE),
+        value = std.numeric.truncate_to<u32>(std.os.windows.SECURITY_ATTRIBUTES_SIZE),
     );
 
     trusted internal write_windows_u32(
@@ -188,7 +188,7 @@ trusted internal func platform_child_spawn(
     trusted internal write_windows_u32(
         &mut startup[..],
         offset = 0,
-        value = std.truncate_to<u32>(std.os.windows.STARTUP_INFO_SIZE),
+        value = std.numeric.truncate_to<u32>(std.os.windows.STARTUP_INFO_SIZE),
     );
 
     trusted internal write_windows_u32(

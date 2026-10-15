@@ -312,11 +312,11 @@ trusted internal func environment_keys_equal(pos left: &[u8], pos right: &[u8]) 
 
     return trusted std.os.windows.compare_string_ordinal(
         trusted std.memory.reinterpret<u16, u8>(internal std.memory.slice_pointer(left, count = left.length())),
-        left_length = std.truncate_to<i32>(left_units),
+        left_length = std.numeric.truncate_to<i32>(left_units),
         right = trusted std.memory.reinterpret<u16, u8>(
             internal std.memory.slice_pointer(right, count = right.length())
         ),
-        right_length = std.truncate_to<i32>(right_units),
+        right_length = std.numeric.truncate_to<i32>(right_units),
         ignore_case = 1,
     ) == std.os.windows.CSTR_EQUAL;
 }
@@ -357,7 +357,7 @@ trusted internal func native_arguments() -> LocalAllocation
         {
         },
         pointer = trusted std.memory.reinterpret<u8, RawPointer<u16>>(arguments),
-        count = std.truncate_to<usize>(count)
+        count = std.numeric.truncate_to<usize>(count)
     };
 }
 
@@ -374,7 +374,7 @@ trusted internal func native_argument_slot(pos owner: &LocalAllocation, index: u
 {
     return std.memory.offset<RawPointer<u16>>(
         trusted std.memory.reinterpret<RawPointer<u16>, u8>(owner.pointer),
-        elements = std.truncate_to<isize>(index),
+        elements = std.numeric.truncate_to<isize>(index),
     );
 }
 
@@ -423,7 +423,7 @@ trusted internal func native_argument(pos owner: &LocalAllocation, index: usize)
         true,
         {
             address = trusted std.memory.reinterpret<u8, u16>(pointer),
-            length = std.truncate_to<u64>(length) * 2
+            length = std.numeric.truncate_to<u64>(length) * 2
         }
     );
 }
@@ -526,7 +526,7 @@ trusted internal func native_environment_entry(pos owner: &EnvironmentBlock) -> 
         true,
         {
             address = trusted std.memory.reinterpret<u8, u16>(pointer),
-            length = std.truncate_to<u64>(length) * 2
+            length = std.numeric.truncate_to<u64>(length) * 2
         }
     );
 }
@@ -558,7 +558,7 @@ trusted internal func advance_native_environment(pos owner: &mut EnvironmentBloc
             return true;
         }
 
-        yield std.truncate_to<isize>(length) + 1;
+        yield std.numeric.truncate_to<isize>(length) + 1;
     };
 
     let destination = std.memory.uninit_pointer<RawPointer<u16>>(&owner.current);
@@ -733,7 +733,9 @@ internal func windows_file_time(low: u32, high: u32) -> Result<(i64, u32), Platf
             return Error(other_status());
         }
 
-        return Ok((std.truncate_to<i64>(whole_seconds), std.truncate_to<u32>(unix_ticks % 10_000_000 * 100)));
+        return Ok(
+            (std.numeric.truncate_to<i64>(whole_seconds), std.numeric.truncate_to<u32>(unix_ticks % 10_000_000 * 100))
+        );
     }
 
     let before_epoch: u64 = 116_444_736_000_000_000 - native_ticks;
@@ -744,10 +746,15 @@ internal func windows_file_time(low: u32, high: u32) -> Result<(i64, u32), Platf
     {
         let nanoseconds: u32 = 0;
 
-        return Ok((-std.truncate_to<i64>(whole_seconds), nanoseconds));
+        return Ok((-std.numeric.truncate_to<i64>(whole_seconds), nanoseconds));
     }
 
-    return Ok((-std.truncate_to<i64>(whole_seconds) - 1, 1_000_000_000 - std.truncate_to<u32>(remaining_ticks * 100),));
+    return Ok(
+        (
+            -std.numeric.truncate_to<i64>(whole_seconds) - 1,
+            1_000_000_000 - std.numeric.truncate_to<u32>(remaining_ticks * 100),
+        )
+    );
 }
 
 @abi(c)
@@ -776,7 +783,7 @@ trusted internal func clock_sleep(pos seconds: u64, pos nanoseconds: u32) -> Pla
 
     if milliseconds > 0
     {
-        trusted std.os.windows.sleep(std.truncate_to<u32>(milliseconds));
+        trusted std.os.windows.sleep(std.numeric.truncate_to<u32>(milliseconds));
     }
 
     return success_status();
@@ -798,7 +805,7 @@ trusted internal func prepare_entropy_fill(
     )
     uses(foreign_call)
 {
-    let count: usize = std.truncate_to<usize>(length);
+    let count: usize = std.numeric.truncate_to<usize>(length);
 
     if count as u64 != length
     {
@@ -817,12 +824,12 @@ trusted internal func prepare_entropy_fill(
         }
         else
         {
-            yield std.truncate_to<u32>(remaining);
+            yield std.numeric.truncate_to<u32>(remaining);
         };
 
         let result: i32 = trusted std.os.windows.bcrypt_gen_random(
             std.memory.null<u8>(),
-            destination = std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(completed)),
+            destination = std.memory.offset<u8>(destination, elements = std.numeric.truncate_to<isize>(completed)),
             length = requested,
             flags = std.os.windows.BCRYPT_USE_SYSTEM_PREFERRED_RNG,
         );
@@ -995,7 +1002,7 @@ internal func handle_request_length(pos length: u64) -> u32
     }
     else
     {
-        yield std.truncate_to<u32>(length);
+        yield std.numeric.truncate_to<u32>(length);
     };
 }
 

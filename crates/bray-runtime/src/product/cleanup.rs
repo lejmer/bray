@@ -66,7 +66,7 @@ pub(super) fn run_static_cleanup(
     finalizer: NativeStaticFinalizer,
     destroy: NativeStaticCleanupCallback,
     detach: NativeStaticTransitionCallback,
-) -> [Option<CleanupIncident>; 8] {
+) -> usize {
     // Generated owner destruction discharges the accepted allowance. Drop rolls it back only
     // if formation fails before cleanup starts.
     admission.source = None;
@@ -94,6 +94,10 @@ pub(super) fn run_static_cleanup(
         _ => [Some(CleanupIncident::runtime_failure()), None, None, None],
     };
 
+    // Finalizer errors may retain their receiver. Consume them before its destructor
+    // or thread-static detachment can invalidate those dependencies.
+    let mut count = consume_incidents([prepare, first, second, third, resolution]);
+
     let mut published =
         bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
 
@@ -101,20 +105,25 @@ pub(super) fn run_static_cleanup(
         .err()
         .map(CleanupIncident::panic);
 
+    count += consume_incidents([CleanupIncident::outcome(published), destroy]);
+
     let detach = catch_unwind(AssertUnwindSafe(|| detach()))
         .err()
         .map(CleanupIncident::panic);
 
-    [
-        prepare,
-        first,
-        second,
-        third,
-        resolution,
-        CleanupIncident::outcome(published),
-        destroy,
-        detach,
-    ]
+    count + consume_incidents([detach])
+}
+
+fn consume_incidents(incidents: impl IntoIterator<Item = Option<CleanupIncident>>) -> usize {
+    let mut count = 0;
+
+    for incident in incidents.into_iter().flatten() {
+        count += 1;
+
+        let _ = incident.report();
+    }
+
+    count
 }
 
 fn run_asynchronous_finalizer(
@@ -176,11 +185,14 @@ pub(crate) fn collect_finalizer_incidents(
 }
 
 const fn empty_native_incident() -> NativeCleanupIncident {
-    extern "C-unwind" fn invalid_report(_: usize) -> NativeRuntimeStatus {
+    extern "C" fn invalid_report(
+        _: usize,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+    ) -> NativeRuntimeStatus {
         NativeRuntimeStatus::INVALID_ARGUMENT
     }
 
-    extern "C-unwind" fn invalid_destroy(
+    extern "C" fn invalid_destroy(
         _: &mut NativeCleanupIncident,
         _: &mut bray_runtime_abi::NativeRunOutcome,
         _: &mut bray_runtime_abi::NativeRunOutcome,
@@ -194,4 +206,88 @@ const fn empty_native_incident() -> NativeCleanupIncident {
         invalid_report,
         invalid_destroy,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::panic::panic_any;
+
+    use bray_runtime_abi::{
+        NativeRunOutcome, NativeStaticFinalizer, NativeStaticFinalizerExecution,
+        NativeStaticFinalizerStatus,
+    };
+
+    use super::{StaticAdmission, run_static_cleanup};
+
+    thread_local! {
+        static RECEIVER: Cell<u32> = const { Cell::new(0) };
+        static OBSERVATIONS: Cell<u32> = const { Cell::new(0) };
+    }
+
+    struct Dependent(u32);
+
+    impl Drop for Dependent {
+        fn drop(&mut self) {
+            assert_eq!(
+                RECEIVER.get(),
+                self.0,
+                "incident must retain the receiver state it depends on"
+            );
+
+            OBSERVATIONS.set(OBSERVATIONS.get() * 10 + self.0);
+        }
+    }
+
+    extern "C" fn prepare() {
+        RECEIVER.set(1);
+    }
+    extern "C" fn detach() {
+        assert_eq!(OBSERVATIONS.get(), 12);
+        RECEIVER.set(0);
+    }
+    extern "C" fn admission(_: u32, _: &mut NativeRunOutcome) {}
+    extern "C-unwind" fn finalize(
+        _: usize,
+        _: &mut NativeRunOutcome,
+    ) -> NativeStaticFinalizerStatus {
+        panic_any(Dependent(1));
+    }
+    extern "C-unwind" fn resolve(
+        _: usize,
+        _: usize,
+        _: &mut NativeRunOutcome,
+    ) -> NativeStaticFinalizerStatus {
+        unreachable!("synchronous finalization has no separate resolution");
+    }
+    extern "C-unwind" fn destroy(_: &mut NativeRunOutcome) {
+        assert_eq!(OBSERVATIONS.get(), 1);
+        RECEIVER.set(2);
+        panic_any(Dependent(2));
+    }
+
+    #[test]
+    fn incidents_retire_before_receiver_destruction_and_detachment() {
+        OBSERVATIONS.set(0);
+
+        let mut storage = StaticAdmission {
+            task: None,
+            source: Some(admission),
+        };
+
+        let finalizer = NativeStaticFinalizer::new(
+            NativeStaticFinalizerExecution::SYNCHRONOUS,
+            admission,
+            finalize,
+            resolve,
+        );
+
+        assert_eq!(
+            run_static_cleanup(&mut storage, prepare, finalizer, destroy, detach),
+            2
+        );
+
+        assert_eq!(RECEIVER.get(), 0);
+        assert_eq!(OBSERVATIONS.get(), 12);
+    }
 }

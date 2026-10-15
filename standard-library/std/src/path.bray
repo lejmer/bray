@@ -438,12 +438,12 @@ internal func append_native_unit(pos buffer: &mut std.bytes.Buffer, pos value: u
 {
     if native_unit_bytes() == 1
     {
-        return append_byte(&mut buffer, std.truncate_to<u8>(value));
+        return append_byte(&mut buffer, std.numeric.truncate_to<u8>(value));
     }
 
-    try append_byte(&mut buffer, std.truncate_to<u8>(value));
+    try append_byte(&mut buffer, std.numeric.truncate_to<u8>(value));
 
-    return append_byte(&mut buffer, std.truncate_to<u8>(value / 256));
+    return append_byte(&mut buffer, std.numeric.truncate_to<u8>(value / 256));
 }
 
 internal func decode_utf8(pos bytes: &[u8]) -> Result<string, PathError>
@@ -467,13 +467,13 @@ internal func decode_utf16(pos bytes: &[u8]) -> Result<string, PathError>
 
     while index < bytes.length()
     {
-        let first: u16 = std.truncate_to<u16>(native_unit(bytes, index = index));
+        let first: u16 = std.numeric.truncate_to<u16>(native_unit(bytes, index = index));
 
         let mut second: u16? = none;
 
         if index + 2 < bytes.length()
         {
-            let second_value: u16 = std.truncate_to<u16>(native_unit(bytes, index = index + 2));
+            let second_value: u16 = std.numeric.truncate_to<u16>(native_unit(bytes, index = index + 2));
 
             second = second_value;
         }

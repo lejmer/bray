@@ -373,7 +373,7 @@ trusted internal func read_context_buffer(
         return (result, initialized);
     }
 
-    let count: usize = std.truncate_to<usize>(result);
+    let count: usize = std.numeric.truncate_to<usize>(result);
 
     assert(count <= available, "native read exceeds spare storage");
 
@@ -471,7 +471,7 @@ trusted internal func prepare_descriptor_read(
         return (trusted unix_error_status(), 0);
     }
 
-    return (internal success_status(), std.truncate_to<u64>(count));
+    return (internal success_status(), std.numeric.truncate_to<u64>(count));
 }
 
 trusted internal func descriptor_write(
@@ -531,7 +531,7 @@ trusted internal func prepare_descriptor_write(
         return (trusted unix_error_status(), 0);
     }
 
-    return (internal success_status(), std.truncate_to<u64>(count));
+    return (internal success_status(), std.numeric.truncate_to<u64>(count));
 }
 
 internal const func descriptor_request_length(pos length: u64) -> usize
@@ -556,5 +556,5 @@ internal func checked_descriptor(pos handle: u64) -> Result<i32, PlatformStatus>
         return Error(invalid_input_status());
     }
 
-    return Ok(std.truncate_to<i32>(handle));
+    return Ok(std.numeric.truncate_to<i32>(handle));
 }

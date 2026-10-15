@@ -177,7 +177,7 @@ fn merge_entry_cleanup<'context>(
     Ok(())
 }
 
-pub(super) fn resolve_callback_outcome<'context>(
+pub(in crate::translation::unit) fn resolve_callback_outcome<'context>(
     context: &'context Context,
     module: &Module<'context>,
     request: CodegenRequest<'_>,
@@ -232,7 +232,7 @@ pub(super) fn resolve_callback_outcome<'context>(
     Ok(())
 }
 
-pub(super) fn resolve_terminal_status<'context>(
+pub(in crate::translation::unit) fn resolve_terminal_status<'context>(
     context: &'context Context,
     module: &Module<'context>,
     request: CodegenRequest<'_>,

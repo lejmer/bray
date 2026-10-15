@@ -109,7 +109,7 @@ internal func exit_status(pos status: PlatformExitStatus) -> Result<ExitStatus, 
                 return Error(invalid_child_error(kind = Reaping));
             }
 
-            let code: i32 = std.truncate_to<i32>(status.payload);
+            let code: i32 = std.numeric.truncate_to<i32>(status.payload);
 
             return Ok(ExitStatus.Code(code));
         }

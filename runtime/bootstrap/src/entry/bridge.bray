@@ -7,9 +7,33 @@ using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.entry;
 
 // The native scope owns an attachment acquisition on this thread, retains the
-// callback provider, and restores the previous callback before releasing either.
+// callback provider through final cleanup. Nested scopes restore the previous callback
+// before returning to their caller.
 // The previous-address destination is exclusive and does not alias host storage.
 trusted internal predicate native_provider();
+
+@copy
+@layout(c)
+internal struct NativeCallbacks
+{
+    context: RawPointer<u8>;
+    report: RawPointer<u8>;
+}
+
+internal callable Observer = @abi(c) trusted func(
+    pos kind: u32,
+    pos primary: RawPointer<bray.runtime.bootstrap.ReportPrimary>,
+    pos identity: RawPointer<bytes<32>>
+) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.ReportPrimary>(pointer = primary, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportPrimary>(pointer = primary),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportPrimary>(pointer = primary),
+        trusted core.memory.valid_read<bytes<32>>(pointer = identity, count = 1),
+        trusted core.memory.aligned_for<bytes<32>>(pointer = identity),
+        trusted core.memory.initialized_as<bytes<32>>(pointer = identity)
+    );
 
 internal callable Callback = @abi(c) trusted func(
     pos continuation: RawPointer<u8>,
@@ -21,10 +45,35 @@ internal callable Callback = @abi(c) trusted func(
     requires(trusted bray.runtime.bootstrap.entry.native_entry());
 
 @abi(c)
-trusted internal func install(pos pointer: RawPointer<u8>, pos previous: RawPointer<usize>) -> u32
+trusted internal func install(
+    pos pointer: RawPointer<NativeCallbacks>,
+    pos previous: RawPointer<NativeCallbacks>
+) -> u32
     requires(trusted native_provider())
     uses(layout_reinterpret)
 {
+    let read_callbacks = trusted lambda(pos pointer: RawPointer<NativeCallbacks>) -> NativeCallbacks
+        requires(trusted native_provider())
+        uses(raw_memory)
+    {
+        let readable = trusted lambda(pos value: RawPointer<NativeCallbacks>) -> RawPointer<NativeCallbacks>
+            requires(trusted native_provider())
+            ensures(
+                trusted core.memory.valid_read<NativeCallbacks>(pointer = result, count = 1),
+                trusted core.memory.aligned_for<NativeCallbacks>(pointer = result),
+                trusted core.memory.initialized_as<NativeCallbacks>(pointer = result)
+            )
+            executes(pure, total)
+        {
+            return value;
+        };
+
+        return trusted std.memory.read<NativeCallbacks>(trusted readable(pointer));
+    };
+
+    let callbacks = trusted read_callbacks(pointer);
+    let context_address = callbacks.context;
+
     let address = trusted lambda(pos pointer: RawPointer<u8>) -> RawPointer<Callback>
         requires(trusted native_provider())
         ensures(trusted core.memory.callable_address_valid<Callback>(pointer = result))
@@ -36,9 +85,25 @@ trusted internal func install(pos pointer: RawPointer<u8>, pos previous: RawPoin
 
     let mut selected: Callback? = none;
 
-    if !std.memory.is_null<u8>(pointer)
+    if !std.memory.is_null<u8>(context_address)
     {
-        selected = trusted std.memory.callable_from_pointer<Callback>(trusted address(pointer));
+        selected = trusted std.memory.callable_from_pointer<Callback>(trusted address(context_address));
+    }
+
+    let observer_address = trusted lambda(pos pointer: RawPointer<u8>) -> RawPointer<Observer>
+        requires(trusted native_provider())
+        ensures(trusted core.memory.callable_address_valid<Observer>(pointer = result))
+        executes(pure, total)
+        uses(layout_reinterpret)
+    {
+        return trusted std.memory.reinterpret<Observer, u8>(pointer);
+    };
+
+    let mut observer: Observer? = none;
+
+    if !std.memory.is_null<u8>(callbacks.report)
+    {
+        observer = trusted std.memory.callable_from_pointer<Observer>(trusted observer_address(callbacks.report));
     }
 
     let lease = trusted bray.runtime.bootstrap.host.host_access();
@@ -51,7 +116,7 @@ trusted internal func install(pos pointer: RawPointer<u8>, pos previous: RawPoin
     let identity = trusted bray.runtime.bootstrap.host.current_attachment_locked(&lease);
     let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
 
-    return trusted exchange(&lease, &mut anchor, identity, selected, previous);
+    return trusted exchange(&lease, &mut anchor, identity, selected, observer, previous);
 }
 
 trusted internal func exchange(
@@ -59,7 +124,8 @@ trusted internal func exchange(
     pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
     pos identity: u64,
     pos selected: Callback?,
-    pos previous: RawPointer<usize>
+    pos observer: Observer?,
+    pos previous: RawPointer<NativeCallbacks>
 ) -> u32
     requires(
         trusted native_provider(),
@@ -74,13 +140,13 @@ trusted internal func exchange(
         trusted bray.runtime.bootstrap.host.attachment_cleanup_completed(owner = lease)
     )
     executes(total)
-    uses(raw_memory, unchecked_init)
+    uses(raw_memory, unchecked_init, intrinsic)
 {
-    let destination = trusted lambda(pos pointer: RawPointer<usize>) -> RawPointer<usize>
+    let destination = trusted lambda(pos pointer: RawPointer<NativeCallbacks>) -> RawPointer<NativeCallbacks>
         requires(trusted native_provider())
         ensures(
-            trusted core.memory.valid_write<usize>(pointer = result, count = 1),
-            trusted core.memory.aligned_for<usize>(pointer = result)
+            trusted core.memory.valid_write<NativeCallbacks>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<NativeCallbacks>(pointer = result)
         )
         executes(pure, total)
     {
@@ -110,8 +176,25 @@ trusted internal func exchange(
                 return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
             }
 
+            let old_observer = trusted observer_code_address(attachment.report_observer);
+            let next_observer = trusted observer_code_address(observer);
+
+            if old_observer != 0 && next_observer != 0 && old_observer != next_observer
+            {
+                return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+            }
+
             attachment.context_bridge = selected;
-            trusted std.memory.write<usize>(trusted destination(previous), old);
+            attachment.report_observer = observer;
+
+            trusted std.memory.write<NativeCallbacks>(
+                trusted destination(previous),
+                {
+                    context = trusted core.target.from_exposed_address<u8>(address = old),
+                    report = trusted core.target.from_exposed_address<u8>(address = old_observer)
+                }
+            );
+
             return bray.runtime.bootstrap.STATUS_SUCCESS;
         }
     }
@@ -145,7 +228,7 @@ trusted internal func current() -> Result<Callback?, u32>
         let identity = trusted bray.runtime.bootstrap.host.current_attachment_locked(&lease);
         let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
 
-        yield trusted read(&lease, &mut anchor, identity);
+        yield trusted read(&lease, &mut anchor, identity, false);
     };
 
     if address == 0
@@ -163,10 +246,10 @@ trusted internal func current() -> Result<Callback?, u32>
 trusted internal func read(
     pos lease: &bray.runtime.bootstrap.host.HostLease,
     pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
-    pos identity: u64
+    pos identity: u64,
+    pos observer: bool
 ) -> usize
     requires(
-        trusted bray.runtime.bootstrap.entry.native_entry(),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
         trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
@@ -178,15 +261,42 @@ trusted internal func read(
         trusted bray.runtime.bootstrap.host.attachment_cleanup_completed(owner = lease)
     )
     executes(total)
+    uses(raw_memory, unchecked_alias)
 {
+    // Native TLS is empty during final cleanup. The host retains one closing row
+    // for this exact native thread and rejects another acquisition until it retires.
+    let native_thread: u64 = if observer && identity == 0
+    {
+        let synchronization = trusted std.memory.borrow_from<
+            bray.runtime.bootstrap.host.Synchronization,
+            Uninit<bray.runtime.bootstrap.host.Synchronization>
+        >(lease.synchronization, trusted bray.runtime.bootstrap.host.lease_synchronization_pointer(lease));
+
+        yield core.atomic.load<u64, 1>(&synchronization.lock);
+    }
+    else
+    {
+        yield 0;
+    };
+
     let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
 
     if let ?storage = host.storage
     {
-        let found = trusted bray.runtime.bootstrap.host.find_attachment(&mut storage, identity, 0);
+        let found = trusted bray.runtime.bootstrap.host.find_attachment(&mut storage, identity, native_thread);
 
         if let ?attachment = found
         {
+            if identity == 0 && !attachment.closing
+            {
+                return 0;
+            }
+
+            if observer
+            {
+                return trusted observer_code_address(attachment.report_observer);
+            }
+
             return trusted code_address(attachment.context_bridge);
         }
     }
@@ -206,4 +316,64 @@ trusted internal func code_address(pos callback: Callback?) -> usize
     }
 
     return 0;
+}
+
+trusted internal func observer_code_address(pos callback: Observer?) -> usize
+    executes(total)
+    uses(layout_reinterpret, intrinsic)
+{
+    if let ?selected = callback
+    {
+        return trusted core.target.expose_address<Observer>(
+            trusted std.memory.pointer_from_callable<Observer>(selected)
+        );
+    }
+
+    return 0;
+}
+
+trusted internal func observe(
+    pos kind: u32,
+    pos primary: &bray.runtime.bootstrap.ReportPrimary,
+    pos digest: &bytes<32>
+) -> u32
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(layout_reinterpret)
+{
+    let native_address = trusted lambda(pos value: usize) -> RawPointer<Observer>
+        requires(trusted bray.runtime.bootstrap.pool.protocol_access(), value != 0)
+        ensures(trusted core.memory.callable_address_valid<Observer>(pointer = result))
+        executes(total)
+        uses(intrinsic)
+    {
+        return trusted core.target.from_exposed_address<Observer>(address = value);
+    };
+
+    let address: usize =
+    {
+        let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+        if !lease.active
+        {
+            return bray.runtime.bootstrap.STATUS_NOT_INITIALIZED;
+        }
+
+        let identity = trusted bray.runtime.bootstrap.host.current_attachment_locked(&lease);
+        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+        yield trusted read(&lease, &mut anchor, identity, true);
+    };
+
+    if address == 0
+    {
+        return bray.runtime.bootstrap.STATUS_NOT_INITIALIZED;
+    }
+
+    let callback = trusted std.memory.callable_from_pointer<Observer>(trusted native_address(address));
+
+    return trusted callback(
+        kind,
+        std.memory.address_of<bray.runtime.bootstrap.ReportPrimary>(primary),
+        std.memory.address_of<bytes<32>>(digest)
+    );
 }

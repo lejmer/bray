@@ -1,6 +1,8 @@
+#[cfg(test)]
+use bray_runtime_abi::NativeRunOutcome;
+
 use bray_runtime_abi::{
     NativePanicPrimary, NativePanicReport, NativeReportRecords, NativeReportSegment,
-    NativeRunOutcome,
 };
 
 // These declarations bind the compiler-owned trusted Bray provider. The private callers
@@ -50,27 +52,51 @@ unsafe extern "C" {
         primary: &mut NativePanicPrimary,
     );
 
-    pub(crate) safe fn bray_runtime_report_segment_mark(
-        chain: &mut NativeReportRecords,
-        metadata: &NativeReportSegment,
-    );
-
     pub(crate) safe fn bray_runtime_report_segment_take(
         chain: &mut NativeReportRecords,
         metadata: &mut NativeReportSegment,
         destination: &mut NativeReportRecords,
     );
 
+    pub(crate) safe fn bray_runtime_report_sink_transfer(
+        state: &mut crate::shutdown::CleanupReportState,
+        records: &mut NativeReportRecords,
+        metadata: &mut NativeReportSegment,
+    );
+
+    pub(crate) safe fn bray_runtime_report_sink_begin(
+        state: &mut crate::shutdown::CleanupReportState,
+    ) -> u32;
+    pub(crate) safe fn bray_runtime_report_sink_take(
+        state: &mut crate::shutdown::CleanupReportState,
+        batch: &mut NativeReportRecords,
+    ) -> u32;
+    pub(crate) safe fn bray_runtime_report_sink_finish(
+        state: &mut crate::shutdown::CleanupReportState,
+    );
+
+    pub(crate) safe fn bray_runtime_report_segment_consumer(
+        metadata: &NativeReportSegment,
+        report: &mut NativePanicReport,
+    ) -> bray_runtime_abi::NativeRuntimeStatus;
+
+    pub(crate) safe fn bray_runtime_cleanup_incident_consumer(
+        incident: &mut bray_runtime_abi::NativeCleanupIncident,
+        reporting: u32,
+    ) -> bray_runtime_abi::NativeRuntimeStatus;
+
     pub(crate) safe fn bray_runtime_report_consumer(
         report: &mut NativePanicReport,
         reporting: u32,
     ) -> bray_runtime_abi::NativeRuntimeStatus;
 
+    #[cfg(test)]
     pub(crate) safe fn bray_runtime_outgoing_admission(
         bundle: &bray_runtime_abi::NativeCleanupStorageBundle<'_>,
         outcome: &mut NativeRunOutcome,
     );
 
+    #[cfg(test)]
     pub(crate) safe fn bray_runtime_outgoing_discharge(
         bundle: &bray_runtime_abi::NativeCleanupStorageBundle<'_>,
     );

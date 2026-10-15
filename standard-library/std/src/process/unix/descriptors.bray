@@ -230,5 +230,5 @@ internal func descriptor_handle(pos descriptor: i32) -> u64
         return 0;
     }
 
-    return std.truncate_to<u64>(descriptor);
+    return std.numeric.truncate_to<u64>(descriptor);
 }

@@ -3,11 +3,10 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use bray_runtime_abi::{
     NativeExecutionLaneResult, NativeFrameProgress, NativeFrameProgressKind, NativeInactiveFrame,
-    NativePanicCause, NativeProductHostDescriptor, NativeProductHostObservation,
-    NativeProductHostOperation, NativeProtectedFrame, NativeProtectedFrameTransfer,
-    NativeRootHandle, NativeRootStart, NativeRunOutcome, NativeRunResultLayout,
-    NativeRuntimeConfiguration, NativeRuntimeEventCallback, NativeRuntimeStatus,
-    NativeSourceAnchor, NativeTaskAllocation, NativeTaskHandle,
+    NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostOperation,
+    NativeProtectedFrame, NativeProtectedFrameTransfer, NativeRootHandle, NativeRootStart,
+    NativeRunOutcome, NativeRunResultLayout, NativeRuntimeConfiguration,
+    NativeRuntimeEventCallback, NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle,
     NativeThreadStaticCleanupRegistration, NativeWakeCallback,
 };
 
@@ -131,100 +130,6 @@ native_export! {
 }
 
 native_export! {
-    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this report export to the Bray provider"))]
-    #[cfg_attr(test, unsafe(no_mangle))]
-    pub extern "C" fn bray_runtime_panic_reporting(report: &mut bray_runtime_abi::NativePanicReport) -> NativeRuntimeStatus {
-        report.consume(true)
-    }
-}
-
-native_export! {
-    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this report export to the Bray provider"))]
-    #[cfg_attr(test, unsafe(no_mangle))]
-    pub extern "C" fn bray_runtime_panic_report_destruction(report: &mut bray_runtime_abi::NativePanicReport) -> NativeRuntimeStatus {
-        report.consume(false)
-    }
-}
-
-native_export! {
-    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
-    #[cfg_attr(test, unsafe(no_mangle))]
-    pub extern "C" fn bray_runtime_substrate_report_primary(
-        primary: &bray_runtime_abi::NativePanicPrimary,
-    ) -> NativeRuntimeStatus {
-        if !primary.cause().is_known() || !primary.source().is_valid() {
-            return NativeRuntimeStatus::INVALID_ARGUMENT;
-        }
-
-        let mut message = Vec::new();
-
-        if message.try_reserve_exact(primary.message().len()).is_err() {
-            report_panic(primary.cause(), primary.source(), String::new());
-
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
-        }
-
-        message.resize(primary.message().len(), 0);
-
-        let status = primary.message().copy_to(0, &mut message);
-
-        if !status.is_success() {
-            return status;
-        }
-
-        let Ok(message) = String::from_utf8(message) else {
-            return NativeRuntimeStatus::INVALID_ARGUMENT;
-        };
-
-        report_panic(primary.cause(), primary.source(), message);
-
-        NativeRuntimeStatus::SUCCESS
-    }
-}
-
-pub(crate) fn report_panic(cause: NativePanicCause, source: NativeSourceAnchor, message: String) {
-    if super::host::active() {
-        super::host::record_panic(cause, source, message);
-    } else {
-        eprintln!("{message}");
-    }
-}
-
-native_export! {
-    #[expect(
-        unsafe_code,
-        reason = "the entry failure role borrows the validated native payload for this call"
-    )]
-    pub extern "C" fn bray_runtime_entry_failure_reporting(
-        payload: usize,
-        size: usize,
-    ) -> NativeRuntimeStatus {
-        if payload == 0 && size != 0 {
-            return NativeRuntimeStatus::INVALID_ARGUMENT;
-        }
-
-        contain_status(|| {
-            let bytes = if size == 0 {
-                &[][..]
-            } else {
-                unsafe {
-                    // The host retains the reported value for lifecycle resolution.
-                    std::slice::from_raw_parts(payload as *const u8, size)
-                }
-            };
-
-            if super::host::active() {
-                super::host::record_returned_error();
-            } else {
-                eprintln!("{bytes:02x?}");
-            }
-
-            NativeRuntimeStatus::SUCCESS
-        })
-    }
-}
-
-native_export! {
     #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
     #[cfg_attr(test, unsafe(no_mangle))]
     pub extern "C" fn bray_runtime_panic_propagation(report: &mut bray_runtime_abi::NativePanicReport) -> ! {
@@ -237,17 +142,11 @@ native_export! {
     pub extern "C" fn bray_runtime_cleanup_incident_reporting(
     ) -> NativeRuntimeStatus {
         contain_status(|| {
-            if super::host::active() {
-                let count = with_runtime(|runtime| runtime.discard_cleanup_incidents())
-                    .unwrap_or_default();
-
-                super::host::record_cleanup_failure(count);
-
-                return NativeRuntimeStatus::SUCCESS;
+            match with_runtime(|runtime| runtime.report_cleanup_incidents()) {
+                Ok(status) => status,
+                Err(NativeRuntimeStatus::NOT_INITIALIZED) => NativeRuntimeStatus::SUCCESS,
+                Err(status) => status,
             }
-
-            with_runtime(|runtime| runtime.report_cleanup_incidents())
-                .unwrap_or_else(|status| status)
         })
     }
 }
@@ -594,7 +493,6 @@ fn initialize_for_execution(configuration: NativeRuntimeConfiguration) -> Native
 
 #[cfg(test)]
 mod tests {
-    use std::mem::size_of;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use bray_runtime_abi::{
@@ -605,7 +503,8 @@ mod tests {
     };
 
     use super::super::entry::{
-        foreign as bray_runtime_foreign_callback_execution, root as bray_runtime_synchronous_root_execution,
+        foreign as bray_runtime_foreign_callback_execution,
+        root as bray_runtime_synchronous_root_execution,
     };
 
     use super::{
@@ -2000,24 +1899,6 @@ mod tests {
         assert_eq!(
             bray_runtime_structured_shutdown(),
             NativeRuntimeStatus::SUCCESS
-        );
-    }
-
-    #[test]
-    fn entry_failure_reporting_borrows_the_complete_payload() {
-        let payload = 42_i32;
-
-        assert_eq!(
-            super::bray_runtime_entry_failure_reporting(
-                (&raw const payload).addr(),
-                size_of::<i32>(),
-            ),
-            NativeRuntimeStatus::SUCCESS
-        );
-
-        assert_eq!(
-            super::bray_runtime_entry_failure_reporting(0, size_of::<i32>()),
-            NativeRuntimeStatus::INVALID_ARGUMENT
         );
     }
 

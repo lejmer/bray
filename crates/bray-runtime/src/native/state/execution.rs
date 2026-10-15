@@ -17,7 +17,7 @@ use crate::{
 use super::super::frame::NativeFrame;
 use super::binding::{
     CleanupWorkloadScope, current_native_task, current_thread_lanes, lane_result, runtime_failure,
-    task_outcome, write_cleanup_incident_report,
+    task_outcome,
 };
 use super::core::{NativeRuntime, NativeTaskSlot, StartedTask, SuspendedWait, with_current_task};
 
@@ -473,13 +473,7 @@ impl NativeRuntime {
         let mut status = NativeRuntimeStatus::SUCCESS;
 
         self.cleanup_reports.drain(|mut incident| {
-            if write_cleanup_incident_report(&mut std::io::stderr().lock(), &incident).is_err()
-                && status.is_success()
-            {
-                status = NativeRuntimeStatus::RUNTIME_FAILURE;
-            }
-
-            let disposal = incident.dispose();
+            let disposal = incident.report();
 
             if status.is_success() {
                 status = disposal;
@@ -489,6 +483,7 @@ impl NativeRuntime {
         status
     }
 
+    #[cfg(test)]
     pub(in crate::native) fn discard_cleanup_incidents(&self) -> usize {
         let mut count = 0;
 

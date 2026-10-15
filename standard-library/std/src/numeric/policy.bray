@@ -1,0 +1,4 @@
+module std.numeric;
+
+/// Converts a numeric value using the explicit truncation policy.
+extern func truncate_to<Target, Source>(pos source: Source) -> Target;

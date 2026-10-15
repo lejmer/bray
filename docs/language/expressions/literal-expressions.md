@@ -95,7 +95,7 @@ values.
 
 ```bray
 let x: r64 = 1.0;
-let y: r32 = std.round_to<r32>(x, rule = NearestEven);
+let y: r32 = std.numeric.round_to<r32>(x, rule = NearestEven);
 ```
 
 The literal `1.0` can adapt to `r64`. The already-typed value `x` uses an ordinary standard-library rounding operation

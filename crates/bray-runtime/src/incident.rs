@@ -58,52 +58,10 @@ impl OwnedCleanupIncident {
             None => return NativeRuntimeStatus::SUCCESS,
         };
 
-        let reporting = report
-            .then(|| catch_unwind(AssertUnwindSafe(|| (incident.report())(incident.payload()))));
-
-        let mut published =
-            bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
-
-        let mut released =
-            bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
-
-        let destruction = catch_unwind(AssertUnwindSafe(|| {
-            (incident.destroy())(&mut incident, &mut published, &mut released)
-        }));
-
-        let mut status = match reporting {
-            Some(Ok(status)) => status,
-            Some(Err(payload)) => {
-                dispose_panic(payload);
-
-                NativeRuntimeStatus::PANICKED
-            }
-            None => NativeRuntimeStatus::SUCCESS,
-        };
-
-        for mut incident in [published, released].into_iter().filter_map(Self::outcome) {
-            let disposal = incident.dispose(report);
-
-            if status.is_success() {
-                status = if disposal.is_success() {
-                    NativeRuntimeStatus::PANICKED
-                } else {
-                    disposal
-                };
-            }
-        }
-
-        if let Err(payload) = destruction {
-            dispose_panic(payload);
-
-            return if status.is_success() {
-                NativeRuntimeStatus::PANICKED
-            } else {
-                status
-            };
-        }
-
-        status
+        crate::report_provider::bray_runtime_cleanup_incident_consumer(
+            &mut incident,
+            u32::from(report),
+        )
     }
 }
 
@@ -165,13 +123,16 @@ mod tests {
         EVENTS.with_borrow_mut(std::mem::take)
     }
 
-    extern "C-unwind" fn report(payload: usize) -> NativeRuntimeStatus {
+    extern "C" fn report(
+        payload: usize,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+    ) -> NativeRuntimeStatus {
         record("report", payload);
 
         NativeRuntimeStatus::SUCCESS
     }
 
-    extern "C-unwind" fn destroy(
+    extern "C" fn destroy(
         incident: &mut NativeCleanupIncident,
         _: &mut bray_runtime_abi::NativeRunOutcome,
         _: &mut bray_runtime_abi::NativeRunOutcome,
@@ -183,7 +144,7 @@ mod tests {
 
     fn native(
         payload: usize,
-        report: extern "C-unwind" fn(usize) -> NativeRuntimeStatus,
+        report: bray_runtime_abi::NativeCleanupIncidentReportCallback,
         destroy: bray_runtime_abi::NativeCleanupIncidentDestroyCallback,
     ) -> OwnedCleanupIncident {
         OwnedCleanupIncident::native(NativeCleanupIncident::new(
@@ -198,7 +159,7 @@ mod tests {
 
     #[test]
     fn admitted_backing_moves_into_an_incident_and_outlives_its_producer() {
-        extern "C-unwind" fn release_backing(
+        extern "C" fn release_backing(
             incident: &mut NativeCleanupIncident,
             _: &mut bray_runtime_abi::NativeRunOutcome,
             _: &mut bray_runtime_abi::NativeRunOutcome,
@@ -298,7 +259,7 @@ mod tests {
         ))
     }
 
-    extern "C-unwind" fn published_then_panicking_destroy(
+    extern "C" fn published_destroy_and_release(
         incident: &mut NativeCleanupIncident,
         outcome: &mut bray_runtime_abi::NativeRunOutcome,
         release: &mut bray_runtime_abi::NativeRunOutcome,
@@ -307,16 +268,14 @@ mod tests {
 
         *outcome = published_panic(payload);
         *release = published_panic(payload + 1);
-
-        panic_any(Release(payload + 2));
     }
 
     #[test]
-    fn typed_error_destruction_retains_a_published_panic_before_unwinding() {
+    fn typed_error_destruction_retains_distinct_destroy_and_release_failures() {
         let _failure = crate::outgoing::tests::reject_admission();
 
         assert_eq!(
-            native(21, report, published_then_panicking_destroy).report(),
+            native(21, report, published_destroy_and_release).report(),
             NativeRuntimeStatus::PANICKED
         );
 
@@ -326,7 +285,6 @@ mod tests {
                 ("report", 21),
                 ("native release", 21),
                 ("native release", 22),
-                ("panic release", 23)
             ]
         );
     }
@@ -348,6 +306,36 @@ mod tests {
         drop(incidents);
 
         assert_eq!(events(), [("release", 19), ("panic release", 20)]);
+    }
+
+    #[test]
+    fn typed_disposal_retains_all_three_failures_without_terminal_admission() {
+        let incident = native(21, failing_report, published_destroy_and_release);
+        let _failure = crate::outgoing::tests::reject_admission();
+
+        assert_eq!(incident.report(), NativeRuntimeStatus::PANICKED);
+
+        assert_eq!(
+            events(),
+            [
+                ("report", 21),
+                ("native release", 1),
+                ("native release", 21),
+                ("native release", 22),
+            ]
+        );
+    }
+
+    #[test]
+    fn typed_owner_outlives_its_producer_thread() {
+        let incident = std::thread::spawn(|| native(73, report, destroy))
+            .join()
+            .unwrap();
+
+        let _failure = crate::outgoing::tests::reject_admission();
+
+        assert_eq!(incident.report(), NativeRuntimeStatus::SUCCESS);
+        assert_eq!(events(), [("report", 73), ("release", 73)]);
     }
 
     #[test]
@@ -454,20 +442,23 @@ mod tests {
         );
     }
 
-    extern "C-unwind" fn failing_report(payload: usize) -> NativeRuntimeStatus {
+    extern "C" fn failing_report(
+        payload: usize,
+        outcome: &mut bray_runtime_abi::NativeRunOutcome,
+    ) -> NativeRuntimeStatus {
         record("report", payload);
-        panic_any(Release(1));
+        *outcome = published_panic(1);
+
+        NativeRuntimeStatus::PANICKED
     }
 
-    extern "C-unwind" fn failing_destroy(
+    extern "C" fn failing_destroy(
         incident: &mut NativeCleanupIncident,
-        _: &mut bray_runtime_abi::NativeRunOutcome,
+        outcome: &mut bray_runtime_abi::NativeRunOutcome,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) {
-        let payload = incident.payload();
-
-        record("release", payload);
-        panic_any(Release(2));
+        record("release", incident.payload());
+        *outcome = published_panic(2);
     }
 
     #[test]
@@ -484,8 +475,8 @@ mod tests {
             [
                 ("report", 7),
                 ("release", 7),
-                ("panic release", 1),
-                ("panic release", 2),
+                ("native release", 1),
+                ("native release", 2),
                 ("report", 8),
                 ("release", 8),
             ]
@@ -493,12 +484,15 @@ mod tests {
 
         drop(native(9, report, failing_destroy));
 
-        assert_eq!(events(), [("release", 9), ("panic release", 2)]);
+        assert_eq!(events(), [("release", 9), ("native release", 2)]);
     }
 
     #[test]
     fn reporting_status_keeps_its_cause_when_release_also_panics() {
-        extern "C-unwind" fn rejected(_: usize) -> NativeRuntimeStatus {
+        extern "C" fn rejected(
+            _: usize,
+            _: &mut bray_runtime_abi::NativeRunOutcome,
+        ) -> NativeRuntimeStatus {
             NativeRuntimeStatus::INVALID_ARGUMENT
         }
 
@@ -507,7 +501,7 @@ mod tests {
             NativeRuntimeStatus::INVALID_ARGUMENT
         );
 
-        assert_eq!(events(), [("release", 1), ("panic release", 2)]);
+        assert_eq!(events(), [("release", 1), ("native release", 2)]);
     }
 
     #[test]
@@ -553,7 +547,10 @@ mod tests {
         );
     }
 
-    extern "C-unwind" fn reentrant_report(payload: usize) -> NativeRuntimeStatus {
+    extern "C" fn reentrant_report(
+        payload: usize,
+        outcome: &mut bray_runtime_abi::NativeRunOutcome,
+    ) -> NativeRuntimeStatus {
         REENTRANT.with_borrow(|sink| {
             let sink = sink.as_ref().unwrap();
 
@@ -561,10 +558,10 @@ mod tests {
             sink.drain(|_| panic!("nested reporting must defer to the active drain"));
         });
 
-        report(payload)
+        report(payload, outcome)
     }
 
-    extern "C-unwind" fn reentrant_destroy(
+    extern "C" fn reentrant_destroy(
         incident: &mut NativeCleanupIncident,
         outcome: &mut bray_runtime_abi::NativeRunOutcome,
         release: &mut bray_runtime_abi::NativeRunOutcome,
@@ -744,6 +741,40 @@ mod tests {
                         .map(|(_, index)| *index)
                         .eq((0..20_000).rev())
                 );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn destructor_produced_reports_remain_iterative_without_new_admission() {
+        struct Next(Option<RuntimePanic>);
+
+        impl Drop for Next {
+            fn drop(&mut self) {
+                if let Some(report) = self.0.take() {
+                    panic_any(report);
+                }
+            }
+        }
+
+        std::thread::Builder::new()
+            .stack_size(128 * 1024)
+            .spawn(|| {
+                let mut initial = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+                let mut report = RuntimePanic::new(Release(0), &mut initial);
+
+                for _ in 0..2_000 {
+                    let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+
+                    report = RuntimePanic::new(Next(Some(report)), &mut admitted);
+                }
+
+                let _failure = crate::outgoing::tests::reject_admission();
+
+                drop(report);
+                assert_eq!(events(), [("panic release", 0)]);
             })
             .unwrap()
             .join()

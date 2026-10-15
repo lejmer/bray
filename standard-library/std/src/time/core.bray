@@ -110,7 +110,10 @@ struct Instant
         let seconds: u64 = elapsed / NANOSECONDS_PER_SECOND as u64;
         let nanoseconds: u64 = elapsed % NANOSECONDS_PER_SECOND as u64;
 
-        return Duration(seconds = std.truncate_to<i64>(seconds), nanoseconds = std.truncate_to<u32>(nanoseconds));
+        return Duration(
+            seconds = std.numeric.truncate_to<i64>(seconds),
+            nanoseconds = std.numeric.truncate_to<u32>(nanoseconds)
+        );
     }
 }
 
@@ -342,7 +345,7 @@ trusted internal func sleep_on_platform(pos duration: Duration) -> Result<unit, 
     }
 
     let status: std.platform.PlatformStatus = trusted internal std.platform.clock_sleep(
-        seconds = std.truncate_to<u64>(duration.seconds()),
+        seconds = std.numeric.truncate_to<u64>(duration.seconds()),
         nanoseconds = duration.nanoseconds(),
     );
 

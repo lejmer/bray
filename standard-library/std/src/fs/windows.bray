@@ -91,7 +91,7 @@ trusted internal func prepare_file_seek(
     };
 
     let distance: std.os.windows.LargeInteger = std.os.windows.LargeInteger.QuadPart(
-        quad_part = std.truncate_to<i64>(offset_bits)
+        quad_part = std.numeric.truncate_to<i64>(offset_bits)
     );
 
     let mut native_position: i64 = 0;
@@ -116,7 +116,7 @@ trusted internal func prepare_file_seek(
         return Error(internal std.platform.invalid_input_status());
     }
 
-    return Ok(std.truncate_to<u64>(native_position));
+    return Ok(std.numeric.truncate_to<u64>(native_position));
 }
 
 @abi(c)
@@ -646,14 +646,14 @@ internal func windows_data_u32(pos data: &[u64], offset: usize) -> u32
 {
     assert(offset % 4 == 0, "native u32 field is misaligned");
 
-    return std.truncate_to<u32>(data[offset / 8] >> (offset % 8 * 8) as u64);
+    return std.numeric.truncate_to<u32>(data[offset / 8] >> (offset % 8 * 8) as u64);
 }
 
 internal func windows_data_u16(pos data: &[u64], offset: usize) -> u16
 {
     assert(offset % 2 == 0, "native u16 field is misaligned");
 
-    return std.truncate_to<u16>(data[offset / 8] >> (offset % 8 * 8) as u64);
+    return std.numeric.truncate_to<u16>(data[offset / 8] >> (offset % 8 * 8) as u64);
 }
 
 internal func windows_dot_entry(pos data: &[u64], units: usize) -> bool
@@ -681,8 +681,8 @@ trusted internal func windows_directory_entry_path(
     {
         let value: u16 = internal windows_data_u16(data, offset = 44 + index * 2);
 
-        trusted internal std.memory.initialize_spare<u8>(&mut storage, std.truncate_to<u8>(value));
-        trusted internal std.memory.initialize_spare<u8>(&mut storage, std.truncate_to<u8>(value >> 8));
+        trusted internal std.memory.initialize_spare<u8>(&mut storage, std.numeric.truncate_to<u8>(value));
+        trusted internal std.memory.initialize_spare<u8>(&mut storage, std.numeric.truncate_to<u8>(value >> 8));
         index += 1;
     }
 

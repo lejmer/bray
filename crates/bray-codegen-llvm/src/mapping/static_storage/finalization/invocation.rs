@@ -369,7 +369,7 @@ fn declare_static_finalizer_resolver<'context>(
         )
         .map_err(CodegenFailure::backend_library)?;
 
-    let report = declare_static_incident_reporter(module, mapping, error_layout.size(), types)?;
+    let report = declare_static_incident_reporter(module, mapping, types)?;
 
     let destroy = declare_static_incident_destroyer(module, mappings, mapping, types)?;
 

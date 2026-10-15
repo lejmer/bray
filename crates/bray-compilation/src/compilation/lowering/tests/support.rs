@@ -13,6 +13,7 @@ pub(super) fn standard_text_compilation(additional_sources: &[&str]) -> Compilat
 
     let sources = [
         include_str!("../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../standard-library/std/src/string.bray"),
         include_str!("../../../../../../standard-library/std/src/character.bray"),
     ]

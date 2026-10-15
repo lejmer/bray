@@ -433,6 +433,15 @@ extern "C" fn release_rust_panic(
 
     if let Some(payload) = payload {
         if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
+            let payload = match payload.downcast::<RuntimePanic>() {
+                Ok(report) => {
+                    rust_panic_backings().release(index);
+                    *outcome = bray_runtime_abi::NativeRunOutcome::panicked(report.into_native());
+                    return;
+                }
+                Err(payload) => payload,
+            };
+
             let length = rust_panic_message(payload.as_ref()).len();
 
             rust_panic_backings().slots[index] = Some(payload);

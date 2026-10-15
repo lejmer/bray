@@ -5,6 +5,7 @@ use bray_runtime_abi::{NativePanicPrimary, NativeReportRecords, NativeReportSegm
 use crate::report_provider as provider;
 
 /// Exclusive ownership of records supplied by the linked Bray provider.
+#[repr(transparent)]
 #[derive(Debug, Default)]
 pub(crate) struct OutgoingRecords(NativeReportRecords);
 
@@ -86,18 +87,6 @@ impl OutgoingRecords {
         provider::bray_runtime_report_records_pop(&mut self.0, &mut primary);
 
         Some(primary)
-    }
-
-    pub(crate) fn push_incident(
-        &mut self,
-        panic: crate::RuntimePanic,
-        metadata: crate::shutdown::CleanupIncidentMetadata,
-        admitted: &mut Self,
-    ) {
-        let mut incident = panic.into_records(admitted);
-
-        provider::bray_runtime_report_segment_mark(&mut incident.0, &metadata.into_native());
-        self.append(&mut incident);
     }
 
     pub(crate) fn pop_incident(&mut self) -> Option<crate::shutdown::CleanupIncident> {

@@ -462,7 +462,7 @@ fn finish_cleanup(mut cleanup: PendingCleanup) -> NativeProductHostObservation {
         for cleanup in &mut cleanup.statics {
             let entry = cleanup.entry;
 
-            let incidents = run_static_cleanup(
+            let count = run_static_cleanup(
                 &mut cleanup.admission,
                 entry.prepare,
                 entry.finalizer,
@@ -470,12 +470,10 @@ fn finish_cleanup(mut cleanup: PendingCleanup) -> NativeProductHostObservation {
                 entry.detach,
             );
 
-            // Drain each consumer's incidents before cleaning the providers they retain.
-            for incident in incidents.into_iter().flatten() {
-                incident_count += 1;
-                last_incident = Some(entry.identity);
+            incident_count += count;
 
-                let _ = incident.report();
+            if count != 0 {
+                last_incident = Some(entry.identity);
             }
         }
     });
@@ -1128,16 +1126,7 @@ mod tests {
         type Continuation =
             extern "C" fn(*const u8, usize, u32, &mut bray_runtime_abi::NativeRunOutcome) -> u32;
 
-        #[expect(
-            unsafe_code,
-            reason = "the regression owns a scoped native provider registration"
-        )]
-        unsafe extern "C" {
-            safe fn bray_runtime_entry_context_registration(
-                callback: *const u8,
-                previous: &mut usize,
-            ) -> u32;
-        }
+        use crate::native::bridge::{Callbacks, bray_runtime_entry_context_registration};
 
         extern "C" fn other_provider(
             _: Continuation,
@@ -1205,14 +1194,19 @@ mod tests {
         .unwrap();
 
         let attachment = crate::bootstrap::RuntimeThreadScope::enter().unwrap();
-        let mut previous = 0;
+        let mut previous = Callbacks::default();
+
+        let other = Callbacks {
+            context: other_provider as *const u8 as usize,
+            report: 0,
+        };
 
         assert_eq!(
-            bray_runtime_entry_context_registration(other_provider as *const u8, &mut previous),
+            bray_runtime_entry_context_registration(&other, &mut previous),
             0
         );
 
-        assert_eq!(previous, 0);
+        assert_eq!(previous, Callbacks::default());
 
         let failed = control(descriptor, NativeProductHostOperation::CLOSE);
 
@@ -1222,11 +1216,11 @@ mod tests {
         assert_eq!(RUNS.get(), 0);
 
         assert_eq!(
-            bray_runtime_entry_context_registration(std::ptr::null(), &mut previous),
+            bray_runtime_entry_context_registration(&Callbacks::default(), &mut previous),
             0
         );
 
-        assert_eq!(previous, other_provider as *const u8 as usize);
+        assert_eq!(previous, other);
 
         let closed = control(descriptor, NativeProductHostOperation::CLOSE);
 
@@ -1461,7 +1455,7 @@ mod tests {
         assert_eq!(CONTINUING_PRODUCT_CLEANUPS.load(Ordering::SeqCst), 1);
         assert_eq!(PRODUCT_DESTRUCTIONS.load(Ordering::SeqCst), 2);
         assert_eq!(PRODUCT_PHASE_ORDER.load(Ordering::SeqCst), 1212);
-        assert_eq!(RELEASED_PRODUCT_PHASE.take(), Some(12));
+        assert_eq!(RELEASED_PRODUCT_PHASE.take(), Some(1));
     }
 
     #[test]

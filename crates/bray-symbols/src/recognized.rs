@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn exact_imported_identity_is_recognized_without_changing_the_symbol() {
-        let fixture = interface_fixture_at_module(1, "bray.std", ["std"], "truncate_to");
+        let fixture = interface_fixture_at_module(1, "bray.std", ["std", "numeric"], "truncate_to");
         let function_key = fixture.function_key.clone();
         let imported = Arc::new(build_skeleton([fixture.input]));
         let standard_library_package = package_identity("bray.std");
@@ -351,8 +351,12 @@ mod tests {
 
     #[test]
     fn selected_package_identity_excludes_same_shaped_declarations_from_other_packages() {
-        let standard = interface_fixture_at_module(1, "bray.std", ["std"], "truncate_to");
-        let imitation = interface_fixture_at_module(2, "user.package", ["std"], "truncate_to");
+        let standard =
+            interface_fixture_at_module(1, "bray.std", ["std", "numeric"], "truncate_to");
+
+        let imitation =
+            interface_fixture_at_module(2, "user.package", ["std", "numeric"], "truncate_to");
+
         let standard_key = standard.function_key.clone();
         let imitation_key = imitation.function_key.clone();
         let imported = Arc::new(build_skeleton([standard.input, imitation.input]));
@@ -383,8 +387,13 @@ mod tests {
 
     #[test]
     fn exported_lookup_names_do_not_participate_in_recognition() {
-        let fixture =
-            interface_fixture_with_lookup(1, "bray.std", ["std"], "truncate_to", "renamed");
+        let fixture = interface_fixture_with_lookup(
+            1,
+            "bray.std",
+            ["std", "numeric"],
+            "truncate_to",
+            "renamed",
+        );
 
         let imported = Arc::new(build_skeleton([fixture.input]));
         let standard_library_package = package_identity("bray.std");
@@ -397,7 +406,7 @@ mod tests {
 
     #[test]
     fn unavailable_recognized_declarations_are_excluded_deterministically() {
-        let fixture = interface_fixture_at_module(1, "bray.std", ["std"], "truncate_to");
+        let fixture = interface_fixture_at_module(1, "bray.std", ["std", "numeric"], "truncate_to");
         let imported = Arc::new(build_skeleton([fixture.input]));
         let standard_library_package = package_identity("bray.std");
 

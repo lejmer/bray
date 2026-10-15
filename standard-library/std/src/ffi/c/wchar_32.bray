@@ -34,7 +34,7 @@ func wide_char_checked(pos value: i128) -> Result<WideChar, ConversionError>
 
     return Ok(
         {
-            raw = std.truncate_to<i32>(value)
+            raw = std.numeric.truncate_to<i32>(value)
         }
     );
 }
@@ -44,6 +44,6 @@ func wide_char_wrapping(pos value: i128) -> WideChar
 {
     return
     {
-        raw = std.truncate_to<i32>(value)
+        raw = std.numeric.truncate_to<i32>(value)
     };
 }

@@ -97,7 +97,7 @@ internal func parse_unsigned<Value>(pos text: &string, pos maximum: u128, radix:
                 return Error(ParseError.Overflow);
             }
 
-            return Ok(std.truncate_to<Value>(value));
+            return Ok(std.numeric.truncate_to<Value>(value));
         }
         case Error(error) { return Error(error); }
     }
@@ -160,7 +160,7 @@ func parse_i128(pos text: &string, radix: u8 = 10) -> Result<i128, ParseError>
         {
             if negative
             {
-                let minimum_magnitude: u128 = std.truncate_to<u128>(I128_MAX) + 1;
+                let minimum_magnitude: u128 = std.numeric.truncate_to<u128>(I128_MAX) + 1;
 
                 if magnitude > minimum_magnitude
                 {
@@ -172,17 +172,17 @@ func parse_i128(pos text: &string, radix: u8 = 10) -> Result<i128, ParseError>
                     return Ok(I128_MIN);
                 }
 
-                let narrowed: i128 = std.truncate_to<i128>(magnitude);
+                let narrowed: i128 = std.numeric.truncate_to<i128>(magnitude);
 
                 return Ok(-narrowed);
             }
 
-            if magnitude > std.truncate_to<u128>(I128_MAX)
+            if magnitude > std.numeric.truncate_to<u128>(I128_MAX)
             {
                 return Error(ParseError.Overflow);
             }
 
-            return Ok(std.truncate_to<i128>(magnitude));
+            return Ok(std.numeric.truncate_to<i128>(magnitude));
         }
         case Error(error) { return Error(error); }
     }
@@ -206,7 +206,7 @@ internal func parse_signed<Value>(
                 return Error(ParseError.Overflow);
             }
 
-            return Ok(std.truncate_to<Value>(value));
+            return Ok(std.numeric.truncate_to<Value>(value));
         }
         case Error(error) { return Error(error); }
     }

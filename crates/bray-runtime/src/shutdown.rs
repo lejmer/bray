@@ -62,6 +62,17 @@ impl CleanupIncident {
         )
     }
 
+    pub(crate) fn report(&mut self) -> bray_runtime_abi::NativeRuntimeStatus {
+        let Some(report) = self.payload.take() else {
+            return bray_runtime_abi::NativeRuntimeStatus::SUCCESS;
+        };
+
+        crate::report_provider::bray_runtime_report_segment_consumer(
+            &self.metadata.into_native(),
+            &mut report.into_native(),
+        )
+    }
+
     /// Returns the deterministic encounter ordinal.
     pub const fn ordinal(&self) -> u64 {
         self.metadata.ordinal
@@ -134,12 +145,13 @@ pub struct CleanupReportSink {
     state: Arc<Mutex<CleanupReportState>>,
 }
 
+#[repr(C)]
 #[derive(Debug, Default)]
-struct CleanupReportState {
+pub(crate) struct CleanupReportState {
     next_ordinal: u64,
     incidents: OutgoingRecords,
     pending_count: usize,
-    draining: bool,
+    draining: u32,
 }
 
 struct CleanupDrain<'a>(Option<&'a Mutex<CleanupReportState>>);
@@ -147,10 +159,11 @@ struct CleanupDrain<'a>(Option<&'a Mutex<CleanupReportState>>);
 impl Drop for CleanupDrain<'_> {
     fn drop(&mut self) {
         if let Some(state) = self.0 {
-            state
+            let mut state = state
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .draining = false;
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+            crate::report_provider::bray_runtime_report_sink_finish(&mut state);
         }
     }
 }
@@ -173,21 +186,22 @@ impl CleanupReportSink {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        let ordinal = state.next_ordinal;
+        let (head, tail, count) = payload.into_records(admitted).into_parts();
 
-        state.next_ordinal = state.next_ordinal.saturating_add(1);
+        let mut records = bray_runtime_abi::NativeReportRecords { head, tail, count };
 
-        state.incidents.push_incident(
-            payload,
-            CleanupIncidentMetadata {
-                ordinal,
-                producer,
-                origin,
-            },
-            admitted,
+        let mut metadata = CleanupIncidentMetadata {
+            ordinal: 0,
+            producer,
+            origin,
+        }
+        .into_native();
+
+        crate::report_provider::bray_runtime_report_sink_transfer(
+            &mut state,
+            &mut records,
+            &mut metadata,
         );
-
-        state.pending_count += 1;
     }
 
     /// Reports and removes every incident in transfer order.
@@ -202,11 +216,9 @@ impl CleanupReportSink {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-            if state.draining {
+            if crate::report_provider::bray_runtime_report_sink_begin(&mut state) == 0 {
                 return;
             }
-
-            state.draining = true;
         }
 
         let mut drain = CleanupDrain(Some(&self.state));
@@ -218,15 +230,16 @@ impl CleanupReportSink {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-                if state.pending_count == 0 {
-                    state.draining = false;
+                let mut batch = bray_runtime_abi::NativeReportRecords::default();
+
+                if crate::report_provider::bray_runtime_report_sink_take(&mut state, &mut batch)
+                    == 0
+                {
                     drain.0 = None;
                     return;
                 }
 
-                state.pending_count = 0;
-
-                std::mem::take(&mut state.incidents)
+                OutgoingRecords::from_parts(batch.head, batch.tail, batch.count)
             };
 
             while let Some(incident) = incidents.pop_incident() {

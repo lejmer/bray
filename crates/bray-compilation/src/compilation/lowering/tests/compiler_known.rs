@@ -257,7 +257,7 @@ fn standard_numeric_truncation_lowers_explicitly_with_an_inferred_source_type() 
         "\n",
         "func truncate(pos value: u128) -> u8\n",
         "{\n",
-        "    return std.truncate_to<u8>(value);\n",
+        "    return std.numeric.truncate_to<u8>(value);\n",
         "}\n",
     )]);
 

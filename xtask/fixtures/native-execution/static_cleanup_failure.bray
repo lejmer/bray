@@ -33,8 +33,54 @@ static RESOURCE: Resource<i32> =
     value = 42
 };
 
+struct BorrowedFailure
+{
+    value: &i32;
+
+    trusted destruct()
+        uses(intrinsic)
+    {
+        if self.value != 73
+        {
+            trusted core.target.abort();
+        }
+    }
+}
+
+struct BorrowingResource
+{
+    mut value: i32;
+
+    finalize() -> Result<unit, BorrowedFailure>
+    {
+        return Error(
+            BorrowedFailure
+            {
+                value = &self.value
+            }
+        );
+    }
+
+    destruct()
+    {
+        self.value = 0;
+    }
+}
+
+static BORROWING: BorrowingResource =
+{
+    value = 73
+};
+
+@thread_local static THREAD_BORROWING: BorrowingResource =
+{
+    value = 73
+};
+
 func main() -> i32
 {
     assert(RESOURCE.value == 42);
+    assert(BORROWING.value == 73);
+    assert(THREAD_BORROWING.value == 73);
     return 0;
 }

@@ -61,10 +61,10 @@ func convert_structures(sources: ConversionSources)
 func convert_with_policy(text: string, measured: i32, real: r64) -> Result<Port, ParseError>
 {
     let narrowed: Result<u8, ConversionError> = std.convert<u8>(measured);
-    let rounded: r32 = std.round_to<r32>(real, rule = NearestEven);
-    let truncated: i32 = std.truncate_to<i32>(real);
-    let saturated: u8 = std.saturate_to<u8>(real);
-    let wrapped: u8 = std.wrap_to<u8>(real);
+    let rounded: r32 = std.numeric.round_to<r32>(real, rule = NearestEven);
+    let truncated: i32 = std.numeric.truncate_to<i32>(real);
+    let saturated: u8 = std.numeric.saturate_to<u8>(real);
+    let wrapped: u8 = std.numeric.wrap_to<u8>(real);
 
     return try std.convert<Port>(text);
 }

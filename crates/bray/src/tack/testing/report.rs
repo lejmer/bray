@@ -409,6 +409,7 @@ impl<'report> From<&'report TestProductReport> for JsonTestProductReport<'report
 struct JsonTestResult<'report> {
     identity: String,
     outcome: JsonTestOutcome<'report>,
+    suppressed: Vec<JsonTestOutcome<'report>>,
     stdout: JsonCapturedStream<'report>,
     stderr: JsonCapturedStream<'report>,
     duration_nanoseconds: Option<u64>,
@@ -419,6 +420,7 @@ impl<'report> From<&'report TestInvocationResult> for JsonTestResult<'report> {
         Self {
             identity: identity_text(result.identity()),
             outcome: result.outcome().into(),
+            suppressed: result.suppressed().iter().map(Into::into).collect(),
             stdout: result.standard_output().into(),
             stderr: result.standard_error().into(),
             duration_nanoseconds: result.duration().map(|duration| duration.nanoseconds()),
@@ -484,6 +486,7 @@ enum JsonTestOutcome<'report> {
     Passed,
     ReturnedError {
         error_type: &'report str,
+        source: Option<JsonSourceAnchor>,
         formatted_value: Option<&'report str>,
     },
     ExplicitFailure {
@@ -517,9 +520,11 @@ impl<'report> From<&'report TestOutcome> for JsonTestOutcome<'report> {
             TestOutcome::Passed => Self::Passed,
             TestOutcome::ReturnedError {
                 error_type,
+                source,
                 formatted_value,
             } => Self::ReturnedError {
                 error_type: error_type.as_str(),
+                source: source.map(Into::into),
                 formatted_value: formatted_value.as_deref(),
             },
             TestOutcome::ExplicitFailure(failure) => Self::ExplicitFailure {

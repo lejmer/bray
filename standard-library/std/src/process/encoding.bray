@@ -96,7 +96,7 @@ internal func context_native_unit(pos source: &[u8], index: usize, width: usize)
 
     while byte < width
     {
-        value |= source[index + byte] as u32 << (std.truncate_to<u32>(byte) * 8);
+        value |= source[index + byte] as u32 << (std.numeric.truncate_to<u32>(byte) * 8);
         byte += 1;
     }
 

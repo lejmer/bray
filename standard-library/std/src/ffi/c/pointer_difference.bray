@@ -34,7 +34,7 @@ func pointer_difference_checked(pos value: i128) -> Result<PointerDifference, Co
 
     return Ok(
         {
-            raw = std.truncate_to<isize>(value)
+            raw = std.numeric.truncate_to<isize>(value)
         }
     );
 }
@@ -44,6 +44,6 @@ func pointer_difference_wrapping(pos value: i128) -> PointerDifference
 {
     return
     {
-        raw = std.truncate_to<isize>(value)
+        raw = std.numeric.truncate_to<isize>(value)
     };
 }

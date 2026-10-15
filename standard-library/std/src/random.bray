@@ -90,7 +90,7 @@ struct Generator
                 available = 8;
             }
 
-            destination[index] = std.truncate_to<u8>(value);
+            destination[index] = std.numeric.truncate_to<u8>(value);
 
             value >>= 8;
             available -= 1;
@@ -159,7 +159,7 @@ internal func seed_word(pos seed: &bytes<32>, start: usize) -> u64
         index += 1;
     }
 
-    return std.truncate_to<u64>(value);
+    return std.numeric.truncate_to<u64>(value);
 }
 
 internal func rotate_left(value: u64, distance: u64) -> u64
@@ -173,5 +173,5 @@ internal func wrapping_multiply(left: u64, right: u64) -> u64
     let widened_right: u128 = right as u128;
     let product: u128 = widened_left * widened_right;
 
-    return std.truncate_to<u64>(product);
+    return std.numeric.truncate_to<u64>(product);
 }

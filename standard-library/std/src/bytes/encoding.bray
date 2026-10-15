@@ -8,7 +8,7 @@ func u64_little_endian(pos value: u64) -> bytes<8>
 
     while index < 8
     {
-        bytes[index] = std.truncate_to<u8>(value >> (index as u64 * 8));
+        bytes[index] = std.numeric.truncate_to<u8>(value >> (index as u64 * 8));
         index += 1;
     }
 
