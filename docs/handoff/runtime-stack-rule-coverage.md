@@ -565,6 +565,15 @@ as three subsequent issue PRs, preserving the shared ownership contract across t
 
 ### 6. Finish BRA-619 scoped execution and native acceptance
 
+Sequence correction approved 2026-10-15: first deliver the shared retained-incident
+abandonment prerequisite in a BRA-505 PR, then stack BRA-619 on it. Current helpers
+do not separate payload quiescence from retained destruction, and the static
+incident consumer disposes immediately. Reuse the existing cleanup expansion,
+admitted backing and report records. BRA-619 owns publication of its selected
+exit result and guarded dependency transfers. See `BRA-619-completion.md` for the
+implementation evidence. This prerequisite slice does not complete BRA-505's
+broader activation migration or waive its BRA-561 acceptance.
+
 The integration contains the selected enter/exit implementation from #602. Finish the remaining work in a dedicated
 BRA-619 PR after its prerequisites land. The current failure is `MissingRole(CleanupIncidentTransfer)` in
 `scoped_selected_calls_emit_native_artifacts`. It remains enabled and blocks BRA-619 completion, while the user has
