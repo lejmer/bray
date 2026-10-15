@@ -3,19 +3,16 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use bray_platform::{MonotonicDeadline, MonotonicInstant, NativeEvent, RuntimeThreadId};
-use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId, RuntimeCapability};
+use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
 
 use crate::cancellation::CancellationWakeRegistration;
-use crate::lane::select_execution_lane;
 use crate::{
     CancellationContext, ExecutionLane, FrameExecutionState, SchedulerSnapshot, TaskId,
     TaskWakeCause,
 };
 
 use super::contract::{SchedulerError, SchedulerLimits};
-use super::dispatch::{
-    pop_ready, queue_instant, scheduler_snapshot, select_state_lane, select_task_lane,
-};
+use super::dispatch::{pop_ready, queue_instant, scheduler_snapshot, select_state_lane};
 
 /// Target-independent scheduler policy and ready-queue storage.
 #[derive(Clone, Debug)]
@@ -44,7 +41,6 @@ pub(super) struct SchedulerState {
 
 #[derive(Debug)]
 pub(super) struct RegisteredTask {
-    pub(super) descriptor: ProtectedFrameDescriptor,
     pub(super) execution: FrameExecutionState,
     pub(super) origin: RuntimeThreadId,
     pub(super) cancellation: CancellationContext,
@@ -125,24 +121,14 @@ impl Scheduler {
     pub fn register_task(
         &self,
         task: TaskId,
-        descriptor: ProtectedFrameDescriptor,
+        execution: FrameExecutionState,
         origin: RuntimeThreadId,
-        initial_state: ProtectedFrameStateId,
         cancellation: &CancellationContext,
     ) -> Result<TaskRegistration, SchedulerError> {
-        let Some(frame_state) = descriptor.state(initial_state) else {
-            return Err(SchedulerError::UnknownFrameState(initial_state));
-        };
+        let initial_state = execution.state();
+        let execution_origin = execution.origin().unwrap_or(origin);
 
-        select_execution_lane(
-            frame_state.lane_requirements(),
-            frame_state.affinity(),
-            &self.data.capabilities,
-            origin,
-            self.data.main_thread,
-        )?;
-
-        let execution = FrameExecutionState::new(descriptor.frame(), frame_state.clone());
+        select_state_lane(&self.data, execution.descriptor(), execution_origin)?;
 
         {
             let mut state = self.lock_state()?;
@@ -158,7 +144,6 @@ impl Scheduler {
             state.tasks.insert(
                 task,
                 RegisteredTask {
-                    descriptor,
                     execution,
                     origin,
                     // Dispatch release must observe cancellation after registration returns.
@@ -371,8 +356,8 @@ impl TaskRegistration {
         }
     }
 
-    /// Returns the compatible execution lane for one registered frame state.
-    pub fn lane(&self, state_id: ProtectedFrameStateId) -> Result<ExecutionLane, SchedulerError> {
+    /// Returns the compatible execution lane for the registered activation state.
+    pub fn lane(&self) -> Result<ExecutionLane, SchedulerError> {
         let Some(scheduler) = self.scheduler.upgrade() else {
             return Err(SchedulerError::UnknownTask(self.task));
         };
@@ -386,7 +371,9 @@ impl TaskRegistration {
             return Err(SchedulerError::UnknownTask(self.task));
         };
 
-        select_task_lane(&scheduler, task, state_id)
+        let origin = task.execution.origin().unwrap_or(task.origin);
+
+        select_state_lane(&scheduler, task.execution.descriptor(), origin)
     }
 
     pub(crate) fn execution_lane(
@@ -536,7 +523,10 @@ impl ReadyTask {
     }
 
     /// Releases this dispatch at the frame's newly suspended state.
-    pub fn suspend(mut self, execution: FrameExecutionState) -> Result<(), SchedulerError> {
+    pub fn suspend(
+        mut self,
+        execution: FrameExecutionState,
+    ) -> Result<ExecutionLane, SchedulerError> {
         let Some(scheduler) = self.scheduler.upgrade() else {
             return Err(SchedulerError::UnknownTask(self.task));
         };
@@ -546,7 +536,8 @@ impl ReadyTask {
             .lock()
             .map_err(|_| SchedulerError::SynchronizationPoisoned)?;
 
-        let changed = release_dispatch(&scheduler, &mut state, self.task, self.state(), execution)?;
+        let (changed, lane) =
+            release_dispatch(&scheduler, &mut state, self.task, self.state(), execution)?;
 
         self.released = true;
 
@@ -556,7 +547,7 @@ impl ReadyTask {
             scheduler.event.wake_handle().wake()?;
         }
 
-        Ok(())
+        Ok(lane)
     }
 }
 
@@ -574,7 +565,7 @@ impl Drop for ReadyTask {
             return;
         };
 
-        let Ok(changed) = release_dispatch(
+        let Ok((changed, _)) = release_dispatch(
             &scheduler,
             &mut state,
             self.task,
@@ -598,7 +589,7 @@ fn release_dispatch(
     task_id: TaskId,
     running_state: ProtectedFrameStateId,
     execution: FrameExecutionState,
-) -> Result<bool, SchedulerError> {
+) -> Result<(bool, ExecutionLane), SchedulerError> {
     let Some(task) = state.tasks.get(&task_id) else {
         return Err(SchedulerError::UnknownTask(task_id));
     };
@@ -608,12 +599,13 @@ fn release_dispatch(
         pending,
     } = task.dispatch
     else {
-        return Ok(false);
+        panic!("dispatch release requires the exclusively running task");
     };
 
-    if retained != running_state {
-        return Ok(false);
-    }
+    assert_eq!(
+        retained, running_state,
+        "dispatch release retains its original running state"
+    );
 
     let origin = execution.origin().unwrap_or(task.origin);
     let lane = select_state_lane(scheduler, execution.descriptor(), origin)?;
@@ -648,7 +640,7 @@ fn release_dispatch(
         task.dispatch = DispatchState::Idle(suspended_state);
     }
 
-    Ok(next.is_some())
+    Ok((next.is_some(), lane))
 }
 
 fn enqueue_task(
@@ -719,8 +711,8 @@ mod tests {
     use super::{Scheduler, SchedulerError, SchedulerLimits};
     use crate::test_support::{TestFrame, register_task};
     use crate::{
-        ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, FrameExecutionState,
-        FrameSuspensionKind, ScheduledTaskState, TaskControlBlock, TaskResumeStatus, TaskWakeCause,
+        ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, FrameSuspensionKind,
+        ScheduledTaskState, TaskControlBlock, TaskResumeStatus, TaskWakeCause,
     };
 
     #[test]
@@ -964,13 +956,9 @@ mod tests {
         wake.wake()
             .unwrap_or_else(|error| panic!("running wake must succeed: {error:?}"));
 
-        let execution = FrameExecutionState::new(
-            task.descriptor().frame(),
-            task.descriptor()
-                .state(ProtectedFrameStateId::new(1))
-                .unwrap_or_else(|| panic!("test frame must contain state one"))
-                .clone(),
-        );
+        let TaskResumeStatus::Suspended(_, execution) = task.resume().unwrap() else {
+            panic!("test frame must suspend into state one");
+        };
 
         ready
             .suspend(execution)
@@ -1144,9 +1132,8 @@ mod tests {
         assert!(matches!(
             scheduler.register_task(
                 second.id(),
-                second.descriptor().clone(),
+                second.execution_state(),
                 runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
                 second.cancellation_context()
             ),
             Err(SchedulerError::TaskCapacityReached)

@@ -31,10 +31,8 @@ where
     scheduler
         .register_task(
             task.id(),
-            // Registration retains immutable frame metadata after this task borrow ends.
-            task.descriptor().clone(),
+            task.execution_state(),
             origin,
-            ProtectedFrameStateId::new(0),
             task.cancellation_context(),
         )
         .unwrap_or_else(|error| panic!("test task must register: {error:?}"))
@@ -250,8 +248,15 @@ impl TestFrame {
 impl ProtectedFrame for TestFrame {
     type Output = i32;
 
-    fn descriptor(&self) -> &ProtectedFrameDescriptor {
-        &self.descriptor
+    fn frame(&self) -> bray_runtime_model::ProtectedAsyncFrameId {
+        self.descriptor.frame()
+    }
+
+    fn execution_state(&self, state: ProtectedFrameStateId) -> Option<crate::FrameExecutionState> {
+        self.descriptor
+            .state(state)
+            .cloned()
+            .map(|state| crate::FrameExecutionState::new(self.descriptor.frame(), state))
     }
 
     fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output> {

@@ -4,14 +4,12 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use bray_runtime_abi::{
-    NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
-    NativeLaneRequirements, NativeProtectedFrame, NativeRuntimeStatus,
+    NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind, NativeLaneRequirements,
+    NativeProtectedFrame, NativeRuntimeStatus,
 };
 use bray_runtime_model::{
-    BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
-    ProtectedFrameAffinity, ProtectedFrameDescriptor, ProtectedFrameLayout,
-    ProtectedFrameOperations, ProtectedFrameStateDescriptor, ProtectedFrameStateId,
-    RuntimeAbiVersion,
+    ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAffinity, ProtectedFrameLayout,
+    ProtectedFrameStateDescriptor, ProtectedFrameStateId,
 };
 
 use crate::{
@@ -19,7 +17,6 @@ use crate::{
 };
 
 pub(super) struct NativeFrame {
-    descriptor: ProtectedFrameDescriptor,
     abi: NativeProtectedFrame,
     terminal: Arc<NativeTerminalState>,
     completion: Option<crate::backing::Backing>,
@@ -42,34 +39,21 @@ impl NativeFrame {
         let completion_alignment = NonZeroUsize::new(abi.completion_alignment())
             .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
-        let layout = ProtectedFrameLayout::try_new(abi.size(), alignment)
+        ProtectedFrameLayout::try_new(abi.size(), alignment)
             .map_err(|_| NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
-        let completion_layout =
-            ProtectedFrameLayout::try_new(abi.completion_size(), completion_alignment)
-                .map_err(|_| NativeRuntimeStatus::INVALID_ARGUMENT)?;
+        ProtectedFrameLayout::try_new(abi.completion_size(), completion_alignment)
+            .map_err(|_| NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
-        let states = states(abi).ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
-        let operations = operations(abi.identity()).ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
-        let version = RuntimeAbiVersion::new(1, 0);
-
-        let descriptor = ProtectedFrameDescriptor::try_new(
-            ProtectedAsyncFrameId::new(abi.identity()),
-            version,
-            ProtectedFrameAbiVersions::uniform(version),
-            layout,
-            completion_layout,
-            operations,
-            states,
-        )
-        .map_err(|_| NativeRuntimeStatus::INVALID_ARGUMENT)?;
+        if abi.state_count() == 0 || state(abi, ProtectedFrameStateId::new(0)).is_none() {
+            return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
+        }
 
         let completion =
             crate::backing::Backing::admit(abi.completion_size(), abi.completion_alignment())?;
 
         Ok(Self {
             completion: Some(completion),
-            descriptor,
             abi: transfer.take(),
             outgoing: crate::outgoing::OutgoingRecords::default(),
             terminal: Arc::new(NativeTerminalState {
@@ -131,8 +115,15 @@ impl NativeTerminalState {
 impl ProtectedFrame for NativeFrame {
     type Output = usize;
 
-    fn descriptor(&self) -> &ProtectedFrameDescriptor {
-        &self.descriptor
+    fn frame(&self) -> ProtectedAsyncFrameId {
+        ProtectedAsyncFrameId::new(self.abi.identity())
+    }
+
+    fn execution_state(
+        &self,
+        ordinal: ProtectedFrameStateId,
+    ) -> Option<crate::FrameExecutionState> {
+        state(&self.abi, ordinal).map(|state| crate::FrameExecutionState::new(self.frame(), state))
     }
 
     fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output> {
@@ -266,22 +257,45 @@ impl Drop for NativeFrame {
     }
 }
 
-fn states(abi: &NativeProtectedFrame) -> Option<Vec<ProtectedFrameStateDescriptor>> {
-    (0..abi.state_count())
-        .map(|state| {
-            let native = abi.state()(abi.context(), state);
-            let affinity = affinity(native.affinity())?;
-            let requirements = lane_requirements(native.lane_requirements())?;
+fn state(
+    abi: &NativeProtectedFrame,
+    state: ProtectedFrameStateId,
+) -> Option<ProtectedFrameStateDescriptor> {
+    if state.raw() >= abi.state_count() {
+        return None;
+    }
 
-            Some(ProtectedFrameStateDescriptor::new(
-                ProtectedFrameStateId::new(state),
-                requirements,
-                [],
-                [],
-                affinity,
-            ))
-        })
-        .collect()
+    let native = abi.state()(abi.context(), state.raw());
+    let affinity = ProtectedFrameAffinity::from_code(native.affinity().code())?;
+    let requirements = native.lane_requirements().bits();
+
+    let known = NativeLaneRequirements::BLOCKING.bits()
+        | NativeLaneRequirements::COMPUTE.bits()
+        | NativeLaneRequirements::MAIN_THREAD.bits();
+
+    if requirements & !known != 0 {
+        return None;
+    }
+
+    let lanes = ExecutionLaneRequirement::ALL
+        .into_iter()
+        .filter(|requirement| {
+            let flag = match requirement {
+                ExecutionLaneRequirement::Blocking => NativeLaneRequirements::BLOCKING,
+                ExecutionLaneRequirement::Compute => NativeLaneRequirements::COMPUTE,
+                ExecutionLaneRequirement::MainThread => NativeLaneRequirements::MAIN_THREAD,
+            };
+
+            requirements & flag.bits() != 0
+        });
+
+    Some(ProtectedFrameStateDescriptor::new(
+        state,
+        lanes,
+        [],
+        [],
+        affinity,
+    ))
 }
 
 pub(super) struct NativeFrameTransfer {
@@ -320,63 +334,64 @@ impl Drop for NativeFrameTransfer {
     }
 }
 
-fn affinity(native: NativeFrameAffinity) -> Option<ProtectedFrameAffinity> {
-    ProtectedFrameAffinity::from_code(native.code())
-}
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
 
-fn lane_requirements(native: NativeLaneRequirements) -> Option<Vec<ExecutionLaneRequirement>> {
-    let known = NativeLaneRequirements::BLOCKING.bits()
-        | NativeLaneRequirements::COMPUTE.bits()
-        | NativeLaneRequirements::MAIN_THREAD.bits();
+    use bray_runtime_abi::{NativeFrameAffinity, NativeFrameState, NativeProtectedFrame};
+    use bray_runtime_model::ProtectedFrameStateId;
 
-    if native.bits() & !known != 0 {
-        return None;
+    use crate::ProtectedFrame;
+
+    use super::{NativeFrame, NativeFrameExit, NativeFrameProgress, NativeLaneRequirements};
+
+    #[test]
+    fn activation_queries_only_requested_compiler_states() {
+        thread_local! { static QUERIES: Cell<usize> = const { Cell::new(0) }; }
+
+        extern "C" fn state(_: usize, _: u32) -> NativeFrameState {
+            QUERIES.set(QUERIES.get() + 1);
+
+            NativeFrameState::new(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE)
+        }
+
+        extern "C-unwind" fn resume(_: &mut NativeFrameProgress, _: usize) {
+            unreachable!();
+        }
+
+        extern "C-unwind" fn action(_: usize) {}
+        extern "C-unwind" fn resolve(_: &mut NativeFrameProgress, _: usize, _: NativeFrameExit) {}
+
+        extern "C-unwind" fn completion(_: usize, _: usize) {
+            unreachable!();
+        }
+
+        QUERIES.set(0);
+
+        let abi = NativeProtectedFrame::new(
+            0, [7; 32], 128, 8, 8, 0, 1, state, resume, resume, action, resolve, completion, action,
+        );
+
+        let frame = NativeFrame::try_new(abi).expect("valid frame must be admitted");
+
+        assert_eq!(QUERIES.get(), 1);
+
+        assert_eq!(
+            frame
+                .execution_state(ProtectedFrameStateId::new(127))
+                .unwrap()
+                .state(),
+            ProtectedFrameStateId::new(127)
+        );
+
+        assert_eq!(QUERIES.get(), 2);
+
+        assert!(
+            frame
+                .execution_state(ProtectedFrameStateId::new(128))
+                .is_none()
+        );
+
+        assert_eq!(QUERIES.get(), 2);
     }
-
-    let mut requirements = Vec::new();
-
-    if native.bits() & NativeLaneRequirements::BLOCKING.bits() != 0 {
-        requirements.push(ExecutionLaneRequirement::Blocking);
-    }
-
-    if native.bits() & NativeLaneRequirements::COMPUTE.bits() != 0 {
-        requirements.push(ExecutionLaneRequirement::Compute);
-    }
-
-    if native.bits() & NativeLaneRequirements::MAIN_THREAD.bits() != 0 {
-        requirements.push(ExecutionLaneRequirement::MainThread);
-    }
-
-    Some(requirements)
-}
-
-fn operations(identity: [u8; 32]) -> Option<ProtectedFrameOperations> {
-    let prefix = frame_symbol_prefix(identity);
-
-    Some(ProtectedFrameOperations::new(
-        operation_symbol(&prefix, "move_before_start")?,
-        operation_symbol(&prefix, "state_description")?,
-        operation_symbol(&prefix, "resume")?,
-        operation_symbol(&prefix, "cancellation_entry")?,
-        operation_symbol(&prefix, "task_broadcast")?,
-        operation_symbol(&prefix, "lifecycle_resolution")?,
-        operation_symbol(&prefix, "completion_move")?,
-        operation_symbol(&prefix, "destruction")?,
-    ))
-}
-
-fn frame_symbol_prefix(identity: [u8; 32]) -> String {
-    let mut prefix = String::from("bray_frame_");
-
-    for byte in identity {
-        use std::fmt::Write as _;
-
-        let _ = write!(prefix, "{byte:02x}");
-    }
-
-    prefix
-}
-
-fn operation_symbol(prefix: &str, operation: &str) -> Option<BinarySymbolName> {
-    BinarySymbolName::try_new(format!("{prefix}_{operation}"))
 }

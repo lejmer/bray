@@ -6,8 +6,7 @@ use bray_runtime_abi::{
     NativeInactiveFrame, NativeRunOutcome, NativeRunState, NativeRuntimeStatus,
 };
 use bray_runtime_model::{
-    ExecutionLaneRequirement, ProtectedFrameAffinity, ProtectedFrameDescriptor,
-    ProtectedFrameStateId,
+    ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAffinity, ProtectedFrameStateId,
 };
 
 use crate::context::{current_task_execution_lane, with_task_frame_execution};
@@ -24,15 +23,14 @@ use super::state::{current_native_task, with_runtime};
 const TRANSITION_BUDGET: usize = 64;
 
 pub(super) struct NativeRun {
-    descriptor: ProtectedFrameDescriptor,
+    identity: ProtectedAsyncFrameId,
     terminal: Arc<NativeTerminalState>,
     current: Mutex<Option<Box<NativeActivation>>>,
 }
 
 struct NativeActivation {
     frame: Option<Pin<Box<NativeFrame>>>,
-    descriptor: ProtectedFrameDescriptor,
-    state: ProtectedFrameStateId,
+    local: FrameExecutionState,
     parent: Option<Box<Self>>,
     child: Option<Box<Self>>,
     retired: Option<Box<Self>>,
@@ -52,12 +50,14 @@ struct NativeActivation {
 impl NativeActivation {
     fn new(frame: NativeFrame, outgoing: crate::outgoing::OutgoingRecords) -> Self {
         let terminal = frame.terminal_state();
-        let descriptor = frame.descriptor().clone();
+
+        let local = frame
+            .execution_state(ProtectedFrameStateId::new(0))
+            .expect("admitted native frame describes its initial state");
 
         Self {
             frame: Some(Box::pin(frame)),
-            descriptor,
-            state: ProtectedFrameStateId::new(0),
+            local,
             parent: None,
             child: None,
             retired: None,
@@ -98,17 +98,23 @@ impl NativeActivation {
     }
 
     fn execution_state(&self) -> Result<FrameExecutionState, NativeRuntimeStatus> {
-        self.execution_at(self.state)
+        self.execution_at(self.local.state())
     }
 
     fn execution_at(
         &self,
         state: ProtectedFrameStateId,
     ) -> Result<FrameExecutionState, NativeRuntimeStatus> {
-        let local = self
-            .descriptor
-            .state(state)
-            .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
+        let execution = if state == self.local.state() {
+            self.local.clone()
+        } else {
+            self.frame
+                .as_ref()
+                .and_then(|frame| frame.execution_state(state))
+                .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?
+        };
+
+        let local = execution.descriptor();
 
         let affinities = [local.affinity(), self.retained_affinity];
 
@@ -142,7 +148,7 @@ impl NativeActivation {
 
         let state = local.clone().with_execution_requirements(lanes, affinity);
 
-        let execution = FrameExecutionState::new(self.descriptor.frame(), state);
+        let execution = FrameExecutionState::new(self.local.frame(), state);
 
         let origin = if self.retained_affinity == ProtectedFrameAffinity::OriginThread {
             self.retained_origin.or(self.origin)
@@ -170,7 +176,7 @@ impl NativeRun {
         let activation = Box::new(NativeActivation::new(frame, outgoing));
 
         Arc::new(Self {
-            descriptor: activation.descriptor.clone(),
+            identity: activation.local.frame(),
             terminal: Arc::clone(&activation.terminal),
             current: Mutex::new(Some(activation)),
         })
@@ -448,7 +454,11 @@ impl NativeRun {
 
         let active = Self::active(&mut current);
 
-        active.state = suspension.state();
+        active.local = active
+            .frame
+            .as_ref()
+            .and_then(|frame| frame.execution_state(suspension.state()))
+            .expect("generated suspension identifies a described frame state");
 
         if suspension.kind() != FrameSuspensionKind::Awaited {
             return Some(FrameProgress::Suspended(suspension));
@@ -711,7 +721,7 @@ impl NativeRun {
             return false;
         };
 
-        let origin = crate::CleanupIncidentOrigin::new(active.descriptor.frame(), active.state);
+        let origin = crate::CleanupIncidentOrigin::new(active.local.frame(), active.local.state());
         let incidents = active.terminal.take_cleanup_incidents();
 
         with_runtime(|runtime| {
@@ -735,8 +745,8 @@ impl NativeRun {
 impl ProtectedFrame for Arc<NativeRun> {
     type Output = usize;
 
-    fn descriptor(&self) -> &ProtectedFrameDescriptor {
-        &self.descriptor
+    fn frame(&self) -> ProtectedAsyncFrameId {
+        self.identity
     }
 
     fn execution_state(&self, _: ProtectedFrameStateId) -> Option<FrameExecutionState> {

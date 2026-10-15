@@ -358,9 +358,8 @@ mod tests {
             let registration = scheduler
                 .register_task(
                     task.id(),
-                    task.descriptor().clone(),
+                    task.execution_state(),
                     runtime.thread.runtime().id(),
-                    state,
                     &cancellation,
                 )
                 .expect("test task must register");

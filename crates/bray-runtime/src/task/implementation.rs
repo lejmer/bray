@@ -6,7 +6,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId};
+use bray_runtime_model::{ProtectedAsyncFrameId, ProtectedFrameStateId};
 
 use crate::context::{TaskOutput, current_task_output, current_task_start_site};
 use crate::frame::terminalize_frame;
@@ -131,7 +131,7 @@ pub struct TaskControlBlock<
 > {
     id: TaskId,
     start_site: Option<TaskStartSite>,
-    descriptor: ProtectedFrameDescriptor,
+    frame: ProtectedAsyncFrameId,
     data: Mutex<TaskData<T, F>>,
     cancellation: CancellationContext,
     output: TaskOutput,
@@ -232,20 +232,16 @@ where
     ) -> Arc<Self> {
         let start_site = current_task_start_site();
 
-        let descriptor = frame.descriptor().clone();
+        let identity = frame.frame();
 
-        let execution = FrameExecutionState::new(
-            descriptor.frame(),
-            descriptor
-                .state(ProtectedFrameStateId::new(0))
-                .unwrap_or_else(|| panic!("checked frame descriptor must contain state zero"))
-                .clone(),
-        );
+        let execution = frame
+            .execution_state(ProtectedFrameStateId::new(0))
+            .expect("a protected frame must describe its initial state");
 
         Arc::new(Self {
             id: admission.id,
             start_site,
-            descriptor,
+            frame: identity,
             data: Mutex::new(TaskData {
                 frame: Some(frame),
                 outgoing: admission.outgoing,
@@ -266,9 +262,18 @@ where
         self.id
     }
 
-    /// Returns the immutable compiler-generated frame descriptor.
-    pub const fn descriptor(&self) -> &ProtectedFrameDescriptor {
-        &self.descriptor
+    /// Returns the representation identity of the root frame.
+    pub const fn frame(&self) -> ProtectedAsyncFrameId {
+        self.frame
+    }
+
+    /// Returns the checked state currently retained by this task.
+    pub fn execution_state(&self) -> FrameExecutionState {
+        self.data
+            .lock()
+            .expect("task execution metadata must remain available")
+            .execution
+            .clone()
     }
 
     /// Returns the current task state.
@@ -288,11 +293,10 @@ where
 
         let unobserved_outcome = data.outcome.as_ref().map(RunOutcome::kind);
 
-        // Frame descriptors are immutable and clone only their shared tables.
         Ok(TaskSnapshot::new(
             self.id,
             self.start_site,
-            self.descriptor.clone(),
+            self.frame,
             data.state,
             data.execution.clone(),
             self.cancellation.observation(),
@@ -1287,8 +1291,15 @@ mod tests {
     impl ProtectedFrame for LockCheckingFrame {
         type Output = i32;
 
-        fn descriptor(&self) -> &bray_runtime_model::ProtectedFrameDescriptor {
-            self.inner.descriptor()
+        fn frame(&self) -> bray_runtime_model::ProtectedAsyncFrameId {
+            self.inner.frame()
+        }
+
+        fn execution_state(
+            &self,
+            state: bray_runtime_model::ProtectedFrameStateId,
+        ) -> Option<crate::FrameExecutionState> {
+            self.inner.execution_state(state)
         }
 
         fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output> {
@@ -1316,8 +1327,15 @@ mod tests {
     impl ProtectedFrame for TrackedFrame {
         type Output = i32;
 
-        fn descriptor(&self) -> &bray_runtime_model::ProtectedFrameDescriptor {
-            self.frame.descriptor()
+        fn frame(&self) -> bray_runtime_model::ProtectedAsyncFrameId {
+            self.frame.frame()
+        }
+
+        fn execution_state(
+            &self,
+            state: bray_runtime_model::ProtectedFrameStateId,
+        ) -> Option<crate::FrameExecutionState> {
+            self.frame.execution_state(state)
         }
 
         fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output> {
@@ -1338,8 +1356,15 @@ mod tests {
     impl ProtectedFrame for LocalFrame {
         type Output = i32;
 
-        fn descriptor(&self) -> &bray_runtime_model::ProtectedFrameDescriptor {
-            self.inner.descriptor()
+        fn frame(&self) -> bray_runtime_model::ProtectedAsyncFrameId {
+            self.inner.frame()
+        }
+
+        fn execution_state(
+            &self,
+            state: bray_runtime_model::ProtectedFrameStateId,
+        ) -> Option<crate::FrameExecutionState> {
+            self.inner.execution_state(state)
         }
 
         fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output> {

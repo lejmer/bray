@@ -5,9 +5,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::Pin;
 use std::sync::{Mutex, MutexGuard};
 
-use bray_runtime_model::{
-    ProtectedFrameDescriptor, ProtectedFrameStateDescriptor, ProtectedFrameStateId,
-};
+use bray_runtime_model::{ProtectedFrameStateDescriptor, ProtectedFrameStateId};
 
 /// Identity and checked execution metadata for one active frame-local state.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -519,24 +517,17 @@ impl fmt::Debug for RuntimePanic {
 /// Safe in-process adapter over validated compiler-emitted frame operations.
 ///
 /// The binary operation identities and retained-state contract live in
-/// [`ProtectedFrameDescriptor`]. Implementations own their retained values and
+/// [`bray_runtime_model::ProtectedFrameDescriptor`]. Implementations own their retained values and
 /// child computations while exposing those operations without unsafe code.
 pub trait ProtectedFrame: 'static {
     /// Result moved out after normal completion.
     type Output;
 
-    /// Returns the immutable compiler-generated descriptor.
-    fn descriptor(&self) -> &ProtectedFrameDescriptor;
+    /// Returns the immutable identity of this frame representation.
+    fn frame(&self) -> bray_runtime_model::ProtectedAsyncFrameId;
 
-    /// Resolves a local state against the currently active activation.
-    fn execution_state(&self, state: ProtectedFrameStateId) -> Option<FrameExecutionState> {
-        let descriptor = self.descriptor();
-
-        descriptor
-            .state(state)
-            .cloned()
-            .map(|state| FrameExecutionState::new(descriptor.frame(), state))
-    }
+    /// Reads the compiler-described contract for one local state.
+    fn execution_state(&self, state: ProtectedFrameStateId) -> Option<FrameExecutionState>;
 
     /// Enters or resumes the pinned frame.
     fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output>;
@@ -688,7 +679,7 @@ fn record_terminal_panic<T>(
 mod tests {
     use std::pin::pin;
 
-    use bray_runtime_model::ProtectedFrameDescriptor;
+    use bray_runtime_model::ProtectedFrameStateId;
 
     use super::{
         ErasedProtectedFrame, FrameContext, FrameExit, FrameProgress, ProtectedFrame,
@@ -769,7 +760,7 @@ mod tests {
         assert!(matches!(progress, FrameProgress::Completed(17)));
 
         assert_eq!(
-            frame.descriptor().frame(),
+            frame.frame(),
             bray_runtime_model::ProtectedAsyncFrameId::new([7; 32])
         );
     }
@@ -777,8 +768,7 @@ mod tests {
     #[test]
     fn direct_await_can_compose_an_erased_child_without_a_child_task() {
         let child = erase_protected_frame(TestFrame::completing(23));
-        let descriptor = child.descriptor().clone();
-        let mut parent = pin!(ParentFrame { descriptor, child });
+        let mut parent = pin!(ParentFrame { child });
 
         let progress = resume_direct(parent.as_mut(), FrameContext::new(false));
 
@@ -816,15 +806,21 @@ mod tests {
     }
 
     struct ParentFrame {
-        descriptor: ProtectedFrameDescriptor,
         child: ErasedProtectedFrame<i32>,
     }
 
     impl ProtectedFrame for ParentFrame {
         type Output = i32;
 
-        fn descriptor(&self) -> &ProtectedFrameDescriptor {
-            &self.descriptor
+        fn frame(&self) -> bray_runtime_model::ProtectedAsyncFrameId {
+            self.child.frame()
+        }
+
+        fn execution_state(
+            &self,
+            state: ProtectedFrameStateId,
+        ) -> Option<crate::FrameExecutionState> {
+            self.child.execution_state(state)
         }
 
         fn resume(

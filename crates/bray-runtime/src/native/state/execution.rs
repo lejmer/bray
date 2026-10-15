@@ -137,19 +137,17 @@ impl NativeRuntime {
 
         let terminal = run.terminal_state();
         let task = TaskControlBlock::start(admission, Arc::clone(&run));
-        let state = ProtectedFrameStateId::new(0);
 
         let Ok(registration) = self.scheduler.register_task(
             task.id(),
-            task.descriptor().clone(),
+            task.execution_state(),
             self.thread.runtime().id(),
-            state,
             task.cancellation_context(),
         ) else {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         };
 
-        let cleanup_lane = registration.lane(state);
+        let cleanup_lane = registration.lane();
 
         if self.cleanup_workloads.get()
             && !self.main_thread_lane
