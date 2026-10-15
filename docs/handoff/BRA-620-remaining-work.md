@@ -12,7 +12,8 @@ Continue on `feature/trusted-storage-integration`, the published combined branch
 Steps 1 and 2 are complete. Shared authority analysis and its required removals passed published review at
 `5144e732`. The user subsequently authorized completing Step 3, including the production API migration.
 Step 3 is complete at `a3de1083` with [clean published review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5526203497).
-The [bounded Step 4 record](BRA-620-step4.md) owns current work. The [Step 3 record](BRA-620-step3.md) retains its acceptance evidence. Dated Step 2 entries below
+Step 4 is complete at `246c4db3` with [clean published review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5526458884).
+The [bounded Step 4 record](BRA-620-step4.md) contains its acceptance evidence. Next are the integration plan's Step 5 backing/entry/incident prerequisites, followed by Step 6 BRA-619 acceptance in this PR. The [Step 3 record](BRA-620-step3.md) retains its acceptance evidence. Dated Step 2 entries below
 retain historical evidence and do not restrict the current authorization.
 
 Recorded on 2026-10-10. This handoff covers the remaining trusted synchronization authority defect and review requirements.

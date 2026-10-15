@@ -159,7 +159,7 @@ allocation was introduced.
 - The user-requested `expression_is_borrowed` helper is shared by memory and reference transfer.
 - Strong channel requirements remain. Optional File conditional cleanup was restored. Atomic waiting remains blocking,
   nonpure and nontotal. Existing checked `when` guarantees describe inactive HostLease/channel registration cleanup.
-- BRA-619 remains a separate final-stack blocker and does not excuse any Step 3 failure.
+- BRA-619 remains a final-stack blocker, now explicit Step 6 in this PR, and does not excuse any Step 3 failure.
 - Non-32-bit atomic wait/notify helper over-demand belongs to active BRA-568's existing R27-R31 artifact-publication
   contract. Native code uses the word helpers only for encoded 32-bit storage, while MIR demand currently selects them
   for every width. BRA-568 must unify demand with representation and verify source/imported feature subtraction.
@@ -273,4 +273,4 @@ messages and source anchors, in 31.3 seconds (step3-native-19.log). Together wit
 API cases, seven API plans and 25 outcome cases pass. Rustfmt, mutating style pass 8 and final Bray formatting pass.
 Step 3 is complete at `a3de108339f01a2f6487a721a6d85e1d938105bf`. The fresh independent
 [review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5526203497) reports no actionable findings.
-The review was verified on the PR. Continue with [bounded Step 4](BRA-620-step4.md).
+The review was verified on the PR. [Bounded Step 4](BRA-620-step4.md) subsequently completed at `246c4db3` with clean review. Continue with the plan's Step 5 prerequisites and Step 6 BRA-619 acceptance.

@@ -11,7 +11,8 @@ in [contract reasoning](../language/contracts-and-trust/contract-reasoning.md),
 Continue on `feature/trusted-storage-integration`, the published combined branch. The implementation baseline is `e3f56424`, with proof checkpoint `7f300ef2`.
 Steps 1 and 2 are complete. Shared authority analysis and its required removals passed published review at
 `5144e732`. Step 3 production migration is complete at `a3de1083` with clean published review.
-The authorized [Step 4 map](BRA-620-step4.md) owns current dependency-retirement and cleanup-composition work.
+Step 4 dependency retirement and cleanup composition is complete at `246c4db3` with [clean published review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5526458884).
+The [Step 4 record](BRA-620-step4.md) contains its mapping, findings and acceptance evidence.
 Dated progress entries below are historical evidence. The current verification checkpoint supersedes their status.
 
 Updated 2026-10-12. The user accepted the architectural groundwork and requested executable Linear issues.
@@ -21,7 +22,7 @@ current implementation contract. No chat transcript is needed.
 
 ## Current implementation checkpoint
 
-Steps 1-3 are complete on `feature/trusted-storage-integration` in [draft PR #607](https://github.com/lejmer/bray/pull/607).
+Steps 1-4 are complete on `feature/trusted-storage-integration` in [draft PR #607](https://github.com/lejmer/bray/pull/607).
 Step 3 is published at `a3de1083` with [clean review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5526203497).
 Its native acceptance passes all 160 API cases, seven API plans and 25 outcome cases. All five original PR histories
 are included and their branches are preserved. Follow [BRA-620 remaining work](BRA-620-remaining-work.md) and the
@@ -83,7 +84,7 @@ of this plan. If the model cannot express a required rule, discuss that specific
 
 ## Execution and publication
 
-1. Shared compiler consolidation and production migration are complete. Finish BRA-620 bounded Step 4 on the combined checkpoint.
+1. Shared compiler consolidation, production migration and bounded Step 4 are complete on the combined checkpoint. Preserve their checked contracts when completing the following steps.
    BRA-609 retains trusted-caller acceptance, performed through this implementation. Its blocking relation does not
    require a second branch or an independent reimplementation.
 2. Recheck BRA-621 and BRA-553 against the consolidated production contracts. Preserve their completed migration.

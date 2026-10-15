@@ -27,7 +27,7 @@ Issue preparation preserved inherited work and published the plan. The implement
 It contains all five original PR heads. Steps 1 and 2 are complete at `5144e732`, with
 [no remaining actionable Step 2 review findings](https://github.com/lejmer/bray/pull/607#pullrequestreview-5509446980).
 Continue on that integration branch, using the current matrix and evidence in
-[BRA-620 remaining work](BRA-620-remaining-work.md). The old repair branch retains `ffbff1f5`. Step 3 is now complete at `a3de1083` with clean review. Bounded Step 4, backing/entry/incident prerequisites and
+[BRA-620 remaining work](BRA-620-remaining-work.md). The old repair branch retains `ffbff1f5`. Step 3 is complete at `a3de1083` and bounded Step 4 at `246c4db3`, both with clean published review. Backing/entry/incident prerequisites and
 the explicit BRA-619 native acceptance step remain in the [current plan](runtime-stack-rule-coverage.md#implementation-order), so the integration remains draft and BRA-620 remains In Progress.
 
 ## Earlier baseline, retained as evidence

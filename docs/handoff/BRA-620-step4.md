@@ -46,8 +46,12 @@ per-operation allocation or a second cleanup/lifetime solve.
 
 ## Acceptance status
 
-Mapping, implementation and compiler/native checks are complete for the selected boundaries. Published independent review remains before completion. Each obligation has supporting evidence below. All identified
-concrete gaps are repaired in their owning analysis. Review findings must be fixed and pushed before closing this step. BRA-619 is an explicit later acceptance step in this PR, after its backing/entry/incident prerequisites. Its pending
+Step 4 is complete at `246c4db37107e5e6fc57d636b8b2536168f89fa2`. Mapping, implementation, compiler/native checks,
+formatting and the [independent published review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5526458884) are complete. The verified review reports no actionable
+findings and no inline comments. Each obligation has supporting evidence below. All identified concrete gaps are
+repaired in their owning analysis and pushed to PR #607.
+
+BRA-619 is an explicit later acceptance step in this PR, after its backing/entry/incident prerequisites. Its pending
 outcome and retained typed-incident contracts constrain this step. Step 4 does not establish physical incident
 transport or final native acceptance, and BRA-619 must re-run affected compositions when that transport is complete.
 
