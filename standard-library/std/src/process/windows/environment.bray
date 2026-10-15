@@ -163,11 +163,11 @@ trusted internal func windows_environment_compare(pos left: (&[u8]), pos right: 
 {
     return trusted std.os.windows.compare_string_ordinal(
         trusted std.memory.reinterpret<u16, u8>(internal std.memory.slice_pointer(left, count = left.length())),
-        left_length = std.truncate_to<i32>(left.length() / 2),
+        left_length = std.numeric.truncate_to<i32>(left.length() / 2),
         right = trusted std.memory.reinterpret<u16, u8>(
             internal std.memory.slice_pointer(right, count = right.length())
         ),
-        right_length = std.truncate_to<i32>(right.length() / 2),
+        right_length = std.numeric.truncate_to<i32>(right.length() / 2),
         ignore_case = 1,
     );
 }

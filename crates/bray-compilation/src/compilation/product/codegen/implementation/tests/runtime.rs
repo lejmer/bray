@@ -498,6 +498,7 @@ fn native_atomic_word_production_source_bindings_export() {
 
     let sources = [
         include_str!("../../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../../standard-library/std/src/os.bray"),
         include_str!("../../../../../../../../standard-library/std/src/os/windows.bray"),
         include_str!("../../../../../../../../runtime/bootstrap/src/atomic.bray"),

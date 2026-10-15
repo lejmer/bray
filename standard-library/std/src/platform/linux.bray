@@ -11,7 +11,7 @@ trusted internal func process_identity() -> u64
         panic("the platform process identity is unavailable");
     }
 
-    return std.truncate_to<u64>(identity);
+    return std.numeric.truncate_to<u64>(identity);
 }
 
 trusted internal func environment_storage_address() -> RawPointer<RawPointer<RawPointer<u8>>>
@@ -94,8 +94,8 @@ trusted internal func prepare_clock_monotonic_now(pos ticks: RawPointer<u64>) ->
         return Error(other_status());
     }
 
-    let seconds: u64 = std.truncate_to<u64>(observed.seconds);
-    let observed_nanoseconds: u64 = std.truncate_to<u64>(observed.nanoseconds);
+    let seconds: u64 = std.numeric.truncate_to<u64>(observed.seconds);
+    let observed_nanoseconds: u64 = std.numeric.truncate_to<u64>(observed.nanoseconds);
 
     if seconds > (18_446_744_073_709_551_615 - observed_nanoseconds) / 1_000_000_000
     {
@@ -142,7 +142,7 @@ trusted internal func prepare_clock_wall_now(
         return Error(other_status());
     }
 
-    return Ok((observed.seconds, std.truncate_to<u32>(observed.nanoseconds)));
+    return Ok((observed.seconds, std.numeric.truncate_to<u32>(observed.nanoseconds)));
 }
 
 @abi(c)
@@ -156,7 +156,7 @@ trusted internal func clock_sleep(pos seconds: u64, pos nanoseconds: u32) -> Pla
 
     let mut duration: std.os.linux.Timespec =
     {
-        seconds = std.truncate_to<i64>(seconds),
+        seconds = std.numeric.truncate_to<i64>(seconds),
         nanoseconds = nanoseconds as i64,
     };
 
@@ -198,7 +198,7 @@ trusted internal func prepare_entropy_fill(
     )
     uses(foreign_call)
 {
-    let count: usize = std.truncate_to<usize>(length);
+    let count: usize = std.numeric.truncate_to<usize>(length);
 
     if count as u64 != length || count > 9_223_372_036_854_775_807
     {
@@ -209,7 +209,11 @@ trusted internal func prepare_entropy_fill(
 
     while completed < count
     {
-        let address: RawPointer<u8> = std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(completed));
+        let address: RawPointer<u8> = std.memory.offset<u8>(
+            destination,
+            elements = std.numeric.truncate_to<isize>(completed)
+        );
+
         let result: isize = trusted internal std.os.linux.getrandom(address, length = count - completed, flags = 0);
 
         if result < 0
@@ -227,7 +231,7 @@ trusted internal func prepare_entropy_fill(
             return Error(other_status());
         }
 
-        completed += std.truncate_to<usize>(result);
+        completed += std.numeric.truncate_to<usize>(result);
     }
 
     return Ok(completed);

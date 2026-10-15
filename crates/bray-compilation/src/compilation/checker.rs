@@ -1437,7 +1437,7 @@ func exercise(pos value: Missing) -> Result<u8, ConversionError>
             package,
             vec![
                 source_input(
-                    include_str!("../../../../standard-library/std/src/std.bray"),
+                    include_str!("../../../../standard-library/std/src/numeric/policy.bray"),
                     0,
                 ),
                 source_input(
@@ -1445,7 +1445,7 @@ func exercise(pos value: Missing) -> Result<u8, ConversionError>
                         "module std.numeric;\n",
                         "func exercise(pos value: u128) -> u8\n",
                         "{\n",
-                        "    return std.truncate_to<u8>(value);\n",
+                        "    return std.numeric.truncate_to<u8>(value);\n",
                         "}\n",
                     ),
                     1,
@@ -1723,7 +1723,7 @@ func exercise(pos value: Missing) -> Result<u8, ConversionError>
         let request = CompilationRequest::new(
             package.clone(),
             vec![source_input(
-                "module std; extern func truncate_to<Target, Source>(pos source: Source) -> Target;",
+                "module std.numeric; extern func truncate_to<Target, Source>(pos source: Source) -> Target;",
                 0,
             )],
         ).with_standard_library_source_authority()

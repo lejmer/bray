@@ -1,7 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.report.output;
 
-using std;
+using std.numeric;
 using std.memory;
 using internal std.memory;
 using internal std.io;
@@ -133,7 +133,7 @@ trusted internal func number(pos value: u64) -> u32
     loop
     {
         first -= 1;
-        bytes[first] = 48 + std.truncate_to<u8>(remaining % 10);
+        bytes[first] = 48 + std.numeric.truncate_to<u8>(remaining % 10);
         remaining /= 10;
 
         if remaining == 0

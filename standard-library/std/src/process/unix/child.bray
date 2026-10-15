@@ -173,7 +173,7 @@ trusted internal func platform_child_spawn(
         return internal std.platform.other_status();
     }
 
-    trusted std.memory.write<u64>(std.memory.address_of_mut<u64>(child), value = std.truncate_to<u64>(process));
+    trusted std.memory.write<u64>(std.memory.address_of_mut<u64>(child), value = std.numeric.truncate_to<u64>(process));
 
     trusted std.memory.write<u64>(
         std.memory.address_of_mut<u64>(standard_input),

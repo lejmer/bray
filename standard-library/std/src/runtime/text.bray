@@ -165,7 +165,7 @@ trusted internal func scalar_slice_data(
         "string byte slice bounds exceed its storage"
     );
 
-    return std.memory.offset<u8>(data, elements = std.truncate_to<isize>(start));
+    return std.memory.offset<u8>(data, elements = std.numeric.truncate_to<isize>(start));
 }
 
 trusted internal func from_utf8(pos data: RawPointer<u8>, pos length: usize) -> ValidatedText
@@ -392,7 +392,7 @@ trusted internal func copy_text(pos data: RawPointer<u8>, pos length: usize) -> 
 
     let text: OwnedText =
     {
-        data = std.memory.offset<u8>(owner, elements = std.truncate_to<isize>(header_bytes)),
+        data = std.memory.offset<u8>(owner, elements = std.numeric.truncate_to<isize>(header_bytes)),
         length = length,
         owner = owner,
     };

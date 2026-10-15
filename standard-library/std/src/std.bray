@@ -6,5 +6,3 @@ func convert<Target, Source>(pos source: Source) -> Result<Target, Source(Checke
 {
     return source(CheckedConvertTo<Target>).convert_checked();
 }
-
-extern func truncate_to<Target, Source>(pos source: Source) -> Target;

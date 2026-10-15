@@ -180,3 +180,33 @@ The audit includes cancellation insertion and typed identities, not only message
 No source runtime ABI or ordinary output implementation changes for this repair.
 
 Review repair verification passes 171 runtime, 11 adapter and 19 protocol tests in bra-558-capture-review.log. It covers denied message/history allocation, failed provider copy, and actual source consumption of ordinary and typed reports after observer rejection, with all four original owners released once. Mutating style, format and the native artifact smoke pass in bra-558-review-style.log, bra-558-review-format.log and bra-558-review-native.log. The latter retains six startup allocations and 704 bytes. Published [re-review 5536988875](https://github.com/lejmer/bray/pull/610#pullrequestreview-5536988875) is clean at `08234a71`. BRA-558 is ready for review. Step 5 is complete, with BRA-619 producer acceptance continuing as Step 6.
+
+## Human review: numeric policy placement
+
+Baseline: `b8e98e1d`. Move numeric policy operations and their rounding-rule identity from `std`
+to the existing `std.numeric` module, including catalog recognition, source and imported fixtures,
+generated OS contracts, callers, specification and language examples. Keep `std.convert` as the
+general checked-conversion facade. Remove the former root declaration and add no aliases, wrappers,
+new language features or numeric behavior. The expected change is relocation and identity updates,
+with no runtime cost or new compiler analysis. Reconsider if any policy implementation must change.
+
+Acceptance matrix: source authority and imported exact identity, selected package exclusion,
+execution certification, explicit numeric lowering, production library consumers and bootstrap
+output, generated catalog and OS binding freshness. All checks below pass.
+
+The mechanical audit confirms all 49 changed ordinary library bodies differ only in qualified
+policy paths and formatter wrapping. Catalog declaration counts and implementation hooks are unchanged. Generated OS
+contracts and probe digests come from the existing generator. Curated source inventories now
+include the separated declaration. Nine indexed fixture compositions use iterator chaining to
+retain every source. Two stale catalog-count assertions already disagreed with the baseline
+359 compiler-known and 148 recognized declarations and are corrected. No analysis, numeric
+semantics, runtime representation, aliases or forwarding functions were added.
+
+Verification: 62 compiler-known tests, 204 symbol tests, 51 selected standard-library tests,
+one explicit numeric-lowering test, one production report-consumer contract test, two imported
+hook-inventory tests, four native atomic tests including every supported target, and six fixture
+authority tests pass. Mutating `cargo xtask style`, `cargo xtask format`, catalog freshness, OS
+binding freshness and `cargo xtask runtime-artifact smoke-test` pass. Native startup remains six
+allocations and 704 bytes. Logs are retained under the shared target directory
+`C:/Users/anton/source/repos/bray/target/bra-620-authority/numeric-policy-*.log`.
+The user requested this checkpoint without another independent review cycle.

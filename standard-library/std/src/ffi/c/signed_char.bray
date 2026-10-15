@@ -34,7 +34,7 @@ func signed_char_checked(pos value: i128) -> Result<SignedChar, ConversionError>
 
     return Ok(
         {
-            raw = std.truncate_to<i8>(value)
+            raw = std.numeric.truncate_to<i8>(value)
         }
     );
 }
@@ -44,6 +44,6 @@ func signed_char_wrapping(pos value: i128) -> SignedChar
 {
     return
     {
-        raw = std.truncate_to<i8>(value)
+        raw = std.numeric.truncate_to<i8>(value)
     };
 }

@@ -112,7 +112,7 @@ trusted internal func prepare_file_seek(
 
     let result: i64 = trusted std.os.unix.seek(
         native_descriptor,
-        offset = std.truncate_to<i64>(offset_bits),
+        offset = std.numeric.truncate_to<i64>(offset_bits),
         origin = native_origin,
     );
 
@@ -121,7 +121,7 @@ trusted internal func prepare_file_seek(
         return Error(trusted internal std.platform.unix_error_status());
     }
 
-    return Ok(std.truncate_to<u64>(result));
+    return Ok(std.numeric.truncate_to<u64>(result));
 }
 
 @abi(c)
@@ -181,7 +181,7 @@ trusted internal func prepare_file_open(
                 return Error(trusted internal std.platform.unix_error_status());
             }
 
-            return Ok(std.truncate_to<u64>(native_descriptor));
+            return Ok(std.numeric.truncate_to<u64>(native_descriptor));
         }
         case Error(status) { return Error(status); }
     }
@@ -549,11 +549,11 @@ internal func unix_status_value(pos storage: &[u64], offset: usize, bytes: usize
 
 trusted internal func unix_metadata(pos storage: &[u64]) -> Result<FileMetadata, std.io.IoError>
 {
-    let mode: u32 = std.truncate_to<u32>(
+    let mode: u32 = std.numeric.truncate_to<u32>(
         internal unix_status_value(storage, offset = std.os.unix.FILE_STATUS_MODE_OFFSET, bytes = 4)
     );
 
-    let size: i64 = std.truncate_to<i64>(
+    let size: i64 = std.numeric.truncate_to<i64>(
         internal unix_status_value(storage, offset = std.os.unix.FILE_STATUS_SIZE_OFFSET, bytes = 8)
     );
 
@@ -577,11 +577,11 @@ trusted internal func unix_metadata(pos storage: &[u64]) -> Result<FileMetadata,
         yield FileKind.Other;
     };
 
-    let seconds: i64 = std.truncate_to<i64>(
+    let seconds: i64 = std.numeric.truncate_to<i64>(
         internal unix_status_value(storage, offset = std.os.unix.FILE_STATUS_MODIFIED_SECONDS_OFFSET, bytes = 8)
     );
 
-    let nanoseconds: i64 = std.truncate_to<i64>(
+    let nanoseconds: i64 = std.numeric.truncate_to<i64>(
         internal unix_status_value(storage, offset = std.os.unix.FILE_STATUS_MODIFIED_NANOSECONDS_OFFSET, bytes = 8)
     );
 
@@ -592,7 +592,7 @@ trusted internal func unix_metadata(pos storage: &[u64]) -> Result<FileMetadata,
 
     let timestamp: std.time.Timestamp = internal std.time.timestamp_from_parts(
         seconds = seconds,
-        nanoseconds = std.truncate_to<u32>(nanoseconds),
+        nanoseconds = std.numeric.truncate_to<u32>(nanoseconds),
     );
 
     let mut modified: std.time.Timestamp? = none;
@@ -602,7 +602,7 @@ trusted internal func unix_metadata(pos storage: &[u64]) -> Result<FileMetadata,
     return Ok(
         {
             kind = kind,
-            bytes = std.truncate_to<u64>(size),
+            bytes = std.numeric.truncate_to<u64>(size),
             modified = modified,
         }
     );
@@ -618,7 +618,7 @@ trusted internal func next_unix_directory_name(pos directory: RawPointer<u8>) ->
         return entry;
     }
 
-    return std.memory.byte_offset<u8>(entry, bytes = std.truncate_to<isize>(std.os.unix.DIRECTORY_NAME_OFFSET));
+    return std.memory.byte_offset<u8>(entry, bytes = std.numeric.truncate_to<isize>(std.os.unix.DIRECTORY_NAME_OFFSET));
 }
 
 trusted internal func unix_directory_name_length(pos name: RawPointer<u8>) -> (bool, usize)

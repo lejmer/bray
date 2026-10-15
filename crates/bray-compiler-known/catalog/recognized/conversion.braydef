@@ -1,6 +1,6 @@
 catalog recognized_standard_library revision 1;
 
-scope StandardRoot at std {
+scope StandardNumeric at std.numeric {
 
     declaration StandardRoundingRule {
         identity name RoundingRule;

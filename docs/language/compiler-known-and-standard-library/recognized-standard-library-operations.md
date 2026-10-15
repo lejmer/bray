@@ -6,9 +6,9 @@ The exact recognized identities are listed by the [conformance catalog](conforma
 
 `std.convert<Target, Source>(source)` is an ordinary standard-library facade over `CheckedConvertTo<Target>` and is not compiler-recognized.
 
-The recognized numeric-policy operations are `std.round_to`, `std.truncate_to`, `std.saturate_to`, and `std.wrap_to`.
+The recognized numeric-policy operations are `std.numeric.round_to`, `std.numeric.truncate_to`, `std.numeric.saturate_to`, and `std.numeric.wrap_to`.
 
-`std.round_to` accepts the recognized `std.RoundingRule` union.
+`std.numeric.round_to` accepts the recognized `std.numeric.RoundingRule` union.
 
 The public string API consists of `string.length()`, `string.is_empty()`, `string.get(index)`,
 `string.slice(start, end)`, `string.characters()`, `string.as_bytes()`, `string.from_utf8(bytes)`, and

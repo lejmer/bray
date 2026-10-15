@@ -1458,6 +1458,7 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
 ) -> Compilation {
     let sources = [
         include_str!("../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../standard-library/std/src/memory.bray"),
         include_str!("../../../../../standard-library/std/src/platform.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host.bray"),

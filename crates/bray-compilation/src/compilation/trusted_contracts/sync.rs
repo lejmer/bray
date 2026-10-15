@@ -224,6 +224,7 @@ fn production_sync_compilation_for_target(
         include_str!("../../../../../standard-library/std/src/sync/once/lazy.bray"),
         include_str!("../../../../../standard-library/std/src/sync/barrier.bray"),
         caller,
+        include_str!("../../../../../standard-library/std/src/numeric/policy.bray"),
     ];
 
     let request = CompilationRequest::with_options(

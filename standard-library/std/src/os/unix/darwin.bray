@@ -217,11 +217,14 @@ trusted func munmap(pos address: RawPointer<u8>, pos length: usize) -> i32
 trusted func read(pos descriptor: i32, pos destination: RawPointer<u8>, pos length: usize) -> isize
     requires(length == 0 || trusted core.memory.valid_write<u8>(pointer = destination, count = length))
     ensures(
-        result < 0 || std.truncate_to<usize>(result) <= length,
-        result < 0 || trusted core.memory.valid_read<u8>(pointer = destination, count = std.truncate_to<usize>(result)),
+        result < 0 || std.numeric.truncate_to<usize>(result) <= length,
+        result < 0 || trusted core.memory.valid_read<u8>(
+            pointer = destination,
+            count = std.numeric.truncate_to<usize>(result)
+        ),
         result < 0 || trusted core.memory.initialized_range_as<u8>(
             pointer = destination,
-            count = std.truncate_to<usize>(result)
+            count = std.numeric.truncate_to<usize>(result)
         ),
     )
     uses(foreign_call)
@@ -252,7 +255,7 @@ trusted func write(pos descriptor: i32, pos source: RawPointer<u8>, pos length: 
         length == 0 || trusted core.memory.valid_read<u8>(pointer = source, count = length),
         length == 0 || trusted core.memory.initialized_range_as<u8>(pointer = source, count = length),
     )
-    ensures(result < 0 || std.truncate_to<usize>(result) <= length)
+    ensures(result < 0 || std.numeric.truncate_to<usize>(result) <= length)
     uses(foreign_call)
 {
     return trusted std.os.darwin.write(descriptor, source = source, length = length);

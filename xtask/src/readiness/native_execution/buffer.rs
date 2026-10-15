@@ -143,12 +143,14 @@ pub(super) fn standard_library_compilation(
 ) -> Result<Compilation, String> {
     let mut source_paths: Vec<_> = fixtures.iter().map(|fixture| root.join(fixture)).collect();
 
-    if !fixtures.contains(&STANDARD_ROOT_SOURCE) {
-        source_paths.push(root.join(STANDARD_ROOT_SOURCE));
-    }
-
-    if !fixtures.contains(&STANDARD_MEMORY_SOURCE) {
-        source_paths.push(root.join(STANDARD_MEMORY_SOURCE));
+    for source in [
+        STANDARD_ROOT_SOURCE,
+        "standard-library/std/src/numeric/policy.bray",
+        STANDARD_MEMORY_SOURCE,
+    ] {
+        if !fixtures.contains(&source) {
+            source_paths.push(root.join(source));
+        }
     }
 
     source_paths.extend(

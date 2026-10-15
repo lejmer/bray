@@ -115,6 +115,7 @@ fn copied_raw_buffer_fields_do_not_establish_initialized_ownership() {
 
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory.bray"),
             &source,
         ]);
@@ -130,6 +131,7 @@ fn copied_raw_buffer_fields_do_not_establish_initialized_ownership() {
 fn raw_addresses_do_not_extend_borrows_or_retain_local_storage() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         r#"
             module app;
@@ -201,6 +203,7 @@ fn raw_buffer_nullable_views_retain_the_borrowed_owner() {
 
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory.bray"),
             &source,
         ]);
@@ -217,6 +220,7 @@ fn raw_buffer_nullable_views_retain_the_borrowed_owner() {
 fn checked_slice_prefix_addresses_establish_the_exact_extent() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         r#"
             trusted module app;
@@ -262,6 +266,7 @@ fn checked_slice_prefix_addresses_establish_the_exact_extent() {
 fn checked_slice_prefix_authority_expires_with_its_storage() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         r#"
             trusted module app;
@@ -334,6 +339,7 @@ func conflict<S>(pos pair: &mut Pair<S>)
 
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         source,
     ]);
@@ -359,6 +365,7 @@ func conflict<S>(pos pair: &mut Pair<S>)
 fn lock_guard_borrows_end_before_unlock_and_keep_the_lock_alive() {
     let sources = [
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/lock.bray"),
@@ -366,14 +373,7 @@ fn lock_guard_borrows_end_before_unlock_and_keep_the_lock_alive() {
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/state.bray"),
     ];
 
-    let compilation = standard_library_compilation([
-        sources[0],
-        sources[1],
-        sources[2],
-        sources[3],
-        sources[4],
-        sources[5],
-        r#"
+    let compilation = standard_library_compilation(sources.into_iter().chain([r#"
         module app;
 
         func increment(pos lock: &std.sync.SpinLock<i32>)
@@ -385,8 +385,7 @@ fn lock_guard_borrows_end_before_unlock_and_keep_the_lock_alive() {
 
             guard.unlock();
         }
-    "#,
-    ]);
+    "#]));
 
     assert!(
         !compilation.check_diagnostics().has_errors(),
@@ -425,9 +424,7 @@ fn lock_guard_borrows_end_before_unlock_and_keep_the_lock_alive() {
             bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow,
         ),
     ] {
-        let compilation = standard_library_compilation([
-            sources[0], sources[1], sources[2], sources[3], sources[4], sources[5], source,
-        ]);
+        let compilation = standard_library_compilation(sources.into_iter().chain([source]));
 
         bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(), kind);
     }
@@ -437,15 +434,12 @@ fn lock_guard_borrows_end_before_unlock_and_keep_the_lock_alive() {
 fn sparse_hash_table_access_retains_its_owner_and_rejects_removal_while_borrowed() {
     let sources = [
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         include_str!("../../../../../../../standard-library/std/src/collection/hash_table.bray"),
     ];
 
-    let compilation = standard_library_compilation([
-        sources[0],
-        sources[1],
-        sources[2],
-        r#"
+    let compilation = standard_library_compilation(sources.into_iter().chain([r#"
         module std.collection;
 
         internal func read(pos table: &HashTable<i32>, index: usize) -> &i32 {
@@ -460,8 +454,7 @@ fn sparse_hash_table_access_retains_its_owner_and_rejects_removal_while_borrowed
         internal func remove(pos table: &mut HashTable<i32>, index: usize) -> i32 {
             return trusted hash_table_take(table, index = index);
         }
-        "#,
-    ]);
+        "#]));
 
     assert!(
         !compilation.check_diagnostics().has_errors(),
@@ -494,8 +487,7 @@ fn sparse_hash_table_access_retains_its_owner_and_rejects_removal_while_borrowed
             bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow,
         ),
     ] {
-        let compilation =
-            standard_library_compilation([sources[0], sources[1], sources[2], source]);
+        let compilation = standard_library_compilation(sources.into_iter().chain([source]));
 
         bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(), kind);
     }
@@ -505,6 +497,7 @@ fn sparse_hash_table_access_retains_its_owner_and_rejects_removal_while_borrowed
 fn byte_buffer_bulk_writes_publish_the_initialized_prefix() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         include_str!("../../../../../../../standard-library/std/src/bytes/buffer.bray"),
         r#"
@@ -535,15 +528,16 @@ fn byte_buffer_bulk_writes_publish_the_initialized_prefix() {
 fn integer_truncation_certifies_execution_without_certifying_other_calls_or_numeric_domains() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         r#"
         module app;
 
         func narrow(pos value: u128) -> u8 executes(pure, total) {
-            return std.truncate_to<u8>(value);
+            return std.numeric.truncate_to<u8>(value);
         }
 
         func wire_count(pos value: u64) -> usize executes(pure, total) {
-            return std.truncate_to<usize>(value);
+            return std.numeric.truncate_to<usize>(value);
         }
 
         func flags(pos value: u32) -> u32 executes(pure, total) {
@@ -572,12 +566,13 @@ fn integer_truncation_certifies_execution_without_certifying_other_calls_or_nume
         module app;
 
         func floating_truncation(pos value: r64) -> i32 executes(pure, total) {
-            return std.truncate_to<i32>(value);
+            return std.numeric.truncate_to<i32>(value);
         }
         "#,
     ] {
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             source,
         ]);
 
@@ -631,6 +626,7 @@ fn nul_terminated_storage_conditions_do_not_turn_addresses_into_owned_witnesses(
 
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             &declarations,
             &copying,
         ]);
@@ -672,6 +668,7 @@ fn nul_terminated_storage_conditions_do_not_turn_addresses_into_owned_witnesses(
 
             let compilation = standard_library_compilation([
                 include_str!("../../../../../../../standard-library/std/src/std.bray"),
+                include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
                 include_str!("../../../../../../../standard-library/std/src/memory.bray"),
                 &declarations,
                 &source,
@@ -738,6 +735,9 @@ fn native_nul_guarantees_follow_the_selected_pointer_null_guard() {
                     "native-directory",
                     [
                         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+                        include_str!(
+                            "../../../../../../../standard-library/std/src/numeric/policy.bray"
+                        ),
                         &source,
                     ],
                 ),
@@ -957,6 +957,9 @@ fn native_environment_cursor_requires_live_provider_storage() {
             let compilation = standard_library_compilation_with_options(
                 [
                     include_str!("../../../../../../../standard-library/std/src/std.bray"),
+                    include_str!(
+                        "../../../../../../../standard-library/std/src/numeric/policy.bray"
+                    ),
                     include_str!("../../../../../../../standard-library/std/src/memory.bray"),
                     native,
                     &platform,
@@ -1031,6 +1034,7 @@ fn native_thread_payloads_keep_their_allocation_owner() {
 
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory.bray"),
             &thread,
             &source,
@@ -1074,6 +1078,7 @@ fn returned_tuple_and_array_components_retain_initialized_storage_contracts() {
 
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory.bray"),
             &source,
         ]);
@@ -1132,6 +1137,7 @@ fn returned_tuple_and_array_components_retain_initialized_storage_contracts() {
 
             let compilation = standard_library_compilation([
                 include_str!("../../../../../../../standard-library/std/src/std.bray"),
+                include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
                 include_str!("../../../../../../../standard-library/std/src/memory.bray"),
                 &source,
             ]);
@@ -1152,6 +1158,7 @@ fn returned_tuple_and_array_components_retain_initialized_storage_contracts() {
 fn standard_runtime_text_storage_has_complete_contracts() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         include_str!("../../../../../../../standard-library/std/src/runtime/text.bray"),
     ]);
@@ -1167,6 +1174,7 @@ fn standard_runtime_text_storage_has_complete_contracts() {
 fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
     let sources = [
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
     ];
 
@@ -1196,7 +1204,8 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         "#
         );
 
-        let compilation = standard_library_compilation([sources[0], sources[1], &source]);
+        let compilation =
+            standard_library_compilation(sources.into_iter().chain([source.as_str()]));
 
         if valid {
             assert!(
@@ -1212,10 +1221,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         }
     }
 
-    let compilation = standard_library_compilation([
-        sources[0],
-        sources[1],
-        r#"
+    let compilation = standard_library_compilation(sources.into_iter().chain([r#"
         module std.memory;
 
         trusted internal func fill_widened_count(pos destination: RawPointer<u8>, length: u64)
@@ -1278,7 +1284,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
             let _: bool = is_null(null<u8>());
             let _: usize = size_of<u32>();
             let _: usize = align_of<u32>();
-            let _: u32 = std.truncate_to<u32>(bytes.length());
+            let _: u32 = std.numeric.truncate_to<u32>(bytes.length());
             return trusted internal byte_buffer_read(byte_pointer, index = 0);
         }
 
@@ -1348,8 +1354,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
             let destination_pointer: RawPointer<u8> = internal slice_pointer_mut(destination, count = 2);
             trusted std.memory.copy_overlapping<u8>(source_pointer, destination_pointer, count = 2);
         }
-        "#,
-    ]);
+        "#]));
 
     assert!(
         !compilation.check_diagnostics().has_errors(),
@@ -1399,7 +1404,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         }
         "#,
     ] {
-        let compilation = standard_library_compilation([sources[0], sources[1], source]);
+        let compilation = standard_library_compilation(sources.into_iter().chain([source]));
 
         bray_testing::assert_goal_state_diagnostic_kind(
             compilation.check_diagnostics(),
@@ -1412,6 +1417,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
 fn standard_unstable_sort_specializes_for_fixed_arrays() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/order.bray"),
         r#"
         module std.order;
@@ -1464,6 +1470,7 @@ fn standard_unstable_sort_specializes_for_fixed_arrays() {
 fn copying_raw_reads_preserve_initialization() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         r#"
             trusted module app;
@@ -1521,6 +1528,7 @@ fn raw_reads_retire_initialization_after_moves_and_opaque_calls() {
 
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory.bray"),
             &source,
         ]);
@@ -1566,6 +1574,7 @@ fn raw_allocation_copied_fields_do_not_transfer_the_live_owner() {
 
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory.bray"),
             &source,
         ]);
@@ -1611,6 +1620,7 @@ func duplicate()
 
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory.bray"),
             &source,
         ]);
@@ -1626,6 +1636,7 @@ func duplicate()
 fn raw_allocation_address_copies_preserve_whole_owner_transfer() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         r#"
             trusted module app;
@@ -1673,6 +1684,7 @@ fn raw_allocation_entry_field_proofs_remain_attached_to_the_owner() {
 
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory.bray"),
             &source,
         ]);
@@ -1688,6 +1700,7 @@ fn raw_allocation_entry_field_proofs_remain_attached_to_the_owner() {
 fn raw_allocation_field_construction_requires_ownership() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         r#"
             trusted module app;
@@ -1708,6 +1721,7 @@ fn raw_allocation_field_construction_requires_ownership() {
 fn raw_allocation_field_construction_accepts_actual_ownership() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         r#"
             trusted module app;
@@ -1731,6 +1745,7 @@ fn raw_allocation_field_construction_accepts_actual_ownership() {
 fn ordinary_struct_names_do_not_imply_raw_storage_ownership() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         r#"
             module app;
@@ -1754,6 +1769,7 @@ fn ordinary_struct_names_do_not_imply_raw_storage_ownership() {
 fn raw_allocation_field_construction_transfers_ownership_once() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         r#"
             trusted module app;
@@ -1777,6 +1793,7 @@ fn raw_allocation_field_construction_transfers_ownership_once() {
 fn standard_memory_surface_exports_uninitialized_storage() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
     ]);
 
@@ -1871,6 +1888,7 @@ fn standard_memory_surface_exports_uninitialized_storage() {
 fn standard_memory_api_fixture_checks() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         include_str!("../../../../../../../standard-library/std/tests/api/memory.bray"),
     ]);
@@ -1903,6 +1921,7 @@ fn standard_memory_api_fixture_checks() {
 fn standard_string_equality_satisfies_source_and_imported_generic_constraints() {
     let provider = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/string.bray"),
         r#"
             module bray.standard_library_tests.string_operations;
@@ -1990,6 +2009,7 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
     // bodies so imported reachability cannot silently treat Bray declarations as foreign imports.
     let provider = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         r#"
             module std.memory;
 
@@ -2598,7 +2618,7 @@ where
     }
 }
 
-fn standard_library_compilation<const N: usize>(sources: [&str; N]) -> Compilation {
+fn standard_library_compilation(sources: impl IntoIterator<Item = impl AsRef<str>>) -> Compilation {
     standard_library_compilation_with_options(sources, CompilationOptions::default())
 }
 
@@ -2626,6 +2646,7 @@ fn empty_raw_copies_preserve_deallocation_authority() {
 
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory.bray"),
             &source,
         ]);
@@ -2704,6 +2725,7 @@ fn thread_storage_load_only_initializes_successful_outputs() {
 
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory.bray"),
             include_str!("../../../../../../../standard-library/std/src/platform/status.bray"),
             platform,
@@ -2740,8 +2762,8 @@ fn standard_library_source_section<'a>(source: &'a str, start: &str, end: &str) 
     &source[..locate(source, end)]
 }
 
-fn standard_library_compilation_with_options<const N: usize>(
-    sources: [&str; N],
+fn standard_library_compilation_with_options(
+    sources: impl IntoIterator<Item = impl AsRef<str>>,
     options: CompilationOptions,
 ) -> Compilation {
     let package = PackageIdentity::try_new("std")
@@ -2897,6 +2919,7 @@ fn unix_native_outputs_remain_in_typed_storage() {
 
         let sources = [
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory.bray"),
             include_str!("../../../../../../../standard-library/std/src/os/unix/thread.bray"),
             "module std.os {}",
@@ -2921,10 +2944,7 @@ fn unix_native_outputs_remain_in_typed_storage() {
         );
 
         let compilation = standard_library_compilation_with_options(
-            [
-                sources[0], sources[1], sources[2], sources[3], sources[4], sources[5], sources[6],
-                &forged,
-            ],
+            sources.into_iter().chain([forged.as_str()]),
             options,
         );
 
@@ -2986,6 +3006,7 @@ fn local_callable_execution_proofs_export_their_named_dependencies() {
 fn production_path_view_preserves_its_borrowed_storage() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         include_str!("../../../../../../../standard-library/std/src/bytes.bray"),
         include_str!("../../../../../../../standard-library/std/src/bytes/buffer.bray"),
@@ -3020,6 +3041,7 @@ fn production_path_view_preserves_its_borrowed_storage() {
 fn guard_lifetime_anchors_are_not_opaque_call_targets() {
     let declarations = [
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/lock.bray"),
@@ -3051,15 +3073,7 @@ fn guard_lifetime_anchors_are_not_opaque_call_targets() {
         }
     "#;
 
-    let source = standard_library_compilation([
-        declarations[0],
-        declarations[1],
-        declarations[2],
-        declarations[3],
-        declarations[4],
-        declarations[5],
-        caller,
-    ]);
+    let source = standard_library_compilation(declarations.into_iter().chain([caller]));
 
     for name in ["caller", "static_caller"] {
         let checked = source

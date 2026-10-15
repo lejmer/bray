@@ -195,7 +195,7 @@ impl U8IntegerBits = u8(IntegerBits)
 {
     func to_bits() -> u128
     {
-        return std.truncate_to<u128>(self);
+        return std.numeric.truncate_to<u128>(self);
     }
 }
 
@@ -203,7 +203,7 @@ impl U8IntegerFromBits = u128(IntegerFromBits<u8>)
 {
     func into_integer() -> u8
     {
-        return std.truncate_to<u8>(self);
+        return std.numeric.truncate_to<u8>(self);
     }
 }
 
@@ -211,7 +211,7 @@ impl U16IntegerBits = u16(IntegerBits)
 {
     func to_bits() -> u128
     {
-        return std.truncate_to<u128>(self);
+        return std.numeric.truncate_to<u128>(self);
     }
 }
 
@@ -219,7 +219,7 @@ impl U16IntegerFromBits = u128(IntegerFromBits<u16>)
 {
     func into_integer() -> u16
     {
-        return std.truncate_to<u16>(self);
+        return std.numeric.truncate_to<u16>(self);
     }
 }
 
@@ -227,7 +227,7 @@ impl U32IntegerBits = u32(IntegerBits)
 {
     func to_bits() -> u128
     {
-        return std.truncate_to<u128>(self);
+        return std.numeric.truncate_to<u128>(self);
     }
 }
 
@@ -235,7 +235,7 @@ impl U32IntegerFromBits = u128(IntegerFromBits<u32>)
 {
     func into_integer() -> u32
     {
-        return std.truncate_to<u32>(self);
+        return std.numeric.truncate_to<u32>(self);
     }
 }
 
@@ -243,7 +243,7 @@ impl U64IntegerBits = u64(IntegerBits)
 {
     func to_bits() -> u128
     {
-        return std.truncate_to<u128>(self);
+        return std.numeric.truncate_to<u128>(self);
     }
 }
 
@@ -251,7 +251,7 @@ impl U64IntegerFromBits = u128(IntegerFromBits<u64>)
 {
     func into_integer() -> u64
     {
-        return std.truncate_to<u64>(self);
+        return std.numeric.truncate_to<u64>(self);
     }
 }
 
@@ -259,7 +259,7 @@ impl U128IntegerBits = u128(IntegerBits)
 {
     func to_bits() -> u128
     {
-        return std.truncate_to<u128>(self);
+        return std.numeric.truncate_to<u128>(self);
     }
 }
 
@@ -267,7 +267,7 @@ impl U128IntegerFromBits = u128(IntegerFromBits<u128>)
 {
     func into_integer() -> u128
     {
-        return std.truncate_to<u128>(self);
+        return std.numeric.truncate_to<u128>(self);
     }
 }
 
@@ -275,7 +275,7 @@ impl UsizeIntegerBits = usize(IntegerBits)
 {
     func to_bits() -> u128
     {
-        return std.truncate_to<u128>(self);
+        return std.numeric.truncate_to<u128>(self);
     }
 }
 
@@ -283,7 +283,7 @@ impl UsizeIntegerFromBits = u128(IntegerFromBits<usize>)
 {
     func into_integer() -> usize
     {
-        return std.truncate_to<usize>(self);
+        return std.numeric.truncate_to<usize>(self);
     }
 }
 
@@ -291,7 +291,7 @@ impl I8IntegerBits = i8(IntegerBits)
 {
     func to_bits() -> u128
     {
-        return std.truncate_to<u128>(self);
+        return std.numeric.truncate_to<u128>(self);
     }
 }
 
@@ -299,7 +299,7 @@ impl I8IntegerFromBits = u128(IntegerFromBits<i8>)
 {
     func into_integer() -> i8
     {
-        return std.truncate_to<i8>(self);
+        return std.numeric.truncate_to<i8>(self);
     }
 }
 
@@ -307,7 +307,7 @@ impl I16IntegerBits = i16(IntegerBits)
 {
     func to_bits() -> u128
     {
-        return std.truncate_to<u128>(self);
+        return std.numeric.truncate_to<u128>(self);
     }
 }
 
@@ -315,7 +315,7 @@ impl I16IntegerFromBits = u128(IntegerFromBits<i16>)
 {
     func into_integer() -> i16
     {
-        return std.truncate_to<i16>(self);
+        return std.numeric.truncate_to<i16>(self);
     }
 }
 
@@ -323,7 +323,7 @@ impl I32IntegerBits = i32(IntegerBits)
 {
     func to_bits() -> u128
     {
-        return std.truncate_to<u128>(self);
+        return std.numeric.truncate_to<u128>(self);
     }
 }
 
@@ -331,7 +331,7 @@ impl I32IntegerFromBits = u128(IntegerFromBits<i32>)
 {
     func into_integer() -> i32
     {
-        return std.truncate_to<i32>(self);
+        return std.numeric.truncate_to<i32>(self);
     }
 }
 
@@ -339,7 +339,7 @@ impl I64IntegerBits = i64(IntegerBits)
 {
     func to_bits() -> u128
     {
-        return std.truncate_to<u128>(self);
+        return std.numeric.truncate_to<u128>(self);
     }
 }
 
@@ -347,7 +347,7 @@ impl I64IntegerFromBits = u128(IntegerFromBits<i64>)
 {
     func into_integer() -> i64
     {
-        return std.truncate_to<i64>(self);
+        return std.numeric.truncate_to<i64>(self);
     }
 }
 
@@ -355,7 +355,7 @@ impl I128IntegerBits = i128(IntegerBits)
 {
     func to_bits() -> u128
     {
-        return std.truncate_to<u128>(self);
+        return std.numeric.truncate_to<u128>(self);
     }
 }
 
@@ -363,7 +363,7 @@ impl I128IntegerFromBits = u128(IntegerFromBits<i128>)
 {
     func into_integer() -> i128
     {
-        return std.truncate_to<i128>(self);
+        return std.numeric.truncate_to<i128>(self);
     }
 }
 
@@ -371,7 +371,7 @@ impl IsizeIntegerBits = isize(IntegerBits)
 {
     func to_bits() -> u128
     {
-        return std.truncate_to<u128>(self);
+        return std.numeric.truncate_to<u128>(self);
     }
 }
 
@@ -379,7 +379,7 @@ impl IsizeIntegerFromBits = u128(IntegerFromBits<isize>)
 {
     func into_integer() -> isize
     {
-        return std.truncate_to<isize>(self);
+        return std.numeric.truncate_to<isize>(self);
     }
 }
 
