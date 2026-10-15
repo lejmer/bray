@@ -769,6 +769,9 @@ fn operation_parts(
         MirOperationKind::AdmitOutgoing { owner, runtime }
         | MirOperationKind::DischargeOutgoing { owner, runtime } => {
             match owner {
+                bray_ir::MirOutgoingOwner::FrameFactory(callee) => {
+                    parts.operand("factory", callee, context)?
+                }
                 bray_ir::MirOutgoingOwner::Value(ty) => parts.r#type("owner", *ty, context)?,
                 bray_ir::MirOutgoingOwner::Invocation { callable, result } => {
                     callable_reference("callable", *callable, parts, context);

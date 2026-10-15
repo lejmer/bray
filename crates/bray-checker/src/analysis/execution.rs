@@ -20,10 +20,14 @@ where
     pub(super) fn enter_callable_body(&mut self, current: AnalysisBlockId) -> AnalysisBlockId {
         let body = match self.request().unit().root() {
             bray_bound_tree::BoundUnitRoot::CallableBody {
-                body, execution: bray_symbols::CallableExecution::Asynchronous, ..
+                body,
+                execution: bray_symbols::CallableExecution::Asynchronous,
+                ..
             }
             | bray_bound_tree::BoundUnitRoot::AnonymousCallable {
-                body, execution: bray_symbols::CallableExecution::Asynchronous, ..
+                body,
+                execution: bray_symbols::CallableExecution::Asynchronous,
+                ..
             } => body,
             _ => return current,
         };
@@ -31,7 +35,13 @@ where
         let cancellation = self.push_block();
         let resume = self.push_block();
 
-        self.push_edge(current, cancellation, AnalysisEdgeKind::RunCancellation, None);
+        self.push_edge(
+            current,
+            cancellation,
+            AnalysisEdgeKind::RunCancellation,
+            None,
+        );
+
         self.push_exit(cancellation, AnalysisExitKind::Cancellation, body.into());
         self.push_edge(current, resume, AnalysisEdgeKind::Sequential, None);
 

@@ -740,16 +740,18 @@ fn cleanup_materializes_every_verified_lifecycle_storage() {
 
 #[test]
 fn frame_admission_failure_retains_initialized_capture_cleanup() {
-    let compilation = compilation(
-        r#"
-        module app;
-        struct Guard { destruct() {} }
-        async func consume_guard(pos guard: Guard) {}
-        func create(pos guard: Guard) {
-            let outcome = catch { let pending = consume_guard(guard); yield unit; };
-        }
-    "#,
-    );
+    for creation in [
+        "async func consume_guard(pos guard: Guard) {} func create(pos guard: Guard) { let outcome = catch { let pending = consume_guard(guard); yield unit; }; }",
+        "callable Worker = async func(pos guard: Guard); func create(pos guard: Guard, pos worker: Worker) { let outcome = catch { let pending = worker(guard); yield unit; }; }",
+    ] {
+        assert_frame_admission_retains_capture(&format!(
+            "module app; struct Guard {{ destruct() {{}} }} {creation}"
+        ));
+    }
+}
+
+fn assert_frame_admission_retains_capture(source: &str) {
+    let compilation = compilation(source);
 
     let lowered = compilation
         .lowered_unit(source_function_body_key(&compilation, "create"))
@@ -765,13 +767,37 @@ fn frame_admission_failure_retains_initialized_capture_cleanup() {
                 matches!(
                     mir.operation(*id).unwrap().kind(),
                     MirOperationKind::AdmitOutgoing {
-                        owner: bray_ir::MirOutgoingOwner::Invocation { .. },
+                        owner: bray_ir::MirOutgoingOwner::Invocation { .. }
+                            | bray_ir::MirOutgoingOwner::FrameFactory(_),
                         ..
                     }
                 )
             })
         })
         .expect("frame backing is secured before capture transfer");
+
+    if let MirOperationKind::AdmitOutgoing {
+        owner: bray_ir::MirOutgoingOwner::FrameFactory(callee),
+        ..
+    } = mir
+        .operation(*admission.operations().last().unwrap())
+        .unwrap()
+        .kind()
+    {
+        let bray_ir::MirOperand::Move(factory) = callee else {
+            panic!("indirect admission retains the evaluated factory");
+        };
+
+        assert!(matches!(
+            mir.storage(factory.storage()).unwrap().kind(),
+            bray_ir::MirStorageKind::Temporary
+        ));
+
+        assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+            MirOperationKind::Store { destination, value: bray_ir::MirOperand::Copy(source), .. }
+                if destination == factory && matches!(mir.storage(source.storage()).unwrap().kind(), bray_ir::MirStorageKind::Parameter(_))
+        )), "factory selection is captured before admission can reenter");
+    }
 
     let MirTerminatorKind::CheckCallOutcome {
         completed,

@@ -99,9 +99,13 @@ pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl 
             | MirHostOperation::StructuredShutdown { .. },
         )
         | MirOperationKind::AnonymousCallable(_)
-        | MirOperationKind::DeclaredCallable(_)
-        | MirOperationKind::AdmitOutgoing { .. }
-        | MirOperationKind::DischargeOutgoing { .. } => {}
+        | MirOperationKind::DeclaredCallable(_) => {}
+        MirOperationKind::AdmitOutgoing { owner, .. }
+        | MirOperationKind::DischargeOutgoing { owner, .. } => {
+            if let crate::MirOutgoingOwner::FrameFactory(callee) = owner {
+                callee.remap_local_ids(mappings);
+            }
+        }
     }
 }
 

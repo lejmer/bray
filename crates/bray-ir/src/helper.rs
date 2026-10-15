@@ -196,22 +196,19 @@ impl MirOperationKind {
                 ty: place.ty(),
             }),
             Self::Async(MirAsyncOperation::CreateFrame { frame, initializer }) => {
-                match initializer {
-                    MirFrameInitializer::Callable(_) => {}
-                    MirFrameInitializer::TaskObservation { result, .. } => {
-                        for phase in [
-                            MirCleanupPhase::TaskCancellation,
-                            MirCleanupPhase::LifecycleResolution,
-                        ] {
-                            helpers.push(MirHelperReference::Cleanup {
-                                phase,
-                                ty: result.completion_type(),
-                            });
-                        }
+                if let MirFrameInitializer::TaskObservation { result, .. } = initializer {
+                    for phase in [
+                        MirCleanupPhase::TaskCancellation,
+                        MirCleanupPhase::LifecycleResolution,
+                    ] {
+                        helpers.push(MirHelperReference::Cleanup {
+                            phase,
+                            ty: result.completion_type(),
+                        });
                     }
-                }
 
-                helpers.push(MirHelperReference::CreateFrame(*frame));
+                    helpers.push(MirHelperReference::CreateFrame(*frame));
+                }
             }
             Self::Async(MirAsyncOperation::MoveInactiveFrame { frame, .. }) => {
                 helpers.push(MirHelperReference::MoveInactiveFrame(*frame));

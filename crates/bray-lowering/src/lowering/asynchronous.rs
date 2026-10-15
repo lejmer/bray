@@ -285,13 +285,19 @@ impl Lowerer<'_> {
                         result: call.result(),
                     })
                 }
-                _ => None,
+                bray_ir::MirCallTarget::Indirect { callee, .. } => {
+                    Some(bray_ir::MirOutgoingOwner::FrameFactory(callee.clone()))
+                }
+                target => panic!(
+                    "checked asynchronous construction retains a direct or indirect factory, got {target:?}"
+                ),
             },
             _ => None,
         };
 
-        let block = match admission {
-            Some(owner) => self.admit_outgoing(expression, block, &source, owner)?,
+        let block = match &admission {
+            // Admission and discharge refer to the same evaluated factory or selected declaration.
+            Some(owner) => self.admit_outgoing(expression, block, &source, owner.clone())?,
             None => block,
         };
 

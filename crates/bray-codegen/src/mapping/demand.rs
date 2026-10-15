@@ -121,10 +121,13 @@ pub fn child_constants(kind: &ConstantValueKind) -> impl Iterator<Item = Constan
 
 fn collect_operation_values(operation: &MirOperationKind, demands: &mut ConstantDemands) {
     match operation {
-        MirOperationKind::AnonymousCallable(_)
-        | MirOperationKind::DeclaredCallable(_)
-        | MirOperationKind::AdmitOutgoing { .. }
-        | MirOperationKind::DischargeOutgoing { .. } => {}
+        MirOperationKind::AnonymousCallable(_) | MirOperationKind::DeclaredCallable(_) => {}
+        MirOperationKind::AdmitOutgoing { owner, .. }
+        | MirOperationKind::DischargeOutgoing { owner, .. } => {
+            if let bray_ir::MirOutgoingOwner::FrameFactory(callee) = owner {
+                collect_operand_value(callee, demands);
+            }
+        }
         MirOperationKind::Store {
             destination, value, ..
         } => {

@@ -61,6 +61,8 @@ pub enum CodegenSymbolKey {
     Instance(CodegenInstanceKey),
     /// Concrete cleanup backing layout emitted beside an asynchronous callable.
     CleanupStorage(CodegenInstanceKey),
+    /// Immutable constructor and concrete backing descriptor for an asynchronous callable value.
+    FrameFactory(CodegenInstanceKey),
     /// One external runtime ABI role.
     Runtime(MirRuntimeReference),
     /// One compiler-generated protected-frame operation.
@@ -124,7 +126,9 @@ impl CodegenSymbolMapping {
     /// Whether this unit emits the mapped definition rather than a reference.
     pub fn defines_in(&self, unit: &CodegenUnitKey) -> bool {
         match &self.key {
-            CodegenSymbolKey::Instance(instance) | CodegenSymbolKey::CleanupStorage(instance) => {
+            CodegenSymbolKey::Instance(instance)
+            | CodegenSymbolKey::CleanupStorage(instance)
+            | CodegenSymbolKey::FrameFactory(instance) => {
                 unit.instances().contains(instance) && self.linkage != CodegenLinkage::Import
             }
             CodegenSymbolKey::Runtime(_) | CodegenSymbolKey::ProtectedFrame { .. } => false,

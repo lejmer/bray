@@ -27,10 +27,18 @@ pub(super) fn validate_operation(
     validate_operation_block(block_kind, operation.kind())?;
 
     match operation.kind() {
-        MirOperationKind::AdmitOutgoing { runtime, .. } => {
+        MirOperationKind::AdmitOutgoing { owner, runtime } => {
+            if let crate::MirOutgoingOwner::FrameFactory(callee) = owner {
+                validate_operand(unit, callee, block, Some(id))?;
+            }
+
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::OutgoingAdmission)?
         }
-        MirOperationKind::DischargeOutgoing { runtime, .. } => {
+        MirOperationKind::DischargeOutgoing { owner, runtime } => {
+            if let crate::MirOutgoingOwner::FrameFactory(callee) = owner {
+                validate_operand(unit, callee, block, Some(id))?;
+            }
+
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::OutgoingDischarge)?
         }
         MirOperationKind::AnonymousCallable(key) => {

@@ -144,6 +144,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .symbol(key)
             .expect("checked MIR call translation requires an established mapping or value");
 
+        if matches!(key, CodegenSymbolKey::FrameFactory(_)) {
+            return Ok(Some(
+                self.module
+                    .get_global(symbol.name().as_str())
+                    .expect("callable value retains its declared factory record")
+                    .as_pointer_value()
+                    .into(),
+            ));
+        }
+
         let function = self
             .module
             .get_function(symbol.callable_address_name().as_str())

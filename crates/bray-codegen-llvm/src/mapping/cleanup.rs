@@ -1,6 +1,6 @@
-use bray_codegen::{CodegenLinkage, CodegenSymbolMapping, CodegenTarget};
+use bray_codegen::CodegenTarget;
 use inkwell::context::Context;
-use inkwell::module::{Linkage, Module};
+use inkwell::module::Module;
 use inkwell::types::StructType;
 use inkwell::values::{GlobalValue, StructValue};
 
@@ -56,42 +56,6 @@ pub(crate) fn descriptor_value<'context>(
         integer.const_int(bytes, false).into(),
         integer.const_int(u64::from(alignment), false).into(),
     ])
-}
-
-pub(crate) fn declare<'context>(
-    module: &Module<'context>,
-    context: &'context Context,
-    target: &CodegenTarget,
-    mapping: &CodegenSymbolMapping,
-    defined: bool,
-) -> GlobalValue<'context> {
-    let global = module.add_global(
-        descriptor_type(context, target),
-        None,
-        mapping.name().as_str(),
-    );
-
-    global.set_constant(true);
-    global.set_visibility(inkwell::GlobalVisibility::Hidden);
-
-    if defined {
-        assert_eq!(
-            mapping.linkage(),
-            CodegenLinkage::LinkOnce,
-            "cleanup descriptors must share their concrete callable identity"
-        );
-
-        global.set_linkage(Linkage::WeakODR);
-
-        crate::comdat::attach_any(
-            module,
-            global,
-            mapping.name().as_str(),
-            target.machine().object_format(),
-        );
-    }
-
-    global
 }
 
 pub(crate) fn descriptors<'context>(

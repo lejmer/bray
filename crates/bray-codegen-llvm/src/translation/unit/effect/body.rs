@@ -168,9 +168,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Some(self.translate_declared_callable(id, *callable)?)
             }
             MirOperationKind::Generator(generator) => self.translate_generator(id, generator)?,
-            MirOperationKind::AdmitOutgoing { runtime, .. }
-            | MirOperationKind::DischargeOutgoing { runtime, .. } => {
-                self.translate_outgoing(id, *runtime)?;
+            MirOperationKind::AdmitOutgoing { owner, runtime }
+            | MirOperationKind::DischargeOutgoing { owner, runtime } => {
+                self.translate_outgoing(id, owner, *runtime)?;
 
                 None
             }
@@ -676,19 +676,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let mut helpers = helpers.iter();
 
         match initializer {
-            MirFrameInitializer::Callable(call) => {
-                let arguments = self.evaluate_call_arguments(call)?;
-                let helper = next_helper(&mut helpers, &MirHelperReference::CreateFrame(frame));
-                let result = self.invoke_helper(helper, &arguments)?;
-
-                if helpers.next().is_some() {
-                    panic!(
-                        "checked MIR effect translation violated an established compiler contract"
-                    );
-                }
-
-                Ok(result)
-            }
+            MirFrameInitializer::Callable(call) => self.translate_call(operation_id, call),
             MirFrameInitializer::TaskObservation {
                 task,
                 result,

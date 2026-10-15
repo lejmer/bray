@@ -26,7 +26,9 @@ pub(crate) fn symbol_function_type<'context>(
         CodegenSymbolKey::ProtectedFrame { operation, .. } => {
             Some(frame_operation_type(context, target, *operation))
         }
-        CodegenSymbolKey::Instance(_) | CodegenSymbolKey::CleanupStorage(_) => None,
+        CodegenSymbolKey::Instance(_)
+        | CodegenSymbolKey::CleanupStorage(_)
+        | CodegenSymbolKey::FrameFactory(_) => None,
     }
 }
 
@@ -60,7 +62,9 @@ pub(crate) fn indirect_result_type<'context>(
                 _ => unreachable!("only aggregate frame results use indirect storage"),
             })
         }
-        CodegenSymbolKey::Instance(_) | CodegenSymbolKey::CleanupStorage(_) => None,
+        CodegenSymbolKey::Instance(_)
+        | CodegenSymbolKey::CleanupStorage(_)
+        | CodegenSymbolKey::FrameFactory(_) => None,
     }
 }
 

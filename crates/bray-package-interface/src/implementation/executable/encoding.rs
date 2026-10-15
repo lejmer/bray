@@ -636,7 +636,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                     },
                 );
 
-                self.outgoing_owner(*owner)?;
+                self.outgoing_owner(owner)?;
                 self.runtime_reference(*runtime);
             }
             MirOperationKind::Host(operation)
@@ -863,18 +863,22 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
 
     fn outgoing_owner(
         &mut self,
-        owner: bray_ir::MirOutgoingOwner,
+        owner: &bray_ir::MirOutgoingOwner,
     ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
         match owner {
+            bray_ir::MirOutgoingOwner::FrameFactory(callee) => {
+                self.wire.write_u32(2);
+                self.operand(callee)?;
+            }
             bray_ir::MirOutgoingOwner::Value(ty) => {
                 self.wire.write_u32(0);
-                self.ty(ty)?;
+                self.ty(*ty)?;
             }
             bray_ir::MirOutgoingOwner::Invocation { callable, result } => {
                 self.wire.write_u32(1);
                 self.callable_instance(callable.instance())?;
                 self.callable_abi(callable.abi());
-                self.call_result(result)?;
+                self.call_result(*result)?;
             }
         }
 

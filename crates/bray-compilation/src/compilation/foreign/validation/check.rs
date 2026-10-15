@@ -109,7 +109,7 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
         return Ok(());
     }
 
-    if callable.execution == CallableExecution::Asynchronous {
+    if !abi.supports_execution(callable.execution) {
         diagnostics.add(
             source_diagnostic(
                 anchor,
@@ -888,7 +888,7 @@ pub(in crate::compilation::foreign) fn foreign_type_is_supported(
             foreign_type_is_supported(compilation, target, abi, cancellation)
         }
         TypeExpressionTemplate::Callable(callable) => {
-            Ok(callable.abi() == abi && callable.execution() == CallableExecution::Synchronous)
+            Ok(callable.abi() == abi && abi.supports_execution(callable.execution()))
         }
         TypeExpressionTemplate::Tuple(_)
         | TypeExpressionTemplate::Array { .. }
@@ -913,7 +913,7 @@ fn foreign_type_data_is_supported(
             named_type_is_supported(compilation, *definition, abi, cancellation)
         }
         TypeData::Callable(callable) => {
-            Ok(callable.abi() == abi && callable.execution() == CallableExecution::Synchronous)
+            Ok(callable.abi() == abi && abi.supports_execution(callable.execution()))
         }
         TypeData::Error => Ok(true),
         TypeData::Tuple(_)

@@ -201,10 +201,12 @@ impl MirOperationKind {
                 | crate::MirHostOperation::ReportCleanupIncidents { .. }
                 | crate::MirHostOperation::StructuredShutdown { .. } => {}
             },
-            Self::AnonymousCallable(_)
-            | Self::DeclaredCallable(_)
-            | Self::AdmitOutgoing { .. }
-            | Self::DischargeOutgoing { .. } => {}
+            Self::AdmitOutgoing { owner, .. } | Self::DischargeOutgoing { owner, .. } => {
+                if let crate::MirOutgoingOwner::FrameFactory(callee) = owner {
+                    visit_operand(callee, &mut visit);
+                }
+            }
+            Self::AnonymousCallable(_) | Self::DeclaredCallable(_) => {}
         }
     }
 }

@@ -1,21 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::{
-    CodegenCallSite, CodegenHelperMapping, CodegenInstance, CodegenOperationMapping,
-    CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTypeMapping, CodegenUnit,
-    demanded_callable_instance_for_call, frame_creation_runtime_role,
+    CodegenHelperMapping, CodegenInstance, CodegenOperationMapping, CodegenSymbolKey,
+    CodegenSymbolMapping, CodegenTarget, CodegenTypeMapping, CodegenUnit,
+    frame_creation_runtime_role,
 };
 use bray_ir::{
-    MirAsyncOperation, MirCallTarget, MirFrameInitializer, MirHelperReference, MirOperationId,
-    MirOperationKind, MirUnit, MirUnitId, MirUnitKey,
+    MirAsyncOperation, MirHelperReference, MirOperationId, MirOperationKind, MirUnit, MirUnitId,
+    MirUnitKey,
 };
 use bray_symbols::TypeId;
 
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
-use super::super::specialization::{
-    ConcreteCodegenCallee, ConcreteCodegenInstance, ConcreteCodegenReachability,
-};
+use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::support::{
     dependency_symbol, direct_helper_symbol, helper_runtime_symbol, operation_result_type,
 };
@@ -146,20 +144,34 @@ impl Compilation {
             target,
             cancellation,
         )? {
+            if matches!(
+                reference,
+                MirHelperReference::AnonymousCallable(_) | MirHelperReference::DeclaredCallable(_)
+            ) {
+                let ty =
+                    operation_result_type.expect("callable value has its checked callable type");
+
+                let values = self.semantic_value_store()?;
+                let data = values.type_data(ty);
+
+                let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
+                    panic!("callable value must have its checked callable type");
+                };
+
+                if callable.execution() == bray_symbols::CallableExecution::Asynchronous {
+                    return Ok(CodegenHelperMapping::new(
+                        reference,
+                        CodegenSymbolKey::FrameFactory(dependency.key().clone()),
+                    ));
+                }
+            }
+
             return dependency_symbol(owner, dependency.key(), &reference)
                 .map(|symbol| CodegenHelperMapping::new(reference, symbol));
         }
 
         if matches!(reference, MirHelperReference::CreateFrame(_)) {
-            let symbol = self.frame_creation_symbol(
-                owner,
-                owner_realization,
-                operation_id,
-                operation,
-                &reference,
-                target,
-                cancellation,
-            )?;
+            let symbol = self.frame_creation_symbol(owner, operation, &reference)?;
 
             return Ok(CodegenHelperMapping::new(reference, symbol));
         }
@@ -278,15 +290,11 @@ impl Compilation {
         })
     }
 
-    pub(super) fn frame_creation_symbol(
+    fn frame_creation_symbol(
         &self,
         owner: &CodegenInstance,
-        owner_realization: &ConcreteCodegenInstance,
-        operation_id: MirOperationId,
         operation: &MirOperationKind,
         reference: &MirHelperReference,
-        target: &CodegenTarget,
-        cancellation: &CancellationToken,
     ) -> Result<CodegenSymbolKey, CodegenPreparationError> {
         let MirOperationKind::Async(MirAsyncOperation::CreateFrame { initializer, .. }) = operation
         else {
@@ -295,30 +303,9 @@ impl Compilation {
             ));
         };
 
-        match initializer {
-            MirFrameInitializer::Callable(call)
-                if matches!(call.target(), MirCallTarget::Direct(_)) =>
-            {
-                let demand = demanded_callable_instance_for_call(
-                    CodegenCallSite::Operation(operation_id),
-                    call,
-                )
-                .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))?;
-
-                let ConcreteCodegenCallee::Instance(dependency) =
-                    self.concrete_codegen_callee(owner_realization, &demand, target, cancellation)?
-                else {
-                    return Err(CodegenPreparationError::MissingHelperInstance(
-                        reference.clone(),
-                    ));
-                };
-
-                dependency_symbol(owner, dependency.key(), reference)
-            }
-            _ => frame_creation_runtime_role(initializer)
-                .map(|role| helper_runtime_symbol(owner, role))
-                .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone())),
-        }
+        frame_creation_runtime_role(initializer)
+            .map(|role| helper_runtime_symbol(owner, role))
+            .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))
     }
 
     pub(in crate::compilation) fn codegen_generated_lifecycle_mir(

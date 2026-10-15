@@ -986,22 +986,9 @@ impl Lowerer<'_> {
                 BoundCallableTarget::Indirect(_) => {
                     let callee = self.lower_expression(callee_expression, current)?;
 
-                    let later_expressions = selection
-                        .receiver()
-                        .map(bray_bound_tree::SelectedReceiver::expression)
-                        .into_iter()
-                        .chain(selection.arguments().iter().filter_map(
-                            |argument| match argument {
-                                SelectedArgument::Explicit { expression, .. } => Some(*expression),
-                                SelectedArgument::Default { .. } => None,
-                            },
-                        ));
-
-                    let callee = if self.later_evaluation_may_change_block(later_expressions) {
-                        self.materialize_for_later_evaluation(callee_expression, callee)?
-                    } else {
-                        callee
-                    };
+                    // Preserve the evaluated callee through argument evaluation and admission.
+                    let callee =
+                        self.materialize_for_later_evaluation(callee_expression, callee)?;
 
                     let Some(continuation) = callee.block else {
                         return Ok(callee);

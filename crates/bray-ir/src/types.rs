@@ -48,6 +48,7 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
     match operation {
         MirOperationKind::AdmitOutgoing { owner, .. }
         | MirOperationKind::DischargeOutgoing { owner, .. } => match owner {
+            crate::MirOutgoingOwner::FrameFactory(callee) => collect_operand_types(callee, types),
             crate::MirOutgoingOwner::Value(ty) => {
                 types.insert(*ty);
             }

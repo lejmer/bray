@@ -51,6 +51,7 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
         .expect("cleanup descriptor must have been declared")
         .set_initializer(&value);
 
+    crate::mapping::frame::initialize_factory(context, module, request.mappings(), instance.key());
     translate_constructor(module, request, instance, context_type, types)?;
     translate_frame_adapter(module, request, instance, context_type, types)?;
     translate_state_callback(context, module, request, instance)?;

@@ -107,6 +107,73 @@ cleanup-target errors are removed. Native callback regression assertions now
 check outcomes already consumed before boundary release, with distinct failure
 codes for report, destruction, shield and cancellation counts.
 
+## Erased factory implementation
+
+An asynchronous callable value points to one immutable constructor/backing pair.
+It stays one pointer wide. Direct and indirect construction use ordinary call
+translation. MIR admission retains the evaluated factory before arguments can
+change its source storage. Dynamic backing operands participate in demand,
+validation, remapping, inspection and executable-template serialization. The
+executable template format is version 3.
+
+Native code-address conversion and foreign callable validation share the ABI's
+execution-mode rule. A native code pointer cannot manufacture an async factory.
+Imported generic coverage keeps the erased invocation and both async lambdas in
+one exported family. The existing native i32 fixture now executes two factories
+with distinct results. Its native execution remains pending.
+
+Call translation distinguishes constructing an async cleanup frame from invoking
+a synchronous cleanup body. The former claims its already-admitted frame backing
+without activating a second cleanup record. Symbol realization is split into
+mapping, native boundary and identity modules with a thin root. Identity export
+reuses the existing source-backed-key predicate instead of repeating conversion.
+
+Validation: the broad batch passed 2,345 tests and exposed the known selected-scope
+missing role plus two static-finalizer construction regressions. Both construction
+regressions are fixed. All 18 focused regressions now pass, including imported
+families, static finalizers, callee retention and erased backend emission. Rustfmt,
+`cargo xtask style`, `cargo xtask format` and `git diff --check` pass. Logs are
+`target/bra-620-authority/bra-561-erased-final.log` and
+`target/bra-620-authority/bra-561-erased-audit.log` in the shared repository target.
+
+The audit searches factory selection, symbol declarations, ABI execution modes,
+operand traversal/remapping and async cleanup activation across their producers
+and consumers. It removes the separate source-frame helper invocation path and
+repeated native ABI rules. No new language feature, runtime allocation or owning
+runtime graph is introduced. The factory record is two pointer fields per concrete
+callable, while each source callable value remains one pointer.
+
+## Next activation replacement boundaries
+
+Keep the next change coherent across the compiler description, Bray driver and
+Rust consumers. The current graph remains the baseline until those consumers
+switch. Do not add another owning graph beside it.
+
+- Retain the complete lease epoch in the inactive owner. Validate its pool domain,
+  slot, concrete shape and epoch before dereferencing reusable frame backing.
+  Use the concrete instance frame identity, not the generic template identity.
+- Coallocate activation state, source storage and completion. Store immutable
+  callbacks and state metadata once per concrete description. Runtime mutation
+  belongs to the admitted frame, not another Box or descriptor copy.
+- Establish driver authority before consuming the inactive token. Rejection must
+  leave the token and captures intact. Existing by-value composition and start
+  boundaries need to change together with their compiler consumers.
+- Preserve the current source callback outcome contract, cleanup incident order
+  and exact-thread requirements. Reuse native scheduler/context bridges only for
+  their existing responsibilities. Generated callbacks already report language
+  panics explicitly. Resolve the existing native unwind fixtures without adding
+  allocation to activation or weakening failure retention.
+- Generated resume already publishes the result address in frame progress. Use
+  that owned result slot and remove the extra completion copy/allocation. Retain
+  the existing payload until its consumer's move commits exactly once.
+- Resolve lexical cleanup before terminal publication, but retain frame and
+  completion backing while the parent or task result still depends on them.
+  Remove NativeTerminalState's separate completion allocation and owner.
+- Broadcast initialized obligations separately from resolution. Source-frame
+  broadcast currently only sets a byte, and resolution ignores suspension.
+  Replace both through the owning MIR cleanup paths and one iterative driver.
+  Inactive Future cleanup and task-observation frames must use that same driver.
+
 ## Remaining implementation
 
 Replace NativeFrame/NativeRun ownership, including Box/Arc activation links,

@@ -568,8 +568,10 @@ pub enum MirAsyncOperation {
 }
 
 /// Local cleanup obligations secured by one outgoing reservation.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MirOutgoingOwner {
+    /// Concrete backing selected by an evaluated asynchronous callable value.
+    FrameFactory(MirOperand),
     /// The selected lifecycle actions of a concrete value.
     Value(TypeId),
     /// One concrete invocation, independent of represented child obligations.

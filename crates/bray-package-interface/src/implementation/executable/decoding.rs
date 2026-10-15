@@ -1097,6 +1097,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 ),
                 result: self.call_result()?,
             }),
+            2 => Ok(bray_ir::MirOutgoingOwner::FrameFactory(self.operand()?)),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }

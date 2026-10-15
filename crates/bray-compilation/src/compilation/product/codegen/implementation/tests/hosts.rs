@@ -441,3 +441,43 @@ fn frame_constructors_claim_admitted_aligned_backing() {
     assert!(!ir.contains("@calloc("));
     assert!(!ir.contains("@free("));
 }
+
+#[test]
+fn erased_async_factories_preserve_constructor_backing() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+        module app;
+        callable Worker = async func(pos value: i32) -> i32;
+        async func first(pos value: i32) -> i32 { return value + 1; }
+        async func second(pos value: i32) -> i32 { return value + 2; }
+        async func invoke(pos worker: Worker, pos value: i32) -> i32 { return await worker(value); }
+        async func main() -> i32 {
+            let worker: Worker = if true { yield first; } else { yield second; };
+            return await invoke(worker, 6);
+        }
+    "#,
+    );
+
+    let artifacts = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+
+    let ir = artifacts
+        .iter()
+        .map(|bytes| std::str::from_utf8(bytes).unwrap())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(ir.contains("frame.factory.member"));
+    assert!(ir.contains("frame_factory"));
+    assert!(ir.contains("bray_runtime_outgoing_admission"));
+
+    assert!(
+        !plan
+            .mappings()
+            .iter()
+            .flat_map(|mapping| mapping.symbols())
+            .any(|symbol| {
+                matches!(symbol.key(), bray_codegen::CodegenSymbolKey::Runtime(runtime)
+            if runtime.role() == RuntimeAbiRole::FrameCreation)
+            })
+    );
+}

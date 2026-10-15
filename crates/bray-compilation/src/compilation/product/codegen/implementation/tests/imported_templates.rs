@@ -315,7 +315,7 @@ fn imported_generic_template_families_merge_protected_frame_requirements() {
         panic!("generic callable must import one family runtime requirement");
     };
 
-    assert_eq!(runtime.frames().len(), 2);
+    assert_eq!(runtime.frames().len(), 3);
     assert!(runtime.requirements().frame_abi().is_some());
 
     let target = compilation
@@ -569,26 +569,30 @@ const GENERIC_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixture {
 };
 
 const ASYNC_GENERIC_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixture {
-    source: concat!(
-        "module templates;\n",
-        "\n",
-        "func helper<T>(pos value: T) -> T\n",
-        "{\n",
-        "    return value;\n",
-        "}\n",
-        "\n",
-        "public async func identity<T>(pos value: T) -> T\n",
-        "{\n",
-        "    let invoke = async lambda(pos item: T) -> T\n",
-        "    {\n",
-        "        return helper<T>(item);\n",
-        "    };\n",
-        "\n",
-        "    return await invoke(value);\n",
-        "}\n",
-    ),
-    runtime_frames: Some(2),
-    executable_templates: 3,
+    source: r#"
+module templates;
+
+func helper<T>(pos value: T) -> T
+{
+    return value;
+}
+
+public async func identity<T>(pos value: T) -> T
+{
+    let worker = async lambda(pos item: T) -> T
+    {
+        return helper<T>(item);
+    };
+    let invoke = async lambda(pos operation: async func(pos item: T) -> T, pos value: T) -> T
+    {
+        return await operation(value);
+    };
+
+    return await invoke(worker, value);
+}
+"#,
+    runtime_frames: Some(3),
+    executable_templates: 4,
     platform_service: None,
 };
 

@@ -22,11 +22,18 @@ pub(crate) fn declare_symbols<'context, 'mappings>(
     for mapping in mappings.symbols() {
         let defines_symbol = mapping.defines_in(mappings.unit());
 
-        if matches!(
-            mapping.key(),
-            bray_codegen::CodegenSymbolKey::CleanupStorage(_)
-        ) {
-            super::cleanup::declare(module, types.context(), target, mapping, defines_symbol);
+        let data_type = match mapping.key() {
+            bray_codegen::CodegenSymbolKey::CleanupStorage(_) => {
+                Some(super::cleanup::descriptor_type(types.context(), target))
+            }
+            bray_codegen::CodegenSymbolKey::FrameFactory(_) => {
+                Some(super::frame::factory_type(types.context()))
+            }
+            _ => None,
+        };
+
+        if let Some(data_type) = data_type {
+            declare_constant(module, data_type, target, mapping, defines_symbol);
             continue;
         }
 
@@ -40,6 +47,36 @@ pub(crate) fn declare_symbols<'context, 'mappings>(
     super::static_storage::declare_static_storages(module, mappings, target, types)?;
 
     Ok(())
+}
+
+fn declare_constant<'context>(
+    module: &Module<'context>,
+    ty: inkwell::types::StructType<'context>,
+    target: &CodegenTarget,
+    mapping: &CodegenSymbolMapping,
+    defined: bool,
+) {
+    let global = module.add_global(ty, None, mapping.name().as_str());
+
+    global.set_constant(true);
+    global.set_visibility(GlobalVisibility::Hidden);
+
+    if defined {
+        assert_eq!(
+            mapping.linkage(),
+            CodegenLinkage::LinkOnce,
+            "frame data shares its concrete callable identity"
+        );
+
+        global.set_linkage(Linkage::WeakODR);
+
+        crate::comdat::attach_any(
+            module,
+            global,
+            mapping.name().as_str(),
+            target.machine().object_format(),
+        );
+    }
 }
 
 fn declare_symbol<'context>(
