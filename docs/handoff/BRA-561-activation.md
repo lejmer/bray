@@ -744,3 +744,30 @@ headers. No source workaround was added. Bray formatting passes afterward.
 
 This remains a checkpoint. Production token consumers, result movement and the
 iterative Bray run driver still need integration and replacement of the Rust owner.
+
+## Result movement before task retirement
+
+Task observation no longer retires its observed task after writing the caller's
+completion destination. That retirement can fail, so doing both inside the move
+callback incorrectly converted an already initialized result into transfer failure.
+The existing result slot now distinguishes pending, ready and consumed states.
+The existing retirement flag tracks task retirement independently. Cleanup skips
+an already consumed result while still retiring the task exactly once through its
+existing incident-preserving path. No second scheduler, allocation or authority
+mechanism is added.
+
+The native regression denies further outgoing admission, moves the result normally,
+then observes the expected retirement failure separately. Repeated cleanup neither
+revisits the transferred value nor produces another retirement incident. Existing
+cancellation, written-report-then-unwind, secondary-report and panic-result ownership
+regressions remain green. All 71 native runtime tests pass, followed by Rustfmt,
+mutating style and Bray formatting. The first build rebuilt the bundled bootstrap.
+Logs use `bra-561-result-retirement-` in the shared target's `bra-620-authority`.
+
+Audit the owning move callback, its NativeFrame caller, generated completion-move
+code, native fixture providers and task-slot destruction. Generated movement is a
+load, store and return. This repair removes the native provider's fallible operation
+after that commit. The shared byte-transfer function and cleanup report aggregation
+remain their existing owners. This checkpoint adds 9 production lines and 6 test
+lines net. Full activation/run replacement and surviving dependency acceptance
+remain outstanding.

@@ -26,8 +26,14 @@ struct TaskObservation {
     lifecycle: Option<NativeValueCleanupCallback>,
     request_cancellation: bool,
     owner: AtomicU64,
-    consumed: AtomicBool,
-    outcome: Mutex<Option<NativeRunOutcome>>,
+    retired: AtomicBool,
+    completion: Mutex<Completion>,
+}
+
+enum Completion {
+    Pending,
+    Ready(NativeRunOutcome),
+    Consumed,
 }
 
 impl TaskObservation {
@@ -57,9 +63,9 @@ impl TaskObservation {
             NativeRunState::COMPLETED | NativeRunState::PANICKED | NativeRunState::CANCELLED
         ) {
             *self
-                .outcome
+                .completion
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(outcome);
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Completion::Ready(outcome);
 
             return NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
         }
@@ -67,52 +73,53 @@ impl TaskObservation {
         failure_progress()
     }
 
+    fn take_completion(&self) -> Option<NativeRunOutcome> {
+        match std::mem::replace(
+            &mut *self
+                .completion
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            Completion::Consumed,
+        ) {
+            Completion::Ready(outcome) => Some(outcome),
+            Completion::Consumed => None,
+            Completion::Pending => panic!("task observation must be terminal before consumption"),
+        }
+    }
+
     fn move_completion(&self, destination: usize) {
         let outcome = self
-            .outcome
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take()
-            .unwrap_or_else(|| panic!("task observation must retain one terminal outcome"));
+            .take_completion()
+            .expect("task observation completion can only move once");
 
         transfer_outcome(outcome, destination, self.layout)
             .unwrap_or_else(|_| panic!("task observation result transfer failed"));
-
-        self.consumed.store(true, Ordering::Release);
-
-        destroy_task(self.task).unwrap_or_else(|_| panic!("observed task destruction failed"));
     }
 
     fn resolve_owned_task(&self) {
-        if self.consumed.load(Ordering::Acquire) {
+        if self.retired.load(Ordering::Acquire) {
             return;
         }
 
-        if self
-            .outcome
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .is_none()
-        {
+        if matches!(
+            *self
+                .completion
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            Completion::Pending
+        ) {
             let _ = with_runtime(|runtime| runtime.request_cancellation(self.task));
 
             let outcome = with_runtime(|runtime| runtime.resolve_task(self.task))
                 .unwrap_or_else(runtime_failure);
 
             *self
-                .outcome
+                .completion
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(outcome);
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Completion::Ready(outcome);
         }
 
-        let Some(outcome) = self
-            .outcome
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take()
-        else {
-            return;
-        };
+        let completion = self.take_completion();
 
         let mut incident: Option<RuntimePanic> = None;
 
@@ -123,48 +130,50 @@ impl TaskObservation {
                 .unwrap_or_else(std::sync::PoisonError::into_inner),
         );
 
-        match transfer_outcome(outcome, self.result.address(), self.layout) {
-            Ok(()) => {
-                for cleanup in [self.cancellation, self.lifecycle].into_iter().flatten() {
-                    let mut outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
+        if let Some(outcome) = completion {
+            match transfer_outcome(outcome, self.result.address(), self.layout) {
+                Ok(()) => {
+                    for cleanup in [self.cancellation, self.lifecycle].into_iter().flatten() {
+                        let mut outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
 
-                    if let Err(found) = catch_unwind(AssertUnwindSafe(|| {
-                        cleanup(self.result.pointer(), &mut outcome);
-                    })) {
-                        let panic = RuntimePanic::from_payload(found, &mut outgoing);
+                        if let Err(found) = catch_unwind(AssertUnwindSafe(|| {
+                            cleanup(self.result.pointer(), &mut outcome);
+                        })) {
+                            let panic = RuntimePanic::from_payload(found, &mut outgoing);
 
-                        super::outgoing::append_panic(&mut outcome, panic, &mut outgoing);
-                    }
-
-                    match outcome.state() {
-                        NativeRunState::PANICKED => {
-                            let mut report = RuntimePanic::from_native(outcome.take_report());
-
-                            report.reserve_from(&mut outgoing);
-
-                            if let Some(incident) = &mut incident {
-                                incident.append(report, &mut outgoing);
-                            } else {
-                                incident = Some(report);
-                            }
+                            super::outgoing::append_panic(&mut outcome, panic, &mut outgoing);
                         }
-                        // Disposal already abandons this observation. Cancellation does not
-                        // skip the remaining lifecycle operation or release its retained task.
-                        NativeRunState::COMPLETED | NativeRunState::CANCELLED => {}
-                        state => panic!(
-                            "frame cleanup must return a terminal source outcome, got {state:?}"
-                        ),
+
+                        match outcome.state() {
+                            NativeRunState::PANICKED => {
+                                let mut report = RuntimePanic::from_native(outcome.take_report());
+
+                                report.reserve_from(&mut outgoing);
+
+                                if let Some(incident) = &mut incident {
+                                    incident.append(report, &mut outgoing);
+                                } else {
+                                    incident = Some(report);
+                                }
+                            }
+                            // Disposal already abandons this observation. Cancellation does not
+                            // skip the remaining lifecycle operation or release its retained task.
+                            NativeRunState::COMPLETED | NativeRunState::CANCELLED => {}
+                            state => panic!(
+                                "frame cleanup must return a terminal source outcome, got {state:?}"
+                            ),
+                        }
                     }
                 }
+                Err(status) => RuntimePanic::record(&mut incident, Box::new(status), &mut outgoing),
             }
-            Err(status) => RuntimePanic::record(&mut incident, Box::new(status), &mut outgoing),
         }
 
         if let Err(found) = destroy_task(self.task) {
             RuntimePanic::record(&mut incident, Box::new(found), &mut outgoing);
         }
 
-        self.consumed.store(true, Ordering::Release);
+        self.retired.store(true, Ordering::Release);
 
         if let Some(incident) = incident {
             resume_unwind(Box::new(incident));
@@ -192,8 +201,8 @@ pub(super) fn create(
         lifecycle,
         request_cancellation,
         owner: AtomicU64::new(0),
-        consumed: AtomicBool::new(false),
-        outcome: Mutex::new(None),
+        retired: AtomicBool::new(false),
+        completion: Mutex::new(Completion::Pending),
     });
 
     Some(NativeInactiveFrame::new(
@@ -384,7 +393,7 @@ mod tests {
         NativeRuntimeStatus,
     };
 
-    use super::{TaskObservation, transfer_outcome};
+    use super::{Completion, TaskObservation, transfer_outcome};
 
     thread_local! {
         static CLEANUP_EVENTS: RefCell<Vec<(&'static str, u8)>> = const { RefCell::new(Vec::new()) };
@@ -424,7 +433,7 @@ mod tests {
         let failure = failure.downcast::<crate::RuntimePanic>().unwrap();
 
         assert_eq!(failure.suppressed_count(), 2);
-        assert!(observation.consumed.load(Ordering::Acquire));
+        assert!(observation.retired.load(Ordering::Acquire));
 
         CLEANUP_EVENTS.with_borrow(|events| assert_eq!(*events, [("cleanup", 1), ("cleanup", 2)]));
 
@@ -480,7 +489,7 @@ mod tests {
         let failure = failure.downcast::<crate::RuntimePanic>().unwrap();
 
         assert_eq!(failure.suppressed_count(), 3);
-        assert!(observation.consumed.load(Ordering::Acquire));
+        assert!(observation.retired.load(Ordering::Acquire));
         CLEANUP_EVENTS.with_borrow(|events| assert_eq!(*events, [("cleanup", 8), ("cleanup", 2)]));
         drop(failure);
         observation.resolve_owned_task();
@@ -510,7 +519,7 @@ mod tests {
         let failure = failure.downcast::<crate::RuntimePanic>().unwrap();
 
         assert_eq!(failure.suppressed_count(), 1);
-        assert!(observation.consumed.load(Ordering::Acquire));
+        assert!(observation.retired.load(Ordering::Acquire));
         drop(failure);
 
         CLEANUP_EVENTS.with_borrow(|events| {
@@ -538,8 +547,8 @@ mod tests {
             lifecycle,
             request_cancellation: false,
             owner: AtomicU64::new(0),
-            consumed: AtomicBool::new(false),
-            outcome: Mutex::new(Some(NativeRunOutcome::new(
+            retired: AtomicBool::new(false),
+            completion: Mutex::new(Completion::Ready(NativeRunOutcome::new(
                 NativeRunState::COMPLETED,
                 (completed as *const u64).addr(),
             ))),
@@ -547,7 +556,7 @@ mod tests {
     }
 
     #[test]
-    fn transferred_result_is_not_resolved_again_when_task_release_fails() {
+    fn result_movement_finishes_before_fallible_task_retirement() {
         let completed = 42_u64;
 
         let observation = observation(
@@ -557,16 +566,22 @@ mod tests {
         );
 
         let mut storage = ResultStorage([0xff; RESULT_SIZE]);
+        let _denied = crate::outgoing::tests::reject_admission();
 
-        assert!(
-            catch_unwind(AssertUnwindSafe(
-                || observation.move_completion(storage.0.as_mut_ptr().addr())
-            ))
-            .is_err()
-        );
+        observation.move_completion(storage.0.as_mut_ptr().addr());
 
-        assert!(observation.consumed.load(Ordering::Acquire));
+        assert!(!observation.retired.load(Ordering::Acquire));
+        assert_eq!(storage.0[0], COMPLETED_TAG);
+        assert_eq!(&storage.0[8..16], &completed.to_ne_bytes());
 
+        let failure =
+            catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task())).unwrap_err();
+
+        let failure = failure.downcast::<crate::RuntimePanic>().unwrap();
+
+        assert_eq!(failure.suppressed_count(), 0);
+        assert!(observation.retired.load(Ordering::Acquire));
+        drop(failure);
         observation.resolve_owned_task();
         CLEANUP_EVENTS.with_borrow(|events| assert!(events.is_empty()));
 
