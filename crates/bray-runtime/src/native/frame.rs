@@ -29,7 +29,9 @@ pub(super) struct NativeTerminalState {
 }
 
 impl NativeFrame {
-    pub(super) fn try_new(abi: NativeProtectedFrame) -> Result<Self, NativeRuntimeStatus> {
+    pub(super) fn try_new(
+        abi: NativeProtectedFrame,
+    ) -> Result<(Self, crate::FrameExecutionState), NativeRuntimeStatus> {
         let mut transfer = NativeFrameTransfer::new(abi);
         let abi = transfer.frame();
 
@@ -45,22 +47,27 @@ impl NativeFrame {
         ProtectedFrameLayout::try_new(abi.completion_size(), completion_alignment)
             .map_err(|_| NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
-        if abi.state_count() == 0 || state(abi, ProtectedFrameStateId::new(0)).is_none() {
-            return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
-        }
+        let initial = state(abi, ProtectedFrameStateId::new(0))
+            .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
+
+        let initial =
+            crate::FrameExecutionState::new(ProtectedAsyncFrameId::new(abi.identity()), initial);
 
         let completion =
             crate::backing::Backing::admit(abi.completion_size(), abi.completion_alignment())?;
 
-        Ok(Self {
-            completion: Some(completion),
-            abi: transfer.take(),
-            outgoing: crate::outgoing::OutgoingRecords::default(),
-            terminal: Arc::new(NativeTerminalState {
-                payload: Mutex::new(None),
-                cleanup_incidents: Mutex::new(std::array::from_fn(|_| None)),
-            }),
-        })
+        Ok((
+            Self {
+                completion: Some(completion),
+                abi: transfer.take(),
+                outgoing: crate::outgoing::OutgoingRecords::default(),
+                terminal: Arc::new(NativeTerminalState {
+                    payload: Mutex::new(None),
+                    cleanup_incidents: Mutex::new(std::array::from_fn(|_| None)),
+                }),
+            },
+            initial,
+        ))
     }
 
     pub(super) fn terminal_state(&self) -> Arc<NativeTerminalState> {
@@ -372,7 +379,9 @@ mod tests {
             action,
         );
 
-        let frame = NativeFrame::try_new(abi).expect("valid frame must be admitted");
+        let (frame, initial) = NativeFrame::try_new(abi).expect("valid frame must be admitted");
+
+        assert_eq!(initial.state(), ProtectedFrameStateId::new(0));
 
         assert_eq!(QUERIES.get(), 1);
 

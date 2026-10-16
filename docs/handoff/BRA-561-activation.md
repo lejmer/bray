@@ -538,3 +538,33 @@ authority. Test evidence is `bra-561-admission-proof.log`. Continue unaffected w
 while waiting. The current raw entry implementation remains incomplete in the
 working tree. The old Rust graph, two-word Future ABI and completion backing still
 execute, and BRA-561 remains incomplete.
+
+## Native callback lock checkpoint
+
+Task admission now returns the validated initial execution state alongside its
+frame. Run construction reuses it instead of calling the producer twice, with the
+second call previously occurring under the task-table lock. Terminal removal and
+failed startup release frame, result and report owners after unlocking that table.
+No additional retained field, allocation or wrapper type is introduced.
+
+All 71 native runtime tests pass, including exact initial-query count, an unlocked
+producer callback and an unlocked report-release provider. Rustfmt, mutating
+`cargo xtask style` and `cargo xtask format` pass. Logs are
+`bra-561-retirement-native.log`, `bra-561-retirement-rustfmt.log`,
+`bra-561-retirement-style.log` and `bra-561-retirement-format.log` in the shared
+target's `bra-620-authority` directory.
+
+The audit re-read AGENTS.md and checked all four changed Rust files. Searches
+covered frame construction, state-query consumers and task removal across native
+execution, runtime shutdown and the scheduler. Runtime shutdown already moves its
+table out before disposal. Observation retains a separate owner while replacing
+its table entry. Scheduler registration retains a weak scheduler wake and does not
+own a native provider callback. The old NativeRun remains scheduled for removal
+as part of the activation replacement, rather than being split now for size alone.
+
+The six-file unfinished admission/dispatch batch is preserved in Git stash
+`25a3d9dd02f308d64dd3b97b0802b25da90f71b1`, including its two new Bray modules.
+It was temporarily removed to verify this independent batch against the passing
+bootstrap. Restore it before resuming admission work. Its previously recorded
+contract failures and pending approval remain unresolved. Neither this checkpoint
+nor the stash completes BRA-561.

@@ -113,7 +113,7 @@ impl NativeRuntime {
         handle: NativeTaskHandle,
         frame: NativeProtectedFrame,
     ) -> NativeRuntimeStatus {
-        let mut frame = match NativeFrame::try_new(frame) {
+        let (mut frame, initial) = match NativeFrame::try_new(frame) {
             Ok(frame) => frame,
             Err(status) => return status,
         };
@@ -133,8 +133,11 @@ impl NativeRuntime {
 
         frame.outgoing = admission.outgoing.take(4);
 
-        let run =
-            super::super::run::NativeRun::new(frame, crate::outgoing::OutgoingRecords::default());
+        let run = super::super::run::NativeRun::new(
+            frame,
+            initial,
+            crate::outgoing::OutgoingRecords::default(),
+        );
 
         let terminal = run.terminal_state();
         let task = TaskControlBlock::start(admission, Arc::clone(&run));
@@ -145,6 +148,8 @@ impl NativeRuntime {
             self.thread.runtime().id(),
             task.cancellation_context(),
         ) else {
+            drop(tasks);
+
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         };
 
@@ -155,6 +160,8 @@ impl NativeRuntime {
             && cleanup_lane
                 .is_ok_and(|lane| matches!(lane.placement(), ExecutionLanePlacement::MainThread(_)))
         {
+            drop(tasks);
+
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         }
 
@@ -174,10 +181,13 @@ impl NativeRuntime {
         drop(tasks);
 
         if wake.wake().is_err() {
-            self.tasks
+            let retired = self
+                .tasks
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .remove(&handle);
+
+            drop(retired);
 
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         }
@@ -450,22 +460,25 @@ impl NativeRuntime {
     }
 
     pub(in crate::native) fn destroy_task(&self, task: NativeTaskHandle) -> NativeRuntimeStatus {
-        let mut tasks = self
-            .tasks
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let retired = {
+            let mut tasks = self
+                .tasks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        match tasks.get(&task) {
-            Some(NativeTaskSlot::Terminal { .. }) => {
-                tasks.remove(&task);
+            match tasks.get(&task) {
+                Some(NativeTaskSlot::Terminal { .. }) => tasks.remove(&task),
+                Some(NativeTaskSlot::Started(_)) | Some(NativeTaskSlot::Allocated(_)) => {
+                    return NativeRuntimeStatus::PENDING;
+                }
+                None => return NativeRuntimeStatus::UNKNOWN_TASK,
+            }
+        };
 
-                NativeRuntimeStatus::SUCCESS
-            }
-            Some(NativeTaskSlot::Started(_)) | Some(NativeTaskSlot::Allocated(_)) => {
-                NativeRuntimeStatus::PENDING
-            }
-            None => NativeRuntimeStatus::UNKNOWN_TASK,
-        }
+        // Retained results and reports may call their providers during release.
+        drop(retired);
+
+        NativeRuntimeStatus::SUCCESS
     }
 
     pub(in crate::native) fn report_cleanup_incidents(&self) -> NativeRuntimeStatus {

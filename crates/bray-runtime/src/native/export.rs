@@ -1427,6 +1427,128 @@ mod tests {
     }
 
     #[test]
+    fn task_start_queries_initial_state_once_outside_the_task_table_lock() {
+        static QUERIES: AtomicUsize = AtomicUsize::new(0);
+        static LOCKED: AtomicUsize = AtomicUsize::new(0);
+
+        extern "C" fn state(_: usize, _: u32) -> NativeFrameState {
+            QUERIES.fetch_add(1, Ordering::Relaxed);
+
+            let locked =
+                super::super::state::with_runtime(|runtime| runtime.tasks.try_lock().is_err())
+                    .expect("admission retains the native runtime");
+
+            if locked {
+                LOCKED.fetch_add(1, Ordering::Relaxed);
+            }
+
+            NativeFrameState::new(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE)
+        }
+
+        let _isolation = super::super::state::test_runtime_isolation();
+
+        QUERIES.store(0, Ordering::Relaxed);
+        LOCKED.store(0, Ordering::Relaxed);
+
+        assert!(
+            bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(1, 1))
+                .is_success()
+        );
+
+        let task = bray_runtime_task_allocation()
+            .task()
+            .expect("task admission succeeds");
+
+        assert!(
+            start_test_task(
+                task,
+                protected_frame_with_state(
+                    8,
+                    state,
+                    resume_frame,
+                    ignore_completion_move,
+                    ignore_action
+                )
+            )
+            .is_success()
+        );
+
+        assert_eq!(QUERIES.load(Ordering::Relaxed), 1);
+        assert_eq!(LOCKED.load(Ordering::Relaxed), 0);
+        assert!(bray_runtime_structured_shutdown().is_success());
+    }
+
+    #[test]
+    fn terminal_retirement_releases_reports_outside_the_task_table_lock() {
+        static RELEASED: AtomicUsize = AtomicUsize::new(0);
+
+        extern "C" fn consume(
+            _: &mut bray_runtime_abi::NativePanicReport,
+            _: u32,
+        ) -> NativeRuntimeStatus {
+            let unlocked =
+                super::super::state::with_runtime(|runtime| runtime.tasks.try_lock().is_ok())
+                    .expect("retirement retains the runtime context");
+
+            RELEASED.store(if unlocked { 1 } else { 2 }, Ordering::Relaxed);
+
+            NativeRuntimeStatus::SUCCESS
+        }
+
+        let _isolation = super::super::state::test_runtime_isolation();
+
+        RELEASED.store(0, Ordering::Relaxed);
+
+        assert!(
+            bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(1, 1))
+                .is_success()
+        );
+
+        let task = bray_runtime_task_allocation()
+            .task()
+            .expect("task admission succeeds");
+
+        assert!(
+            start_test_task(
+                task,
+                protected_frame(8, resume_frame, ignore_completion_move, ignore_action)
+            )
+            .is_success()
+        );
+
+        let terminal = super::super::state::with_runtime(|runtime| {
+            runtime.with_started(task, |started| std::sync::Arc::clone(&started.terminal))
+        })
+        .unwrap()
+        .unwrap();
+
+        assert!(bray_runtime_main_thread_lane_drive().is_success());
+
+        assert_eq!(
+            bray_runtime_join_registration(task, ignore_wake, 0).state(),
+            NativeRunState::COMPLETED
+        );
+
+        terminal.record_cleanup_report(crate::RuntimePanic::from_native(
+            bray_runtime_abi::NativePanicReport::new(
+                bray_runtime_abi::NativePanicPrimary::empty(),
+                consume,
+            ),
+        ));
+
+        drop(terminal);
+        assert!(bray_runtime_task_destruction(task).is_success());
+
+        assert_eq!(
+            RELEASED.load(Ordering::Relaxed),
+            1,
+            "the release provider must observe an unlocked task table"
+        );
+
+        assert!(bray_runtime_structured_shutdown().is_success());
+    }
+
+    #[test]
     fn task_start_transfers_each_frame_exactly_once() {
         assert_eq!(
             bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(1, 1)),

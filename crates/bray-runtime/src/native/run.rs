@@ -48,12 +48,12 @@ struct NativeActivation {
 }
 
 impl NativeActivation {
-    fn new(frame: NativeFrame, outgoing: crate::outgoing::OutgoingRecords) -> Self {
+    fn new(
+        frame: NativeFrame,
+        local: FrameExecutionState,
+        outgoing: crate::outgoing::OutgoingRecords,
+    ) -> Self {
         let terminal = frame.terminal_state();
-
-        let local = frame
-            .execution_state(ProtectedFrameStateId::new(0))
-            .expect("admitted native frame describes its initial state");
 
         Self {
             frame: Some(Box::pin(frame)),
@@ -172,8 +172,12 @@ impl NativeRun {
             .unwrap_or_else(|| panic!("dispatch retains the active activation"))
     }
 
-    pub(super) fn new(frame: NativeFrame, outgoing: crate::outgoing::OutgoingRecords) -> Arc<Self> {
-        let activation = Box::new(NativeActivation::new(frame, outgoing));
+    pub(super) fn new(
+        frame: NativeFrame,
+        initial: FrameExecutionState,
+        outgoing: crate::outgoing::OutgoingRecords,
+    ) -> Arc<Self> {
+        let activation = Box::new(NativeActivation::new(frame, initial, outgoing));
 
         Arc::new(Self {
             identity: activation.local.frame(),
@@ -232,14 +236,14 @@ impl NativeRun {
             Err(status) => return status,
         };
 
-        let mut frame = match NativeFrame::try_new(frame.into_protected()) {
+        let (mut frame, initial) = match NativeFrame::try_new(frame.into_protected()) {
             Ok(frame) => frame,
             Err(status) => return status,
         };
 
         frame.outgoing = outgoing.take(4);
 
-        let mut child = Box::new(NativeActivation::new(frame, outgoing));
+        let mut child = Box::new(NativeActivation::new(frame, initial, outgoing));
 
         let local_status = child
             .execution_state()
