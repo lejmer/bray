@@ -309,3 +309,100 @@ fn task_operations_retain_normal_completion_before_await() {
         );
     }
 }
+
+#[test]
+fn await_takes_the_child_outcome_before_cancellation_and_cleans_its_result() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Guard
+        {
+            destruct() {}
+        }
+        async func child() -> Guard
+        {
+            return Guard {};
+        }
+        async func caller() -> Guard
+        {
+            return await child();
+        }
+        "#,
+    );
+
+    let lowered = application
+        .lowered_unit(source_function_body_key(&application, "caller"))
+        .unwrap();
+
+    let mir = lowered_mir(&lowered);
+
+    let resumed = mir
+        .block(mir.frame_descriptor().unwrap().states()[1].entry())
+        .unwrap();
+
+    assert!(resumed.operations().iter().any(|id| matches!(
+        mir.operation(*id).unwrap().kind(),
+        MirOperationKind::Async(bray_ir::MirAsyncOperation::CommitAwaitedCompletion { .. })
+    )));
+
+    assert!(!resumed.operations().iter().any(|id| matches!(
+        mir.operation(*id).unwrap().kind(),
+        MirOperationKind::Async(bray_ir::MirAsyncOperation::ObserveFrameCancellation)
+    )));
+
+    let MirTerminatorKind::CheckCallOutcome { completed, .. } = resumed.terminator().kind() else {
+        panic!("child panic and cancellation must transfer before checking a new request");
+    };
+
+    let completed = mir.block(completed.target()).unwrap();
+
+    let result = completed
+        .operations()
+        .iter()
+        .find_map(|id| match mir.operation(*id).unwrap().kind() {
+            MirOperationKind::Store {
+                destination,
+                value: MirOperand::Value(_),
+                ..
+            } => Some(destination.storage()),
+            _ => None,
+        })
+        .expect("the completed result must become an initialized cleanup owner");
+
+    assert!(completed.operations().iter().any(|id| matches!(
+        mir.operation(*id).unwrap().kind(),
+        MirOperationKind::Async(bray_ir::MirAsyncOperation::ObserveFrameCancellation)
+    )));
+
+    let MirTerminatorKind::Branch { then_edge, .. } = completed.terminator().kind() else {
+        panic!("completed await observes cancellation before source continuation");
+    };
+
+    let mut pending = vec![then_edge.target()];
+    let mut seen = std::collections::BTreeSet::new();
+    let mut disposes_result = false;
+
+    while let Some(id) = pending.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+
+        let block = mir.block(id).unwrap();
+
+        disposes_result |= block.operations().iter().any(|id| matches!(
+            mir.operation(*id).unwrap().kind(),
+            MirOperationKind::Cleanup { phase: bray_ir::MirCleanupPhase::LifecycleResolution, place }
+                if place.storage() == result
+        ));
+
+        block
+            .terminator()
+            .kind()
+            .for_each_successor(|target| pending.push(target));
+    }
+
+    assert!(
+        disposes_result,
+        "cancelled await must dispose its transferred result"
+    );
+}

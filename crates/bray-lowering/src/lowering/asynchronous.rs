@@ -68,7 +68,28 @@ impl Lowerer<'_> {
             None,
         )?;
 
-        Ok(LoweredExpression::continuing(block, Some(value), source))
+        // Take the child's outcome before observing a new cancellation request.
+        // A completed value is an owned temporary until the enclosing expression
+        // accepts it, so cancellation uses the same cleanup as other inputs.
+        let retained = self.input_temporaries.len();
+
+        let value = if self.input_cleanup_phases(completion).is_some() {
+            self.materialize_owned_input(id, block, &source, value, completion)?
+        } else {
+            value
+        };
+
+        let cancellation = self.suspension_cleanup_edge(&source, id.into())?;
+
+        let resume = self.builder.push_block(
+            Self::retained_source(&source),
+            self.builder.block_kind(block),
+        )?;
+
+        self.branch_frame_cancellation(block, &source, resume, cancellation)?;
+        self.input_temporaries.truncate(retained);
+
+        Ok(LoweredExpression::continuing(resume, Some(value), source))
     }
 
     pub(super) fn lower_awaited_frame(
@@ -133,22 +154,9 @@ impl Lowerer<'_> {
             _ => self.suspension_cleanup_edge(&source, occurrence.node())?,
         };
 
-        let dispatch = if matches!(
-            occurrence,
-            bray_bound_tree::BoundExecutionSite::ScopedExit(_)
-        ) {
-            // The pending exit is already shielded, including when cancellation started it.
-            resume
-        } else {
-            let dispatch = self
-                .builder
-                .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
-
-            // Suspension and dispatch retain the same immutable cleanup edge.
-            self.branch_frame_cancellation(dispatch, &source, resume, cancellation.clone())?;
-
-            dispatch
-        };
+        // Ordinary await observes cancellation after taking the terminal outcome.
+        // Selected asynchronous exits already execute under their cleanup shield.
+        let dispatch = resume;
 
         let broadcast = self.frame_broadcast(&source, occurrence, false)?;
         let state = self.next_frame_state()?;

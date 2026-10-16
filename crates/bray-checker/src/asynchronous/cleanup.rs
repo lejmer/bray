@@ -491,7 +491,18 @@ where
         }
     }
 
-    for (_, expression) in request.unit().tree().expressions() {
+    for (id, expression) in request.unit().tree().expressions() {
+        if matches!(expression, bray_bound_tree::BoundExpression::Await(_)) {
+            // A completed await owns its result before delivering cancellation.
+            // Publish its cleanup shape with the other implicit input owners.
+            let ty = types
+                .expression(id)
+                .expect("checked await retains its completion type")
+                .ty();
+
+            cleanup_shapes.include_input(ty)?;
+        }
+
         let bray_bound_tree::BoundExpression::Structured(expression) = expression else {
             continue;
         };

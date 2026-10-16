@@ -113,27 +113,7 @@ impl Lowerer<'_> {
             );
         };
 
-        let cleanup = self
-            .input
-            .cleanup_type(ty)
-            .map(|shape| shape.cleanup())
-            .unwrap_or_else(|| {
-                panic!(
-                    "lowering contract violation: MissingInputCleanup {value:?}",
-                    value = expression
-                )
-            });
-
-        let phases = match cleanup {
-            AsyncStorageCleanupRequirement::None => None,
-            AsyncStorageCleanupRequirement::Cleanup(phases) => Some(phases),
-            AsyncStorageCleanupRequirement::Recovered(_) => {
-                panic!(
-                    "lowering contract violation: RecoveredBoundNode {value:?}",
-                    value = expression
-                );
-            }
-        };
+        let phases = self.input_cleanup_phases(ty);
 
         if phases.is_some() {
             let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
@@ -157,6 +137,22 @@ impl Lowerer<'_> {
         });
 
         Ok(MirOperand::Move(place))
+    }
+
+    pub(super) fn input_cleanup_phases(&self, ty: TypeId) -> Option<AsyncCleanupPhases> {
+        let cleanup = self
+            .input
+            .cleanup_type(ty)
+            .expect("checked temporary type retains its cleanup shape")
+            .cleanup();
+
+        match cleanup {
+            AsyncStorageCleanupRequirement::None => None,
+            AsyncStorageCleanupRequirement::Cleanup(phases) => Some(phases),
+            AsyncStorageCleanupRequirement::Recovered(_) => {
+                panic!("checked temporary type {ty:?} has unrecovered cleanup")
+            }
+        }
     }
 
     pub(super) fn input_cleanup(&self, exit: InputExit) -> Vec<InputTemporary> {

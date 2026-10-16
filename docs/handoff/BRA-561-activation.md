@@ -871,3 +871,26 @@ coercion machinery are reused. The new inspection contract is required by the
 pending production activation callers. Those callers and the iterative Bray run
 driver remain unfinished. Completion consumption, cancellation before consumption
 and frame/provider retirement must be switched together with the Rust owner.
+
+## Await outcome ownership before cancellation
+
+An await now commits the child outcome before observing a pending cancellation
+request. Child panic and cancellation retain their existing outcome path. A
+successful owned result becomes an ordinary initialized input temporary during
+the cancellation check, so that exit disposes it through existing cleanup. The
+checker publishes its cleanup shape and lowering consumes that established result.
+Selected asynchronous exits retain their existing cleanup shield.
+
+All 76 lowering tests and ten native code-generation host tests pass. The new
+regression checks outcome ordering and follows the cancellation CFG to cleanup of
+the exact transferred result. Rustfmt, mutating style, Bray formatting and the diff
+whitespace check pass. Logs use `bra-561-await-` in the shared target's
+`bra-620-authority` directory. The audit searches temporary materialization, cleanup
+shape publication and cancellation observation across checking and lowering. It
+extracts the existing cleanup-phase selection instead of adding a second policy.
+Native acceptance of the production driver remains outstanding.
+
+The integration audit also identifies a concrete remaining gap: async cleanup
+analysis gives Future both cleanup phases, while product lifecycle selection marks
+its compiler-known representation as requiring no cleanup. Inactive captured-owner
+retirement must use the shared activation driver during the production switch.
