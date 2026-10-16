@@ -491,3 +491,50 @@ are removed. Growth is 209 production lines added and 33 removed, plus 139 test
 lines. Publication establishes initialized ownership before the consumer starts.
 The two-word inactive ABI and Rust owning graph still execute and remain to be
 replaced before BRA-561 can be reviewed or completed.
+
+
+## Inactive failure resolution checkpoint
+
+Generated failure resolution now invokes the existing cancellation entry. Calling
+ordinary resume here could execute the source body of an inactive frame instead
+of resolving its initialized captures. The selected entry returns cleanup progress
+unchanged, including suspension. Both parent and child emitted callbacks are
+covered, including LLVM's inlining of the cancellation flag store.
+
+All ten host-emission tests pass. Rustfmt, mutating `cargo xtask style`, and
+`cargo xtask format` pass. The audit re-read AGENTS.md and searched lifecycle
+resolution, cancellation selection and generated callback signatures. Reuse the
+existing checked cancellation path rather than adding another cleanup emitter.
+This checkpoint is the compiler fix only. Logs are `bra-561-cancellation-hosts.log`,
+`bra-561-cancellation-style.log`, and `bra-561-cancellation-format.log` under the
+shared target's `bra-620-authority` directory.
+
+## Current admission and dispatch work
+
+The uncommitted callback boundary has passed its production body checks and
+exact-pointer authority tests. It returns explicit progress and remaining admitted
+records, restores the resident header before calling native code, then reloads it
+to retain callback changes. Raw header take/restore helpers stay local to that
+trusted implementation. A discarded borrowed-dispatcher prototype is removed.
+
+The uncommitted native activation entry does not yet pass its body checks. Pool
+mutation invalidates its raw token-slot witnesses. Do not publish it as a working
+boundary or exclude it from the production audit. Its native smoke checks have
+not run because the contract check failed first.
+
+A test-only immutable admission value passes against the actual production pool
+and `begin` declarations. The issued record survives pool mutation. Arbitrary,
+identically reconstructed and changed-origin records fail the required witness.
+This is compiler evidence, not a proof of the complete native protocol. The native
+caller must retain an exclusive token slot, disjoint from mutated pool metadata
+and frame-header storage, and its descriptor provider throughout the call. The
+proposed issuer remains local to the entry function and never returns that record
+to a caller. No production authority module has been added.
+
+Automatic approval review rejected that production change twice, including after
+the test-only evidence, and explicitly requires user approval of the exact design.
+An approval question is pending. Do not retry or bypass that rejection without new
+authority. Test evidence is `bra-561-admission-proof.log`. Continue unaffected work
+while waiting. The current raw entry implementation remains incomplete in the
+working tree. The old Rust graph, two-word Future ABI and completion backing still
+execute, and BRA-561 remains incomplete.

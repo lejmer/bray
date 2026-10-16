@@ -609,3 +609,73 @@ fn frame_backing_and_adapter_preserve_concrete_specialization_identity() {
         "same-sized specializations need distinct authority identities"
     );
 }
+
+#[test]
+fn failed_frame_resolution_selects_cancellation_before_source_entry() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+        module app;
+        struct Guard { destruct() {} }
+        async func child(pos guard: Guard) -> i32 { return 7; }
+        async func main() -> i32 { return await child(Guard {}); }
+        "#,
+    );
+
+    let artifacts = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+    let mut checked = 0;
+
+    for ((unit, mappings), artifact) in plan.units().iter().zip(plan.mappings()).zip(&artifacts) {
+        let ir = std::str::from_utf8(artifact).unwrap();
+
+        for instance in unit.instances() {
+            let Some(frame) = instance.protected_frame_identity() else {
+                continue;
+            };
+
+            let symbol = |operation| {
+                mappings
+                    .symbol(&bray_codegen::CodegenSymbolKey::ProtectedFrame { frame, operation })
+                    .unwrap()
+                    .name()
+                    .as_str()
+            };
+
+            let resolution = format!("@{}(", symbol(ProtectedFrameOperation::LifecycleResolution));
+
+            let body = ir
+                .split("define ")
+                .find(|body| {
+                    body.lines()
+                        .next()
+                        .is_some_and(|line| line.contains(&resolution))
+                })
+                .unwrap()
+                .split("\n}")
+                .next()
+                .unwrap();
+
+            let cancellation = format!("@{}(", symbol(ProtectedFrameOperation::CancellationEntry));
+
+            if !body.contains(&cancellation) {
+                // LLVM may inline the small cancellation adapter. Its flag must
+                // still be established before resuming the checked state entry.
+                let request = body
+                    .find("store i8 1,")
+                    .expect("inlined cancellation requests delivery");
+
+                let resume = body
+                    .find(&format!("@{}(", symbol(ProtectedFrameOperation::Resume)))
+                    .expect("inlined cancellation enters the checked continuation");
+
+                assert!(request < resume, "{body}");
+            }
+
+            checked += 1;
+        }
+    }
+
+    assert!(
+        checked >= 2,
+        "both parent and child failure entries must be checked"
+    );
+}

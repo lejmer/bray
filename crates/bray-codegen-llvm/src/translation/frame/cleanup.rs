@@ -75,8 +75,14 @@ fn translate_failure_cleanup<'context>(
 
     builder.position_at_end(cleanup);
 
-    let resume =
-        frame_operation_function(module, request, instance, ProtectedFrameOperation::Resume);
+    // Abandonment resolves initialized state without entering an inactive body.
+    // The selected cancellation entry also preserves a suspended cleanup result.
+    let cancel = frame_operation_function(
+        module,
+        request,
+        instance,
+        ProtectedFrameOperation::CancellationEntry,
+    );
 
     let context = resolve
         .get_nth_param(1)
@@ -92,9 +98,9 @@ fn translate_failure_cleanup<'context>(
         request.target(),
         &CodegenSymbolKey::ProtectedFrame {
             frame,
-            operation: ProtectedFrameOperation::Resume,
+            operation: ProtectedFrameOperation::CancellationEntry,
         },
-        resume,
+        cancel,
         &[context.into()],
         "frame.failure.cleanup",
     )?
