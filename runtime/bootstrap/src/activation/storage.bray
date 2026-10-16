@@ -53,6 +53,7 @@ trusted internal func claim_address(
     pos token: &Inactive,
     pos descriptor: &Descriptor
 ) -> usize
+    uses(intrinsic)
 {
     if !valid_layout(descriptor)
     {
@@ -66,10 +67,11 @@ trusted internal func claim_address(
         return 0;
     }
 
-    let address: usize = trusted bray.runtime.bootstrap.storage.take_active_address(
+    let address: usize = trusted bray.runtime.bootstrap.storage.take_frame_address(
         pool,
         &token.lease,
-        &descriptor.storage
+        &descriptor.storage,
+        trusted core.target.expose_address<Descriptor>(token.descriptor)
     );
 
     if address == 0

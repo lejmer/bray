@@ -197,8 +197,7 @@ trusted internal func reserve(
             &mut entries,
             {
                 epoch = 0,
-                state = FREE,
-                next = head,
+                state = State.Free(head),
                 address = address + skip + index * stride
             }
         );

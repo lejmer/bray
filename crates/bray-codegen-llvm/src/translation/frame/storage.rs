@@ -81,6 +81,69 @@ pub(super) fn claim<'context>(
     Ok(storage)
 }
 
+pub(super) fn publish<'context>(
+    module: &Module<'context>,
+    request: CodegenRequest<'_>,
+    context_type: StructType<'context>,
+    storage: PointerValue<'context>,
+    activation: PointerValue<'context>,
+    builder: &Builder<'context>,
+    types: &LlvmTypeMappings<'context, '_>,
+) -> Result<(), CodegenFailure> {
+    let context = types.context();
+    let lease_type = crate::mapping::cleanup::lease_type(context, request.target());
+    let header = header_pointer(builder, context_type, storage)?;
+
+    let lease = builder
+        .build_load(lease_type, header, "frame.publication.lease")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let token_type = context.struct_type(
+        &[
+            lease_type.into(),
+            context.ptr_type(AddressSpace::default()).into(),
+        ],
+        false,
+    );
+
+    let token = builder
+        .build_insert_value(token_type.const_zero(), lease, 0, "frame.publication.token")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let token = builder
+        .build_insert_value(token, activation, 1, "frame.publication.descriptor")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let slot =
+        crate::translation::allocate_temporary(context, builder, token_type, "frame.publication")?;
+
+    builder
+        .build_store(slot, token)
+        .map_err(CodegenFailure::backend_library)?;
+
+    let publish = crate::native::declare_runtime_function(
+        module,
+        context,
+        request.target(),
+        RuntimeAbiRole::ActivationPublication,
+    )?;
+
+    let status = builder
+        .build_call(publish, &[slot.into()], "frame.published")
+        .map_err(CodegenFailure::backend_library)?
+        .try_as_basic_value()
+        .basic()
+        .expect("activation publication returns its status");
+
+    crate::translation::require_runtime_success(
+        module,
+        context,
+        builder,
+        status,
+        "frame.publication",
+    )
+}
+
 pub(super) fn translate_destruction<'context>(
     module: &Module<'context>,
     request: CodegenRequest<'_>,

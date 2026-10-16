@@ -64,3 +64,59 @@ trusted internal func resident(pos pool: &mut bray.runtime.bootstrap.ReportPool,
     authorize(pointer);
     return trusted std.memory.borrow_mut_from<Header, bray.runtime.bootstrap.ReportPool>(pool, pointer);
 }
+
+// Only the producer can publish initialized backing. The descriptor is retained
+// in the pool before the inactive value is exposed to its consumer.
+trusted internal func publish(pos token: &Inactive) -> u32
+    requires(trusted producer(token = token), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted producer(token = token))
+    uses(intrinsic)
+{
+    let descriptor = trusted description(token);
+
+    if !valid_layout(&descriptor)
+    {
+        return 3;
+    }
+
+    let identity: usize = trusted core.target.expose_address<Descriptor>(token.descriptor);
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+
+    if !trusted bray.runtime.bootstrap.storage.publish_frame(guard.get(), &token.lease, &descriptor.storage, identity)
+    {
+        return 3;
+    }
+
+    return bray.runtime.bootstrap.STATUS_SUCCESS;
+}
+
+// A native producer retains this initialized token and its descriptor provider
+// throughout publication. The contract refers to the exact input slot.
+trusted internal predicate producer_slot(pointer: RawPointer<Inactive>);
+
+@abi(c)
+trusted internal func publication(pos pointer: RawPointer<Inactive>) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted producer_slot(pointer = pointer),
+        trusted core.memory.valid_read<Inactive>(pointer = pointer, count = 1),
+        trusted core.memory.initialized_as<Inactive>(pointer = pointer),
+        trusted core.memory.aligned_for<Inactive>(pointer = pointer),
+    )
+{
+    let read_producer = trusted lambda(pos source: RawPointer<Inactive>) -> Inactive
+        requires(
+            trusted producer_slot(pointer = source),
+            trusted core.memory.valid_read<Inactive>(pointer = source, count = 1),
+            trusted core.memory.initialized_as<Inactive>(pointer = source),
+            trusted core.memory.aligned_for<Inactive>(pointer = source),
+        )
+        ensures(trusted producer(token = &result))
+    {
+        return trusted std.memory.read<Inactive>(source);
+    };
+
+    let token = read_producer(pointer);
+
+    return trusted publish(&token);
+}

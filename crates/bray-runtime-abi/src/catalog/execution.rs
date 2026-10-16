@@ -688,6 +688,16 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [ActivateCleanupStorage]
             }
+            ActivationPublication {
+                "Publish initialized activation backing before transferring its token.", "activation_publication",
+                native: (ACTIVATION_PUBLICATION_SYMBOL = "bray_runtime_activation_publication", [Pointer] -> U32),
+                service: Host,
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("activation.publication"), host_control: false,
+                capabilities: [],
+                effects: [ActivateCleanupStorage]
+            }
             CleanupStorageRelease {
                 "Release concrete backing after its final initialized user.", "cleanup_storage_release",
                 native: (CLEANUP_STORAGE_RELEASE_SYMBOL = "bray_runtime_cleanup_storage_release", [Pointer] -> U32),

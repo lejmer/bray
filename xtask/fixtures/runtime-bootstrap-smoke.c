@@ -948,6 +948,90 @@ static int check_cleanup_backing(void)
     return 0;
 }
 
+typedef struct { uint32_t affinity; uint32_t lanes; } ActivationState;
+typedef struct { uint32_t kind; uint32_t state; uintptr_t payload; PanicReport report; } ActivationProgress;
+typedef struct {
+    CleanupShape storage;
+    uintptr_t header, completion, completion_bytes, completion_align;
+    uint32_t states;
+    ActivationState (*state)(uintptr_t, uint32_t);
+    void (*resume)(ActivationProgress*, uintptr_t);
+    void (*cancel)(ActivationProgress*, uintptr_t);
+    void (*broadcast)(ActivationProgress*, uintptr_t);
+    void (*resolve)(ActivationProgress*, uintptr_t, uint32_t);
+    void (*move_completion)(uintptr_t, uintptr_t);
+    void (*destroy)(uintptr_t);
+} ActivationDescriptor;
+typedef struct { CleanupLease lease; const ActivationDescriptor* descriptor; } InactiveActivation;
+typedef struct { CleanupLease lease; const ActivationDescriptor* descriptor; uintptr_t context; } ActivationHeaderPrefix;
+
+extern uint32_t bray_runtime_activation_publication(const InactiveActivation*);
+
+static ActivationState activation_state(uintptr_t context, uint32_t state)
+{
+    (void)context;
+    (void)state;
+    return (ActivationState){ 0 };
+}
+
+static void activation_complete(ActivationProgress* result, uintptr_t context)
+{
+    (void)context;
+    *result = (ActivationProgress){ 0 };
+}
+
+static void activation_resolve(ActivationProgress* result, uintptr_t context, uint32_t exit)
+{
+    (void)exit;
+    activation_complete(result, context);
+}
+
+static void activation_move(uintptr_t context, uintptr_t destination)
+{
+    (void)context;
+    (void)destination;
+}
+
+static void activation_destroy(uintptr_t context) { (void)context; }
+
+static int check_activation_publication(void)
+{
+    const ActivationDescriptor descriptor = {
+        .storage = { { 11 }, 1024, 4096 }, .completion_align = 1, .states = 1,
+        .state = activation_state, .resume = activation_complete, .cancel = activation_complete,
+        .broadcast = activation_complete, .resolve = activation_resolve,
+        .move_completion = activation_move, .destroy = activation_destroy,
+    };
+    CleanupLease lease = { 0 };
+    if (bray_runtime_cleanup_storage_admission(&descriptor.storage, &lease) != 0)
+        return 80;
+    InactiveActivation token = { lease, &descriptor };
+    if (bray_runtime_activation_publication(&token) != 3)
+        return 81;
+    unsigned char* bytes = bray_runtime_cleanup_storage_activation(&lease, &descriptor.storage);
+    if (bytes == NULL)
+        return 82;
+    memset(bytes, 0, descriptor.storage.bytes);
+    ActivationHeaderPrefix header = { lease, &descriptor, lease.address };
+    memcpy(bytes, &header, sizeof(header));
+
+    atomic_store(&reject_allocations, 1);
+    unsigned attempts = atomic_load(&allocation_attempts);
+    if (bray_runtime_activation_publication(&token) != 0 ||
+        bray_runtime_activation_publication(&token) != 3 ||
+        bray_runtime_cleanup_storage_release(&lease) != 0 ||
+        bray_runtime_activation_publication(&token) != 3)
+        return 83;
+    if (bray_runtime_cleanup_storage_admission(&descriptor.storage, &lease) != 0 ||
+        bray_runtime_cleanup_storage_activation(&lease, &descriptor.storage) == NULL ||
+        bray_runtime_activation_publication(&token) != 3 ||
+        bray_runtime_cleanup_storage_release(&lease) != 0 ||
+        atomic_load(&allocation_attempts) != attempts)
+        return 84;
+    atomic_store(&reject_allocations, 0);
+    return 0;
+}
+
 static int check_cleanup_bundle(void)
 {
     unsigned admission_attempts = atomic_load(&allocation_attempts);
@@ -1083,6 +1167,9 @@ int main(void)
 
     if (backing_status != 0)
         return backing_status;
+
+    int publication_status = check_activation_publication();
+    if (publication_status != 0) return publication_status;
 
     if (bray_runtime_structured_shutdown() != 0 || atomic_load(&live_allocations) != 0)
         return 77;

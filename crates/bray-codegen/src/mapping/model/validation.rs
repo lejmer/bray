@@ -89,6 +89,7 @@ pub fn demanded_runtime_references_for_mir(
         .chain(
             [
                 RuntimeAbiRole::CleanupStorageClaim,
+                RuntimeAbiRole::ActivationPublication,
                 RuntimeAbiRole::CleanupStorageRelease,
             ]
             .into_iter()

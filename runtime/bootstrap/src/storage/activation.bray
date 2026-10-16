@@ -68,12 +68,14 @@ trusted internal func reserve_lease(pos pool: &mut bray.runtime.bootstrap.Report
         {
             let entry = trusted slot(shape, head);
 
+            let next: usize = match entry.state
+            {
+                case State.Free(next) { yield next; }
+                case _ { return trusted core.target.abort(); }
+            };
+
             entry.epoch = epoch;
-            entry.state = RESERVED;
-
-            let next: usize = entry.next;
-
-            entry.next = 0;
+            entry.state = State.Reserved;
             yield(next, entry.address);
         };
 
@@ -119,7 +121,7 @@ trusted internal func matches_lease(pos pool: &mut bray.runtime.bootstrap.Report
 
     let entry = trusted slot(shape, lease.slot);
 
-    return entry.state != FREE && entry.epoch == lease.epoch && entry.address == lease.address;
+    return !(entry.state matches State.Free(_)) && entry.epoch == lease.epoch && entry.address == lease.address;
 }
 
 trusted internal func matches_shape(
@@ -153,21 +155,48 @@ trusted internal func activate_value(
     let values = trusted shapes(pool);
     let entry = trusted slot(&mut values[lease.shape - 1], lease.slot);
 
-    if entry.state != RESERVED
+    if !(entry.state matches State.Reserved)
     {
         return std.memory.null<u8>();
     }
 
-    entry.state = ACTIVE;
+    entry.state = State.Active;
     return trusted core.target.from_exposed_address<u8>(address = entry.address);
 }
 
-// Transfer an initialized inactive frame to its exclusive dispatcher. Checking
-// the resident state before accessing frame bytes rejects duplicate native tokens.
-trusted internal func take_active_address(
+// Publish only after the producer initializes the complete frame. Retaining its
+// descriptor identity in the slot makes dispatch reject mismatched native tokens.
+trusted internal func publish_frame(
     pos pool: &mut bray.runtime.bootstrap.ReportPool,
     pos lease: &Lease,
-    pos descriptor: &Descriptor
+    pos descriptor: &Descriptor,
+    pos identity: usize
+) -> bool
+{
+    if identity == 0 || !trusted matches_shape(pool, lease, descriptor)
+    {
+        return false;
+    }
+
+    let values = trusted shapes(pool);
+    let entry = trusted slot(&mut values[lease.shape - 1], lease.slot);
+
+    if !(entry.state matches State.Active)
+    {
+        return false;
+    }
+
+    entry.state = State.Inactive(identity);
+    return true;
+}
+
+// Consume the registered inactive state before accessing frame bytes. Duplicate
+// native tokens cannot borrow a header concurrently with its dispatcher.
+trusted internal func take_frame_address(
+    pos pool: &mut bray.runtime.bootstrap.ReportPool,
+    pos lease: &Lease,
+    pos descriptor: &Descriptor,
+    pos identity: usize
 ) -> usize
 {
     if !trusted matches_shape(pool, lease, descriptor)
@@ -178,12 +207,19 @@ trusted internal func take_active_address(
     let values = trusted shapes(pool);
     let entry = trusted slot(&mut values[lease.shape - 1], lease.slot);
 
-    if entry.state != ACTIVE
+    match entry.state
     {
-        return 0;
+        case State.Inactive(registered)
+        {
+            if registered != identity
+            {
+                return 0;
+            }
+        }
+        case _ { return 0; }
     }
 
-    entry.state = DISPATCHED;
+    entry.state = State.Dispatched;
     return entry.address;
 }
 
@@ -201,8 +237,7 @@ trusted internal func release_value(pos pool: &mut bray.runtime.bootstrap.Report
     {
         let entry = trusted slot(shape, lease.slot);
 
-        entry.state = FREE;
-        entry.next = head;
+        entry.state = State.Free(head);
     }
 
     shape.free = lease.slot;

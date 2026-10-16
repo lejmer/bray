@@ -1794,3 +1794,54 @@ fn activation_tokens_require_both_producer_and_entry_authority() {
         }
     }
 }
+
+#[test]
+fn activation_publication_requires_the_exact_producer_witness() {
+    for (requirements, expression, valid) in [
+        ("", "token", false),
+        (
+            "requires(trusted bray.runtime.bootstrap.activation.producer(token = token))",
+            "token",
+            true,
+        ),
+        (
+            "requires(trusted bray.runtime.bootstrap.activation.producer(token = other))",
+            "token",
+            false,
+        ),
+    ] {
+        let caller = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+            trusted func production_probe(
+                pos token: &bray.runtime.bootstrap.activation.Inactive,
+                pos other: &bray.runtime.bootstrap.activation.Inactive,
+            ) -> u32
+                requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+                {requirements}
+            {{
+                return trusted bray.runtime.bootstrap.activation.publish({expression});
+            }}
+            "#,
+        );
+
+        let compilation = production_host_compilation(&caller);
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !lowered.diagnostics().has_errors(),
+            valid,
+            "{caller}: {lowered:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                lowered.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}

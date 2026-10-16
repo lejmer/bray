@@ -468,6 +468,7 @@ fn frame_constructors_claim_admitted_aligned_backing() {
         .join("\n");
 
     assert!(ir.contains("bray_runtime_cleanup_storage_claim"));
+    assert!(ir.contains("bray_runtime_activation_publication"));
     assert!(ir.contains("bray_runtime_cleanup_storage_release"));
     assert!(ir.contains("bray_runtime_outgoing_admission"));
     assert!(!ir.contains("@calloc("));

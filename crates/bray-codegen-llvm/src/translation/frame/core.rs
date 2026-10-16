@@ -138,7 +138,7 @@ fn frame_context_type<'context>(
         .frame_descriptor()
         .expect("protected-frame translation requires an established mapping or value");
 
-    let mut fields = Vec::with_capacity(instance.mir().storages().len() + 3);
+    let mut fields = Vec::with_capacity(instance.mir().storages().len() + 4);
 
     fields.push(context.i32_type().into());
     fields.push(types.map(descriptor.result_type())?);
@@ -200,6 +200,16 @@ fn translate_constructor<'context>(
         instance,
         context_type,
         storage,
+        types,
+    )?;
+
+    super::storage::publish(
+        module,
+        request,
+        context_type,
+        storage,
+        activation,
+        &builder,
         types,
     )?;
 

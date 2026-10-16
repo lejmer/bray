@@ -456,3 +456,38 @@ without adding another report owner. Growth is 840 production lines added and 15
 removed, plus 224 test lines, excluding this document. The new metadata, access
 contracts and callback bridge are prerequisites for deleting the still-present
 Rust activation graph and completion owner, not a second permanent implementation.
+
+
+## Publication checkpoint
+
+Generated constructors now publish their exact immutable activation descriptor
+only after initializing the header and captures. The resident slot uses one
+ordinary tagged state for its free-list link or published descriptor identity.
+Dispatch requires that identity as well as the complete lease and storage shape.
+This replaces the earlier interpretation that any active byte region was an
+initialized inactive frame. It adds no registry or per-frame allocation.
+
+The native publication export uses a raw token pointer with the existing checked
+memory requirements and an exact producer-slot contract. Its internal operation
+requires the producer witness for that token. Borrow parameters are not permitted
+in the C ABI. A witness for another token does not authorize publication.
+
+Eleven focused compilation checks pass, covering production storage and activation
+bodies, exact-producer rejection, and all nine host-emission tests. Native runtime
+artifact smoke tests pass, including reserved/repeated publication, stale leases
+before and after slot reuse, and allocation denial after admission. The native
+build also checks complete production declarations and rejected an unused outer
+raw-memory capability, which was removed. Logs are
+`bra-561-publication-build.*`, `bra-561-publication-style.log`,
+`bra-561-publication-format.log`, and `bra-561-publication-native.log` in the shared
+`target/bra-620-authority` directory. Rustfmt, mutating style, Bray formatting and
+`git diff --check` pass.
+
+The audit re-read AGENTS.md and reviewed all twelve changed source/test files.
+Searches cover slot states, lease/shape checks, descriptor publication, token
+witnesses, runtime-role consumers and frame field allocation. Existing shape and
+lease checks remain shared. The old numeric states and separate free-link field
+are removed. Growth is 209 production lines added and 33 removed, plus 139 test
+lines. Publication establishes initialized ownership before the consumer starts.
+The two-word inactive ABI and Rust owning graph still execute and remain to be
+replaced before BRA-561 can be reviewed or completed.
