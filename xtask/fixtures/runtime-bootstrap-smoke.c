@@ -1076,6 +1076,15 @@ typedef struct
 typedef void (*ActivationCallback)(const ActivationDescriptor*, uintptr_t, uint32_t,
     uintptr_t, ActivationProgress*, ActivationRecords*);
 
+typedef struct
+{
+    unsigned char identity[32];
+    uint32_t state;
+    ActivationState requirements;
+    uint64_t origin;
+} ActivationExecution;
+
+extern uint32_t bray_runtime_activation_snapshot(const ActivationHeader*, ActivationExecution*);
 extern uint32_t bray_runtime_activation_inspection(const InactiveActivation*, uint32_t, ActivationState*);
 extern uintptr_t bray_runtime_activation_entry(const InactiveActivation*, uint64_t);
 extern uint32_t bray_runtime_activation_dispatch(ActivationHeader*, ActivationCallback,
@@ -1163,7 +1172,7 @@ static ActivationState activation_state(uintptr_t context, uint32_t state)
 {
     const ActivationHeader* header = (const ActivationHeader*)context;
 
-    if (header->phase != 0 || state >= header->descriptor->states)
+    if (header->phase > 1 || state >= header->descriptor->states)
         abort();
 
     // Inspection must release the pool lock before entering provider code.
@@ -1171,6 +1180,12 @@ static ActivationState activation_state(uintptr_t context, uint32_t state)
         abort();
 
     ++activation_queries;
+
+    if (state == 1)
+        return (ActivationState){ .affinity = 1, .lanes = 1 };
+
+    if (state == 2)
+        return (ActivationState){ .affinity = 2, .lanes = 2 };
 
     if (state == 5)
         return (ActivationState){ .affinity = 3 };
@@ -1252,6 +1267,64 @@ static uintptr_t activate_fixture(InactiveActivation* token, uint64_t origin)
         *token = (InactiveActivation){ 0 };
 
     return active;
+}
+
+static int check_activation_snapshot(ActivationHeader* header)
+{
+    ActivationExecution execution = { 0 };
+    uint64_t origin = header->origin;
+
+    if (bray_runtime_activation_snapshot(header, &execution) != 0 ||
+        memcmp(execution.identity, header->descriptor->storage.identity, 32) != 0 ||
+        execution.state != 0 || execution.requirements.affinity != 0 ||
+        execution.requirements.lanes != 0 || execution.origin != origin)
+        return 103;
+
+    header->state = 1;
+    header->retained_affinity = 2;
+    header->retained_lanes = 2;
+    header->retained_origin = origin;
+
+    if (bray_runtime_activation_snapshot(header, &execution) != 0 ||
+        execution.state != 1 || execution.requirements.affinity != 1 ||
+        execution.requirements.lanes != 7 || execution.origin != origin)
+        return 104;
+
+    header->state = 2;
+    header->retained_affinity = 1;
+    header->retained_lanes = 1;
+
+    if (bray_runtime_activation_snapshot(header, &execution) != 0 ||
+        execution.state != 2 || execution.requirements.affinity != 1 ||
+        execution.requirements.lanes != 7 || execution.origin != origin)
+        return 105;
+
+    header->state = 1;
+    header->retained_origin = origin == 1 ? 2 : 1;
+    ActivationExecution before = execution;
+
+    if (bray_runtime_activation_snapshot(header, &execution) != 3 ||
+        memcmp(&before, &execution, sizeof(before)) != 0)
+        return 106;
+
+    header->retained_affinity = 0;
+    header->retained_lanes = 0;
+    header->retained_origin = 0;
+
+    for (uint32_t state = 5; state <= 8; ++state)
+    {
+        if (state == 7)
+            continue;
+
+        header->state = state;
+
+        if (bray_runtime_activation_snapshot(header, &execution) != 3 ||
+            memcmp(&before, &execution, sizeof(before)) != 0)
+            return 107;
+    }
+
+    header->state = 0;
+    return 0;
 }
 
 static int check_activation_publication(int embedded_descriptor, int restricted)
@@ -1427,6 +1500,11 @@ static int check_activation_publication(int embedded_descriptor, int restricted)
         status = 88;
         goto cleanup;
     }
+
+    status = check_activation_snapshot((ActivationHeader*)active);
+
+    if (status != 0)
+        goto cleanup;
 
     int dispatch_status = check_activation_dispatch((ActivationHeader*)active, activation_callback);
 #ifdef BRAY_ACTIVATION_NATIVE_CALLBACK

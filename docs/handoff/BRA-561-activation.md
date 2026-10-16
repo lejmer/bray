@@ -894,3 +894,35 @@ The integration audit also identifies a concrete remaining gap: async cleanup
 analysis gives Future both cleanup phases, while product lifecycle selection marks
 its compiler-known representation as requiring no cleanup. Inactive captured-owner
 retirement must use the shared activation driver during the production switch.
+
+## Active execution metadata and draft PR
+
+Draft PR: https://github.com/lejmer/bray/pull/611, based on `develop`. Completion
+review remains pending production driver integration.
+
+The active metadata query reads one requested compiler state and combines it with
+retained parent requirements. Origin-thread constraints preserve any main-thread
+lane requirement, and conflicting origin identities reject the query. Native
+outputs remain untouched on invalid ordinals, provider metadata or incompatible
+origins. No allocation or pool lock spans the provider callback. The exact active
+owner and independently retained output remain required even when ordinary memory
+validity is already available.
+
+Reuse the existing owned-header read between dispatch and metadata inspection.
+Move split modules under thin roots, and share state validation between inactive
+and active queries. The Rust run's old execution merge remains pending replacement
+with the activation owner, rather than becoming a second permanent policy.
+
+The ABI layout tests, exact-owner/output negative regression, full production
+storage/activation body audit and complete native smoke pass. Native cases cover
+both callback bridges, external/coallocated descriptions, allocation denial,
+provider reentry, both main/origin combinations and untouched rejected outputs.
+The first body audit found a local-name collision. The native product check then
+found an unused capability declaration. Both were corrected at their declarations.
+Rustfmt, mutating style, Bray formatting and diff whitespace checks pass. Logs use
+`bra-561-active-` in the shared target's `bra-620-authority` directory.
+
+Next connect the checked execution metadata to each native callback invocation,
+then switch the production token consumers and iterative run ownership together.
+Native admission, inactive Future retirement, result consumption and suspendable
+cleanup remain outstanding parts of BRA-561. This checkpoint does not complete it.

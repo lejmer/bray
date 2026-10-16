@@ -1,0 +1,24 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation.execution;
+
+using std.memory;
+
+trusted internal func read(
+    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>
+) -> bray.runtime.bootstrap.activation.Header
+    requires(trusted owned(pointer = pointer))
+    ensures(trusted owned(pointer = pointer))
+    uses(raw_memory)
+{
+    let authorize = trusted lambda(pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>)
+        requires(trusted owned(pointer = pointer))
+        ensures(
+            trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Header>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Header>(pointer = pointer),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Header>(pointer = pointer),
+        )
+        executes(pure, total) {};
+
+    trusted authorize(pointer);
+    return trusted std.memory.read<bray.runtime.bootstrap.activation.Header>(pointer);
+}

@@ -19,7 +19,7 @@ mod storage;
 pub mod symbols;
 mod temporal;
 
-pub use activation::NativeActivationDescriptor;
+pub use activation::{NativeActivationDescriptor, NativeActivationExecution};
 pub use panic::{
     NativePanicCause, NativePanicMessage, NativePanicMessageCopy, NativePanicMessageRelease,
     NativePanicPrimary, NativePanicReport, NativePanicReportConsumer, NativeSourceAnchor,

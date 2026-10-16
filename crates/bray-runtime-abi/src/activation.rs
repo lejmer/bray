@@ -1,7 +1,7 @@
 use crate::{
     NativeCleanupStorageShape, NativeFrameActionCallback, NativeFrameCancellationCallback,
     NativeFrameCompletionMoveCallback, NativeFrameResolveCallback, NativeFrameResumeCallback,
-    NativeFrameStateCallback,
+    NativeFrameState, NativeFrameStateCallback,
 };
 
 /// Immutable concrete frame description retained by its generated or native provider.
@@ -41,9 +41,31 @@ pub struct NativeActivationDescriptor {
     pub destroy: NativeFrameActionCallback,
 }
 
+/// Current checked execution requirements for one exclusively owned activation.
+/// Parent requirements remain effective while the parent is suspended on this frame.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NativeActivationExecution {
+    /// Identity of the immutable concrete frame description.
+    pub identity: [u8; 32],
+    /// Current continuation ordinal.
+    pub state: u32,
+    /// Combined local and retained-parent execution requirements.
+    pub requirements: NativeFrameState,
+    /// Origin thread required by an origin-affine frame.
+    pub origin: u64,
+}
+
 #[cfg(all(test, target_pointer_width = "64"))]
 mod tests {
-    use super::NativeActivationDescriptor;
+    use super::{NativeActivationDescriptor, NativeActivationExecution};
+
+    #[test]
+    fn activation_execution_matches_the_dispatcher_layout() {
+        assert_abi_layout!(NativeActivationExecution, size: 56, align: 8, fields: {
+            identity: 0, state: 32, requirements: 36, origin: 48,
+        });
+    }
 
     #[test]
     fn activation_descriptor_matches_the_producer_layout() {

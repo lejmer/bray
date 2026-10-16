@@ -1,0 +1,156 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation.requirements;
+
+using std.memory;
+
+@layout(c)
+internal struct Execution
+{
+    identity: [u8; 32];
+    state: u32;
+    requirements: State;
+    origin: u64;
+}
+
+// The dispatcher retains this exact active frame and independent output slot
+// throughout the metadata callback. Reentry cannot dispatch or retire the frame.
+trusted internal predicate active_destination(
+    pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    output: RawPointer<Execution>,
+);
+
+trusted internal func active(pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>) -> Execution?
+    requires(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
+    ensures(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
+    uses(layout_reinterpret)
+{
+    let header = trusted bray.runtime.bootstrap.activation.execution.read(pointer);
+
+    let describe = trusted lambda(
+        pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+        pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
+    ) -> bray.runtime.bootstrap.activation.Descriptor
+        requires(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
+        ensures(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
+        uses(raw_memory)
+    {
+        let authorize = trusted lambda(pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>)
+            ensures(
+                trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Descriptor>(
+                    pointer = descriptor,
+                    count = 1
+                ),
+                trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor),
+                trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor),
+            )
+            executes(pure, total) {};
+
+        trusted authorize(descriptor);
+        return trusted std.memory.read<bray.runtime.bootstrap.activation.Descriptor>(descriptor);
+    };
+
+    let descriptor = trusted describe(pointer, header.descriptor);
+
+    if header.state >= descriptor.states
+    {
+        return none;
+    }
+
+    let query = trusted lambda(
+        pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+        pos callback: RawPointer<Query>,
+        pos context: usize,
+        pos state: u32,
+    ) -> State
+        requires(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
+        ensures(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
+        uses(layout_reinterpret)
+    {
+        let authorize = trusted lambda(pos callback: RawPointer<Query>, pos context: usize, pos state: u32)
+            ensures(
+                trusted core.memory.callable_address_valid<Query>(pointer = callback),
+                trusted query_context(context = context, state = state),
+            )
+            executes(pure, total) {};
+
+        trusted authorize(callback, context, state);
+
+        let selected = trusted std.memory.callable_from_pointer<Query>(callback);
+
+        return trusted selected(context, state);
+    };
+
+    let callback = trusted std.memory.reinterpret<Query, u8>(descriptor.state);
+    let own = trusted query(pointer, callback, header.context, header.state);
+
+    let parent: State =
+    {
+        affinity = header.retained_affinity,
+        lanes = header.retained_lanes
+    };
+
+    let requirements = match consume combine(own, header.origin, parent, header.retained_origin)
+    {
+        case ?requirements { yield requirements; }
+        case none { return none; }
+    };
+
+    let origin = if header.retained_affinity == 1
+    {
+        yield header.retained_origin;
+    }
+    else
+    {
+        yield header.origin;
+    };
+
+    let execution: Execution =
+    {
+        identity = descriptor.storage.identity,
+        state = header.state,
+        requirements = requirements,
+        origin = origin
+    };
+
+    let mut result: Execution? = none;
+
+    result = execution;
+    return result;
+}
+
+@abi(c)
+trusted internal func snapshot(
+    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    pos output: RawPointer<Execution>,
+) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
+        trusted active_destination(pointer = pointer, output = output),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let query = trusted lambda(
+        pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+        pos output: RawPointer<Execution>,
+    ) -> Execution?
+        requires(
+            trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
+            trusted active_destination(pointer = pointer, output = output),
+        )
+        ensures(
+            trusted core.memory.valid_write<Execution>(pointer = output, count = 1),
+            trusted core.memory.aligned_for<Execution>(pointer = output),
+        )
+    {
+        return trusted active(pointer);
+    };
+
+    let execution = match consume trusted query(pointer, output)
+    {
+        case ?execution { yield execution; }
+        case none { return 3; }
+    };
+
+    trusted std.memory.write<Execution>(output, execution);
+    return bray.runtime.bootstrap.STATUS_SUCCESS;
+}

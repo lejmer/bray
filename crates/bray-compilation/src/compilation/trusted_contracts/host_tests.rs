@@ -1549,7 +1549,12 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
         include_str!("../../../../../runtime/bootstrap/src/activation/transition.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/callback.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/execution.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/execution/access.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/execution/invoke.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/requirements.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/requirements/inactive.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/requirements/active.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/requirements/state.bray"),
         include_str!("../../../../../runtime/bootstrap/src/storage/data.bray"),
         include_str!("../../../../../runtime/bootstrap/src/storage/admission.bray"),
         include_str!("../../../../../runtime/bootstrap/src/storage/activation.bray"),
@@ -2368,6 +2373,67 @@ fn metadata_inspection_cannot_infer_exclusive_ownership_from_a_producer() {
                 {ownership}
             {{
                 return trusted bray.runtime.bootstrap.activation.requirements.read(token, 0);
+            }}
+            "#
+        );
+
+        let compilation = production_host_compilation(&caller);
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !lowered.diagnostics().has_errors(),
+            valid,
+            "{caller}: {:?}",
+            lowered.diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                lowered.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn active_snapshot_requires_exact_dispatch_ownership_and_retained_output() {
+    for (owner, retained, output, valid) in [
+        ("", "pointer", "output", false),
+        ("other", "pointer", "output", false),
+        ("pointer", "other", "output", false),
+        ("pointer", "pointer", "other_output", false),
+        ("pointer", "pointer", "output", true),
+    ] {
+        let ownership = if owner.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "requires(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = {owner}))"
+            )
+        };
+
+        let caller = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+            trusted func production_probe(
+                pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+                pos other: RawPointer<bray.runtime.bootstrap.activation.Header>,
+                pos output: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+                pos other_output: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+            ) -> u32
+                {ownership}
+                requires(
+                    trusted bray.runtime.bootstrap.activation.requirements.active_destination(pointer = {retained}, output = {output}),
+                    trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Header>(pointer = pointer, count = 1),
+                    trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Header>(pointer = pointer),
+                    trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Header>(pointer = pointer),
+                )
+            {{
+                return trusted bray.runtime.bootstrap.activation.requirements.snapshot(pointer, output);
             }}
             "#
         );

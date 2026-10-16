@@ -914,6 +914,15 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: []
             }
+            ActivationSnapshot {
+                "Read an active frame's combined execution requirements without transferring ownership.", "activation_snapshot",
+                native: (ACTIVATION_SNAPSHOT_SYMBOL = "bray_runtime_activation_snapshot", [Pointer, Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> U32,
+                owner: Bootstrap, availability: All, bootstrap: ("activation.requirements.snapshot"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
             ActivationEntry {
                 "Activate authorized resident storage, leaving token consumption to the successful caller.", "activation_entry",
                 native: (ACTIVATION_ENTRY_SYMBOL = "bray_runtime_activation_entry", [Pointer, U64] -> Usize),
