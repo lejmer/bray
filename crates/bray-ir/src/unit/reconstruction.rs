@@ -143,7 +143,12 @@ fn retained_blocks(
     let mut pending = vec![unit.entry()];
 
     if let Some(descriptor) = unit.frame_descriptor() {
-        pending.extend(descriptor.states().iter().map(crate::MirFrameState::entry));
+        pending.extend(
+            descriptor
+                .states()
+                .iter()
+                .flat_map(|state| [state.entry(), state.broadcast()]),
+        );
     }
 
     while let Some(block) = pending.pop() {
@@ -903,6 +908,9 @@ mod tests {
         let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
         let resume = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
         let external_resume = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+        let broadcast = push_block(&mut builder, source.clone(), MirBlockKind::CleanupBroadcast);
+
+        builder.set_terminator(broadcast, source.clone(), MirTerminatorKind::Return(None));
 
         let cancellation = push_block(&mut builder, source.clone(), MirBlockKind::CleanupBroadcast);
 
@@ -972,9 +980,15 @@ mod tests {
             ProtectedFrameAbiVersions::uniform(abi),
             ty,
             [
-                MirFrameState::new(MirFrameStateId::new(0), entry, [], []),
-                MirFrameState::new(MirFrameStateId::new(1), resume, [], []),
-                MirFrameState::new(MirFrameStateId::new(2), external_resume, [], [storage]),
+                MirFrameState::new(MirFrameStateId::new(0), entry, entry, [], []),
+                MirFrameState::new(MirFrameStateId::new(1), resume, resume, [], []),
+                MirFrameState::new(
+                    MirFrameStateId::new(2),
+                    external_resume,
+                    broadcast,
+                    [],
+                    [storage],
+                ),
             ],
         )
         .unwrap_or_else(|error| panic!("frame descriptor must be valid: {error:?}"));

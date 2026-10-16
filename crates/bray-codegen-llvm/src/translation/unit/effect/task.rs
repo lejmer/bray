@@ -82,13 +82,21 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .context()
             .ptr_type(inkwell::AddressSpace::default());
 
-        let cancellation = self
-            .helper_address(cancellation)?
-            .unwrap_or_else(|| callback_type.const_null().into());
+        let cancellation = crate::mapping::frame::cleanup_callback(
+            self.module,
+            self.request.mappings(),
+            cancellation,
+            self.types,
+        )?
+        .unwrap_or_else(|| callback_type.const_null());
 
-        let lifecycle = self
-            .helper_address(lifecycle)?
-            .unwrap_or_else(|| callback_type.const_null().into());
+        let lifecycle = crate::mapping::frame::cleanup_callback(
+            self.module,
+            self.request.mappings(),
+            lifecycle,
+            self.types,
+        )?
+        .unwrap_or_else(|| callback_type.const_null());
 
         let arguments = [
             task.into(),

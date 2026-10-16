@@ -2149,6 +2149,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 for _ in 0..state_count {
                     let state = bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?);
                     let entry = self.block_id()?;
+                    let broadcast = self.block_id()?;
 
                     let affinity = bray_runtime_interface::ProtectedFrameAffinity::from_code(
                         read_u32(&mut self.reader)?,
@@ -2170,7 +2171,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     }
 
                     states.push(
-                        MirFrameState::new(state, entry, lanes, storages).with_affinity(affinity),
+                        MirFrameState::new(state, entry, broadcast, lanes, storages)
+                            .with_affinity(affinity),
                     );
                 }
 
@@ -2217,6 +2219,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             )?)),
             1 => Ok(MirStorageKind::Local),
             2 => Ok(MirStorageKind::Temporary),
+            11 => Ok(MirStorageKind::BroadcastLocal),
             3 => Ok(MirStorageKind::Return),
             4 => Ok(MirStorageKind::InactiveFrame),
             5 => Ok(MirStorageKind::CurrentFrame),

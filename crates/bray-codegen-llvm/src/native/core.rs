@@ -53,9 +53,9 @@ pub(crate) fn indirect_result_type<'context>(
         }
         CodegenSymbolKey::ProtectedFrame { operation, .. } => {
             frame_result_is_indirect(target, *operation).then(|| match operation {
-                ProtectedFrameOperation::Resume | ProtectedFrameOperation::CancellationEntry => {
-                    frame_progress_type(context).into()
-                }
+                ProtectedFrameOperation::Resume
+                | ProtectedFrameOperation::CancellationEntry
+                | ProtectedFrameOperation::TaskBroadcast => frame_progress_type(context).into(),
                 ProtectedFrameOperation::MoveBeforeStart => {
                     unreachable!("move-before-start results are handled for every native ABI")
                 }
@@ -251,6 +251,7 @@ fn frame_result_is_indirect(_target: &CodegenTarget, operation: ProtectedFrameOp
         ProtectedFrameOperation::MoveBeforeStart
             | ProtectedFrameOperation::Resume
             | ProtectedFrameOperation::CancellationEntry
+            | ProtectedFrameOperation::TaskBroadcast
     )
 }
 
@@ -599,15 +600,14 @@ pub(crate) fn frame_operation_type<'context>(
     match operation {
         ProtectedFrameOperation::MoveBeforeStart
         | ProtectedFrameOperation::Resume
-        | ProtectedFrameOperation::CancellationEntry => context
+        | ProtectedFrameOperation::CancellationEntry
+        | ProtectedFrameOperation::TaskBroadcast => context
             .void_type()
             .fn_type(&[pointer.into(), usize.into()], false),
         ProtectedFrameOperation::StateDescription => context
             .i64_type()
             .fn_type(&[usize.into(), context.i32_type().into()], false),
-        ProtectedFrameOperation::TaskBroadcast | ProtectedFrameOperation::Destruction => {
-            context.void_type().fn_type(&[usize.into()], false)
-        }
+        ProtectedFrameOperation::Destruction => context.void_type().fn_type(&[usize.into()], false),
         ProtectedFrameOperation::LifecycleResolution => context.void_type().fn_type(
             &[pointer.into(), usize.into(), context.i32_type().into()],
             false,

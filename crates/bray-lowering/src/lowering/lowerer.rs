@@ -73,6 +73,8 @@ pub(super) struct Lowerer<'unit> {
     pub(super) catch_targets: Vec<CatchTarget>,
     pub(super) input_temporaries: Vec<super::inputs::InputTemporary>,
     pub(super) frame_states: Vec<MirFrameState>,
+    pub(super) initial_broadcast: Option<MirBlockId>,
+    pub(super) broadcast_outcome: Option<(crate::cleanup_outcome::CleanupOutcome, MirBlockId)>,
     pub(super) cleanup_outcome: Option<crate::cleanup_outcome::CleanupOutcome>,
     pub(super) cleanup_failure_targets: Option<(MirBlockId, MirBlockId, bray_ir::MirPlace)>,
     pub(super) abnormal_cleanup_machine: Option<super::cleanup::AbnormalCleanupMachine>,
@@ -112,6 +114,8 @@ impl<'unit> Lowerer<'unit> {
             catch_targets: Vec::new(),
             input_temporaries: Vec::new(),
             frame_states: Vec::new(),
+            initial_broadcast: None,
+            broadcast_outcome: None,
             cleanup_outcome: None,
             cleanup_failure_targets: None,
             abnormal_cleanup_machine: None,
@@ -249,6 +253,8 @@ impl<'unit> Lowerer<'unit> {
             let initial = MirFrameState::new(
                 MirFrameStateId::new(0),
                 entry,
+                self.initial_broadcast
+                    .expect("protected source frame retains its capture broadcast"),
                 self.execution_lane_requirements(),
                 initial_storages,
             )

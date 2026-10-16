@@ -213,8 +213,8 @@ native_export! {
         task: NativeTaskHandle,
         request_cancellation: u8,
         layout: *const NativeRunResultLayout,
-        cancellation: Option<super::task_observation::NativeValueCleanupCallback>,
-        lifecycle: Option<super::task_observation::NativeValueCleanupCallback>,
+        cancellation: Option<bray_runtime_abi::NativeValueCleanupCallback>,
+        lifecycle: Option<bray_runtime_abi::NativeValueCleanupCallback>,
     ) -> NativeInactiveFrame {
         let layout = unsafe { layout.as_ref() }
             .copied()
@@ -266,8 +266,8 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C-unwind" fn bray_runtime_frame_completion_move() -> usize {
-        with_runtime(|runtime| runtime.resolve_awaited_completion())
+    pub extern "C-unwind" fn bray_runtime_frame_completion_move(outcome: &mut NativeRunOutcome) -> usize {
+        with_runtime(|runtime| runtime.resolve_awaited_completion(outcome))
             .and_then(|result| result)
             .unwrap_or_else(|_| panic!("awaited-frame completion resolution failed"))
     }
@@ -572,7 +572,7 @@ mod tests {
                 frame_state,
                 resume_frame,
                 cancel_frame,
-                ignore_action,
+                ignore_broadcast,
                 ignore_resolution,
                 check_alignment,
                 ignore_action,
@@ -1065,7 +1065,7 @@ mod tests {
             frame_state,
             suspend_without_wake,
             record_cancel_entry,
-            ignore_action,
+            ignore_broadcast,
             ignore_resolution,
             ignore_completion_move,
             ignore_action,
@@ -1117,7 +1117,7 @@ mod tests {
                 frame_state,
                 resume_frame,
                 cancel_frame,
-                panic_action,
+                panic_broadcast,
                 panic_resolution,
                 if fail_completion {
                     panic_completion_move
@@ -1223,7 +1223,7 @@ mod tests {
 
     #[test]
     fn frame_callbacks_retain_written_reports_before_unwind() {
-        for phase in 0..3 {
+        for phase in 0..4 {
             FRAME_BRIDGE_RELEASES.store(0, Ordering::Relaxed);
 
             let frame = NativeProtectedFrame::new(
@@ -1235,13 +1235,17 @@ mod tests {
                 8,
                 8,
                 frame_state,
-                if phase == 2 {
+                if phase >= 2 {
                     resume_runtime_failure
                 } else {
                     write_frame_report_then_unwind
                 },
                 write_frame_report_then_unwind,
-                ignore_action,
+                if phase == 3 {
+                    write_frame_report_then_unwind
+                } else {
+                    ignore_broadcast
+                },
                 if phase == 2 {
                     resolve_frame_report_then_unwind
                 } else {
@@ -1265,7 +1269,7 @@ mod tests {
 
             assert_eq!(
                 outcome.state(),
-                if phase == 2 {
+                if phase >= 2 {
                     NativeRunState::RUNTIME_FAILURE
                 } else {
                     NativeRunState::PANICKED
@@ -1279,7 +1283,7 @@ mod tests {
 
             assert_eq!(FRAME_BRIDGE_RELEASES.load(Ordering::Relaxed), 0);
 
-            if phase == 2 {
+            if phase >= 2 {
                 assert_eq!(
                     super::bray_runtime_cleanup_incident_reporting(),
                     NativeRuntimeStatus::SUCCESS
@@ -1799,6 +1803,107 @@ mod tests {
         );
     }
 
+    static AWAITED_FAILURE_PHASE: AtomicUsize = AtomicUsize::new(0);
+    static AWAITED_REPORT_RELEASES: AtomicUsize = AtomicUsize::new(0);
+
+    #[test]
+    fn awaited_failures_transfer_original_outcomes_without_further_admission() {
+        AWAITED_REPORT_RELEASES.store(0, Ordering::Relaxed);
+
+        for kind in 1..=2 {
+            AWAITED_FAILURE_PHASE.store(0, Ordering::Relaxed);
+
+            let root = execute_test_root(
+                composed_frame(kind, catch_awaited_failure, ignore_completion_move),
+                NativeRuntimeConfiguration::new(1, 1),
+            )
+            .root()
+            .expect("failure-catching root must transfer");
+
+            assert_eq!(
+                bray_runtime_root_terminal_observation(root).state(),
+                NativeRunState::COMPLETED
+            );
+
+            assert_eq!(
+                bray_runtime_root_completion_resolution(root),
+                NativeRuntimeStatus::SUCCESS
+            );
+
+            assert_eq!(
+                bray_runtime_structured_shutdown(),
+                NativeRuntimeStatus::SUCCESS
+            );
+
+            assert_eq!(AWAITED_FAILURE_PHASE.load(Ordering::Relaxed), 2);
+            assert_eq!(AWAITED_REPORT_RELEASES.load(Ordering::Relaxed), kind - 1);
+        }
+    }
+
+    extern "C-unwind" fn catch_awaited_failure(destination: &mut NativeFrameProgress, kind: usize) {
+        if AWAITED_FAILURE_PHASE.fetch_add(1, Ordering::Relaxed) == 0 {
+            bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(
+                kind,
+                move_failing_child,
+            ));
+
+            *destination = NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 1, 0);
+            return;
+        }
+
+        let _denied = crate::outgoing::tests::reject_admission();
+        let mut outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
+
+        assert_eq!(bray_runtime_frame_completion_move(&mut outcome), 0);
+
+        assert_eq!(
+            outcome.state(),
+            if kind == 1 {
+                NativeRunState::CANCELLED
+            } else {
+                NativeRunState::PANICKED
+            }
+        );
+
+        if kind == 2 {
+            assert_eq!(AWAITED_REPORT_RELEASES.load(Ordering::Relaxed), 0);
+
+            let mut report = crate::RuntimePanic::from_native(outcome.take_report());
+
+            assert_eq!(report.consume(false), NativeRuntimeStatus::SUCCESS);
+            assert_eq!(AWAITED_REPORT_RELEASES.load(Ordering::Relaxed), 1);
+        }
+
+        *destination = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
+    }
+
+    extern "C" fn move_failing_child(kind: usize) -> NativeProtectedFrame {
+        composed_frame(kind, resume_failing_child, ignore_completion_move)
+    }
+
+    extern "C-unwind" fn resume_failing_child(destination: &mut NativeFrameProgress, kind: usize) {
+        *destination = if kind == 1 {
+            NativeFrameProgress::new(NativeFrameProgressKind::CANCELLED, 0, 0)
+        } else {
+            NativeFrameProgress::panicked(crate::frame::native_report(
+                bray_runtime_abi::NativePanicPrimary::new(
+                    bray_runtime_abi::NativePanicCause::ASSERTION,
+                    bray_runtime_abi::NativeSourceAnchor::unavailable(),
+                    bray_runtime_abi::NativePanicMessage::new(
+                        0,
+                        0,
+                        None,
+                        Some(release_awaited_primary),
+                    ),
+                ),
+            ))
+        };
+    }
+
+    extern "C" fn release_awaited_primary(_: usize, _: usize, _: &mut NativeRunOutcome) {
+        assert_eq!(AWAITED_REPORT_RELEASES.fetch_add(1, Ordering::Relaxed), 0);
+    }
+
     #[test]
     fn deep_direct_awaits_are_iterative_and_yield_to_ready_work() {
         for state in &DEEP_AWAIT_STATES {
@@ -1829,7 +1934,7 @@ mod tests {
         assert_eq!(
             start_test_task(
                 root,
-                deep_await_frame(1, resume_deep_await, record_deep_completion)
+                composed_frame(1, resume_deep_await, record_deep_completion)
             ),
             NativeRuntimeStatus::SUCCESS
         );
@@ -1940,7 +2045,7 @@ mod tests {
             state,
             resume,
             cancel_frame,
-            ignore_action,
+            ignore_broadcast,
             ignore_resolution,
             move_completion,
             destroy,
@@ -1983,6 +2088,13 @@ mod tests {
         *destination = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
     }
 
+    fn assert_awaited_completion() {
+        let mut outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
+        let _ = bray_runtime_frame_completion_move(&mut outcome);
+
+        assert_eq!(outcome.state(), NativeRunState::COMPLETED);
+    }
+
     extern "C-unwind" fn await_exact_blocking_child(
         destination: &mut NativeFrameProgress,
         _: usize,
@@ -1997,7 +2109,7 @@ mod tests {
 
             bray_runtime_suspension_registration(1)
         } else {
-            let _ = bray_runtime_frame_completion_move();
+            assert_awaited_completion();
 
             NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 17)
         };
@@ -2014,7 +2126,7 @@ mod tests {
 
             bray_runtime_suspension_registration(1)
         } else {
-            let _ = bray_runtime_frame_completion_move();
+            assert_awaited_completion();
 
             NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 23)
         };
@@ -2062,7 +2174,7 @@ mod tests {
         }
     }
 
-    fn deep_await_frame(
+    fn composed_frame(
         depth: usize,
         resume: extern "C-unwind" fn(&mut NativeFrameProgress, usize),
         move_completion: extern "C-unwind" fn(usize, usize),
@@ -2078,7 +2190,7 @@ mod tests {
             frame_state,
             resume,
             resume,
-            ignore_action,
+            ignore_broadcast,
             ignore_resolution,
             move_completion,
             ignore_action,
@@ -2100,7 +2212,7 @@ mod tests {
             NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 1, 0)
         } else {
             if depth < DEEP_AWAIT_DEPTH {
-                let _ = bray_runtime_frame_completion_move();
+                assert_awaited_completion();
             }
 
             NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0)
@@ -2108,7 +2220,7 @@ mod tests {
     }
 
     extern "C" fn move_deep_await_child(depth: usize) -> NativeProtectedFrame {
-        deep_await_frame(depth, resume_deep_await, record_deep_completion)
+        composed_frame(depth, resume_deep_await, record_deep_completion)
     }
 
     extern "C-unwind" fn record_deep_completion(_: usize, _: usize) {
@@ -2141,7 +2253,7 @@ mod tests {
             movable_frame_state,
             resume_pending_child,
             resume_pending_child,
-            ignore_action,
+            ignore_broadcast,
             ignore_resolution,
             ignore_completion_move,
             destroy_rejected_child,
@@ -2176,7 +2288,7 @@ mod tests {
         *destination = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
     }
 
-    extern "C-unwind" fn panic_while_broadcasting_child(_: usize) {
+    extern "C-unwind" fn panic_while_broadcasting_child(_: &mut NativeFrameProgress, _: usize) {
         PENDING_CHILD_BROADCASTS.fetch_add(1, Ordering::Relaxed);
 
         PENDING_CHILD_CLEANUP_THREAD.store(
@@ -2202,7 +2314,7 @@ mod tests {
             frame_state,
             wait_for_origin_event,
             cancel_frame,
-            ignore_action,
+            ignore_broadcast,
             ignore_resolution,
             ignore_completion_move,
             ignore_action,
@@ -2235,7 +2347,7 @@ mod tests {
             let completed = AWAITED_BLOCKING_COMPLETIONS.load(Ordering::Relaxed);
 
             if completed != 0 {
-                let _ = bray_runtime_frame_completion_move();
+                assert_awaited_completion();
             }
 
             if completed == AWAITED_BLOCKING_CHILD_COUNT {
@@ -2264,7 +2376,7 @@ mod tests {
 
             bray_runtime_suspension_registration(1)
         } else {
-            let _ = bray_runtime_frame_completion_move();
+            assert_awaited_completion();
 
             NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 19)
         };
@@ -2402,7 +2514,13 @@ mod tests {
         cancel_frame(destination, 0)
     }
 
+    extern "C-unwind" fn ignore_broadcast(_: &mut NativeFrameProgress, _: usize) {}
+
     extern "C-unwind" fn ignore_action(_: usize) {}
+
+    extern "C-unwind" fn panic_broadcast(_: &mut NativeFrameProgress, context: usize) {
+        panic_action(context);
+    }
 
     extern "C-unwind" fn panic_action(_: usize) {
         panic!("cleanup action failed");
@@ -2425,7 +2543,7 @@ mod tests {
         panic!("cleanup resolution failed");
     }
 
-    extern "C-unwind" fn record_failure_broadcast(_: usize) {
+    extern "C-unwind" fn record_failure_broadcast(_: &mut NativeFrameProgress, _: usize) {
         FAILURE_BROADCASTS.fetch_add(1, Ordering::Relaxed);
     }
 

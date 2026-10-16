@@ -55,6 +55,25 @@ where
         }
     };
 
+    let (storage_requirements, cleanup_types, scope_exits, replacements, cleanup_diagnostics) =
+        match scope_exit_plans(
+            cleanup_shapes,
+            request,
+            storage,
+            flow,
+            dependencies,
+            selections,
+            types,
+        ) {
+            Ok(plans) => plans,
+            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(CheckerQueryError::Upstream(error)) => {
+                return CheckerOutcome::UpstreamFailure(error);
+            }
+        };
+
+    let broadcast_owners = broadcast_owners(&storage_requirements, storage);
+
     let local_initializers = local_initializers(request);
     let mut deferred_calls = BTreeMap::new();
     let mut active = BTreeSet::new();
@@ -181,6 +200,10 @@ where
                     dependency_contract,
                     calls,
                     retained,
+                    suspension_state
+                        .into_iter()
+                        .flat_map(|state| state.live())
+                        .filter_map(|identity| broadcast_owners.get(identity).copied()),
                     suspension_recovered,
                 );
 
@@ -221,23 +244,6 @@ where
         );
     }
 
-    let (storage_requirements, cleanup_types, scope_exits, replacements, cleanup_diagnostics) =
-        match scope_exit_plans(
-            cleanup_shapes,
-            request,
-            storage,
-            flow,
-            dependencies,
-            selections,
-            types,
-        ) {
-            Ok(plans) => plans,
-            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Upstream(error)) => {
-                return CheckerOutcome::UpstreamFailure(error);
-            }
-        };
-
     is_recovered |= scope_exits.iter().any(|exit| exit.is_recovered());
 
     diagnostics.add_range(cleanup_diagnostics);
@@ -265,6 +271,31 @@ where
     };
 
     CheckerOutcome::complete(analysis, diagnostics)
+}
+
+fn broadcast_owners(
+    requirements: &[bray_bound_tree::AsyncStorageRequirement],
+    storage: &StoragePlan,
+) -> BTreeMap<bray_bound_tree::StorageIdentityId, bray_bound_tree::StorageAccessId> {
+    requirements
+        .iter()
+        .filter_map(|requirement| {
+            let bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(phases) =
+                requirement.cleanup()
+            else {
+                return None;
+            };
+
+            (requirement.owner().is_some() && phases.includes_cancellation()).then(|| {
+                (
+                    requirement.identity(),
+                    storage
+                        .root_access(requirement.identity())
+                        .expect("owned cancellation storage retains its root access"),
+                )
+            })
+        })
+        .collect()
 }
 
 fn add_selected_task_operations<C>(

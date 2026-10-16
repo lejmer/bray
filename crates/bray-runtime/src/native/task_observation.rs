@@ -6,6 +6,7 @@ use bray_runtime_abi::{
     NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
     NativeFrameState, NativeInactiveFrame, NativeLaneRequirements, NativeProtectedFrame,
     NativeRunOutcome, NativeRunResultLayout, NativeRunState, NativeRuntimeStatus, NativeTaskHandle,
+    NativeValueCleanupCallback,
 };
 
 use super::state::{current_native_task, runtime_failure, with_runtime};
@@ -13,7 +14,8 @@ use crate::RuntimePanic;
 
 const TASK_OBSERVATION_FRAME_IDENTITY: [u8; 32] = *b"bray.task.observation.frame.v1\0\0";
 
-pub(super) type NativeValueCleanupCallback = extern "C-unwind" fn(*mut u8);
+// Each callback may publish a report and then unwind. Task retirement adds one outcome.
+const OUTGOING_RECORDS: usize = 5;
 
 struct TaskObservation {
     result: crate::backing::Backing,
@@ -112,7 +114,7 @@ impl TaskObservation {
             return;
         };
 
-        let mut incident = None;
+        let mut incident: Option<RuntimePanic> = None;
 
         let mut outgoing = std::mem::take(
             &mut *self
@@ -124,10 +126,34 @@ impl TaskObservation {
         match transfer_outcome(outcome, self.result.address(), self.layout) {
             Ok(()) => {
                 for cleanup in [self.cancellation, self.lifecycle].into_iter().flatten() {
-                    if let Err(found) =
-                        catch_unwind(AssertUnwindSafe(|| cleanup(self.result.pointer())))
-                    {
-                        RuntimePanic::record(&mut incident, found, &mut outgoing);
+                    let mut outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
+
+                    if let Err(found) = catch_unwind(AssertUnwindSafe(|| {
+                        cleanup(self.result.pointer(), &mut outcome);
+                    })) {
+                        let panic = RuntimePanic::from_payload(found, &mut outgoing);
+
+                        super::outgoing::append_panic(&mut outcome, panic, &mut outgoing);
+                    }
+
+                    match outcome.state() {
+                        NativeRunState::PANICKED => {
+                            let mut report = RuntimePanic::from_native(outcome.take_report());
+
+                            report.reserve_from(&mut outgoing);
+
+                            if let Some(incident) = &mut incident {
+                                incident.append(report, &mut outgoing);
+                            } else {
+                                incident = Some(report);
+                            }
+                        }
+                        // Disposal already abandons this observation. Cancellation does not
+                        // skip the remaining lifecycle operation or release its retained task.
+                        NativeRunState::COMPLETED | NativeRunState::CANCELLED => {}
+                        state => panic!(
+                            "frame cleanup must return a terminal source outcome, got {state:?}"
+                        ),
                     }
                 }
             }
@@ -159,7 +185,7 @@ pub(super) fn create(
 
     let context = Box::new(TaskObservation {
         result: crate::backing::Backing::admit(layout.size(), layout.alignment()).ok()?,
-        outgoing: Mutex::new(crate::outgoing::OutgoingRecords::admit(3).ok()?),
+        outgoing: Mutex::new(crate::outgoing::OutgoingRecords::admit(OUTGOING_RECORDS).ok()?),
         task,
         layout,
         cancellation,
@@ -216,7 +242,7 @@ extern "C-unwind" fn cancel(destination: &mut NativeFrameProgress, context: usiz
     *destination = observation.resume(context);
 }
 
-extern "C-unwind" fn broadcast_tasks(context: usize) {
+extern "C-unwind" fn broadcast_tasks(_: &mut NativeFrameProgress, context: usize) {
     let observation = observation(context);
     let _ = with_runtime(|runtime| runtime.request_cancellation(observation.task));
 }
@@ -372,12 +398,12 @@ mod tests {
         }
     }
 
-    extern "C-unwind" fn failing_cancellation(_: *mut u8) {
+    extern "C-unwind" fn failing_cancellation(_: *mut u8, _: &mut NativeRunOutcome) {
         CLEANUP_EVENTS.with_borrow_mut(|events| events.push(("cleanup", 1)));
         panic_any(CleanupFailure(1));
     }
 
-    extern "C-unwind" fn failing_lifecycle(_: *mut u8) {
+    extern "C-unwind" fn failing_lifecycle(_: *mut u8, _: &mut NativeRunOutcome) {
         CLEANUP_EVENTS.with_borrow_mut(|events| events.push(("cleanup", 2)));
         panic_any(CleanupFailure(2));
     }
@@ -418,6 +444,80 @@ mod tests {
         });
     }
 
+    extern "C" fn release_written(context: usize, _: usize, _: &mut NativeRunOutcome) {
+        CLEANUP_EVENTS
+            .with_borrow_mut(|events| events.push(("release", u8::try_from(context).unwrap())));
+    }
+
+    extern "C-unwind" fn write_then_unwind(_: *mut u8, outcome: &mut NativeRunOutcome) {
+        CLEANUP_EVENTS.with_borrow_mut(|events| events.push(("cleanup", 8)));
+
+        *outcome = NativeRunOutcome::panicked(crate::frame::native_report(
+            bray_runtime_abi::NativePanicPrimary::new(
+                bray_runtime_abi::NativePanicCause::ASSERTION,
+                bray_runtime_abi::NativeSourceAnchor::unavailable(),
+                bray_runtime_abi::NativePanicMessage::new(8, 0, None, Some(release_written)),
+            ),
+        ));
+
+        panic_any(CleanupFailure(1));
+    }
+
+    extern "C-unwind" fn cancel_cleanup(_: *mut u8, outcome: &mut NativeRunOutcome) {
+        CLEANUP_EVENTS.with_borrow_mut(|events| events.push(("cleanup", 3)));
+        *outcome = NativeRunOutcome::new(NativeRunState::CANCELLED, 0);
+    }
+
+    #[test]
+    fn cleanup_preserves_written_report_before_unwind_without_further_admission() {
+        let completed = 42_u64;
+        let observation = observation(&completed, Some(write_then_unwind), Some(failing_lifecycle));
+        let _denied = crate::outgoing::tests::reject_admission();
+
+        let failure =
+            catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task())).unwrap_err();
+
+        let failure = failure.downcast::<crate::RuntimePanic>().unwrap();
+
+        assert_eq!(failure.suppressed_count(), 3);
+        assert!(observation.consumed.load(Ordering::Acquire));
+        CLEANUP_EVENTS.with_borrow(|events| assert_eq!(*events, [("cleanup", 8), ("cleanup", 2)]));
+        drop(failure);
+        observation.resolve_owned_task();
+
+        CLEANUP_EVENTS.with_borrow(|events| {
+            assert_eq!(
+                *events,
+                [
+                    ("cleanup", 8),
+                    ("cleanup", 2),
+                    ("release", 8),
+                    ("release", 1),
+                    ("release", 2),
+                ]
+            )
+        });
+    }
+
+    #[test]
+    fn cancelled_cleanup_does_not_skip_lifecycle_or_task_retirement() {
+        let completed = 42_u64;
+        let observation = observation(&completed, Some(cancel_cleanup), Some(failing_lifecycle));
+
+        let failure =
+            catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task())).unwrap_err();
+
+        let failure = failure.downcast::<crate::RuntimePanic>().unwrap();
+
+        assert_eq!(failure.suppressed_count(), 1);
+        assert!(observation.consumed.load(Ordering::Acquire));
+        drop(failure);
+
+        CLEANUP_EVENTS.with_borrow(|events| {
+            assert_eq!(*events, [("cleanup", 3), ("cleanup", 2), ("release", 2),])
+        });
+    }
+
     fn observation(
         completed: &u64,
         cancellation: Option<super::NativeValueCleanupCallback>,
@@ -429,7 +529,9 @@ mod tests {
                 result_layout().alignment(),
             )
             .unwrap(),
-            outgoing: Mutex::new(crate::outgoing::OutgoingRecords::admit(3).unwrap()),
+            outgoing: Mutex::new(
+                crate::outgoing::OutgoingRecords::admit(super::OUTGOING_RECORDS).unwrap(),
+            ),
             task: bray_runtime_abi::NativeTaskHandle::new(1).unwrap(),
             layout: result_layout(),
             cancellation,

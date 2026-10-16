@@ -227,6 +227,7 @@ pub(crate) struct UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) host_selection_shutdown: Option<BasicBlock<'context>>,
     pub(super) host_selection_statuses:
         Vec<(inkwell::values::IntValue<'context>, BasicBlock<'context>)>,
+    pub(super) frame_broadcast: bool,
     pub(super) frame_context: Option<StructType<'context>>,
     pub(super) frame_dispatch: Option<BasicBlock<'context>>,
     pub(super) frame_progress: Option<BasicValueEnum<'context>>,
@@ -309,7 +310,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let unit = instance.mir();
         let builder = context.create_builder();
 
-        let reachable_blocks = reachable_blocks(unit, signature.has_panic_report_context());
+        let reachable_blocks =
+            reachable_blocks(unit, signature.has_panic_report_context(), [unit.entry()]);
+
         let blocks = create_blocks(context, function, unit, Some(&reachable_blocks));
         let checked_call_operations = checked_call_operations(unit);
 
@@ -343,6 +346,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             host_selection_continuation: None,
             host_selection_shutdown: None,
             host_selection_statuses: Vec::new(),
+            frame_broadcast: false,
             frame_context: None,
             frame_dispatch: None,
             frame_progress: None,
@@ -353,13 +357,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         clippy::too_many_arguments,
         reason = "frame translator construction keeps independent LLVM, MIR, type, and debug inputs explicit"
     )]
-    pub(crate) fn for_frame_resume(
+    pub(crate) fn for_frame_operation(
         context: &'context Context,
         module: &'module Module<'context>,
         request: CodegenRequest<'request>,
         instance: &'request CodegenInstance,
         function: FunctionValue<'context>,
         frame_context: StructType<'context>,
+        operation: bray_runtime_interface::ProtectedFrameOperation,
         types: &'types mut LlvmTypeMappings<'context, 'request>,
         debug: Option<&'types LlvmDebugInfo<'context>>,
         debug_scope: Option<DISubprogram<'context>>,
@@ -373,9 +378,27 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let unit = instance.mir();
         let dispatch = context.append_basic_block(function, "frame.dispatch");
 
-        let blocks = create_blocks(context, function, unit, None);
+        let frame_broadcast = match operation {
+            bray_runtime_interface::ProtectedFrameOperation::TaskBroadcast => true,
+            bray_runtime_interface::ProtectedFrameOperation::Resume => false,
+            other => panic!("MIR frame translation requires resume or broadcast, got {other:?}"),
+        };
 
-        let reachable_blocks = reachable_blocks(unit, false);
+        let entries = unit
+            .frame_descriptor()
+            .expect("protected frame has its descriptor")
+            .states()
+            .iter()
+            .map(|state| {
+                if frame_broadcast {
+                    state.broadcast()
+                } else {
+                    state.entry()
+                }
+            });
+
+        let reachable_blocks = reachable_blocks(unit, false, entries);
+        let blocks = create_blocks(context, function, unit, Some(&reachable_blocks));
         let checked_call_operations = checked_call_operations(unit);
 
         Ok(Self {
@@ -406,6 +429,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             host_selection_continuation: None,
             host_selection_shutdown: None,
             host_selection_statuses: Vec::new(),
+            frame_broadcast,
             frame_context: Some(frame_context),
             frame_dispatch: Some(dispatch),
             frame_progress: None,
@@ -468,19 +492,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .frame_descriptor()
             .expect("checked MIR translation requires an established mapping or value");
 
-        let context = self.frame_context_argument();
-
         self.builder.position_at_end(dispatch);
 
-        let pointer = llvm(
-            self.builder.build_int_to_ptr(
-                context,
-                self.types
-                    .context()
-                    .ptr_type(inkwell::AddressSpace::default()),
-                "frame.context",
-            ),
-        )?;
+        let pointer = self.frame_context_pointer()?;
 
         let state_pointer =
             llvm(
@@ -498,7 +512,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let mut cases = Vec::with_capacity(descriptor.states().len());
 
         for state in descriptor.states() {
-            let entry = self.block(state.entry());
+            let entry = self.block(if self.frame_broadcast {
+                state.broadcast()
+            } else {
+                state.entry()
+            });
 
             cases.push((
                 self.types
@@ -507,6 +525,21 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .const_int(u64::from(state.state().raw()), false),
                 entry,
             ));
+        }
+
+        if self.frame_broadcast {
+            let terminal = self
+                .types
+                .context()
+                .append_basic_block(self.function, "frame.terminal.broadcast");
+
+            cases.push((self.terminal_frame_state()?, terminal));
+            self.builder.position_at_end(terminal);
+
+            self.return_broadcast_outcome(
+                bray_runtime_abi::NativeFrameProgressKind::COMPLETED,
+                self.types.context().i64_type().const_zero().into(),
+            )?;
         }
 
         let fallback = self
@@ -546,6 +579,37 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .expect("protected-frame resume function must carry its context argument")
     }
 
+    pub(super) fn frame_context_pointer(&self) -> Result<PointerValue<'context>, CodegenFailure> {
+        llvm(
+            self.builder.build_int_to_ptr(
+                self.frame_context_argument(),
+                self.types
+                    .context()
+                    .ptr_type(inkwell::AddressSpace::default()),
+                "frame.context",
+            ),
+        )
+    }
+
+    pub(super) fn terminal_frame_state(
+        &self,
+    ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
+        let count = self
+            .unit
+            .frame_descriptor()
+            .expect("protected frame has its descriptor")
+            .states()
+            .len();
+
+        let terminal: u32 = crate::conversion::resource_limit(count, "frame terminal state")?;
+
+        Ok(self
+            .types
+            .context()
+            .i32_type()
+            .const_int(u64::from(terminal), false))
+    }
+
     pub(super) fn create_block_parameters(&mut self) -> Result<(), CodegenFailure> {
         for (id, block) in self.unit.blocks_with_ids() {
             if !self.reachable_blocks.contains(&id) {
@@ -580,17 +644,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             self.builder.position_at_end(dispatch);
 
-            let context = self.frame_context_argument();
-
-            let pointer = llvm(
-                self.builder.build_int_to_ptr(
-                    context,
-                    self.types
-                        .context()
-                        .ptr_type(inkwell::AddressSpace::default()),
-                    "frame.context",
-                ),
-            )?;
+            let pointer = self.frame_context_pointer()?;
 
             for (id, storage) in self.unit.storages_with_ids() {
                 if matches!(
@@ -600,12 +654,24 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     continue;
                 }
 
-                let storage = llvm(self.builder.build_struct_gep(
-                    frame_context,
-                    pointer,
-                    frame_storage_field_index(id)?,
-                    &format!("storage.{}", id.slot()),
-                ))?;
+                if !self.frame_broadcast && matches!(storage.kind(), MirStorageKind::BroadcastLocal)
+                {
+                    continue;
+                }
+
+                let storage = if matches!(storage.kind(), MirStorageKind::BroadcastLocal) {
+                    llvm(self.builder.build_alloca(
+                        self.types.map(storage.ty())?,
+                        &format!("storage.{}", id.slot()),
+                    ))?
+                } else {
+                    llvm(self.builder.build_struct_gep(
+                        frame_context,
+                        pointer,
+                        frame_storage_field_index(id)?,
+                        &format!("storage.{}", id.slot()),
+                    ))?
+                };
 
                 self.storages.insert(id, storage);
 

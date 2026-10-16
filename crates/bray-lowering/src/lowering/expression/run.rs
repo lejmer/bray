@@ -133,6 +133,7 @@ impl Lowerer<'_> {
                 // Suspension and dispatch retain the same immutable cleanup edge.
                 self.branch_frame_cancellation(dispatch, &source, resume, cancellation.clone())?;
 
+                let broadcast = self.frame_broadcast(&source, expression.into(), false)?;
                 let state = self.next_frame_state()?;
 
                 let suspension = self
@@ -173,6 +174,7 @@ impl Lowerer<'_> {
                     MirFrameState::new(
                         state,
                         dispatch,
+                        broadcast,
                         self.execution_lane_requirements(),
                         initialized_storages,
                     )

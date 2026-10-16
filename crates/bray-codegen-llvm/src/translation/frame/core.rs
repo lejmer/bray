@@ -75,16 +75,38 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
         debug.attach_function(resume, "frame.resume", linkage_name, source)
     });
 
-    UnitTranslator::for_frame_resume(
+    UnitTranslator::for_frame_operation(
         context,
         module,
         request,
         instance,
         resume,
         context_type,
+        ProtectedFrameOperation::Resume,
         types,
         debug,
         debug_scope,
+    )?
+    .translate()?;
+
+    let broadcast = frame_operation_function(
+        module,
+        request,
+        instance,
+        ProtectedFrameOperation::TaskBroadcast,
+    );
+
+    UnitTranslator::for_frame_operation(
+        context,
+        module,
+        request,
+        instance,
+        broadcast,
+        context_type,
+        ProtectedFrameOperation::TaskBroadcast,
+        types,
+        None,
+        None,
     )?
     .translate()?;
 
@@ -112,7 +134,14 @@ fn frame_context_type<'context>(
     fields.push(context.i8_type().into());
 
     for (_, storage) in instance.mir().storages_with_ids() {
-        fields.push(types.map(storage.ty())?);
+        fields.push(
+            if matches!(storage.kind(), MirStorageKind::BroadcastLocal) {
+                // Preserve storage indexing without reserving callback scratch bytes in each frame.
+                context.i8_type().array_type(0).into()
+            } else {
+                types.map(storage.ty())?
+            },
+        );
     }
 
     fields.push(crate::mapping::cleanup::lease_type(context, types.target()).into());

@@ -49,7 +49,26 @@ impl Lowerer<'_> {
             "checked await retains its exact operand"
         );
 
-        self.lower_awaited_frame(id.into(), frame, self.expression_type(id), current, source)
+        let completion = self.expression_type(id);
+
+        let awaited = self.lower_awaited_frame(
+            id.into(),
+            frame,
+            completion,
+            current,
+            Self::retained_source(&source),
+        )?;
+
+        let (block, value) = self.finish_typed_call_panic_check(
+            id,
+            awaited.block.expect("await resumes to its completion"),
+            &source,
+            &awaited.value.expect("await publishes its completion value"),
+            completion,
+            None,
+        )?;
+
+        Ok(LoweredExpression::continuing(block, Some(value), source))
     }
 
     pub(super) fn lower_awaited_frame(
@@ -67,17 +86,12 @@ impl Lowerer<'_> {
             );
         };
 
-        let suspension = self
-            .input
-            .suspension(occurrence)
-            // Lowering mutates its builder while retaining this immutable checked decision.
-            .cloned()
-            .unwrap_or_else(|| {
-                panic!(
-                    "lowering contract violation: MissingSuspensionPoint {value:?}",
-                    value = occurrence
-                )
-            });
+        let suspension = self.input.suspension(occurrence).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingSuspensionPoint {value:?}",
+                value = occurrence
+            )
+        });
 
         let child = MirFrameReference::Erased;
 
@@ -92,9 +106,10 @@ impl Lowerer<'_> {
             None,
         )?;
 
-        let resume = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+        let resume = self.builder.push_block(
+            Self::retained_source(&source),
+            self.builder.block_kind(current),
+        )?;
 
         let cancellation = match occurrence {
             bray_bound_tree::BoundExecutionSite::ScopedExit(_) => {
@@ -118,13 +133,24 @@ impl Lowerer<'_> {
             _ => self.suspension_cleanup_edge(&source, occurrence.node())?,
         };
 
-        let dispatch = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+        let dispatch = if matches!(
+            occurrence,
+            bray_bound_tree::BoundExecutionSite::ScopedExit(_)
+        ) {
+            // The pending exit is already shielded, including when cancellation started it.
+            resume
+        } else {
+            let dispatch = self
+                .builder
+                .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-        // Suspension and dispatch retain the same immutable cleanup edge.
-        self.branch_frame_cancellation(dispatch, &source, resume, cancellation.clone())?;
+            // Suspension and dispatch retain the same immutable cleanup edge.
+            self.branch_frame_cancellation(dispatch, &source, resume, cancellation.clone())?;
 
+            dispatch
+        };
+
+        let broadcast = self.frame_broadcast(&source, occurrence, false)?;
         let state = self.next_frame_state()?;
 
         self.set_terminator(
@@ -147,6 +173,7 @@ impl Lowerer<'_> {
             MirFrameState::new(
                 state,
                 dispatch,
+                broadcast,
                 self.execution_lane_requirements(),
                 initialized_storages,
             )

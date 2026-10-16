@@ -24,6 +24,7 @@ pub enum MirFrameReference {
 pub struct MirFrameState {
     state: MirFrameStateId,
     entry: MirBlockId,
+    broadcast: MirBlockId,
     affinity: ProtectedFrameAffinity,
     lane_requirements: Arc<[ExecutionLaneRequirement]>,
     initialized_storages: Arc<[MirStorageId]>,
@@ -34,12 +35,14 @@ impl MirFrameState {
     pub fn new(
         state: MirFrameStateId,
         entry: MirBlockId,
+        broadcast: MirBlockId,
         lane_requirements: impl IntoIterator<Item = ExecutionLaneRequirement>,
         initialized_storages: impl IntoIterator<Item = MirStorageId>,
     ) -> Self {
         Self {
             state,
             entry,
+            broadcast,
             affinity: ProtectedFrameAffinity::Movable,
             lane_requirements: sorted_unique_shared_slice(lane_requirements),
             initialized_storages: sorted_unique_shared_slice(initialized_storages),
@@ -54,6 +57,11 @@ impl MirFrameState {
     /// Returns the block entered when this state resumes.
     pub const fn entry(&self) -> MirBlockId {
         self.entry
+    }
+
+    /// Returns the checked entry that only broadcasts initialized task obligations.
+    pub const fn broadcast(&self) -> MirBlockId {
+        self.broadcast
     }
 
     /// Retains the exact thread-affinity required by this frame state.
@@ -96,6 +104,7 @@ impl MirFrameDescriptor {
     ) {
         for state in Arc::make_mut(&mut self.states) {
             state.entry = mappings.block(state.entry);
+            state.broadcast = mappings.block(state.broadcast);
 
             for storage in Arc::make_mut(&mut state.initialized_storages) {
                 *storage = mappings.storage(*storage);
@@ -218,7 +227,7 @@ mod tests {
             .is_err()
         );
 
-        let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
+        let state = MirFrameState::new(MirFrameStateId::new(0), entry, entry, [], []);
 
         assert!(
             std::panic::catch_unwind(|| {
@@ -227,7 +236,7 @@ mod tests {
             .is_err()
         );
 
-        let non_contiguous = MirFrameState::new(MirFrameStateId::new(1), entry, [], []);
+        let non_contiguous = MirFrameState::new(MirFrameStateId::new(1), entry, entry, [], []);
 
         assert!(
             std::panic::catch_unwind(|| {

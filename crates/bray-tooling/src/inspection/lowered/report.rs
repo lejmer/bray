@@ -373,7 +373,10 @@ fn push_text_mir(output: &mut String, mir: &InspectionMirUnit) {
         for (index, state) in frame.states.iter().enumerate() {
             writer.push_line(
                 index + 1 == frame.states.len(),
-                &format!("state:{} -> block:{}", state.id, state.entry),
+                &format!(
+                    "state:{} -> block:{} broadcast:block:{}",
+                    state.id, state.entry, state.broadcast
+                ),
             );
         }
 

@@ -379,7 +379,7 @@ mod tests {
             state,
             resume,
             cancel,
-            ignore_action,
+            ignore_broadcast,
             ignore_resolution,
             ignore_completion_move,
             ignore_action,
@@ -410,6 +410,8 @@ mod tests {
     extern "C-unwind" fn cancel(destination: &mut NativeFrameProgress, _: usize) {
         *destination = NativeFrameProgress::new(NativeFrameProgressKind::CANCELLED, 0, 0);
     }
+
+    extern "C-unwind" fn ignore_broadcast(_: &mut NativeFrameProgress, _: usize) {}
 
     extern "C-unwind" fn ignore_action(_: usize) {}
 

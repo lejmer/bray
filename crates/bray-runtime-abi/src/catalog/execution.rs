@@ -796,7 +796,7 @@ macro_rules! runtime_role_catalog {
             }
             FrameCompletionMove {
                 "Move a frame's completed result into its destination.", "frame_completion_move",
-                native: (FRAME_COMPLETION_MOVE_SYMBOL = "bray_runtime_frame_completion_move", [] -> Usize),
+                native: (FRAME_COMPLETION_MOVE_SYMBOL = "bray_runtime_frame_completion_move", [Pointer] -> Usize),
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,

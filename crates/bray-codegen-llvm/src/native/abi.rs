@@ -305,6 +305,7 @@ mod tests {
             for operation in [
                 ProtectedFrameOperation::Resume,
                 ProtectedFrameOperation::CancellationEntry,
+                ProtectedFrameOperation::TaskBroadcast,
                 ProtectedFrameOperation::StateDescription,
             ] {
                 let name = format!("{operation:?}");

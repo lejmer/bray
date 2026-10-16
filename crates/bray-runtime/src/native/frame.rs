@@ -81,6 +81,23 @@ impl NativeFrame {
         self.record_cleanup_report(report);
     }
 
+    fn retain_callback_failure(
+        &mut self,
+        mut progress: NativeFrameProgress,
+        caught: std::thread::Result<()>,
+    ) {
+        let mut report = (progress.kind() == NativeFrameProgressKind::PANICKED)
+            .then(|| RuntimePanic::from_native(progress.take_report()));
+
+        if let Err(payload) = caught {
+            RuntimePanic::record(&mut report, payload, &mut self.outgoing);
+        }
+
+        if let Some(report) = report {
+            self.record_cleanup_report(report);
+        }
+    }
+
     fn record_cleanup_report(&mut self, mut report: RuntimePanic) {
         report.reserve_from(&mut self.outgoing);
         self.terminal.record_cleanup_report(report);
@@ -212,11 +229,24 @@ impl ProtectedFrame for NativeFrame {
     }
 
     fn broadcast_tasks(mut self: Pin<&mut Self>) {
-        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
-            self.abi.broadcast_tasks()(self.abi.context());
-        })) {
-            self.record_cleanup_incident(payload);
-        }
+        let mut progress =
+            NativeFrameProgress::new(bray_runtime_abi::NativeFrameProgressKind::COMPLETED, 0, 0);
+
+        let caught = catch_unwind(AssertUnwindSafe(|| {
+            self.abi.broadcast_tasks()(&mut progress, self.abi.context());
+        }));
+
+        assert!(
+            matches!(
+                progress.kind(),
+                NativeFrameProgressKind::COMPLETED
+                    | NativeFrameProgressKind::CANCELLED
+                    | NativeFrameProgressKind::PANICKED
+            ),
+            "frame broadcast must return a non-suspending cleanup outcome"
+        );
+
+        self.retain_callback_failure(progress, caught);
     }
 
     fn resolve_lifecycle(self: Pin<&mut Self>, exit: FrameExit) {
@@ -234,16 +264,7 @@ impl ProtectedFrame for NativeFrame {
             (frame.abi.resolve_lifecycle())(&mut progress, frame.abi.context(), exit);
         }));
 
-        let mut report = (progress.kind() == NativeFrameProgressKind::PANICKED)
-            .then(|| RuntimePanic::from_native(progress.take_report()));
-
-        if let Err(payload) = caught {
-            RuntimePanic::record(&mut report, payload, &mut frame.outgoing);
-        }
-
-        if let Some(report) = report {
-            frame.record_cleanup_report(report);
-        }
+        frame.retain_callback_failure(progress, caught);
     }
 }
 
@@ -360,6 +381,7 @@ mod tests {
         }
 
         extern "C-unwind" fn action(_: usize) {}
+        extern "C-unwind" fn broadcast(_: &mut NativeFrameProgress, _: usize) {}
         extern "C-unwind" fn resolve(_: &mut NativeFrameProgress, _: usize, _: NativeFrameExit) {}
 
         extern "C-unwind" fn completion(_: usize, _: usize) {
@@ -369,7 +391,8 @@ mod tests {
         QUERIES.set(0);
 
         let abi = NativeProtectedFrame::new(
-            0, [7; 32], 128, 8, 8, 0, 1, state, resume, resume, action, resolve, completion, action,
+            0, [7; 32], 128, 8, 8, 0, 1, state, resume, resume, broadcast, resolve, completion,
+            action,
         );
 
         let frame = NativeFrame::try_new(abi).expect("valid frame must be admitted");

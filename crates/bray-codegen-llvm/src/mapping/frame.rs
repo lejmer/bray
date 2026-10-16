@@ -66,3 +66,78 @@ pub(crate) fn factory_field<'context>(
         .map_err(CodegenFailure::backend_library)?
         .into_pointer_value())
 }
+
+/// Gives native frame cleanup an explicit outcome without invoking the unwind entry shim.
+pub(crate) fn cleanup_callback<'context>(
+    module: &Module<'context>,
+    mappings: &CodegenMappings,
+    helper: &bray_codegen::CodegenHelperMapping,
+    types: &mut super::LlvmTypeMappings<'context, '_>,
+) -> Result<Option<PointerValue<'context>>, CodegenFailure> {
+    let Some(key) = helper.symbol() else {
+        return Ok(None);
+    };
+
+    let symbol = mappings
+        .symbol(key)
+        .expect("selected cleanup has its symbol");
+
+    let name = format!("{}.frame.cleanup", symbol.name().as_str());
+
+    if let Some(callback) = module.get_function(&name) {
+        return Ok(Some(callback.as_global_value().as_pointer_value()));
+    }
+
+    let context = types.context();
+    let pointer = context.ptr_type(AddressSpace::default());
+
+    let callback = module.add_function(
+        &name,
+        context
+            .void_type()
+            .fn_type(&[pointer.into(), pointer.into()], false),
+        Some(inkwell::module::Linkage::Internal),
+    );
+
+    let builder = context.create_builder();
+    let entry = context.append_basic_block(callback, "frame.cleanup");
+
+    builder.position_at_end(entry);
+
+    let payload = callback
+        .get_nth_param(0)
+        .expect("cleanup receives its payload");
+
+    let outcome = callback
+        .get_nth_param(1)
+        .expect("cleanup receives its outcome")
+        .into_pointer_value();
+
+    let function = module
+        .get_function(symbol.name().as_str())
+        .expect("selected cleanup is declared");
+
+    assert!(
+        matches!(
+            symbol.signature().result(),
+            bray_codegen::CodegenResultMapping::Void
+        ),
+        "frame cleanup consumes its value without returning another owner"
+    );
+
+    super::invoke_with_outcome(
+        &builder,
+        function,
+        symbol.signature(),
+        &[payload.into()],
+        outcome,
+        "",
+        types,
+    )?;
+
+    builder
+        .build_return(None)
+        .map_err(CodegenFailure::backend_library)?;
+
+    Ok(Some(callback.as_global_value().as_pointer_value()))
+}

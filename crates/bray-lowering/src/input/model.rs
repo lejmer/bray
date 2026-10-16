@@ -344,7 +344,7 @@ impl<'unit> LoweringInput<'unit> {
     pub fn suspension(
         &self,
         occurrence: impl Into<bray_bound_tree::BoundExecutionSite>,
-    ) -> Option<&AsyncSuspensionPoint> {
+    ) -> Option<&'unit AsyncSuspensionPoint> {
         self.suspensions
             .get(&occurrence.into())
             .and_then(|index| self.async_analysis.suspensions().get(*index))
@@ -437,6 +437,12 @@ impl<'unit> LoweringInput<'unit> {
                         _ => None,
                     })
             })
+            .chain(
+                self.async_analysis
+                    .suspensions()
+                    .iter()
+                    .flat_map(|suspension| suspension.cancellation_broadcast().iter().copied()),
+            )
             .chain(
                 self.storage_flow
                     .replacements()
@@ -935,8 +941,15 @@ mod tests {
             panic!("test expression unit must retain its root");
         };
 
-        let point =
-            AsyncSuspensionPoint::new(expression, AsyncSuspensionKind::Yield, None, [], [], false);
+        let point = AsyncSuspensionPoint::new(
+            expression,
+            AsyncSuspensionKind::Yield,
+            None,
+            [],
+            [],
+            [],
+            false,
+        );
 
         let mut analysis = empty_expression_inputs(&unit);
 

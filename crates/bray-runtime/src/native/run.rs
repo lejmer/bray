@@ -288,33 +288,40 @@ impl NativeRun {
         composed_status.unwrap_or(NativeRuntimeStatus::SUCCESS)
     }
 
-    pub(super) fn resolve_completion(&self) -> Result<usize, NativeRuntimeStatus> {
+    pub(super) fn resolve_completion(&self, destination: &mut NativeRunOutcome) -> usize {
         let mut current = self.lock_current();
 
         let parent = current
             .as_mut()
-            .ok_or(NativeRuntimeStatus::RUNTIME_FAILURE)?;
+            .expect("completion dispatch retains its parent activation");
 
         let mut child = parent
             .child
             .take()
-            .ok_or(NativeRuntimeStatus::UNKNOWN_TASK)?;
+            .expect("completion dispatch retains its child activation");
 
-        let outcome = child.outcome.as_ref().ok_or(NativeRuntimeStatus::PENDING)?;
+        let outcome = child
+            .outcome
+            .take()
+            .expect("completion follows the child's terminal publication");
 
-        if outcome.state() != NativeRunState::COMPLETED || outcome.payload() == 0 {
-            parent.child = Some(child);
-
-            return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
-        }
+        assert!(
+            matches!(
+                outcome.state(),
+                NativeRunState::COMPLETED | NativeRunState::CANCELLED | NativeRunState::PANICKED
+            ),
+            "awaited child publishes a language terminal outcome"
+        );
 
         let payload = outcome.payload();
+
+        *destination = outcome;
 
         Self::transfer_incidents(&mut child);
         child.next_retired = parent.retired.take();
         parent.retired = Some(child);
 
-        Ok(payload)
+        payload
     }
 
     fn drive(&self) -> FrameProgress<usize> {

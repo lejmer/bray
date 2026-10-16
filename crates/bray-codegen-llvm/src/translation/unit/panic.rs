@@ -86,7 +86,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         self.clear_moved_places()?;
 
-        if self.signature.has_panic_report_context() {
+        if self.frame_broadcast {
+            self.return_broadcast_outcome(
+                bray_runtime_abi::NativeFrameProgressKind::PANICKED,
+                report,
+            )?;
+        } else if self.signature.has_panic_report_context() {
             let context = self
                 .panic_report_context
                 .expect("checked MIR translation requires an established mapping or value");
@@ -117,7 +122,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<(), CodegenFailure> {
         self.clear_moved_places()?;
 
-        if self.signature.has_panic_report_context() {
+        if self.frame_broadcast {
+            self.return_broadcast_outcome(
+                bray_runtime_abi::NativeFrameProgressKind::CANCELLED,
+                self.types.context().i64_type().const_zero().into(),
+            )?;
+        } else if self.signature.has_panic_report_context() {
             let context = self
                 .panic_report_context
                 .expect("checked MIR translation requires an established mapping or value");

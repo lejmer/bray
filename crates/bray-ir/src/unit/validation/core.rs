@@ -185,8 +185,10 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Option<()> {
     };
 
     for state in descriptor.states() {
-        if state.entry().unit() != unit.unit() || unit.block(state.entry()).is_none() {
-            return None;
+        for entry in [state.entry(), state.broadcast()] {
+            if entry.unit() != unit.unit() || unit.block(entry).is_none() {
+                return None;
+            }
         }
 
         for storage in state.initialized_storages() {

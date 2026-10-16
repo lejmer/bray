@@ -15,7 +15,7 @@ pub(super) fn translate_action_callbacks<'context>(
     context_type: StructType<'context>,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<(), CodegenFailure> {
-    translate_failure_cleanup(module, request, instance, context_type, types)?;
+    translate_failure_cleanup(module, request, instance, types)?;
 
     translate_completion_move(module, request, instance, context_type, types)?;
     super::storage::translate_destruction(module, request, instance, context_type, types)?;
@@ -27,37 +27,9 @@ fn translate_failure_cleanup<'context>(
     module: &Module<'context>,
     request: CodegenRequest<'_>,
     instance: &CodegenInstance,
-    context_type: StructType<'context>,
     types: &LlvmTypeMappings<'context, '_>,
 ) -> Result<(), CodegenFailure> {
-    let broadcast = frame_operation_function(
-        module,
-        request,
-        instance,
-        ProtectedFrameOperation::TaskBroadcast,
-    );
-
     let builder = types.context().create_builder();
-
-    let block = types
-        .context()
-        .append_basic_block(broadcast, "frame.failure.broadcast");
-
-    builder.position_at_end(block);
-
-    let context = integer_pointer(&builder, broadcast, 0, types)?;
-
-    let requested = builder
-        .build_struct_gep(context_type, context, 2, "frame.failure.cancellation")
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder
-        .build_store(requested, types.context().i8_type().const_int(1, false))
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder
-        .build_return(None)
-        .map_err(CodegenFailure::backend_library)?;
 
     let resolve = frame_operation_function(
         module,

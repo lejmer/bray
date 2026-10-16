@@ -56,7 +56,7 @@ production consumers switch and replaced Rust ownership is removed.
 ## Metadata checkpoint (2026-10-15)
 
 Remove native reconstruction of full frame descriptors and generated symbol
-strings. Frame execution supplies the requested immutable state; tasks and the
+strings. Frame execution supplies the requested immutable state. Tasks and the
 scheduler retain that state rather than copying an independent descriptor graph.
 Lane combinations use shared static slices, and empty native storage/dependency
 metadata has no allocation. Root dispatch consumes the scheduler's selected lane.
@@ -69,7 +69,7 @@ requested state 127 is read once, and invalid state 128 makes no callback.
 
 Audit: re-read AGENTS.md and inspect changed APIs and their callers. Search the
 runtime/model for descriptor copies, state lookup, lane-set normalization and
-scheduler lane selection. Compiler and test descriptors remain immutable; runtime
+scheduler lane selection. Compiler and test descriptors remain immutable. Runtime
 reconstruction and the duplicate scheduler lookup are removed. Snapshot retains
 root identity and current execution metadata. This checkpoint does not complete
 BRA-561: frame admission, capture rollback, Bray activation ownership, cancellation
@@ -114,7 +114,7 @@ It stays one pointer wide. Direct and indirect construction use ordinary call
 translation. MIR admission retains the evaluated factory before arguments can
 change its source storage. Dynamic backing operands participate in demand,
 validation, remapping, inspection and executable-template serialization. The
-executable template format is version 3.
+executable template format remains version 1, with its current representation.
 
 Native code-address conversion and foreign callable validation share the ABI's
 execution-mode rule. A native code pointer cannot manufacture an async factory.
@@ -211,7 +211,7 @@ Nine host-emission tests pass, including a regression that creates same-sized
 `identity<i32>` and `identity<u32>` frames and checks both emitted descriptor and
 adapter identities against concrete specialization. The first regression run
 failed only because its expected LLVM string spelling used a hexadecimal escape
-for a backslash; that expectation is corrected. The complete `cargo xtask readiness native-execution` run passes in 376.2 seconds,
+for a backslash. That expectation is corrected. The complete `cargo xtask readiness native-execution` run passes in 376.2 seconds,
 including erased factories, independent tasks, panic shutdown, static cleanup and
 runtime artifact smoke tests. This is production behavior evidence, not completion
 of the remaining activation-owner migration.
@@ -243,12 +243,166 @@ The remaining driver change must resolve these boundaries together:
   same iterative driver with its pending outcome intact.
 
 
-The existing `MirFrameInitializer::TaskObservation` already carries the selected
-result representation and both cleanup helpers. Reuse that initializer rather
-than adding another compiler-provided callable kind. Before the Bray consumer can
-invoke those helpers, replace its current `helper_address` native-entry callbacks
-with explicit caller-owned outcomes, as static cleanup already does through
-`invoke_static_boundary`. The current native adapter can still contain fixture
-unwinds while preserving a report written before unwinding. This change should
-remove the source cleanup callback's dependence on foreign unwinding, not add a
-second report protocol.
+## Explicit observation cleanup outcomes
+
+Task-observation cleanup now uses generated C callbacks with caller-owned
+`NativeRunOutcome` destinations. It invokes the selected source helper directly,
+using the same `invoke_with_outcome` emitter as static cleanup. Remove the former
+static-only invocation helper and the duplicate native-adapter callback type.
+`bray-runtime-abi` owns that callback declaration.
+
+The native bridge preserves a report written before a fixture unwinds. Disposal
+continues through lifecycle cleanup and task retirement after cancellation.
+Admission reserves five outgoing records before construction: two callbacks can
+each publish a report and then unwind, and task retirement can fail once. The
+regressions deny further admission and check ordered, exactly-once report release.
+This bridge remains temporary until the activation owner is replaced.
+
+Keep the runtime ABI at 1.0 and executable template format at version 1. This
+unreleased project has no earlier supported compatibility contract. Remove the
+unnecessary ABI bump, its fixture changes and the earlier template-version bumps.
+Regenerate disposable artifacts for the current representation. Follow the owning
+[serialization rules](../contributing/coding-conventions.md#serialization-and-persisted-data).
+
+After restoring the original versions, all 27 focused tests pass: seven runtime
+observation tests, nine compiler host-emission tests and eleven executable-template
+tests. The obsolete ABI-2 native acceptance run was stopped. Native acceptance for
+the callback changes passes in 350.8 seconds. The log is
+`target/bra-620-authority/bra-561-callback-native-v1.log`. This run predates the
+checked broadcast implementation below. The selected-scope missing role remains owned
+by the approved BRA-505/BRA-619 prerequisite sequence. Test logs are
+`target/bra-620-authority/bra-561-version-correction-tests.log` in the shared target.
+Rustfmt, `cargo xtask style`, `cargo xtask format` and `git diff --check` pass.
+
+The behavior audit covers explicit callback outcomes, report-before-unwind
+retention, shared signature-aware invocation and format versioning. Other native
+frame callbacks still belong to the pending driver replacement. The new report
+merge retains an Option-owned incident because this adapter unwinds its combined
+failure only after task retirement. It reuses existing report reservations and
+suppression without adding another report container.
+
+## Driver replacement constraints
+
+Do not implement broadcast by merely resuming the cancellation path up to its
+first `ContinueCleanup` edge. A source frame may already be suspended in shielded
+cleanup. Its ordinary cancellation edge is intentionally unreachable, but other
+initialized task obligations can still need broadcast. The owning lowering must
+supply broadcast operations for every suspended state, including cleanup states,
+from its existing guarded cleanup plans. Preserve the current pending outcome
+and exact lifecycle continuation. Do not rediscover plans or guards in LLVM.
+
+Result transfer also needs an explicit commit boundary. The current native call
+returns an address and LLVM loads afterward, so that call cannot release the
+result backing before it returns. The replacement must move into a caller-supplied
+admitted destination before retiring the child. Checked source returns cannot
+export a borrow into dying local storage. External borrow and provider roots
+still follow the published result contract, and native callbacks must meet that
+same contract. Do not retain every scalar loop iteration in a retired-child list.
+These requirements guide the replacement. They are not claims that the existing
+native owner already implements them.
+
+
+## Checked broadcast implementation in progress
+
+Suspension analysis selects cancellation owners from its established storage-flow
+snapshot, including scoped-exit suspension. Lowering uses the same initialization
+and represented-part guards as ordinary cleanup, but supplies a distinct broadcast
+entry for each frame state. State zero visits initialized captures without reading
+body guards. Broadcast owns separate callback-local incident destinations, leaving
+pending lifecycle outcomes and continuations intact. Its scratch storage occupies
+no retained frame bytes.
+
+MIR reconstruction, concrete optimization roots, executable-template encoding and
+inspection retain the broadcast entries. LLVM emits only each callback's reachable
+blocks. Native broadcast callbacks return explicit outcomes and preserve reports
+written before unwind. Completed generated frames must publish a terminal state
+whose broadcast entry is empty, because native terminalization calls broadcast
+after source cleanup. This terminal-state correction is awaiting verification.
+
+The first batch passes 66 native runtime tests, 15 lifecycle-lowering tests, nine
+host-emission tests and eleven executable-template tests. This includes retained
+Task captures during shielded scoped exit and broadcast report-before-unwind under
+denied admission. Log: `target/bra-620-authority/bra-561-broadcast-tests.log`.
+These results precede the terminal-state correction. Final formatting, broader
+checks and the checkpoint push remain pending. No completion review is claimed.
+
+
+## Broadcast audit and awaited outcome repair
+
+The broad broadcast batch passed 2,540 tests and exposed two regressions plus
+`scoped_selected_calls_emit_native_artifacts`, whose missing
+`CleanupIncidentTransfer` role remains in the approved BRA-505/BRA-619 sequence.
+The MIR reconstruction and imported-family regressions are repaired by returning
+broadcast outcomes through existing propagation terminators. Broadcast never
+publishes its suspended frame as terminal. An empty broadcast has no shield calls
+or scratch storage.
+
+The stronger shielded-exit regression exposed pre-existing inconsistent MIR:
+selected async cleanup construction was rejected, lifecycle suspension resumed
+into an ordinary block, and scoped calls checked for an outcome immediately after
+infallible lazy construction. Preserve lifecycle blocks across their suspension
+and check only actual execution. The old awaited-completion boundary also replaced
+child panic/cancellation with a generic failure. It now supplies the owned child
+outcome to the existing caller cleanup dispatcher. Ordinary await, scoped enter
+and shielded exit share this boundary. The result address remains retained until
+the caller loads it. Eliminating the retired-child list still belongs to the
+activation-owner replacement.
+
+Current verification is `bra-561-outcome-build.jsonl` and
+`bra-561-outcome-tests.log` under the shared target's `bra-620-authority` directory.
+All 92 focused tests pass: 66 native runtime tests, 16 lifecycle-lowering tests,
+one imported-family regression and nine host-emission tests. Temporary validator
+instrumentation has been removed. A native original-outcome transfer regression,
+final style/format and native acceptance remain to run. No PR or completion review
+has been created for this branch.
+
+## Verified broadcast checkpoint
+
+The original-outcome transfer regression passes under denied further admission.
+`cargo xtask style`, `cargo xtask format` and `git diff --check` pass. Native
+execution readiness passes in 442.0 seconds, including archive export checks,
+source execution and runtime artifact smoke tests. Logs are
+`bra-561-outcome-transfer.log`, `bra-561-outcome-style.log`,
+`bra-561-outcome-format.log` and `bra-561-outcome-native.log` in the shared target's
+`bra-620-authority` directory. The broad compilation binary is still running in
+`bra-561-outcome-compilation.log`. Its known selected-scope role failure remains
+in the approved downstream work, so this checkpoint is not issue completion.
+
+The audit re-read AGENTS.md and reviewed the changed production paths, ABI
+consumers, template encoding/decoding, reconstruction, optimization roots and
+inspection. Searches covered broadcast selection/guards, explicit callback
+outcomes, report suppression, completion checks and frame pointer construction.
+Reuse the existing cleanup dispatcher, report ownership and signature-aware call
+emitter. The new broadcast scratch lifetime removes retained frame bytes and
+empty broadcasts emit no cleanup work. Patch growth is 870 production lines added
+and 279 removed, with 475 test lines added and 45 removed. Those counts exclude
+this task record and separate inline test modules from production code.
+
+## Next replacement boundaries
+
+Replace the owning chain as one coherent change before issue completion. Keep
+immutable concrete descriptors with source and completion offsets. Store the
+activation links and pending progress in admitted frame backing. An external
+inactive token must carry the complete lease, not only its reusable address.
+Validate the lease and descriptor shape before dereferencing that backing, then
+check execution authority before consuming the inactive token.
+
+Commit a completed child into the caller's admitted destination before retiring
+its backing. Account for an unconsumed completed value as an owned result requiring
+its selected cleanup, not merely bytes to free. Preserve external/provider
+requirements carried by the result. Remove the retired-child list rather than
+retaining every scalar loop iteration until the enclosing frame finishes.
+
+Use one iterative broadcast queue owned by Bray. A broadcast callback may enqueue
+nested inactive futures, but must not recursively drive their callbacks. Native
+bridges may carry the borrowed queue address through callback context, contain
+native unwind and enter the selected lane. They must not own a second queue or
+activation graph. Cleanup suspension resumes the same driver and retains the
+parent's pending outcome. Never recreate the current one-shot resolution bug.
+
+Native fixture callbacks need admitted Rust-panic payload backing before their
+inactive owners become live. Keep that native callback requirement explicit.
+Generated Bray callbacks already transfer admitted report ownership through their
+outcome ABI. Do not introduce universal per-transition admission or reconstruct
+source cleanup plans in the runtime. Existing task admission, scheduler queues and
+root orchestration remain the bounded unmigrated callers described by BRA-561.

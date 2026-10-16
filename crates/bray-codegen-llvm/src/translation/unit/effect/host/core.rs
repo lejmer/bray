@@ -516,15 +516,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .frame_context
             .expect("frame cancellation requires a protected frame");
 
-        let pointer = llvm(
-            self.builder.build_int_to_ptr(
-                self.frame_context_argument(),
-                self.types
-                    .context()
-                    .ptr_type(inkwell::AddressSpace::default()),
-                "frame.context",
-            ),
-        )?;
+        let pointer = self.frame_context_pointer()?;
 
         let pointer = llvm(self.builder.build_struct_gep(
             context_type,
@@ -556,16 +548,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .frame_context
             .expect("checked MIR effect translation requires an established mapping or value");
 
-        let context = self.frame_context_argument();
+        let pointer = self.frame_context_pointer()?;
 
-        let pointer = llvm(
-            self.builder.build_int_to_ptr(
-                context,
-                self.types
-                    .context()
-                    .ptr_type(inkwell::AddressSpace::default()),
-                "frame.context",
-            ),
+        let state_pointer =
+            llvm(
+                self.builder
+                    .build_struct_gep(frame_context, pointer, 0, "frame.state.pointer"),
+            )?;
+
+        llvm(
+            self.builder
+                .build_store(state_pointer, self.terminal_frame_state()?),
         )?;
 
         let (kind, payload) = match state {

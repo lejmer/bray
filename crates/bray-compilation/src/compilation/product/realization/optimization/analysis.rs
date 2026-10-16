@@ -230,6 +230,7 @@ impl<'a> ScalarAnalysis<'a> {
         if let Some(frame) = self.unit.frame_descriptor() {
             for state in frame.states() {
                 self.enter_root(state.entry());
+                self.enter_root(state.broadcast());
             }
         }
 

@@ -10,6 +10,6 @@ pub(crate) use attribute::{enum_attribute, type_attribute};
 pub(crate) use debug::{LlvmDebugInfo, create_debug_metadata};
 pub(crate) use symbol::{
     apply_instance_optimization_attributes, apply_signature_call_attributes, call_convention,
-    declare_native_entry, declare_symbols, project_fallbacks,
+    declare_native_entry, declare_symbols, invoke_with_outcome, project_fallbacks,
 };
 pub(crate) use ty::LlvmTypeMappings;

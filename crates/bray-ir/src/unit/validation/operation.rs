@@ -161,7 +161,10 @@ fn validate_operation_block(block_kind: MirBlockKind, kind: &MirOperationKind) -
             block_kind != MirBlockKind::LifecycleResolution
         }
         MirOperationKind::Async(
-            MirAsyncOperation::ResolveTask { .. }
+            MirAsyncOperation::CreateFrame { .. }
+            | MirAsyncOperation::ComposeAwaitedFrame { .. }
+            | MirAsyncOperation::CommitAwaitedCompletion { .. }
+            | MirAsyncOperation::ResolveTask { .. }
             | MirAsyncOperation::TransferCleanupIncident { .. }
             | MirAsyncOperation::DestroyTerminalTask { .. },
         ) => block_kind != MirBlockKind::CleanupBroadcast,
@@ -633,13 +636,7 @@ fn validate_call(
     operation: MirOperationId,
     call: &crate::MirCall,
 ) -> Option<()> {
-    if call.is_cleanup()
-        && (!matches!(call.target(), MirCallTarget::Direct(_))
-            || !matches!(
-                call.result(),
-                bray_bound_tree::BoundCallResult::Immediate(_)
-            ))
-    {
+    if call.is_cleanup() && !matches!(call.target(), MirCallTarget::Direct(_)) {
         return None;
     }
 

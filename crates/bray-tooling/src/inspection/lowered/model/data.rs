@@ -161,6 +161,7 @@ impl InspectionMirUnit {
                     .map(|state| InspectionMirFrameState {
                         id: state.state().raw(),
                         entry: state.entry().slot(),
+                        broadcast: state.broadcast().slot(),
                         initialized_storages: state
                             .initialized_storages()
                             .iter()
@@ -279,6 +280,7 @@ pub(crate) struct InspectionMirFrame {
 pub(crate) struct InspectionMirFrameState {
     pub(crate) id: u32,
     pub(crate) entry: u32,
+    pub(crate) broadcast: u32,
     pub(crate) initialized_storages: Vec<u32>,
 }
 
@@ -2609,6 +2611,7 @@ fn storage_kind(kind: &MirStorageKind) -> &'static str {
         MirStorageKind::BorrowedParameter(_) => "borrowed_parameter",
         MirStorageKind::Local => "local",
         MirStorageKind::Temporary => "temporary",
+        MirStorageKind::BroadcastLocal => "broadcast_local",
         MirStorageKind::Return => "return",
         MirStorageKind::InactiveFrame => "inactive_frame",
         MirStorageKind::CurrentFrame => "current_frame",

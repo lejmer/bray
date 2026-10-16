@@ -51,8 +51,8 @@ pub use runtime::{
     NativeRootStart, NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration,
     NativeRuntimeEventCallback, NativeRuntimeStatus, NativeStringView,
     NativeSynchronousRootCallback, NativeTaskAllocation, NativeTaskHandle,
-    NativeThreadCancellationCallback, NativeThreadOperationCallback, NativeWakeCallback,
-    PERFORMANCE_OBSERVATION_HEADER, PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
+    NativeThreadCancellationCallback, NativeThreadOperationCallback, NativeValueCleanupCallback,
+    NativeWakeCallback, PERFORMANCE_OBSERVATION_HEADER, PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
 };
 pub use symbols::{
     MEMORY_ALLOCATION_OBSERVATION_SYMBOL, MEMORY_COPY_OBSERVATION_SYMBOL,

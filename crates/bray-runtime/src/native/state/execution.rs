@@ -101,10 +101,11 @@ impl NativeRuntime {
 
     pub(in crate::native) fn resolve_awaited_completion(
         &self,
+        outcome: &mut NativeRunOutcome,
     ) -> Result<usize, NativeRuntimeStatus> {
         let parent = current_native_task().ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
-        self.with_started(parent, |task| task.run.resolve_completion())?
+        self.with_started(parent, |task| task.run.resolve_completion(outcome))
     }
 
     pub(in crate::native) fn start(

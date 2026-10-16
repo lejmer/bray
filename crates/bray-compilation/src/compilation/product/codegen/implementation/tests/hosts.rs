@@ -126,6 +126,38 @@ fn independently_started_tasks_emit_native_units() {
             .iter()
             .all(|artifact| !artifact.is_empty())
     );
+
+    let ir = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr)
+        .into_iter()
+        .map(|bytes| String::from_utf8(bytes).unwrap())
+        .collect::<String>();
+
+    assert!(
+        ir.contains("frame.terminal.broadcast:"),
+        "completed source frames skip retained-state broadcast"
+    );
+
+    let callbacks = ir
+        .split("define ")
+        .filter(|body| {
+            body.lines()
+                .next()
+                .is_some_and(|line| line.contains(".frame.cleanup("))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        !callbacks.is_empty(),
+        "task observation must retain explicit-outcome cleanup callbacks"
+    );
+
+    for callback in callbacks {
+        assert_eq!(callback.lines().next().unwrap().matches("ptr ").count(), 2);
+
+        let body = callback.split("\n}").next().unwrap();
+
+        assert!(!body.contains("@bray_runtime_panic_propagation("));
+    }
 }
 
 #[test]

@@ -423,6 +423,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirStorageKind::BorrowedParameter(ordinal) => (10, Some(*ordinal)),
             MirStorageKind::Local => (1, None),
             MirStorageKind::Temporary => (2, None),
+            MirStorageKind::BroadcastLocal => (11, None),
             MirStorageKind::Return => (3, None),
             MirStorageKind::InactiveFrame => (4, None),
             MirStorageKind::CurrentFrame => (5, None),
@@ -1358,6 +1359,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         for state in frame.states() {
             self.wire.write_u32(state.state().raw());
             self.wire.write_u32(state.entry().slot());
+            self.wire.write_u32(state.broadcast().slot());
 
             self.wire.write_u32(state.affinity().code());
 

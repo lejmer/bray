@@ -100,6 +100,12 @@ impl Lowerer<'_> {
                 _ => panic!("protected source frame has a callable body"),
             };
 
+            self.initial_broadcast = Some(self.frame_broadcast(
+                &source,
+                bray_bound_tree::BoundExecutionSite::Node(body.into()),
+                true,
+            )?);
+
             let cancellation = self.suspension_cleanup_edge(&source, body.into())?;
 
             let resume = self.builder.push_block(

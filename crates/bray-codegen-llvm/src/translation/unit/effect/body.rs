@@ -500,14 +500,36 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     MirHelperReference::CommitAwaitedCompletion(*child),
                 )?;
 
+                let outcome = self.checked_call_panic_report_context()?;
+
                 let address = self
-                    .invoke_native_runtime(runtime, &[])?
+                    .invoke_native_runtime(runtime, &[outcome.into()])?
                     .and_then(int_value)
-                    .expect(
-                        "checked MIR effect translation requires an established mapping or value",
-                    );
+                    .expect("awaited completion returns its retained payload address");
+
+                self.set_pending_call_context(outcome)?;
+
+                let outcome_type =
+                    crate::native::run_outcome_type(self.types.context(), self.request.target());
+
+                let published = llvm(self.builder.build_load(
+                    outcome_type,
+                    outcome,
+                    "awaited.outcome",
+                ))?;
+
+                let (state, _) =
+                    super::super::support::native_run_outcome(&self.builder, published)?;
+
+                let completed = super::super::support::native_run_state_is(
+                    &self.builder,
+                    state,
+                    bray_runtime_abi::NativeRunState::COMPLETED,
+                    "awaited.completed",
+                )?;
 
                 let result_type = self.types.map(self.operation_result_type(operation))?;
+                let address = self.safe_completion_payload(address, completed, result_type)?;
 
                 let pointer = llvm(
                     self.builder.build_int_to_ptr(

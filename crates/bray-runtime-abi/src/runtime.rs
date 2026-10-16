@@ -473,6 +473,11 @@ pub type NativeFrameCancellationCallback =
 /// Callback performing one infallible generated frame action.
 pub type NativeFrameActionCallback = extern "C-unwind" fn(context: usize);
 
+/// Callback resolving a value into a caller-initialized successful outcome.
+/// A later native unwind must preserve any report already written to that outcome.
+pub type NativeValueCleanupCallback =
+    extern "C-unwind" fn(payload: *mut u8, outcome: &mut NativeRunOutcome);
+
 /// Callback moving a generated completion value into runtime-owned storage.
 pub type NativeFrameCompletionMoveCallback =
     extern "C-unwind" fn(context: usize, destination: usize);
@@ -501,7 +506,7 @@ pub struct NativeProtectedFrame {
     state: NativeFrameStateCallback,
     resume: NativeFrameResumeCallback,
     cancel: NativeFrameCancellationCallback,
-    broadcast_tasks: NativeFrameActionCallback,
+    broadcast_tasks: NativeFrameResumeCallback,
     resolve_lifecycle: NativeFrameResolveCallback,
     move_completion: NativeFrameCompletionMoveCallback,
     destroy: NativeFrameActionCallback,
@@ -524,7 +529,7 @@ impl NativeProtectedFrame {
         state: NativeFrameStateCallback,
         resume: NativeFrameResumeCallback,
         cancel: NativeFrameCancellationCallback,
-        broadcast_tasks: NativeFrameActionCallback,
+        broadcast_tasks: NativeFrameResumeCallback,
         resolve_lifecycle: NativeFrameResolveCallback,
         move_completion: NativeFrameCompletionMoveCallback,
         destroy: NativeFrameActionCallback,
@@ -598,7 +603,7 @@ impl NativeProtectedFrame {
     }
 
     /// Returns the task-broadcast callback.
-    pub const fn broadcast_tasks(&self) -> NativeFrameActionCallback {
+    pub const fn broadcast_tasks(&self) -> NativeFrameResumeCallback {
         self.broadcast_tasks
     }
 

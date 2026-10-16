@@ -47,13 +47,25 @@ impl CleanupOutcome {
         unit: TypeId,
         runtime_abi: RuntimeAbiVersion,
     ) -> Result<Self, MirCapacityError> {
-        let outcome = Self::allocate(builder, source, boolean, report, unit, runtime_abi)?;
+        let outcome = Self::allocate(
+            builder,
+            source,
+            boolean,
+            report,
+            unit,
+            runtime_abi,
+            MirStorageKind::Temporary,
+        )?;
 
         outcome.begin(builder, block, source)?;
 
         Ok(outcome)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "cleanup storage retains its three semantic types, ABI and callback lifetime"
+    )]
     pub(crate) fn allocate(
         builder: &mut MirUnitBuilder,
         source: &MirSourceAnchor,
@@ -61,11 +73,12 @@ impl CleanupOutcome {
         report: TypeId,
         unit: TypeId,
         runtime_abi: RuntimeAbiVersion,
+        kind: MirStorageKind,
     ) -> Result<Self, MirCapacityError> {
         // Every generated operation retains the same Arc-backed source provenance.
         let mut storage = |ty| {
             builder
-                .push_storage(source.clone(), MirStorageKind::Temporary, ty)
+                .push_storage(source.clone(), kind.clone(), ty)
                 .map(|id| MirPlace::new(id, [], ty))
         };
 

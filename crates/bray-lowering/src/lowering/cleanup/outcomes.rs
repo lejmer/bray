@@ -276,6 +276,7 @@ impl Lowerer<'_> {
             report,
             unit,
             self.input.target().runtime_abi(),
+            bray_ir::MirStorageKind::Temporary,
         )?;
 
         let selector = self.builder.push_storage(

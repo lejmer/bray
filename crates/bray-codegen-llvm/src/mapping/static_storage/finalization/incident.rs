@@ -5,7 +5,6 @@ use inkwell::types::{PointerType, StructType};
 use inkwell::values::{FunctionValue, PointerValue, StructValue};
 use inkwell::{AddressSpace, IntPredicate};
 
-use super::super::boundary::invoke_static_boundary;
 use super::super::storage::declare_static_callback_with_type;
 use crate::mapping::LlvmTypeMappings;
 
@@ -205,7 +204,7 @@ pub(super) fn declare_static_incident_destroyer<'context>(
         .get_function(symbol.name().as_str())
         .expect("static-storage realization requires an established mapping or value");
 
-    invoke_static_boundary(
+    crate::mapping::invoke_with_outcome(
         &builder,
         function,
         symbol.signature(),

@@ -62,6 +62,7 @@ pub struct AsyncSuspensionPoint {
     dependency_contract: Option<BoundDependencyContractId>,
     deferred_calls: Arc<[BodyBehaviorCall]>,
     retained_subjects: Arc<[BoundDependencySubject]>,
+    cancellation_broadcast: Arc<[StorageAccessId]>,
     is_recovered: bool,
 }
 
@@ -95,6 +96,10 @@ impl AsyncSuspensionPoint {
                 .iter()
                 .chain(other.retained_subjects.iter())
                 .copied(),
+            self.cancellation_broadcast
+                .iter()
+                .chain(other.cancellation_broadcast.iter())
+                .copied(),
             self.is_recovered || other.is_recovered,
         );
     }
@@ -106,6 +111,7 @@ impl AsyncSuspensionPoint {
         dependency_contract: Option<BoundDependencyContractId>,
         deferred_calls: impl IntoIterator<Item = BodyBehaviorCall>,
         retained_subjects: impl IntoIterator<Item = BoundDependencySubject>,
+        cancellation_broadcast: impl IntoIterator<Item = StorageAccessId>,
         is_recovered: bool,
     ) -> Self {
         Self {
@@ -114,6 +120,7 @@ impl AsyncSuspensionPoint {
             dependency_contract,
             deferred_calls: sorted_unique_shared_slice(deferred_calls),
             retained_subjects: sorted_unique_shared_slice(retained_subjects),
+            cancellation_broadcast: sorted_unique_shared_slice(cancellation_broadcast),
             is_recovered,
         }
     }
@@ -148,6 +155,11 @@ impl AsyncSuspensionPoint {
     /// Returns semantic subjects retained while the current run is suspended.
     pub fn retained_subjects(&self) -> &[BoundDependencySubject] {
         &self.retained_subjects
+    }
+
+    /// Returns owned storage whose initialized parts require cancellation broadcast.
+    pub fn cancellation_broadcast(&self) -> &[StorageAccessId] {
+        &self.cancellation_broadcast
     }
 
     /// Returns whether recovery prevented a complete suspension decision.
@@ -479,6 +491,10 @@ impl CheckedAsync {
             .any(|subject| !subject.is_valid_for(unit))
             || suspensions.iter().any(|suspension| {
                 suspension.expression().unit() != unit
+                    || suspension
+                        .cancellation_broadcast()
+                        .iter()
+                        .any(|access| access.unit() != unit)
                     || match suspension.kind() {
                         AsyncSuspensionKind::Await { operand } => operand.unit() != unit,
                         AsyncSuspensionKind::Yield | AsyncSuspensionKind::ScopedCall => false,
@@ -725,6 +741,7 @@ mod tests {
             None,
             [],
             [dependency],
+            [],
             false,
         );
 
