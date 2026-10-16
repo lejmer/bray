@@ -459,8 +459,10 @@ impl NativeFrameExit {
     pub const RUNTIME_FAILURE: Self = Self(3);
 }
 
-/// Callback returning runtime-visible state for one frame-state ordinal.
-pub type NativeFrameStateCallback = extern "C" fn(context: usize, state: u32) -> NativeFrameState;
+/// Requirements for one continuation and callback operation, using activation's
+/// resume, cancel, broadcast, resolve, completion-move and destruction ordinals.
+pub type NativeFrameStateCallback =
+    extern "C" fn(context: usize, state: u32, operation: u32, argument: usize) -> NativeFrameState;
 
 /// Callback entering or resuming one compiler-generated frame.
 pub type NativeFrameResumeCallback =

@@ -45,7 +45,7 @@ enum Operation {
 /// Retaining operations keep their frame live. Destruction may release it, while
 /// the descriptor and provider code remain live until the callback returns.
 pub extern "C" fn bray_runtime_activation_callback(
-    _execution: &bray_runtime_abi::NativeActivationExecution,
+    execution: &bray_runtime_abi::NativeActivationExecution,
     descriptor: &NativeActivationDescriptor,
     context: usize,
     operation: u32,
@@ -79,13 +79,15 @@ pub extern "C" fn bray_runtime_activation_callback(
 
     *destination = NativeFrameProgress::new(initial, 0, 0);
 
-    invoke(destination, &mut outgoing, |destination| match selected {
-        Operation::Resume => (descriptor.resume)(destination, context),
-        Operation::Cancel => (descriptor.cancel)(destination, context),
-        Operation::Broadcast => (descriptor.broadcast)(destination, context),
-        Operation::Resolve(exit) => (descriptor.resolve)(destination, context, exit),
-        Operation::Move(address) => (descriptor.move_completion)(context, address),
-        Operation::Destroy => (descriptor.destroy)(context),
+    invoke(destination, &mut outgoing, |destination| {
+        super::execution::with_execution(execution, || match selected {
+            Operation::Resume => (descriptor.resume)(destination, context),
+            Operation::Cancel => (descriptor.cancel)(destination, context),
+            Operation::Broadcast => (descriptor.broadcast)(destination, context),
+            Operation::Resolve(exit) => (descriptor.resolve)(destination, context, exit),
+            Operation::Move(address) => (descriptor.move_completion)(context, address),
+            Operation::Destroy => (descriptor.destroy)(context),
+        });
     });
 
     let (head, tail, count) = outgoing.into_parts();
@@ -114,11 +116,48 @@ mod tests {
 
     #[test]
     fn callbacks_keep_explicit_progress_and_do_not_admit_storage() {
-        extern "C" fn state(_: usize, _: u32) -> NativeFrameState {
+        extern "C" fn state(_: usize, _: u32, _: u32, _: usize) -> NativeFrameState {
             NativeFrameState::new(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE)
         }
 
         extern "C-unwind" fn resume(destination: &mut NativeFrameProgress, context: usize) {
+            assert_eq!(
+                crate::current_task_execution_context()
+                    .unwrap()
+                    .state()
+                    .raw(),
+                0
+            );
+
+            let nested = bray_runtime_abi::NativeActivationExecution {
+                address: 23,
+                identity: [1; 32],
+                state: 8,
+                requirements: state(23, 8, 0, 0),
+                origin: 0,
+            };
+
+            let nested_panic = std::panic::catch_unwind(|| {
+                super::super::execution::with_execution(&nested, || {
+                    assert_eq!(
+                        crate::current_task_execution_context()
+                            .unwrap()
+                            .state()
+                            .raw(),
+                        8
+                    );
+                    panic!("nested callback unwind");
+                });
+            });
+
+            assert!(nested_panic.is_err());
+            assert_eq!(
+                crate::current_task_execution_context()
+                    .unwrap()
+                    .state()
+                    .raw(),
+                0
+            );
             CALLS.with_borrow_mut(|calls| calls.push((0, context, 0)));
             *destination = NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 7, 0);
         }
@@ -156,7 +195,7 @@ mod tests {
             address: 17,
             identity: [0; 32],
             state: 0,
-            requirements: state(17, 0),
+            requirements: state(17, 0, 0, 0),
             origin: 1,
         };
 
@@ -178,25 +217,67 @@ mod tests {
             destroy,
         };
 
+        let _isolation = crate::native::test_runtime_isolation();
+        let thread = crate::bootstrap::RuntimeThreadScope::enter().unwrap();
+
+        let task = crate::TaskControlBlock::start(
+            crate::test_support::admit_task(),
+            crate::test_support::TestFrame::completing(1),
+        );
+
+        let scheduler = crate::Scheduler::new(
+            [bray_runtime_model::RuntimeCapability::CooperativeExecution],
+            thread.runtime().id(),
+            crate::SchedulerLimits::new(
+                std::num::NonZeroUsize::new(1).unwrap(),
+                std::num::NonZeroUsize::new(1).unwrap(),
+            ),
+        );
+
+        let registration =
+            crate::test_support::register_task(&scheduler, &task, thread.runtime().id());
+        let lane = registration.lane().unwrap();
+
+        let native_context = crate::TaskExecutionContext::new(
+            task.id(),
+            bray_runtime_model::ProtectedFrameStateId::new(99),
+            task.cancellation_context().clone(),
+            task.output_context().clone(),
+            lane,
+            registration.wake_handle(),
+        );
+
         let mut records = NativeReportRecords::default();
         let _denied = crate::outgoing::tests::reject_admission();
         let mut observed = Vec::new();
 
-        for (operation, argument) in [(0, 0), (1, 0), (2, 0), (3, 2), (4, 37), (5, 0)] {
-            let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
+        crate::context::with_task_execution_context(native_context, || {
+            for (operation, argument) in [(0, 0), (1, 0), (2, 0), (3, 2), (4, 37), (5, 0)] {
+                let mut progress =
+                    NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
 
-            super::bray_runtime_activation_callback(
-                &execution,
-                &descriptor,
-                17,
-                operation,
-                argument,
-                &mut progress,
-                &mut records,
-            );
+                super::bray_runtime_activation_callback(
+                    &execution,
+                    &descriptor,
+                    17,
+                    operation,
+                    argument,
+                    &mut progress,
+                    &mut records,
+                );
 
-            observed.push((progress.kind(), progress.state()));
-        }
+                assert_eq!(
+                    crate::current_task_execution_context()
+                        .unwrap()
+                        .state()
+                        .raw(),
+                    99,
+                );
+
+                assert_eq!(crate::context::current_task_execution_lane(), Some(lane));
+                observed.push((progress.kind(), progress.state()));
+            }
+        });
 
         assert_eq!(
             observed,

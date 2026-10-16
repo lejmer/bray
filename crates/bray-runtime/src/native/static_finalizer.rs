@@ -386,7 +386,7 @@ mod tests {
         )
     }
 
-    extern "C" fn state(context: usize, _: u32) -> NativeFrameState {
+    extern "C" fn state(context: usize, _: u32, _: u32, _: usize) -> NativeFrameState {
         let context = u64::try_from(context)
             .unwrap_or_else(|_| panic!("test frame context must fit the native ABI"));
 

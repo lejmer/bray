@@ -1376,10 +1376,12 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             self.wire
                 .write_u32(u32::from(state.is_completion_cleanup()));
 
-            write_count(&mut self.wire, state.lane_requirements().len());
+            for requirements in state.operation_requirements() {
+                write_count(&mut self.wire, requirements.len());
 
-            for requirement in state.lane_requirements() {
-                self.execution_lane(*requirement);
+                for requirement in requirements.iter() {
+                    self.execution_lane(*requirement);
+                }
             }
 
             write_count(&mut self.wire, state.initialized_storages().len());

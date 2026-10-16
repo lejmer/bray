@@ -110,6 +110,21 @@ fn execution(snapshot: &NativeActivationExecution) -> FrameExecutionState {
     }
 }
 
+// Admission already checked this snapshot against the selected lane. Installing
+// it changes only the active continuation, and the context guard restores reentry.
+pub(super) fn with_execution<T>(
+    snapshot: &NativeActivationExecution,
+    callback: impl FnOnce() -> T,
+) -> T {
+    let lane = crate::context::current_task_execution_lane()
+        .expect("admitted activation callback retains its selected native lane");
+
+    let execution = execution(snapshot);
+
+    crate::context::with_task_frame_execution(&execution, lane, callback)
+        .expect("admitted activation callback retains its native task context")
+}
+
 /// Checks the selected lane before the Bray dispatcher enters a producer callback.
 /// The exact live snapshot and exclusive activation owner remain with the caller.
 pub(in crate::native) extern "C" fn readiness(snapshot: &NativeActivationExecution) -> u32 {

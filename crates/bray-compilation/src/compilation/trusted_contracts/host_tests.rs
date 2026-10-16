@@ -2410,7 +2410,7 @@ fn inactive_inspection_requires_retained_exact_owner_and_output() {
                     trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
                 )
             {{
-                return trusted bray.runtime.bootstrap.activation.requirements.inspect(pointer, 0, output);
+                return trusted bray.runtime.bootstrap.activation.requirements.inspect(pointer, 0, 0, 0, output);
             }}
             "#
         );
@@ -2461,7 +2461,7 @@ fn metadata_inspection_cannot_infer_exclusive_ownership_from_a_producer() {
                 )
                 {ownership}
             {{
-                return trusted bray.runtime.bootstrap.activation.requirements.read(token, 0);
+                return trusted bray.runtime.bootstrap.activation.requirements.read(token, 0, 0, 0);
             }}
             "#
         );
@@ -2522,7 +2522,7 @@ fn active_snapshot_requires_exact_dispatch_ownership_and_retained_output() {
                     trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Header>(pointer = pointer),
                 )
             {{
-                return trusted bray.runtime.bootstrap.activation.requirements.snapshot(pointer, 0, output);
+                return trusted bray.runtime.bootstrap.activation.requirements.snapshot(pointer, 0, 0, 0, output);
             }}
             "#
         );

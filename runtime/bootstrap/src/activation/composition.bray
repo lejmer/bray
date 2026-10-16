@@ -79,7 +79,7 @@ trusted internal func compose(
     {
         // The metadata provider cannot mutate the independently retained token
         // slot or consume either owner. This preserves the exact admission pair.
-        return trusted bray.runtime.bootstrap.activation.requirements.active(parent, state);
+        return trusted bray.runtime.bootstrap.activation.requirements.active(parent, state, 0, 0);
     };
 
     // Query before consuming the child. The source callback has not published

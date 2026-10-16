@@ -236,7 +236,7 @@ extern "C" fn move_before_start(context: usize) -> NativeProtectedFrame {
     )
 }
 
-extern "C" fn state(_: usize, _: u32) -> NativeFrameState {
+extern "C" fn state(_: usize, _: u32, _: u32, _: usize) -> NativeFrameState {
     NativeFrameState::new(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE)
 }
 

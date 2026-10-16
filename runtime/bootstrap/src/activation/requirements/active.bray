@@ -22,7 +22,9 @@ trusted internal predicate active_destination(
 
 trusted internal func active(
     pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
-    pos state: u32
+    pos state: u32,
+    pos operation: u32,
+    pos argument: usize
 ) -> Execution?
     requires(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
     ensures(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
@@ -55,7 +57,7 @@ trusted internal func active(
 
     let descriptor = trusted describe(pointer, header.descriptor);
 
-    if state >= descriptor.states
+    if state >= descriptor.states || operation >= 6 || (operation == 3 && argument >= 4)
     {
         return none;
     }
@@ -65,27 +67,35 @@ trusted internal func active(
         pos callback: RawPointer<Query>,
         pos context: usize,
         pos state: u32,
+        pos operation: u32,
+        pos argument: usize,
     ) -> State
         requires(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
         ensures(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
         uses(layout_reinterpret)
     {
-        let authorize = trusted lambda(pos callback: RawPointer<Query>, pos context: usize, pos state: u32)
+        let authorize = trusted lambda(
+            pos callback: RawPointer<Query>,
+            pos context: usize,
+            pos state: u32,
+            pos operation: u32,
+            pos argument: usize
+        )
             ensures(
                 trusted core.memory.callable_address_valid<Query>(pointer = callback),
-                trusted query_context(context = context, state = state),
+                trusted query_context(context = context, state = state, operation = operation, argument = argument),
             )
             executes(pure, total) {};
 
-        trusted authorize(callback, context, state);
+        trusted authorize(callback, context, state, operation, argument);
 
         let selected = trusted std.memory.callable_from_pointer<Query>(callback);
 
-        return trusted selected(context, state);
+        return trusted selected(context, state, operation, argument);
     };
 
     let callback = trusted std.memory.reinterpret<Query, u8>(descriptor.state);
-    let own = trusted query(pointer, callback, header.context, state);
+    let own = trusted query(pointer, callback, header.context, state, operation, argument);
 
     let parent: State =
     {
@@ -127,6 +137,8 @@ trusted internal func active(
 trusted internal func snapshot(
     pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
     pos state: u32,
+    pos operation: u32,
+    pos argument: usize,
     pos output: RawPointer<Execution>,
 ) -> u32
     requires(
@@ -138,6 +150,8 @@ trusted internal func snapshot(
     let query = trusted lambda(
         pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
         pos state: u32,
+        pos operation: u32,
+        pos argument: usize,
         pos output: RawPointer<Execution>,
     ) -> Execution?
         requires(
@@ -149,10 +163,10 @@ trusted internal func snapshot(
             trusted core.memory.aligned_for<Execution>(pointer = output),
         )
     {
-        return trusted active(pointer, state);
+        return trusted active(pointer, state, operation, argument);
     };
 
-    let execution = match consume trusted query(pointer, state, output)
+    let execution = match consume trusted query(pointer, state, operation, argument, output)
     {
         case ?execution { yield execution; }
         case none { return 3; }

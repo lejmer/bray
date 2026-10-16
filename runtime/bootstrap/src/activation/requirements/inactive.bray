@@ -14,7 +14,12 @@ trusted internal predicate retained(
     output: RawPointer<State>,
 );
 
-trusted internal func read(pos token: &bray.runtime.bootstrap.activation.Inactive, pos state: u32) -> State?
+trusted internal func read(
+    pos token: &bray.runtime.bootstrap.activation.Inactive,
+    pos state: u32,
+    pos operation: u32,
+    pos argument: usize
+) -> State?
     requires(
         trusted bray.runtime.bootstrap.activation.producer(token = token),
         trusted inactive_owner(token = token),
@@ -25,7 +30,7 @@ trusted internal func read(pos token: &bray.runtime.bootstrap.activation.Inactiv
 {
     let descriptor = trusted bray.runtime.bootstrap.activation.description(token);
 
-    if state >= descriptor.states
+    if state >= descriptor.states || operation >= 6 || (operation == 3 && argument >= 4)
     {
         return none;
     }
@@ -107,6 +112,8 @@ trusted internal func read(pos token: &bray.runtime.bootstrap.activation.Inactiv
         pos callback: RawPointer<Query>,
         pos context: usize,
         pos state: u32,
+        pos operation: u32,
+        pos argument: usize,
     ) -> State
         requires(
             trusted bray.runtime.bootstrap.activation.producer(token = token),
@@ -118,22 +125,28 @@ trusted internal func read(pos token: &bray.runtime.bootstrap.activation.Inactiv
         )
         uses(layout_reinterpret)
     {
-        let authorize = trusted lambda(pos callback: RawPointer<Query>, pos context: usize, pos state: u32)
+        let authorize = trusted lambda(
+            pos callback: RawPointer<Query>,
+            pos context: usize,
+            pos state: u32,
+            pos operation: u32,
+            pos argument: usize
+        )
             ensures(
                 trusted core.memory.callable_address_valid<Query>(pointer = callback),
-                trusted query_context(context = context, state = state),
+                trusted query_context(context = context, state = state, operation = operation, argument = argument),
             )
             executes(pure, total) {};
 
-        trusted authorize(callback, context, state);
+        trusted authorize(callback, context, state, operation, argument);
 
         let selected = trusted std.memory.callable_from_pointer<Query>(callback);
 
-        return trusted selected(context, state);
+        return trusted selected(context, state, operation, argument);
     };
 
     // No pool lock or header borrow crosses the provider callback.
-    let requirements = trusted invoke(token, callback, context, state);
+    let requirements = trusted invoke(token, callback, context, state, operation, argument);
 
     if !valid(requirements)
     {
@@ -150,6 +163,8 @@ trusted internal func read(pos token: &bray.runtime.bootstrap.activation.Inactiv
 trusted internal func inspect(
     pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
     pos state: u32,
+    pos operation: u32,
+    pos argument: usize,
     pos output: RawPointer<State>,
 ) -> u32
     requires(
@@ -165,6 +180,8 @@ trusted internal func inspect(
     let query = trusted lambda(
         pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
         pos state: u32,
+        pos operation: u32,
+        pos argument: usize,
         pos output: RawPointer<State>,
     ) -> State?
         requires(
@@ -204,10 +221,10 @@ trusted internal func inspect(
 
         let token = trusted read_owned(pointer, output);
 
-        return trusted read(&token, state);
+        return trusted read(&token, state, operation, argument);
     };
 
-    let requirements = match consume trusted query(pointer, state, output)
+    let requirements = match consume trusted query(pointer, state, operation, argument, output)
     {
         case ?requirements { yield requirements; }
         case none { return 3; }

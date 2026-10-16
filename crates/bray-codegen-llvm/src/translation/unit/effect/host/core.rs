@@ -518,24 +518,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let pointer = self.frame_context_pointer()?;
 
-        let pointer = llvm(self.builder.build_struct_gep(
+        crate::translation::frame::cancellation_requested(
+            self.types.context(),
+            &self.builder,
             context_type,
             pointer,
-            2,
-            "frame.cancellation.pointer",
-        ))?;
-
-        let requested = llvm(self.builder.build_load(
-            self.types.context().i8_type(),
-            pointer,
-            "frame.cancellation",
-        ))?
-        .into_int_value();
-
-        crate::translation::unit::support::nonzero_integer(
-            &self.builder,
-            requested,
-            "frame.cancellation.requested",
         )
         .map(Into::into)
     }

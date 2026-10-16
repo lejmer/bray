@@ -667,7 +667,7 @@ mod tests {
                 address: context,
                 identity: [7; 32],
                 state: 0,
-                requirements: movable_frame_state(context, 0),
+                requirements: movable_frame_state(context, 0, 0, 0),
                 origin: 0,
             };
 
@@ -676,7 +676,7 @@ mod tests {
                 NativeRuntimeStatus::SUCCESS.code(),
             );
 
-            execution.requirements = movable_blocking_frame_state(context, 0);
+            execution.requirements = movable_blocking_frame_state(context, 0, 0, 0);
 
             assert_eq!(
                 super::super::activation::readiness(&execution),
@@ -1459,7 +1459,7 @@ mod tests {
         static QUERIES: AtomicUsize = AtomicUsize::new(0);
         static LOCKED: AtomicUsize = AtomicUsize::new(0);
 
-        extern "C" fn state(_: usize, _: u32) -> NativeFrameState {
+        extern "C" fn state(_: usize, _: u32, _: u32, _: usize) -> NativeFrameState {
             QUERIES.fetch_add(1, Ordering::Relaxed);
 
             let locked =
@@ -2168,7 +2168,7 @@ mod tests {
 
     fn protected_frame_with_state(
         alignment: usize,
-        state: extern "C" fn(usize, u32) -> NativeFrameState,
+        state: bray_runtime_abi::NativeFrameStateCallback,
         resume: extern "C-unwind" fn(&mut NativeFrameProgress, usize),
         move_completion: extern "C-unwind" fn(usize, usize),
         destroy: extern "C-unwind" fn(usize),
@@ -2179,7 +2179,7 @@ mod tests {
     fn protected_frame_with_context(
         context: usize,
         alignment: usize,
-        state: extern "C" fn(usize, u32) -> NativeFrameState,
+        state: bray_runtime_abi::NativeFrameStateCallback,
         resume: extern "C-unwind" fn(&mut NativeFrameProgress, usize),
         move_completion: extern "C-unwind" fn(usize, usize),
         destroy: extern "C-unwind" fn(usize),
@@ -2202,25 +2202,35 @@ mod tests {
         )
     }
 
-    extern "C" fn frame_state(_: usize, _: u32) -> NativeFrameState {
+    extern "C" fn frame_state(_: usize, _: u32, _: u32, _: usize) -> NativeFrameState {
         NativeFrameState::new(
             NativeFrameAffinity::MAIN_THREAD,
             NativeLaneRequirements::MAIN_THREAD,
         )
     }
 
-    extern "C" fn movable_frame_state(_: usize, _: u32) -> NativeFrameState {
+    extern "C" fn movable_frame_state(_: usize, _: u32, _: u32, _: usize) -> NativeFrameState {
         NativeFrameState::new(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE)
     }
 
-    extern "C" fn movable_blocking_frame_state(_: usize, _: u32) -> NativeFrameState {
+    extern "C" fn movable_blocking_frame_state(
+        _: usize,
+        _: u32,
+        _: u32,
+        _: usize,
+    ) -> NativeFrameState {
         NativeFrameState::new(
             NativeFrameAffinity::MOVABLE,
             NativeLaneRequirements::BLOCKING,
         )
     }
 
-    extern "C" fn movable_compute_frame_state(_: usize, _: u32) -> NativeFrameState {
+    extern "C" fn movable_compute_frame_state(
+        _: usize,
+        _: u32,
+        _: u32,
+        _: usize,
+    ) -> NativeFrameState {
         NativeFrameState::new(
             NativeFrameAffinity::MOVABLE,
             NativeLaneRequirements::COMPUTE,

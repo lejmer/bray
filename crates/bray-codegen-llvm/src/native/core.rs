@@ -604,9 +604,15 @@ pub(crate) fn frame_operation_type<'context>(
         | ProtectedFrameOperation::TaskBroadcast => context
             .void_type()
             .fn_type(&[pointer.into(), usize.into()], false),
-        ProtectedFrameOperation::StateDescription => context
-            .i64_type()
-            .fn_type(&[usize.into(), context.i32_type().into()], false),
+        ProtectedFrameOperation::StateDescription => context.i64_type().fn_type(
+            &[
+                usize.into(),
+                context.i32_type().into(),
+                context.i32_type().into(),
+                usize.into(),
+            ],
+            false,
+        ),
         ProtectedFrameOperation::Destruction => context.void_type().fn_type(&[usize.into()], false),
         ProtectedFrameOperation::LifecycleResolution => context.void_type().fn_type(
             &[pointer.into(), usize.into(), context.i32_type().into()],

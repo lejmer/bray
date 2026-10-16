@@ -274,10 +274,10 @@ impl CodegenInstance {
         &self.mir
     }
 
-    /// Attaches realized result-cleanup requirements while retaining the instance's identity and dependencies.
-    pub fn with_completion_requirements(
+    /// Attaches realized callback requirements while retaining identity and dependencies.
+    pub fn with_frame_execution_requirements(
         mut self,
-        requirements: &[bray_runtime_interface::ExecutionLaneRequirement],
+        requirements: &[[&'static [bray_runtime_interface::ExecutionLaneRequirement]; 3]],
     ) -> Self {
         if !requirements.is_empty() {
             // Concrete metadata owns the descriptor while all immutable MIR tables stay shared.
@@ -285,7 +285,7 @@ impl CodegenInstance {
                 self.mir
                     .as_ref()
                     .clone()
-                    .with_completion_requirements(requirements),
+                    .with_frame_execution_requirements(requirements),
             );
         }
 

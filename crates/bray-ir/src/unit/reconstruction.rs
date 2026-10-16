@@ -994,7 +994,12 @@ mod tests {
                     [],
                     [storage, completion],
                 )
-                .with_completion_cleanup(true),
+                .with_completion_cleanup(true)
+                .with_operation_requirements([
+                    vec![bray_runtime_interface::ExecutionLaneRequirement::Compute],
+                    vec![bray_runtime_interface::ExecutionLaneRequirement::Blocking],
+                    vec![bray_runtime_interface::ExecutionLaneRequirement::MainThread],
+                ]),
             ],
         )
         .unwrap_or_else(|error| panic!("frame descriptor must be valid: {error:?}"));

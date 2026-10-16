@@ -434,13 +434,15 @@ impl Compilation {
         });
 
         let requirements =
-            self.completion_execution_requirements(current.chain(retained), target, cancellation)?;
+            self.frame_execution_requirements(current.chain(retained), target, cancellation)?;
 
         for (_, evaluation) in &mut completed {
             if let ReachabilityEvaluation::Instance { instance, .. } = evaluation {
                 if let Some(requirements) = requirements.get(instance.key()) {
                     // The graph publishes the realized immutable descriptor to all downstream consumers.
-                    *instance = instance.clone().with_completion_requirements(requirements);
+                    *instance = instance
+                        .clone()
+                        .with_frame_execution_requirements(requirements);
                 }
             }
         }

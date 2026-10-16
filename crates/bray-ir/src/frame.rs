@@ -27,7 +27,7 @@ pub struct MirFrameState {
     broadcast: MirBlockId,
     affinity: ProtectedFrameAffinity,
     completion_cleanup: bool,
-    lane_requirements: Arc<[ExecutionLaneRequirement]>,
+    lane_requirements: [&'static [ExecutionLaneRequirement]; 3],
     initialized_storages: Arc<[MirStorageId]>,
 }
 
@@ -46,7 +46,7 @@ impl MirFrameState {
             broadcast,
             affinity: ProtectedFrameAffinity::Movable,
             completion_cleanup: false,
-            lane_requirements: sorted_unique_shared_slice(lane_requirements),
+            lane_requirements: [ExecutionLaneRequirement::set(lane_requirements), &[], &[]],
             initialized_storages: sorted_unique_shared_slice(initialized_storages),
         }
     }
@@ -92,7 +92,24 @@ impl MirFrameState {
 
     /// Returns checked execution-lane requirements in canonical order.
     pub fn lane_requirements(&self) -> &[ExecutionLaneRequirement] {
+        self.lane_requirements[0]
+    }
+
+    /// Returns requirements for resume, cancellation or broadcast, in that order.
+    /// Abandonment enters cancellation. Moving a result and releasing empty backing
+    /// execute no source lifecycle operation.
+    pub fn operation_requirements(&self) -> &[&'static [ExecutionLaneRequirement]; 3] {
         &self.lane_requirements
+    }
+
+    /// Attaches requirements established for the concrete callback entries.
+    pub fn with_operation_requirements(
+        mut self,
+        requirements: [Vec<ExecutionLaneRequirement>; 3],
+    ) -> Self {
+        self.lane_requirements = requirements.map(ExecutionLaneRequirement::set);
+
+        self
     }
 
     /// Returns storages known to be initialized when this state is entered.
@@ -113,16 +130,18 @@ pub struct MirFrameDescriptor {
 }
 
 impl MirFrameDescriptor {
-    pub(crate) fn include_completion_requirements(
+    pub(crate) fn set_execution_requirements(
         &mut self,
-        requirements: &[ExecutionLaneRequirement],
+        requirements: &[[&'static [ExecutionLaneRequirement]; 3]],
     ) {
-        for state in Arc::make_mut(&mut self.states) {
-            if state.completion_cleanup {
-                state.lane_requirements = sorted_unique_shared_slice(
-                    state.lane_requirements.iter().chain(requirements).copied(),
-                );
-            }
+        assert_eq!(
+            self.states.len(),
+            requirements.len(),
+            "realized callback requirements cover every frame state"
+        );
+
+        for (state, requirements) in Arc::make_mut(&mut self.states).iter_mut().zip(requirements) {
+            state.lane_requirements = *requirements;
         }
     }
 

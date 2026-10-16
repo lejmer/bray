@@ -243,15 +243,15 @@ impl MirUnit {
         self.frame_descriptor.as_ref()
     }
 
-    /// Realizes completed-result execution requirements without changing control flow or identity.
-    pub fn with_completion_requirements(
+    /// Realizes callback execution requirements without changing control flow or identity.
+    pub fn with_frame_execution_requirements(
         mut self,
-        requirements: &[bray_runtime_interface::ExecutionLaneRequirement],
+        requirements: &[[&'static [bray_runtime_interface::ExecutionLaneRequirement]; 3]],
     ) -> Self {
         self.frame_descriptor
             .as_mut()
-            .expect("completed-result requirements belong to a protected frame")
-            .include_completion_requirements(requirements);
+            .expect("callback requirements belong to a protected frame")
+            .set_execution_requirements(requirements);
 
         self
     }

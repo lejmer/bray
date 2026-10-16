@@ -1096,3 +1096,101 @@ capture cleanup must use the checked cancellation path. Do not solve this with
 blanket unions of initialized types or a second cleanup scheduler.
 
 Audit: the changed behavior categories are dispatch admission, callback-address contracts, status-based ownership retention, checked native-state projection, and cleanup-continuation composition. Repository searches found the existing lane comparison and state conversion, which are reused. All raw dispatch call sites supply admission, and no version or compatibility path was added. This checkpoint adds about 120 net production lines and 130 net test lines. The remaining driver replaces the Rust graph and will consume the new admission callback.
+
+
+## Active operation metadata batch
+
+The standing objective remains BRA-561, then BRA-505, then BRA-619, including
+reviewed PRs and pushed fixes. Do not stop at a checkpoint. HEAD 7b461268 has a
+verified clean independent review, GitHub review 5549809993 on PR #611.
+
+The current uncommitted batch replaces completed-result-only requirement
+propagation with concrete callback-entry requirements. It reuses checked MIR
+cancellation branches, stops at suspension, and closes the existing lifecycle
+helper graph. Resume, cancellation and broadcast entries share the runtime
+model's eight immutable lane sets. Metadata queries take the exact operation
+and argument. Native failure resolution selects cancellation, while ordinary
+source resolution, result movement and empty backing release execute no source
+cleanup. A suspended cancellation continuation selects its cancellation entry
+from the existing frame cancellation byte. No ABI or artifact version changes.
+
+The first batch passed generic captured/result destructor, unentered body lane,
+production body/contract, ten activation authority and imported generic tests.
+The native bootstrap build then exposed unqualified Header/Progress names in
+the new advance helper. Those names are now qualified. The later operation
+argument and shared-set changes require the running final validation batch,
+style, native smoke and independent review before publication. Logs use
+bra-561-operation- in the shared target's bra-620-authority directory.
+
+The production driver switch remains outstanding. In particular, retirement
+must admit before unlinking a child, preserve the chain on deferral, and query
+only once. The admitted inactive token and native consumers still need their
+switch, and the replaced Rust activation graph must be removed. Do not treat
+this metadata checkpoint as BRA-561 completion.
+
+The focused activation-body audit is
+production_storage_boundaries_prove_their_declared_memory_effects. The broader
+host-nested test covers selected host entry sources, not every activation body.
+The exact activation audit exposed unproved contracts in the unused advance
+prototype, so that uncommitted prototype was removed. Integrate progress commit
+with the production driver's exact operation branches instead of retaining an
+unused wrapper that obscures which authority each operation needs.
+
+Retirement design to carry into the driver: the native dispatch claim excludes
+same-run dispatch/reentry while a producer callback runs. Therefore admit and
+consume a committed child while its parent link remains intact, then clear the
+parent link and advance the root cursor using retained parent identity, without
+reading the destroyed child. Deferral changes no link. This needs an explicit
+whole-chain owner contract and native enforcement of the same-run exclusion,
+including composition during destruction. The current exact-header owned
+predicate alone must not grant authority over arbitrary parent/root addresses.
+Do not apply this relaxation to generic destruction before those caller and
+return-path obligations are implemented and tested. It avoids a second readiness
+query and a second retired graph, but is not yet implementation evidence.
+
+
+## Operation metadata verification and driver continuation
+
+The operation metadata batch passes 173 runtime, 20 runtime ABI, 44 MIR,
+190 package-interface and five runtime-model tests. The exact production storage
+contract audit passes. The LLVM native aggregate ABI regression passes after
+correcting a test-only ambiguous conversion. The full native runtime-artifact
+smoke test passes, including the operation/argument boundary checks. Logs are
+`bra-561-operation-runtime-tests.log`, `-storage-tests.log`, `-abi-test.log` and
+`-native-smoke.log` in the shared target's `bra-620-authority` directory.
+
+The native invocation bridge now installs the admitted snapshot's continuation
+under the existing task-context guard. It retains the actually selected lane
+without repeating admission. Both focused callback tests pass, including nested entry and unwind restoration
+with further admission denied. The imported generic requirement regression also
+passes. Mutating style, Rust formatting and Bray formatting pass after the tests.
+The native smoke result above precedes the scoped-context change, whose direct
+production callback regression supplies the additional evidence.
+
+The driver switch should give composition the parent's typed completion storage
+before suspending. The child moves its result there, retires on an admitted lane,
+and only then lets the parent resume. This avoids requiring a synchronous parent
+callback to suspend midway through consuming a child whose destruction needs a
+different lane. Lowering should use existing MIR temporary storage, retaining it
+in the already-admitted parent frame. The parent takes the transferred outcome
+before its existing cancellation checkpoint. No separate retired-child list or
+new source language feature is needed. Preserve this as the implementation
+hypothesis, and verify the abnormal and suspended-cleanup paths before claiming
+it is implemented.
+
+The source Future can retain its existing two-pointer protected representation,
+now pointing to owned context and immutable descriptor. At native transfer the
+compiler reads the live header's lease into the existing full inactive token.
+The native token must retain its epoch. Do not replace it with an unchecked
+address that could activate a reused slot. Replace the old adapter callback and
+its generated descriptor reconstruction across roots, starts, observations and
+inactive disposal in the same switch.
+
+
+Audit for this checkpoint: re-read AGENTS.md and the conventions. Trace the changed
+behavior through concrete helper closure, callback-entry CFG edges, MIR metadata,
+serialization, LLVM callbacks, native provider signatures and Bray query callers.
+Search for the replaced completion-only analysis and old query signatures. The
+shared static lane sets and existing graph traversal replace local allocation and
+repeated closure work. Native context installation reuses the existing restoration
+guard and trusts admission downstream. The production driver remains unfinished.

@@ -780,5 +780,67 @@ fn generic_completed_results_retain_concrete_cleanup_lanes() {
             completions[0].lane_requirements(),
             [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
         );
+
+        assert_eq!(
+            completions[0].operation_requirements()[1].as_ref(),
+            [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
+        );
+
+        assert!(completions[0].operation_requirements()[2].is_empty());
+
+        let frame = plan
+            .units()
+            .iter()
+            .flat_map(|unit| unit.instances())
+            .filter_map(|instance| instance.mir().frame_descriptor())
+            .find(|frame| frame.completion_state().is_some())
+            .unwrap();
+
+        assert_eq!(
+            frame.states()[0].operation_requirements()[1].as_ref(),
+            [bray_runtime_interface::ExecutionLaneRequirement::Blocking],
+            "abandoning the generic capture runs its concrete destructor before body entry"
+        );
+    }
+}
+
+#[test]
+fn inactive_cancellation_does_not_require_unentered_body_lanes() {
+    let (_, plan) = runtime_native_plan(
+        r#"
+        module app;
+
+        async func child() -> i32
+            requires(blocking_execution())
+        {
+            return 7;
+        }
+
+        async func main() -> i32
+            requires(blocking_execution())
+        {
+            return await child();
+        }
+        "#,
+    );
+
+    let states = plan
+        .units()
+        .iter()
+        .flat_map(|unit| unit.instances())
+        .filter_map(|instance| instance.mir().frame_descriptor())
+        .map(|frame| &frame.states()[0])
+        .collect::<Vec<_>>();
+
+    assert!(!states.is_empty());
+
+    for state in states {
+        assert_eq!(
+            state.lane_requirements(),
+            [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
+        );
+
+        assert!(state.operation_requirements()[1].is_empty());
+        assert!(state.operation_requirements()[2].is_empty());
     }
 }

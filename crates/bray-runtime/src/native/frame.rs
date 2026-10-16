@@ -284,7 +284,7 @@ fn state(
         return None;
     }
 
-    super::activation::frame_state(abi.state()(abi.context(), state.raw()), state)
+    super::activation::frame_state(abi.state()(abi.context(), state.raw(), 0, 0), state)
 }
 
 pub(super) struct NativeFrameTransfer {
@@ -340,7 +340,7 @@ mod tests {
     fn activation_queries_only_requested_compiler_states() {
         thread_local! { static QUERIES: Cell<usize> = const { Cell::new(0) }; }
 
-        extern "C" fn state(_: usize, _: u32) -> NativeFrameState {
+        extern "C" fn state(_: usize, _: u32, _: u32, _: usize) -> NativeFrameState {
             QUERIES.set(QUERIES.get() + 1);
 
             NativeFrameState::new(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE)

@@ -66,7 +66,7 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
     )?;
 
     translate_frame_adapter(module, request, instance, context_type, types)?;
-    super::description::translate_state_callback(context, module, request, instance)?;
+    super::description::translate_state_callback(context, module, request, instance, context_type)?;
     translate_cancellation_entry(module, request, instance, context_type, types)?;
     translate_action_callbacks(module, request, instance, context_type, types)?;
 

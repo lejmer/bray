@@ -58,7 +58,12 @@ trusted internal func invoke(
     }
 
     let execution: bray.runtime.bootstrap.activation.requirements.Execution =
-        match consume trusted bray.runtime.bootstrap.activation.requirements.active(pointer, header.state)
+        match consume trusted bray.runtime.bootstrap.activation.requirements.active(
+        pointer,
+        header.state,
+        operation,
+        argument
+    )
     {
         case ?execution { yield execution; }
         case none { yield trusted core.target.abort(); }

@@ -105,6 +105,7 @@ pub(super) fn translate_state_callback<'context>(
     module: &Module<'context>,
     request: CodegenRequest<'_>,
     instance: &CodegenInstance,
+    context_type: StructType<'context>,
 ) -> Result<(), CodegenFailure> {
     let function = frame_operation_function(
         module,
@@ -126,44 +127,99 @@ pub(super) fn translate_state_callback<'context>(
         })
         .expect("protected-frame translation requires an established mapping or value");
 
+    let operation = function
+        .get_nth_param(2)
+        .expect("state query has its callback operation")
+        .into_int_value();
+
     let builder = context.create_builder();
     let dispatch = context.append_basic_block(function, "frame.state");
     let invalid = context.append_basic_block(function, "frame.state.invalid");
     let mut cases = Vec::with_capacity(descriptor.states().len());
 
+    builder.position_at_end(dispatch);
+
+    let storage = builder
+        .build_int_to_ptr(
+            function
+                .get_first_param()
+                .expect("state query has its frame context")
+                .into_int_value(),
+            context.ptr_type(inkwell::AddressSpace::default()),
+            "frame.context",
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
+    let operation = callback_entry(
+        context,
+        &builder,
+        function,
+        context_type,
+        storage,
+        operation,
+    )?;
+
     for state in descriptor.states() {
         let block = context.append_basic_block(function, "frame.state.known");
 
-        let lane_requirements =
-            state
-                .lane_requirements()
-                .iter()
-                .fold(0_u64, |requirements, lane| {
-                    requirements
-                        | match lane {
-                            bray_runtime_interface::ExecutionLaneRequirement::Blocking => 1,
-                            bray_runtime_interface::ExecutionLaneRequirement::Compute => 2,
-                            bray_runtime_interface::ExecutionLaneRequirement::MainThread => 4,
-                        }
-                });
+        let mut operations = Vec::with_capacity(6);
 
-        let affinity = if state
-            .lane_requirements()
-            .contains(&bray_runtime_interface::ExecutionLaneRequirement::MainThread)
+        for (index, lanes) in state
+            .operation_requirements()
+            .iter()
+            .map(|lanes| lanes.as_ref())
+            .chain(std::iter::once(&[][..]))
+            .enumerate()
         {
-            bray_runtime_interface::ProtectedFrameAffinity::MainThread.code()
-        } else {
-            state.affinity().code()
-        };
+            let selected = context.append_basic_block(function, "frame.operation.known");
+
+            let lane_requirements = lanes.iter().fold(0_u64, |requirements, lane| {
+                requirements
+                    | match lane {
+                        bray_runtime_interface::ExecutionLaneRequirement::Blocking => 1,
+                        bray_runtime_interface::ExecutionLaneRequirement::Compute => 2,
+                        bray_runtime_interface::ExecutionLaneRequirement::MainThread => 4,
+                    }
+            });
+
+            let affinity =
+                if lanes.contains(&bray_runtime_interface::ExecutionLaneRequirement::MainThread) {
+                    bray_runtime_interface::ProtectedFrameAffinity::MainThread.code()
+                } else {
+                    state.affinity().code()
+                };
+
+            builder.position_at_end(selected);
+
+            crate::native::return_frame_state(
+                context,
+                &builder,
+                u64::from(affinity),
+                lane_requirements,
+            )?;
+
+            // Abandonment selects cancellation before this switch. Other resolution,
+            // result movement and empty backing release execute no source cleanup.
+            let ordinals: &[u64] = match index {
+                0 => &[0],
+                1 => &[1],
+                2 => &[2],
+                3 => &[3, 4, 5],
+                _ => unreachable!("source metadata has three checked entry kinds"),
+            };
+
+            operations.extend(
+                ordinals
+                    .iter()
+                    .map(|ordinal| (context.i32_type().const_int(*ordinal, false), selected)),
+            );
+        }
 
         builder.position_at_end(block);
 
-        crate::native::return_frame_state(
-            context,
-            &builder,
-            u64::from(affinity),
-            lane_requirements,
-        )?;
+        builder
+            .build_switch(operation, invalid, &operations)
+            .map_err(CodegenFailure::backend_library)?;
 
         cases.push((
             context
@@ -188,4 +244,70 @@ pub(super) fn translate_state_callback<'context>(
         .map_err(CodegenFailure::backend_library)?;
 
     Ok(())
+}
+
+fn callback_entry<'context>(
+    context: &'context Context,
+    builder: &inkwell::builder::Builder<'context>,
+    function: inkwell::values::FunctionValue<'context>,
+    context_type: StructType<'context>,
+    storage: inkwell::values::PointerValue<'context>,
+    operation: inkwell::values::IntValue<'context>,
+) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
+    let requested =
+        super::support::cancellation_requested(context, builder, context_type, storage)?;
+
+    let resume = builder
+        .build_int_compare(
+            inkwell::IntPredicate::EQ,
+            operation,
+            context.i32_type().const_zero(),
+            "frame.resuming",
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
+    let cancelled_resume = builder
+        .build_and(resume, requested, "frame.resuming.cleanup")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let argument = function
+        .get_nth_param(3)
+        .expect("state query has its operation argument")
+        .into_int_value();
+
+    let resolve = builder
+        .build_int_compare(
+            inkwell::IntPredicate::EQ,
+            operation,
+            context.i32_type().const_int(3, false),
+            "frame.resolving",
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
+    let failure = builder
+        .build_int_compare(
+            inkwell::IntPredicate::EQ,
+            argument,
+            argument.get_type().const_int(3, false),
+            "frame.abandoning",
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
+    let abandon = builder
+        .build_and(resolve, failure, "frame.resolve.cleanup")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let cancellation = builder
+        .build_or(cancelled_resume, abandon, "frame.enter.cleanup")
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder
+        .build_select(
+            cancellation,
+            context.i32_type().const_int(1, false),
+            operation,
+            "frame.operation",
+        )
+        .map_err(CodegenFailure::backend_library)
+        .map(|value| value.into_int_value())
 }

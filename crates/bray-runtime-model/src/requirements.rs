@@ -13,7 +13,8 @@ impl ExecutionLaneRequirement {
     /// Every execution-lane requirement in stable order.
     pub const ALL: [Self; 3] = [Self::Blocking, Self::Compute, Self::MainThread];
 
-    pub(crate) fn set(values: impl IntoIterator<Item = Self>) -> &'static [Self] {
+    /// Returns the sorted, deduplicated requirement set using shared immutable storage.
+    pub fn set(values: impl IntoIterator<Item = Self>) -> &'static [Self] {
         let bits = values.into_iter().fold(0_u8, |bits, requirement| {
             bits | match requirement {
                 Self::Blocking => 1,

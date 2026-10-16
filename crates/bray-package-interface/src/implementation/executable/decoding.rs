@@ -2170,11 +2170,16 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                         _ => return Err(ExecutableTemplateDecodeError::Malformed),
                     };
 
-                    let lane_count = self.count()?;
-                    let mut lanes = self.items(lane_count)?;
+                    let mut requirements = [Vec::new(), Vec::new(), Vec::new()];
 
-                    for _ in 0..lane_count {
-                        lanes.push(self.execution_lane()?);
+                    for lanes in &mut requirements {
+                        let lane_count = self.count()?;
+
+                        *lanes = self.items(lane_count)?;
+
+                        for _ in 0..lane_count {
+                            lanes.push(self.execution_lane()?);
+                        }
                     }
 
                     let storage_count = self.count()?;
@@ -2185,7 +2190,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     }
 
                     states.push(
-                        MirFrameState::new(state, entry, broadcast, lanes, storages)
+                        MirFrameState::new(state, entry, broadcast, [], storages)
+                            .with_operation_requirements(requirements)
                             .with_affinity(affinity)
                             .with_completion_cleanup(completion_cleanup),
                     );

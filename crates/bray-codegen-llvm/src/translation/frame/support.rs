@@ -17,3 +17,21 @@ pub(crate) fn terminal_state<'context>(
 
     Ok(context.i32_type().const_int(u64::from(terminal), false))
 }
+
+pub(crate) fn cancellation_requested<'context>(
+    context: &'context inkwell::context::Context,
+    builder: &inkwell::builder::Builder<'context>,
+    context_type: inkwell::types::StructType<'context>,
+    storage: inkwell::values::PointerValue<'context>,
+) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
+    let pointer = builder
+        .build_struct_gep(context_type, storage, 2, "frame.cancellation.pointer")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let requested = builder
+        .build_load(context.i8_type(), pointer, "frame.cancellation")
+        .map_err(CodegenFailure::backend_library)?
+        .into_int_value();
+
+    crate::translation::unit::nonzero_integer(builder, requested, "frame.cancellation.requested")
+}

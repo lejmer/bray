@@ -371,6 +371,8 @@ mod tests {
 
                 if operation == ProtectedFrameOperation::StateDescription {
                     arguments.push(context.i32_type().const_zero().into());
+                    arguments.push(context.i32_type().const_zero().into());
+                    arguments.push(context.i64_type().const_zero().into());
                 }
 
                 let result = invoke_function(
