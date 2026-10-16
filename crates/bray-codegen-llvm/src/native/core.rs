@@ -7,7 +7,7 @@ use bray_runtime_interface::{
 };
 use bray_target::{ObjectFormat, TargetArchitecture};
 use inkwell::AddressSpace;
-use inkwell::attributes::{Attribute, AttributeLoc};
+use inkwell::attributes::Attribute;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
@@ -37,16 +37,6 @@ pub(crate) fn indirect_result_type<'context>(
     target: &CodegenTarget,
     key: &CodegenSymbolKey,
 ) -> Option<BasicTypeEnum<'context>> {
-    if matches!(
-        key,
-        CodegenSymbolKey::ProtectedFrame {
-            operation: ProtectedFrameOperation::MoveBeforeStart,
-            ..
-        }
-    ) {
-        return Some(protected_frame_type(context, target).into());
-    }
-
     match key {
         CodegenSymbolKey::Runtime(reference) => {
             runtime_indirect_result_type(context, target, reference.role())
@@ -56,9 +46,6 @@ pub(crate) fn indirect_result_type<'context>(
                 ProtectedFrameOperation::Resume
                 | ProtectedFrameOperation::CancellationEntry
                 | ProtectedFrameOperation::TaskBroadcast => frame_progress_type(context).into(),
-                ProtectedFrameOperation::MoveBeforeStart => {
-                    unreachable!("move-before-start results are handled for every native ABI")
-                }
                 _ => unreachable!("only aggregate frame results use indirect storage"),
             })
         }
@@ -132,22 +119,9 @@ pub(crate) fn invoke_function<'context>(
         .chain(arguments.iter().copied())
         .collect::<Vec<_>>();
 
-    let call = builder
+    builder
         .build_call(function, &arguments, name)
         .map_err(CodegenFailure::backend_library)?;
-
-    if matches!(
-        key,
-        CodegenSymbolKey::ProtectedFrame {
-            operation: ProtectedFrameOperation::MoveBeforeStart,
-            ..
-        }
-    ) {
-        call.add_attribute(
-            AttributeLoc::Param(0),
-            indirect_result_attribute(context, result)?,
-        );
-    }
 
     builder
         .build_load(result, storage, name)
@@ -182,6 +156,7 @@ pub(crate) fn runtime_indirect_result_type<'context>(
             | RuntimeAbiType::PanicReport
             | RuntimeAbiType::RunOutcome
             | RuntimeAbiType::FrameProgress
+            | RuntimeAbiType::InactiveFrame
     ) || uses_microsoft_x64_abi(target) && aggregate_is_indirect(result)
     {
         runtime_value_type(context, target, result)
@@ -248,8 +223,7 @@ pub(crate) fn return_frame_result<'context>(
 fn frame_result_is_indirect(_target: &CodegenTarget, operation: ProtectedFrameOperation) -> bool {
     matches!(
         operation,
-        ProtectedFrameOperation::MoveBeforeStart
-            | ProtectedFrameOperation::Resume
+        ProtectedFrameOperation::Resume
             | ProtectedFrameOperation::CancellationEntry
             | ProtectedFrameOperation::TaskBroadcast
     )
@@ -292,38 +266,19 @@ pub(crate) fn frame_operation_function<'context>(
         .unwrap_or_else(|| panic!("protected-frame operation must be declared: {operation:?}"))
 }
 
-pub(crate) fn protected_frame_type<'context>(
+pub(crate) fn inactive_frame_type<'context>(
     context: &'context Context,
     target: &CodegenTarget,
 ) -> StructType<'context> {
-    let usize = pointer_integer_type(context, target);
     let pointer = context.ptr_type(AddressSpace::default());
 
     context.struct_type(
         &[
-            usize.into(),
-            context.i8_type().array_type(32).into(),
-            context.i32_type().into(),
-            usize.into(),
-            usize.into(),
-            usize.into(),
-            usize.into(),
-            pointer.into(),
-            pointer.into(),
-            pointer.into(),
-            pointer.into(),
-            pointer.into(),
-            pointer.into(),
+            crate::mapping::cleanup::lease_type(context, target).into(),
             pointer.into(),
         ],
         false,
     )
-}
-
-pub(crate) fn inactive_frame_type(context: &Context) -> StructType<'_> {
-    let pointer = context.ptr_type(AddressSpace::default());
-
-    context.struct_type(&[pointer.into(), pointer.into()], false)
 }
 
 pub(crate) fn frame_progress_type(context: &Context) -> StructType<'_> {
@@ -562,7 +517,7 @@ pub(super) fn runtime_value_type<'context>(
         RuntimeAbiType::RunOutcome => run_outcome_type(context, target).into(),
         RuntimeAbiType::PanicReport => panic_report_type(context).into(),
         RuntimeAbiType::TaskAllocation => task_allocation_type(context).into(),
-        RuntimeAbiType::InactiveFrame => inactive_frame_type(context).into(),
+        RuntimeAbiType::InactiveFrame => inactive_frame_type(context, target).into(),
         RuntimeAbiType::FrameProgress => frame_progress_type(context).into(),
         RuntimeAbiType::LaneResult => context
             .struct_type(
@@ -598,8 +553,7 @@ pub(crate) fn frame_operation_type<'context>(
     let pointer = context.ptr_type(AddressSpace::default());
 
     match operation {
-        ProtectedFrameOperation::MoveBeforeStart
-        | ProtectedFrameOperation::Resume
+        ProtectedFrameOperation::Resume
         | ProtectedFrameOperation::CancellationEntry
         | ProtectedFrameOperation::TaskBroadcast => context
             .void_type()
@@ -654,6 +608,26 @@ mod tests {
     }
 
     #[test]
+    fn inactive_tokens_retain_the_complete_native_lease_on_every_target() {
+        let context = Context::create();
+
+        for native in NativeTarget::ALL {
+            let target = CodegenTarget::for_native(native);
+
+            let machine = crate::machine::LlvmTargetMachine::create(&target)
+                .expect("native target must create an LLVM machine");
+
+            let data = machine.target_data();
+            let token = super::inactive_frame_type(&context, &target);
+
+            assert_eq!(data.get_store_size(&token), 48, "{native:?}");
+            assert_eq!(data.get_abi_alignment(&token), 8, "{native:?}");
+            assert_eq!(data.offset_of_element(&token, 0), Some(0), "{native:?}");
+            assert_eq!(data.offset_of_element(&token, 1), Some(40), "{native:?}");
+        }
+    }
+
+    #[test]
     fn every_native_catalog_role_has_a_declaration_on_every_native_target() {
         let context = Context::create();
 
@@ -682,11 +656,7 @@ mod tests {
                                 if target.machine().architecture()
                                     == bray_target::TargetArchitecture::X86_64
                                     && !super::uses_microsoft_x64_abi(&target)
-                                    && matches!(
-                                        kind,
-                                        RuntimeAbiType::Configuration
-                                            | RuntimeAbiType::InactiveFrame
-                                    )
+                                    && matches!(kind, RuntimeAbiType::Configuration)
                                 {
                                     2
                                 } else {
@@ -858,7 +828,7 @@ mod tests {
         assert_eq!(cancellation.count_param_types(), 2);
         assert_eq!(cancellation.get_return_type(), None);
 
-        assert_eq!(state.count_param_types(), 2);
+        assert_eq!(state.count_param_types(), 4);
 
         assert_eq!(state.get_return_type(), Some(context.i64_type().into()));
     }
@@ -880,31 +850,8 @@ mod tests {
 
         assert_ne!(
             parameters.first().copied(),
-            Some(super::protected_frame_type(&context, &target).into())
+            Some(super::inactive_frame_type(&context, &target).into())
         );
-    }
-
-    #[test]
-    fn frame_moves_use_indirect_results_on_every_native_target() {
-        let context = Context::create();
-
-        for native_target in NativeTarget::ALL {
-            let target = CodegenTarget::for_native(native_target);
-
-            let operation = super::frame_operation_type(
-                &context,
-                &target,
-                ProtectedFrameOperation::MoveBeforeStart,
-            );
-
-            assert_eq!(operation.get_return_type(), None, "{native_target:?}");
-            assert_eq!(operation.count_param_types(), 2, "{native_target:?}");
-
-            assert!(
-                super::frame_result_is_indirect(&target, ProtectedFrameOperation::MoveBeforeStart),
-                "{native_target:?}"
-            );
-        }
     }
 
     #[test]
@@ -931,7 +878,7 @@ mod tests {
         );
 
         assert_eq!(state.get_return_type(), Some(context.i64_type().into()));
-        assert_eq!(state.count_param_types(), 2);
+        assert_eq!(state.count_param_types(), 4);
 
         let panic = super::runtime_function_type(
             &context,

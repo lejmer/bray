@@ -21,41 +21,18 @@ trusted internal predicate active_destination(
 );
 
 trusted internal func active(
-    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
     pos state: u32,
     pos operation: u32,
     pos argument: usize
 ) -> Execution?
-    requires(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
-    ensures(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
+    requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
+    ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
     uses(intrinsic, layout_reinterpret)
 {
-    let header = trusted bray.runtime.bootstrap.activation.execution.read(pointer);
+    let header = trusted bray.runtime.bootstrap.activation.execution.read(cursor);
 
-    let describe = trusted lambda(
-        pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
-        pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
-    ) -> bray.runtime.bootstrap.activation.Descriptor
-        requires(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
-        ensures(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
-        uses(raw_memory)
-    {
-        let authorize = trusted lambda(pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>)
-            ensures(
-                trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Descriptor>(
-                    pointer = descriptor,
-                    count = 1
-                ),
-                trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor),
-                trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor),
-            )
-            executes(pure, total) {};
-
-        trusted authorize(descriptor);
-        return trusted std.memory.read<bray.runtime.bootstrap.activation.Descriptor>(descriptor);
-    };
-
-    let descriptor = trusted describe(pointer, header.descriptor);
+    let descriptor = trusted bray.runtime.bootstrap.activation.execution.describe(cursor);
 
     if state >= descriptor.states || operation >= 6 || (operation == 3 && argument >= 4)
     {
@@ -63,15 +40,15 @@ trusted internal func active(
     }
 
     let query = trusted lambda(
-        pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+        pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
         pos callback: RawPointer<Query>,
         pos context: usize,
         pos state: u32,
         pos operation: u32,
         pos argument: usize,
     ) -> State
-        requires(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
-        ensures(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
+        requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
+        ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
         uses(layout_reinterpret)
     {
         let authorize = trusted lambda(
@@ -95,7 +72,7 @@ trusted internal func active(
     };
 
     let callback = trusted std.memory.reinterpret<Query, u8>(descriptor.state);
-    let own = trusted query(pointer, callback, header.context, state, operation, argument);
+    let own = trusted query(cursor, callback, header.context, state, operation, argument);
 
     let parent: State =
     {
@@ -120,7 +97,7 @@ trusted internal func active(
 
     let execution: Execution =
     {
-        address = trusted core.target.expose_address<bray.runtime.bootstrap.activation.Header>(pointer),
+        address = trusted core.target.expose_address<bray.runtime.bootstrap.activation.Header>(cursor.pointer),
         identity = descriptor.storage.identity,
         state = state,
         requirements = requirements,
@@ -163,7 +140,22 @@ trusted internal func snapshot(
             trusted core.memory.aligned_for<Execution>(pointer = output),
         )
     {
-        return trusted active(pointer, state, operation, argument);
+        let acquire = trusted lambda(pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>) ->
+            bray.runtime.bootstrap.activation.run.Cursor
+            requires(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
+            ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &result))
+            executes(pure, total)
+        {
+            return
+            {
+                root = pointer,
+                pointer = pointer
+            };
+        };
+
+        let mut cursor = trusted acquire(pointer);
+
+        return trusted active(&mut cursor, state, operation, argument);
     };
 
     let execution = match consume trusted query(pointer, state, operation, argument, output)

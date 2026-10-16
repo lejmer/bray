@@ -1,5 +1,115 @@
 # BRA-561 activation implementation
 
+## Current checkpoint (2026-10-17)
+
+BRA-561 remains in progress on PR #611. Continue BRA-505, then BRA-619 after this
+PR's implementation, audit and independent review. No issue is complete merely
+because native fixture callbacks pass. The actual generated constructors and
+imported native constructors must satisfy the same admission and retirement
+contract. No new syntax, compatibility path, ABI version or cleanup scheduler.
+
+The 54 production authority tests pass, including rejected forged, reconstructed
+and differently paired owners. The 176 runtime tests pass. Runtime dispatch
+invariants now fail outside the catch boundary for producer panics. The native
+artifact fixtures pass against the previous archives, including six deep-chain
+cases with a constant 3072-byte callback stack span and no allocations after
+admission. These results do not cover the subsequent constructor fixes below.
+
+Tracing actual source execution found two gaps:
+
+- Generated constructors claimed admitted storage but left their outgoing report
+  chain empty. They now claim the already-admitted primary record and storage
+  together through `OutgoingActivation`. Publication retains both with the owner.
+  Activated retirement transfers unused records out before releasing the header, and the
+  native run drops the returned chain. Panic transfers a record into its owned
+  report instead. Frame runtime demands now name that same operation.
+- Native imports retained the producer constructor symbol but derived companion
+  data symbols from the consumer's imported MIR key. Backing and factory symbols
+  now derive from the mapped constructor identity in both producer and consumer.
+
+All 14 constructor tests and 10 native-import tests pass, including the new
+imported async companion regression. Full artifact verification rebuilt the compiler, standard library and runtime
+from this batch. Its native tests pass. Permanent source coverage now executes the existing async value/borrow/recursive fixture and imported task,
+panic and cancellation fixture in development and release configurations.
+Logs: `target/bra-561-frame-hosts.log`, `target/bra-561-frame-imports.log`,
+`target/bra-561-constructor-compiler.log`, `target/bra-561-constructor-artifact.log`.
+The four source executions pass through both the CLI and the permanent artifact
+smoke runner. The test emitter now requests the existing linker-generated debug
+companion for development executables, following `BuildConfiguration` policy.
+The temporary retained-artifact test entry has been removed. All 15 native ABI
+checks pass across supported target layouts. The full artifact command initially
+stopped at that test-emitter setup defect, so its remaining source checks were
+resumed against its retained fresh artifacts and passed in 17.04s.
+
+Additional logs: `target/bra-561-generated-acceptance.log`,
+`target/bra-561-native-abi.log`, `target/bra-561-retained-source-smoke.log`.
+Artifacts: `target/bra-620-authority/bray-runtime-artifact-smoke-V9TVHc/`.
+Rust formatting and the repository style/format commands have been run after
+passing tests. The final style pass is being repeated after Rust formatting.
+Commit/push and fresh independent PR review remain.
+
+### Maintainability and acceptance audit
+
+The current batch removes the Rust frame owner, root adapter and dynamic frame
+transfer description. The Rust run retains scheduling integration and an exclusive
+dispatch claim, while Bray owns parent/child traversal and retirement. Generated
+completion uses one admitted parent destination. No second graph, cleanup engine,
+ABI version, source syntax, or Rust unsafe operation is introduced. Existing native
+result-copy operations now avoid clearing/copying an already retained payload.
+
+The audit follows these behavior categories through their producers and consumers:
+
+| Behavior | Owning implementation and searched equivalents | Evidence |
+| --- | --- | --- |
+| Inactive construction and activation | LLVM frame/storage, activation provider/publication/begin and native start/compose. Search `OutgoingActivation`, `CleanupStorageClaim`, `NativeInactiveFrame`. | Constructor tests, failed-admission retry, actual generated source and production authority tests. |
+| Iterative dispatch, result movement and retirement | Bray activation/run and execution, native run/state/observation. Search `retained_payload`, `completed_offset`, `CommitAwaitedCompletion`, `FRAME_COMPLETION_MOVE_SYMBOL`. | 176 runtime tests, six allocation-denied deep chains, actual source cancellation/panic/task results and exact native movement counts. |
+| Concrete/imported metadata and ABI | Existing codegen symbols, native layouts, runtime role catalog, artifact declaration/link-map checks. Search `FrameFactory`, `CleanupStorage`, `MoveBeforeStart`, `NativeProtectedFrame`, `root_frame_adapter`. | 14 constructor, 10 native-import and 15 target ABI tests. Removed names have no remaining implementation consumers. |
+| Anonymous callable identity and returned borrows | Bound call resolution feeds the existing result-dependency component inference, guarantees, storage flow and lowering. Search `anonymous_body`, `anonymous_result_dependencies`, `ResultDependencyOwner`, `parameter_root`. | Existing dependency/publication/returned-value suites and production contract tests. Shared parameter-root conversion replaces the separate publication interpretation. Keys share immutable identity data. |
+| Cleanup execution requirements | Existing concrete lifecycle closure publishes requirements through helper mappings to observation metadata. Search `execution_requirements`, `lane_bits`, `frame_operation_dependencies`. | Native observation lane/retirement coverage and generated source task fixture. No downstream effect reanalysis. |
+| MIR storage and persisted operations | Existing remap, walker, validator, encoder/decoder and inspection handlers consume the same completion storage identity. Search `ComposeAwaitedFrame`, `CommitAwaitedCompletion`. | MIR, lowering and interface tests plus development/imported-release execution. Format remains version 1. |
+| Source formatting and artifact execution | Existing formatter list rules and native-product emitter. Search `TrailingComma`, `TypeExpression`, `requires_linked_debug_companion`, `emit_executable_with_configuration`. | 40 formatter tests and source execution smoke in both configurations. BuildConfiguration remains the debug-companion policy owner. |
+| Report and failure ownership | Existing outgoing records, report transfer and producer-unwind boundary. Search `reserve_from`, `transfer_records`, `catch_unwind`, `assert_native_abort`. | Production report contracts, native panic/unwind fixture, callback invariant abort and runtime report tests. |
+
+Public ABI changes are propagated through descriptors, catalogs, adapters, codegen
+and native fixtures. New runtime test support is test-only. The run submodules are
+organized by transition responsibility. Numeric ABI offsets/types use existing
+layout and conversion helpers. User C formatting is preserved. Rust structural
+checks report existing size warnings, which are not suppressed. No new recoverable
+internal failure category, compatibility alias or fallback was added.
+
+Relative to checkpoint `68bf049e`, the batch currently changes 144 files, with
+approximately +1,886 production lines, +1,546 test/fixture lines and +722 tracked
+handoff lines. These are physical net line counts with inline test modules counted
+separately. The production growth implements the Bray driver and its admitted
+native integration while deleting the old Rust frame owner. It is not a claim
+that rearrangement or formatting reduces semantic complexity.
+
+The enabled selected-scope native regression still reaches
+`MissingRole(CleanupIncidentTransfer)`. Its production binding requires retained
+error quiescence in BRA-505, then BRA-619 integration. It remains outstanding in
+this authorized stack. The earlier full compilation run was not wholly green:
+its stale ABI expectations and production authority findings have passing focused
+replacements, while that selected-scope failure remains assigned to these next
+steps. No test is disabled and no immediate-disposal binding substitutes for it.
+
+### Cost evidence
+
+On x86_64 Windows, the async value fixture builds in 0.934s development / 1.147s
+release and produces executables of 2,338,816 / 1,495,552 bytes. The imported task
+fixture builds in 1.938s / 2.683s and produces 2,566,144 / 1,663,488 bytes. These
+are single warm runs including emission/linking, not comparative parity claims.
+
+Retained optimized IR in `target/bra-620-authority/bra-561-accepted-ir/` contains
+six concrete async definitions across two units. Their admitted frame sizes are
+792, 792, 800, 1672, 1680 and 4368 bytes, all aligned to 8. Each specialization has
+one 48-byte storage descriptor, 144-byte activation descriptor and 16-byte factory
+on this target. The two erased implementations retain distinct concrete factories.
+The recursive body has one descriptor independent of runtime depth. Simple-frame
+storage remains a downstream BRA-540/BRA-542 cost concern, not a Rust/C++ parity
+claim. No descriptor vector or per-await Box/Arc is constructed by the driver.
+The 256-transition scheduling budget follows the composed execution design and
+returns only at callback boundaries, without adding source cancellation points.
+
 ## Agreement and baseline
 
 The user approved BRA-561, then BRA-505, then BRA-619 on 2026-10-15. Use one
@@ -1194,3 +1304,661 @@ Search for the replaced completion-only analysis and old query signatures. The
 shared static lane sets and existing graph traversal replace local allocation and
 repeated closure work. Native context installation reuses the existing restoration
 guard and trusts admission downstream. The production driver remains unfinished.
+
+
+## Uncommitted driver replacement, 2026-10-16
+
+Baseline remains pushed 68bf049e on PR #611. This replacement batch is unfinished
+and has not passed the production audit. Earlier checkpoint results do not validate
+it. Run format and style after tests pass, as requested.
+
+The source Future retains two pointers. Native transfer carries the full lease and
+immutable descriptor. MIR reserves the parent result slot before suspension. Bray
+contains the iterative active-chain transitions. Rust NativeRun now holds one run
+claim, callback scope and execution snapshot instead of an owning activation graph.
+Task registration precedes activation. Composition checks combined capabilities
+before consuming its inactive child. Observation abandonment uses join suspension.
+Root retirement retains its registered task until release.
+
+Removed the generated MoveBeforeStart adapter, its operation metadata and redundant
+helper projection. Inactive moves transfer the existing representation. Known and
+erased awaits use the same completion operation. The old NativeProtectedFrame and
+native/frame.rs remain only for test migration and must still be removed.
+
+Current evidence:
+- Runtime and adapter production compilation passed during the batch. LLVM field
+  index errors were corrected afterward. The whole batch needs another Rust check.
+- The production authority audit now includes provider, completion, all run modules,
+  and contract-clause binding diagnostics. It currently reports ten failures.
+- Provider initialization passes after moving outgoing records by value. No new
+  unconditional write-authority grant was added.
+- Passing fresh address results directly removes every witness-copy error. Bray
+  has no consume expression for call arguments. An attempted use was removed.
+- Parenthesizing the operation-authority disjunction preserves its existing meaning
+  and avoids a recovered declaration that lost following contract conditions.
+- The actual Cursor declarations reject fabricated fields, exact reconstruction,
+  and pairing a member with another root. A selected cursor is accepted.
+- CatastrophicAbort has no returning storage effect. This follows the specification
+  and analysis/execution.rs's explicit Divergence edge without cleanup. Its pure
+  and total properties remain unchanged. The source regression accepts a returning
+  branch and rejects an unknown foreign call without preservation.
+- Advance now returns scheduling scalars. Its old successful return contained an
+  empty report, and its admission-failure return also contained an empty report.
+  This removes the spurious escaping local-cursor dependency. Actual reports still
+  transfer into the header before a successful return.
+- Explicit destination branch assignment retains a symbolic value at the join and
+  passes the completion-destination obligation. The equivalent if-expression lost
+  that value in pending_results merging. Do not infer a new language requirement.
+
+Logs are under the shared target/bra-620-authority directory. Current production
+results are in bra-561-driver-proof.log. The minimal conditional-preservation probe
+uses bra-561-conditional-proof.log. The temporary BRAY_TRACE_AUTHORITY trace has been removed from the checker.
+
+Automatic approval review rejected two proposed local preservation contracts in
+run/advance.bray. They are NOT applied. The user has been asked whether to apply
+and test them. Each requires selected cursor authority and the existing report
+callback proof. One retains both while reading header bytes. The other retains
+selection while transferring report records. Inspection shows read invokes no
+provider callback, report retention does not retire activation backing, and native
+dispatch holds DispatchClaim throughout. Native lifetime, allocation and reentry
+checks are still required. Do not bypass the pending decision or claim these proofs
+are already validated. Continue independent work while waiting.
+
+Remaining acceptance-critical work:
+- Resolve the ten production authority failures in advance, abandonment, completion,
+  retirement and the root traversal path. Preserve exact identities and every
+  surviving ancestor. Never grant authority from copied fields or phase flags.
+- Finish execution snapshots without duplicate metadata work and release roots on
+  their required lane and affinity. Do not fabricate lane authority.
+- Implement inactive Future cleanup through the same iterative driver, including
+  nested disposal and start/root/static-finalizer admission failures. Failed
+  activation retains ownership, but its callers still need disposal paths.
+- Supply checked requirements for native observation value cleanup and resolve
+  retirement deferral before committed result movement can become unreportable.
+- Migrate C/Rust fixtures for full tokens, parent result slots, Execution inspection,
+  composition admission and incident outputs. Remove the obsolete native adapter
+  and test-only frame after retaining its coverage.
+- Verify cancellation broadcast, suspended cleanup, result dependencies, report
+  retirement, allocation denial, callback reentry and native stack/allocation cost.
+- Finish the mechanical audit, tests, style, formatting, commit, push and PR review.
+
+The active sequence remains BRA-561, BRA-505, BRA-619. The pending approval applies
+only to the two proposed preservation wrappers, not the remaining independent work.
+
+The minimal conditional preservation regression independently reproduces a merge
+bug. Its explicit-preservation case fails, even though both branch paths establish
+the predicate. The required observation names Borrowed(Constructed(Input(owner),
+OwnedTarget = Unknown)), while the retained predicate names Borrowed(Input(owner)).
+The existing merge substitutes borrowed observations through identity-only mappings
+and loses the merged component snapshot. A proposed bounded correction adds the
+complete borrowed-observation mapping only when old and merged snapshots have the
+same known, nonliteral owner identity. It leaves identity mappings, ambiguous-alias
+handling and branch-fact intersection unchanged. Automatic approval review rejected
+both the initial and this narrower proposal, and requires explicit approval of the
+proof rule. The user has been asked. No merge implementation change is applied.
+Run conditional_calls_rejoin_preserved_borrowed_pointer_records together with
+borrowed_invariants_survive_loops_only_when_every_back_edge_preserves_them and
+equal_scalar_contents_do_not_identify_borrowed_predicate_subjects after approval.
+
+
+### ABI verification while authority approvals are pending
+
+The production runtime/adapter and LLVM check now passes:
+`cargo check -p bray-runtime-adapter -p bray-codegen-llvm --no-default-features`.
+The existing Backing dead-code warning remains in the incomplete migration.
+
+Runtime ABI tests passed, 20 tests. Updated LLVM tests no longer expect the old
+two-word inactive token or two-argument state query. Native ABI tests passed,
+15 tests, covering the 48-byte token and 40-byte lease offset on every supported
+target, plus byval attributes at both SysV declarations and calls. Removed the
+obsolete LLVM imports reported by that run. No ABI version was changed.
+
+The C bootstrap fixture now uses Execution inspection output, the composition
+admission callback, and the separate incident output on every dispatch path.
+Its existing lifetime, failure and deferral checks remain. Clang syntax checking
+with incompatible-pointer-types promoted to an error passed. This is not a
+native execution result. The runtime-smoke.rs provider and runtime unit-test
+providers still require migration from NativeProtectedFrame and MoveBeforeStart.
+
+Logs in target/bra-620-authority:
+- bra-561-abi-tests.log
+- bra-561-native-abi-tests.log
+- bra-561-c-fixture-syntax.log
+- bra-561-production-check.log
+
+The authority merge fix and the two local preservation contracts remain unapplied
+pending the already-requested explicit approvals. These checks do not validate
+those changes or remove the ten production authority failures. The batch remains
+uncommitted and unreviewed. No formatting/style command was run, following the
+user's request to wait until tests pass. No build or review process remains active.
+
+
+### Preservation proof correction, 2026-10-16
+
+This section supersedes the earlier claim that report retention only updates
+records and the proposed negative-list test for a known merge identity. Neither
+rejected implementation has been applied.
+
+The prior approval requests were premature. Inspection plus a positive failing
+regression established a problem, not the soundness of either repair.
+
+For the read wrapper, `run.read` reaches `execution.read`, a local authorization
+projection and `std.memory.read<Header>`. It calls no provider. It writes neither
+the cursor nor the incoming progress. The report is moved as a whole to the return
+tuple. Its owner and callback provider remain retained. This proves preservation
+on normal return under the existing selected-cursor and owned-report premises.
+
+For acceptance, the return-path inventory in `execution.accept_progress` is:
+- Invalid progress/operation and invalid phase abort, with no normal return.
+- Broadcast updates the local header and may retain a report.
+- Suspension updates the local continuation and possibly the resolving phase.
+- Running completion moves progress into the local header and starts cleanup.
+- Cleanup completion may retain a report and marks the local header terminal.
+
+Only report retention crosses a provider call. `retain_report` exchanges the
+reserved record, then calls `release_primary` on the previous primary. The old
+primary need not be empty: Rust admission installs unused panic backing there.
+Therefore a proof based on absence of callbacks is false. The selected-frame
+argument must instead retain the native run claim across that callback.
+
+`NativeRun.drive` keeps DispatchClaim through the entire Bray step. The native
+source callback's CallbackScope ends inside activation/callback.rs before the
+Bray call returns and accepts progress. Consequently reentrant composition has
+no active callback scope. `NativeRuntime.destroy_task` accepts only a Terminal
+slot, while this run remains Started through task.resume. Recursive dispatch
+cannot acquire DispatchClaim. Report disposal owns its separate reservation and
+message provider, not the frame lease already owned by the run. Direct native
+release of that lease would violate the existing ownership contract, not be an
+operation authorized by report disposal. Other-run activity cannot consume this
+run's lease. No preservation is promised after an abort or abnormal return.
+Native lifetime/reentry acceptance remains required to validate the implementation
+against this argument, including the provider-call path, not just empty records.
+
+For merging, let P be any predicate, b a reachable predecessor, V_b the current
+borrowed observation of one place, and J its joined observation. The permissible
+renaming is P(V_b) to P(J) within that predecessor only when V_b and J refer to the
+same established owner. Keep P(J) only in the intersection of predecessor facts.
+Every incoming concrete state then satisfies P of the actual selected owner.
+This is a join operation, not a rule preserving P across mutation. Invalidation
+must already remove stale observations before the join. Existing flow/invalidation
+and state.invalidate_contents/invalidate_referents own that obligation.
+
+`owner_identity()` can return Constructed(Unknown, fields), so excluding Literal,
+Boolean and Unknown does not establish the identity premise. Withdraw that exact
+proposal. A narrower candidate uses the existing observation_path representation
+to require a known identity path, alongside exact owner equality. It changes only
+whole borrowed-observation substitutions, leaves captured entry guards untouched,
+uses existing ambiguous-substitution rejection, and retains branch intersection.
+Allocation owner conflict handling and dependency union remain unchanged.
+
+An independent temporary Python model enumerated 10,560 valid predecessor cases
+with arbitrary predicates over two owners and three states. The rule retained 384
+facts and none was false on either predecessor. It also demonstrated that the old
+negative-list guard accepts an anonymous constructed term. This checks the local
+logical rule only. Actual checker regressions must still cover preserved and
+missing guarantees, different/reconstructed owners, mutation, ambiguous aliases
+and loop back edges. No compiler change is validated by this model alone.
+
+
+### Blocking semantic finding from the full proof
+
+The two local preservation wrappers were permitted after the revised native
+caller argument and briefly applied. Production contract auditing accepted them,
+but the language-specification check then disproved the header-read premise.
+They have been removed again. Do not reapply them as a repair.
+
+`Header` is non-copyable and contains owned Progress/PanicReportData values.
+`execution.read` calls `std.memory.read<Header>`. The raw-memory specification
+explicitly makes this a move and invalidates source initialization. Its current
+`owned(pointer)` preservation and later read authorization cannot recreate that
+initialization. `requirements.active`, `execution.describe`, run traversal and
+other readers read the same header repeatedly without restoring it. Bits remaining
+in native memory are not retained Bray ownership. The previous statement that
+reading a header leaves ownership unaffected was wrong. A trusted body being
+accepted does not establish the truth of its trusted postconditions.
+
+Repair the owning header-access protocol: observe through scoped borrows or
+copyable metadata, move report owners only when transferring them, and restore
+valid resident initialization before provider entry. Do not make Header copyable,
+add an unconditional initialization grant, or paper over reads with preservation
+wrappers. Inventory all execution.read/restore consumers together. This is part
+of BRA-561 and requires no language change.
+
+The revised positive-identity merge change is applied independently. Its dedicated
+source regression passes preservation, missing preservation, unrelated owner and
+reconstructed owner cases. Existing loop/mutation, equal-scalar-owner and opaque
+write regressions pass. The new anonymous-owner representation test passes too.
+`bra-561-preservation-proof-check.log` records one checker test and five compilation
+tests passing, with the production audit still failing in eight locations before
+the wrappers were removed. After removal the advance failures are expected again.
+Do not claim this log validates the current header-access protocol. No formatting,
+commit or push occurred. All spawned build processes have completed.
+
+
+### Header-access repair and alias counterexample, 2026-10-16
+
+The work below is uncommitted and unreviewed. It supersedes the earlier header
+preservation argument. Do not publish it as an accepted authority repair.
+
+The current repair removes all activation `read<Header>` and `restore` calls.
+Metadata readers use an internal copyable `execution.Snapshot` with no reports or
+record lists. Its descriptor is an address, with no dereference authority.
+`describe` and invocation still require admitted-frame ownership before rebuilding
+and using the descriptor pointer. Returning a raw descriptor pointer from the
+snapshot incorrectly retained the temporary header borrow, which the production
+audit rejected. Returning scheduling metadata does not transfer that borrow.
+
+Updates currently use `execution.access` to borrow the resident header. This
+helper is NOT SOUND ENOUGH: it anchors the mutable borrow to a caller-created
+one-element address tuple. Two tuples containing the same admitted address can
+obtain overlapping mutable header borrows. The new production regression proves
+this is accepted, although the unrelated-address case is correctly rejected.
+Do not remove or relax that negative case, add privacy assumptions, or claim that
+the actual current callers make this helper's general authority contract sound.
+
+Replace that temporary-address anchor with one non-copyable dispatch capability.
+The capability must be issued once at each actual native entry under its retained
+exclusive claim, through a local issuer, and must not be recreated from exposed
+fields or raw addresses. Internal access must borrow that same capability
+mutably. Prefer consolidating the existing run Cursor with this capability over
+adding a parallel owner. Native entry contracts remain the external boundary.
+Do not leave an address-to-capability factory callable by internal consumers or
+expose a projection that recreates raw native admission authority. Source
+callbacks must run after every header borrow ends. Composition needs disjoint
+parent and newly admitted child access, justified by the actual resident admission.
+Derive all entry, traversal, consuming retirement and deferral cases before editing
+that interface. This adds no language feature or runtime allocation.
+
+Other changes in this batch:
+- `retain_incident` now takes the record list it mutates, not a duplicate Header.
+- `invoke` returns an additional internal Progress result for the retired source
+  outcome. Its prepare block moves outgoing records, incidents and that outcome
+  only after successful admission, replacing resident fields with empty values.
+  Its mutable borrow ends before the provider callback releases the allocation.
+  The native ABI is unchanged. Root retirement requires its source outcome to have
+  been consumed by terminal observation already.
+- Child retirement receives that owned outcome after release instead of using a
+  prior whole-header copy. It retains incidents before borrowing the surviving
+  parent, then installs the incoming outcome and selects that parent.
+- The mover preservation boundary uses the actual retaining callback path.
+  The child-retirement boundary derives the parent from the admitted link inside
+  the consuming call, rather than accepting an unrelated caller-provided parent.
+- `run.boundary` projects the retained root from a selected cursor and replaces
+  repeated local root permission lambdas. This projection must be reconsidered
+  with the unique dispatch-capability repair above.
+
+Actual path inventory for borrow scopes: metadata read and prepare end their
+borrows on return, before query/admission/source callbacks. Composition borrows
+only distinct admitted parent/child headers and performs no callbacks during
+attachment. Advance may call report disposal while accepting progress, but the
+native source CallbackScope has ended and the DispatchClaim still excludes
+composition, recursive dispatch and retirement of this run. Completion movement
+ends its source callback before borrowing the header again. Retirement transfers
+owned reports before frame release and borrows the surviving parent only after
+report retention. Cancellation/traversal header borrows end before further driver
+operations. These actual-call-path arguments do NOT fix the exposed aliasing
+contract of the temporary `execution.access` helper.
+
+Checks, no formatting or style yet because tests fail:
+- `bra-561-header-ownership.log`: compile 18.44s, tests 20.08s. Production Cursor
+  forgery test passed. Header metadata return escaped its temporary dependency,
+  so the positive ownership case and production authority audit failed.
+- `bra-561-header-ownership-second.log`: tests 21.90s. Repeated metadata reads,
+  authorized single mutable access and rejection of another address passed.
+  Overlapping access through two copied tuples was incorrectly accepted. Existing
+  production Cursor forgery cases passed.
+- The second production audit is down to five authority errors: three in
+  run/retirement.bray after report retention and parent update, two in
+  run/abandonment.bray after the scoped header mutation. Passing those checks alone
+  would not resolve the alias counterexample.
+
+Both Cargo processes have finished. No source from this batch was committed or
+pushed. The new ownership regression is in trusted_contracts/host_tests.rs and
+reports every case without dumping successful MIR. Preserve the other uncommitted
+ABI, driver, compiler, native bridge and fixture work described earlier. The stack
+remains BRA-561, then BRA-505, then BRA-619, through tests, audit, PR review and push.
+
+
+#### Concrete capability consolidation chosen after the counterexample
+
+Reuse the existing non-copyable run Cursor as the scoped dispatch capability.
+Make its member pointer mutable, and pass `&mut Cursor` to header access and to
+internal driver/execution/requirements operations. A header borrow then depends
+on the one Cursor, rather than an arbitrary copied address tuple. Root and member
+access both borrow that same Cursor. Do not keep `current(root) -> Cursor` as a
+public issuer. Mint the initial Cursor only in local issuers at actual native
+entries, under their existing exclusive admission requirements. Those entries
+return native outputs, never a Cursor. Reconstructing exposed fields cannot issue
+selected authority. Remove address projections that recreate raw entry ownership.
+
+Traversal updates the one Cursor instead of returning a second aliasing cursor.
+Child retirement consumes its Cursor, derives its parent address before callback
+entry, and returns the same capability selecting the surviving parent on success.
+Deferral retains the original member until the native entry ends. Root retirement
+consumes its capability and never accesses the frame afterward. Retaining callbacks
+borrow the capability and preserve selection on normal return. No header borrow
+crosses any source callback. A nested native completion/composition entry receives
+only the delegated synchronous access allowed by the native CallbackScope while
+the outer source call has no header borrow. Newly admitted child and existing
+parent storage are disjoint, as established by resident admission before borrowing.
+
+This replaces the temporary `execution.access` interface and the duplicating
+current/parent factories. It is an interface consolidation, not a new language
+feature, general effect framework, second runtime graph, heap allocation or ABI
+version. Native ABI entry contracts stay intact. Verify every native entry's local
+issuer against its real caller, and retain negative tests for reconstructing a
+capability, pairing it with another frame, and overlapping borrows.
+
+
+#### Anonymous result dependency repair
+
+The Cursor consolidation is applied. The latest focused run
+`bra-561-cursor-reborrows.log` passes all four capability tests, including
+reconstructed capabilities, overlapping mutable borrows, consumed retirement and
+deferred retirement. The production implementation audit still fails. No formatting
+or style pass has run while tests fail.
+
+The audit's borrow conflicts trace to anonymous callable results. Named source
+bodies publish checked result summaries, but `dependency/returned.rs` treats an
+anonymous callable as opaque and retains every input. Thus returning owned reports
+from a local helper retains its temporary mutable Cursor loan. Do not erase these
+dependencies with casts, trusted grants or caller-side exceptions.
+
+Extend the existing source result component analysis to identify both declaration
+bodies and anonymous units. Use the same checked storage analysis and fixed point,
+including cycles through named functions, rather than a separate lambda pass.
+Indirect callable values remain conservative. The identity distinction is needed
+because anonymous symbol ordinals are local to their bound units. No language
+syntax, runtime representation, ABI change or second analysis is required. Verify
+independent owned results, actual returned borrows, mutation conflicts, recursion,
+publication reuse and the production audit in one batch after implementation.
+
+
+The anonymous component batch compiles and passes 21/22 tests in 37.22s
+(`bra-561-anonymous-results-third.log`). All new result/lifetime/recursion tests
+and four activation capability tests pass. Production audit retains seven
+locations: access has one real shared-versus-mutable loan conflict, abandonment
+has two selection-preservation failures, retirement has three report/selection
+failures, and execute's local Cursor construction loses its operation permission.
+
+Automatic review rejected changing access's local authorizer to return unit,
+reasoning that selected authority did not imply the eight memory predicates. The
+read-only comparison establishes that the existing authorizer already requires
+selected and guarantees exactly those eight predicates on the branch-selected
+field. The proposed conditional field guarantees preserve that exact precondition
+and pointer choice, with no mutation between authorization and borrow. A finite
+18-case pointer/branch check confirms this equivalence only. It does not establish
+native validity. Production provider initialization writes a complete Header,
+resident frame_address verifies lease/descriptor and changes the slot to Dispatched,
+and NativeRun's retained DispatchClaim excludes same-run reentry. The ownership
+negative tests reject copied/reconstructed Cursor authority and overlapping access.
+Full native lifetime and callback acceptance remains outstanding and is not claimed.
+
+
+#### Production proof audit in progress
+
+Caller-contract acceptance is not proof that a trusted implementation tells the
+truth. The audit therefore separates checked caller evidence from the concrete
+native implementation argument. Full native acceptance remains outstanding.
+
+| Obligation | Concrete producer and paths | Current evidence or gap |
+| --- | --- | --- |
+| Header initialization and identity | `activation/provider.bray::initialize_owned`, resident `frame_address`, `activation/transition.bray::begin` | Provider initializes a complete Header. Resident admission checks lease, epoch and descriptor before changing inactive to dispatched. Native negative execution coverage is still required. |
+| Exclusive active Header access | `native/run.rs::DispatchClaim`, local entry Cursor issuers, `execution/access.bray` | One dispatch claim covers the complete Bray call. Noncopyable Cursor ties root/member borrows to one capability. Tests reject reconstructed fields, another address, overlapping borrows and use after retirement. |
+| Callback reentry | `native/activation/callback.rs`, `NativeRun::enter_callback`, `NativeRun::compose`, `NativeRuntime::destroy_task` | No Header borrow spans source invocation. Callback scope allows composition only in resume/cancel/resolve. Same-run dispatch cannot reacquire its claim. Started task slots cannot retire. Metadata providers must preserve their retained owners. Native return/unwind cases remain to exercise. |
+| Child release | `run/retirement.bray`, consuming `execution/invoke.bray` | Snapshot parent before release, move reports out, copy descriptor onto the stack, then never dereference the released Header. Successful path changes the same Cursor to the surviving parent. Deferral keeps the child and links unchanged. |
+| Report retention | `run/retirement.bray::deliver`, `execution/retain_incident`, native report provider | Deliver parent progress before arbitrary report disposal. The independently owned second report retains its own provider. No Cursor preservation is claimed across report disposal. Native callback/lifetime coverage remains required. |
+| Root retirement | `run/step.bray`, `NativeRun::drive`, `NativeRun::retire`, root/task observation callers | Step removes Header progress before publishing terminal state. This proves the Header no longer owns it. It does not by itself prove that the observer has consumed the payload before release. Trace every consumer and denial path before accepting `observed`. |
+| Observation result and lane | `native/task_observation.rs::move_completion` and `resolve_owned_task` | Open defect: result transfer precedes `destroy_task`, whose admission can defer. Observation metadata currently declares no requirements for cleanup callbacks. Resolve this in the existing metadata/admission path, without a second scheduler or duplicate cleanup owner. |
+| Rejected activation and inactive cleanup | constructor/start/root/static-finalizer callers | Open acceptance: retain the exact inactive owner on every rejection and destroy captures without entering the source body. Port old fixtures to the actual admitted provider before claiming this. |
+
+Anonymous source result summaries now use the same component publication as named
+source bodies. Deferred construction discovers selected anonymous bodies without
+executing them, and mutable callable values remain indirect. The strengthened
+mutable-callable regression uses a caller-owned first input and a local second
+input, so accidentally selecting the original first-returning lambda cannot make
+the negative test pass for the wrong reason.
+
+The access authorizer change was accepted after the exact-equivalence evidence
+above. No approval blocker remains. The full compilation suite completed with
+1716 passing tests and four failures in 612.37s
+(`bra-561-compilation-suite.log`). Two stale native-signature tests and the
+production body audit were repaired. The remaining scoped native-artifact test
+requires the pending BRA-505/BRA-619 cleanup-incident transfer role. That remains
+blocking for stack acceptance.
+
+The production body audit then passed in 19.07s
+(`bra-561-delivery-authority.log`), but the actual provider build exposed checks
+that this audit did not run: exact `uses` declarations, a trusted entry modifier,
+and the compiler's explicit rejection of guarded anonymous execution contracts.
+The audit now includes full-source diagnostics for the production sources it
+owns. The guarded authorizer has the same precondition and eight guarantees in
+an ordinary named function, using existing checked `when` support. This avoids
+expanding anonymous execution certification. The first expanded audit caught a
+module/local name collision, which was corrected. The provider rebuild is in
+progress in `bra-561-native-provider-build.log`; passing is not yet claimed.
+
+The C native fixture now exercises 2048 admitted frames through completion and
+cancellation, forbids allocation after admission, counts callback/move/release
+operations, poisons released storage, and bounds callback stack usage. Its syntax
+check passed. Native execution has not yet run against the current provider.
+
+No formatting, commit or push has run for this incomplete batch.
+
+The corrected native build passed source checking and stopped in package export.
+The generic E9014 diagnostic hid `missing_source_expression_root`. A temporary
+export-only probe reuses the standard library built by that exact compiler and
+source revision. It identified the parenthesized operation-permission predicates
+in `execution.invoke` and `execution.execute`. The exporter searched all bound
+nodes by matching range endpoints, even though binding already supplies the
+clause's top-level expression roots. Export now selects among those established
+roots, removing the postfix-range heuristic. A missing root is a contextual
+invariant panic, not a recoverable compiler diagnostic. The imported mixed
+predicate regression now encloses the complete condition in parentheses. The
+export test group is running before the production probe is repeated.
+
+The temporary `bra561_export_probe` test and test-only diagnostic print in
+`xtask/src/runtime_artifact/bootstrap.rs` must be removed after diagnosis. They
+are not a new build workflow or committed acceptance test.
+
+The export regression group passed 128/128 in 46.04s. The corrected production
+export passed in 20.79s, and the expanded production source audit passed in
+47.12s. The retained native provider was linked with its own selected standard
+library dependencies, using the existing smoke compiler and 30-second runner.
+Completion and cancellation passed at both 32 and 2048 frames. Driver callback
+stack span was identical at both depths: 2480 bytes for completion, 2912 for
+cancellation. Every case rejected allocations after admission and checked exact
+resume, move, broadcast and release counts. Released frame storage was poisoned.
+The native fixture completed in 1.11s including compile/link/run. See
+`bra-561-native-chain.log` and retained artifacts under
+`target/bra-620-authority/bra-561-export-probe/`.
+
+This establishes driver evidence with native fixture callbacks, not acceptance of
+the Rust observation/shutdown integration. The temporary xtask probes and trace
+were removed. Their already-built test executable remains available for focused
+artifact reuse until its inputs change. No source, authority or lane check was
+skipped to produce this result.
+
+
+#### Native consumer ownership repair
+
+The production runtime provider build completed successfully before this batch.
+Caller acceptance and native fixture success remain separate from the Rust
+consumer proof. The native trace identified a delayed observation wake retaining
+a frame address. Join now accepts the existing owned JoinWake callback, the ABI
+adapter wraps its foreign callback, and task observation captures only the
+scheduler's weak, identity-bound TaskWakeHandle. Registration removal makes a
+late wake UnknownTask, including after another task is registered.
+
+Terminal root retirement now uses the target's existing scheduler registration.
+The run publishes its destruction requirements before terminal observation and
+retains a cancellation shield until task removal. The observer moves its completed
+payload into admitted observation storage before requesting retirement. Pending
+retirement keeps that owner and wake registration. Only released retirement
+permits completion publication. Source-result movement therefore contains no
+fallible destruction call. Retirement publishes Released before releasing
+scheduler dispatch, then wakes the observer. No callback runs under the task
+collection or retirement mutex.
+
+The existing concrete lifecycle requirements closure now also covers helpers
+retained by native observation construction. Construction itself still contributes
+no execution effects. Results are published with concrete reachability and helper
+mappings, then passed through the private ABI to the observation state descriptor.
+No extra type walk, validation pass or language syntax was added. Deferred cleanup
+resumption has its own existing state ordinal and keeps the same requirements as
+its initial resolution callback. Native lane bit encoding is shared with generated
+frame descriptors. A 256-transition dispatch budget bounds uninterrupted work at
+callback boundaries. It adds no source cancellation point.
+
+This batch remains uncommitted and unreviewed. Do not claim the consumer proof
+complete from the earlier provider tests.
+
+#### Production ownership proof checkpoint
+
+The user challenged the unsupported proof claim. Caller-contract acceptance and
+passing fixture tests do not establish that a trusted implementation preserves
+ownership on every return path. Keep the following obligations separate.
+
+| Boundary | Production reasoning | Evidence and remaining obligation |
+| --- | --- | --- |
+| Root/task admission | Inspection and scheduler registration precede `NativeRun::activate`. Failed root start releases its allocated task reservation. Failure retains the caller's exact inactive token. | The actual-provider missing-task/retry and failed-root/retry tests passed before the outcome batch. Internal start now borrows the token. |
+| Child admission | The native callback retains its dispatch claim and parent. Descriptor/state lookup, combined-lane selection and admission precede `begin`. `begin` consumes only the matching live resident lease. Successful linking has no recoverable exit. | The invalid-continuation/retry test passes while further allocation is denied, within the 176-test runtime suite. Ordinary inactive-Future lifecycle integration remains BRA-505 work. |
+| Report transfer | An owned incident chain already contains its reservation. Passing it directly to the sink avoids popping its primary and trying to reserve a replacement from an empty allowance. Native callback publication now reserves an unreserved report before returning it to Bray. | Production contracts, native panic/unwind retention and actual source panic/catch execution pass. Generated constructors now claim their already-admitted primary record. |
+| Cancellation | A cancellation request broadcasts and enters the checked cancellation callback. Abandonment instead resolves initialized state without entering an inactive body. Cleanup panic takes precedence over completion/cancellation, preserving an earlier panic as primary. | Production contracts, the runtime suite, source task cancellation and six native chain cases pass. Inactive abandonment executes zero source bodies at both tested depths. |
+| Terminal observation | Observation transfers the outcome while retaining backing. Explicit completion resolution schedules destruction on the retained registration and releases it once. | The 176 runtime tests and fresh native artifact fixture pass, including weak wakes, root retry, no early destruction and exactly one completion movement. Source task results pass in development and release. |
+| Infrastructure shutdown | The language requires source owners to resolve tasks and typed results first. Generated host lowering orders terminal resolution before shutdown. Native static finalizers also resolve their root completion. Runtime teardown now asserts the same `can_destroy` predicate used by explicit task destruction instead of silently dropping unresolved owners. | Full runtime suite passes. A second shutdown cleanup driver would duplicate typed owner responsibilities. Continue checking generated failure paths rather than inventing an untyped result owner. |
+| Unused futures | Checker cleanup shape includes Future, but lifecycle action selection and concrete lifecycle needs still omit its cleanup. | BRA-505 owns the remaining ordinary-scope integration. Reuse checked initialized-state cleanup and the now-tested same-run abandonment driver for erased and nested owners. No new scheduler, language feature or downstream validation pass. |
+
+Before this repair batch, 57 of 72 adjacent native tests passed in isolated
+subprocesses. Logs are `target/bra-561-consumer-suite/`, with the inventory in
+`results.txt`. Failures include the ownership gaps above and stale fixtures that
+expected destruction at terminal observation. The invalid-progress regression
+now uses a bounded subprocess to require an invariant abort instead of treating
+unknown internal progress as a recoverable runtime failure. Do not drop that
+negative coverage.
+
+Report suppression now has one by-value implementation. Its two owned input
+reports must carry native callback witnesses. The ABI pointer entry retains its
+original slot and memory requirements before extracting those owners. Activation
+uses the existing checked report-taking operation, preserving the header's report
+witness rather than relying on generic replacement of the whole progress value.
+No field privacy, new capability, relaxed precondition or new syntax is involved.
+
+Current audit: `target/bra-561-outcome-authority.log`, passing in 46.17s. Provider
+and runtime test build: `target/bra-561-consumer-link.log`, passing. The complete
+runtime suite passes 176/176 in 3.56s (`bra-561-runtime-suite.log`). This includes
+reusing the exact rejected child on a compatible independent compute lane,
+checking no destruction before result resolution, and retiring every fixture owner.
+The mandatory style pass is running in `bra-561-style.log`; format follows it.
+Complete the pending production obligations,
+required maintainability audit, independent review and push, then continue BRA-505
+and BRA-619 using their preserved issue checkpoints.
+
+The self-publication state observation above does not by itself establish a bug.
+After terminal publication, the typed task/root consumer owns the result and its
+cleanup responsibility. The run retains backing until explicit retirement.
+Do not add another completed-result owner to the activation header without a
+concrete valid program that escapes that existing typed ownership contract.
+The failed-admission caller paths still need inactive-owner cleanup. They are
+not discharged by the passing retry fixtures or the shutdown invariant.
+
+
+#### Admission and abandonment proof refinement (2026-10-17)
+
+The normal-return argument is over the production chain, not field visibility:
+
+1. `NativeRuntime::start` borrows the exact inactive token. Inspection and task
+   registration precede `NativeRun::activate`; a failed activation drops the new
+   registration without consuming the token. Failed root start releases its task
+   reservation. The retry tests retain and reuse that same token.
+2. `NativeRun::compose` retains the current dispatch claim and callback identity.
+   It accepts only resume, cancellation or resolution callbacks. Its borrowed
+   token survives every rejected composition. The parent completion destination
+   is supplied by the generated frame's admitted layout.
+3. `activation.composition.compose` queries the explicit parent continuation and
+   child requirements, combines them and calls native admission before `begin`.
+   Each of these four rejection exits returns zero without changing either owner.
+   Generated state queries only load the cancellation flag and select immutable
+   state/operation metadata. Native admission selects a registered execution lane;
+   it neither dispatches source code nor consumes the token.
+4. `activation.begin` validates the exact live resident lease, descriptor identity,
+   epoch and inactive phase under the pool lock. A zero return leaves the inactive
+   owner intact. After successful resident transfer, header initialization and
+   linking contain no recoverable return or callback. Thus success transfers one
+   owner and failure retains it. A copied descriptor or reconstructed token does
+   not establish the trusted caller contract.
+5. Explicit inactive abandonment uses cleanup operation 3, exit 3 for the child's
+   admission and marks its header for cleanup before the dispatcher can select a
+   source entry. Ordinary cleanup may also execute a real finalizer future, so
+   abandonment is an explicit argument on the existing private composition ABI.
+   Its ownership and destination requirements are unchanged. Repeated root
+   abandonment preserves the current traversal instead of restarting it.
+
+The shared abandonment mutation accepts the exact existing mutable header borrow.
+The run cursor wrapper still establishes and preserves its original ownership
+contract. A production audit rejected calling through a cursor witness after its
+header mutation; no witness was reissued to bypass that rejection.
+
+The production contract audit passes in 45.29s in
+`target/bra-561-abandonment-authority.log`. Native regression and chain execution
+are pending. The chain fixture covers completion, cancellation and inactive
+abandonment at depths 32 and 2048, forbids allocations after admission, poisons
+released storage, and checks exact release counts and bounded stack use. Inactive
+abandonment rejects even a metadata query for an unstarted source continuation,
+not merely a source body invocation.
+
+BRA-505 already owns ordinary-scope asynchronous finalization and inactive Future
+cleanup integration. BRA-561 supplies this same-run operation and its native proof;
+BRA-505 must connect checked lifecycle selection and generated cleanup to it.
+Do not grow another cleanup scheduler or block a thread to dispose an inactive
+owner. The old Rust artifact smoke fixture still needs its activation ABI port;
+retain its report and native-unwind coverage during that port.
+
+A temporary `bra561_abandonment_probe` in `xtask/src/runtime_artifact/bootstrap.rs`
+uses the repository provider builder and bounded native smoke runner. Remove the
+probe after diagnosis; permanent coverage remains in the normal native fixture.
+
+
+Native evidence now passes: all 176 runtime tests, 3.50s, in
+`target/bra-561-abandonment-runtime.log`. The full C bootstrap fixture passes in
+under one second against the provider built by the probe. Its six chain cases
+report a 3072-byte callback stack span at both depths for completion, cancellation
+and abandonment. Abandonment executes zero source bodies and rejects source-entry
+metadata queries. Release/move counts, allocation denial and released-storage
+poisoning remain asserted. See `target/bra-561-abandonment-chain-native-crt.log`
+and retained `target/bra-620-authority/bra-561-abandonment-probe/`.
+
+The temporary probe initially omitted COFF fallback members. A whole-archive
+retry exposed an unrelated CRT initialization in the probe's linkage. The final
+link selects the required fallback members and uses the native product's verified
+msvcrt linkage. No attachment implementation or fixture expectation was weakened.
+The temporary Rust probe has been removed.
+
+The standalone Rust artifact fixture now uses the current activation ABI. It
+keeps its descriptors alive through explicit retirement, owns resident leases in
+a test-only table and releases them once from destruction. Its old unsafe boxed
+frame reconstruction is removed. Native callback admission reuses
+`OutgoingRecords::admit`, including reserved Rust unwind payload slots, before
+activation initialization. The existing unwind test now exercises rejected
+admission, retry, then preservation of both published and unwound payloads while
+further admission is denied. Artifact verification remains pending for this batch.
+
+
+#### Native artifact caller audit
+
+The Rust async fixture, synchronous fixture and full C bootstrap fixture pass
+against the current artifact archives. The bootstrap link audit now requires
+`FrameCompletionMove` with the Bray activation exports, since it is implemented
+in Bray. It still rejects the replaced Rust owners and allocator linkage.
+
+The extra C native-callback variant was invalid: its fake readiness callback
+admitted execution without a registered native task or selected lane. The native
+callback's contextual assertion exposed that violated caller contract. Remove
+that duplicate variant rather than weakening production admission. The Rust
+artifact fixture enters the same bridge through actual root/task registration
+and exercises resume, cancellation, broadcast, resolution, completion movement,
+destruction, and retained native unwind reports. Its completion counter spans
+execution through task retirement and checks one movement. Root movement occurs
+before terminal publication, not when the observer later reads the result.
+The C fixture continues to cover dispatcher state transitions, rejected moves,
+exact lease ownership, allocation denial and all six deep-chain cases.

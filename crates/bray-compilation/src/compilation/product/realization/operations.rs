@@ -55,7 +55,7 @@ impl Compilation {
                 let helpers = references
                     .into_iter()
                     .map(|reference| {
-                        self.codegen_helper(
+                        let helper = self.codegen_helper(
                             instance,
                             operation,
                             data.kind(),
@@ -64,7 +64,18 @@ impl Compilation {
                             reference,
                             target,
                             cancellation,
-                        )
+                        )?;
+
+                        let helper = if let Some(CodegenSymbolKey::Instance(key)) = helper.symbol()
+                        {
+                            let requirements = reachability.execution_requirements(key);
+
+                            helper.with_execution_requirements(requirements)
+                        } else {
+                            helper
+                        };
+
+                        Ok::<_, CodegenPreparationError>(helper)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
@@ -241,7 +252,6 @@ impl Compilation {
             | MirHelperReference::FinishGenerator
             | MirHelperReference::PanicReport
             | MirHelperReference::CreateFrame(_)
-            | MirHelperReference::MoveInactiveFrame(_)
             | MirHelperReference::ComposeAwaitedFrame(_)
             | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => return Ok(None),
@@ -283,7 +293,6 @@ impl Compilation {
             | MirHelperReference::FinishGenerator
             | MirHelperReference::PanicReport
             | MirHelperReference::CreateFrame(_)
-            | MirHelperReference::MoveInactiveFrame(_)
             | MirHelperReference::ComposeAwaitedFrame(_)
             | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => reference.clone(),

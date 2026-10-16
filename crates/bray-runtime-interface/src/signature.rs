@@ -25,7 +25,7 @@ pub enum RuntimeAbiType {
     RunOutcome,
     /// Task allocation status and task handle.
     TaskAllocation,
-    /// Inactive frame storage and descriptor addresses.
+    /// Inactive lease epoch and descriptor address.
     InactiveFrame,
     /// Frame progress kind, state and payload.
     FrameProgress,

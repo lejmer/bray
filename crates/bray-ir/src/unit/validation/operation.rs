@@ -841,13 +841,23 @@ fn validate_async_operation(
             parent,
             resume_state,
             frame,
+            completion,
             ..
         } => {
+            validate_storage_kind(unit, *completion, MirStorageKind::Temporary)?;
             validate_current_frame(unit, *parent)?;
             validate_frame_state(unit, *resume_state)?;
             validate_operand(unit, frame, block, Some(operation_id))?;
         }
-        MirAsyncOperation::CommitAwaitedCompletion { .. } => {}
+        MirAsyncOperation::CommitAwaitedCompletion { completion, .. } => {
+            validate_storage_kind(unit, *completion, MirStorageKind::Temporary)?;
+
+            let result = unit.operation(operation_id)?.result()?;
+
+            if unit.value(result)?.ty() != unit.storage(*completion)?.ty() {
+                return None;
+            }
+        }
         MirAsyncOperation::StartTask {
             value,
             allocation,

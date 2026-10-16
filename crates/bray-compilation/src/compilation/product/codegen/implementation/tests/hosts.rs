@@ -52,14 +52,13 @@ fn asynchronous_executable_hosts_emit_complete_deterministic_native_units() {
         .find_map(|(unit, mappings)| (unit.key() == frame_unit.key()).then_some(mappings))
         .unwrap_or_else(|| panic!("root frame mappings must be retained"));
 
-    let adapter = frame_mapping
-        .symbol(&bray_codegen::CodegenSymbolKey::ProtectedFrame {
-            frame,
-            operation: ProtectedFrameOperation::MoveBeforeStart,
-        })
-        .map(bray_codegen::CodegenSymbolMapping::name);
-
-    assert_eq!(host.entries()[0].root_frame_adapter(), adapter);
+    for operation in ProtectedFrameOperation::ALL {
+        assert!(
+            frame_mapping
+                .symbol(&bray_codegen::CodegenSymbolKey::ProtectedFrame { frame, operation })
+                .is_some()
+        );
+    }
 
     for role in [
         RuntimeAbiRole::RootExecution,
@@ -467,7 +466,8 @@ fn frame_constructors_claim_admitted_aligned_backing() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(ir.contains("bray_runtime_cleanup_storage_claim"));
+    assert!(ir.contains("bray_runtime_outgoing_activation"));
+    assert!(ir.contains("frame.outgoing"));
     assert!(ir.contains("bray_runtime_activation_publication"));
     assert!(ir.contains("bray_runtime_cleanup_storage_release"));
     assert!(ir.contains("bray_runtime_outgoing_admission"));
@@ -577,24 +577,16 @@ fn frame_backing_and_adapter_preserve_concrete_specialization_identity() {
                 "backing must identify its concrete specialization: {declaration}"
             );
 
-            let adapter = mappings
-                .symbol(&bray_codegen::CodegenSymbolKey::ProtectedFrame {
-                    frame: identity,
-                    operation: ProtectedFrameOperation::MoveBeforeStart,
+            let descriptor = ir
+                .lines()
+                .find(|line| {
+                    line.starts_with(&format!("@{}.activation =", backing.name().as_str()))
                 })
                 .unwrap();
 
-            let body = ir
-                .split(&format!("@{}(", adapter.name().as_str()))
-                .nth(1)
-                .unwrap()
-                .split("\n}")
-                .next()
-                .unwrap();
-
             assert!(
-                body.contains(&encoded),
-                "activation must preserve the admitted concrete identity: {body}"
+                descriptor.contains(&encoded),
+                "activation must preserve the admitted concrete identity: {descriptor}"
             );
         }
     }
@@ -843,4 +835,56 @@ fn inactive_cancellation_does_not_require_unentered_body_lanes() {
         assert!(state.operation_requirements()[1].is_empty());
         assert!(state.operation_requirements()[2].is_empty());
     }
+}
+
+#[test]
+fn task_observation_retains_concrete_cleanup_lanes_without_executing_them_at_construction() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+        module app;
+
+        struct Guard
+        {
+            destruct()
+                requires(blocking_execution())
+            {
+            }
+        }
+
+        async func identity<T>(pos value: T) -> T
+        {
+            return value;
+        }
+
+        async func main() -> i32
+            requires(blocking_execution())
+        {
+            let task = identity<Guard>(Guard {}).start();
+            let result = await task.join();
+            return 0;
+        }
+    "#,
+    );
+
+    let observations = plan.mappings().iter()
+        .flat_map(bray_codegen::CodegenMappings::operations)
+        .filter(|operation| operation.helpers().iter().any(|helper| matches!(
+            helper.symbol(), Some(bray_codegen::CodegenSymbolKey::Runtime(reference))
+                if reference.role() == bray_runtime_interface::RuntimeAbiRole::TaskObservationCreation
+        )))
+        .collect::<Vec<_>>();
+
+    assert!(!observations.is_empty());
+
+    for observation in observations {
+        assert!(observation.helpers().iter().any(|helper| {
+            helper.execution_requirements().is_some_and(|lanes| {
+                lanes.contains(&bray_runtime_interface::ExecutionLaneRequirement::Blocking)
+            })
+        }));
+    }
+
+    assert!(
+        !generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr).is_empty()
+    );
 }

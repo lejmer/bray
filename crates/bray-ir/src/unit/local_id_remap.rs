@@ -267,8 +267,14 @@ fn remap_async_operation(operation: &mut MirAsyncOperation, mappings: &impl MirL
             destination.remap_local_ids(mappings);
         }
         MirAsyncOperation::ResumeFrame { storage, .. } => *storage = mappings.storage(*storage),
-        MirAsyncOperation::ComposeAwaitedFrame { frame, .. } => {
+        MirAsyncOperation::ComposeAwaitedFrame {
+            frame, completion, ..
+        } => {
             frame.remap_local_ids(mappings);
+            *completion = mappings.storage(*completion);
+        }
+        MirAsyncOperation::CommitAwaitedCompletion { completion, .. } => {
+            *completion = mappings.storage(*completion);
         }
         MirAsyncOperation::StartTask { value, .. } => value.remap_local_ids(mappings),
         MirAsyncOperation::RequestTaskCancellation { task, .. }
@@ -283,8 +289,7 @@ fn remap_async_operation(operation: &mut MirAsyncOperation, mappings: &impl MirL
         MirAsyncOperation::TransferCleanupIncident { incident, .. } => {
             incident.remap_local_ids(mappings);
         }
-        MirAsyncOperation::CommitAwaitedCompletion { .. }
-        | MirAsyncOperation::ObserveFrameCancellation
+        MirAsyncOperation::ObserveFrameCancellation
         | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
         | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
         | MirAsyncOperation::ExecuteLifecycleResolution { .. } => {}

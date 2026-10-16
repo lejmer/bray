@@ -32,6 +32,10 @@ fn finish_codegen_reachability(
     previous: Option<ConcreteCodegenReachability>,
     roots: &[ConcreteCodegenRoot],
     completed: Vec<(ConcreteCodegenInstance, ReachabilityEvaluation)>,
+    execution_requirements: BTreeMap<
+        CodegenInstanceKey,
+        &'static [bray_runtime_interface::ExecutionLaneRequirement],
+    >,
 ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
     let (mut realizations, mut demands, mut selected_native) = match previous {
         Some(previous) => {
@@ -137,6 +141,7 @@ fn finish_codegen_reachability(
         .map_err(NativeProductPlanningError::InvalidReachability)?;
 
     Ok(ConcreteCodegenReachability::new(
+        execution_requirements,
         graph,
         realizations,
         demands.into_iter().collect::<Vec<_>>(),
@@ -433,7 +438,7 @@ impl Compilation {
             })
         });
 
-        let requirements =
+        let (requirements, helper_requirements) =
             self.frame_execution_requirements(current.chain(retained), target, cancellation)?;
 
         for (_, evaluation) in &mut completed {
@@ -447,7 +452,7 @@ impl Compilation {
             }
         }
 
-        finish_codegen_reachability(builder, previous, &roots, completed)
+        finish_codegen_reachability(builder, previous, &roots, completed, helper_requirements)
     }
 
     #[cfg(test)]

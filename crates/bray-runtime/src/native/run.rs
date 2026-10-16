@@ -1,759 +1,415 @@
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use bray_runtime_abi::{
-    NativeInactiveFrame, NativeRunOutcome, NativeRunState, NativeRuntimeStatus,
+    NativeActivationExecution, NativeFrameProgress, NativeFrameProgressKind, NativeInactiveFrame,
+    NativeReportRecords, NativeRuntimeStatus,
 };
-use bray_runtime_model::{
-    ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAffinity, ProtectedFrameStateId,
-};
+use bray_runtime_model::{ProtectedAsyncFrameId, ProtectedFrameStateId};
 
-use crate::context::{current_task_execution_lane, with_task_frame_execution};
-use crate::frame::{terminalize_frame, terminalize_frame_after_broadcast};
+use crate::outgoing::OutgoingRecords;
+use crate::report_provider as provider;
 use crate::{
-    FrameContext, FrameExecutionState, FrameExit, FrameProgress, FrameSuspension,
-    FrameSuspensionKind, ProtectedFrame, RunOutcome, RuntimePanic,
+    FrameContext, FrameExecutionState, FrameExit, FrameProgress, FrameSuspension, ProtectedFrame,
+    RuntimePanic,
 };
 
-use super::activation::{execution_lane, lane_allows};
-use super::frame::{NativeFrame, NativeTerminalState};
+use super::activation::{bray_runtime_activation_callback, execution, readiness};
 use super::state::{current_native_task, with_runtime};
 
-const TRANSITION_BUDGET: usize = 64;
+// Bound uninterrupted driver work without adding source cancellation points.
+const DISPATCH_TRANSITIONS: usize = 256;
 
 pub(super) struct NativeRun {
     identity: ProtectedAsyncFrameId,
-    terminal: Arc<NativeTerminalState>,
-    current: Mutex<Option<Box<NativeActivation>>>,
+    root: AtomicUsize,
+    dispatching: AtomicBool,
+    completion: Mutex<Option<crate::CancellationShield>>,
+    execution: Mutex<FrameExecutionState>,
+    callback: Mutex<Option<(usize, u32)>>,
 }
 
-struct NativeActivation {
-    frame: Option<Pin<Box<NativeFrame>>>,
-    local: FrameExecutionState,
-    parent: Option<Box<Self>>,
-    child: Option<Box<Self>>,
-    retired: Option<Box<Self>>,
-    next_retired: Option<Box<Self>>,
-    terminal: Arc<NativeTerminalState>,
-    outcome: Option<NativeRunOutcome>,
-    outgoing: crate::outgoing::OutgoingRecords,
-    broadcasted: bool,
-    cleanup: bool,
-    deferred_progress: Option<FrameProgress<usize>>,
-    retained_lanes: [bool; ExecutionLaneRequirement::ALL.len()],
-    retained_affinity: ProtectedFrameAffinity,
-    origin: Option<bray_platform::RuntimeThreadId>,
-    retained_origin: Option<bray_platform::RuntimeThreadId>,
+pub(super) struct CallbackScope<'a>(&'a NativeRun);
+
+impl Drop for CallbackScope<'_> {
+    fn drop(&mut self) {
+        self.0
+            .callback
+            .lock()
+            .expect("callback scope is available")
+            .take();
+    }
 }
 
-impl NativeActivation {
-    fn new(
-        frame: NativeFrame,
-        local: FrameExecutionState,
-        outgoing: crate::outgoing::OutgoingRecords,
-    ) -> Self {
-        let terminal = frame.terminal_state();
+struct DispatchClaim<'a>(&'a AtomicBool);
 
-        Self {
-            frame: Some(Box::pin(frame)),
-            local,
-            parent: None,
-            child: None,
-            retired: None,
-            next_retired: None,
-            terminal,
-            outcome: None,
-            outgoing,
-            broadcasted: false,
-            cleanup: false,
-            deferred_progress: None,
-            retained_lanes: [false; ExecutionLaneRequirement::ALL.len()],
-            retained_affinity: ProtectedFrameAffinity::Movable,
-            origin: crate::bootstrap::current_runtime_thread().map(|thread| thread.id()),
-            retained_origin: None,
-        }
-    }
-
-    fn retain_parent_execution(&mut self, execution: &FrameExecutionState) {
-        for (retained, requirement) in self
-            .retained_lanes
-            .iter_mut()
-            .zip(ExecutionLaneRequirement::ALL)
-        {
-            *retained = execution
-                .descriptor()
-                .lane_requirements()
-                .contains(&requirement);
-        }
-
-        self.retained_affinity = execution.descriptor().affinity();
-        self.retained_origin = execution.origin();
-    }
-
-    fn discard_parent_execution(&mut self) {
-        self.retained_lanes = [false; ExecutionLaneRequirement::ALL.len()];
-        self.retained_affinity = ProtectedFrameAffinity::Movable;
-        self.retained_origin = None;
-    }
-
-    fn execution_state(&self) -> Result<FrameExecutionState, NativeRuntimeStatus> {
-        self.execution_at(self.local.state())
-    }
-
-    fn execution_at(
-        &self,
-        state: ProtectedFrameStateId,
-    ) -> Result<FrameExecutionState, NativeRuntimeStatus> {
-        let execution = if state == self.local.state() {
-            self.local.clone()
-        } else {
-            self.terminal
-                .execution_state(state)
-                .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?
-        };
-
-        let local = execution.descriptor();
-
-        let affinities = [local.affinity(), self.retained_affinity];
-
-        if affinities == [ProtectedFrameAffinity::OriginThread; 2]
-            && self
-                .origin
-                .zip(self.retained_origin)
-                .is_some_and(|(own, parent)| own != parent)
-        {
-            return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
-        }
-
-        let affinity = if affinities.contains(&ProtectedFrameAffinity::OriginThread) {
-            ProtectedFrameAffinity::OriginThread
-        } else if affinities.contains(&ProtectedFrameAffinity::MainThread) {
-            ProtectedFrameAffinity::MainThread
-        } else {
-            ProtectedFrameAffinity::Movable
-        };
-
-        let lanes = ExecutionLaneRequirement::ALL
-            .into_iter()
-            .zip(self.retained_lanes)
-            .filter_map(|(requirement, retained)| {
-                (retained
-                    || local.lane_requirements().contains(&requirement)
-                    || (requirement == ExecutionLaneRequirement::MainThread
-                        && affinity == ProtectedFrameAffinity::MainThread))
-                    .then_some(requirement)
-            });
-
-        let state = local.clone().with_execution_requirements(lanes, affinity);
-
-        let execution = FrameExecutionState::new(self.local.frame(), state);
-
-        let origin = if self.retained_affinity == ProtectedFrameAffinity::OriginThread {
-            self.retained_origin.or(self.origin)
-        } else {
-            self.origin
-        };
-
-        Ok(
-            match origin.filter(|_| affinity == ProtectedFrameAffinity::OriginThread) {
-                Some(origin) => execution.with_origin(origin),
-                None => execution,
-            },
-        )
+impl Drop for DispatchClaim<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
     }
 }
 
 impl NativeRun {
-    fn active(current: &mut Option<Box<NativeActivation>>) -> &mut NativeActivation {
-        current
-            .as_deref_mut()
-            .unwrap_or_else(|| panic!("dispatch retains the active activation"))
+    pub(super) fn inspect(
+        token: &NativeInactiveFrame,
+        origin: u64,
+    ) -> Result<NativeActivationExecution, NativeRuntimeStatus> {
+        let mut snapshot = NativeActivationExecution::default();
+        let status = provider::bray_runtime_activation_inspection(token, 0, 0, 0, &mut snapshot);
+
+        if status != 0 {
+            return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
+        }
+
+        snapshot.origin = origin;
+
+        Ok(snapshot)
     }
 
-    pub(super) fn new(
-        frame: NativeFrame,
-        initial: FrameExecutionState,
-        outgoing: crate::outgoing::OutgoingRecords,
-    ) -> Arc<Self> {
-        let activation = Box::new(NativeActivation::new(frame, initial, outgoing));
-
+    pub(super) fn new(initial: &NativeActivationExecution) -> Arc<Self> {
         Arc::new(Self {
-            identity: activation.local.frame(),
-            terminal: Arc::clone(&activation.terminal),
-            current: Mutex::new(Some(activation)),
+            identity: ProtectedAsyncFrameId::new(initial.identity),
+            root: AtomicUsize::new(0),
+            dispatching: AtomicBool::new(false),
+            completion: Mutex::new(None),
+            execution: Mutex::new(execution(initial)),
+            callback: Mutex::new(None),
         })
     }
 
-    pub(super) fn terminal_state(&self) -> Arc<NativeTerminalState> {
-        Arc::clone(&self.terminal)
+    pub(super) fn activate(&self, token: &NativeInactiveFrame, origin: u64) -> NativeRuntimeStatus {
+        assert_eq!(
+            self.root.load(Ordering::Acquire),
+            0,
+            "activation transfers an inactive owner once"
+        );
+
+        let root = provider::bray_runtime_activation_entry(token, origin);
+
+        if root == 0 {
+            return NativeRuntimeStatus::INVALID_ARGUMENT;
+        }
+
+        self.root.store(root, Ordering::Release);
+
+        NativeRuntimeStatus::SUCCESS
     }
 
-    fn lock_current(&self) -> MutexGuard<'_, Option<Box<NativeActivation>>> {
-        self.current
+    fn claim(&self) -> DispatchClaim<'_> {
+        assert!(
+            self.dispatching
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok(),
+            "same-run dispatch cannot reenter its active owner"
+        );
+
+        DispatchClaim(&self.dispatching)
+    }
+
+    pub(super) fn publish(&self, snapshot: &NativeActivationExecution) {
+        assert!(
+            self.dispatching.load(Ordering::Acquire),
+            "only the dispatch owner publishes execution metadata"
+        );
+
+        *self
+            .execution
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .expect("execution snapshot is available") = execution(snapshot);
     }
 
-    fn execution(&self) -> Result<FrameExecutionState, NativeRuntimeStatus> {
-        self.lock_current()
-            .as_ref()
-            .ok_or(NativeRuntimeStatus::RUNTIME_FAILURE)?
-            .execution_state()
+    pub(super) fn enter_callback(
+        &self,
+        snapshot: &NativeActivationExecution,
+        operation: u32,
+    ) -> CallbackScope<'_> {
+        assert!(
+            self.dispatching.load(Ordering::Acquire),
+            "callback entry retains the exclusive run claim"
+        );
+
+        let previous = self
+            .callback
+            .lock()
+            .expect("callback scope is available")
+            .replace((snapshot.address, operation));
+
+        assert!(
+            previous.is_none(),
+            "source callbacks cannot recursively dispatch this run"
+        );
+
+        CallbackScope(self)
+    }
+
+    pub(super) fn compose(
+        &self,
+        token: &NativeInactiveFrame,
+        state: u32,
+        destination: usize,
+    ) -> NativeRuntimeStatus {
+        let Some((parent, operation)) = *self.callback.lock().expect("callback scope is available")
+        else {
+            return NativeRuntimeStatus::INVALID_ARGUMENT;
+        };
+
+        if !matches!(operation, 0 | 1 | 3) {
+            return NativeRuntimeStatus::INVALID_ARGUMENT;
+        }
+
+        let origin = crate::bootstrap::current_runtime_thread()
+            .expect("active callback has an attached thread")
+            .id()
+            .raw();
+
+        let address = provider::bray_runtime_activation_composition(
+            std::ptr::with_exposed_provenance_mut(parent),
+            token,
+            state,
+            origin,
+            destination,
+            0,
+            super::activation::admission,
+        );
+
+        if address == 0 {
+            NativeRuntimeStatus::INVALID_ARGUMENT
+        } else {
+            NativeRuntimeStatus::SUCCESS
+        }
     }
 
     pub(super) fn execution_at(
         &self,
         state: ProtectedFrameStateId,
     ) -> Result<FrameExecutionState, NativeRuntimeStatus> {
-        self.lock_current()
-            .as_ref()
-            .ok_or(NativeRuntimeStatus::RUNTIME_FAILURE)?
-            .execution_at(state)
+        let execution = self.snapshot();
+
+        if execution.state() != state {
+            return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
+        }
+
+        Ok(execution)
     }
 
-    pub(super) fn compose(
-        &self,
-        frame: NativeInactiveFrame,
-        resume_state: ProtectedFrameStateId,
-    ) -> NativeRuntimeStatus {
-        {
-            let current = self.lock_current();
-
-            if current.as_ref().is_none_or(|current| {
-                current.frame.is_some()
-                    || current.child.is_some()
-                    || current.cleanup
-                    || current.deferred_progress.is_some()
-            }) {
-                return NativeRuntimeStatus::RUNTIME_FAILURE;
-            }
-        }
-
-        let Ok(mut outgoing) = crate::outgoing::OutgoingRecords::admit(6) else {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
-        };
-
-        let parent_execution = match self.execution_at(resume_state) {
-            Ok(execution) => execution,
-            Err(status) => return status,
-        };
-
-        let (mut frame, initial) = match NativeFrame::try_new(frame.into_protected()) {
-            Ok(frame) => frame,
-            Err(status) => return status,
-        };
-
-        frame.outgoing = outgoing.take(4);
-
-        let mut child = Box::new(NativeActivation::new(frame, initial, outgoing));
-
-        let local_status = child
-            .execution_state()
-            .and_then(|execution| {
-                execution_lane(&execution).map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)
-            })
-            .err();
-
-        if let Some(status) = local_status {
-            Self::release_chain(Some(child), &self.terminal);
-
-            return status;
-        }
-
-        child.retain_parent_execution(&parent_execution);
-
-        let composed_status = child
-            .execution_state()
-            .and_then(|execution| {
-                execution_lane(&execution).map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)
-            })
-            .err();
-
-        if composed_status.is_some() {
-            child.discard_parent_execution();
-            child.cleanup = true;
-        }
-
-        let mut current = self.lock_current();
-
-        let parent = Self::active(&mut current);
-
-        if parent.frame.is_some()
-            || parent.child.is_some()
-            || parent.cleanup
-            || parent.deferred_progress.is_some()
-        {
-            drop(current);
-            Self::release_chain(Some(child), &self.terminal);
-
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
-        }
-
-        parent.child = Some(child);
-
-        composed_status.unwrap_or(NativeRuntimeStatus::SUCCESS)
+    pub(super) fn snapshot(&self) -> FrameExecutionState {
+        self.execution
+            .lock()
+            .expect("execution snapshot is available")
+            .clone()
     }
 
-    pub(super) fn resolve_completion(&self, destination: &mut NativeRunOutcome) -> usize {
-        let mut current = self.lock_current();
+    pub(super) fn is_finished(&self) -> bool {
+        self.completion
+            .lock()
+            .expect("terminal cancellation shield is available")
+            .is_some()
+    }
 
-        let parent = current
-            .as_mut()
-            .expect("completion dispatch retains its parent activation");
+    fn refresh(&self, cancellation: bool) {
+        let mut snapshot = NativeActivationExecution::default();
 
-        let mut child = parent
-            .child
-            .take()
-            .expect("completion dispatch retains its child activation");
-
-        let outcome = child
-            .outcome
-            .take()
-            .expect("completion follows the child's terminal publication");
-
-        assert!(
-            matches!(
-                outcome.state(),
-                NativeRunState::COMPLETED | NativeRunState::CANCELLED | NativeRunState::PANICKED
-            ),
-            "awaited child publishes a language terminal outcome"
+        provider::bray_runtime_activation_run_snapshot(
+            std::ptr::with_exposed_provenance_mut(self.root.load(Ordering::Acquire)),
+            u8::from(cancellation),
+            &mut snapshot,
         );
 
-        let payload = outcome.payload();
-
-        *destination = outcome;
-
-        Self::transfer_incidents(&mut child);
-        child.next_retired = parent.retired.take();
-        parent.retired = Some(child);
-
-        payload
+        self.publish(&snapshot);
     }
 
-    fn drive(&self) -> FrameProgress<usize> {
-        for _ in 0..TRANSITION_BUDGET {
-            let Ok(execution) = self.execution() else {
-                return FrameProgress::RuntimeFailure;
-            };
-
-            let Some(current_lane) = current_task_execution_lane() else {
-                return FrameProgress::RuntimeFailure;
-            };
-
-            let Ok(required_lane) = execution_lane(&execution) else {
-                let mut current = self.lock_current();
-
-                let active = Self::active(&mut current);
-
-                if active.parent.is_some() && !active.cleanup {
-                    active.discard_parent_execution();
-                    active.cleanup = true;
-
-                    active
-                        .parent
-                        .as_mut()
-                        .unwrap_or_else(|| panic!("composed activation retains its parent"))
-                        .deferred_progress = Some(FrameProgress::RuntimeFailure);
-
-                    continue;
-                }
-
-                return FrameProgress::RuntimeFailure;
-            };
-
-            if !lane_allows(current_lane, required_lane) {
-                return FrameProgress::Suspended(FrameSuspension::yielding(execution.state()));
-            }
-
-            let Some(progress) =
-                with_task_frame_execution(&execution, required_lane, || self.step())
-            else {
-                return FrameProgress::RuntimeFailure;
-            };
-
-            if let Some(progress) = progress {
-                return progress;
-            }
-        }
-
-        self.execution()
-            .map_or(FrameProgress::RuntimeFailure, |execution| {
-                FrameProgress::Suspended(FrameSuspension::yielding(execution.state()))
-            })
-    }
-
-    fn step(&self) -> Option<FrameProgress<usize>> {
-        let (cleanup, deferred_progress) = {
-            let mut current = self.lock_current();
-
-            let active = Self::active(&mut current);
-
-            (active.cleanup, active.deferred_progress.take())
-        };
-
-        if cleanup {
-            return self.cleanup_activation();
-        }
-
-        if let Some(progress) = deferred_progress {
-            return self.process_progress(progress);
-        }
-
-        let mut frame = {
-            let mut current = self.lock_current();
-
-            Self::active(&mut current)
-                .frame
-                .take()
-                .unwrap_or_else(|| panic!("dispatch retains the active frame"))
-        };
-
-        let progress = catch_unwind(AssertUnwindSafe(|| {
-            frame.as_mut().resume(FrameContext::new(
-                crate::current_run_cancellation_observable(),
-            ))
-        }));
-
-        let mut current = self.lock_current();
-        let active = Self::active(&mut current);
-
-        let progress = progress.unwrap_or_else(|payload| {
-            FrameProgress::Panicked(RuntimePanic::from_payload(payload, &mut active.outgoing))
-        });
-
-        active.frame = Some(frame);
-        drop(current);
-
-        let progress = self.begin_pending_cleanup(progress)?;
-
-        self.process_progress(progress)
-    }
-
-    fn process_progress(&self, progress: FrameProgress<usize>) -> Option<FrameProgress<usize>> {
-        match progress {
-            FrameProgress::Suspended(suspension) => self.suspend_activation(suspension),
-            FrameProgress::RuntimeFailure => Some(FrameProgress::RuntimeFailure),
-            progress => self.finish_activation(progress),
-        }
-    }
-
-    fn begin_pending_cleanup(
-        &self,
-        progress: FrameProgress<usize>,
-    ) -> Option<FrameProgress<usize>> {
-        let mut current = self.lock_current();
-
-        let active = Self::active(&mut current);
-
-        if !active.child.as_ref().is_some_and(|child| child.cleanup) {
-            return Some(progress);
-        }
-
-        active.deferred_progress = Some(progress);
-
-        let mut child = active
-            .child
-            .take()
-            .unwrap_or_else(|| panic!("active activation retains its cleanup child"));
-
-        child.parent = current.take();
-        *current = Some(child);
-
-        None
-    }
-
-    fn suspend_activation(&self, suspension: FrameSuspension) -> Option<FrameProgress<usize>> {
-        let mut current = self.lock_current();
-
-        let active = Self::active(&mut current);
-
-        active.local = active
-            .frame
-            .as_ref()
-            .and_then(|frame| frame.execution_state(suspension.state()))
-            .expect("generated suspension identifies a described frame state");
-
-        if suspension.kind() != FrameSuspensionKind::Awaited {
-            return Some(FrameProgress::Suspended(suspension));
-        }
-
-        let Some(mut child) = active.child.take() else {
-            return Some(FrameProgress::Suspended(suspension));
-        };
-
-        if child.outcome.is_some() {
-            active.child = Some(child);
-
-            return None;
-        }
-
-        let execution = active
-            .execution_state()
-            .unwrap_or_else(|_| panic!("suspension state belongs to the active native frame"));
-
-        child.retain_parent_execution(&execution);
-        child.parent = current.take();
-        *current = Some(child);
-
-        None
-    }
-
-    fn finish_activation(&self, progress: FrameProgress<usize>) -> Option<FrameProgress<usize>> {
-        let mut progress = Some(progress);
-
-        {
-            let mut current = self.lock_current();
-
-            let active = Self::active(&mut current);
-
-            if active
-                .child
-                .as_ref()
-                .is_some_and(|child| child.frame.is_some())
-            {
-                active.deferred_progress = progress.take();
-
-                let mut child = active
-                    .child
-                    .take()
-                    .unwrap_or_else(|| panic!("terminal activation retains its pending child"));
-
-                child.cleanup = true;
-                child.parent = current.take();
-                *current = Some(child);
-
-                return None;
-            }
-        }
-
-        let progress =
-            progress.unwrap_or_else(|| panic!("terminal progress was not deferred to a child"));
-
-        let (frame, child, mut outgoing, terminal, is_root) = {
-            let mut current = self.lock_current();
-
-            let active = Self::active(&mut current);
-
-            (
-                active.frame.take(),
-                active.child.take(),
-                std::mem::take(&mut active.outgoing),
-                Arc::clone(&active.terminal),
-                active.parent.is_none(),
-            )
-        };
-
-        Self::release_chain(child, &terminal);
-
-        let outcome = terminalize_frame(
-            frame.unwrap_or_else(|| panic!("terminal activation retains its frame")),
-            progress,
-            &mut outgoing,
-        );
-
-        if is_root {
-            return Some(match outcome {
-                Some(RunOutcome::Completed(payload)) => FrameProgress::Completed(payload),
-                Some(RunOutcome::Cancelled) => FrameProgress::Cancelled,
-                Some(RunOutcome::Panicked(panic)) => FrameProgress::Panicked(panic),
-                None => FrameProgress::RuntimeFailure,
-            });
-        }
-
-        let native = match outcome {
-            Some(RunOutcome::Completed(payload)) => {
-                NativeRunOutcome::new(NativeRunState::COMPLETED, payload)
-            }
-            Some(RunOutcome::Cancelled) => NativeRunOutcome::new(NativeRunState::CANCELLED, 0),
-            Some(RunOutcome::Panicked(panic)) => NativeRunOutcome::panicked(panic.into_native()),
-            None => NativeRunOutcome::new(
-                NativeRunState::RUNTIME_FAILURE,
-                NativeRuntimeStatus::RUNTIME_FAILURE.code() as usize,
-            ),
-        };
-
-        let mut current = self.lock_current();
-
-        let mut child = current
-            .take()
-            .unwrap_or_else(|| panic!("dispatch retains the completed child activation"));
-
-        let mut parent = child
-            .parent
-            .take()
-            .unwrap_or_else(|| panic!("composed child retains its parent activation"));
-
-        child.outcome = Some(native);
-        child.outgoing = outgoing;
-        parent.child = Some(child);
-        *current = Some(parent);
-
-        None
-    }
-
-    fn cleanup_activation(&self) -> Option<FrameProgress<usize>> {
-        let (frame, mut outgoing, terminal, parent_terminal) = {
-            let mut current = self.lock_current();
-
-            let active = Self::active(&mut current);
-
-            assert!(
-                active.cleanup,
-                "only cleanup activations use cleanup dispatch"
-            );
-
-            let parent_terminal = active
-                .parent
-                .as_ref()
-                .map(|parent| Arc::clone(&parent.terminal))
-                .unwrap_or_else(|| Arc::clone(&self.terminal));
-
-            (
-                active
-                    .frame
-                    .take()
-                    .unwrap_or_else(|| panic!("cleanup activation retains its frame")),
-                std::mem::take(&mut active.outgoing),
-                Arc::clone(&active.terminal),
-                parent_terminal,
-            )
-        };
-
-        let _ = terminalize_frame(frame, FrameProgress::RuntimeFailure, &mut outgoing);
-
-        let mut current = self.lock_current();
-
-        let mut child = current
-            .take()
-            .unwrap_or_else(|| panic!("dispatch retains the cleanup child activation"));
-
-        child.outgoing = outgoing;
-
-        if !Self::transfer_incidents(&mut child) {
-            Self::forward_incidents(&terminal, &parent_terminal);
-        }
-
-        let parent = child
-            .parent
-            .take()
-            .unwrap_or_else(|| panic!("cleanup child retains its parent activation"));
-
-        drop(child);
-        *current = Some(parent);
-
-        None
-    }
-
-    fn release_chain(
-        mut current: Option<Box<NativeActivation>>,
-        boundary: &Arc<NativeTerminalState>,
-    ) {
-        NativeRun::broadcast_pending_frames(&mut current);
-
-        while let Some(mut active) = current {
-            if let Some(mut child) = active.child.take() {
-                child.parent = Some(active);
-                current = Some(child);
-                continue;
-            }
-
-            if let Some(mut retired) = active.retired.take() {
-                retired.parent = Some(active);
-                current = Some(retired);
-                continue;
-            }
-
-            let mut parent = active.parent.take();
-
-            if let Some(frame) = active.frame.take() {
-                let _ = terminalize_frame_after_broadcast(
-                    frame,
-                    FrameProgress::RuntimeFailure,
-                    &mut active.outgoing,
-                );
-            }
-
-            let parent_terminal = parent.as_ref().map_or_else(
-                || Arc::clone(boundary),
-                |parent| Arc::clone(&parent.terminal),
-            );
-
-            let is_boundary = parent.is_none() && Arc::ptr_eq(&active.terminal, boundary);
-
-            if !is_boundary && !Self::transfer_incidents(&mut active) {
-                Self::forward_incidents(&active.terminal, &parent_terminal);
-            }
-
-            if let Some(mut sibling) = active.next_retired.take() {
-                sibling.parent = parent.take();
-                current = Some(sibling);
-            } else {
-                current = parent;
-            }
-        }
-    }
-
-    fn broadcast_pending_frames(current: &mut Option<Box<NativeActivation>>) {
-        let mut cursor = current.as_deref_mut();
-
-        while let Some(active) = cursor {
-            Self::broadcast_activation(active);
-
-            if let Some(child) = active.child.as_deref_mut() {
-                Self::broadcast_activation(child);
-            }
-
-            cursor = active.parent.as_deref_mut();
-        }
-    }
-
-    fn broadcast_activation(active: &mut NativeActivation) {
-        if active.broadcasted {
+    fn transfer_incidents(&self, incidents: NativeReportRecords, remaining: NativeReportRecords) {
+        let _remaining =
+            OutgoingRecords::from_parts(remaining.head, remaining.tail, remaining.count);
+
+        if incidents.count == 0 {
             return;
         }
 
-        if let Some(frame) = active.frame.as_mut() {
-            frame.as_mut().broadcast_tasks();
-        }
-
-        active.broadcasted = true;
-    }
-
-    fn forward_incidents(terminal: &Arc<NativeTerminalState>, parent: &Arc<NativeTerminalState>) {
-        if Arc::ptr_eq(terminal, parent) {
-            return;
-        }
-
-        for incident in terminal.take_cleanup_incidents().into_iter().flatten() {
-            parent.record_cleanup_report(incident);
-        }
-    }
-
-    fn transfer_incidents(active: &mut NativeActivation) -> bool {
-        let Some(task) = current_native_task() else {
-            return false;
-        };
-
-        let origin = crate::CleanupIncidentOrigin::new(active.local.frame(), active.local.state());
-        let incidents = active.terminal.take_cleanup_incidents();
+        let records = OutgoingRecords::from_parts(incidents.head, incidents.tail, incidents.count);
+        let snapshot = self.snapshot();
+        let origin = crate::CleanupIncidentOrigin::new(snapshot.frame(), snapshot.state());
+        let task = current_native_task().expect("dispatch retains the native task");
 
         with_runtime(|runtime| {
-            for incident in incidents.into_iter().flatten() {
-                runtime.cleanup_reports.transfer(
-                    crate::CleanupIncidentProducer::Task(
-                        runtime
-                            .with_started(task, |started| started.task.id())
-                            .unwrap_or_else(|_| panic!("active native run retains its task")),
-                    ),
-                    origin,
-                    incident,
-                    &mut active.outgoing,
-                );
-            }
+            let identity = runtime
+                .retained_task(task, true)
+                .expect("dispatch retains its registered task")
+                .task
+                .id();
+
+            runtime.cleanup_reports.transfer_records(
+                crate::CleanupIncidentProducer::Task(identity),
+                origin,
+                records,
+            );
         })
-        .is_ok()
+        .expect("dispatch retains its runtime");
     }
+
+    pub(super) fn retire(
+        &self,
+        task: &super::state::StartedTask,
+        lane: crate::ExecutionLane,
+    ) -> NativeRuntimeStatus {
+        let _claim = self.claim();
+
+        assert!(
+            self.is_finished(),
+            "retirement follows terminal observation"
+        );
+
+        let root = self.root.load(Ordering::Acquire);
+
+        if root == 0 {
+            return NativeRuntimeStatus::SUCCESS;
+        }
+
+        let context = crate::TaskExecutionContext::new(
+            task.task.id(),
+            self.snapshot().state(),
+            task.task.cancellation_context().clone(),
+            task.task.output_context().clone(),
+            lane,
+            task.registration.wake_handle(),
+        );
+
+        crate::context::with_task_execution_context(context, || {
+            let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
+            let mut records = NativeReportRecords::default();
+            let mut incidents = NativeReportRecords::default();
+
+            let status = provider::bray_runtime_activation_dispatch(
+                std::ptr::with_exposed_provenance_mut(root),
+                bray_runtime_activation_callback,
+                readiness,
+                5,
+                0,
+                &mut progress,
+                &mut records,
+                &mut incidents,
+            );
+
+            if status == NativeRuntimeStatus::PENDING.code() {
+                return NativeRuntimeStatus::PENDING;
+            }
+
+            assert_eq!(
+                status, 0,
+                "retirement retains its admitted entry capabilities"
+            );
+
+            self.root.store(0, Ordering::Release);
+            self.transfer_incidents(incidents, records);
+
+            if progress.kind() == NativeFrameProgressKind::PANICKED {
+                let report = RuntimePanic::from_native(progress.take_report());
+
+                with_runtime(|runtime| {
+                    task.task.transfer_cleanup_incident(
+                        &runtime.cleanup_reports,
+                        task.task.execution_origin(),
+                        report,
+                    )
+                })
+                .expect("retirement retains its report sink");
+            }
+
+            NativeRuntimeStatus::SUCCESS
+        })
+    }
+
+    fn drive(&self, cancellation: bool) -> FrameProgress<usize> {
+        let _claim = self.claim();
+        let root = self.root.load(Ordering::Acquire);
+
+        assert_ne!(root, 0, "dispatch requires committed activation");
+        assert!(!self.is_finished(), "terminal run cannot resume");
+
+        for _ in 0..DISPATCH_TRANSITIONS {
+            let mut progress =
+                NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
+
+            let mut records = NativeReportRecords::default();
+            let mut incidents = NativeReportRecords::default();
+
+            let status = provider::bray_runtime_activation_step(
+                std::ptr::with_exposed_provenance_mut(root),
+                bray_runtime_activation_callback,
+                readiness,
+                u8::from(cancellation),
+                0,
+                &mut progress,
+                &mut records,
+                &mut incidents,
+            );
+
+            self.transfer_incidents(incidents, records);
+
+            match status {
+                0 => continue,
+                1 => {
+                    self.refresh(cancellation);
+
+                    return suspension(progress);
+                }
+                2 => {
+                    self.refresh(false);
+
+                    let context = crate::current_task_execution_context()
+                        .expect("terminal dispatch retains its task context");
+
+                    *self
+                        .completion
+                        .lock()
+                        .expect("terminal cancellation shield is available") =
+                        Some(context.cancellation().shield());
+
+                    return match progress.kind() {
+                        NativeFrameProgressKind::COMPLETED => {
+                            FrameProgress::Completed(progress.payload())
+                        }
+                        NativeFrameProgressKind::CANCELLED => FrameProgress::Cancelled,
+                        NativeFrameProgressKind::PANICKED => FrameProgress::Panicked(
+                            RuntimePanic::from_native(progress.take_report()),
+                        ),
+                        NativeFrameProgressKind::RUNTIME_FAILURE => FrameProgress::RuntimeFailure,
+                        kind => panic!("terminal driver returned {kind:?}"),
+                    };
+                }
+                3 => {
+                    assert_eq!(
+                        progress.payload(),
+                        usize::try_from(NativeRuntimeStatus::PENDING.code()).unwrap(),
+                        "admitted run retains capabilities required by its callbacks"
+                    );
+
+                    return FrameProgress::Suspended(FrameSuspension::yielding(
+                        self.snapshot().state(),
+                    ));
+                }
+                status => panic!("unknown Bray dispatcher outcome {status}"),
+            }
+        }
+
+        self.refresh(cancellation);
+
+        FrameProgress::Suspended(FrameSuspension::yielding(self.snapshot().state()))
+    }
+}
+
+fn suspension(progress: NativeFrameProgress) -> FrameProgress<usize> {
+    let state = ProtectedFrameStateId::new(progress.state());
+
+    FrameProgress::Suspended(match progress.kind() {
+        NativeFrameProgressKind::SUSPENDED => FrameSuspension::new(state),
+        NativeFrameProgressKind::YIELDED => FrameSuspension::yielding(state),
+        NativeFrameProgressKind::TASK_EVENT => {
+            FrameSuspension::task_event(state, progress.payload())
+        }
+        kind => panic!("suspended driver returned {kind:?}"),
+    })
 }
 
 impl ProtectedFrame for Arc<NativeRun> {
@@ -762,26 +418,24 @@ impl ProtectedFrame for Arc<NativeRun> {
     fn frame(&self) -> ProtectedAsyncFrameId {
         self.identity
     }
-
     fn execution_state(&self, _: ProtectedFrameStateId) -> Option<FrameExecutionState> {
-        self.execution().ok()
+        Some(self.snapshot())
     }
-
-    fn resume(self: Pin<&mut Self>, _: FrameContext) -> FrameProgress<Self::Output> {
-        self.drive()
+    fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output> {
+        self.drive(context.cancellation_requested())
     }
 
     fn broadcast_tasks(self: Pin<&mut Self>) {
-        let mut current = self.lock_current().take();
-
-        NativeRun::broadcast_pending_frames(&mut current);
-
-        *self.lock_current() = current;
+        assert!(
+            self.root.load(Ordering::Acquire) == 0 || self.is_finished(),
+            "the iterative driver resolves the active chain before terminal publication"
+        );
     }
 
     fn resolve_lifecycle(self: Pin<&mut Self>, _: FrameExit) {
-        let current = self.lock_current().take();
-
-        NativeRun::release_chain(current, &self.terminal);
+        assert!(
+            self.root.load(Ordering::Acquire) == 0 || self.is_finished(),
+            "the iterative driver resolves the active chain before terminal publication"
+        );
     }
 }

@@ -1452,7 +1452,9 @@ fn async_operation(
             child,
             resume_state,
             frame,
+            completion,
         } => {
+            parts.attribute("completion_storage", completion.slot());
             parts.attribute("parent_frame", digest_text(parent.digest()));
             parts.attribute("resume_state", resume_state.raw());
             frame_reference("child_frame", *child, parts);
@@ -1460,7 +1462,8 @@ fn async_operation(
 
             "compose_awaited_frame"
         }
-        MirAsyncOperation::CommitAwaitedCompletion { child } => {
+        MirAsyncOperation::CommitAwaitedCompletion { child, completion } => {
+            parts.attribute("completion_storage", completion.slot());
             frame_reference("child_frame", *child, parts);
 
             "commit_awaited_completion"
@@ -2590,7 +2593,6 @@ const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'stati
         | MirHelperReference::PanicReport
         | MirHelperReference::StandardLibrary(_)
         | MirHelperReference::CreateFrame(_)
-        | MirHelperReference::MoveInactiveFrame(_)
         | MirHelperReference::ComposeAwaitedFrame(_)
         | MirHelperReference::CommitAwaitedCompletion(_)
         | MirHelperReference::DestroyTerminalTask => None,

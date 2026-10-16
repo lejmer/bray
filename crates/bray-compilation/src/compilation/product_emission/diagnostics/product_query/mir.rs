@@ -61,7 +61,6 @@ pub(super) fn push_mir_helper(
             fields.push(identity_field("helper_type", ty));
         }
         Helper::CreateFrame(frame)
-        | Helper::MoveInactiveFrame(frame)
         | Helper::ComposeAwaitedFrame(frame)
         | Helper::CommitAwaitedCompletion(frame) => {
             push_mir_frame_reference(fields, *frame);
@@ -114,7 +113,6 @@ pub(in crate::compilation) const fn mir_helper_kind(
         Helper::Destroy(_) => "destroy",
         Helper::Cleanup { .. } => "cleanup",
         Helper::CreateFrame(_) => "create_frame",
-        Helper::MoveInactiveFrame(_) => "move_inactive_frame",
         Helper::ComposeAwaitedFrame(_) => "compose_awaited_frame",
         Helper::CommitAwaitedCompletion(_) => "commit_awaited_completion",
         Helper::DestroyTerminalTask => "destroy_terminal_task",

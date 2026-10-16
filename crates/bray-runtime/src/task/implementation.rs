@@ -225,7 +225,7 @@ impl<T: 'static, F> TaskControlBlock<T, F>
 where
     F: ?Sized + ProtectedFrame<Output = T>,
 {
-    fn start_frame(
+    pub(crate) fn start_frame(
         admission: TaskAdmission,
         frame: Pin<Box<F>>,
         cancellation: CancellationContext,

@@ -2327,16 +2327,19 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 child,
                 resume_state,
                 frame,
+                completion,
             } => {
                 self.wire.write_u32(3);
                 self.wire.write_bytes(&parent.digest());
                 self.frame_reference(*child);
                 self.wire.write_u32(resume_state.raw());
                 self.operand(frame)?;
+                self.wire.write_u32(completion.slot());
             }
-            Operation::CommitAwaitedCompletion { child } => {
+            Operation::CommitAwaitedCompletion { child, completion } => {
                 self.wire.write_u32(4);
                 self.frame_reference(*child);
+                self.wire.write_u32(completion.slot());
             }
             Operation::StartTask {
                 frame,

@@ -983,7 +983,7 @@ impl Lowerer<'_> {
                 BoundCallableTarget::Declaration(instance) => {
                     MirCallTarget::Direct(MirCallableReference::new(instance, selection.abi()))
                 }
-                BoundCallableTarget::Indirect(_) => {
+                BoundCallableTarget::Indirect(_) | BoundCallableTarget::Anonymous(_) => {
                     let callee = self.lower_expression(callee_expression, current)?;
 
                     // Preserve the evaluated callee through argument evaluation and admission.
@@ -1008,7 +1008,7 @@ impl Lowerer<'_> {
                         abi: selection.abi(),
                     }
                 }
-                BoundCallableTarget::Predicate(_) | BoundCallableTarget::Anonymous(_) => {
+                BoundCallableTarget::Predicate(_) => {
                     panic!(
                         "lowering contract violation: UnsupportedExpression {value:?}",
                         value = id

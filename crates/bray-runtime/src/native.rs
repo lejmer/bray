@@ -9,7 +9,8 @@ mod entry;
 pub(crate) use entry::bray_runtime_foreign_callback_execution;
 mod event;
 mod export;
-mod frame;
+#[cfg(test)]
+mod fixtures;
 mod host;
 #[doc(hidden)]
 pub mod implementation;

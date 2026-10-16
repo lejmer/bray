@@ -153,3 +153,37 @@ trusted internal func activate(pos pointer: RawPointer<Inactive>, pos origin: u6
 
     return trusted begin(&token, origin);
 }
+
+// The caller already holds the exact header borrow. This changes cleanup state,
+// without granting authority from fields or dispatching a callback.
+trusted internal func abandon(pos header: &mut Header) -> usize
+{
+    if header.phase == COMMITTED
+    {
+        return header.child;
+    }
+
+    header.abandoned = 1;
+
+    if header.phase == RUNNING
+    {
+        if header.progress.kind != 3 && header.progress.kind != 4
+        {
+            header.progress =
+            {
+                kind = 2,
+                state = 0,
+                payload = 0,
+                report = bray.runtime.bootstrap.empty_panic_report()
+            };
+        }
+
+        header.phase = CLEANUP;
+    }
+    else if header.phase == TERMINAL && header.progress.kind == 1
+    {
+        header.phase = CLEANUP;
+    }
+
+    return header.child;
+}

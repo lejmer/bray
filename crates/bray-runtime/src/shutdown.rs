@@ -181,14 +181,23 @@ impl CleanupReportSink {
         payload: crate::RuntimePanic,
         admitted: &mut OutgoingRecords,
     ) {
+        self.transfer_records(producer, origin, payload.into_records(admitted));
+    }
+
+    pub(crate) fn transfer_records(
+        &self,
+        producer: CleanupIncidentProducer,
+        origin: CleanupIncidentOrigin,
+        records: OutgoingRecords,
+    ) {
+        let (head, tail, count) = records.into_parts();
+
+        let mut records = bray_runtime_abi::NativeReportRecords { head, tail, count };
+
         let mut state = self
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        let (head, tail, count) = payload.into_records(admitted).into_parts();
-
-        let mut records = bray_runtime_abi::NativeReportRecords { head, tail, count };
 
         let mut metadata = CleanupIncidentMetadata {
             ordinal: 0,

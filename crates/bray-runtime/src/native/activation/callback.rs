@@ -14,20 +14,48 @@ pub(in crate::native) fn invoke(
     outgoing: &mut OutgoingRecords,
     callback: impl FnOnce(&mut NativeFrameProgress),
 ) {
-    let Err(payload) = catch_unwind(AssertUnwindSafe(|| callback(destination))) else {
-        return;
+    if let Err(payload) = catch_unwind(AssertUnwindSafe(|| callback(destination))) {
+        let mut report = (destination.kind() == NativeFrameProgressKind::PANICKED)
+            .then(|| RuntimePanic::from_native(destination.take_report()));
+
+        RuntimePanic::record(&mut report, payload, outgoing);
+
+        *destination = NativeFrameProgress::panicked(
+            report
+                .expect("a caught native unwind supplies its owned report")
+                .into_native(),
+        );
+    }
+
+    if destination.kind() == NativeFrameProgressKind::PANICKED {
+        let mut report = RuntimePanic::from_native(destination.take_report());
+
+        report.reserve_from(outgoing);
+        *destination = NativeFrameProgress::panicked(report.into_native());
+    }
+}
+
+/// Reserves report records and native unwind payload slots before accepting a callback owner.
+/// The caller retains an empty, exclusive destination and transfers the resulting chain
+/// to activation initialization. Execution and retirement need no fresh reservation.
+pub extern "C" fn bray_runtime_activation_callback_admission(
+    count: usize,
+    destination: &mut NativeReportRecords,
+) -> u32 {
+    assert!(
+        destination.head == 0 && destination.tail == 0 && destination.count == 0,
+        "native callback admission requires an empty record destination"
+    );
+
+    let Ok(records) = OutgoingRecords::admit(count) else {
+        return bray_runtime_abi::NativeRuntimeStatus::RUNTIME_FAILURE.code();
     };
 
-    let mut report = (destination.kind() == NativeFrameProgressKind::PANICKED)
-        .then(|| RuntimePanic::from_native(destination.take_report()));
+    let (head, tail, count) = records.into_parts();
 
-    RuntimePanic::record(&mut report, payload, outgoing);
+    *destination = NativeReportRecords { head, tail, count };
 
-    *destination = NativeFrameProgress::panicked(
-        report
-            .expect("a caught native unwind supplies its owned report")
-            .into_native(),
-    );
+    bray_runtime_abi::NativeRuntimeStatus::SUCCESS.code()
 }
 
 enum Operation {
@@ -44,6 +72,7 @@ enum Operation {
 /// output slots, with an empty destination report and exclusively owned records.
 /// Retaining operations keep their frame live. Destruction may release it, while
 /// the descriptor and provider code remain live until the callback returns.
+/// Admission retains the selected task execution context through this call.
 pub extern "C" fn bray_runtime_activation_callback(
     execution: &bray_runtime_abi::NativeActivationExecution,
     descriptor: &NativeActivationDescriptor,
@@ -79,8 +108,24 @@ pub extern "C" fn bray_runtime_activation_callback(
 
     *destination = NativeFrameProgress::new(initial, 0, 0);
 
-    invoke(destination, &mut outgoing, |destination| {
-        super::execution::with_execution(execution, || match selected {
+    let run = super::super::state::current_native_task().map(|task| {
+        super::super::state::with_runtime(|runtime| {
+            runtime
+                .retained_task(task, true)
+                .map(|task| std::sync::Arc::clone(&task.run))
+        })
+        .expect("callback retains its runtime")
+        .expect("callback retains its registered task")
+    });
+
+    let _scope = run
+        .as_ref()
+        .map(|run| run.enter_callback(execution, operation));
+
+    // Only producer execution may unwind into an owned source report. Invalid
+    // dispatch ownership or execution context is a runtime invariant failure.
+    super::execution::with_execution(execution, || {
+        invoke(destination, &mut outgoing, |destination| match selected {
             Operation::Resume => (descriptor.resume)(destination, context),
             Operation::Cancel => (descriptor.cancel)(destination, context),
             Operation::Broadcast => (descriptor.broadcast)(destination, context),
@@ -146,11 +191,13 @@ mod tests {
                             .raw(),
                         8
                     );
+
                     panic!("nested callback unwind");
                 });
             });
 
             assert!(nested_panic.is_err());
+
             assert_eq!(
                 crate::current_task_execution_context()
                     .unwrap()
@@ -158,6 +205,7 @@ mod tests {
                     .raw(),
                 0
             );
+
             CALLS.with_borrow_mut(|calls| calls.push((0, context, 0)));
             *destination = NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 7, 0);
         }
@@ -217,6 +265,36 @@ mod tests {
             destroy,
         };
 
+        const INVALID_CONTEXT: &str = "BRAY_TEST_CALLBACK_WITHOUT_EXECUTION_CONTEXT";
+
+        if std::env::var_os(INVALID_CONTEXT).is_some() {
+            let mut records = NativeReportRecords::default();
+
+            assert_eq!(
+                super::bray_runtime_activation_callback_admission(4, &mut records),
+                0
+            );
+
+            let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
+
+            super::bray_runtime_activation_callback(
+                &bray_runtime_abi::NativeActivationExecution::default(),
+                &descriptor,
+                17,
+                0,
+                0,
+                &mut progress,
+                &mut records,
+            );
+
+            panic!("missing native execution context must abort before invoking the producer");
+        }
+
+        crate::test_support::assert_native_abort(
+            "native::activation::callback::tests::callbacks_keep_explicit_progress_and_do_not_admit_storage",
+            INVALID_CONTEXT,
+        );
+
         let _isolation = crate::native::test_runtime_isolation();
         let thread = crate::bootstrap::RuntimeThreadScope::enter().unwrap();
 
@@ -236,6 +314,7 @@ mod tests {
 
         let registration =
             crate::test_support::register_task(&scheduler, &task, thread.runtime().id());
+
         let lane = registration.lane().unwrap();
 
         let native_context = crate::TaskExecutionContext::new(
@@ -319,7 +398,25 @@ mod tests {
         }
 
         let released = Arc::new(AtomicUsize::new(0));
-        let mut outgoing = OutgoingRecords::admit(2).unwrap();
+        let mut records = NativeReportRecords::default();
+
+        {
+            let _denied = crate::outgoing::tests::reject_admission();
+
+            assert_eq!(
+                super::bray_runtime_activation_callback_admission(2, &mut records),
+                NativeRuntimeStatus::RUNTIME_FAILURE.code()
+            );
+
+            assert_eq!((records.head, records.tail, records.count), (0, 0, 0));
+        }
+
+        assert_eq!(
+            super::bray_runtime_activation_callback_admission(2, &mut records),
+            NativeRuntimeStatus::SUCCESS.code()
+        );
+
+        let mut outgoing = OutgoingRecords::from_parts(records.head, records.tail, records.count);
         let first = RuntimePanic::new(Payload(Arc::clone(&released)), &mut outgoing).into_native();
         let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
         let _denied = crate::outgoing::tests::reject_admission();

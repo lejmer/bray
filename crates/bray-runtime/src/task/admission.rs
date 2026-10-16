@@ -29,7 +29,7 @@ pub enum TaskStartError {
 
 /// Outgoing incident storage acquired before a task accepts its inactive frame.
 pub struct TaskAdmission {
-    pub(super) id: TaskId,
+    pub(crate) id: TaskId,
     pub(crate) outgoing: crate::outgoing::OutgoingRecords,
 }
 

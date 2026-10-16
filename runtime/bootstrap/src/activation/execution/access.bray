@@ -3,42 +3,165 @@ trusted internal module bray.runtime.bootstrap.activation.execution;
 
 using std.memory;
 
+// Observation copies scheduling metadata only. Reports and record lists remain
+// owned by the initialized resident header.
+@copy
+internal struct Snapshot
+{
+    lease: bray.runtime.bootstrap.storage.Lease;
+    descriptor: usize;
+    context: usize;
+    parent: usize;
+    child: usize;
+    current: usize;
+    broadcast_next: usize;
+    origin: u64;
+    retained_origin: u64;
+    state: u32;
+    phase: u32;
+    retained_affinity: u32;
+    retained_lanes: u32;
+    broadcasted: u32;
+    destination: usize;
+    abandoned: u32;
+    kind: u32;
+}
+
 trusted internal func read(
-    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>
-) -> bray.runtime.bootstrap.activation.Header
-    requires(trusted owned(pointer = pointer))
-    ensures(trusted owned(pointer = pointer))
-    uses(raw_memory)
+    pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
+    root: bool = false,
+) -> Snapshot
+    requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
+    ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
+    uses(intrinsic)
 {
-    let authorize = trusted lambda(pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>)
-        requires(trusted owned(pointer = pointer))
+    let header = trusted access(cursor, root = root);
+
+    return
+    {
+        lease = header.lease,
+        descriptor = trusted core.target.expose_address<bray.runtime.bootstrap.activation.Descriptor>(
+            header.descriptor
+        ),
+        context = header.context,
+        parent = header.parent,
+        child = header.child,
+        current = header.current,
+        broadcast_next = header.broadcast_next,
+        origin = header.origin,
+        retained_origin = header.retained_origin,
+        state = header.state,
+        phase = header.phase,
+        retained_affinity = header.retained_affinity,
+        retained_lanes = header.retained_lanes,
+        broadcasted = header.broadcasted,
+        destination = header.destination,
+        abandoned = header.abandoned,
+        kind = header.progress.kind,
+    };
+}
+
+// Every access borrows the unique dispatch capability. Address copies and
+// reconstructed records cannot create another selected capability.
+trusted internal func access(
+    pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
+    root: bool = false,
+) -> &mut bray.runtime.bootstrap.activation.Header
+    requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
+    ensures(
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.progress.report),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.incoming.report),
+    )
+    uses(raw_memory, unchecked_alias)
+{
+    // Issue the existing guarantees for the same selected field. Returning an
+    // address through a shared Cursor borrow would keep that borrow alive while
+    // borrow_mut_from needs the exclusive Cursor. No storage changes here.
+    trusted certify(&cursor, root);
+
+    if root
+    {
+        let pointer = cursor.root;
+
+        return trusted std.memory.borrow_mut_from<
+            bray.runtime.bootstrap.activation.Header,
+            bray.runtime.bootstrap.activation.run.Cursor
+        >(cursor, pointer);
+    }
+
+    let pointer = cursor.pointer;
+
+    return trusted std.memory.borrow_mut_from<
+        bray.runtime.bootstrap.activation.Header,
+        bray.runtime.bootstrap.activation.run.Cursor
+    >(cursor, pointer);
+}
+
+trusted internal func describe(
+    pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
+) -> bray.runtime.bootstrap.activation.Descriptor
+    requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
+    ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
+    uses(intrinsic, raw_memory)
+{
+    let header = trusted read(cursor);
+
+    let descriptor = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Descriptor>(
+        address = header.descriptor
+    );
+
+    let authorize = trusted lambda(
+        pos cursor: &bray.runtime.bootstrap.activation.run.Cursor,
+        pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>
+    )
+        requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
         ensures(
-            trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Header>(pointer = pointer, count = 1),
-            trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Header>(pointer = pointer),
-            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Header>(pointer = pointer),
+            trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Descriptor>(
+                pointer = descriptor,
+                count = 1
+            ),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor),
         )
         executes(pure, total) {};
 
-    trusted authorize(pointer);
-    return trusted std.memory.read<bray.runtime.bootstrap.activation.Header>(pointer);
+    trusted authorize(&cursor, descriptor);
+    return trusted std.memory.read<bray.runtime.bootstrap.activation.Descriptor>(descriptor);
 }
 
-trusted internal func restore(
-    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
-    pos header: bray.runtime.bootstrap.activation.Header,
-)
-    requires(trusted owned(pointer = pointer))
-    ensures(trusted owned(pointer = pointer))
-    uses(raw_memory, unchecked_init)
-{
-    let authorize = trusted lambda(pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>)
-        requires(trusted owned(pointer = pointer))
+trusted internal func certify(pos cursor: &bray.runtime.bootstrap.activation.run.Cursor, pos root: bool)
+    requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
+    when(root)
+    {
         ensures(
-            trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Header>(pointer = pointer, count = 1),
-            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Header>(pointer = pointer),
+            trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Header>(pointer = cursor.root, count = 1),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Header>(pointer = cursor.root),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Header>(pointer = cursor.root),
+            trusted core.memory.exclusive_alias_valid<bray.runtime.bootstrap.activation.Header>(pointer = cursor.root),
+            trusted core.memory.epoch_current<bray.runtime.bootstrap.activation.Header>(pointer = cursor.root),
+            trusted core.memory.synchronized_access<bray.runtime.bootstrap.activation.Header>(pointer = cursor.root),
+            trusted core.memory.movement_stable<bray.runtime.bootstrap.activation.Header>(pointer = cursor.root),
+            trusted core.memory.finalization_pending<bray.runtime.bootstrap.activation.Header>(pointer = cursor.root),
         )
-        executes(pure, total) {};
-
-    trusted authorize(pointer);
-    trusted std.memory.write<bray.runtime.bootstrap.activation.Header>(pointer, header);
-}
+    }
+    when(!root)
+    {
+        ensures(
+            trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Header>(
+                pointer = cursor.pointer,
+                count = 1
+            ),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Header>(pointer = cursor.pointer),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Header>(pointer = cursor.pointer),
+            trusted core.memory.exclusive_alias_valid<bray.runtime.bootstrap.activation.Header>(
+                pointer = cursor.pointer
+            ),
+            trusted core.memory.epoch_current<bray.runtime.bootstrap.activation.Header>(pointer = cursor.pointer),
+            trusted core.memory.synchronized_access<bray.runtime.bootstrap.activation.Header>(pointer = cursor.pointer),
+            trusted core.memory.movement_stable<bray.runtime.bootstrap.activation.Header>(pointer = cursor.pointer),
+            trusted core.memory.finalization_pending<bray.runtime.bootstrap.activation.Header>(
+                pointer = cursor.pointer
+            ),
+        )
+    }
+    executes(pure, total) {}

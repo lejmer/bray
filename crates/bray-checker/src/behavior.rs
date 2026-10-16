@@ -73,9 +73,9 @@ where
 
                 if matches!(call.target(), BoundCallableTarget::Anonymous(_))
                     && !async_anonymous
-                    && let Some(unit) = request.anonymous_callable_unit(entry.expression())
+                    && let Some((unit, _)) = call.resolution().anonymous_body()
                 {
-                    contribution = contribution.with_anonymous_unit(unit);
+                    contribution = contribution.with_anonymous_unit(unit.clone());
                 }
 
                 if !async_anonymous {

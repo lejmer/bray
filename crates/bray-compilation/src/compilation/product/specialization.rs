@@ -50,6 +50,8 @@ pub(super) struct ConcreteCodegenInstance {
 }
 
 pub(super) struct ConcreteCodegenReachability {
+    execution_requirements:
+        BTreeMap<CodegenInstanceKey, &'static [bray_runtime_interface::ExecutionLaneRequirement]>,
     graph: CodegenReachability,
     instances: BTreeMap<CodegenInstanceKey, ConcreteCodegenInstance>,
     demands: Arc<[super::codegen::NativeDemand]>,
@@ -63,17 +65,29 @@ pub(super) enum ConcreteCodegenCallee {
 
 impl ConcreteCodegenReachability {
     pub(super) fn new(
+        execution_requirements: BTreeMap<
+            CodegenInstanceKey,
+            &'static [bray_runtime_interface::ExecutionLaneRequirement],
+        >,
         graph: CodegenReachability,
         instances: BTreeMap<CodegenInstanceKey, ConcreteCodegenInstance>,
         demands: impl Into<Arc<[super::codegen::NativeDemand]>>,
         selected_native: BTreeMap<CodegenInstanceKey, super::codegen::reuse::SelectedNativeUnit>,
     ) -> Self {
         Self {
+            execution_requirements,
             graph,
             instances,
             demands: demands.into(),
             selected_native,
         }
+    }
+
+    pub(super) fn execution_requirements(
+        &self,
+        key: &CodegenInstanceKey,
+    ) -> Option<&'static [bray_runtime_interface::ExecutionLaneRequirement]> {
+        self.execution_requirements.get(key).copied()
     }
 
     pub(super) const fn graph(&self) -> &CodegenReachability {

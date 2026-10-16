@@ -1070,6 +1070,9 @@ typedef struct
     uint32_t state, phase, retained_affinity, retained_lanes, broadcasted;
     ActivationProgress progress;
     ActivationRecords incidents, outgoing;
+    uintptr_t destination;
+    ActivationProgress incoming;
+    uint32_t abandoned;
 } ActivationHeader;
 
 typedef struct
@@ -1087,16 +1090,12 @@ typedef void (*ActivationCallback)(const ActivationExecution*, const ActivationD
     uintptr_t, ActivationProgress*, ActivationRecords*);
 
 extern uint32_t bray_runtime_activation_snapshot(const ActivationHeader*, uint32_t, uint32_t, uintptr_t, ActivationExecution*);
-extern uint32_t bray_runtime_activation_inspection(const InactiveActivation*, uint32_t, uint32_t, uintptr_t, ActivationState*);
+extern uint32_t bray_runtime_activation_inspection(const InactiveActivation*, uint32_t, uint32_t, uintptr_t, ActivationExecution*);
 extern uintptr_t bray_runtime_activation_entry(const InactiveActivation*, uint64_t);
-extern uintptr_t bray_runtime_activation_composition(ActivationHeader*, const InactiveActivation*, uint32_t, uint64_t);
+extern uintptr_t bray_runtime_activation_composition(ActivationHeader*, const InactiveActivation*, uint32_t, uint64_t, uintptr_t, uint8_t, ActivationReady);
 extern uint32_t bray_runtime_activation_dispatch(ActivationHeader*, ActivationCallback, ActivationReady,
-    uint32_t, uintptr_t, ActivationProgress*, ActivationRecords*);
+    uint32_t, uintptr_t, ActivationProgress*, ActivationRecords*, ActivationRecords*);
 
-#ifdef BRAY_ACTIVATION_NATIVE_CALLBACK
-extern void bray_runtime_activation_callback(const ActivationExecution*, const ActivationDescriptor*, uintptr_t, uint32_t,
-    uintptr_t, ActivationProgress*, ActivationRecords*);
-#endif
 
 static unsigned activation_calls;
 static unsigned activation_queries;
@@ -1170,6 +1169,8 @@ static void activation_move_failure(const ActivationExecution* execution, const 
 
 static int check_activation_deferral(ActivationHeader* header, ActivationCallback callback)
 {
+    ActivationRecords incidents = { 0 };
+
     ActivationHeader original = *header;
     unsigned attempts = atomic_load(&allocation_attempts);
     unsigned calls = activation_calls;
@@ -1188,9 +1189,9 @@ static int check_activation_deferral(ActivationHeader* header, ActivationCallbac
 
         if (
             bray_runtime_activation_dispatch(header, callback, activation_ready, operation, argument,
-                &progress, &remaining) != 6 ||
+                &progress, &remaining, &incidents) != 6 ||
             memcmp(header, &before, sizeof(before)) != 0 ||
-            progress.kind != 13 || remaining.count != 17 || destination != 0 ||
+            progress.kind != 13 || remaining.count != 17 || incidents.count != 0 || destination != 0 ||
             activation_queries != queries + 1 || activation_calls != calls ||
             atomic_load(&allocation_attempts) != attempts
         )
@@ -1203,6 +1204,8 @@ static int check_activation_deferral(ActivationHeader* header, ActivationCallbac
 
 static int check_activation_dispatch(ActivationHeader* header, ActivationCallback callback)
 {
+    ActivationRecords incidents = { 0 };
+
     unsigned attempts = atomic_load(&allocation_attempts);
     activation_calls = 0;
 
@@ -1217,7 +1220,7 @@ static int check_activation_dispatch(ActivationHeader* header, ActivationCallbac
         ActivationRecords remaining = { 0 };
 
         if (
-            bray_runtime_activation_dispatch(header, callback, activation_ready, operation, 3, &progress, &remaining) != 0 ||
+            bray_runtime_activation_dispatch(header, callback, activation_ready, operation, 3, &progress, &remaining, &incidents) != 0 ||
             remaining.count != 0 ||
             header->broadcasted != 1 || header->outgoing.count != 0 ||
             progress.kind != (operation == 3 ? 0 : 1) || progress.state != 7
@@ -1229,9 +1232,9 @@ static int check_activation_dispatch(ActivationHeader* header, ActivationCallbac
     ActivationRecords untouched_records = { .count = 17 };
 
     if (
-        bray_runtime_activation_dispatch(header, callback, activation_ready, 6, 0, &untouched, &untouched_records) != 3 ||
-        bray_runtime_activation_dispatch(header, callback, activation_ready, 3, 4, &untouched, &untouched_records) != 3 ||
-        untouched_records.count != 17 ||
+        bray_runtime_activation_dispatch(header, callback, activation_ready, 6, 0, &untouched, &untouched_records, &incidents) != 3 ||
+        bray_runtime_activation_dispatch(header, callback, activation_ready, 3, 4, &untouched, &untouched_records, &incidents) != 3 ||
+        untouched_records.count != 17 || incidents.count != 0 ||
         untouched.kind != 13 ||
         activation_calls != 4 ||
         atomic_load(&allocation_attempts) != attempts
@@ -1250,7 +1253,7 @@ static int check_activation_dispatch(ActivationHeader* header, ActivationCallbac
 
     if (
         bray_runtime_activation_dispatch(header, activation_move_failure, activation_ready, 4, (uintptr_t)&destination,
-            &moved, &remaining) != 0 ||
+            &moved, &remaining, &incidents) != 0 ||
         moved.kind != 3 || header->phase != 3 || header->progress.kind != 1 ||
         *source != 7919 || destination != 0 || remaining.count != 0
     )
@@ -1260,14 +1263,13 @@ static int check_activation_dispatch(ActivationHeader* header, ActivationCallbac
         return 119;
 
     if (
-        bray_runtime_activation_dispatch(header, callback, activation_ready, 4, (uintptr_t)&destination, &moved, &remaining) != 0 ||
+        bray_runtime_activation_dispatch(header, callback, activation_ready, 4, (uintptr_t)&destination, &moved, &remaining, &incidents) != 0 ||
         moved.kind != 1 || destination != 7919 || *source != 0 ||
         header->phase != 4 || remaining.count != 0 ||
         activation_calls != 5 || atomic_load(&allocation_attempts) != attempts
     )
         return 117;
 
-    // The fixture reuses its scalar-only frame for the second callback bridge.
     header->phase = 1;
     header->progress = (ActivationProgress){ 0 };
     return 0;
@@ -1366,9 +1368,9 @@ static uintptr_t activate_fixture(InactiveActivation* token, uint64_t origin)
     if (token->descriptor == NULL || origin == 0 || origin != bray_runtime_current_native_thread_identity())
         return 0;
 
-    ActivationState state = { 0 };
+    ActivationExecution state = { 0 };
 
-    if (bray_runtime_activation_inspection(token, 0, 0, 0, &state) != 0 || state.affinity != 0 || state.lanes != 0)
+    if (bray_runtime_activation_inspection(token, 0, 0, 0, &state) != 0 || state.requirements.affinity != 0 || state.requirements.lanes != 0)
         return 0;
 
     InactiveActivation original = *token;
@@ -1456,10 +1458,19 @@ static int check_activation_snapshot(ActivationHeader* header)
     return 0;
 }
 
+static uint32_t composition_ready(const ActivationExecution* execution)
+{
+    return execution->address != 0 && execution->requirements.affinity == 1 &&
+        execution->requirements.lanes == 1 &&
+        execution->origin == bray_runtime_current_native_thread_identity() ? 0 : 6;
+}
+
 static int check_activation_composition(ActivationHeader* parent, InactiveActivation* token)
 {
+    ActivationRecords incidents = { 0 };
+
     ActivationExecution continuation = { 0 };
-    ActivationState child = { 0 };
+    ActivationExecution child = { 0 };
     uint64_t origin = bray_runtime_current_native_thread_identity();
 
     // This native fixture retains both slots and permits blocking execution on
@@ -1467,12 +1478,12 @@ static int check_activation_composition(ActivationHeader* parent, InactiveActiva
     if (bray_runtime_activation_snapshot(parent, 1, 0, 0, &continuation) != 0 ||
         bray_runtime_activation_inspection(token, 0, 0, 0, &child) != 0 ||
         continuation.requirements.affinity != 1 || continuation.requirements.lanes != 1 ||
-        continuation.origin != origin || child.affinity != 0 || child.lanes != 0)
+        continuation.origin != origin || child.requirements.affinity != 0 || child.requirements.lanes != 0)
         return 108;
 
     unsigned attempts = atomic_load(&allocation_attempts);
     InactiveActivation original = *token;
-    uintptr_t address = bray_runtime_activation_composition(parent, token, 1, origin);
+    uintptr_t address = bray_runtime_activation_composition(parent, token, 1, origin, (uintptr_t)&parent->incoming.payload, 0, composition_ready);
 
     if (address == 0 || memcmp(token, &original, sizeof(original)) != 0 ||
         atomic_load(&allocation_attempts) != attempts)
@@ -1497,15 +1508,354 @@ static int check_activation_composition(ActivationHeader* parent, InactiveActiva
     ActivationProgress retired = { 0 };
     ActivationRecords remaining = { 0 };
 
-    if (bray_runtime_activation_dispatch(attached, activation_callback, activation_ready, 5, 0, &retired, &remaining) != 0 ||
-        retired.kind != 1 || remaining.count != 0 || atomic_load(&allocation_attempts) != attempts)
+    if (bray_runtime_activation_dispatch(attached, activation_callback, activation_ready, 5, 0, &retired, &remaining, &incidents) != 0 ||
+        retired.kind != 1 || remaining.count != 0 || incidents.count != 0 || atomic_load(&allocation_attempts) != attempts)
         return 111;
+
+    return 0;
+}
+
+extern void bray_runtime_activation_initialization(const InactiveActivation*, uintptr_t, ActivationRecords*);
+extern uint32_t bray_runtime_activation_step(ActivationHeader*, ActivationCallback, ActivationReady,
+    uint8_t, uint8_t, ActivationProgress*, ActivationRecords*, ActivationRecords*);
+extern void bray_runtime_frame_completion_move(ActivationHeader*, RunOutcome*);
+
+typedef struct
+{
+    ActivationHeader header;
+    uintptr_t value;
+    InactiveActivation next;
+} ChainFrame;
+
+static unsigned chain_resumes;
+static unsigned chain_cancellations;
+static unsigned chain_releases;
+static unsigned chain_broadcasts;
+static unsigned chain_moves;
+static unsigned chain_yield;
+static unsigned chain_abandoning;
+static uintptr_t chain_stack_low;
+static uintptr_t chain_stack_high;
+
+static ActivationState chain_state(uintptr_t context, uint32_t state, uint32_t operation, uintptr_t argument)
+{
+    (void)context;
+    (void)argument;
+
+    if (state >= 3 || (chain_abandoning != 0 && state == 0 && operation == 0))
+        abort();
+
+    return (ActivationState){ 0 };
+}
+
+static void chain_resolve(ActivationProgress*, uintptr_t, uint32_t);
+
+static void chain_resume(ActivationProgress* progress, uintptr_t context)
+{
+    ChainFrame* frame = (ChainFrame*)context;
+
+    if (frame->header.state == 2)
+    {
+        chain_resolve(progress, context, 3);
+        return;
+    }
+
+    ++chain_resumes;
+
+    if (frame->header.state == 0 && frame->next.descriptor != NULL)
+    {
+        if (
+            bray_runtime_activation_composition(
+                &frame->header,
+                &frame->next,
+                1,
+                frame->header.origin,
+                (uintptr_t)&frame->value,
+                0,
+                activation_ready
+            ) == 0
+        )
+            abort();
+
+        frame->next = (InactiveActivation){ 0 };
+        *progress = (ActivationProgress){ .state = 1 };
+
+        return;
+    }
+
+    if (frame->header.incoming.kind != 0)
+    {
+        RunOutcome incoming = { 0 };
+        bray_runtime_frame_completion_move(&frame->header, &incoming);
+
+        if (incoming.state != 0 || incoming.payload != (uintptr_t)&frame->value)
+            abort();
+
+        ++frame->value;
+    }
+    else if (chain_yield != 0 && frame->header.state == 0)
+    {
+        *progress = (ActivationProgress){ .kind = 5, .state = 1 };
+        return;
+    }
+
+    *progress = (ActivationProgress){ .kind = 1, .state = 1 };
+}
+
+static void chain_cancel(ActivationProgress* progress, uintptr_t context)
+{
+    ChainFrame* frame = (ChainFrame*)context;
+    ++chain_cancellations;
+
+    if (frame->header.incoming.kind != 0)
+    {
+        RunOutcome incoming = { 0 };
+        bray_runtime_frame_completion_move(&frame->header, &incoming);
+
+        if (incoming.state != 1)
+            abort();
+    }
+
+    *progress = (ActivationProgress){ .kind = 2 };
+}
+
+static void chain_broadcast(ActivationProgress* progress, uintptr_t context)
+{
+    (void)context;
+    ++chain_broadcasts;
+    *progress = (ActivationProgress){ .kind = 1 };
+}
+
+static void chain_resolve(ActivationProgress* progress, uintptr_t context, uint32_t exit)
+{
+    ChainFrame* frame = (ChainFrame*)context;
+
+    if (frame->next.descriptor != NULL)
+    {
+        if (
+            exit != 3 ||
+            bray_runtime_activation_composition(
+                &frame->header,
+                &frame->next,
+                2,
+                frame->header.origin,
+                (uintptr_t)&frame->value,
+                1,
+                activation_ready
+            ) == 0
+        )
+            abort();
+
+        frame->next = (InactiveActivation){ 0 };
+        *progress = (ActivationProgress){ .state = 2 };
+
+        return;
+    }
+
+    if (frame->header.incoming.kind != 0)
+    {
+        RunOutcome incoming = { 0 };
+        bray_runtime_frame_completion_move(&frame->header, &incoming);
+
+        if (exit != 3 || incoming.state != 1)
+            abort();
+    }
+
+    *progress = (ActivationProgress){ .kind = 1 };
+}
+
+static void chain_move(uintptr_t context, uintptr_t destination)
+{
+    ChainFrame* frame = (ChainFrame*)context;
+    ++chain_moves;
+    *(uintptr_t*)destination = frame->value;
+}
+
+static void chain_destroy(uintptr_t context)
+{
+    ++chain_releases;
+    activation_destroy(context);
+}
+
+static void chain_callback(
+    const ActivationExecution* execution,
+    const ActivationDescriptor* descriptor,
+    uintptr_t context,
+    uint32_t operation,
+    uintptr_t argument,
+    ActivationProgress* progress,
+    ActivationRecords* records
+)
+{
+    volatile unsigned char stack_marker = 0;
+    uintptr_t stack = (uintptr_t)&stack_marker;
+
+    (void)execution;
+
+    if (records->count != 0)
+        abort();
+
+    if (stack < chain_stack_low)
+        chain_stack_low = stack;
+
+    if (stack > chain_stack_high)
+        chain_stack_high = stack;
+
+    *progress = (ActivationProgress){ .kind = 1 };
+
+    switch (operation)
+    {
+        case 0: descriptor->resume(progress, context); break;
+        case 1: descriptor->cancel(progress, context); break;
+        case 2: descriptor->broadcast(progress, context); break;
+        case 3: descriptor->resolve(progress, context, (uint32_t)argument); break;
+        case 4: descriptor->move_completion(context, argument); break;
+        case 5: descriptor->destroy(context); break;
+        default: abort();
+    }
+}
+
+static int check_activation_chain(unsigned depth, int mode)
+{
+    const ActivationDescriptor descriptor = {
+        .storage = { { 12 }, sizeof(ChainFrame), 4096 },
+        .completion = offsetof(ChainFrame, value), .completion_bytes = sizeof(uintptr_t),
+        .completion_align = _Alignof(uintptr_t), .states = 3,
+        .state = chain_state, .resume = chain_resume, .cancel = chain_cancel,
+        .broadcast = chain_broadcast, .resolve = chain_resolve,
+        .move_completion = chain_move, .destroy = chain_destroy,
+    };
+    InactiveActivation next = { 0 };
+
+    if (bray_runtime_thread_attachment_enter() != 0)
+        return 132;
+
+    for (unsigned i = 0; i < depth; ++i)
+    {
+        CleanupLease lease = { 0 };
+
+        if (bray_runtime_cleanup_storage_admission(&descriptor.storage, &lease) != 0)
+            return 133;
+
+        ChainFrame* frame = (ChainFrame*)bray_runtime_cleanup_storage_activation(&lease, &descriptor.storage);
+        InactiveActivation token = { lease, &descriptor };
+        ActivationRecords records = { 0 };
+
+        bray_runtime_activation_initialization(&token, (uintptr_t)frame, &records);
+
+        frame->value = 1;
+        frame->next = next;
+
+        if (bray_runtime_activation_publication(&token) != 0)
+            return 134;
+
+        next = token;
+    }
+
+    chain_resumes = chain_cancellations = chain_releases = chain_broadcasts = chain_moves = 0;
+    chain_yield = mode == 1;
+    chain_abandoning = 0;
+    chain_stack_low = UINTPTR_MAX;
+    chain_stack_high = 0;
+
+    atomic_store(&reject_allocations, 1);
+
+    unsigned attempts = atomic_load(&allocation_attempts);
+
+    ActivationHeader* root = (ActivationHeader*)activate_fixture(&next, bray_runtime_current_native_thread_identity());
+
+    if (root == NULL)
+        return 135;
+
+    chain_abandoning = mode == 2;
+
+    int suspended = 0;
+    unsigned status = 0;
+
+    ActivationProgress progress = { 0 };
+    ActivationRecords remaining = { 0 };
+    ActivationRecords incidents = { 0 };
+
+    for (unsigned steps = 0; steps < depth * 16 + 16; ++steps)
+    {
+        status = bray_runtime_activation_step(
+            root,
+            chain_callback,
+            activation_ready,
+            suspended != 0,
+            mode == 2,
+            &progress,
+            &remaining,
+            &incidents
+        );
+
+        if (remaining.count != 0 || incidents.count != 0)
+            return 136;
+
+        if (status == 2)
+            break;
+
+        if (status == 1 && mode == 1 && !suspended && progress.kind == 5)
+            suspended = 1;
+        else if (status != 0)
+            return 137;
+    }
+
+    uintptr_t step_stack_bytes = chain_stack_high - chain_stack_low;
+
+    if (
+        status != 2 ||
+        chain_releases != depth - 1 ||
+        progress.kind != (mode != 0 ? 2U : 1U) ||
+        chain_moves != (mode != 0 ? 0U : depth) ||
+        chain_broadcasts != depth ||
+        chain_resumes != (mode == 2 ? 0U : mode == 1 ? depth : depth * 2 - 1) ||
+        chain_cancellations != (mode == 1 ? depth : 0U) ||
+        step_stack_bytes > 16384 ||
+        atomic_load(&allocation_attempts) != attempts
+    )
+        return 138;
+
+    if (
+        mode == 0 && (progress.payload != (uintptr_t)&((ChainFrame*)root)->value ||
+        *(uintptr_t*)progress.payload != depth)
+    )
+        return 139;
+
+    // The scalar payload is consumed before the observed root is retired.
+    progress = (ActivationProgress){ 0 };
+
+    if (
+        bray_runtime_activation_dispatch(
+            root,
+            chain_callback,
+            activation_ready,
+            5,
+            0,
+            &progress,
+            &remaining,
+            &incidents
+        ) != 0 ||
+        chain_releases != depth ||
+        atomic_load(&allocation_attempts) != attempts
+    )
+        return 140;
+
+    atomic_store(&reject_allocations, 0);
+
+    if (bray_runtime_thread_attachment_leave() != 0)
+        return 141;
+
+    printf("activation chain: depth=%u mode=%d resumes=%u step_stack_bytes=%zu\n",
+        depth, mode, chain_resumes, (size_t)step_stack_bytes);
 
     return 0;
 }
 
 static int check_activation_publication(int embedded_descriptor, int restricted)
 {
+    ActivationRecords incidents = { 0 };
+
     const ActivationDescriptor descriptor = {
         .storage = { { 11 }, 1024, 4096 },
         .completion = sizeof(ActivationHeader), .completion_bytes = sizeof(uintptr_t),
@@ -1605,13 +1955,13 @@ static int check_activation_publication(int embedded_descriptor, int restricted)
     if (restricted)
     {
         InactiveActivation rejected = token;
-        ActivationState requirements = { 0 };
+        ActivationExecution requirements = { 0 };
 
         if (
             activate_fixture(&rejected, origin) != 0 ||
             memcmp(&rejected, &token, sizeof(token)) != 0 ||
             bray_runtime_activation_inspection(&token, 0, 0, 0, &requirements) != 0 ||
-            requirements.lanes != 1 || activation_queries != 2 ||
+            requirements.requirements.lanes != 1 || activation_queries != 2 ||
             ((ActivationHeader*)bytes)->phase != 0 ||
             atomic_load(&allocation_attempts) != attempts
         )
@@ -1620,13 +1970,13 @@ static int check_activation_publication(int embedded_descriptor, int restricted)
         goto cleanup;
     }
 
-    ActivationState inspected = { .affinity = 17, .lanes = 19 };
+    ActivationExecution inspected = { .requirements = { .affinity = 17, .lanes = 19 } };
 
     if (
         bray_runtime_activation_inspection(&token, 8, 0, 0, &inspected) != 3 ||
-        inspected.affinity != 17 || inspected.lanes != 19 || activation_queries != 0 ||
+        inspected.requirements.affinity != 17 || inspected.requirements.lanes != 19 || activation_queries != 0 ||
         bray_runtime_activation_inspection(&token, 7, 0, 0, &inspected) != 0 ||
-        inspected.affinity != 0 || inspected.lanes != 0 || activation_queries != 1
+        inspected.requirements.affinity != 0 || inspected.requirements.lanes != 0 || activation_queries != 1
     )
     {
         status = 99;
@@ -1635,10 +1985,10 @@ static int check_activation_publication(int embedded_descriptor, int restricted)
 
     for (uint32_t state = 5; state <= 6; ++state)
     {
-        ActivationState invalid = { .affinity = 17, .lanes = 19 };
+        ActivationExecution invalid = { .requirements = { .affinity = 17, .lanes = 19 } };
 
         if (bray_runtime_activation_inspection(&token, state, 0, 0, &invalid) != 3 ||
-            invalid.affinity != 17 || invalid.lanes != 19)
+            invalid.requirements.affinity != 17 || invalid.requirements.lanes != 19)
         {
             status = 102;
             goto cleanup;
@@ -1727,29 +2077,22 @@ static int check_activation_publication(int embedded_descriptor, int restricted)
     child_lease = (CleanupLease){ 0 };
 
     int dispatch_status = check_activation_dispatch((ActivationHeader*)active, activation_callback);
-#ifdef BRAY_ACTIVATION_NATIVE_CALLBACK
-    if (dispatch_status == 0)
-        dispatch_status = check_activation_dispatch((ActivationHeader*)active, bray_runtime_activation_callback);
-#endif
+
     if (dispatch_status != 0)
     {
         status = dispatch_status;
         goto cleanup;
     }
 
-    ActivationCallback retirement = activation_callback;
-#ifdef BRAY_ACTIVATION_NATIVE_CALLBACK
-    retirement = bray_runtime_activation_callback;
-#endif
     ((ActivationHeader*)active)->phase = 4;
 
     ActivationProgress retired = { 0 };
     ActivationRecords remaining = { 0 };
 
     if (
-        bray_runtime_activation_dispatch((ActivationHeader*)active, retirement, activation_ready, 5, 0, &retired, &remaining) != 0 ||
+        bray_runtime_activation_dispatch((ActivationHeader*)active, activation_callback, activation_ready, 5, 0, &retired, &remaining, &incidents) != 0 ||
         retired.kind != 1 ||
-        remaining.count != 0
+        remaining.count != 0 || incidents.count != 0
     )
     {
         status = 96;
@@ -1977,6 +2320,22 @@ int main(void)
     if (publication_status == 0)
         publication_status = check_activation_publication(1, 1);
     if (publication_status != 0) return publication_status;
+
+    const unsigned depths[] = { 32, 2048 };
+
+    for (size_t i = 0; i < sizeof(depths) / sizeof(depths[0]); ++i)
+    {
+        int chain_status = check_activation_chain(depths[i], 0);
+
+        if (chain_status == 0)
+            chain_status = check_activation_chain(depths[i], 1);
+
+        if (chain_status == 0)
+            chain_status = check_activation_chain(depths[i], 2);
+
+        if (chain_status != 0)
+            return chain_status;
+    }
 
     if (bray_runtime_structured_shutdown() != 0 || atomic_load(&live_allocations) != 0)
         return 77;

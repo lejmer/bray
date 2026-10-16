@@ -362,6 +362,10 @@ pub(crate) fn for_each_operation_storage(
             visit(destination.storage());
         }
         MirOperationKind::Async(MirAsyncOperation::ResumeFrame { storage, .. }) => visit(*storage),
+        MirOperationKind::Async(
+            MirAsyncOperation::ComposeAwaitedFrame { completion, .. }
+            | MirAsyncOperation::CommitAwaitedCompletion { completion, .. },
+        ) => visit(*completion),
         MirOperationKind::Unary { .. }
         | MirOperationKind::Binary { .. }
         | MirOperationKind::Convert { .. }

@@ -102,9 +102,9 @@ pub(super) fn smoke_test(
 
     audit_synchronous_link_map(&map)?;
     smoke_test_bootstrap(package, target, directory)?;
-    smoke_test_activation_callback(&archives, target, directory, &package.native_links)?;
     super::observation_smoke::smoke_test(package, target, directory)?;
     super::entry_smoke::smoke_test(package, target, directory)?;
+    super::execution::smoke_test(package, target, directory)?;
 
     Ok(())
 }
@@ -206,34 +206,6 @@ fn smoke_test_bootstrap(
     print!("{}", String::from_utf8_lossy(&output.stdout));
 
     audit_bootstrap_link_map(&map)
-}
-
-fn smoke_test_activation_callback(
-    archives: &[&Path],
-    target: NativeTarget,
-    directory: &Path,
-    native_links: &[NativeLinkRequirement],
-) -> Result<(), CommandError> {
-    let source = format!("#define BRAY_ACTIVATION_NATIVE_CALLBACK\n{BOOTSTRAP_SMOKE_SOURCE}");
-    let map = directory.join("runtime-activation-callback-smoke.map");
-
-    let executable = compile_c_smoke(
-        &source,
-        "runtime-activation-callback-smoke",
-        archives,
-        target,
-        directory,
-        &map,
-        native_links,
-    )?;
-
-    let output = command_output(&mut Command::new(executable), "activation callback")?;
-
-    if !output.status.success() {
-        return Err(CommandError::BootstrapSmokeExecutionFailed(output.status));
-    }
-
-    Ok(())
 }
 
 pub(super) fn compile_c_smoke(
@@ -472,6 +444,11 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
     let contents = fs::read_to_string(map).map_err(|error| CommandError::read(map, error))?;
 
     let required = [
+        bray_runtime_abi::symbols::ACTIVATION_ENTRY_SYMBOL,
+        bray_runtime_abi::symbols::ACTIVATION_COMPOSITION_SYMBOL,
+        bray_runtime_abi::symbols::ACTIVATION_STEP_SYMBOL,
+        bray_runtime_abi::symbols::ACTIVATION_DISPATCH_SYMBOL,
+        bray_runtime_abi::symbols::FRAME_COMPLETION_MOVE_SYMBOL,
         bray_runtime_abi::symbols::CLEANUP_STORAGE_ADMISSION_SYMBOL,
         bray_runtime_abi::symbols::CLEANUP_STORAGE_ACTIVATION_SYMBOL,
         bray_runtime_abi::symbols::CLEANUP_STORAGE_CLAIM_SYMBOL,
@@ -501,7 +478,6 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
         bray_runtime_abi::symbols::WAKE_SYMBOL,
         bray_runtime_abi::symbols::TEST_ENTRY_SELECTION_SYMBOL,
         bray_runtime_abi::symbols::AWAITED_FRAME_COMPOSITION_SYMBOL,
-        bray_runtime_abi::symbols::FRAME_COMPLETION_MOVE_SYMBOL,
         "bray_runtime_substrate_report_primary",
         "__rust_alloc",
         "__rust_dealloc",

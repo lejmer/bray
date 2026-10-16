@@ -19,7 +19,7 @@ internal func cleanup_exit(pos kind: u32) -> usize
 // The caller has removed this progress from its callback destination. Retain only
 // cleanup incidents here. The original source outcome remains in header.progress.
 trusted internal func retain_incident(
-    pos header: &mut bray.runtime.bootstrap.activation.Header,
+    pos incidents: &mut bray.runtime.bootstrap.ReportRecords,
     pos mut progress: bray.runtime.bootstrap.activation.Progress,
 )
     requires(
@@ -36,9 +36,45 @@ trusted internal func retain_incident(
     let mut incoming = trusted bray.runtime.bootstrap.retain_report(report);
 
     trusted bray.runtime.bootstrap.report_records_append(
-        std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut header.incidents),
+        std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(incidents),
         std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut incoming)
     );
+}
+
+// A cleanup panic takes precedence over normal completion or cancellation. An
+// existing panic remains primary and owns the later report as a suppressed entry.
+trusted internal func merge_panic(
+    pos previous: &mut bray.runtime.bootstrap.activation.Progress,
+    pos mut incoming: bray.runtime.bootstrap.activation.Progress,
+) -> bray.runtime.bootstrap.activation.Progress
+    requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &previous.report),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &incoming.report),
+        incoming.kind == 3,
+    )
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+{
+    if previous.kind != 3
+    {
+        return incoming;
+    }
+
+    let state = previous.state;
+    let payload = previous.payload;
+
+    let report = trusted bray.runtime.bootstrap.suppress_report(
+        trusted take_report(previous),
+        trusted take_report(&mut incoming)
+    );
+
+    return
+    {
+        kind = 3,
+        state = state,
+        payload = payload,
+        report = report
+    };
 }
 
 // Progress commits only after the callback has returned and the header has been
@@ -50,6 +86,7 @@ trusted internal func accept_progress(
 )
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &header.progress.report),
         trusted bray.runtime.bootstrap.native_report_callbacks(report = &progress.report),
     )
     uses(intrinsic)
@@ -67,7 +104,18 @@ trusted internal func accept_progress(
         }
 
         header.broadcasted = 1;
-        trusted retain_incident(header, progress);
+
+        if progress.kind == 3 && header.progress.kind != 4
+        {
+            header.progress = trusted merge_panic(&mut header.progress, progress);
+            header.abandoned = 1;
+            header.phase = bray.runtime.bootstrap.activation.CLEANUP;
+        }
+        else
+        {
+            trusted retain_incident(&mut header.incidents, progress);
+        }
+
         return;
     }
 
@@ -101,7 +149,26 @@ trusted internal func accept_progress(
         trusted core.target.abort();
     }
 
-    trusted retain_incident(header, progress);
+    let completed = header.progress.kind == 1 && header.abandoned == 0;
+
+    if progress.kind == 3 && header.progress.kind != 4
+    {
+        header.progress = trusted merge_panic(&mut header.progress, progress);
+
+        if completed
+        {
+            // The failed resolver left the completed value owned by this frame.
+            header.abandoned = 1;
+
+            header.phase = bray.runtime.bootstrap.activation.CLEANUP;
+            return;
+        }
+    }
+    else
+    {
+        trusted retain_incident(&mut header.incidents, progress);
+    }
+
     header.phase = bray.runtime.bootstrap.activation.TERMINAL;
 }
 

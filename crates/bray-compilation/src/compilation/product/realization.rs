@@ -29,9 +29,9 @@ pub(in crate::compilation::product) use contextual_self::{
     codegen_instance_contextual_self, substitute_callable_instance, substitute_contextual_self,
     substitute_contextual_self_in_application, substitute_contextual_self_in_substitution,
 };
-pub(in crate::compilation) use names::{
-    generated_frame_symbol_name, generated_identity, generated_symbol_name,
-};
+#[cfg(test)]
+pub(in crate::compilation) use names::generated_frame_symbol_name;
+pub(in crate::compilation) use names::{generated_identity, generated_symbol_name};
 pub(in crate::compilation::product) use storage::{NativeCallableEffects, ProductStaticHostEntry};
 pub(super) use support::closed_array_length;
 #[cfg(test)]

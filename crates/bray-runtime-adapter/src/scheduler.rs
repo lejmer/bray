@@ -1,14 +1,14 @@
 use bray_runtime::native::implementation;
 use bray_runtime_abi::{
     NativeExecutionLaneResult, NativeFrameProgress, NativeInactiveFrame,
-    NativeProtectedFrameTransfer, NativeRootStart, NativeRunOutcome, NativeRunResultLayout,
+    NativeInactiveFrameTransfer, NativeRootStart, NativeRunOutcome, NativeRunResultLayout,
     NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle,
     NativeValueCleanupCallback, NativeWakeCallback,
 };
 
 native_adapter! {
     pub extern "C" fn bray_runtime_root_execution(
-        frame: NativeProtectedFrameTransfer,
+        frame: NativeInactiveFrameTransfer,
         configuration: NativeRuntimeConfiguration,
     ) -> NativeRootStart {
         implementation::bray_runtime_root_execution(frame, configuration)
@@ -51,6 +51,7 @@ native_adapter! {
         layout: *const NativeRunResultLayout,
         cancellation: Option<NativeValueCleanupCallback>,
         lifecycle: Option<NativeValueCleanupCallback>,
+        requirements: u32,
     ) -> NativeInactiveFrame {
         implementation::bray_runtime_task_observation_creation(
             task,
@@ -58,6 +59,7 @@ native_adapter! {
             layout,
             cancellation,
             lifecycle,
+            requirements,
         )
     }
 }
@@ -84,14 +86,9 @@ native_adapter! {
     pub extern "C-unwind" fn bray_runtime_awaited_frame_composition(
         frame: NativeInactiveFrame,
         resume_state: u32,
+        destination: usize,
     ) {
-        implementation::bray_runtime_awaited_frame_composition(frame, resume_state)
-    }
-}
-
-native_adapter! {
-    pub extern "C-unwind" fn bray_runtime_frame_completion_move(outcome: &mut NativeRunOutcome) -> usize {
-        implementation::bray_runtime_frame_completion_move(outcome)
+        implementation::bray_runtime_awaited_frame_composition(frame, resume_state, destination)
     }
 }
 
@@ -159,5 +156,14 @@ native_adapter! {
         implementation::bray_runtime_activation_callback(
             execution, descriptor, context, operation, argument, destination, records,
         )
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_activation_callback_admission(
+        count: usize,
+        destination: &mut bray_runtime_abi::NativeReportRecords,
+    ) -> u32 {
+        implementation::bray_runtime_activation_callback_admission(count, destination)
     }
 }

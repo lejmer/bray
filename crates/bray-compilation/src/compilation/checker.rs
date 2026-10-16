@@ -407,6 +407,15 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .map_err(checker_binder_error)
     }
 
+    fn anonymous_result_dependencies(
+        &self,
+        key: &bray_bound_tree::BoundUnitKey,
+    ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId> {
+        super::binder::anonymous_result_dependencies(&self.binding_context, key)
+            .map(|result| *result.value())
+            .map_err(checker_binder_error)
+    }
+
     fn static_result_dependencies(
         &self,
         declaration: bray_symbols::StaticSymbolId,

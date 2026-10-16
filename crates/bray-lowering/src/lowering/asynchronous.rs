@@ -150,6 +150,12 @@ impl Lowerer<'_> {
         let broadcast = self.frame_broadcast(&source, occurrence, false)?;
         let state = self.next_frame_state()?;
 
+        let destination = self.builder.push_storage(
+            Self::retained_source(&source),
+            bray_ir::MirStorageKind::Temporary,
+            completion,
+        )?;
+
         self.push_operation(
             current,
             Self::retained_source(&source),
@@ -158,6 +164,7 @@ impl Lowerer<'_> {
                 child,
                 resume_state: state,
                 frame: frame_value,
+                completion: destination,
             }),
             None,
         )?;
@@ -194,7 +201,10 @@ impl Lowerer<'_> {
             .push_operation(
                 resume,
                 Self::retained_source(&source),
-                MirOperationKind::Async(MirAsyncOperation::CommitAwaitedCompletion { child }),
+                MirOperationKind::Async(MirAsyncOperation::CommitAwaitedCompletion {
+                    child,
+                    completion: destination,
+                }),
                 Some(completion),
             )?
             .result()

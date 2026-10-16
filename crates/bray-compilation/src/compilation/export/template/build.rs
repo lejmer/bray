@@ -178,8 +178,14 @@ pub(in crate::compilation::export) fn export_source_template(
     export: &mut SemanticExporter,
     request: SourceTemplateRequest,
 ) -> Result<InterfaceCheckedTemplate, PackageInterfaceExportError> {
-    let root = source_expression_root(request.unit, request.expression)
-        .ok_or_else(|| incomplete("missing_source_expression_root"))?;
+    let root = source_expression_root(request.unit, request.expression).unwrap_or_else(|| {
+        panic!(
+            "checked source template {:?} must contain expression {:?} in {:?}",
+            request.kind,
+            request.expression,
+            request.unit.key(),
+        )
+    });
 
     let mut builder = SourceTemplateBuilder::new(export, &request)?;
 
@@ -196,35 +202,32 @@ pub(in crate::compilation::export) fn export_source_template(
 }
 
 fn source_expression_root(unit: &BoundUnit, syntax: SyntaxAnchor) -> Option<BoundExpressionId> {
-    if let bray_bound_tree::BoundUnitRoot::Expression(root) = unit.root() {
-        return Some(root);
-    }
+    let block = match unit.root() {
+        bray_bound_tree::BoundUnitRoot::Expression(root) => return Some(root),
+        bray_bound_tree::BoundUnitRoot::ExpressionSequence(block) => block,
+        root => panic!("checked declaration template requires an expression root, found {root:?}"),
+    };
 
-    let mut exact_root = None;
-    let mut postfix_root = None;
+    // Binding already selected each complete clause expression. Parentheses and
+    // postfix syntax may give its root a narrower anchor than the source clause.
+    unit.view()
+        .block(block)
+        .expect("bound expression sequence retains its root block")
+        .items()
+        .iter()
+        .filter_map(|item| item.expression())
+        .find(|id| {
+            let source = unit
+                .view()
+                .expression(*id)
+                .expect("bound expression sequence retains each expression")
+                .origin()
+                .source_anchor()
+                .syntax();
 
-    for (id, expression) in unit.tree().expressions() {
-        let source = expression.origin().source_anchor().syntax();
-
-        if source.source_id() != syntax.source_id() {
-            continue;
-        }
-
-        if source.full_range() == syntax.full_range() {
-            exact_root = Some(id);
-
-            continue;
-        }
-
-        if syntax.full_range().contains_range(source.full_range())
-            && source.full_range().end() == syntax.full_range().end()
-            && postfix_root.is_none_or(|(_, start)| source.full_range().start() > start)
-        {
-            postfix_root = Some((id, source.full_range().start()));
-        }
-    }
-
-    postfix_root.map(|(id, _)| id).or(exact_root)
+            source.source_id() == syntax.source_id()
+                && syntax.full_range().contains_range(source.full_range())
+        })
 }
 
 pub(in crate::compilation::export) struct SourceTemplateBuilder<'export, 'values, 'unit> {

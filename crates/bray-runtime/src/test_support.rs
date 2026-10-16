@@ -378,7 +378,6 @@ fn descriptor_from_states(
 
 fn operations() -> ProtectedFrameOperations {
     ProtectedFrameOperations::new(
-        symbol("__bray_test_move"),
         symbol("__bray_test_state"),
         symbol("__bray_test_resume"),
         symbol("__bray_test_cancel"),
@@ -392,4 +391,48 @@ fn operations() -> ProtectedFrameOperations {
 fn symbol(name: &'static str) -> BinarySymbolName {
     BinarySymbolName::try_new(name)
         .unwrap_or_else(|| panic!("test operation symbol must be nonempty"))
+}
+
+pub(crate) fn assert_native_abort(test: &str, environment: &str) {
+    let mut child =
+        std::process::Command::new(std::env::current_exe().expect("test executable exists"))
+            .args(["--exact", test, "--nocapture"])
+            .env(environment, "1")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("invalid callback subprocess starts");
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+
+    let status = loop {
+        if let Some(status) = child
+            .try_wait()
+            .expect("invalid callback subprocess can be observed")
+        {
+            break status;
+        }
+
+        if std::time::Instant::now() >= deadline {
+            child
+                .kill()
+                .expect("timed-out callback subprocess terminates");
+
+            child
+                .wait()
+                .expect("terminated callback subprocess is reaped");
+
+            panic!("invalid callback failed to terminate promptly");
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+
+    assert!(!status.success(), "invalid native context must fail fast");
+
+    assert_ne!(
+        status.code(),
+        Some(101),
+        "ordinary test failure must not substitute for an invariant abort"
+    );
 }

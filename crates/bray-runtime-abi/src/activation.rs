@@ -61,6 +61,21 @@ pub struct NativeActivationExecution {
     pub origin: u64,
 }
 
+impl Default for NativeActivationExecution {
+    fn default() -> Self {
+        Self {
+            address: 0,
+            identity: [0; 32],
+            state: 0,
+            requirements: NativeFrameState::new(
+                crate::NativeFrameAffinity::MOVABLE,
+                crate::NativeLaneRequirements::NONE,
+            ),
+            origin: 0,
+        }
+    }
+}
+
 #[cfg(all(test, target_pointer_width = "64"))]
 mod tests {
     use super::{NativeActivationDescriptor, NativeActivationExecution};

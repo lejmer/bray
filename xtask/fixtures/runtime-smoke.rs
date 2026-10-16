@@ -1,5 +1,7 @@
 include!("panic_report.rs");
 
+use std::collections::BTreeMap;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 #[repr(transparent)]
@@ -98,31 +100,71 @@ struct FrameExit(u32);
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct ProtectedFrame {
-    context: usize,
+struct StorageShape {
     identity: [u8; 32],
-    state_count: u32,
-    size: usize,
+    bytes: usize,
     alignment: usize,
-    completion_size: usize,
-    completion_alignment: usize,
-    state: extern "C" fn(usize, u32) -> FrameState,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct StorageLease {
+    domain: usize,
+    shape: usize,
+    slot: usize,
+    epoch: u64,
+    address: usize,
+}
+
+#[repr(C)]
+#[derive(Default)]
+struct Records {
+    head: usize,
+    tail: usize,
+    count: usize,
+}
+
+#[repr(C)]
+struct ActivationDescriptor {
+    storage: StorageShape,
+    header: usize,
+    completion: usize,
+    completion_bytes: usize,
+    completion_align: usize,
+    states: u32,
+    state: extern "C" fn(usize, u32, u32, usize) -> FrameState,
     resume: extern "C-unwind" fn(&mut FrameProgress, usize),
     cancel: extern "C-unwind" fn(&mut FrameProgress, usize),
-    broadcast_tasks: extern "C-unwind" fn(usize),
-    resolve_lifecycle: extern "C-unwind" fn(&mut FrameProgress, usize, FrameExit),
+    broadcast: extern "C-unwind" fn(&mut FrameProgress, usize),
+    resolve: extern "C-unwind" fn(&mut FrameProgress, usize, FrameExit),
     move_completion: extern "C-unwind" fn(usize, usize),
     destroy: extern "C-unwind" fn(usize),
 }
 
 #[repr(C)]
 struct InactiveFrame {
-    context: usize,
-    move_before_start: extern "C" fn(usize) -> ProtectedFrame,
+    lease: StorageLease,
+    descriptor: *const ActivationDescriptor,
 }
 
 #[repr(transparent)]
-struct ProtectedFrameTransfer(usize);
+struct InactiveFrameTransfer(usize);
+
+#[repr(C)]
+struct RunResultLayout {
+    size: usize,
+    alignment: usize,
+    tag_size: usize,
+    completed_tag: u64,
+    completed_offset: usize,
+    completed_size: usize,
+    completed_alignment: usize,
+    panicked_tag: u64,
+    panicked_offset: usize,
+    cancelled_tag: u64,
+}
+
+static FRAMES: Mutex<BTreeMap<usize, StorageLease>> = Mutex::new(BTreeMap::new());
 
 #[repr(C)]
 struct CleanupBundle {
@@ -132,10 +174,33 @@ struct CleanupBundle {
 }
 
 unsafe extern "C" {
+    safe fn bray_runtime_activation_header_layout(bytes: &mut usize, alignment: &mut usize);
+    safe fn bray_runtime_cleanup_storage_admission(
+        shape: &StorageShape,
+        lease: &mut StorageLease,
+    ) -> u32;
+    safe fn bray_runtime_cleanup_storage_activation(
+        lease: &StorageLease,
+        shape: &StorageShape,
+    ) -> usize;
+    safe fn bray_runtime_cleanup_storage_release(lease: &mut StorageLease) -> u32;
+    safe fn bray_runtime_activation_callback_admission(count: usize, records: &mut Records) -> u32;
+    safe fn bray_runtime_activation_initialization(
+        token: &InactiveFrame,
+        context: usize,
+        records: &mut Records,
+    );
+    safe fn bray_runtime_activation_publication(token: &InactiveFrame) -> u32;
+    safe fn bray_runtime_task_resolution(
+        task: TaskHandle,
+        destination: *mut u8,
+        layout: &RunResultLayout,
+    ) -> Status;
+    safe fn bray_runtime_task_destruction(task: TaskHandle) -> Status;
     safe fn bray_runtime_report_consumer(report: &mut PanicReport, reporting: u32) -> u32;
     safe fn bray_runtime_initialization(worker_capacity: usize, timer_capacity: usize) -> Status;
     safe fn bray_runtime_root_execution(
-        frame: ProtectedFrameTransfer,
+        frame: InactiveFrameTransfer,
         configuration: Configuration,
     ) -> RootStart;
     safe fn bray_runtime_root_cancellation_request(root: RootHandle) -> Status;
@@ -179,7 +244,7 @@ unsafe extern "C" {
     safe fn bray_runtime_structured_shutdown() -> Status;
 }
 
-extern "C" fn frame_state(_: usize, _: u32) -> FrameState {
+extern "C" fn frame_state(_: usize, _: u32, _: u32, _: usize) -> FrameState {
     FrameState {
         affinity: FrameAffinity(2),
         lane_requirements: LaneRequirements(1 << 2),
@@ -300,9 +365,20 @@ fn panic_report() -> PanicReport {
     )
 }
 
-extern "C-unwind" fn ignore_action(_: usize) {}
+extern "C-unwind" fn ignore_action(context: usize) {
+    let mut lease = FRAMES
+        .lock()
+        .unwrap()
+        .remove(&context)
+        .expect("frame releases exactly once");
 
-extern "C-unwind" fn fail_action(_: usize) {
+    assert_eq!(bray_runtime_cleanup_storage_release(&mut lease), 0);
+}
+
+extern "C-unwind" fn ignore_broadcast(_: &mut FrameProgress, _: usize) {}
+
+extern "C-unwind" fn fail_action(context: usize) {
+    ignore_action(context);
     panic!("cleanup callback failure");
 }
 
@@ -312,16 +388,18 @@ extern "C-unwind" fn record_failure_resolution(_: &mut FrameProgress, _: usize, 
     FAILURE_CLEANUP.fetch_add(1, Ordering::Relaxed);
 }
 
-extern "C-unwind" fn ignore_completion_move(_: usize, _: usize) {}
+static COMPLETION_MOVES: AtomicUsize = AtomicUsize::new(0);
 
-extern "C" fn move_before_start(context: usize) -> ProtectedFrame {
-    unsafe {
-        // The inactive-frame transfer gives this callback sole ownership of the descriptor.
-        *Box::from_raw(context as *mut ProtectedFrame)
-    }
+extern "C-unwind" fn move_completion(_: usize, _: usize) {
+    COMPLETION_MOVES.fetch_add(1, Ordering::Relaxed);
 }
 
-extern "C-unwind" fn record_failure_action(_: usize) {
+extern "C-unwind" fn record_failure_action(context: usize) {
+    FAILURE_CLEANUP.fetch_add(1, Ordering::Relaxed);
+    ignore_action(context);
+}
+
+extern "C-unwind" fn record_failure_broadcast(_: &mut FrameProgress, _: usize) {
     FAILURE_CLEANUP.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -329,30 +407,67 @@ fn protected_frame(
     identity: u8,
     resume: extern "C-unwind" fn(&mut FrameProgress, usize),
     cancel: extern "C-unwind" fn(&mut FrameProgress, usize),
-    action: extern "C-unwind" fn(usize),
-) -> ProtectedFrame {
-    ProtectedFrame {
-        context: 0,
-        identity: [identity; 32],
-        state_count: 2,
-        size: 8,
-        alignment: 8,
-        completion_size: 8,
-        completion_alignment: 8,
+    destroy: extern "C-unwind" fn(usize),
+) -> ActivationDescriptor {
+    let mut bytes = 0;
+    let mut alignment = 0;
+
+    bray_runtime_activation_header_layout(&mut bytes, &mut alignment);
+
+    ActivationDescriptor {
+        storage: StorageShape {
+            identity: [identity; 32],
+            bytes,
+            alignment,
+        },
+        header: 0,
+        completion: bytes,
+        completion_bytes: 0,
+        completion_align: 1,
+        states: 2,
         state: frame_state,
         resume,
         cancel,
-        broadcast_tasks: action,
-        resolve_lifecycle: ignore_resolution,
-        move_completion: ignore_completion_move,
-        destroy: action,
+        broadcast: ignore_broadcast,
+        resolve: ignore_resolution,
+        move_completion,
+        destroy,
     }
 }
 
-fn start_root(frame: ProtectedFrame) -> RootHandle {
+fn admit(descriptor: &ActivationDescriptor) -> InactiveFrame {
+    let mut records = Records::default();
+
+    assert_eq!(
+        bray_runtime_activation_callback_admission(4, &mut records),
+        0
+    );
+
+    let mut lease = StorageLease::default();
+
+    assert_eq!(
+        bray_runtime_cleanup_storage_admission(&descriptor.storage, &mut lease),
+        0
+    );
+
+    let address = bray_runtime_cleanup_storage_activation(&lease, &descriptor.storage);
+
+    assert_ne!(address, 0);
+
+    let token = InactiveFrame { lease, descriptor };
+
+    assert!(FRAMES.lock().unwrap().insert(address, lease).is_none());
+    bray_runtime_activation_initialization(&token, address, &mut records);
+    assert_eq!(bray_runtime_activation_publication(&token), 0);
+
+    token
+}
+
+fn start_root(descriptor: &ActivationDescriptor) -> RootHandle {
     assert!(bray_runtime_initialization(8, 8) == Status::SUCCESS);
 
-    let transfer = ProtectedFrameTransfer(&frame as *const ProtectedFrame as usize);
+    let frame = admit(descriptor);
+    let transfer = InactiveFrameTransfer(std::ptr::from_ref(&frame).addr());
 
     let start = bray_runtime_root_execution(
         transfer,
@@ -370,12 +485,8 @@ fn start_root(frame: ProtectedFrame) -> RootHandle {
 fn main() {
     admitted_reports_survive_failed_reservation();
 
-    let root = start_root(protected_frame(
-        7,
-        suspend_and_wake,
-        cancel_frame,
-        ignore_action,
-    ));
+    let descriptor = protected_frame(7, suspend_and_wake, cancel_frame, ignore_action);
+    let root = start_root(&descriptor);
 
     ROOT.store(root.0, Ordering::Relaxed);
 
@@ -386,7 +497,8 @@ fn main() {
     assert!(bray_runtime_root_completion_resolution(root) == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
 
-    let root = start_root(protected_frame(8, suspend, cancel_frame, ignore_action));
+    let descriptor = protected_frame(8, suspend, cancel_frame, ignore_action);
+    let root = start_root(&descriptor);
 
     assert!(bray_runtime_main_thread_lane_drive() == Status::SUCCESS);
     assert!(bray_runtime_root_cancellation_request(root) == Status::SUCCESS);
@@ -398,7 +510,8 @@ fn main() {
     assert!(bray_runtime_root_completion_resolution(root) == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
 
-    let root = start_root(protected_frame(9, panic_frame, cancel_frame, ignore_action));
+    let descriptor = protected_frame(9, panic_frame, cancel_frame, ignore_action);
+    let root = start_root(&descriptor);
 
     let mut outcome = bray_runtime_root_terminal_observation(root);
 
@@ -409,22 +522,13 @@ fn main() {
     assert!(bray_runtime_panic_report_destruction(&mut panic_report()) == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
 
-    let root = start_root(ProtectedFrame {
-        context: 0,
-        identity: [10; 32],
-        state_count: 2,
-        size: 8,
-        alignment: 8,
-        completion_size: 8,
-        completion_alignment: 8,
-        state: frame_state,
-        resume: suspend_then_fail,
-        cancel: cancel_frame,
-        broadcast_tasks: record_failure_action,
-        resolve_lifecycle: record_failure_resolution,
-        move_completion: ignore_completion_move,
-        destroy: record_failure_action,
-    });
+    let mut descriptor =
+        protected_frame(10, suspend_then_fail, cancel_frame, record_failure_action);
+
+    descriptor.broadcast = record_failure_broadcast;
+    descriptor.resolve = record_failure_resolution;
+
+    let root = start_root(&descriptor);
 
     FAILURE_ROOT.store(root.0, Ordering::Relaxed);
 
@@ -432,17 +536,19 @@ fn main() {
 
     assert!(outcome.state == RunState::RUNTIME_FAILURE);
     assert!(FAILURE_RESUMES.load(Ordering::Relaxed) == 2);
-    assert!(FAILURE_CLEANUP.load(Ordering::Relaxed) == 3);
+    assert!(FAILURE_CLEANUP.load(Ordering::Relaxed) == 2);
     assert!(bray_runtime_root_completion_resolution(root) == Status::SUCCESS);
+    assert!(FAILURE_CLEANUP.load(Ordering::Relaxed) == 3);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
 
-    let root = start_root(protected_frame(10, resume_frame, cancel_frame, fail_action));
+    let descriptor = protected_frame(10, resume_frame, cancel_frame, fail_action);
+    let root = start_root(&descriptor);
 
     let outcome = bray_runtime_root_terminal_observation(root);
 
     assert!(outcome.state == RunState::COMPLETED);
-    assert!(bray_runtime_cleanup_incident_reporting() == Status::SUCCESS);
     assert!(bray_runtime_root_completion_resolution(root) == Status::SUCCESS);
+    assert!(bray_runtime_cleanup_incident_reporting() == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
 
     let failure = 42_i32;
@@ -467,19 +573,43 @@ fn main() {
 
     let task = TaskHandle(allocation.task);
 
-    let frame = InactiveFrame {
-        context: Box::into_raw(Box::new(protected_frame(
-            11,
-            resume_frame,
-            cancel_frame,
-            ignore_action,
-        ))) as usize,
-        move_before_start,
-    };
+    let moves = COMPLETION_MOVES.load(Ordering::Relaxed);
+    let descriptor = protected_frame(11, resume_frame, cancel_frame, ignore_action);
+    let frame = admit(&descriptor);
 
     assert!(bray_runtime_task_start(task, frame) == Status::SUCCESS);
     assert!(bray_runtime_main_thread_lane_drive() == Status::SUCCESS);
+
+    let mut outcome = RunOutcome {
+        state: RunState::RUNTIME_FAILURE,
+        payload: 0,
+        report: PanicReport::empty(),
+    };
+
+    let layout = RunResultLayout {
+        size: size_of::<RunOutcome>(),
+        alignment: align_of::<RunOutcome>(),
+        tag_size: size_of::<RunState>(),
+        completed_tag: 0,
+        completed_offset: std::mem::offset_of!(RunOutcome, payload),
+        completed_size: 0,
+        completed_alignment: 1,
+        panicked_tag: 2,
+        panicked_offset: std::mem::offset_of!(RunOutcome, report),
+        cancelled_tag: 1,
+    };
+
+    assert!(
+        bray_runtime_task_resolution(task, std::ptr::from_mut(&mut outcome).cast(), &layout)
+            == Status::SUCCESS
+    );
+
+    assert!(outcome.state == RunState::COMPLETED);
+    assert_eq!(COMPLETION_MOVES.load(Ordering::Relaxed), moves + 1);
+    assert!(bray_runtime_task_destruction(task) == Status::SUCCESS);
+    assert_eq!(COMPLETION_MOVES.load(Ordering::Relaxed), moves + 1);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
+    assert!(FRAMES.lock().unwrap().is_empty());
 }
 
 static REPORT_RELEASES: AtomicUsize = AtomicUsize::new(0);

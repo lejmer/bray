@@ -1,32 +1,35 @@
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use bray_runtime_abi::{
-    NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
-    NativeFrameState, NativeInactiveFrame, NativeLaneRequirements, NativeProtectedFrame,
-    NativeRunOutcome, NativeRunResultLayout, NativeRunState, NativeRuntimeStatus, NativeTaskHandle,
-    NativeValueCleanupCallback,
+    NativeActivationDescriptor, NativeCleanupStorageShape, NativeFrameAffinity, NativeFrameExit,
+    NativeFrameProgress, NativeFrameProgressKind, NativeFrameState, NativeInactiveFrame,
+    NativeLaneRequirements, NativeReportRecords, NativeRunOutcome, NativeRunResultLayout,
+    NativeRunState, NativeRuntimeStatus, NativeTaskHandle, NativeValueCleanupCallback,
 };
 
-use super::state::{current_native_task, runtime_failure, with_runtime};
+use super::state::{runtime_failure, with_runtime};
 use crate::RuntimePanic;
 
 const TASK_OBSERVATION_FRAME_IDENTITY: [u8; 32] = *b"bray.task.observation.frame.v1\0\0";
 
-// Each callback may publish a report and then unwind. Task retirement adds one outcome.
-const OUTGOING_RECORDS: usize = 5;
+// Each of the two cleanup callbacks may publish a report and then unwind.
+const OUTGOING_RECORDS: usize = 4;
 
 struct TaskObservation {
-    result: crate::backing::Backing,
+    backing: crate::backing::Backing,
+    descriptor: NativeActivationDescriptor,
+    result: usize,
     outgoing: Mutex<crate::outgoing::OutgoingRecords>,
     task: NativeTaskHandle,
     layout: NativeRunResultLayout,
     cancellation: Option<NativeValueCleanupCallback>,
     lifecycle: Option<NativeValueCleanupCallback>,
     request_cancellation: bool,
-    owner: AtomicU64,
+    requirements: NativeLaneRequirements,
     retired: AtomicBool,
+    resolving: AtomicBool,
     completion: Mutex<Completion>,
 }
 
@@ -37,40 +40,91 @@ enum Completion {
 }
 
 impl TaskObservation {
-    fn resume(&self, context: usize) -> NativeFrameProgress {
-        if self.request_cancellation
-            && !with_runtime(|runtime| runtime.request_cancellation(self.task))
-                .is_ok_and(NativeRuntimeStatus::is_success)
-        {
-            return failure_progress();
+    fn resume(&self) -> NativeFrameProgress {
+        let progress = self.poll();
+
+        if self.resolving.load(Ordering::Acquire) {
+            if progress.kind() == NativeFrameProgressKind::COMPLETED {
+                self.resolve_owned_task();
+            } else if progress.kind() == NativeFrameProgressKind::SUSPENDED {
+                return NativeFrameProgress::new(progress.kind(), 1, progress.payload());
+            }
         }
 
-        let Some(owner) = current_native_task() else {
-            return failure_progress();
-        };
+        progress
+    }
 
-        self.owner.store(owner.raw(), Ordering::Release);
+    fn poll(&self) -> NativeFrameProgress {
+        let pending = matches!(
+            *self
+                .completion
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            Completion::Pending
+        );
 
-        let outcome = with_runtime(|runtime| runtime.join(self.task, wake_observer, context))
+        if pending {
+            if self.request_cancellation {
+                let status = with_runtime(|runtime| runtime.request_cancellation(self.task))
+                    .unwrap_or_else(|status| status);
+
+                if !status.is_success() {
+                    return failure_progress();
+                }
+            }
+
+            let context = crate::current_task_execution_context()
+                .expect("observation runs within its admitted task context");
+
+            let wake = context.wake_handle().clone();
+
+            let outcome = with_runtime(|runtime| {
+                runtime.join(
+                    self.task,
+                    Arc::new(move || {
+                        let _ = wake.wake();
+                    }),
+                )
+            })
             .unwrap_or_else(runtime_failure);
 
-        if outcome.state() == NativeRunState::PENDING {
-            return NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 0, 0);
-        }
+            if outcome.state() == NativeRunState::PENDING {
+                return NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 0, 0);
+            }
 
-        if matches!(
-            outcome.state(),
-            NativeRunState::COMPLETED | NativeRunState::PANICKED | NativeRunState::CANCELLED
-        ) {
+            let outcome = match outcome.state() {
+                NativeRunState::COMPLETED => {
+                    transfer_outcome(outcome, self.result, self.layout)
+                        .expect("the admitted observation slot matches its task result");
+
+                    NativeRunOutcome::new(
+                        NativeRunState::COMPLETED,
+                        self.result
+                            .checked_add(self.layout.completed_offset())
+                            .expect("the completed payload lies within admitted storage"),
+                    )
+                }
+                NativeRunState::PANICKED | NativeRunState::CANCELLED => outcome,
+                _ => return failure_progress(),
+            };
+
             *self
                 .completion
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner) = Completion::Ready(outcome);
-
-            return NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
         }
 
-        failure_progress()
+        if !self.retired.load(Ordering::Acquire) {
+            match destroy_task(self.task) {
+                Ok(()) => self.retired.store(true, Ordering::Release),
+                Err(NativeRuntimeStatus::PENDING) => {
+                    return NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 0, 0);
+                }
+                Err(status) => panic!("owned terminal task retirement failed: {status:?}"),
+            }
+        }
+
+        NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0)
     }
 
     fn take_completion(&self) -> Option<NativeRunOutcome> {
@@ -88,6 +142,11 @@ impl TaskObservation {
     }
 
     fn move_completion(&self, destination: usize) {
+        assert!(
+            self.retired.load(Ordering::Acquire),
+            "completion publication follows task retirement"
+        );
+
         let outcome = self
             .take_completion()
             .expect("task observation completion can only move once");
@@ -97,27 +156,21 @@ impl TaskObservation {
     }
 
     fn resolve_owned_task(&self) {
-        if self.retired.load(Ordering::Acquire) {
-            return;
-        }
+        assert!(
+            self.retired.load(Ordering::Acquire),
+            "cleanup follows owned task retirement"
+        );
 
-        if matches!(
-            *self
-                .completion
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-            Completion::Pending
-        ) {
-            let _ = with_runtime(|runtime| runtime.request_cancellation(self.task));
-
-            let outcome = with_runtime(|runtime| runtime.resolve_task(self.task))
-                .unwrap_or_else(runtime_failure);
-
-            *self
-                .completion
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = Completion::Ready(outcome);
-        }
+        assert!(
+            !matches!(
+                *self
+                    .completion
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+                Completion::Pending
+            ),
+            "the activation driver awaits task resolution before disposing its outcome"
+        );
 
         let completion = self.take_completion();
 
@@ -131,13 +184,16 @@ impl TaskObservation {
         );
 
         if let Some(outcome) = completion {
-            match transfer_outcome(outcome, self.result.address(), self.layout) {
+            match transfer_outcome(outcome, self.result, self.layout) {
                 Ok(()) => {
                     for cleanup in [self.cancellation, self.lifecycle].into_iter().flatten() {
                         let mut outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
 
                         if let Err(found) = catch_unwind(AssertUnwindSafe(|| {
-                            cleanup(self.result.pointer(), &mut outcome);
+                            cleanup(
+                                std::ptr::with_exposed_provenance_mut(self.result),
+                                &mut outcome,
+                            );
                         })) {
                             let panic = RuntimePanic::from_payload(found, &mut outgoing);
 
@@ -169,12 +225,6 @@ impl TaskObservation {
             }
         }
 
-        if let Err(found) = destroy_task(self.task) {
-            RuntimePanic::record(&mut incident, Box::new(found), &mut outgoing);
-        }
-
-        self.retired.store(true, Ordering::Release);
-
         if let Some(incident) = incident {
             resume_unwind(Box::new(incident));
         }
@@ -187,68 +237,127 @@ pub(super) fn create(
     layout: NativeRunResultLayout,
     cancellation: Option<NativeValueCleanupCallback>,
     lifecycle: Option<NativeValueCleanupCallback>,
+    requirements: u32,
 ) -> Option<NativeInactiveFrame> {
     if !layout.is_valid() {
         return None;
     }
 
+    let mut header_bytes = 0;
+    let mut header_alignment = 0;
+
+    crate::report_provider::bray_runtime_activation_header_layout(
+        &mut header_bytes,
+        &mut header_alignment,
+    );
+
+    let header = std::alloc::Layout::from_size_align(header_bytes, header_alignment)
+        .expect("Bray reports its valid concrete header layout");
+
+    let payload = std::alloc::Layout::from_size_align(layout.size(), layout.alignment()).ok()?;
+
+    let (storage, completion) = header.extend(payload).ok()?;
+
+    let storage = storage.pad_to_align();
+
+    let shape = NativeCleanupStorageShape::new(
+        TASK_OBSERVATION_FRAME_IDENTITY,
+        storage.size(),
+        storage.align(),
+    );
+
+    let backing = crate::backing::Backing::admit_shape(shape).ok()?;
+
+    let result = backing
+        .address()
+        .checked_add(completion)
+        .expect("admitted layout contains the completion slot");
+
+    let mut outgoing = crate::outgoing::OutgoingRecords::admit(OUTGOING_RECORDS + 4).ok()?;
+
+    let (head, tail, count) = outgoing.take(4).into_parts();
+
+    let mut callback_records = NativeReportRecords { head, tail, count };
+
     let context = Box::new(TaskObservation {
-        result: crate::backing::Backing::admit(layout.size(), layout.alignment()).ok()?,
-        outgoing: Mutex::new(crate::outgoing::OutgoingRecords::admit(OUTGOING_RECORDS).ok()?),
+        backing,
+        descriptor: NativeActivationDescriptor {
+            storage: shape,
+            header: 0,
+            completion,
+            completion_bytes: layout.size(),
+            completion_align: layout.alignment(),
+            states: 2,
+            state,
+            resume,
+            cancel,
+            broadcast: broadcast_tasks,
+            resolve: resolve_lifecycle,
+            move_completion,
+            destroy,
+        },
+        result,
+        outgoing: Mutex::new(outgoing),
         task,
         layout,
         cancellation,
         lifecycle,
         request_cancellation,
-        owner: AtomicU64::new(0),
+        requirements: NativeLaneRequirements::from_bits(requirements),
         retired: AtomicBool::new(false),
+        resolving: AtomicBool::new(false),
         completion: Mutex::new(Completion::Pending),
     });
 
-    Some(NativeInactiveFrame::new(
-        Box::into_raw(context).addr(),
-        move_before_start,
-    ))
+    let token = NativeInactiveFrame::new(context.backing.lease(), &context.descriptor);
+
+    crate::report_provider::bray_runtime_activation_initialization(
+        &token,
+        (&*context as *const TaskObservation).addr(),
+        &mut callback_records,
+    );
+
+    assert_eq!(
+        crate::report_provider::bray_runtime_activation_publication(&token),
+        0,
+        "the initialized provider publishes its exact admitted lease"
+    );
+
+    let _ = Box::into_raw(context);
+
+    Some(token)
 }
 
-#[expect(
-    unsafe_code,
-    reason = "the observation factory transfers this exact context allocation"
-)]
-extern "C" fn move_before_start(context: usize) -> NativeProtectedFrame {
-    let observation = unsafe { &*(context as *const TaskObservation) };
+extern "C" fn state(
+    context: usize,
+    state: u32,
+    operation: u32,
+    argument: usize,
+) -> NativeFrameState {
+    let requirements = if (operation == 3 && argument != 0) || (operation < 2 && state == 1) {
+        observation(context).requirements
+    } else {
+        NativeLaneRequirements::NONE
+    };
 
-    NativeProtectedFrame::new(
-        context,
-        TASK_OBSERVATION_FRAME_IDENTITY,
-        1,
-        size_of::<TaskObservation>(),
-        align_of::<TaskObservation>(),
-        observation.layout.size(),
-        observation.layout.alignment(),
-        state,
-        resume,
-        cancel,
-        broadcast_tasks,
-        resolve_lifecycle,
-        move_completion,
-        destroy,
-    )
-}
+    let affinity = if requirements.bits() & NativeLaneRequirements::MAIN_THREAD.bits() != 0 {
+        NativeFrameAffinity::MAIN_THREAD
+    } else {
+        NativeFrameAffinity::MOVABLE
+    };
 
-extern "C" fn state(_: usize, _: u32, _: u32, _: usize) -> NativeFrameState {
-    NativeFrameState::new(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE)
+    NativeFrameState::new(affinity, requirements)
 }
 
 extern "C-unwind" fn resume(destination: &mut NativeFrameProgress, context: usize) {
-    *destination = observation(context).resume(context);
+    *destination = observation(context).resume();
 }
 
 extern "C-unwind" fn cancel(destination: &mut NativeFrameProgress, context: usize) {
     let observation = observation(context);
     let _ = with_runtime(|runtime| runtime.request_cancellation(observation.task));
 
-    *destination = observation.resume(context);
+    *destination = observation.resume();
 }
 
 extern "C-unwind" fn broadcast_tasks(_: &mut NativeFrameProgress, context: usize) {
@@ -257,11 +366,23 @@ extern "C-unwind" fn broadcast_tasks(_: &mut NativeFrameProgress, context: usize
 }
 
 extern "C-unwind" fn resolve_lifecycle(
-    _: &mut NativeFrameProgress,
+    destination: &mut NativeFrameProgress,
     context: usize,
-    _: NativeFrameExit,
+    exit: NativeFrameExit,
 ) {
-    observation(context).resolve_owned_task();
+    if exit == NativeFrameExit::COMPLETED {
+        return;
+    }
+
+    let observation = observation(context);
+
+    observation.resolving.store(true, Ordering::Release);
+
+    if !observation.retired.load(Ordering::Acquire) {
+        let _ = with_runtime(|runtime| runtime.request_cancellation(observation.task));
+    }
+
+    *destination = observation.resume();
 }
 
 extern "C-unwind" fn move_completion(context: usize, destination: usize) {
@@ -275,17 +396,10 @@ extern "C-unwind" fn move_completion(context: usize, destination: usize) {
 extern "C-unwind" fn destroy(context: usize) {
     let observation = unsafe { Box::from_raw(context as *mut TaskObservation) };
 
-    observation.resolve_owned_task();
-}
-
-extern "C" fn wake_observer(context: usize) {
-    let observation = observation(context);
-
-    let Some(owner) = NativeTaskHandle::new(observation.owner.load(Ordering::Acquire)) else {
-        return;
-    };
-
-    let _ = with_runtime(|runtime| runtime.wake(owner));
+    assert!(
+        observation.retired.load(Ordering::Acquire),
+        "activation resolves the task before releasing its provider"
+    );
 }
 
 #[expect(
@@ -297,7 +411,15 @@ fn observation(context: usize) -> &'static TaskObservation {
 }
 
 fn destroy_task(task: NativeTaskHandle) -> Result<(), NativeRuntimeStatus> {
-    let status = with_runtime(|runtime| runtime.destroy_task(task))?;
+    let status = with_runtime(|runtime| {
+        let status = runtime.retire_task(task);
+
+        if status.is_success() {
+            runtime.destroy_task(task)
+        } else {
+            status
+        }
+    })?;
 
     if status.is_success() {
         Ok(())
@@ -319,9 +441,14 @@ pub(super) fn transfer_outcome(
         return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
     }
 
+    let retained_payload = outcome.state() == NativeRunState::COMPLETED
+        && destination.checked_add(layout.completed_offset()) == Some(outcome.payload());
+
     let destination = destination as *mut u8;
 
-    unsafe { destination.write_bytes(0, layout.size()) };
+    if !retained_payload {
+        unsafe { destination.write_bytes(0, layout.size()) };
+    }
 
     let report;
 
@@ -357,6 +484,7 @@ pub(super) fn transfer_outcome(
     unsafe {
         if let Some((offset, source, size)) = payload
             && size != 0
+            && !retained_payload
         {
             if source == 0 {
                 return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
@@ -386,7 +514,7 @@ mod tests {
     use std::cell::RefCell;
     use std::panic::{AssertUnwindSafe, catch_unwind, panic_any};
     use std::sync::Mutex;
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     use bray_runtime_abi::{
         NativePanicReport, NativeRunOutcome, NativeRunResultLayout, NativeRunState,
@@ -432,7 +560,7 @@ mod tests {
 
         let failure = failure.downcast::<crate::RuntimePanic>().unwrap();
 
-        assert_eq!(failure.suppressed_count(), 2);
+        assert_eq!(failure.suppressed_count(), 1);
         assert!(observation.retired.load(Ordering::Acquire));
 
         CLEANUP_EVENTS.with_borrow(|events| assert_eq!(*events, [("cleanup", 1), ("cleanup", 2)]));
@@ -488,7 +616,7 @@ mod tests {
 
         let failure = failure.downcast::<crate::RuntimePanic>().unwrap();
 
-        assert_eq!(failure.suppressed_count(), 3);
+        assert_eq!(failure.suppressed_count(), 2);
         assert!(observation.retired.load(Ordering::Acquire));
         CLEANUP_EVENTS.with_borrow(|events| assert_eq!(*events, [("cleanup", 8), ("cleanup", 2)]));
         drop(failure);
@@ -518,7 +646,7 @@ mod tests {
 
         let failure = failure.downcast::<crate::RuntimePanic>().unwrap();
 
-        assert_eq!(failure.suppressed_count(), 1);
+        assert_eq!(failure.suppressed_count(), 0);
         assert!(observation.retired.load(Ordering::Acquire));
         drop(failure);
 
@@ -532,31 +660,64 @@ mod tests {
         cancellation: Option<super::NativeValueCleanupCallback>,
         lifecycle: Option<super::NativeValueCleanupCallback>,
     ) -> TaskObservation {
+        let layout = result_layout();
+        let backing = crate::backing::Backing::admit(layout.size(), layout.alignment()).unwrap();
+        let result = backing.address();
+
+        transfer_outcome(
+            NativeRunOutcome::new(
+                NativeRunState::COMPLETED,
+                std::ptr::from_ref(completed).addr(),
+            ),
+            result,
+            layout,
+        )
+        .unwrap();
+
+        // These cleanup tests begin after native task retirement. Native integration
+        // tests separately exercise admission, dispatch and retirement ownership.
         TaskObservation {
-            result: crate::backing::Backing::admit(
-                result_layout().size(),
-                result_layout().alignment(),
-            )
-            .unwrap(),
+            backing,
+            descriptor: bray_runtime_abi::NativeActivationDescriptor {
+                storage: bray_runtime_abi::NativeCleanupStorageShape::new(
+                    [0; 32],
+                    layout.size(),
+                    layout.alignment(),
+                ),
+                header: 0,
+                completion: 0,
+                completion_bytes: layout.size(),
+                completion_align: layout.alignment(),
+                states: 2,
+                state: super::state,
+                resume: super::resume,
+                cancel: super::cancel,
+                broadcast: super::broadcast_tasks,
+                resolve: super::resolve_lifecycle,
+                move_completion: super::move_completion,
+                destroy: super::destroy,
+            },
+            result,
             outgoing: Mutex::new(
                 crate::outgoing::OutgoingRecords::admit(super::OUTGOING_RECORDS).unwrap(),
             ),
             task: bray_runtime_abi::NativeTaskHandle::new(1).unwrap(),
-            layout: result_layout(),
+            layout,
             cancellation,
             lifecycle,
             request_cancellation: false,
-            owner: AtomicU64::new(0),
-            retired: AtomicBool::new(false),
+            requirements: bray_runtime_abi::NativeLaneRequirements::BLOCKING,
+            retired: AtomicBool::new(true),
+            resolving: AtomicBool::new(false),
             completion: Mutex::new(Completion::Ready(NativeRunOutcome::new(
                 NativeRunState::COMPLETED,
-                (completed as *const u64).addr(),
+                result + layout.completed_offset(),
             ))),
         }
     }
 
     #[test]
-    fn result_movement_finishes_before_fallible_task_retirement() {
+    fn completion_requires_retirement_and_moves_without_fallible_cleanup() {
         let completed = 42_u64;
 
         let observation = observation(
@@ -566,24 +727,50 @@ mod tests {
         );
 
         let mut storage = ResultStorage([0xff; RESULT_SIZE]);
+
+        observation.retired.store(false, Ordering::Release);
+
+        assert!(
+            catch_unwind(AssertUnwindSafe(
+                || observation.move_completion(storage.0.as_mut_ptr().addr())
+            ))
+            .is_err()
+        );
+
+        assert_eq!(storage.0, [0xff; RESULT_SIZE]);
+        observation.retired.store(true, Ordering::Release);
+
         let _denied = crate::outgoing::tests::reject_admission();
 
         observation.move_completion(storage.0.as_mut_ptr().addr());
-
-        assert!(!observation.retired.load(Ordering::Acquire));
+        observation.resolve_owned_task();
+        CLEANUP_EVENTS.with_borrow(|events| assert!(events.is_empty()));
         assert_eq!(storage.0[0], COMPLETED_TAG);
         assert_eq!(&storage.0[8..16], &completed.to_ne_bytes());
 
-        let failure =
-            catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task())).unwrap_err();
+        assert!(
+            catch_unwind(AssertUnwindSafe(
+                || observation.move_completion(storage.0.as_mut_ptr().addr())
+            ))
+            .is_err()
+        );
+    }
 
-        let failure = failure.downcast::<crate::RuntimePanic>().unwrap();
+    #[test]
+    fn staged_completion_retains_its_payload_when_the_root_uses_the_same_slot() {
+        let completed = 42_u64;
+        let mut storage = ResultStorage([0xff; RESULT_SIZE]);
 
-        assert_eq!(failure.suppressed_count(), 0);
-        assert!(observation.retired.load(Ordering::Acquire));
-        drop(failure);
-        observation.resolve_owned_task();
-        CLEANUP_EVENTS.with_borrow(|events| assert!(events.is_empty()));
+        storage.0[8..16].copy_from_slice(&completed.to_ne_bytes());
+
+        let destination = storage.0.as_mut_ptr().addr();
+
+        transfer_outcome(
+            NativeRunOutcome::new(NativeRunState::COMPLETED, destination + 8),
+            destination,
+            result_layout(),
+        )
+        .unwrap();
 
         assert_eq!(storage.0[0], COMPLETED_TAG);
         assert_eq!(&storage.0[8..16], &completed.to_ne_bytes());

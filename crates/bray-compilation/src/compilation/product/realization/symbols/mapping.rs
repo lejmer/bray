@@ -316,26 +316,36 @@ fn append_frame_data_symbols(
             CodegenLinkage::Import
         };
 
+        // Native imports keep the producer's constructor name. Its companion data
+        // must use that same identity rather than the consumer's imported MIR key.
+        let constructor = symbols.iter().find(|mapping| {
+            matches!(mapping.key(), CodegenSymbolKey::Instance(key) if key == &instance)
+        }).expect("frame companion data requires its mapped constructor");
+
+        let backing = crate::compilation::product::realization::names::generated_symbol_name(
+            target,
+            linkage,
+            "cleanup_storage",
+            constructor.name(),
+        )?;
+
+        let factory = crate::compilation::product::realization::names::generated_symbol_name(
+            target,
+            linkage,
+            "frame_factory",
+            constructor.name(),
+        )?;
+
         symbols.push(CodegenSymbolMapping::new(
             CodegenSymbolKey::CleanupStorage(instance.clone()),
-            crate::compilation::product::realization::names::generated_symbol_name(
-                target,
-                linkage,
-                "cleanup_storage",
-                &instance,
-            )?,
+            backing,
             linkage,
             void_signature(CallableAbi::C),
         ));
 
         symbols.push(CodegenSymbolMapping::new(
-            CodegenSymbolKey::FrameFactory(instance.clone()),
-            crate::compilation::product::realization::names::generated_symbol_name(
-                target,
-                linkage,
-                "frame_factory",
-                &instance,
-            )?,
+            CodegenSymbolKey::FrameFactory(instance),
+            factory,
             linkage,
             void_signature(CallableAbi::C),
         ));

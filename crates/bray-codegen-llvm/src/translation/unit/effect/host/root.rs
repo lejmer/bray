@@ -30,7 +30,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Ok(None);
         }
 
-        if let RootExecution::Asynchronous { frame } = execution {
+        if let RootExecution::Asynchronous { .. } = execution {
             if self.begin_performance_interval(self.function)?.is_some() {
                 panic!("calibrated performance intervals require a synchronous executable entry");
             }
@@ -73,7 +73,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             self.builder.position_at_end(construct);
 
-            let start = self.start_admitted_root(entry, root, frame, runtime, backing)?;
+            let start = self.start_admitted_root(root, runtime, backing)?;
 
             let status =
                 crate::translation::unit::support::extract_value(&self.builder, start.into(), 0)?;
@@ -141,9 +141,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
     fn start_admitted_root(
         &mut self,
-        entry: bray_runtime_interface::ExecutableHostEntryId,
         root: &BoundUnitKey,
-        frame: bray_runtime_interface::ProtectedAsyncFrameId,
         runtime: bray_ir::MirRuntimeReference,
         backing: inkwell::values::PointerValue<'context>,
     ) -> Result<inkwell::values::StructValue<'context>, CodegenFailure> {
@@ -166,51 +164,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let context =
             pointer_value(context).expect("inactive root frames must contain a pointer context");
 
-        let context = llvm(self.builder.build_ptr_to_int(
-            context,
-            crate::native::pointer_integer_type(self.types.context(), self.request.target()),
-            "root.frame.context",
-        ))?;
+        let descriptor =
+            crate::translation::unit::support::extract_value(&self.builder, inactive, 1)?
+                .into_pointer_value();
+
+        let frame = self.inactive_token(context, descriptor)?;
 
         let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
-            panic!("checked MIR effect translation violated an established compiler contract");
+            panic!("root execution belongs to an executable host");
         };
-
-        let adapter_name = host
-            .entry(entry)
-            .and_then(bray_runtime_interface::ExecutableHostEntry::root_frame_adapter)
-            .expect("checked MIR effect translation requires an established mapping or value");
-
-        let adapter = self
-            .module
-            .get_function(adapter_name.as_str())
-            .unwrap_or_else(|| {
-                self.module.add_function(
-                    adapter_name.as_str(),
-                    crate::native::frame_operation_type(
-                        self.types.context(),
-                        self.request.target(),
-                        ProtectedFrameOperation::MoveBeforeStart,
-                    ),
-                    None,
-                )
-            });
-
-        let adapter_key = bray_codegen::CodegenSymbolKey::ProtectedFrame {
-            frame: frame,
-            operation: ProtectedFrameOperation::MoveBeforeStart,
-        };
-
-        let frame = crate::native::invoke_function(
-            self.types.context(),
-            &self.builder,
-            self.request.target(),
-            &adapter_key,
-            adapter,
-            &[context.into()],
-            "root.frame.adapter",
-        )?
-        .expect("checked MIR effect translation requires an established mapping or value");
 
         let frame_storage =
             self.allocate_temporary(frame.get_type(), "root.frame.transfer.storage")?;

@@ -716,6 +716,32 @@ mod tests {
     };
 
     #[test]
+    fn delayed_wake_cannot_reach_a_retired_task_or_its_replacement() {
+        let _isolation = crate::native::test_runtime_isolation();
+        let runtime = RuntimeThreadScope::enter().unwrap();
+        let scheduler = scheduler(runtime.runtime().id());
+
+        let task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+
+        let registration = register_task(&scheduler, &task, runtime.runtime().id());
+        let wake = registration.wake_handle();
+        let retired = task.id();
+
+        drop(registration);
+        drop(task);
+
+        let replacement =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(2));
+
+        let _registration = register_task(&scheduler, &replacement, runtime.runtime().id());
+
+        assert_ne!(retired, replacement.id());
+        assert!(matches!(wake.wake(), Err(SchedulerError::UnknownTask(task)) if task == retired));
+        assert!(scheduler.take_ready(cooperative_lane()).unwrap().is_none());
+    }
+
+    #[test]
     fn observed_schedulers_publish_structured_queue_observations_on_demand() {
         let _isolation = crate::native::test_runtime_isolation();
 

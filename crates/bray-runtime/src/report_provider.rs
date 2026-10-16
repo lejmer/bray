@@ -12,6 +12,88 @@ use bray_runtime_abi::{
     reason = "the linked Bray provider supplies the record ownership ABI"
 )]
 unsafe extern "C" {
+    #[cfg(test)]
+    pub(crate) safe fn bray_runtime_frame_completion_move(
+        parent: *mut u8,
+        outcome: &mut NativeRunOutcome,
+    );
+
+    pub(crate) safe fn bray_runtime_activation_dispatch(
+        root: *mut u8,
+        callback: extern "C" fn(
+            &bray_runtime_abi::NativeActivationExecution,
+            &bray_runtime_abi::NativeActivationDescriptor,
+            usize,
+            u32,
+            usize,
+            &mut bray_runtime_abi::NativeFrameProgress,
+            &mut NativeReportRecords,
+        ),
+        ready: extern "C" fn(&bray_runtime_abi::NativeActivationExecution) -> u32,
+        operation: u32,
+        argument: usize,
+        progress: &mut bray_runtime_abi::NativeFrameProgress,
+        records: &mut NativeReportRecords,
+        incidents: &mut NativeReportRecords,
+    ) -> u32;
+    pub(crate) safe fn bray_runtime_activation_step(
+        root: *mut u8,
+        callback: extern "C" fn(
+            &bray_runtime_abi::NativeActivationExecution,
+            &bray_runtime_abi::NativeActivationDescriptor,
+            usize,
+            u32,
+            usize,
+            &mut bray_runtime_abi::NativeFrameProgress,
+            &mut NativeReportRecords,
+        ),
+        ready: extern "C" fn(&bray_runtime_abi::NativeActivationExecution) -> u32,
+        cancellation: u8,
+        abandoning: u8,
+        progress: &mut bray_runtime_abi::NativeFrameProgress,
+        records: &mut NativeReportRecords,
+        incidents: &mut NativeReportRecords,
+    ) -> u32;
+    pub(crate) safe fn bray_runtime_activation_composition(
+        parent: *mut u8,
+        token: &bray_runtime_abi::NativeInactiveFrame,
+        state: u32,
+        origin: u64,
+        destination: usize,
+        abandoning: u8,
+        ready: extern "C" fn(&bray_runtime_abi::NativeActivationExecution) -> u32,
+    ) -> usize;
+    pub(crate) safe fn bray_runtime_activation_run_snapshot(
+        root: *mut u8,
+        cancellation: u8,
+        output: &mut bray_runtime_abi::NativeActivationExecution,
+    );
+
+    pub(crate) safe fn bray_runtime_activation_inspection(
+        token: &bray_runtime_abi::NativeInactiveFrame,
+        state: u32,
+        operation: u32,
+        argument: usize,
+        output: &mut bray_runtime_abi::NativeActivationExecution,
+    ) -> u32;
+    pub(crate) safe fn bray_runtime_activation_entry(
+        token: &bray_runtime_abi::NativeInactiveFrame,
+        origin: u64,
+    ) -> usize;
+
+    pub(crate) safe fn bray_runtime_activation_header_layout(
+        bytes: &mut usize,
+        alignment: &mut usize,
+    );
+    pub(crate) safe fn bray_runtime_activation_initialization(
+        token: &bray_runtime_abi::NativeInactiveFrame,
+        context: usize,
+        outgoing: &mut NativeReportRecords,
+    );
+    pub(crate) safe fn bray_runtime_activation_publication(
+        token: &bray_runtime_abi::NativeInactiveFrame,
+    ) -> u32;
+
     pub(crate) safe fn bray_runtime_cleanup_storage_admission(
         descriptor: &bray_runtime_abi::NativeCleanupStorageShape,
         destination: &mut bray_runtime_abi::NativeCleanupStorageLease,

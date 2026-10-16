@@ -802,7 +802,7 @@ fn imported_mixed_predicate_conditions_preserve_trusted_occurrences() {
         public func observe_array(pos value: &[u8; 1]) requires(trusted live_byte(&value[0])) {}
         public func observe_component(pos value: &(bool, bool)) requires(trusted live_bool(&value.0)) {}
         public func observe(pos value: u64, pos flag: bool)
-            requires((trusted live(value)) || flag) {}
+            requires(((trusted live(value)) || flag)) {}
         public func observe_guarded(pos value: u64)
             requires(ready(value) || trusted live(value)) {}
         public trusted func make(pos value: u64) -> u64

@@ -419,9 +419,9 @@ where
         }
 
         if matches!(call.target(), BoundCallableTarget::Anonymous(_))
-            && let Some(unit) = request.anonymous_callable_unit(expression)
+            && let Some((unit, _)) = call.resolution().anonymous_body()
         {
-            contribution = contribution.with_anonymous_unit(unit);
+            contribution = contribution.with_anonymous_unit(unit.clone());
         }
 
         calls.insert(contribution);

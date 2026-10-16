@@ -130,11 +130,7 @@ fn run_asynchronous_finalizer(
     admission: crate::TaskAdmission,
     finalizer: NativeStaticFinalizer,
 ) -> [Option<CleanupIncident>; 4] {
-    extern "C" fn invalid_frame(_: usize) -> bray_runtime_abi::NativeProtectedFrame {
-        panic!("inactive static finalizer frame was not initialized")
-    }
-
-    let mut frame = NativeInactiveFrame::new(0, invalid_frame);
+    let mut frame = NativeInactiveFrame::empty();
     let destination = (&raw mut frame).addr();
 
     let mut published =

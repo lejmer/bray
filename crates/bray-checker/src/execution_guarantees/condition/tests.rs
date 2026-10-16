@@ -219,3 +219,28 @@ fn repeated_component_observation_keeps_the_original_snapshot() {
         ExecutionCondition::Boolean(true)
     );
 }
+
+#[test]
+fn anonymous_aggregate_contents_do_not_establish_an_observation_identity() {
+    let anonymous = ExecutionCondition::Constructed(
+        Arc::new(ExecutionCondition::Unknown),
+        [(
+            bray_bound_tree::StorageProjection::OwnedTarget,
+            ExecutionCondition::Boolean(true),
+        )]
+        .into(),
+    );
+
+    let changed = ExecutionCondition::Constructed(
+        Arc::new(anonymous.clone()),
+        [(
+            bray_bound_tree::StorageProjection::OwnedTarget,
+            ExecutionCondition::Boolean(false),
+        )]
+        .into(),
+    );
+
+    assert_eq!(anonymous.owner_identity(), changed.owner_identity());
+    assert!(anonymous.owner_identity().observation_path().is_none());
+    assert!(changed.owner_identity().observation_path().is_none());
+}

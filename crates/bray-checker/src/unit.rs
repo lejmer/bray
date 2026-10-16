@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_bound_tree::{
-    BoundBlockId, BoundCallableBodyId, BoundExpression, BoundExpressionId, BoundUnit, BoundUnitKey,
-    BoundUnitRoot, BoundUnitView,
+    BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundUnit, BoundUnitKey, BoundUnitRoot,
+    BoundUnitView,
 };
 use bray_symbols::{
     AvailableCompilerKnownSymbols, CallableSymbolId, SemanticValueStore, SymbolGraph,
@@ -30,9 +30,8 @@ where
     source_snapshot: Option<&'view bray_source::SourceSnapshot>,
     unwind: Option<&'view bray_bound_tree::CheckedUnwind>,
     trusted_contracts: Option<&'view crate::TrustedContractInputs>,
-    result_dependencies: Option<
-        &'view BTreeMap<bray_symbols::AnySymbolId, bray_symbols::DependencyContractTemplateId>,
-    >,
+    result_dependencies:
+        Option<&'view BTreeMap<ResultDependencyOwner, bray_symbols::DependencyContractTemplateId>>,
 }
 
 impl<C> Clone for CheckerUnitView<'_, C>
@@ -45,6 +44,16 @@ where
 }
 
 impl<C> Copy for CheckerUnitView<'_, C> where C: CheckerRequestContext + ?Sized {}
+
+/// Identity of a body whose checked result participates in dependency inference.
+/// Anonymous symbols are unit-local, so their complete bound key is required.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ResultDependencyOwner {
+    /// A declared callable, static initializer or default provider.
+    Declaration(bray_symbols::AnySymbolId),
+    /// A non-capturing anonymous callable body.
+    Anonymous(BoundUnitKey),
+}
 
 /// The exact root category exposed by a checker unit view.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -130,7 +139,7 @@ where
     pub fn with_result_dependencies(
         mut self,
         dependencies: &'view BTreeMap<
-            bray_symbols::AnySymbolId,
+            ResultDependencyOwner,
             bray_symbols::DependencyContractTemplateId,
         >,
         recursive: &'view std::collections::BTreeSet<CallableSymbolId>,
@@ -168,8 +177,25 @@ where
         callable: CallableSymbolId,
     ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, C::UpstreamError> {
         self.result_dependencies
-            .and_then(|dependencies| dependencies.get(&callable.into_any()).copied())
+            .and_then(|dependencies| {
+                dependencies
+                    .get(&ResultDependencyOwner::Declaration(callable.into_any()))
+                    .copied()
+            })
             .map_or_else(|| self.context.callable_result_dependencies(callable), Ok)
+    }
+
+    pub(crate) fn anonymous_result_dependencies(
+        self,
+        key: &BoundUnitKey,
+    ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, C::UpstreamError> {
+        self.result_dependencies
+            .and_then(|dependencies| {
+                dependencies
+                    .get(&ResultDependencyOwner::Anonymous(key.clone()))
+                    .copied()
+            })
+            .map_or_else(|| self.context.anonymous_result_dependencies(key), Ok)
     }
 
     pub(crate) fn static_result_dependencies(
@@ -177,7 +203,11 @@ where
         declaration: bray_symbols::StaticSymbolId,
     ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, C::UpstreamError> {
         self.result_dependencies
-            .and_then(|dependencies| dependencies.get(&declaration.into()).copied())
+            .and_then(|dependencies| {
+                dependencies
+                    .get(&ResultDependencyOwner::Declaration(declaration.into()))
+                    .copied()
+            })
             .map_or_else(|| self.context.static_result_dependencies(declaration), Ok)
     }
 
@@ -186,7 +216,11 @@ where
         provider: bray_bound_tree::DefaultValueProvider,
     ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, C::UpstreamError> {
         self.result_dependencies
-            .and_then(|dependencies| dependencies.get(&provider.symbol()).copied())
+            .and_then(|dependencies| {
+                dependencies
+                    .get(&ResultDependencyOwner::Declaration(provider.symbol()))
+                    .copied()
+            })
             .map_or_else(|| self.context.default_result_dependencies(provider), Ok)
     }
 
@@ -219,20 +253,6 @@ where
 
     pub(crate) const fn trusted_contracts(self) -> Option<&'view crate::TrustedContractInputs> {
         self.trusted_contracts
-    }
-
-    pub(crate) fn anonymous_callable_unit(self, call: BoundExpressionId) -> Option<BoundUnitKey> {
-        let BoundExpression::Call(call) = self.view().expression(call)? else {
-            return None;
-        };
-
-        let BoundExpression::AnonymousCallable(callable) = self.view().expression(call.callee())?
-        else {
-            return None;
-        };
-
-        // Unit keys own Arc-backed stable identities independently.
-        Some(callable.unit().clone())
     }
 
     /// Returns the read-only bound unit view to analyze.

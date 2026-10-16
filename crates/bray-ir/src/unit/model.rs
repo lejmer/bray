@@ -41,7 +41,6 @@ impl MirGeneratedLifecycleRole {
             | MirHelperReference::PanicReport
             | MirHelperReference::StandardLibrary(_)
             | MirHelperReference::CreateFrame(_)
-            | MirHelperReference::MoveInactiveFrame(_)
             | MirHelperReference::ComposeAwaitedFrame(_)
             | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => None,

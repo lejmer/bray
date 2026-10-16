@@ -11,7 +11,7 @@ trusted internal predicate inactive_owner(token: &bray.runtime.bootstrap.activat
 // slot throughout the metadata callback. Neither may be activated by reentry.
 trusted internal predicate retained(
     token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
-    output: RawPointer<State>,
+    output: RawPointer<Execution>,
 );
 
 trusted internal func read(
@@ -165,7 +165,7 @@ trusted internal func inspect(
     pos state: u32,
     pos operation: u32,
     pos argument: usize,
-    pos output: RawPointer<State>,
+    pos output: RawPointer<Execution>,
 ) -> u32
     requires(
         trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer),
@@ -182,8 +182,8 @@ trusted internal func inspect(
         pos state: u32,
         pos operation: u32,
         pos argument: usize,
-        pos output: RawPointer<State>,
-    ) -> State?
+        pos output: RawPointer<Execution>,
+    ) -> Execution?
         requires(
             trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer),
             trusted retained(token = pointer, output = output),
@@ -193,13 +193,13 @@ trusted internal func inspect(
             trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
         )
         ensures(
-            trusted core.memory.valid_write<State>(pointer = output, count = 1),
-            trusted core.memory.aligned_for<State>(pointer = output),
+            trusted core.memory.valid_write<Execution>(pointer = output, count = 1),
+            trusted core.memory.aligned_for<Execution>(pointer = output),
         )
     {
         let read_owned = trusted lambda(
             pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
-            pos output: RawPointer<State>
+            pos output: RawPointer<Execution>
         ) -> bray.runtime.bootstrap.activation.Inactive
             requires(
                 trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer),
@@ -221,7 +221,27 @@ trusted internal func inspect(
 
         let token = trusted read_owned(pointer, output);
 
-        return trusted read(&token, state, operation, argument);
+        let requirements = match consume trusted read(&token, state, operation, argument)
+        {
+            case ?requirements { yield requirements; }
+            case none { return none; }
+        };
+
+        let descriptor = trusted bray.runtime.bootstrap.activation.description(&token);
+
+        let execution: Execution =
+        {
+            address = token.lease.address + descriptor.header,
+            identity = descriptor.storage.identity,
+            state = state,
+            requirements = requirements,
+            origin = 0,
+        };
+
+        let mut result: Execution? = none;
+
+        result = execution;
+        return result;
     };
 
     let requirements = match consume trusted query(pointer, state, operation, argument, output)
@@ -230,6 +250,6 @@ trusted internal func inspect(
         case none { return 3; }
     };
 
-    trusted std.memory.write<State>(output, requirements);
+    trusted std.memory.write<Execution>(output, requirements);
     return bray.runtime.bootstrap.STATUS_SUCCESS;
 }

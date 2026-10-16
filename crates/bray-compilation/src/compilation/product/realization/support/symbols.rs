@@ -1,6 +1,6 @@
 use bray_codegen::{CodegenInstance, CodegenLinkage, CodegenSymbolKey};
-use bray_ir::{MirFrameReference, MirHelperReference, MirRuntimeReference};
-use bray_runtime_interface::{BinarySymbolName, ProtectedFrameOperation, RuntimeAbiRole};
+use bray_ir::{MirHelperReference, MirRuntimeReference};
+use bray_runtime_interface::{BinarySymbolName, RuntimeAbiRole};
 use bray_symbols::{ForeignCallableDirection, NativeSymbolBinding, SymbolKey, SymbolKeyData};
 
 use crate::compilation::CodegenPreparationError;
@@ -60,45 +60,9 @@ pub(in crate::compilation::product::realization) fn direct_helper_symbol(
     owner: &CodegenInstance,
     reference: &MirHelperReference,
 ) -> Option<CodegenSymbolKey> {
-    if let Some(role) = reference.runtime_role() {
-        return Some(helper_runtime_symbol(owner, role));
-    }
-
-    let symbol = match reference {
-        MirHelperReference::MoveInactiveFrame(frame) => match frame {
-            MirFrameReference::Known(frame) => CodegenSymbolKey::ProtectedFrame {
-                frame: *frame,
-                operation: ProtectedFrameOperation::MoveBeforeStart,
-            },
-            MirFrameReference::Erased => return None,
-        },
-        MirHelperReference::CommitAwaitedCompletion(frame) => match frame {
-            MirFrameReference::Known(frame) => CodegenSymbolKey::ProtectedFrame {
-                frame: *frame,
-                operation: ProtectedFrameOperation::CompletionMove,
-            },
-            MirFrameReference::Erased => return None,
-        },
-        MirHelperReference::AnonymousCallable(_)
-        | MirHelperReference::DeclaredCallable(_)
-        | MirHelperReference::DefaultValue(_)
-        | MirHelperReference::TypeForm(_)
-        | MirHelperReference::Conversion(_)
-        | MirHelperReference::BeginGenerator
-        | MirHelperReference::PushGenerator
-        | MirHelperReference::FinishGenerator
-        | MirHelperReference::PanicReport
-        | MirHelperReference::StandardLibrary(_)
-        | MirHelperReference::Finalize(_)
-        | MirHelperReference::StaticFinalize(_)
-        | MirHelperReference::Destroy(_)
-        | MirHelperReference::Cleanup { .. }
-        | MirHelperReference::CreateFrame(_)
-        | MirHelperReference::ComposeAwaitedFrame(_)
-        | MirHelperReference::DestroyTerminalTask => return None,
-    };
-
-    Some(symbol)
+    reference
+        .runtime_role()
+        .map(|role| helper_runtime_symbol(owner, role))
 }
 
 pub(in crate::compilation::product::realization) fn dependency_symbol(

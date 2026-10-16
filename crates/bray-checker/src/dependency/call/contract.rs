@@ -28,7 +28,12 @@ pub(crate) fn selected_call_contracts<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    let (contracts, input_count) = callable_dependency_contracts(request, call.target())
+    let contract_target = call
+        .resolution()
+        .anonymous_body()
+        .map_or(call.target(), |(_, ty)| BoundCallableTarget::Indirect(ty));
+
+    let (contracts, input_count) = callable_dependency_contracts(request, contract_target)
         .map_err(DependencyContractInstantiationError::Resolution)?;
 
     let contracts =
@@ -418,7 +423,8 @@ where
 
             Ok((callable.dependency_contracts(), callable.parameters().len()))
         }
-        BoundCallableTarget::Predicate(_) | BoundCallableTarget::Anonymous(_) => Ok((request
+        BoundCallableTarget::Anonymous(_) => panic!("anonymous callable dependency contracts require their selected type"),
+        BoundCallableTarget::Predicate(_) => Ok((request
             .semantic_values()
             .empty_dependency_contract_template()
             .map(CallableDependencyContracts::synchronous).unwrap_or_else(|error| panic!("callable_dependency_contracts must satisfy its checked construction contract: {error:?}")), 0)),

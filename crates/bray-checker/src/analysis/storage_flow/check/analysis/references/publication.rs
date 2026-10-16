@@ -121,20 +121,23 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         identity: bray_bound_tree::StorageIdentityId,
     ) -> Option<DependencySubjectRoot> {
-        match self.storage.identity(identity)? {
-            bray_bound_tree::StorageIdentity::Parameter(parameter) => Some(
-                DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(
-                    self.request
-                        .symbols()
-                        .callable_parameter(parameter)
-                        .expect("planned parameter has a declaration")
-                        .ordinal(),
-                )),
-            ),
-            bray_bound_tree::StorageIdentity::Receiver(_) => Some(DependencySubjectRoot::Receiver),
-            bray_bound_tree::StorageIdentity::Result(_) => Some(DependencySubjectRoot::Result),
-            _ => None,
-        }
+        let reference = match self.storage.identity(identity)? {
+            bray_bound_tree::StorageIdentity::Parameter(parameter) => {
+                bray_bound_tree::BoundReferenceTarget::Surface(parameter.into())
+            }
+            bray_bound_tree::StorageIdentity::AnonymousParameter(parameter) => {
+                bray_bound_tree::BoundReferenceTarget::Local(parameter.into())
+            }
+            bray_bound_tree::StorageIdentity::Receiver(receiver) => {
+                bray_bound_tree::BoundReferenceTarget::Surface(receiver.into())
+            }
+            bray_bound_tree::StorageIdentity::Result(_) => {
+                return Some(DependencySubjectRoot::Result);
+            }
+            _ => return None,
+        };
+
+        crate::dependency::parameter_root(self.request, reference)
     }
 
     fn result_reference(

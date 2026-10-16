@@ -92,9 +92,25 @@ trusted internal func panic_report_suppression(
         trusted core.memory.valid_read<PanicReportData>(pointer = incident, count = 1),
         trusted core.memory.initialized_as<PanicReportData>(pointer = incident)
     )
+    ensures(trusted native_report_callbacks(report = &result))
 {
-    let mut report: PanicReportData = trusted take_primary_report(primary, incident);
+    let report: PanicReportData = trusted take_primary_report(primary, incident);
     let suppressed: PanicReportData = trusted take_report(incident);
+
+    return trusted suppress_report(report, suppressed);
+}
+
+trusted internal func suppress_report(
+    pos mut report: PanicReportData,
+    pos suppressed: PanicReportData
+) -> PanicReportData
+    requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted native_report_callbacks(report = &report),
+        trusted native_report_callbacks(report = &suppressed),
+    )
+    ensures(trusted native_report_callbacks(report = &result))
+{
     let mut incident_records = trusted retain_report(suppressed);
 
     let mut chain: ReportRecords =

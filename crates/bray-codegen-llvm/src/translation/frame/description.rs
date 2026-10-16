@@ -173,14 +173,7 @@ pub(super) fn translate_state_callback<'context>(
         {
             let selected = context.append_basic_block(function, "frame.operation.known");
 
-            let lane_requirements = lanes.iter().fold(0_u64, |requirements, lane| {
-                requirements
-                    | match lane {
-                        bray_runtime_interface::ExecutionLaneRequirement::Blocking => 1,
-                        bray_runtime_interface::ExecutionLaneRequirement::Compute => 2,
-                        bray_runtime_interface::ExecutionLaneRequirement::MainThread => 4,
-                    }
-            });
+            let lane_requirements = u64::from(crate::native::activation::lane_bits(lanes));
 
             let affinity =
                 if lanes.contains(&bray_runtime_interface::ExecutionLaneRequirement::MainThread) {

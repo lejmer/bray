@@ -54,6 +54,7 @@ macro_rules! define_runtime_source_fields {
     (@bootstrap ($name:literal) ([$($parameter:ident),*] -> $result:ident)) => {
         Some((&[$(define_runtime_source_fields!(@parameter $parameter),)*], define_runtime_source_fields!(@result $result)))
     };
+    (@field U8) => { AbiField::Scalar(RepresentationRole::ScalarU8) };
     (@field U32) => { U32 };
     (@field U64) => { U64 };
     (@field Usize) => { USIZE };

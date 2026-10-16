@@ -54,7 +54,26 @@ pub(crate) fn header_type<'context>(
             super::frame_progress_type(context).into(),
             records.into(),
             records.into(),
+            word.into(),
+            super::frame_progress_type(context).into(),
+            context.i32_type().into(),
         ],
         false,
     )
+}
+
+pub(crate) fn lane_bits(requirements: &[bray_runtime_interface::ExecutionLaneRequirement]) -> u32 {
+    requirements.iter().fold(0, |bits, lane| {
+        bits | match lane {
+            bray_runtime_interface::ExecutionLaneRequirement::Blocking => {
+                bray_runtime_abi::NativeLaneRequirements::BLOCKING.bits()
+            }
+            bray_runtime_interface::ExecutionLaneRequirement::Compute => {
+                bray_runtime_abi::NativeLaneRequirements::COMPUTE.bits()
+            }
+            bray_runtime_interface::ExecutionLaneRequirement::MainThread => {
+                bray_runtime_abi::NativeLaneRequirements::MAIN_THREAD.bits()
+            }
+        }
+    })
 }

@@ -1,0 +1,91 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation.run;
+
+using std.memory;
+
+trusted internal func transfer(
+    pos cursor: &mut Cursor,
+    pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+    pos ready: bray.runtime.bootstrap.activation.callback.Ready,
+) -> u32
+    requires(
+        trusted selected(cursor = &cursor),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+    )
+    ensures(trusted selected(cursor = &cursor))
+{
+    let header = trusted bray.runtime.bootstrap.activation.execution.read(cursor);
+    let descriptor = trusted bray.runtime.bootstrap.activation.execution.describe(cursor);
+    let mut destination = header.destination;
+
+    if header.parent == 0
+    {
+        // Root completion remains in its admitted region until its observer
+        // consumes it. The destination was reserved before capture transfer.
+        destination = header.lease.address + descriptor.completion;
+    }
+
+    // Composition bound this exact child's result layout to this parent slot.
+    // Root storage was admitted with the descriptor before capture transfer.
+    let retaining = trusted lambda(
+        pos cursor: &mut Cursor,
+        pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+        pos ready: bray.runtime.bootstrap.activation.callback.Ready,
+        pos destination: usize,
+    ) -> (bray.runtime.bootstrap.activation.Progress, u32)
+        requires(trusted selected(cursor = &cursor), trusted bray.runtime.bootstrap.entry.native_entry())
+        ensures(
+            trusted selected(cursor = &cursor),
+            trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report)
+        )
+    {
+        let permit = trusted lambda(pos cursor: &mut Cursor, pos destination: usize)
+            requires(trusted selected(cursor = &cursor))
+            ensures(
+                trusted selected(cursor = &cursor),
+                trusted bray.runtime.bootstrap.activation.execution.completion_destination(
+                    pointer = cursor.pointer,
+                    address = destination
+                ),
+            )
+            executes(pure, total) {};
+
+        trusted permit(cursor, destination);
+
+        let (progress, _, _, status, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(
+            cursor,
+            callback,
+            ready,
+            4,
+            destination
+        );
+
+        return (progress, status);
+    };
+
+    let (progress, status) = trusted retaining(cursor, callback, ready, destination);
+
+    if status != bray.runtime.bootstrap.STATUS_SUCCESS
+    {
+        return status;
+    }
+
+    let updated = trusted bray.runtime.bootstrap.activation.execution.access(cursor);
+
+    if progress.kind == 1
+    {
+        updated.progress.payload = destination;
+    }
+    else
+    {
+        // A failed mover retains its source value. Resolution must abandon that
+        // value before retirement, while preserving the mover's owned report.
+        updated.progress = progress;
+
+        updated.abandoned = 1;
+        updated.phase = bray.runtime.bootstrap.activation.CLEANUP;
+    }
+
+    return status;
+}

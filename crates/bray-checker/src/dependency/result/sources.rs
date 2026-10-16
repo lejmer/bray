@@ -3,8 +3,8 @@ use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundStructuredExpressionKind,
 };
 use bray_symbols::{
-    AnyLocalSymbolId, AnySymbolId, DependencyProjection, DependencyRequirement,
-    DependencyRequirementKind, DependencySubject, DependencySubjectRoot, SymbolOrdinal,
+    AnyLocalSymbolId, DependencyProjection, DependencyRequirement, DependencyRequirementKind,
+    DependencySubject, DependencySubjectRoot,
 };
 use std::collections::BTreeSet;
 
@@ -258,37 +258,23 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         }
 
         match expression {
-            BoundExpression::Name(name) => match name.target() {
-                BoundReferenceTarget::Surface(AnySymbolId::CallableParameter(parameter)) => self
-                    .request
-                    .symbols()
-                    .callable_parameter(parameter)
-                    .map(|parameter| {
-                        (
-                            DependencySubject::root(DependencySubjectRoot::Parameter(
-                                SymbolOrdinal::new(parameter.ordinal()),
-                            )),
-                            true,
-                        )
-                    })
-                    .into_iter()
-                    .collect(),
-                BoundReferenceTarget::Surface(AnySymbolId::ReceiverParameter(_)) => {
-                    BTreeSet::from([(
-                        DependencySubject::root(DependencySubjectRoot::Receiver),
-                        true,
-                    )])
+            BoundExpression::Name(name) => {
+                if let Some(root) = crate::dependency::parameter_root(self.request, name.target()) {
+                    BTreeSet::from([(DependencySubject::root(root), true)])
+                } else if let BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(binding)) =
+                    name.target()
+                {
+                    self.state
+                        .local_sources
+                        .get(&binding)
+                        .into_iter()
+                        .flatten()
+                        .cloned()
+                        .collect()
+                } else {
+                    BTreeSet::new()
                 }
-                BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(binding)) => self
-                    .state
-                    .local_sources
-                    .get(&binding)
-                    .into_iter()
-                    .flatten()
-                    .cloned()
-                    .collect(),
-                _ => BTreeSet::new(),
-            },
+            }
             BoundExpression::MemberAccess(member) => self.project_sources(member.receiver(), id),
             BoundExpression::Call(_) => {
                 let borrowed = self

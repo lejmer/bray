@@ -3,10 +3,10 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use bray_runtime_abi::{
     NativeExecutionLaneResult, NativeFrameProgress, NativeFrameProgressKind, NativeInactiveFrame,
-    NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostOperation,
-    NativeProtectedFrame, NativeProtectedFrameTransfer, NativeRootHandle, NativeRootStart,
-    NativeRunOutcome, NativeRunResultLayout, NativeRuntimeConfiguration,
-    NativeRuntimeEventCallback, NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle,
+    NativeInactiveFrameTransfer, NativeProductHostDescriptor, NativeProductHostObservation,
+    NativeProductHostOperation, NativeRootHandle, NativeRootStart, NativeRunOutcome,
+    NativeRunResultLayout, NativeRuntimeConfiguration, NativeRuntimeEventCallback,
+    NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle,
     NativeThreadStaticCleanupRegistration, NativeWakeCallback,
 };
 
@@ -64,7 +64,7 @@ native_export! {
 
 native_export! {
     pub extern "C" fn bray_runtime_root_execution(
-        frame: NativeProtectedFrameTransfer,
+        frame: NativeInactiveFrameTransfer,
         configuration: NativeRuntimeConfiguration,
     ) -> NativeRootStart {
         catch_unwind(AssertUnwindSafe(|| {
@@ -187,7 +187,7 @@ native_export! {
         frame: NativeInactiveFrame,
     ) -> NativeRuntimeStatus {
         contain_status(|| {
-            with_runtime(|runtime| runtime.start(task, frame.into_protected()))
+            with_runtime(|runtime| runtime.start(task, &frame))
                 .unwrap_or_else(|status| status)
         })
     }
@@ -197,8 +197,9 @@ native_export! {
     pub extern "C-unwind" fn bray_runtime_awaited_frame_composition(
         frame: NativeInactiveFrame,
         resume_state: u32,
+        destination: usize,
     ) {
-        let status = with_runtime(|runtime| runtime.compose_awaited(frame, resume_state))
+        let status = with_runtime(|runtime| runtime.compose_awaited(&frame, resume_state, destination))
             .unwrap_or_else(|status| status);
 
         assert!(status.is_success(), "awaited-frame composition failed");
@@ -216,6 +217,7 @@ native_export! {
         layout: *const NativeRunResultLayout,
         cancellation: Option<bray_runtime_abi::NativeValueCleanupCallback>,
         lifecycle: Option<bray_runtime_abi::NativeValueCleanupCallback>,
+        requirements: u32,
     ) -> NativeInactiveFrame {
         let layout = unsafe { layout.as_ref() }
             .copied()
@@ -227,6 +229,7 @@ native_export! {
             layout,
             cancellation,
             lifecycle,
+            requirements,
         )
         .unwrap_or_else(|| panic!("task observation layout is invalid"))
     }
@@ -249,8 +252,10 @@ native_export! {
             let outcome = with_runtime(|runtime| runtime.resolve_task(task))
                 .unwrap_or_else(runtime_failure);
 
-            super::task_observation::transfer_outcome(outcome, destination.addr(), layout)
-                .map_or_else(|status| status, |()| NativeRuntimeStatus::SUCCESS)
+            if let Err(status) = super::task_observation::transfer_outcome(outcome, destination.addr(), layout) {
+                return status;
+            }
+            with_runtime(|runtime| runtime.resolve_task_retirement(task)).unwrap_or_else(|status| status)
         })
     }
 }
@@ -263,14 +268,6 @@ native_export! {
             with_runtime(|runtime| runtime.destroy_task(task))
                 .unwrap_or_else(|status| status)
         })
-    }
-}
-
-native_export! {
-    pub extern "C-unwind" fn bray_runtime_frame_completion_move(outcome: &mut NativeRunOutcome) -> usize {
-        with_runtime(|runtime| runtime.resolve_awaited_completion(outcome))
-            .and_then(|result| result)
-            .unwrap_or_else(|_| panic!("awaited-frame completion resolution failed"))
     }
 }
 
@@ -369,7 +366,7 @@ native_export! {
     ) -> NativeRunOutcome {
         catch_unwind(AssertUnwindSafe(|| {
             with_runtime(|runtime| {
-                runtime.join(task, callback, context)
+                runtime.join(task, std::sync::Arc::new(move || callback(context)))
             })
             .unwrap_or_else(runtime_failure)
         }))
@@ -435,27 +432,26 @@ fn contain_status(callback: impl FnOnce() -> NativeRuntimeStatus) -> NativeRunti
     unsafe_code,
     reason = "the native ownership-transfer ABI exposes a validated descriptor address"
 )]
-fn take_transferred_frame(transfer: NativeProtectedFrameTransfer) -> Option<NativeProtectedFrame> {
+fn take_transferred_frame(transfer: NativeInactiveFrameTransfer) -> Option<NativeInactiveFrame> {
     let address = transfer.address();
 
-    if address == 0 || !address.is_multiple_of(align_of::<NativeProtectedFrame>()) {
+    if address == 0 || !address.is_multiple_of(align_of::<NativeInactiveFrame>()) {
         return None;
     }
 
     let frame = unsafe {
         // The native ABI requires the caller to keep this descriptor live for
         // the call and transfers its generated context to this copied value.
-        (address as *const NativeProtectedFrame).read()
+        (address as *const NativeInactiveFrame).read()
     };
 
     Some(frame)
 }
 
 fn execute_root(
-    frame: NativeProtectedFrame,
+    frame: NativeInactiveFrame,
     configuration: NativeRuntimeConfiguration,
 ) -> NativeRootStart {
-    let mut frame = super::frame::NativeFrameTransfer::new(frame);
     let status = initialize_for_execution(configuration);
 
     if !status.is_success() {
@@ -470,9 +466,17 @@ fn execute_root(
     };
 
     let status =
-        with_runtime(|runtime| runtime.start(task, frame.take())).unwrap_or_else(|status| status);
+        with_runtime(|runtime| runtime.start(task, &frame)).unwrap_or_else(|status| status);
 
     if !status.is_success() {
+        let released = with_runtime(|runtime| runtime.destroy_task(task))
+            .expect("root admission retains its initialized runtime");
+
+        assert!(
+            released.is_success(),
+            "rejected root activation retains its unstarted task reservation"
+        );
+
         return NativeRootStart::failure(status);
     }
 
@@ -498,9 +502,9 @@ mod tests {
 
     use bray_runtime_abi::{
         NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
-        NativeFrameState, NativeInactiveFrame, NativeLaneRequirements, NativePanicCause,
-        NativeProtectedFrame, NativeProtectedFrameTransfer, NativeRunOutcome, NativeRunState,
-        NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskHandle,
+        NativeFrameState, NativeInactiveFrame, NativeInactiveFrameTransfer, NativeLaneRequirements,
+        NativePanicCause, NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration,
+        NativeRuntimeStatus, NativeTaskHandle,
     };
 
     use super::super::entry::{
@@ -509,7 +513,6 @@ mod tests {
     };
 
     use super::{
-        bray_runtime_awaited_frame_composition, bray_runtime_frame_completion_move,
         bray_runtime_join_registration, bray_runtime_main_thread_lane_drive,
         bray_runtime_main_thread_lane_startup, bray_runtime_root_completion_resolution,
         bray_runtime_root_execution, bray_runtime_root_terminal_observation,
@@ -522,7 +525,6 @@ mod tests {
     static DESTROYED: AtomicUsize = AtomicUsize::new(0);
     static ROOT_DESTROYED: AtomicUsize = AtomicUsize::new(0);
     static ROOT_COMPLETION_DESTINATION: AtomicUsize = AtomicUsize::new(0);
-    static REJECTED_DESTROYED: AtomicUsize = AtomicUsize::new(0);
     static STARTED_DESTROYED: AtomicUsize = AtomicUsize::new(0);
     static SUSPENDED_ROOT: AtomicUsize = AtomicUsize::new(0);
     static SUSPENDED_RESUMES: AtomicUsize = AtomicUsize::new(0);
@@ -539,6 +541,8 @@ mod tests {
     static PENDING_CHILD_BROADCASTS: AtomicUsize = AtomicUsize::new(0);
     static PENDING_CHILD_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
     static PENDING_CHILD_CLEANUP_THREAD: AtomicUsize = AtomicUsize::new(0);
+    static REJECTED_COMPUTE_CHILD: std::sync::Mutex<Option<NativeInactiveFrame>> =
+        std::sync::Mutex::new(None);
     static CONFLICTING_CHILD_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
     static REJECTED_CHILD_MOVES: AtomicUsize = AtomicUsize::new(0);
     static REJECTED_CHILD_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
@@ -562,21 +566,23 @@ mod tests {
         }
 
         for (size, alignment) in [(0, 1), (65537, 256), (4096, 4096)] {
-            let frame = NativeProtectedFrame::new(
+            let frame = super::super::fixtures::admit(
                 alignment,
-                [7; 32],
-                2,
-                8,
-                8,
-                size,
-                alignment,
-                frame_state,
-                resume_frame,
-                cancel_frame,
-                ignore_broadcast,
-                ignore_resolution,
-                check_alignment,
-                ignore_action,
+                bray_runtime_abi::NativeActivationDescriptor {
+                    storage: bray_runtime_abi::NativeCleanupStorageShape::new([7; 32], 8, 8),
+                    header: 0,
+                    completion: 0,
+                    completion_bytes: size,
+                    completion_align: alignment,
+                    states: 2,
+                    state: frame_state,
+                    resume: resume_frame,
+                    cancel: cancel_frame,
+                    broadcast: ignore_broadcast,
+                    resolve: ignore_resolution,
+                    move_completion: check_alignment,
+                    destroy: ignore_action,
+                },
             );
 
             let start = execute_test_root(frame, NativeRuntimeConfiguration::new(2, 1));
@@ -632,7 +638,7 @@ mod tests {
             ROOT_COMPLETION_DESTINATION.load(Ordering::Relaxed)
         );
 
-        assert_eq!(ROOT_DESTROYED.load(Ordering::Relaxed), 1);
+        assert_eq!(ROOT_DESTROYED.load(Ordering::Relaxed), 0);
 
         assert_eq!(
             bray_runtime_root_completion_resolution(root),
@@ -841,6 +847,12 @@ mod tests {
             1
         );
 
+        assert!(
+            super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
+                .unwrap()
+                .is_success()
+        );
+
         assert_eq!(
             bray_runtime_task_destruction(task),
             NativeRuntimeStatus::SUCCESS
@@ -934,6 +946,12 @@ mod tests {
 
         assert_eq!(completed.state(), NativeRunState::COMPLETED);
 
+        assert!(
+            super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
+                .unwrap()
+                .is_success()
+        );
+
         assert_eq!(
             bray_runtime_task_destruction(task),
             NativeRuntimeStatus::SUCCESS
@@ -1001,6 +1019,12 @@ mod tests {
             .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
 
         assert_eq!(completed.state(), NativeRunState::COMPLETED);
+
+        assert!(
+            super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
+                .unwrap()
+                .is_success()
+        );
 
         let mut origin = None;
 
@@ -1082,21 +1106,23 @@ mod tests {
     fn host_cancellation_wakes_a_suspended_root_into_cancellation_entry() {
         CANCEL_ENTRIES.store(0, Ordering::Relaxed);
 
-        let frame = NativeProtectedFrame::new(
+        let frame = super::super::fixtures::admit(
             0,
-            [8; 32],
-            2,
-            8,
-            8,
-            8,
-            8,
-            frame_state,
-            suspend_without_wake,
-            record_cancel_entry,
-            ignore_broadcast,
-            ignore_resolution,
-            ignore_completion_move,
-            ignore_action,
+            bray_runtime_abi::NativeActivationDescriptor {
+                storage: bray_runtime_abi::NativeCleanupStorageShape::new([8; 32], 8, 8),
+                header: 0,
+                completion: 0,
+                completion_bytes: 8,
+                completion_align: 8,
+                states: 2,
+                state: frame_state,
+                resume: suspend_without_wake,
+                cancel: record_cancel_entry,
+                broadcast: ignore_broadcast,
+                resolve: ignore_resolution,
+                move_completion: ignore_completion_move,
+                destroy: ignore_action,
+            },
         );
 
         let start = execute_test_root(frame, NativeRuntimeConfiguration::new(2, 1));
@@ -1134,69 +1160,69 @@ mod tests {
     #[test]
     fn cleanup_callback_failures_are_owned_until_host_drain() {
         for fail_completion in [false, true] {
-            let frame = NativeProtectedFrame::new(
+            let frame = super::super::fixtures::admit(
                 0,
-                [9; 32],
-                1,
-                8,
-                8,
-                8,
-                8,
-                frame_state,
-                resume_frame,
-                cancel_frame,
-                panic_broadcast,
-                panic_resolution,
-                if fail_completion {
-                    panic_completion_move
-                } else {
-                    ignore_completion_move
+                bray_runtime_abi::NativeActivationDescriptor {
+                    storage: bray_runtime_abi::NativeCleanupStorageShape::new([9; 32], 8, 8),
+                    header: 0,
+                    completion: 0,
+                    completion_bytes: 8,
+                    completion_align: 8,
+                    states: 1,
+                    state: frame_state,
+                    resume: resume_frame,
+                    cancel: cancel_frame,
+                    broadcast: if fail_completion {
+                        ignore_broadcast
+                    } else {
+                        panic_broadcast
+                    },
+                    resolve: if fail_completion {
+                        ignore_resolution
+                    } else {
+                        panic_resolution
+                    },
+                    move_completion: if fail_completion {
+                        panic_completion_move
+                    } else {
+                        ignore_completion_move
+                    },
+                    destroy: panic_action,
                 },
-                panic_action,
             );
 
             let start = execute_test_root(frame, NativeRuntimeConfiguration::new(2, 1));
-
-            let Some(root) = start.root() else {
-                panic!("cleanup-failing root must transfer");
-            };
-
+            let root = start.root().expect("cleanup-failing root must transfer");
             let denied = crate::outgoing::tests::reject_admission();
+            let mut outcome = bray_runtime_root_terminal_observation(root);
+
+            assert_eq!(outcome.state(), NativeRunState::PANICKED);
+
+            let mut report = crate::RuntimePanic::from_native(outcome.take_report());
+
+            assert_eq!(report.suppressed_count(), usize::from(!fail_completion));
 
             assert_eq!(
-                bray_runtime_root_terminal_observation(root).state(),
-                if fail_completion {
-                    NativeRunState::RUNTIME_FAILURE
-                } else {
-                    NativeRunState::COMPLETED
-                }
+                super::with_runtime(|runtime| runtime.pending_cleanup_incidents()).unwrap(),
+                0
             );
 
-            let pending = super::with_runtime(|runtime| runtime.pending_cleanup_incidents())
-                .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
-
-            assert_eq!(pending, if fail_completion { 4 } else { 3 });
+            assert!(bray_runtime_root_completion_resolution(root).is_success());
 
             assert_eq!(
-                super::bray_runtime_cleanup_incident_reporting(),
-                NativeRuntimeStatus::SUCCESS
+                super::with_runtime(|runtime| runtime.pending_cleanup_incidents()).unwrap(),
+                1
             );
 
-            let pending = super::with_runtime(|runtime| runtime.pending_cleanup_incidents())
-                .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
-
-            assert_eq!(pending, 0);
+            assert!(super::bray_runtime_cleanup_incident_reporting().is_success());
 
             assert_eq!(
-                bray_runtime_root_completion_resolution(root),
-                NativeRuntimeStatus::SUCCESS
+                super::with_runtime(|runtime| runtime.pending_cleanup_incidents()).unwrap(),
+                0
             );
 
-            assert_eq!(
-                bray_runtime_structured_shutdown(),
-                NativeRuntimeStatus::SUCCESS
-            );
-
+            assert!(report.consume(false).is_success());
+            assert!(bray_runtime_structured_shutdown().is_success());
             drop(denied);
         }
     }
@@ -1254,33 +1280,35 @@ mod tests {
         for phase in 0..4 {
             FRAME_BRIDGE_RELEASES.store(0, Ordering::Relaxed);
 
-            let frame = NativeProtectedFrame::new(
+            let frame = super::super::fixtures::admit(
                 0,
-                [7; 32],
-                2,
-                8,
-                8,
-                8,
-                8,
-                frame_state,
-                if phase >= 2 {
-                    resume_runtime_failure
-                } else {
-                    write_frame_report_then_unwind
+                bray_runtime_abi::NativeActivationDescriptor {
+                    storage: bray_runtime_abi::NativeCleanupStorageShape::new([7; 32], 8, 8),
+                    header: 0,
+                    completion: 0,
+                    completion_bytes: 8,
+                    completion_align: 8,
+                    states: 2,
+                    state: frame_state,
+                    resume: if phase >= 2 {
+                        resume_runtime_failure
+                    } else {
+                        write_frame_report_then_unwind
+                    },
+                    cancel: write_frame_report_then_unwind,
+                    broadcast: if phase == 3 {
+                        write_frame_report_then_unwind
+                    } else {
+                        ignore_broadcast
+                    },
+                    resolve: if phase == 2 {
+                        resolve_frame_report_then_unwind
+                    } else {
+                        ignore_resolution
+                    },
+                    move_completion: ignore_completion_move,
+                    destroy: ignore_action,
                 },
-                write_frame_report_then_unwind,
-                if phase == 3 {
-                    write_frame_report_then_unwind
-                } else {
-                    ignore_broadcast
-                },
-                if phase == 2 {
-                    resolve_frame_report_then_unwind
-                } else {
-                    ignore_resolution
-                },
-                ignore_completion_move,
-                ignore_action,
             );
 
             let start = execute_test_root(frame, NativeRuntimeConfiguration::new(2, 1));
@@ -1339,21 +1367,23 @@ mod tests {
         FAILURE_RESOLUTIONS.store(0, Ordering::Relaxed);
         FAILURE_DESTRUCTIONS.store(0, Ordering::Relaxed);
 
-        let frame = NativeProtectedFrame::new(
+        let frame = super::super::fixtures::admit(
             0,
-            [10; 32],
-            2,
-            8,
-            8,
-            8,
-            8,
-            frame_state,
-            suspend_then_fail,
-            cancel_frame,
-            record_failure_broadcast,
-            record_failure_resolution,
-            ignore_completion_move,
-            record_failure_destruction,
+            bray_runtime_abi::NativeActivationDescriptor {
+                storage: bray_runtime_abi::NativeCleanupStorageShape::new([10; 32], 8, 8),
+                header: 0,
+                completion: 0,
+                completion_bytes: 8,
+                completion_align: 8,
+                states: 2,
+                state: frame_state,
+                resume: suspend_then_fail,
+                cancel: cancel_frame,
+                broadcast: record_failure_broadcast,
+                resolve: record_failure_resolution,
+                move_completion: ignore_completion_move,
+                destroy: record_failure_destruction,
+            },
         );
 
         let start = execute_test_root(frame, NativeRuntimeConfiguration::new(2, 1));
@@ -1375,12 +1405,14 @@ mod tests {
         assert_eq!(FAILURE_RESUMES.load(Ordering::Relaxed), 2);
         assert_eq!(FAILURE_BROADCASTS.load(Ordering::Relaxed), 1);
         assert_eq!(FAILURE_RESOLUTIONS.load(Ordering::Relaxed), 1);
-        assert_eq!(FAILURE_DESTRUCTIONS.load(Ordering::Relaxed), 1);
+        assert_eq!(FAILURE_DESTRUCTIONS.load(Ordering::Relaxed), 0);
 
         assert_eq!(
             bray_runtime_root_completion_resolution(root),
             NativeRuntimeStatus::SUCCESS
         );
+
+        assert_eq!(FAILURE_DESTRUCTIONS.load(Ordering::Relaxed), 1);
 
         assert_eq!(
             bray_runtime_structured_shutdown(),
@@ -1412,6 +1444,19 @@ mod tests {
 
         assert_eq!(outcome.state(), NativeRunState::COMPLETED);
         assert_ne!(outcome.payload(), 0);
+
+        assert_eq!(
+            bray_runtime_task_destruction(task),
+            NativeRuntimeStatus::PENDING
+        );
+
+        assert!(
+            super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
+                .unwrap()
+                .is_success()
+        );
+
+        assert!(bray_runtime_task_destruction(task).is_success());
 
         assert_eq!(
             bray_runtime_structured_shutdown(),
@@ -1503,6 +1548,22 @@ mod tests {
 
         assert_eq!(QUERIES.load(Ordering::Relaxed), 1);
         assert_eq!(LOCKED.load(Ordering::Relaxed), 0);
+
+        assert_eq!(
+            super::with_runtime(|runtime| runtime.resolve_task(task))
+                .unwrap()
+                .state(),
+            NativeRunState::COMPLETED
+        );
+
+        assert!(
+            super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
+                .unwrap()
+                .is_success()
+        );
+
+        assert!(bray_runtime_task_destruction(task).is_success());
+        assert_eq!(LOCKED.load(Ordering::Relaxed), 0);
         assert!(bray_runtime_structured_shutdown().is_success());
     }
 
@@ -1510,17 +1571,12 @@ mod tests {
     fn terminal_retirement_releases_reports_outside_the_task_table_lock() {
         static RELEASED: AtomicUsize = AtomicUsize::new(0);
 
-        extern "C" fn consume(
-            _: &mut bray_runtime_abi::NativePanicReport,
-            _: u32,
-        ) -> NativeRuntimeStatus {
+        extern "C" fn release(_: usize, _: usize, _: &mut NativeRunOutcome) {
             let unlocked =
                 super::super::state::with_runtime(|runtime| runtime.tasks.try_lock().is_ok())
                     .expect("retirement retains the runtime context");
 
             RELEASED.store(if unlocked { 1 } else { 2 }, Ordering::Relaxed);
-
-            NativeRuntimeStatus::SUCCESS
         }
 
         let _isolation = super::super::state::test_runtime_isolation();
@@ -1544,12 +1600,6 @@ mod tests {
             .is_success()
         );
 
-        let terminal = super::super::state::with_runtime(|runtime| {
-            runtime.with_started(task, |started| std::sync::Arc::clone(&started.terminal))
-        })
-        .unwrap()
-        .unwrap();
-
         assert!(bray_runtime_main_thread_lane_drive().is_success());
 
         assert_eq!(
@@ -1557,15 +1607,41 @@ mod tests {
             NativeRunState::COMPLETED
         );
 
-        terminal.record_cleanup_report(crate::RuntimePanic::from_native(
-            bray_runtime_abi::NativePanicReport::new(
-                bray_runtime_abi::NativePanicPrimary::empty(),
-                consume,
-            ),
-        ));
+        super::super::state::with_runtime(|runtime| {
+            let task = runtime.retained_task(task, true).unwrap();
+            let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
 
-        drop(terminal);
+            let primary = bray_runtime_abi::NativePanicPrimary::new(
+                bray_runtime_abi::NativePanicCause::ASSERTION,
+                bray_runtime_abi::NativeSourceAnchor::unavailable(),
+                bray_runtime_abi::NativePanicMessage::new(0, 0, None, Some(release)),
+            );
+
+            let mut report = crate::RuntimePanic::from_native(crate::frame::native_report(primary));
+
+            report.reserve_from(&mut admitted);
+
+            task.task.transfer_cleanup_incident(
+                &runtime.cleanup_reports,
+                task.task.execution_origin(),
+                report,
+            );
+        })
+        .unwrap();
+
+        assert!(
+            super::super::state::with_runtime(|runtime| runtime.resolve_task_retirement(task))
+                .unwrap()
+                .is_success()
+        );
+
         assert!(bray_runtime_task_destruction(task).is_success());
+
+        assert!(
+            super::super::state::with_runtime(|runtime| runtime.report_cleanup_incidents())
+                .unwrap()
+                .is_success()
+        );
 
         assert_eq!(
             RELEASED.load(Ordering::Relaxed),
@@ -1578,55 +1654,59 @@ mod tests {
 
     #[test]
     fn task_start_transfers_each_frame_exactly_once() {
-        assert_eq!(
-            bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(1, 1)),
-            NativeRuntimeStatus::SUCCESS
+        let _isolation = super::super::state::test_runtime_isolation();
+
+        STARTED_DESTROYED.store(0, Ordering::Relaxed);
+
+        assert!(
+            bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(1, 1))
+                .is_success()
         );
 
-        let allocation = bray_runtime_task_allocation();
-
-        let Some(task) = allocation.task() else {
-            panic!("native task storage must allocate");
-        };
+        let task = bray_runtime_task_allocation().task().unwrap();
+        let frame = protected_frame(8, resume_frame, ignore_completion_move, started_destroy);
+        let missing = NativeTaskHandle::new(task.raw() + 1).unwrap();
 
         assert_eq!(
-            start_test_task(
-                task,
-                protected_frame(0, resume_frame, ignore_completion_move, rejected_destroy,)
-            ),
+            super::with_runtime(|runtime| runtime.start(missing, &frame)).unwrap(),
+            NativeRuntimeStatus::UNKNOWN_TASK
+        );
+
+        assert_eq!(STARTED_DESTROYED.load(Ordering::Relaxed), 0);
+
+        assert!(
+            super::with_runtime(|runtime| runtime.start(task, &frame))
+                .unwrap()
+                .is_success()
+        );
+
+        assert_eq!(
+            super::with_runtime(|runtime| runtime.start(task, &frame)).unwrap(),
             NativeRuntimeStatus::INVALID_ARGUMENT
         );
 
-        assert_eq!(REJECTED_DESTROYED.load(Ordering::Relaxed), 1);
-
-        assert_eq!(
-            start_test_task(
-                task,
-                protected_frame(8, resume_frame, ignore_completion_move, started_destroy,)
-            ),
-            NativeRuntimeStatus::SUCCESS
-        );
-
-        assert_eq!(
-            bray_runtime_main_thread_lane_drive(),
-            NativeRuntimeStatus::SUCCESS
-        );
+        assert!(bray_runtime_main_thread_lane_drive().is_success());
 
         assert_eq!(
             bray_runtime_join_registration(task, ignore_wake, 0).state(),
             NativeRunState::COMPLETED
         );
 
-        assert_eq!(STARTED_DESTROYED.load(Ordering::Relaxed), 1);
+        assert_eq!(STARTED_DESTROYED.load(Ordering::Relaxed), 0);
 
-        assert_eq!(
-            bray_runtime_structured_shutdown(),
-            NativeRuntimeStatus::SUCCESS
+        assert!(
+            super::super::state::with_runtime(|runtime| runtime.resolve_task_retirement(task))
+                .unwrap()
+                .is_success()
         );
+
+        assert!(bray_runtime_task_destruction(task).is_success());
+        assert_eq!(STARTED_DESTROYED.load(Ordering::Relaxed), 1);
+        assert!(bray_runtime_structured_shutdown().is_success());
     }
 
     #[test]
-    fn failed_root_admission_destroys_the_transferred_frame() {
+    fn failed_root_admission_preserves_the_exact_inactive_owner_for_retry() {
         static DESTROYED: AtomicUsize = AtomicUsize::new(0);
 
         extern "C-unwind" fn destroy(_: usize) {
@@ -1638,19 +1718,30 @@ mod tests {
 
         assert!(bray_runtime_main_thread_lane_startup(configuration).is_success());
 
+        let frame = protected_frame(8, resume_frame, ignore_completion_move, destroy);
         let failure = crate::outgoing::tests::reject_admission();
 
-        let start = execute_test_root(
-            protected_frame(8, resume_frame, ignore_completion_move, destroy),
-            configuration,
-        );
+        let start =
+            bray_runtime_root_execution(NativeInactiveFrameTransfer::new(&frame), configuration);
 
         assert_eq!(start.status(), NativeRuntimeStatus::RUNTIME_FAILURE);
         assert!(start.root().is_none());
-        assert_eq!(DESTROYED.load(Ordering::Relaxed), 1);
-
+        assert_eq!(DESTROYED.load(Ordering::Relaxed), 0);
         drop(failure);
 
+        let root =
+            bray_runtime_root_execution(NativeInactiveFrameTransfer::new(&frame), configuration)
+                .root()
+                .unwrap();
+
+        assert_eq!(
+            bray_runtime_root_terminal_observation(root).state(),
+            NativeRunState::COMPLETED
+        );
+
+        assert_eq!(DESTROYED.load(Ordering::Relaxed), 0);
+        assert!(bray_runtime_root_completion_resolution(root).is_success());
+        assert_eq!(DESTROYED.load(Ordering::Relaxed), 1);
         assert!(bray_runtime_structured_shutdown().is_success());
     }
 
@@ -1669,8 +1760,7 @@ mod tests {
 
         let frame = protected_frame(8, resume_frame, ignore_completion_move, destroy);
 
-        let inactive =
-            NativeInactiveFrame::new(Box::into_raw(Box::new(frame)).addr(), move_test_frame);
+        let inactive = frame;
 
         let failure = crate::outgoing::tests::reject_admission();
 
@@ -1686,78 +1776,121 @@ mod tests {
 
         assert!(bray_runtime_task_start(task, inactive).is_success());
         assert!(bray_runtime_main_thread_lane_drive().is_success());
+        assert_eq!(DESTROYED.load(Ordering::Relaxed), 0);
+
+        assert_eq!(
+            bray_runtime_join_registration(task, ignore_wake, 0).state(),
+            NativeRunState::COMPLETED
+        );
+
+        assert!(
+            super::super::state::with_runtime(|runtime| runtime.resolve_task_retirement(task))
+                .unwrap()
+                .is_success()
+        );
+
+        assert!(bray_runtime_task_destruction(task).is_success());
         assert_eq!(DESTROYED.load(Ordering::Relaxed), 1);
         assert!(bray_runtime_structured_shutdown().is_success());
     }
 
     #[test]
     fn frame_contract_failures_are_not_published_as_panics() {
-        assert_eq!(
-            bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(2, 1)),
-            NativeRuntimeStatus::SUCCESS
+        assert!(
+            bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(1, 1))
+                .is_success()
         );
 
-        for resume in [
-            resume_runtime_failure as extern "C-unwind" fn(&mut NativeFrameProgress, usize),
-            resume_unknown_progress,
-        ] {
-            let allocation = bray_runtime_task_allocation();
+        let task = bray_runtime_task_allocation()
+            .task()
+            .expect("native task storage must allocate");
 
-            let Some(task) = allocation.task() else {
-                panic!("native task storage must allocate");
-            };
-
-            assert_eq!(
-                start_test_task(
-                    task,
-                    protected_frame(8, resume, ignore_completion_move, ignore_action,)
-                ),
-                NativeRuntimeStatus::SUCCESS
-            );
-
-            assert_eq!(
-                bray_runtime_main_thread_lane_drive(),
-                NativeRuntimeStatus::RUNTIME_FAILURE
-            );
-
-            assert_eq!(
-                bray_runtime_join_registration(task, ignore_wake, 0).state(),
-                NativeRunState::RUNTIME_FAILURE
-            );
-        }
+        assert!(
+            start_test_task(
+                task,
+                protected_frame(
+                    8,
+                    resume_runtime_failure,
+                    ignore_completion_move,
+                    ignore_action
+                )
+            )
+            .is_success()
+        );
 
         assert_eq!(
-            bray_runtime_structured_shutdown(),
-            NativeRuntimeStatus::SUCCESS
+            bray_runtime_main_thread_lane_drive(),
+            NativeRuntimeStatus::RUNTIME_FAILURE
+        );
+
+        assert_eq!(
+            bray_runtime_join_registration(task, ignore_wake, 0).state(),
+            NativeRunState::RUNTIME_FAILURE
+        );
+
+        assert!(
+            super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
+                .unwrap()
+                .is_success()
+        );
+
+        assert!(bray_runtime_task_destruction(task).is_success());
+        assert!(bray_runtime_structured_shutdown().is_success());
+    }
+
+    #[test]
+    fn invalid_callback_progress_fails_fast() {
+        const CHILD: &str = "BRAY_TEST_INVALID_CALLBACK_PROGRESS";
+
+        if std::env::var_os(CHILD).is_some() {
+            assert!(
+                bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(1, 1))
+                    .is_success()
+            );
+
+            let task = bray_runtime_task_allocation()
+                .task()
+                .expect("native task storage must allocate");
+
+            assert!(
+                start_test_task(
+                    task,
+                    protected_frame(
+                        8,
+                        resume_unknown_progress,
+                        ignore_completion_move,
+                        ignore_action
+                    )
+                )
+                .is_success()
+            );
+
+            let _ = bray_runtime_main_thread_lane_drive();
+
+            panic!("invalid internal progress must abort at the native boundary");
+        }
+
+        crate::test_support::assert_native_abort(
+            "native::export::tests::invalid_callback_progress_fails_fast",
+            CHILD,
         );
     }
 
-    fn frame() -> NativeProtectedFrame {
+    fn frame() -> NativeInactiveFrame {
         protected_frame(8, resume_frame, ignore_completion_move, destroy_frame)
     }
 
     fn execute_test_root(
-        frame: NativeProtectedFrame,
+        frame: NativeInactiveFrame,
         configuration: NativeRuntimeConfiguration,
     ) -> super::NativeRootStart {
-        let transfer = NativeProtectedFrameTransfer::new(&frame);
+        let transfer = NativeInactiveFrameTransfer::new(&frame);
 
         bray_runtime_root_execution(transfer, configuration)
     }
 
-    fn start_test_task(task: NativeTaskHandle, frame: NativeProtectedFrame) -> NativeRuntimeStatus {
-        bray_runtime_task_start(
-            task,
-            NativeInactiveFrame::new(Box::into_raw(Box::new(frame)).addr(), move_test_frame),
-        )
-    }
-
-    #[expect(
-        unsafe_code,
-        reason = "the inactive test frame transfers its exact descriptor allocation"
-    )]
-    extern "C" fn move_test_frame(context: usize) -> NativeProtectedFrame {
-        unsafe { *Box::from_raw(context as *mut NativeProtectedFrame) }
+    fn start_test_task(task: NativeTaskHandle, frame: NativeInactiveFrame) -> NativeRuntimeStatus {
+        bray_runtime_task_start(task, frame)
     }
 
     #[test]
@@ -1876,7 +2009,7 @@ mod tests {
     }
 
     #[test]
-    fn conflicting_composed_child_cleans_up_on_its_own_workload_lane() {
+    fn conflicting_composition_preserves_the_child_for_independent_start() {
         CONFLICTING_CHILD_DESTRUCTIONS.store(0, Ordering::Relaxed);
 
         let start = execute_test_root(
@@ -1894,20 +2027,34 @@ mod tests {
             .root()
             .unwrap_or_else(|| panic!("conflicting parent frame must transfer"));
 
-        let mut outcome = bray_runtime_root_terminal_observation(root);
+        let outcome = bray_runtime_root_terminal_observation(root);
 
-        assert_eq!(outcome.state(), NativeRunState::PANICKED);
-        assert_eq!(CONFLICTING_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 1);
+        assert_eq!(outcome.state(), NativeRunState::RUNTIME_FAILURE);
+        assert_eq!(CONFLICTING_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 0);
 
         assert_eq!(
             bray_runtime_root_completion_resolution(root),
             NativeRuntimeStatus::SUCCESS
         );
 
+        let child = REJECTED_COMPUTE_CHILD
+            .lock()
+            .unwrap()
+            .take()
+            .expect("rejection retains the exact child");
+
+        let child = execute_test_root(child, NativeRuntimeConfiguration::new(2, 1))
+            .root()
+            .expect("independent start selects the child's compute lane");
+
         assert_eq!(
-            outcome.take_report().consume(false),
-            NativeRuntimeStatus::SUCCESS
+            bray_runtime_root_terminal_observation(child).state(),
+            NativeRunState::COMPLETED
         );
+
+        assert_eq!(CONFLICTING_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 0);
+        assert!(bray_runtime_root_completion_resolution(child).is_success());
+        assert_eq!(CONFLICTING_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 1);
 
         assert_eq!(
             bray_runtime_structured_shutdown(),
@@ -1992,10 +2139,7 @@ mod tests {
 
     extern "C-unwind" fn catch_awaited_failure(destination: &mut NativeFrameProgress, kind: usize) {
         if AWAITED_FAILURE_PHASE.fetch_add(1, Ordering::Relaxed) == 0 {
-            bray_runtime_awaited_frame_composition(
-                NativeInactiveFrame::new(kind, move_failing_child),
-                1,
-            );
+            super::super::fixtures::compose(move_failing_child(kind), 1);
 
             *destination = NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 1, 0);
             return;
@@ -2004,7 +2148,7 @@ mod tests {
         let _denied = crate::outgoing::tests::reject_admission();
         let mut outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
 
-        assert_eq!(bray_runtime_frame_completion_move(&mut outcome), 0);
+        super::super::fixtures::take_completion(&mut outcome);
 
         assert_eq!(
             outcome.state(),
@@ -2027,7 +2171,7 @@ mod tests {
         *destination = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
     }
 
-    extern "C" fn move_failing_child(kind: usize) -> NativeProtectedFrame {
+    extern "C" fn move_failing_child(kind: usize) -> NativeInactiveFrame {
         composed_frame(kind, resume_failing_child, ignore_completion_move)
     }
 
@@ -2141,6 +2285,18 @@ mod tests {
             NativeRunState::COMPLETED
         );
 
+        assert!(
+            super::with_runtime(|runtime| runtime.resolve_task_retirement(root))
+                .unwrap()
+                .is_success()
+        );
+
+        assert!(
+            super::with_runtime(|runtime| runtime.resolve_task_retirement(competitor))
+                .unwrap()
+                .is_success()
+        );
+
         assert_eq!(
             bray_runtime_task_destruction(root),
             NativeRuntimeStatus::SUCCESS
@@ -2162,7 +2318,7 @@ mod tests {
         resume: extern "C-unwind" fn(&mut NativeFrameProgress, usize),
         move_completion: extern "C-unwind" fn(usize, usize),
         destroy: extern "C-unwind" fn(usize),
-    ) -> NativeProtectedFrame {
+    ) -> NativeInactiveFrame {
         protected_frame_with_state(alignment, frame_state, resume, move_completion, destroy)
     }
 
@@ -2172,7 +2328,7 @@ mod tests {
         resume: extern "C-unwind" fn(&mut NativeFrameProgress, usize),
         move_completion: extern "C-unwind" fn(usize, usize),
         destroy: extern "C-unwind" fn(usize),
-    ) -> NativeProtectedFrame {
+    ) -> NativeInactiveFrame {
         protected_frame_with_context(0, alignment, state, resume, move_completion, destroy)
     }
 
@@ -2183,22 +2339,24 @@ mod tests {
         resume: extern "C-unwind" fn(&mut NativeFrameProgress, usize),
         move_completion: extern "C-unwind" fn(usize, usize),
         destroy: extern "C-unwind" fn(usize),
-    ) -> NativeProtectedFrame {
-        NativeProtectedFrame::new(
+    ) -> NativeInactiveFrame {
+        super::super::fixtures::admit(
             context,
-            [7; 32],
-            2,
-            8,
-            alignment,
-            8,
-            8,
-            state,
-            resume,
-            cancel_frame,
-            ignore_broadcast,
-            ignore_resolution,
-            move_completion,
-            destroy,
+            bray_runtime_abi::NativeActivationDescriptor {
+                storage: bray_runtime_abi::NativeCleanupStorageShape::new([7; 32], 8, alignment),
+                header: 0,
+                completion: 0,
+                completion_bytes: 8,
+                completion_align: 8,
+                states: 2,
+                state: state,
+                resume: resume,
+                cancel: cancel_frame,
+                broadcast: ignore_broadcast,
+                resolve: ignore_resolution,
+                move_completion: move_completion,
+                destroy: destroy,
+            },
         )
     }
 
@@ -2238,14 +2396,27 @@ mod tests {
     }
 
     extern "C-unwind" fn compose_child_then_panic(_: &mut NativeFrameProgress, _: usize) {
-        bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(0, move_pending_child), 1);
+        super::super::fixtures::compose(move_pending_child(0), 1);
         panic!("parent failed before publishing its awaited suspension");
     }
 
     extern "C-unwind" fn reject_conflicting_child(destination: &mut NativeFrameProgress, _: usize) {
-        bray_runtime_awaited_frame_composition(
-            NativeInactiveFrame::new(0, move_conflicting_child),
-            1,
+        let child = move_conflicting_child(0);
+
+        let status = super::with_runtime(|runtime| {
+            runtime.compose_awaited(&child, 1, super::super::fixtures::destination())
+        })
+        .unwrap();
+
+        assert_eq!(status, NativeRuntimeStatus::INVALID_ARGUMENT);
+        assert_eq!(CONFLICTING_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 0);
+
+        assert!(
+            REJECTED_COMPUTE_CHILD
+                .lock()
+                .unwrap()
+                .replace(child)
+                .is_none()
         );
 
         *destination = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
@@ -2253,7 +2424,8 @@ mod tests {
 
     fn assert_awaited_completion() {
         let mut outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
-        let _ = bray_runtime_frame_completion_move(&mut outcome);
+
+        super::super::fixtures::take_completion(&mut outcome);
 
         assert_eq!(outcome.state(), NativeRunState::COMPLETED);
     }
@@ -2265,10 +2437,7 @@ mod tests {
         let resumes = EXACT_BLOCKING_PARENT_RESUMES.fetch_add(1, Ordering::Relaxed);
 
         *destination = if resumes == 0 {
-            bray_runtime_awaited_frame_composition(
-                NativeInactiveFrame::new(0, move_blocking_child),
-                1,
-            );
+            super::super::fixtures::compose(move_blocking_child(0), 1);
 
             bray_runtime_suspension_registration(1)
         } else {
@@ -2282,16 +2451,13 @@ mod tests {
         let resumes = ORIGIN_PARENT_RESUMES.fetch_add(1, Ordering::Relaxed);
 
         *destination = if resumes == 0 {
-            bray_runtime_awaited_frame_composition(
-                NativeInactiveFrame::new(event, move_origin_child),
-                1,
-            );
+            super::super::fixtures::compose(move_origin_child(event), 1);
 
             bray_runtime_suspension_registration(1)
         } else {
             assert_awaited_completion();
 
-            NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 23)
+            NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 1, 23)
         };
     }
 
@@ -2299,23 +2465,25 @@ mod tests {
         destination: &mut NativeFrameProgress,
         _: usize,
     ) {
+        let child = move_rejected_child(0);
         let rejection = crate::outgoing::tests::reject_admission();
 
         let rejected = super::with_runtime(|runtime| {
-            runtime.compose_awaited(NativeInactiveFrame::new(0, move_rejected_child), 1)
+            runtime.compose_awaited(&child, u32::MAX, super::super::fixtures::destination())
         })
-        .unwrap_or_else(|status| status);
+        .unwrap();
 
-        assert_eq!(rejected, NativeRuntimeStatus::RUNTIME_FAILURE);
-        assert_eq!(REJECTED_CHILD_MOVES.load(Ordering::Relaxed), 0);
-        drop(rejection);
+        assert_eq!(rejected, NativeRuntimeStatus::INVALID_ARGUMENT);
+        assert_eq!(REJECTED_CHILD_MOVES.load(Ordering::Relaxed), 1);
+        assert_eq!(REJECTED_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 0);
 
         let accepted = super::with_runtime(|runtime| {
-            runtime.compose_awaited(NativeInactiveFrame::new(0, move_rejected_child), 1)
+            runtime.compose_awaited(&child, 1, super::super::fixtures::destination())
         })
-        .unwrap_or_else(|status| status);
+        .unwrap();
 
         assert_eq!(accepted, NativeRuntimeStatus::SUCCESS);
+        drop(rejection);
         *destination = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
     }
 
@@ -2341,22 +2509,24 @@ mod tests {
         depth: usize,
         resume: extern "C-unwind" fn(&mut NativeFrameProgress, usize),
         move_completion: extern "C-unwind" fn(usize, usize),
-    ) -> NativeProtectedFrame {
-        NativeProtectedFrame::new(
+    ) -> NativeInactiveFrame {
+        super::super::fixtures::admit(
             depth,
-            [33; 32],
-            2,
-            8,
-            8,
-            8,
-            8,
-            frame_state,
-            resume,
-            resume,
-            ignore_broadcast,
-            ignore_resolution,
-            move_completion,
-            ignore_action,
+            bray_runtime_abi::NativeActivationDescriptor {
+                storage: bray_runtime_abi::NativeCleanupStorageShape::new([33; 32], 8, 8),
+                header: 0,
+                completion: 0,
+                completion_bytes: 8,
+                completion_align: 8,
+                states: 2,
+                state: frame_state,
+                resume: resume,
+                cancel: resume,
+                broadcast: ignore_broadcast,
+                resolve: ignore_resolution,
+                move_completion: move_completion,
+                destroy: ignore_action,
+            },
         )
     }
 
@@ -2367,10 +2537,7 @@ mod tests {
         *destination = if state.load(Ordering::Relaxed) == 0 && depth < DEEP_AWAIT_DEPTH {
             state.store(1, Ordering::Relaxed);
 
-            bray_runtime_awaited_frame_composition(
-                NativeInactiveFrame::new(depth + 1, move_deep_await_child),
-                1,
-            );
+            super::super::fixtures::compose(move_deep_await_child(depth + 1), 1);
 
             NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 1, 0)
         } else {
@@ -2382,7 +2549,7 @@ mod tests {
         };
     }
 
-    extern "C" fn move_deep_await_child(depth: usize) -> NativeProtectedFrame {
+    extern "C" fn move_deep_await_child(depth: usize) -> NativeInactiveFrame {
         composed_frame(depth, resume_deep_await, record_deep_completion)
     }
 
@@ -2402,24 +2569,26 @@ mod tests {
         *destination = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
     }
 
-    extern "C" fn move_rejected_child(_: usize) -> NativeProtectedFrame {
+    extern "C" fn move_rejected_child(_: usize) -> NativeInactiveFrame {
         REJECTED_CHILD_MOVES.fetch_add(1, Ordering::Relaxed);
 
-        NativeProtectedFrame::new(
+        super::super::fixtures::admit(
             0,
-            [32; 32],
-            1,
-            8,
-            8,
-            8,
-            8,
-            movable_frame_state,
-            resume_pending_child,
-            resume_pending_child,
-            ignore_broadcast,
-            ignore_resolution,
-            ignore_completion_move,
-            destroy_rejected_child,
+            bray_runtime_abi::NativeActivationDescriptor {
+                storage: bray_runtime_abi::NativeCleanupStorageShape::new([32; 32], 8, 8),
+                header: 0,
+                completion: 0,
+                completion_bytes: 8,
+                completion_align: 8,
+                states: 1,
+                state: movable_frame_state,
+                resume: resume_pending_child,
+                cancel: resume_pending_child,
+                broadcast: ignore_broadcast,
+                resolve: ignore_resolution,
+                move_completion: ignore_completion_move,
+                destroy: destroy_rejected_child,
+            },
         )
     }
 
@@ -2427,22 +2596,24 @@ mod tests {
         REJECTED_CHILD_DESTRUCTIONS.fetch_add(1, Ordering::Relaxed);
     }
 
-    extern "C" fn move_pending_child(_: usize) -> NativeProtectedFrame {
-        NativeProtectedFrame::new(
+    extern "C" fn move_pending_child(_: usize) -> NativeInactiveFrame {
+        super::super::fixtures::admit(
             0,
-            [31; 32],
-            1,
-            8,
-            8,
-            8,
-            8,
-            frame_state,
-            resume_pending_child,
-            resume_pending_child,
-            panic_while_broadcasting_child,
-            ignore_resolution,
-            ignore_completion_move,
-            destroy_pending_child,
+            bray_runtime_abi::NativeActivationDescriptor {
+                storage: bray_runtime_abi::NativeCleanupStorageShape::new([31; 32], 8, 8),
+                header: 0,
+                completion: 0,
+                completion_bytes: 8,
+                completion_align: 8,
+                states: 1,
+                state: frame_state,
+                resume: resume_pending_child,
+                cancel: resume_pending_child,
+                broadcast: panic_while_broadcasting_child,
+                resolve: ignore_resolution,
+                move_completion: ignore_completion_move,
+                destroy: destroy_pending_child,
+            },
         )
     }
 
@@ -2465,22 +2636,24 @@ mod tests {
         panic!("suspended child broadcast failed");
     }
 
-    extern "C" fn move_origin_child(event: usize) -> NativeProtectedFrame {
-        NativeProtectedFrame::new(
+    extern "C" fn move_origin_child(event: usize) -> NativeInactiveFrame {
+        super::super::fixtures::admit(
             event,
-            [31; 32],
-            2,
-            8,
-            8,
-            8,
-            8,
-            frame_state,
-            wait_for_origin_event,
-            cancel_frame,
-            ignore_broadcast,
-            ignore_resolution,
-            ignore_completion_move,
-            ignore_action,
+            bray_runtime_abi::NativeActivationDescriptor {
+                storage: bray_runtime_abi::NativeCleanupStorageShape::new([31; 32], 8, 8),
+                header: 0,
+                completion: 0,
+                completion_bytes: 8,
+                completion_align: 8,
+                states: 2,
+                state: frame_state,
+                resume: wait_for_origin_event,
+                cancel: cancel_frame,
+                broadcast: ignore_broadcast,
+                resolve: ignore_resolution,
+                move_completion: ignore_completion_move,
+                destroy: ignore_action,
+            },
         )
     }
 
@@ -2519,10 +2692,7 @@ mod tests {
 
             AWAITED_BLOCKING_COMPLETIONS.store(completed + 1, Ordering::Relaxed);
 
-            bray_runtime_awaited_frame_composition(
-                NativeInactiveFrame::new(0, move_blocking_child),
-                1,
-            );
+            super::super::fixtures::compose(move_blocking_child(0), 1);
 
             bray_runtime_suspension_registration(1)
         })();
@@ -2532,10 +2702,7 @@ mod tests {
         let resumes = EVENT_PARENT_RESUMES.fetch_add(1, Ordering::Relaxed);
 
         *destination = if resumes == 0 {
-            bray_runtime_awaited_frame_composition(
-                NativeInactiveFrame::new(event, move_event_child),
-                1,
-            );
+            super::super::fixtures::compose(move_event_child(event), 1);
 
             bray_runtime_suspension_registration(1)
         } else {
@@ -2545,7 +2712,7 @@ mod tests {
         };
     }
 
-    extern "C" fn move_event_child(event: usize) -> NativeProtectedFrame {
+    extern "C" fn move_event_child(event: usize) -> NativeInactiveFrame {
         protected_frame_with_context(
             event,
             8,
@@ -2566,7 +2733,7 @@ mod tests {
         };
     }
 
-    extern "C" fn move_blocking_child(_: usize) -> NativeProtectedFrame {
+    extern "C" fn move_blocking_child(_: usize) -> NativeInactiveFrame {
         protected_frame_with_state(
             8,
             movable_blocking_frame_state,
@@ -2576,7 +2743,7 @@ mod tests {
         )
     }
 
-    extern "C" fn move_conflicting_child(_: usize) -> NativeProtectedFrame {
+    extern "C" fn move_conflicting_child(_: usize) -> NativeInactiveFrame {
         protected_frame_with_state(
             8,
             movable_compute_frame_state,
@@ -2738,10 +2905,6 @@ mod tests {
 
     extern "C-unwind" fn root_destroy(_: usize) {
         ROOT_DESTROYED.fetch_add(1, Ordering::Relaxed);
-    }
-
-    extern "C-unwind" fn rejected_destroy(_: usize) {
-        REJECTED_DESTROYED.fetch_add(1, Ordering::Relaxed);
     }
 
     extern "C-unwind" fn started_destroy(_: usize) {

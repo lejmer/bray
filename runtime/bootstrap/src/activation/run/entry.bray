@@ -1,0 +1,200 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation.run;
+
+using std.memory;
+
+// The claim retains these three independent native output slots. Producer
+// callbacks cannot alias them or consume their owner through same-run reentry.
+trusted internal predicate destinations(
+    root: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    output: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+    records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+    incidents: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+);
+
+@abi(c)
+trusted internal func dispatch(
+    pos root: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    pos callback: RawPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
+    pos ready: RawPointer<bray.runtime.bootstrap.activation.callback.Ready>,
+    pos cancellation: u8,
+    pos abandoning: u8,
+    pos output: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+    pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+    pos incidents: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+) -> u32
+    requires(
+        trusted owned(root = root),
+        trusted destinations(root = root, output = output, records = records, incidents = incidents),
+        trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Invoke>(
+            pointer = callback
+        ),
+        trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+    )
+    ensures(trusted owned(root = root))
+    uses(layout_reinterpret, raw_memory, unchecked_init)
+{
+    let invoke = trusted std.memory.callable_from_pointer<bray.runtime.bootstrap.activation.callback.Invoke>(callback);
+    let admit = trusted std.memory.callable_from_pointer<bray.runtime.bootstrap.activation.callback.Ready>(ready);
+
+    let dispatch_step = trusted lambda(
+        pos root: RawPointer<bray.runtime.bootstrap.activation.Header>,
+        pos invoke: bray.runtime.bootstrap.activation.callback.Invoke,
+        pos admit: bray.runtime.bootstrap.activation.callback.Ready,
+        pos cancellation: bool,
+        pos abandoning: bool,
+        pos output: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+        pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+        pos incidents: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+    ) -> (
+        bray.runtime.bootstrap.activation.Progress,
+        bray.runtime.bootstrap.ReportRecords,
+        bray.runtime.bootstrap.ReportRecords,
+        u32
+    )
+        requires(
+            trusted owned(root = root),
+            trusted destinations(root = root, output = output, records = records, incidents = incidents),
+            trusted bray.runtime.bootstrap.entry.native_entry(),
+            trusted bray.runtime.bootstrap.pool.protocol_access(),
+        )
+        ensures(
+            trusted owned(root = root),
+            trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Progress>(pointer = output, count = 1),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Progress>(pointer = output),
+            trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = records),
+            trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = incidents, count = 1),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = incidents),
+        )
+    {
+        let acquire = trusted lambda(pos root: RawPointer<bray.runtime.bootstrap.activation.Header>) -> Cursor
+            requires(trusted owned(root = root))
+            ensures(trusted selected(cursor = &result))
+            executes(pure, total)
+        {
+            return
+            {
+                root = root,
+                pointer = root
+            };
+        };
+
+        let mut cursor = trusted acquire(root);
+
+        if abandoning
+        {
+            trusted begin_abandonment(&mut cursor);
+        }
+
+        return trusted step(cursor, invoke, admit, cancellation);
+    };
+
+    let (progress, remaining, retired, status) = trusted dispatch_step(
+        root,
+        invoke,
+        admit,
+        cancellation != 0,
+        abandoning != 0,
+        output,
+        records,
+        incidents
+    );
+
+    trusted std.memory.write<bray.runtime.bootstrap.activation.Progress>(output, progress);
+    trusted std.memory.write<bray.runtime.bootstrap.ReportRecords>(records, remaining);
+    trusted std.memory.write<bray.runtime.bootstrap.ReportRecords>(incidents, retired);
+    return status;
+}
+
+trusted internal predicate snapshot_destination(
+    root: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    output: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+);
+
+@abi(c)
+trusted internal func snapshot(
+    pos root: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    pos cancellation: u8,
+    pos output: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+)
+    requires(trusted owned(root = root), trusted snapshot_destination(root = root, output = output))
+    ensures(trusted owned(root = root))
+    uses(intrinsic, raw_memory, unchecked_init)
+{
+    let acquire = trusted lambda(pos root: RawPointer<bray.runtime.bootstrap.activation.Header>) -> Cursor
+        requires(trusted owned(root = root))
+        ensures(trusted selected(cursor = &result))
+        executes(pure, total)
+    {
+        return
+        {
+            root = root,
+            pointer = root
+        };
+    };
+
+    let mut cursor = trusted acquire(root);
+
+    trusted current(&mut cursor);
+
+    let header = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);
+    let root_state = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor, root = true);
+
+    let (operation, argument): (u32, usize) = if root_state.broadcast_next != 0
+    {
+        yield(2, 0);
+    }
+    else if header.phase == bray.runtime.bootstrap.activation.TERMINAL
+    {
+        yield(
+            if header.kind == 1 && header.abandoned == 0
+            {
+                yield 4;
+            }
+            else
+            {
+                yield 5;
+            },
+            0
+        );
+    }
+    else if header.phase == bray.runtime.bootstrap.activation.COMMITTED
+    {
+        yield(5, 0);
+    }
+    else
+    {
+        yield trusted entry(&header, cancellation != 0);
+    };
+
+    let execution = match consume trusted bray.runtime.bootstrap.activation.requirements.active(
+        &mut cursor,
+        header.state,
+        operation,
+        argument
+    )
+    {
+        case ?execution { yield execution; }
+        case none { yield trusted core.target.abort(); }
+    };
+
+    let retained = trusted lambda(
+        pos root: RawPointer<bray.runtime.bootstrap.activation.Header>,
+        pos output: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>
+    )
+        ensures(
+            trusted owned(root = root),
+            trusted core.memory.valid_write<bray.runtime.bootstrap.activation.requirements.Execution>(
+                pointer = output,
+                count = 1
+            ),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.requirements.Execution>(pointer = output),
+        )
+        executes(pure, total) {};
+
+    trusted retained(root, output);
+    trusted std.memory.write<bray.runtime.bootstrap.activation.requirements.Execution>(output, execution);
+}

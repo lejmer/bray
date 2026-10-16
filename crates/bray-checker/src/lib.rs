@@ -120,4 +120,4 @@ pub use type_representation::{
     DeclaredUnionVariant, RepresentationIntegerType, TypeRepresentationContext,
     check_declared_type_representation,
 };
-pub use unit::{CheckerUnitRoot, CheckerUnitView};
+pub use unit::{CheckerUnitRoot, CheckerUnitView, ResultDependencyOwner};

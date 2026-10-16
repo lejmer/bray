@@ -16,7 +16,7 @@ pub(in crate::native) fn execution_lane(
     let task = current_native_task().ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
     with_runtime(|runtime| {
-        runtime.with_started(task, |task| {
+        runtime.retained_task(task, true).map(|task| {
             task.registration
                 .execution_lane(execution)
                 .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)
@@ -90,7 +90,7 @@ pub(in crate::native) fn frame_state(
 
 // The Bray dispatcher supplies the checked immutable snapshot while retaining
 // its exact active owner. This conversion establishes no new dispatch authority.
-fn execution(snapshot: &NativeActivationExecution) -> FrameExecutionState {
+pub(in crate::native) fn execution(snapshot: &NativeActivationExecution) -> FrameExecutionState {
     let state = frame_state(
         snapshot.requirements,
         ProtectedFrameStateId::new(snapshot.state),
@@ -133,6 +133,15 @@ pub(in crate::native) extern "C" fn readiness(snapshot: &NativeActivationExecuti
     };
 
     let execution = execution(snapshot);
+    let task = current_native_task().expect("activation readiness retains its registered task");
+
+    with_runtime(|runtime| {
+        runtime
+            .retained_task(task, true)
+            .map(|task| task.run.publish(snapshot))
+    })
+    .expect("activation readiness retains its runtime")
+    .expect("activation readiness retains its task");
 
     let required = match execution_lane(&execution) {
         Ok(required) => required,
@@ -144,4 +153,13 @@ pub(in crate::native) extern "C" fn readiness(snapshot: &NativeActivationExecuti
     } else {
         NativeRuntimeStatus::PENDING.code()
     }
+}
+
+// Composition checks capability before consuming the inactive owner. It need not
+// run the child on the current lane. The dispatcher selects that lane on entry.
+pub(in crate::native) extern "C" fn admission(snapshot: &NativeActivationExecution) -> u32 {
+    execution_lane(&execution(snapshot)).map_or_else(
+        |status| status.code(),
+        |_| NativeRuntimeStatus::SUCCESS.code(),
+    )
 }

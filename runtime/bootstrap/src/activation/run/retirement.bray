@@ -1,0 +1,159 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation.run;
+
+using std.memory;
+
+trusted internal func retire(
+    pos mut cursor: Cursor,
+    pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+    pos ready: bray.runtime.bootstrap.activation.callback.Ready,
+) -> (bray.runtime.bootstrap.ReportRecords, bray.runtime.bootstrap.ReportRecords, u32)
+    requires(
+        trusted selected(cursor = &cursor),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+    )
+{
+    let before = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);
+
+    let consuming = trusted lambda(
+        pos mut cursor: Cursor,
+        pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+        pos ready: bray.runtime.bootstrap.activation.callback.Ready,
+    ) -> (
+        Cursor,
+        bray.runtime.bootstrap.activation.Progress,
+        bray.runtime.bootstrap.ReportRecords,
+        bray.runtime.bootstrap.ReportRecords,
+        u32,
+        bray.runtime.bootstrap.activation.Progress
+    )
+        requires(
+            trusted selected(cursor = &cursor),
+            trusted bray.runtime.bootstrap.entry.native_entry(),
+            trusted bray.runtime.bootstrap.pool.protocol_access()
+        )
+        ensures(
+            trusted selected(cursor = &result.0),
+            trusted bray.runtime.bootstrap.pool.protocol_access(),
+            trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.1.report),
+            trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.5.report),
+        )
+        uses(intrinsic)
+    {
+        let header = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);
+
+        if header.parent == 0
+        {
+            trusted core.target.abort();
+        }
+
+        let permit = trusted lambda(pos cursor: &mut Cursor)
+            requires(trusted selected(cursor = &cursor))
+            ensures(
+                trusted selected(cursor = &cursor),
+                trusted bray.runtime.bootstrap.activation.execution.retiring(pointer = cursor.pointer)
+            )
+            executes(pure, total) {};
+
+        trusted permit(&mut cursor);
+
+        // Admission precedes all mutation. On deferral, both headers and their links
+        // remain intact. On success, only the retained parent may be accessed again.
+        let (progress, remaining, incidents, status, outcome) =
+            trusted bray.runtime.bootstrap.activation.execution.invoke(&mut cursor, callback, ready, 5, 0);
+
+        if status == bray.runtime.bootstrap.STATUS_SUCCESS
+        {
+            cursor.pointer = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(
+                address = header.parent
+            );
+        }
+
+        return (cursor, progress, remaining, incidents, status, outcome);
+    };
+
+    let (ancestor, progress, remaining, mut incidents, status, outcome) = trusted consuming(cursor, callback, ready);
+
+    if status != bray.runtime.bootstrap.STATUS_SUCCESS
+    {
+        return (incidents, remaining, status);
+    }
+
+    let retain = trusted lambda(
+        pos incidents: &mut bray.runtime.bootstrap.ReportRecords,
+        pos first: bray.runtime.bootstrap.activation.Progress,
+        pos second: bray.runtime.bootstrap.activation.Progress,
+    ) -> bray.runtime.bootstrap.activation.Progress
+        requires(
+            trusted bray.runtime.bootstrap.pool.protocol_access(),
+            trusted bray.runtime.bootstrap.native_report_callbacks(report = &first.report),
+            trusted bray.runtime.bootstrap.native_report_callbacks(report = &second.report),
+        )
+        ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+    {
+        // The second report owns its provider independently. Disposing the first
+        // record's previous primary cannot consume this retained report owner.
+        trusted bray.runtime.bootstrap.activation.execution.retain_incident(incidents, first);
+
+        return second;
+    };
+
+    let (retained, discarded) = trusted deliver(ancestor, before.abandoned, progress, outcome);
+
+    // All header access has ended before report disposal can invoke native code.
+    let incident = trusted retain(&mut incidents, discarded, retained);
+
+    trusted bray.runtime.bootstrap.activation.execution.retain_incident(&mut incidents, incident);
+    return (incidents, remaining, status);
+}
+
+trusted internal func deliver(
+    pos mut cursor: Cursor,
+    pos abandoned: u32,
+    pos progress: bray.runtime.bootstrap.activation.Progress,
+    pos incoming: bray.runtime.bootstrap.activation.Progress,
+) -> (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.activation.Progress)
+    requires(
+        trusted selected(cursor = &cursor),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &progress.report),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &incoming.report),
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.1.report),
+    )
+    uses(intrinsic)
+{
+    trusted select(&mut cursor);
+
+    let parent = trusted bray.runtime.bootstrap.activation.execution.access(&mut cursor);
+
+    parent.child = 0;
+
+    if parent.incoming.kind != 0
+    {
+        trusted core.target.abort();
+    }
+
+    // The returned reports are independent owners removed from the retired child.
+    // Only the retained parent's empty delivery slot changes, without callbacks.
+    if abandoned != 0
+    {
+        if parent.phase != bray.runtime.bootstrap.activation.CLEANUP
+        {
+            parent.incoming =
+            {
+                kind = 2,
+                state = 0,
+                payload = 0,
+                report = bray.runtime.bootstrap.empty_panic_report()
+            };
+        }
+
+        return (progress, incoming);
+    }
+
+    parent.incoming = incoming;
+    return (progress, bray.runtime.bootstrap.activation.empty_progress());
+}

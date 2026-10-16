@@ -1544,6 +1544,15 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
         include_str!("../../../../../standard-library/std/src/io/unix.bray"),
         caller,
         include_str!("../../../../../runtime/bootstrap/src/activation/data.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/completion.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/provider.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/run/abandonment.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/run/access.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/run/advance.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/run/completion.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/run/entry.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/run/retirement.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/run/step.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/storage.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/access.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/transition.bray"),
@@ -1728,6 +1737,7 @@ fn production_storage_lease_requires_admission_evidence() {
 fn production_storage_boundaries_prove_their_declared_memory_effects() {
     let compilation = production_host_compilation("module probe;");
     let mut failures = Vec::new();
+    let mut sources = std::collections::HashSet::new();
 
     let mut pending = compilation.declared_unit_keys_for_test().unwrap();
 
@@ -1736,6 +1746,7 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
             key.kind(),
             bray_bound_tree::BoundUnitKind::CallableBody
                 | bray_bound_tree::BoundUnitKind::AnonymousCallable
+                | bray_bound_tree::BoundUnitKind::ContractClause
         ) {
             continue;
         }
@@ -1754,7 +1765,18 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
             continue;
         }
 
+        sources.insert(key.source().syntax().source_id());
+
         let bound = compilation.bound_unit(key.clone()).unwrap();
+
+        if bound.diagnostics().has_errors() {
+            failures.push(format!("{key:?}: {:?}", bound.diagnostics()));
+            continue;
+        }
+
+        if key.kind() == bray_bound_tree::BoundUnitKind::ContractClause {
+            continue;
+        }
 
         pending.extend(bound.value().nested_units().iter().cloned());
 
@@ -1765,7 +1787,69 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
         }
     }
 
+    for diagnostic in compilation.check_diagnostics().iter() {
+        if diagnostic.severity() == bray_diagnostics::SeverityKind::Error
+            && diagnostic
+                .primary_span()
+                .is_some_and(|span| sources.contains(&span.source_id()))
+        {
+            failures.push(format!("{diagnostic:?}"));
+        }
+    }
+
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn activation_cursor_fields_do_not_create_or_repair_selection_authority() {
+    for (body, valid) in [
+        (
+            "let _ = trusted bray.runtime.bootstrap.activation.execution.read(original);",
+            true,
+        ),
+        (
+            "let mut cursor: bray.runtime.bootstrap.activation.run.Cursor = { root = original.root, pointer = other }; let _ = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);",
+            false,
+        ),
+        (
+            "let mut cursor: bray.runtime.bootstrap.activation.run.Cursor = { root = original.root, pointer = original.pointer }; let _ = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);",
+            false,
+        ),
+        (
+            "let mut cursor: bray.runtime.bootstrap.activation.run.Cursor = { root = other, pointer = original.pointer }; let _ = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);",
+            false,
+        ),
+    ] {
+        let compilation = production_host_compilation(&format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+            using std.memory;
+            trusted func production_probe(
+                pos original: &mut bray.runtime.bootstrap.activation.run.Cursor,
+                pos other: RawPointer<bray.runtime.bootstrap.activation.Header>,
+            )
+                requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &original))
+            {{ {body} }}
+            "#
+        ));
+
+        let checked = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{body}: {checked:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
 }
 
 #[test]
@@ -1873,11 +1957,11 @@ fn activation_dispatch_requires_exact_native_ownership() {
     for (requirements, valid) in [
         ("", false),
         (
-            "requires(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = other))",
+            "requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = other))",
             false,
         ),
         (
-            "requires(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))",
+            "requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))",
             true,
         ),
     ] {
@@ -1885,15 +1969,15 @@ fn activation_dispatch_requires_exact_native_ownership() {
             r#"
             trusted internal module bray.runtime.bootstrap;
             trusted func production_probe(
-                pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
-                pos other: RawPointer<bray.runtime.bootstrap.activation.Header>,
+                pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
+                pos other: &bray.runtime.bootstrap.activation.run.Cursor,
                 pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
                 pos ready: bray.runtime.bootstrap.activation.callback.Ready,
             ) -> bray.runtime.bootstrap.activation.Progress
                 requires(trusted bray.runtime.bootstrap.entry.native_entry())
                 {requirements}
             {{
-                let (progress, _, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(pointer, callback, ready, 0, 0);
+                let (progress, _, _, _, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, 0, 0);
                 return progress;
             }}
         "#
@@ -2018,11 +2102,12 @@ fn native_activation_dispatch_requires_both_exact_callback_addresses() {
                 pos other: RawPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
                 pos output: RawPointer<bray.runtime.bootstrap.activation.Progress>,
                 pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+                pos incidents: RawPointer<bray.runtime.bootstrap.ReportRecords>,
             ) -> u32
                 requires(
                     trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
                     trusted bray.runtime.bootstrap.entry.native_entry(),
-                    trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = pointer, output = output, records = records),
+                    trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = pointer, output = output, records = records, incidents = incidents),
                     trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Progress>(pointer = output, count = 1),
                     trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Progress>(pointer = output),
                     trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
@@ -2030,7 +2115,7 @@ fn native_activation_dispatch_requires_both_exact_callback_addresses() {
                 )
                 {requirement}
             {{
-                return trusted bray.runtime.bootstrap.activation.execution.execute(pointer, callback, ready, 0, 0, output, records);
+                return trusted bray.runtime.bootstrap.activation.execution.execute(pointer, callback, ready, 0, 0, output, records, incidents);
             }}
             "#
         );
@@ -2064,17 +2149,18 @@ fn activation_retirement_does_not_preserve_dispatch_ownership() {
             r#"
             trusted internal module bray.runtime.bootstrap;
             trusted func production_probe(
-                pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+                pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
                 pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
                 pos ready: bray.runtime.bootstrap.activation.callback.Ready,
             ) -> bray.runtime.bootstrap.activation.Progress
                 requires(
-                    trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
+                    trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
                     trusted bray.runtime.bootstrap.entry.native_entry(),
+                    trusted bray.runtime.bootstrap.activation.execution.retiring(pointer = cursor.pointer),
                 )
             {{
-                let _ = trusted bray.runtime.bootstrap.activation.execution.invoke(pointer, callback, ready, {operation}, 0);
-                let (progress, _, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(pointer, callback, ready, 0, 0);
+                let _ = trusted bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, {operation}, 0);
+                let (progress, _, _, _, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, 0, 0);
                 return progress;
             }}
             "#
@@ -2108,23 +2194,24 @@ fn activation_deferred_retirement_preserves_dispatch_ownership() {
         r#"
         trusted internal module bray.runtime.bootstrap;
         trusted func production_probe(
-            pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+            pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
             pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
             pos ready: bray.runtime.bootstrap.activation.callback.Ready,
         )
             requires(
-                trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
+                trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
                 trusted bray.runtime.bootstrap.entry.native_entry(),
+                    trusted bray.runtime.bootstrap.activation.execution.retiring(pointer = cursor.pointer),
             )
         {
-            let (_, _, status) = trusted bray.runtime.bootstrap.activation.execution.invoke(pointer, callback, ready, 5, 0);
+            let (_, _, _, status, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, 5, 0);
 
             if status == 0
             {
                 return;
             }
 
-            let _ = trusted bray.runtime.bootstrap.activation.execution.read(pointer);
+            let _ = trusted bray.runtime.bootstrap.activation.execution.read(cursor);
         }
         "#,
     );
@@ -2310,19 +2397,19 @@ fn activation_retirement_requires_retained_native_destinations() {
     for (requirement, valid) in [
         ("", false),
         (
-            "requires(trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = other, output = output, records = records))",
+            "requires(trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = other, output = output, records = records, incidents = incidents))",
             false,
         ),
         (
-            "requires(trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = pointer, output = other_output, records = records))",
+            "requires(trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = pointer, output = other_output, records = records, incidents = incidents))",
             false,
         ),
         (
-            "requires(trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = pointer, output = output, records = other_records))",
+            "requires(trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = pointer, output = output, records = other_records, incidents = incidents))",
             false,
         ),
         (
-            "requires(trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = pointer, output = output, records = records))",
+            "requires(trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = pointer, output = output, records = records, incidents = incidents))",
             true,
         ),
     ] {
@@ -2337,11 +2424,14 @@ fn activation_retirement_requires_retained_native_destinations() {
                 pos output: RawPointer<bray.runtime.bootstrap.activation.Progress>,
                 pos other_output: RawPointer<bray.runtime.bootstrap.activation.Progress>,
                 pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+                pos incidents: RawPointer<bray.runtime.bootstrap.ReportRecords>,
                 pos other_records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
             ) -> u32
                 requires(
                     trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
                     trusted bray.runtime.bootstrap.entry.native_entry(),
+                    trusted bray.runtime.bootstrap.activation.execution.retiring(pointer = pointer),
+                    trusted bray.runtime.bootstrap.activation.execution.observed(pointer = pointer),
                     trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Invoke>(pointer = callback),
                     trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready),
                     trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Progress>(pointer = output, count = 1),
@@ -2351,7 +2441,7 @@ fn activation_retirement_requires_retained_native_destinations() {
                 )
                 {requirement}
             {{
-                return trusted bray.runtime.bootstrap.activation.execution.execute(pointer, callback, ready, 5, 0, output, records);
+                return trusted bray.runtime.bootstrap.activation.execution.execute(pointer, callback, ready, 5, 0, output, records, incidents);
             }}
             "#
         );
@@ -2398,8 +2488,8 @@ fn inactive_inspection_requires_retained_exact_owner_and_output() {
             trusted func production_probe(
                 pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
                 pos other: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
-                pos output: RawPointer<bray.runtime.bootstrap.activation.requirements.State>,
-                pos other_output: RawPointer<bray.runtime.bootstrap.activation.requirements.State>,
+                pos output: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+                pos other_output: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
             ) -> u32
                 {producer}
                 requires(
@@ -2551,12 +2641,55 @@ fn active_snapshot_requires_exact_dispatch_ownership_and_retained_output() {
 
 #[test]
 fn composition_requires_the_exact_parent_token_continuation_and_origin() {
-    for (parent, token, state, origin, valid) in [
-        ("parent", "token", "state", "origin", true),
-        ("other", "token", "state", "origin", false),
-        ("parent", "other_token", "state", "origin", false),
-        ("parent", "token", "other_state", "origin", false),
-        ("parent", "token", "state", "other_origin", false),
+    for (parent, token, state, origin, destination, abandoning, valid) in [
+        ("parent", "token", "state", "origin", "destination", 0, true),
+        ("other", "token", "state", "origin", "destination", 0, false),
+        (
+            "parent",
+            "other_token",
+            "state",
+            "origin",
+            "destination",
+            0,
+            false,
+        ),
+        (
+            "parent",
+            "token",
+            "other_state",
+            "origin",
+            "destination",
+            0,
+            false,
+        ),
+        (
+            "parent",
+            "token",
+            "state",
+            "other_origin",
+            "destination",
+            0,
+            false,
+        ),
+        (
+            "parent",
+            "token",
+            "state",
+            "origin",
+            "other_destination",
+            0,
+            false,
+        ),
+        ("parent", "token", "state", "origin", "destination", 1, true),
+        (
+            "parent",
+            "other_token",
+            "state",
+            "origin",
+            "destination",
+            1,
+            false,
+        ),
     ] {
         let caller = format!(
             r#"
@@ -2567,16 +2700,20 @@ fn composition_requires_the_exact_parent_token_continuation_and_origin() {
                 pos token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
                 pos other_token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
                 pos state: u32, pos other_state: u32, pos origin: u64, pos other_origin: u64,
+                pos destination: usize, pos other_destination: usize,
+                pos ready: RawPointer<bray.runtime.bootstrap.activation.callback.Ready>,
             ) -> usize
                 requires(
                     trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
                     trusted bray.runtime.bootstrap.pool.protocol_access(),
+                    trusted bray.runtime.bootstrap.entry.native_entry(),
+                    trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready),
                     trusted bray.runtime.bootstrap.activation.composition.authorized(
-                        parent = {parent}, token = {token}, state = {state}, origin = {origin}
+                        parent = {parent}, token = {token}, state = {state}, origin = {origin}, destination = {destination}
                     ),
                 )
             {{
-                return trusted bray.runtime.bootstrap.activation.composition.compose(parent, token, state, origin);
+                return trusted bray.runtime.bootstrap.activation.composition.compose(parent, token, state, origin, destination, {abandoning}, ready);
             }}
         "#
         );
@@ -2612,11 +2749,11 @@ fn activation_completion_requires_the_exact_admitted_destination() {
             false,
         ),
         (
-            "requires(trusted bray.runtime.bootstrap.activation.execution.completion_destination(pointer = pointer, address = other_destination))",
+            "requires(trusted bray.runtime.bootstrap.activation.execution.completion_destination(pointer = cursor.pointer, address = other_destination))",
             false,
         ),
         (
-            "requires(trusted bray.runtime.bootstrap.activation.execution.completion_destination(pointer = pointer, address = destination))",
+            "requires(trusted bray.runtime.bootstrap.activation.execution.completion_destination(pointer = cursor.pointer, address = destination))",
             true,
         ),
     ] {
@@ -2624,7 +2761,7 @@ fn activation_completion_requires_the_exact_admitted_destination() {
             r#"
             trusted internal module bray.runtime.bootstrap;
             trusted func production_probe(
-                pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+                pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
                 pos other: RawPointer<bray.runtime.bootstrap.activation.Header>,
                 pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
                 pos ready: bray.runtime.bootstrap.activation.callback.Ready,
@@ -2632,12 +2769,12 @@ fn activation_completion_requires_the_exact_admitted_destination() {
                 pos other_destination: usize,
             )
                 requires(
-                    trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
+                    trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
                     trusted bray.runtime.bootstrap.entry.native_entry(),
                 )
                 {requirement}
             {{
-                let _ = trusted bray.runtime.bootstrap.activation.execution.invoke(pointer, callback, ready, 4, destination);
+                let _ = trusted bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, 4, destination);
             }}
         "#
         );
@@ -2662,4 +2799,50 @@ fn activation_completion_requires_the_exact_admitted_destination() {
             );
         }
     }
+}
+
+#[test]
+fn activation_header_access_retains_ownership_and_excludes_overlapping_borrows() {
+    let mut failures = Vec::new();
+
+    for (body, valid) in [
+        (
+            "let _ = trusted bray.runtime.bootstrap.activation.execution.read(cursor); let _ = trusted bray.runtime.bootstrap.activation.execution.read(cursor);",
+            true,
+        ),
+        (
+            "let header = trusted bray.runtime.bootstrap.activation.execution.access(cursor); header.state = 1;",
+            true,
+        ),
+        (
+            "let mut forged: bray.runtime.bootstrap.activation.run.Cursor = { root = cursor.root, pointer = other }; let header = trusted bray.runtime.bootstrap.activation.execution.access(&mut forged); header.state = 1;",
+            false,
+        ),
+        (
+            "let left = trusted bray.runtime.bootstrap.activation.execution.access(cursor); let right = trusted bray.runtime.bootstrap.activation.execution.access(cursor); left.state = 1; right.state = 2;",
+            false,
+        ),
+    ] {
+        let compilation = production_host_compilation(&format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+            trusted func production_probe(
+                pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
+                pos other: RawPointer<bray.runtime.bootstrap.activation.Header>,
+            )
+                requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
+            {{ {body} }}
+            "#
+        ));
+
+        let checked = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        if !checked.diagnostics().has_errors() != valid {
+            failures.push(format!("{body}: {:?}", checked.diagnostics()));
+        }
+    }
+
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

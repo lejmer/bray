@@ -18,7 +18,10 @@ impl Compilation {
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<
-        BTreeMap<CodegenInstanceKey, Vec<[&'static [ExecutionLaneRequirement]; 3]>>,
+        (
+            BTreeMap<CodegenInstanceKey, Vec<[&'static [ExecutionLaneRequirement]; 3]>>,
+            BTreeMap<CodegenInstanceKey, &'static [ExecutionLaneRequirement]>,
+        ),
         CodegenPreparationError,
     > {
         let instances = instances.into_iter().collect::<Vec<_>>();
@@ -30,20 +33,28 @@ impl Compilation {
             .map(|(instance, owner)| (instance.key(), (instance, owner)))
             .collect::<BTreeMap<_, _>>();
 
-        let frames = instances
-            .iter()
-            .copied()
-            .filter(|(instance, _)| instance.mir().frame_descriptor().is_some())
-            .collect::<Vec<_>>();
+        let frames =
+            instances
+                .iter()
+                .copied()
+                .filter(|(instance, _)| {
+                    instance.mir().frame_descriptor().is_some()
+                || instance.mir().operations_with_ids().any(|(_, operation)| matches!(
+                    operation.kind(), MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+                        initializer: bray_ir::MirFrameInitializer::TaskObservation { .. }, ..
+                    })
+                ))
+                })
+                .collect::<Vec<_>>();
 
         if frames.is_empty() {
-            return Ok(BTreeMap::new());
+            return Ok((BTreeMap::new(), BTreeMap::new()));
         }
 
         let mut roots = BTreeMap::new();
 
-        // Resolve each executed lifecycle operation once. Frame creation retains
-        // cleanup descriptions for later use but does not execute them.
+        // Resolve each selected lifecycle operation once, including callbacks retained
+        // by observation frames. Construction does not execute those callbacks.
         for (instance, owner) in &frames {
             let selected =
                 self.frame_operation_dependencies(instance, owner, target, cancellation)?;
@@ -133,6 +144,10 @@ impl Compilation {
         for (instance, _) in frames {
             cancellation.check()?;
 
+            if instance.mir().frame_descriptor().is_none() {
+                continue;
+            }
+
             let states = self.frame_entry_requirements(
                 instance.mir(),
                 &roots[instance.key()],
@@ -144,7 +159,12 @@ impl Compilation {
             result.insert(instance.key().clone(), states);
         }
 
-        Ok(result)
+        let helpers = helper_requirements
+            .into_iter()
+            .map(|(key, lanes)| (key.clone(), lanes))
+            .collect();
+
+        Ok((result, helpers))
     }
 
     fn frame_operation_dependencies(
@@ -160,7 +180,10 @@ impl Compilation {
         for (id, operation) in instance.mir().operations_with_ids() {
             if matches!(
                 operation.kind(),
-                MirOperationKind::Async(MirAsyncOperation::CreateFrame { .. })
+                MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+                    initializer: bray_ir::MirFrameInitializer::Callable(_),
+                    ..
+                })
             ) {
                 selected.insert(id, Vec::new());
                 continue;
@@ -228,6 +251,13 @@ impl Compilation {
                 let operation = mir
                     .operation(*id)
                     .expect("checked block owns its operation");
+
+                if matches!(
+                    operation.kind(),
+                    MirOperationKind::Async(MirAsyncOperation::CreateFrame { .. })
+                ) {
+                    continue;
+                }
 
                 for helper in &operations[id] {
                     lanes = ExecutionLaneRequirement::set(

@@ -144,9 +144,14 @@ fn emit_with_configuration(
         .clone()
         .with_additional_link_search_paths(additional_search_paths);
 
+    let debug_companion = kind == ProductKind::Executable
+        && configuration.requires_linked_debug_companion(target.object_format());
+
     let outputs = TargetOutputDescription::for_native(
         target,
-        [output_kind, TargetOutputKind::RelocatableObject],
+        [output_kind, TargetOutputKind::RelocatableObject]
+            .into_iter()
+            .chain(debug_companion.then_some(TargetOutputKind::LinkedCompanion)),
     );
 
     let request = EmissionRequest::try_new(
@@ -161,7 +166,12 @@ fn emit_with_configuration(
                 ArtifactKind::RelocatableObject,
                 ArtifactRequirement::Optional,
             ),
-        ],
+        ]
+        .into_iter()
+        .chain(debug_companion.then_some(RequestedArtifact::new(
+            ArtifactKind::LinkedCompanion,
+            ArtifactRequirement::Required,
+        ))),
         ReplacementPolicy::ReplaceExisting,
     )
     .map_err(|error| format!("native fixture emission request is invalid: {error:?}"))?

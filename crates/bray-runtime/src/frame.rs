@@ -598,19 +598,6 @@ where
     resolve_terminal_frame(frame, outcome, exit, outgoing)
 }
 
-pub(crate) fn terminalize_frame_after_broadcast<T, F>(
-    frame: Pin<Box<F>>,
-    progress: FrameProgress<T>,
-    outgoing: &mut crate::outgoing::OutgoingRecords,
-) -> Option<crate::RunOutcome<T>>
-where
-    F: ?Sized + ProtectedFrame<Output = T>,
-{
-    let (outcome, exit) = terminal_outcome(progress);
-
-    resolve_terminal_frame(frame, outcome, exit, outgoing)
-}
-
 fn terminal_outcome<T>(progress: FrameProgress<T>) -> (Option<crate::RunOutcome<T>>, FrameExit) {
     match progress {
         FrameProgress::Suspended(_) => unreachable!("suspended frames are not terminalized"),

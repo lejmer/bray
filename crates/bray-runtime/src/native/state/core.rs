@@ -19,7 +19,6 @@ use crate::{
     Scheduler, SchedulerLimits, TaskControlBlock, TaskRegistration,
 };
 
-use super::super::frame::NativeTerminalState;
 thread_local! {
     static NATIVE_CONTEXT: RefCell<NativeExecutionContext> = {
         crate::context::initialize_thread_context();
@@ -544,12 +543,19 @@ impl NativeRuntimeCore {
     }
 
     fn clear_tasks(&self) {
-        let tasks = std::mem::take(
-            &mut *self
+        let tasks = {
+            let mut tasks = self
                 .tasks
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-        );
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+            assert!(
+                tasks.values().all(NativeTaskSlot::can_destroy),
+                "runtime infrastructure retirement follows resolution of every source-owned task and result"
+            );
+
+            std::mem::take(&mut *tasks)
+        };
 
         drop(tasks);
     }
@@ -614,6 +620,22 @@ pub(in crate::native) enum NativeTaskSlot {
     },
 }
 
+impl NativeTaskSlot {
+    pub(in crate::native) fn can_destroy(&self) -> bool {
+        match self {
+            Self::Allocated(_) => true,
+            Self::Started(_) => false,
+            Self::Terminal { _task, .. } => matches!(
+                *_task
+                    .retirement
+                    .lock()
+                    .expect("retirement state is available"),
+                Retirement::Released
+            ),
+        }
+    }
+}
+
 pub(in crate::native) struct StartedTask {
     pub(in crate::native) task: Arc<NativeTask>,
     pub(in crate::native) run: Arc<super::super::run::NativeRun>,
@@ -621,7 +643,13 @@ pub(in crate::native) struct StartedTask {
     pub(in crate::native) waits: Mutex<Vec<JoinWaitRegistration<usize>>>,
     pub(in crate::native) suspended_wait: Mutex<Option<SuspendedWait>>,
     pub(in crate::native) observation_claimed: AtomicBool,
-    pub(in crate::native) terminal: Arc<NativeTerminalState>,
+    pub(in crate::native) retirement: Mutex<Retirement>,
+}
+
+pub(in crate::native) enum Retirement {
+    Retained,
+    Requested(Option<crate::TaskWakeHandle>),
+    Released,
 }
 
 pub(in crate::native) enum SuspendedWait {

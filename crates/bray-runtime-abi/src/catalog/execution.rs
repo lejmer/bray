@@ -532,7 +532,7 @@ macro_rules! runtime_role_catalog {
             }
             TaskObservationCreation {
                 "Create one lazy task-observation frame.", "task_observation_creation",
-                native: (TASK_OBSERVATION_CREATION_SYMBOL = "bray_runtime_task_observation_creation", [U64, U8, Pointer, Pointer, Pointer] -> InactiveFrame),
+                native: (TASK_OBSERVATION_CREATION_SYMBOL = "bray_runtime_task_observation_creation", [U64, U8, Pointer, Pointer, Pointer, U32] -> InactiveFrame),
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,
@@ -688,6 +688,22 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [ActivateCleanupStorage]
             }
+            ActivationHeaderLayout {
+                "Describe the provider header's target layout.", "activation_header_layout",
+                native: (ACTIVATION_HEADER_LAYOUT_SYMBOL = "bray_runtime_activation_header_layout", [Pointer, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("activation.provider.layout"), host_control: false,
+                capabilities: [], effects: []
+            }
+            ActivationInitialization {
+                "Initialize an exclusively owned native provider header.", "activation_initialization",
+                native: (ACTIVATION_INITIALIZATION_SYMBOL = "bray_runtime_activation_initialization", [Pointer, Usize, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Pointer, Usize, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("activation.provider.initialize"), host_control: false,
+                capabilities: [], effects: [CreateFrame]
+            }
             ActivationPublication {
                 "Publish initialized activation backing before transferring its token.", "activation_publication",
                 native: (ACTIVATION_PUBLICATION_SYMBOL = "bray_runtime_activation_publication", [Pointer] -> U32),
@@ -806,11 +822,10 @@ macro_rules! runtime_role_catalog {
             }
             FrameCompletionMove {
                 "Move a frame's completed result into its destination.", "frame_completion_move",
-                native: (FRAME_COMPLETION_MOVE_SYMBOL = "bray_runtime_frame_completion_move", [Pointer] -> Usize),
-                service: Execution,
+                native: (FRAME_COMPLETION_MOVE_SYMBOL = "bray_runtime_frame_completion_move", [Pointer, Pointer] -> Void),
                 call_hook: (),
-                compiler: Bray [] -> Void,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                compiler: C [Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("activation.completion.take"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [MoveCompletion]
             }
@@ -934,21 +949,46 @@ macro_rules! runtime_role_catalog {
             }
             ActivationComposition {
                 "Attach an admitted child using its parent's checked continuation requirements.", "activation_composition",
-                native: (ACTIVATION_COMPOSITION_SYMBOL = "bray_runtime_activation_composition", [Pointer, Pointer, U32, U64] -> Usize),
+                native: (ACTIVATION_COMPOSITION_SYMBOL = "bray_runtime_activation_composition", [Pointer, Pointer, U32, U64, Usize, U8, Pointer] -> Usize),
                 call_hook: (),
-                compiler: C [Pointer, Pointer, U32, U64] -> Usize,
+                compiler: C [Pointer, Pointer, U32, U64, Usize, U8, Pointer] -> Usize,
                 owner: Host, availability: All, bootstrap: ("activation.composition.compose"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [ComposeAwaitedFrame]
             }
+            ActivationRunSnapshot {
+                "Read the current run continuation for scheduler publication.", "activation_run_snapshot",
+                native: (ACTIVATION_RUN_SNAPSHOT_SYMBOL = "bray_runtime_activation_run_snapshot", [Pointer, U8, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Pointer, U8, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("activation.run.snapshot"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            ActivationStep {
+                "Advance the exclusively owned activation chain by one producer transition.", "activation_step",
+                native: (ACTIVATION_STEP_SYMBOL = "bray_runtime_activation_step", [Pointer, Pointer, Pointer, U8, U8, Pointer, Pointer, Pointer] -> U32),
+                call_hook: (), compiler: C [Pointer, Pointer, Pointer, U8, U8, Pointer, Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("activation.run.dispatch"), host_control: false,
+                capabilities: [CooperativeExecution], effects: []
+            }
             ActivationDispatch {
                 "Dispatch a retaining callback or retire a committed activation without accessing released storage.", "activation_dispatch",
-                native: (ACTIVATION_DISPATCH_SYMBOL = "bray_runtime_activation_dispatch", [Pointer, Pointer, Pointer, U32, Usize, Pointer, Pointer] -> U32),
+                native: (ACTIVATION_DISPATCH_SYMBOL = "bray_runtime_activation_dispatch", [Pointer, Pointer, Pointer, U32, Usize, Pointer, Pointer, Pointer] -> U32),
                 call_hook: (),
-                compiler: C [Pointer, Pointer, Pointer, U32, Usize, Pointer, Pointer] -> U32,
+                compiler: C [Pointer, Pointer, Pointer, U32, Usize, Pointer, Pointer, Pointer] -> U32,
                 owner: Host, availability: All, bootstrap: ("activation.execution.execute"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: []
+            }
+            ActivationCallbackAdmission {
+                "Reserve native unwind payload backing before accepting a callback owner.", "activation_callback_admission",
+                native: (ACTIVATION_CALLBACK_ADMISSION_SYMBOL = "bray_runtime_activation_callback_admission", [Usize, Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Usize, Pointer] -> U32,
+                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: [TransferCleanupIncident]
             }
             ActivationCallback {
                 "Contain one native producer callback within its Bray activation.", "activation_callback",
@@ -961,7 +1001,7 @@ macro_rules! runtime_role_catalog {
             }
             AwaitedFrameComposition {
                 "Compose one erased directly awaited frame into its parent.", "awaited_frame_composition",
-                native: (AWAITED_FRAME_COMPOSITION_SYMBOL = "bray_runtime_awaited_frame_composition", [InactiveFrame, U32] -> Void),
+                native: (AWAITED_FRAME_COMPOSITION_SYMBOL = "bray_runtime_awaited_frame_composition", [InactiveFrame, U32, Usize] -> Void),
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,

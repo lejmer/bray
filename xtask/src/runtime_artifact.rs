@@ -5,6 +5,7 @@ mod bootstrap;
 mod command;
 mod contract;
 mod entry_smoke;
+mod execution;
 mod native_index;
 mod native_link;
 mod observation_smoke;

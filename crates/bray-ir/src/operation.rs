@@ -494,11 +494,15 @@ pub enum MirAsyncOperation {
         resume_state: MirFrameStateId,
         /// Inactive child frame value.
         frame: MirOperand,
+        /// Admitted parent storage receiving the child result before resumption.
+        completion: MirStorageId,
     },
-    /// Move a directly awaited child's completion into the operation result.
+    /// Consume the transferred child outcome and its typed result storage.
     CommitAwaitedCompletion {
         /// Static or existential child frame representation.
         child: MirFrameReference,
+        /// The same destination supplied when composing this child.
+        completion: MirStorageId,
     },
     /// Transfer an inactive frame into a newly started task.
     StartTask {
