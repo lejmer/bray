@@ -2310,11 +2310,13 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             Operation::ComposeAwaitedFrame {
                 parent,
                 child,
+                resume_state,
                 frame,
             } => {
                 self.wire.write_u32(3);
                 self.wire.write_bytes(&parent.digest());
                 self.frame_reference(*child);
+                self.wire.write_u32(resume_state.raw());
                 self.operand(frame)?;
             }
             Operation::CommitAwaitedCompletion { child } => {

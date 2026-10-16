@@ -17,13 +17,13 @@ use crate::{
 };
 
 pub(super) struct NativeFrame {
-    abi: NativeProtectedFrame,
     terminal: Arc<NativeTerminalState>,
     completion: Option<crate::backing::Backing>,
     pub(in crate::native) outgoing: crate::outgoing::OutgoingRecords,
 }
 
 pub(super) struct NativeTerminalState {
+    abi: NativeProtectedFrame,
     payload: Mutex<Option<crate::backing::Backing>>,
     cleanup_incidents: Mutex<[Option<RuntimePanic>; 4]>,
 }
@@ -59,9 +59,9 @@ impl NativeFrame {
         Ok((
             Self {
                 completion: Some(completion),
-                abi: transfer.take(),
                 outgoing: crate::outgoing::OutgoingRecords::default(),
                 terminal: Arc::new(NativeTerminalState {
+                    abi: transfer.take(),
                     payload: Mutex::new(None),
                     cleanup_incidents: Mutex::new(std::array::from_fn(|_| None)),
                 }),
@@ -101,6 +101,17 @@ impl NativeFrame {
 }
 
 impl NativeTerminalState {
+    // The active dispatcher retains the provider even while its callback owns
+    // the movable Rust frame wrapper. Query the single immutable description.
+    pub(super) fn execution_state(
+        &self,
+        ordinal: ProtectedFrameStateId,
+    ) -> Option<crate::FrameExecutionState> {
+        state(&self.abi, ordinal).map(|state| {
+            crate::FrameExecutionState::new(ProtectedAsyncFrameId::new(self.abi.identity()), state)
+        })
+    }
+
     pub(super) fn record_cleanup_report(&self, report: RuntimePanic) {
         let mut incidents = self
             .cleanup_incidents
@@ -129,29 +140,29 @@ impl ProtectedFrame for NativeFrame {
     type Output = usize;
 
     fn frame(&self) -> ProtectedAsyncFrameId {
-        ProtectedAsyncFrameId::new(self.abi.identity())
+        ProtectedAsyncFrameId::new(self.terminal.abi.identity())
     }
 
     fn execution_state(
         &self,
         ordinal: ProtectedFrameStateId,
     ) -> Option<crate::FrameExecutionState> {
-        state(&self.abi, ordinal).map(|state| crate::FrameExecutionState::new(self.frame(), state))
+        self.terminal.execution_state(ordinal)
     }
 
     fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output> {
         let frame = self.get_mut();
 
         let callback = if context.cancellation_requested() {
-            frame.abi.cancel()
+            frame.terminal.abi.cancel()
         } else {
-            frame.abi.resume()
+            frame.terminal.abi.resume()
         };
 
         let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
 
         super::activation::invoke(&mut progress, &mut frame.outgoing, |progress| {
-            callback(progress, frame.abi.context());
+            callback(progress, frame.terminal.abi.context());
         });
 
         let kind = progress.kind();
@@ -185,7 +196,10 @@ impl ProtectedFrame for NativeFrame {
             );
 
             if let Err(incident) = catch_unwind(AssertUnwindSafe(|| {
-                frame.abi.move_completion()(frame.abi.context(), payload.address());
+                frame.terminal.abi.move_completion()(
+                    frame.terminal.abi.context(),
+                    payload.address(),
+                );
             })) {
                 frame.record_cleanup_incident(incident);
 
@@ -217,7 +231,7 @@ impl ProtectedFrame for NativeFrame {
             NativeFrameProgress::new(bray_runtime_abi::NativeFrameProgressKind::COMPLETED, 0, 0);
 
         super::activation::invoke(&mut progress, &mut frame.outgoing, |progress| {
-            frame.abi.broadcast_tasks()(progress, frame.abi.context());
+            frame.terminal.abi.broadcast_tasks()(progress, frame.terminal.abi.context());
         });
 
         assert!(
@@ -245,7 +259,7 @@ impl ProtectedFrame for NativeFrame {
         let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
 
         super::activation::invoke(&mut progress, &mut frame.outgoing, |progress| {
-            frame.abi.resolve_lifecycle()(progress, frame.abi.context(), exit);
+            frame.terminal.abi.resolve_lifecycle()(progress, frame.terminal.abi.context(), exit);
         });
 
         frame.retain_callback_report(progress);
@@ -255,7 +269,7 @@ impl ProtectedFrame for NativeFrame {
 impl Drop for NativeFrame {
     fn drop(&mut self) {
         if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
-            self.abi.destroy()(self.abi.context());
+            self.terminal.abi.destroy()(self.terminal.abi.context());
         })) {
             self.record_cleanup_incident(payload);
         }

@@ -59,6 +59,17 @@ trusted internal func invoke(
         trusted core.target.abort();
     }
 
+    let execution: bray.runtime.bootstrap.activation.requirements.Execution =
+        match consume trusted bray.runtime.bootstrap.activation.requirements.active(pointer, header.state)
+    {
+        case ?execution { yield execution; }
+        case none { yield trusted core.target.abort(); }
+    };
+
+    let selected_execution = std.memory.address_of<bray.runtime.bootstrap.activation.requirements.Execution>(
+        &execution
+    );
+
     let descriptor = header.descriptor;
     let context = header.context;
     let mut records = header.outgoing;
@@ -98,6 +109,7 @@ trusted internal func invoke(
     // this entry, and descriptor/context come from its exclusively owned header.
     let authorize = trusted lambda(
         pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+        pos execution: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
         pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
         pos context: usize,
         pos operation: u32,
@@ -108,6 +120,7 @@ trusted internal func invoke(
         requires(trusted owned(pointer = pointer))
         ensures(
             trusted bray.runtime.bootstrap.activation.callback.authorized(
+                execution = execution,
                 descriptor = descriptor,
                 context = context,
                 operation = operation,
@@ -123,6 +136,7 @@ trusted internal func invoke(
         let call = trusted lambda(
             pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
             pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+            pos execution: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
             pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
             pos context: usize,
             pos operation: u32,
@@ -134,6 +148,7 @@ trusted internal func invoke(
                 trusted owned(pointer = pointer),
                 trusted bray.runtime.bootstrap.entry.native_entry(),
                 trusted bray.runtime.bootstrap.activation.callback.authorized(
+                    execution = execution,
                     descriptor = descriptor,
                     context = context,
                     operation = operation,
@@ -150,6 +165,7 @@ trusted internal func invoke(
         {
             return trusted bray.runtime.bootstrap.activation.callback.invoke(
                 callback,
+                execution,
                 descriptor,
                 context,
                 operation,
@@ -161,11 +177,12 @@ trusted internal func invoke(
 
         // Select the retaining contract before entry. The complete header is
         // resident during reentry, and a fresh read preserves callback changes.
-        trusted authorize(pointer, descriptor, context, operation, argument, output, available);
+        trusted authorize(pointer, selected_execution, descriptor, context, operation, argument, output, available);
 
         let (progress, remaining) = trusted call(
             pointer,
             callback,
+            selected_execution,
             descriptor,
             context,
             operation,
@@ -189,10 +206,11 @@ trusted internal func invoke(
 
     // Destruction may release the header. Remaining records leave through the
     // caller's destination, and nothing reads or writes the header after entry.
-    trusted authorize(pointer, retained, context, 5, argument, output, available);
+    trusted authorize(pointer, selected_execution, retained, context, 5, argument, output, available);
 
     return trusted bray.runtime.bootstrap.activation.callback.invoke(
         callback,
+        selected_execution,
         retained,
         context,
         5,

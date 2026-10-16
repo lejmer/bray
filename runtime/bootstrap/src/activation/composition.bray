@@ -1,0 +1,148 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation.composition;
+
+using std.memory;
+
+// The current run exclusively dispatches this parent and retains this exact
+// inactive token slot. Admission checked the child's initial requirements against
+// the parent's requested continuation and the run's admitted lanes. No callback
+// can consume either owner before this call returns. Failure preserves both.
+trusted internal predicate authorized(
+    parent: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+    state: u32,
+    origin: u64,
+);
+
+@abi(c)
+trusted internal func compose(
+    pos parent: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    pos token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+    pos state: u32,
+    pos origin: u64,
+) -> usize
+    requires(
+        trusted authorized(parent = parent, token = token, state = state, origin = origin),
+        trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+    )
+    ensures(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent))
+    uses(intrinsic)
+{
+    let inspect = trusted lambda(
+        pos parent: RawPointer<bray.runtime.bootstrap.activation.Header>,
+        pos token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+        pos state: u32,
+        pos origin: u64,
+    ) -> bray.runtime.bootstrap.activation.Inactive
+        requires(
+            trusted authorized(parent = parent, token = token, state = state, origin = origin),
+            trusted bray.runtime.bootstrap.pool.protocol_access(),
+        )
+        ensures(
+            trusted bray.runtime.bootstrap.pool.protocol_access(),
+            trusted bray.runtime.bootstrap.activation.producer(token = &result),
+            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = &result),
+            trusted bray.runtime.bootstrap.activation.entry_authorized(token = &result, origin = origin),
+            trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
+        )
+        uses(raw_memory)
+    {
+        let permit = trusted lambda(pos token: RawPointer<bray.runtime.bootstrap.activation.Inactive>)
+            ensures(
+                trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = token, count = 1),
+                trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = token),
+                trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = token),
+            )
+            executes(pure, total) {};
+
+        trusted permit(token);
+        return trusted std.memory.read<bray.runtime.bootstrap.activation.Inactive>(token);
+    };
+
+    let query = trusted lambda(
+        pos parent: RawPointer<bray.runtime.bootstrap.activation.Header>,
+        pos token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+        pos state: u32,
+        pos origin: u64,
+    ) -> bray.runtime.bootstrap.activation.requirements.Execution?
+        requires(
+            trusted authorized(parent = parent, token = token, state = state, origin = origin),
+            trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
+            trusted bray.runtime.bootstrap.pool.protocol_access(),
+        )
+        ensures(
+            trusted authorized(parent = parent, token = token, state = state, origin = origin),
+            trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
+            trusted bray.runtime.bootstrap.pool.protocol_access(),
+        )
+    {
+        // The metadata provider cannot mutate the independently retained token
+        // slot or consume either owner. This preserves the exact admission pair.
+        return trusted bray.runtime.bootstrap.activation.requirements.active(parent, state);
+    };
+
+    // Query before consuming the child. The source callback has not published
+    // suspension yet, so use its explicit continuation rather than header.state.
+    let execution = match consume trusted query(parent, token, state, origin)
+    {
+        case ?execution { yield execution; }
+        case none { return 0; }
+    };
+
+    let value = trusted inspect(parent, token, state, origin);
+    let address = trusted bray.runtime.bootstrap.activation.begin(&value, origin);
+
+    if address == 0
+    {
+        return 0;
+    }
+
+    // Successful resident admission establishes the new child owner. These local
+    // writes only connect the returned header to the already retained parent.
+    let connect = trusted lambda(
+        pos parent: RawPointer<bray.runtime.bootstrap.activation.Header>,
+        pos child: RawPointer<bray.runtime.bootstrap.activation.Header>,
+        pos execution: bray.runtime.bootstrap.activation.requirements.Execution,
+        pos address: usize,
+    )
+        ensures(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent))
+        uses(raw_memory, unchecked_init)
+    {
+        let permit = trusted lambda(pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>)
+            ensures(
+                trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
+                trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Header>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Header>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        trusted permit(parent);
+
+        let mut retained = trusted bray.runtime.bootstrap.activation.execution.read(parent);
+
+        trusted permit(child);
+
+        let mut attached = trusted bray.runtime.bootstrap.activation.execution.read(child);
+
+        trusted bray.runtime.bootstrap.activation.attach(
+            &mut retained,
+            &mut attached,
+            execution.address,
+            address,
+            execution.requirements.affinity,
+            execution.requirements.lanes,
+            execution.origin
+        );
+
+        trusted permit(child);
+        trusted std.memory.write<bray.runtime.bootstrap.activation.Header>(child, attached);
+        trusted permit(parent);
+        trusted std.memory.write<bray.runtime.bootstrap.activation.Header>(parent, retained);
+    };
+
+    let child = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(address = address);
+
+    trusted connect(parent, child, execution, address);
+    return address;
+}

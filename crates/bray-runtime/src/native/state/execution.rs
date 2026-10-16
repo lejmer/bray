@@ -90,13 +90,17 @@ impl NativeRuntime {
     pub(in crate::native) fn compose_awaited(
         &self,
         frame: bray_runtime_abi::NativeInactiveFrame,
+        resume_state: u32,
     ) -> NativeRuntimeStatus {
         let Some(parent) = current_native_task() else {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
         };
 
-        self.with_started(parent, |task| task.run.compose(frame))
-            .unwrap_or_else(|status| status)
+        self.with_started(parent, |task| {
+            task.run
+                .compose(frame, ProtectedFrameStateId::new(resume_state))
+        })
+        .unwrap_or_else(|status| status)
     }
 
     pub(in crate::native) fn resolve_awaited_completion(

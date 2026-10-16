@@ -116,17 +116,6 @@ impl Lowerer<'_> {
 
         let child = MirFrameReference::Erased;
 
-        self.push_operation(
-            current,
-            Self::retained_source(&source),
-            MirOperationKind::Async(MirAsyncOperation::ComposeAwaitedFrame {
-                parent,
-                child,
-                frame: frame_value,
-            }),
-            None,
-        )?;
-
         let resume = self.builder.push_block(
             Self::retained_source(&source),
             self.builder.block_kind(current),
@@ -160,6 +149,18 @@ impl Lowerer<'_> {
 
         let broadcast = self.frame_broadcast(&source, occurrence, false)?;
         let state = self.next_frame_state()?;
+
+        self.push_operation(
+            current,
+            Self::retained_source(&source),
+            MirOperationKind::Async(MirAsyncOperation::ComposeAwaitedFrame {
+                parent,
+                child,
+                resume_state: state,
+                frame: frame_value,
+            }),
+            None,
+        )?;
 
         self.set_terminator(
             current,

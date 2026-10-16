@@ -83,8 +83,9 @@ native_adapter! {
 native_adapter! {
     pub extern "C-unwind" fn bray_runtime_awaited_frame_composition(
         frame: NativeInactiveFrame,
+        resume_state: u32,
     ) {
-        implementation::bray_runtime_awaited_frame_composition(frame)
+        implementation::bray_runtime_awaited_frame_composition(frame, resume_state)
     }
 }
 
@@ -147,6 +148,7 @@ native_adapter! {
 
 native_adapter! {
     pub extern "C" fn bray_runtime_activation_callback(
+        execution: &bray_runtime_abi::NativeActivationExecution,
         descriptor: &bray_runtime_abi::NativeActivationDescriptor,
         context: usize,
         operation: u32,
@@ -155,7 +157,7 @@ native_adapter! {
         records: &mut bray_runtime_abi::NativeReportRecords,
     ) {
         implementation::bray_runtime_activation_callback(
-            descriptor, context, operation, argument, destination, records,
+            execution, descriptor, context, operation, argument, destination, records,
         )
     }
 }

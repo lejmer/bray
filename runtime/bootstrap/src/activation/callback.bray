@@ -5,12 +5,14 @@ using std.memory;
 using internal bray.runtime.bootstrap.activation;
 using internal bray.runtime.bootstrap;
 
-// One invocation owns this exact descriptor/context pairing and both disjoint
+// One invocation binds the checked execution snapshot to its exact descriptor,
+// context and operation. It owns both disjoint
 // output slots. The progress slot is initialized with an empty report.
 // The records slot owns the admitted records removed from that
 // activation. Retaining operations keep its frame alive, and consuming retirement
 // retains its descriptor copy and provider code through return.
 trusted internal predicate authorized(
+    execution: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
     descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
     context: usize,
     operation: u32,
@@ -22,6 +24,7 @@ trusted internal predicate authorized(
 // The native bridge contains unwind and retains the selected provider throughout
 // the call. Frame headers are not borrowed while producer code executes.
 internal callable Invoke = @abi(c) trusted func(
+    pos execution: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
     pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
     pos context: usize,
     pos operation: u32,
@@ -32,6 +35,7 @@ internal callable Invoke = @abi(c) trusted func(
     requires(
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted authorized(
+            execution = execution,
             descriptor = descriptor,
             context = context,
             operation = operation,
@@ -63,6 +67,7 @@ trusted internal predicate returned(
 
 trusted internal func invoke(
     pos callback: Invoke,
+    pos execution: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
     pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
     pos context: usize,
     pos operation: u32,
@@ -73,6 +78,7 @@ trusted internal func invoke(
     requires(
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted authorized(
+            execution = execution,
             descriptor = descriptor,
             context = context,
             operation = operation,
@@ -84,7 +90,7 @@ trusted internal func invoke(
     ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report))
     uses(raw_memory)
 {
-    trusted callback(descriptor, context, operation, argument, progress, records);
+    trusted callback(execution, descriptor, context, operation, argument, progress, records);
 
     let take = trusted lambda(
         pos source: RawPointer<bray.runtime.bootstrap.activation.Progress>,

@@ -132,6 +132,25 @@ fn async_callables_lower_to_protected_frames_and_explicit_suspension() {
             .any(|block| matches!(block.terminator().kind(), MirTerminatorKind::Suspend { .. }))
     );
 
+    for block in mir.blocks() {
+        let MirTerminatorKind::Suspend { resume_state, .. } = block.terminator().kind() else {
+            continue;
+        };
+
+        for operation in block.operations() {
+            if let MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+                resume_state: admitted,
+                ..
+            }) = mir.operation(*operation).unwrap().kind()
+            {
+                assert_eq!(
+                    admitted, resume_state,
+                    "composition checks the suspended parent's continuation"
+                );
+            }
+        }
+    }
+
     assert!(mir.operations().iter().any(|operation| matches!(
         operation.kind(),
         MirOperationKind::Async(bray_ir::MirAsyncOperation::PublishTerminalState {

@@ -837,7 +837,14 @@ fn validate_async_operation(
             validate_storage_kind(unit, *storage, MirStorageKind::CurrentFrame)?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::FrameResume)?;
         }
-        MirAsyncOperation::ComposeAwaitedFrame { frame, .. } => {
+        MirAsyncOperation::ComposeAwaitedFrame {
+            parent,
+            resume_state,
+            frame,
+            ..
+        } => {
+            validate_current_frame(unit, *parent)?;
+            validate_frame_state(unit, *resume_state)?;
             validate_operand(unit, frame, block, Some(operation_id))?;
         }
         MirAsyncOperation::CommitAwaitedCompletion { .. } => {}

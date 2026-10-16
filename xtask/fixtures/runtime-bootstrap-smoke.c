@@ -1073,32 +1073,34 @@ typedef struct
     ActivationRecords incidents, outgoing;
 } ActivationHeader;
 
-typedef void (*ActivationCallback)(const ActivationDescriptor*, uintptr_t, uint32_t,
-    uintptr_t, ActivationProgress*, ActivationRecords*);
-
 typedef struct
 {
+    uintptr_t address;
     unsigned char identity[32];
     uint32_t state;
     ActivationState requirements;
     uint64_t origin;
 } ActivationExecution;
 
-extern uint32_t bray_runtime_activation_snapshot(const ActivationHeader*, ActivationExecution*);
+typedef void (*ActivationCallback)(const ActivationExecution*, const ActivationDescriptor*, uintptr_t, uint32_t,
+    uintptr_t, ActivationProgress*, ActivationRecords*);
+
+extern uint32_t bray_runtime_activation_snapshot(const ActivationHeader*, uint32_t, ActivationExecution*);
 extern uint32_t bray_runtime_activation_inspection(const InactiveActivation*, uint32_t, ActivationState*);
 extern uintptr_t bray_runtime_activation_entry(const InactiveActivation*, uint64_t);
+extern uintptr_t bray_runtime_activation_composition(ActivationHeader*, const InactiveActivation*, uint32_t, uint64_t);
 extern uint32_t bray_runtime_activation_dispatch(ActivationHeader*, ActivationCallback,
     uint32_t, uintptr_t, ActivationProgress*, ActivationRecords*);
 
 #ifdef BRAY_ACTIVATION_NATIVE_CALLBACK
-extern void bray_runtime_activation_callback(const ActivationDescriptor*, uintptr_t, uint32_t,
+extern void bray_runtime_activation_callback(const ActivationExecution*, const ActivationDescriptor*, uintptr_t, uint32_t,
     uintptr_t, ActivationProgress*, ActivationRecords*);
 #endif
 
 static unsigned activation_calls;
 static unsigned activation_queries;
 
-static void activation_callback(const ActivationDescriptor* descriptor, uintptr_t context,
+static void activation_callback(const ActivationExecution* execution, const ActivationDescriptor* descriptor, uintptr_t context,
     uint32_t operation, uintptr_t argument, ActivationProgress* progress, ActivationRecords* records)
 {
     ActivationHeader* header = (ActivationHeader*)context;
@@ -1106,6 +1108,9 @@ static void activation_callback(const ActivationDescriptor* descriptor, uintptr_
     ++activation_calls;
 
     if (
+        execution->address != (uintptr_t)header ||
+        memcmp(execution->identity, descriptor->storage.identity, 32) != 0 ||
+        execution->state != header->state || execution->origin != header->origin ||
         (operation != 5 && header->descriptor != descriptor) ||
         header->outgoing.count != 0 || records->count != 0
     )
@@ -1120,7 +1125,7 @@ static void activation_callback(const ActivationDescriptor* descriptor, uintptr_
 
         descriptor->destroy(context);
 
-        if (descriptor->storage.bytes != bytes)
+        if (descriptor->storage.bytes != bytes || execution->address != context)
             abort();
 
         return;
@@ -1172,7 +1177,7 @@ static ActivationState activation_state(uintptr_t context, uint32_t state)
 {
     const ActivationHeader* header = (const ActivationHeader*)context;
 
-    if (header->phase > 1 || state >= header->descriptor->states)
+    if (header->phase > 4 || state >= header->descriptor->states)
         abort();
 
     // Inspection must release the pool lock before entering provider code.
@@ -1274,9 +1279,9 @@ static int check_activation_snapshot(ActivationHeader* header)
     ActivationExecution execution = { 0 };
     uint64_t origin = header->origin;
 
-    if (bray_runtime_activation_snapshot(header, &execution) != 0 ||
+    if (bray_runtime_activation_snapshot(header, header->state, &execution) != 0 ||
         memcmp(execution.identity, header->descriptor->storage.identity, 32) != 0 ||
-        execution.state != 0 || execution.requirements.affinity != 0 ||
+        execution.address != (uintptr_t)header || execution.state != 0 || execution.requirements.affinity != 0 ||
         execution.requirements.lanes != 0 || execution.origin != origin)
         return 103;
 
@@ -1285,7 +1290,7 @@ static int check_activation_snapshot(ActivationHeader* header)
     header->retained_lanes = 2;
     header->retained_origin = origin;
 
-    if (bray_runtime_activation_snapshot(header, &execution) != 0 ||
+    if (bray_runtime_activation_snapshot(header, header->state, &execution) != 0 ||
         execution.state != 1 || execution.requirements.affinity != 1 ||
         execution.requirements.lanes != 7 || execution.origin != origin)
         return 104;
@@ -1294,7 +1299,7 @@ static int check_activation_snapshot(ActivationHeader* header)
     header->retained_affinity = 1;
     header->retained_lanes = 1;
 
-    if (bray_runtime_activation_snapshot(header, &execution) != 0 ||
+    if (bray_runtime_activation_snapshot(header, header->state, &execution) != 0 ||
         execution.state != 2 || execution.requirements.affinity != 1 ||
         execution.requirements.lanes != 7 || execution.origin != origin)
         return 105;
@@ -1303,7 +1308,7 @@ static int check_activation_snapshot(ActivationHeader* header)
     header->retained_origin = origin == 1 ? 2 : 1;
     ActivationExecution before = execution;
 
-    if (bray_runtime_activation_snapshot(header, &execution) != 3 ||
+    if (bray_runtime_activation_snapshot(header, header->state, &execution) != 3 ||
         memcmp(&before, &execution, sizeof(before)) != 0)
         return 106;
 
@@ -1318,12 +1323,57 @@ static int check_activation_snapshot(ActivationHeader* header)
 
         header->state = state;
 
-        if (bray_runtime_activation_snapshot(header, &execution) != 3 ||
+        if (bray_runtime_activation_snapshot(header, header->state, &execution) != 3 ||
             memcmp(&before, &execution, sizeof(before)) != 0)
             return 107;
     }
 
     header->state = 0;
+    return 0;
+}
+
+static int check_activation_composition(ActivationHeader* parent, InactiveActivation* token)
+{
+    ActivationExecution continuation = { 0 };
+    ActivationState child = { 0 };
+    uint64_t origin = bray_runtime_current_native_thread_identity();
+
+    // This native fixture retains both slots and permits blocking execution on
+    // its current thread. Only the requested continuation requires that lane.
+    if (bray_runtime_activation_snapshot(parent, 1, &continuation) != 0 ||
+        bray_runtime_activation_inspection(token, 0, &child) != 0 ||
+        continuation.requirements.affinity != 1 || continuation.requirements.lanes != 1 ||
+        continuation.origin != origin || child.affinity != 0 || child.lanes != 0)
+        return 108;
+
+    unsigned attempts = atomic_load(&allocation_attempts);
+    InactiveActivation original = *token;
+    uintptr_t address = bray_runtime_activation_composition(parent, token, 1, origin);
+
+    if (address == 0 || memcmp(token, &original, sizeof(original)) != 0 ||
+        atomic_load(&allocation_attempts) != attempts)
+        return 109;
+
+    ActivationHeader* attached = (ActivationHeader*)address;
+    *token = (InactiveActivation){ 0 };
+
+    if (parent->child != address || parent->state != 0 || attached->parent != (uintptr_t)parent ||
+        attached->phase != 1 || attached->retained_affinity != 1 || attached->retained_lanes != 1 ||
+        attached->retained_origin != origin)
+        return 110;
+
+    // No source callback has entered this fixture child. End the fixture-owned
+    // relationship before testing its consuming provider callback.
+    parent->child = 0;
+    attached->parent = 0;
+    attached->phase = 4;
+    ActivationProgress retired = { 0 };
+    ActivationRecords remaining = { 0 };
+
+    if (bray_runtime_activation_dispatch(attached, activation_callback, 5, 0, &retired, &remaining) != 0 ||
+        retired.kind != 1 || remaining.count != 0 || atomic_load(&allocation_attempts) != attempts)
+        return 111;
+
     return 0;
 }
 
@@ -1338,6 +1388,8 @@ static int check_activation_publication(int embedded_descriptor, int restricted)
     };
 
     CleanupLease lease = { 0 };
+    CleanupLease child_lease = { 0 };
+    InactiveActivation child = { 0 };
     int status = 0;
 
     if (bray_runtime_thread_attachment_enter() != 0)
@@ -1376,6 +1428,35 @@ static int check_activation_publication(int embedded_descriptor, int restricted)
 
     ActivationHeaderPrefix header = { lease, token.descriptor, lease.address };
     memcpy(bytes, &header, sizeof(header));
+
+    if (!restricted)
+    {
+        if (bray_runtime_cleanup_storage_admission(&descriptor.storage, &child_lease) != 0)
+        {
+            status = 112;
+            goto cleanup;
+        }
+
+        ActivationHeader* child_header = (ActivationHeader*)bray_runtime_cleanup_storage_activation(&child_lease, &descriptor.storage);
+
+        if (child_header == NULL)
+        {
+            status = 113;
+            goto cleanup;
+        }
+
+        memset(child_header, 0, descriptor.storage.bytes);
+        child = (InactiveActivation){ child_lease, &descriptor };
+        child_header->lease = child_lease;
+        child_header->descriptor = &descriptor;
+        child_header->context = child_lease.address;
+
+        if (bray_runtime_activation_publication(&child) != 0)
+        {
+            status = 114;
+            goto cleanup;
+        }
+    }
 
     atomic_store(&reject_allocations, 1);
     unsigned attempts = atomic_load(&allocation_attempts);
@@ -1506,6 +1587,13 @@ static int check_activation_publication(int embedded_descriptor, int restricted)
     if (status != 0)
         goto cleanup;
 
+    status = check_activation_composition((ActivationHeader*)active, &child);
+
+    if (status != 0)
+        goto cleanup;
+
+    child_lease = (CleanupLease){ 0 };
+
     int dispatch_status = check_activation_dispatch((ActivationHeader*)active, activation_callback);
 #ifdef BRAY_ACTIVATION_NATIVE_CALLBACK
     if (dispatch_status == 0)
@@ -1575,6 +1663,9 @@ static int check_activation_publication(int embedded_descriptor, int restricted)
         goto cleanup;
     }
 cleanup:
+    if (child_lease.address != 0)
+        bray_runtime_cleanup_storage_release(&child_lease);
+
     atomic_store(&reject_allocations, 0);
 
     if (lease.slot != 0 && bray_runtime_cleanup_storage_release(&lease) != 0 && status == 0)

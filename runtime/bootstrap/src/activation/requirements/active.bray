@@ -6,6 +6,7 @@ using std.memory;
 @layout(c)
 internal struct Execution
 {
+    address: usize;
     identity: [u8; 32];
     state: u32;
     requirements: State;
@@ -19,10 +20,13 @@ trusted internal predicate active_destination(
     output: RawPointer<Execution>,
 );
 
-trusted internal func active(pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>) -> Execution?
+trusted internal func active(
+    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    pos state: u32
+) -> Execution?
     requires(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
     ensures(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
-    uses(layout_reinterpret)
+    uses(intrinsic, layout_reinterpret)
 {
     let header = trusted bray.runtime.bootstrap.activation.execution.read(pointer);
 
@@ -51,7 +55,7 @@ trusted internal func active(pos pointer: RawPointer<bray.runtime.bootstrap.acti
 
     let descriptor = trusted describe(pointer, header.descriptor);
 
-    if header.state >= descriptor.states
+    if state >= descriptor.states
     {
         return none;
     }
@@ -81,7 +85,7 @@ trusted internal func active(pos pointer: RawPointer<bray.runtime.bootstrap.acti
     };
 
     let callback = trusted std.memory.reinterpret<Query, u8>(descriptor.state);
-    let own = trusted query(pointer, callback, header.context, header.state);
+    let own = trusted query(pointer, callback, header.context, state);
 
     let parent: State =
     {
@@ -106,8 +110,9 @@ trusted internal func active(pos pointer: RawPointer<bray.runtime.bootstrap.acti
 
     let execution: Execution =
     {
+        address = trusted core.target.expose_address<bray.runtime.bootstrap.activation.Header>(pointer),
         identity = descriptor.storage.identity,
-        state = header.state,
+        state = state,
         requirements = requirements,
         origin = origin
     };
@@ -121,6 +126,7 @@ trusted internal func active(pos pointer: RawPointer<bray.runtime.bootstrap.acti
 @abi(c)
 trusted internal func snapshot(
     pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    pos state: u32,
     pos output: RawPointer<Execution>,
 ) -> u32
     requires(
@@ -131,6 +137,7 @@ trusted internal func snapshot(
 {
     let query = trusted lambda(
         pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+        pos state: u32,
         pos output: RawPointer<Execution>,
     ) -> Execution?
         requires(
@@ -142,10 +149,10 @@ trusted internal func snapshot(
             trusted core.memory.aligned_for<Execution>(pointer = output),
         )
     {
-        return trusted active(pointer);
+        return trusted active(pointer, state);
     };
 
-    let execution = match consume trusted query(pointer, output)
+    let execution = match consume trusted query(pointer, state, output)
     {
         case ?execution { yield execution; }
         case none { return 3; }

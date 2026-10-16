@@ -196,8 +196,9 @@ native_export! {
 native_export! {
     pub extern "C-unwind" fn bray_runtime_awaited_frame_composition(
         frame: NativeInactiveFrame,
+        resume_state: u32,
     ) {
-        let status = with_runtime(|runtime| runtime.compose_awaited(frame))
+        let status = with_runtime(|runtime| runtime.compose_awaited(frame, resume_state))
             .unwrap_or_else(|status| status);
 
         assert!(status.is_success(), "awaited-frame composition failed");
@@ -1964,10 +1965,10 @@ mod tests {
 
     extern "C-unwind" fn catch_awaited_failure(destination: &mut NativeFrameProgress, kind: usize) {
         if AWAITED_FAILURE_PHASE.fetch_add(1, Ordering::Relaxed) == 0 {
-            bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(
-                kind,
-                move_failing_child,
-            ));
+            bray_runtime_awaited_frame_composition(
+                NativeInactiveFrame::new(kind, move_failing_child),
+                1,
+            );
 
             *destination = NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 1, 0);
             return;
@@ -2200,12 +2201,15 @@ mod tests {
     }
 
     extern "C-unwind" fn compose_child_then_panic(_: &mut NativeFrameProgress, _: usize) {
-        bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(0, move_pending_child));
+        bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(0, move_pending_child), 1);
         panic!("parent failed before publishing its awaited suspension");
     }
 
     extern "C-unwind" fn reject_conflicting_child(destination: &mut NativeFrameProgress, _: usize) {
-        bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(0, move_conflicting_child));
+        bray_runtime_awaited_frame_composition(
+            NativeInactiveFrame::new(0, move_conflicting_child),
+            1,
+        );
 
         *destination = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
     }
@@ -2224,10 +2228,10 @@ mod tests {
         let resumes = EXACT_BLOCKING_PARENT_RESUMES.fetch_add(1, Ordering::Relaxed);
 
         *destination = if resumes == 0 {
-            bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(
-                0,
-                move_blocking_child,
-            ));
+            bray_runtime_awaited_frame_composition(
+                NativeInactiveFrame::new(0, move_blocking_child),
+                1,
+            );
 
             bray_runtime_suspension_registration(1)
         } else {
@@ -2241,10 +2245,10 @@ mod tests {
         let resumes = ORIGIN_PARENT_RESUMES.fetch_add(1, Ordering::Relaxed);
 
         *destination = if resumes == 0 {
-            bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(
-                event,
-                move_origin_child,
-            ));
+            bray_runtime_awaited_frame_composition(
+                NativeInactiveFrame::new(event, move_origin_child),
+                1,
+            );
 
             bray_runtime_suspension_registration(1)
         } else {
@@ -2261,7 +2265,7 @@ mod tests {
         let rejection = crate::outgoing::tests::reject_admission();
 
         let rejected = super::with_runtime(|runtime| {
-            runtime.compose_awaited(NativeInactiveFrame::new(0, move_rejected_child))
+            runtime.compose_awaited(NativeInactiveFrame::new(0, move_rejected_child), 1)
         })
         .unwrap_or_else(|status| status);
 
@@ -2270,7 +2274,7 @@ mod tests {
         drop(rejection);
 
         let accepted = super::with_runtime(|runtime| {
-            runtime.compose_awaited(NativeInactiveFrame::new(0, move_rejected_child))
+            runtime.compose_awaited(NativeInactiveFrame::new(0, move_rejected_child), 1)
         })
         .unwrap_or_else(|status| status);
 
@@ -2326,10 +2330,10 @@ mod tests {
         *destination = if state.load(Ordering::Relaxed) == 0 && depth < DEEP_AWAIT_DEPTH {
             state.store(1, Ordering::Relaxed);
 
-            bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(
-                depth + 1,
-                move_deep_await_child,
-            ));
+            bray_runtime_awaited_frame_composition(
+                NativeInactiveFrame::new(depth + 1, move_deep_await_child),
+                1,
+            );
 
             NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 1, 0)
         } else {
@@ -2478,10 +2482,10 @@ mod tests {
 
             AWAITED_BLOCKING_COMPLETIONS.store(completed + 1, Ordering::Relaxed);
 
-            bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(
-                0,
-                move_blocking_child,
-            ));
+            bray_runtime_awaited_frame_composition(
+                NativeInactiveFrame::new(0, move_blocking_child),
+                1,
+            );
 
             bray_runtime_suspension_registration(1)
         })();
@@ -2491,10 +2495,10 @@ mod tests {
         let resumes = EVENT_PARENT_RESUMES.fetch_add(1, Ordering::Relaxed);
 
         *destination = if resumes == 0 {
-            bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(
-                event,
-                move_event_child,
-            ));
+            bray_runtime_awaited_frame_composition(
+                NativeInactiveFrame::new(event, move_event_child),
+                1,
+            );
 
             bray_runtime_suspension_registration(1)
         } else {

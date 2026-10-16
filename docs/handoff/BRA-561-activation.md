@@ -926,3 +926,64 @@ Next connect the checked execution metadata to each native callback invocation,
 then switch the production token consumers and iterative run ownership together.
 Native admission, inactive Future retirement, result consumption and suspendable
 cleanup remain outstanding parts of BRA-561. This checkpoint does not complete it.
+
+
+## Continuation admission integration in progress
+
+Composition carries the parent's continuation ordinal from lowering through MIR,
+LLVM, imported executable templates and the native ABI. Assign the ordinal after
+cleanup expansion, which may create its own suspension states. It must be the
+same ordinal subsequently published by the suspension terminator.
+
+The Bray composition boundary queries that continuation before activating the
+child. Its native admission contract binds the exact parent, inactive slot,
+continuation and origin. Metadata callbacks preserve these independently retained
+owners and their attachment. Successful resident admission connects the returned
+child header. Token bytes remain unchanged, and the caller consumes its inactive
+owner only on success. No runtime allocation is introduced by this transition.
+
+The active snapshot now carries its exact header address and requested state to
+the callback. The generic native callback still only contains producer unwind.
+An unused scoped-dispatch implementation was removed. The future production run
+bridge must install the snapshot's execution context after lane admission.
+
+For the current native caller, retain its single immutable descriptor in the
+existing shared terminal record, so its continuation remains queryable while a
+source callback temporarily holds the Rust frame wrapper. This relocates the
+existing description without another allocation or descriptor copy. NativeFrame,
+NativeActivation and their backing ownership still require replacement.
+
+The focused authority audit previously omitted nested callable units. Extend its
+existing traversal to include nested lambdas. The real native product exposed
+missing access evidence in the composition connector. Issue that evidence at
+each access to the two distinct admitted headers, using the local connector only.
+No exported helper grants ownership to an arbitrary reconstructed header.
+
+The expanded production-body audit, five exact-pairing cases, async lowering,
+all 76 lowering tests and 190 package-interface tests pass. ABI layout tests and
+all 173 runtime tests pass. Rustfmt, mutating style and Bray formatting pass.
+Native smoke first stopped on a C fixture pointer conversion, which was corrected
+with the explicit cast used by neighboring fixtures. The full native artifact smoke rerun passes, including both callback bridges, allocation denial and recursive entry. The checkpoint audit covers continuation serialization, immutable metadata ownership, exact callback pairing and fixture formatting. Logs use `bra-561-composition-` in the shared
+target's `bra-620-authority` directory.
+
+The remaining driver switch must address these obligations together:
+
+- Replace the two-word inactive adapter with the admitted lease and immutable
+  description. Switch roots, starts, direct awaits, static finalizers and native
+  observation factories, then remove MoveBeforeStart and the Rust activation graph.
+- Keep the pending parent outcome while its child drains. Broadcast before
+  resolving, preserve cleanup shields across suspension and dispatch callbacks
+  outside locks. Query metadata for the actual requested continuation.
+- Distinguish completed but unconsumed results from transferred results. A failed
+  parent cannot silently destroy backing containing an unconsumed owned result.
+  Completion movers must leave their input intact on failure before commit.
+- Retain frame backing through the generated completion load and any remaining
+  dependent users. A copied payload address is not a storage lifetime proof.
+- Wire inactive Future capture retirement through the shared driver. Its current
+  product lifecycle selection still incorrectly treats Future as trivial.
+- Native providers reserve unwind-report backing at owner formation. Source
+  factories and their callbacks must not acquire it during direct composition.
+
+These are BRA-561 acceptance obligations, not new issues or completed evidence.
+BRA-505 and BRA-619 remain next in the authorized sequence after this PR's
+implementation, verification and independent review.

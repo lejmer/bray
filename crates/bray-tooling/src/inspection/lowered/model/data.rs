@@ -1446,9 +1446,11 @@ fn async_operation(
         MirAsyncOperation::ComposeAwaitedFrame {
             parent,
             child,
+            resume_state,
             frame,
         } => {
             parts.attribute("parent_frame", digest_text(parent.digest()));
+            parts.attribute("resume_state", resume_state.raw());
             frame_reference("child_frame", *child, parts);
             parts.operand("frame", frame, context)?;
 

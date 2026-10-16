@@ -1547,6 +1547,7 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
         include_str!("../../../../../runtime/bootstrap/src/activation/storage.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/access.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/transition.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/composition.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/callback.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/execution.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/execution/access.bray"),
@@ -1727,8 +1728,14 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
     let compilation = production_host_compilation("module probe;");
     let mut failures = Vec::new();
 
-    for key in compilation.declared_unit_keys_for_test().unwrap() {
-        if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody {
+    let mut pending = compilation.declared_unit_keys_for_test().unwrap();
+
+    while let Some(key) = pending.pop() {
+        if !matches!(
+            key.kind(),
+            bray_bound_tree::BoundUnitKind::CallableBody
+                | bray_bound_tree::BoundUnitKind::AnonymousCallable
+        ) {
             continue;
         }
 
@@ -1744,6 +1751,10 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
         {
             continue;
         }
+
+        let bound = compilation.bound_unit(key.clone()).unwrap();
+
+        pending.extend(bound.value().nested_units().iter().cloned());
 
         let lowered = compilation.lowered_unit(key.clone()).unwrap();
 
@@ -2079,8 +2090,20 @@ fn activation_retirement_does_not_preserve_dispatch_ownership() {
 
 #[test]
 fn activation_callback_requires_one_exact_authorized_invocation() {
-    for (descriptor, context, operation, argument, progress, records, repeat, valid) in [
+    for (execution, descriptor, context, operation, argument, progress, records, repeat, valid) in [
         (
+            "other_execution",
+            "descriptor",
+            "context",
+            "0",
+            "0",
+            "progress",
+            "records",
+            false,
+            false,
+        ),
+        (
+            "execution",
             "descriptor",
             "context",
             "0",
@@ -2091,6 +2114,7 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
             true,
         ),
         (
+            "execution",
             "other_descriptor",
             "context",
             "0",
@@ -2101,6 +2125,7 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
             false,
         ),
         (
+            "execution",
             "descriptor",
             "other_context",
             "0",
@@ -2111,6 +2136,7 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
             false,
         ),
         (
+            "execution",
             "descriptor",
             "context",
             "1",
@@ -2121,6 +2147,7 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
             false,
         ),
         (
+            "execution",
             "descriptor",
             "context",
             "0",
@@ -2131,6 +2158,7 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
             false,
         ),
         (
+            "execution",
             "descriptor",
             "context",
             "0",
@@ -2141,6 +2169,7 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
             false,
         ),
         (
+            "execution",
             "descriptor",
             "context",
             "0",
@@ -2151,6 +2180,7 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
             false,
         ),
         (
+            "execution",
             "descriptor",
             "context",
             "0",
@@ -2161,7 +2191,9 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
             false,
         ),
     ] {
-        let invocation = "trusted callback(descriptor, context, 0, 0, progress, records);";
+        let invocation =
+            "trusted callback(execution, descriptor, context, 0, 0, progress, records);";
+
         let repeated = if repeat { invocation } else { "" };
 
         let caller = format!(
@@ -2169,6 +2201,8 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
             trusted internal module bray.runtime.bootstrap;
             trusted func production_probe(
                 pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+                pos execution: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+                pos other_execution: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
                 pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
                 pos other_descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
                 pos context: usize,
@@ -2181,6 +2215,7 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
                 requires(
                     trusted bray.runtime.bootstrap.entry.native_entry(),
                     trusted bray.runtime.bootstrap.activation.callback.authorized(
+                        execution = {execution},
                         descriptor = {descriptor},
                         context = {context},
                         operation = {operation},
@@ -2433,9 +2468,63 @@ fn active_snapshot_requires_exact_dispatch_ownership_and_retained_output() {
                     trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Header>(pointer = pointer),
                 )
             {{
-                return trusted bray.runtime.bootstrap.activation.requirements.snapshot(pointer, output);
+                return trusted bray.runtime.bootstrap.activation.requirements.snapshot(pointer, 0, output);
             }}
             "#
+        );
+
+        let compilation = production_host_compilation(&caller);
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !lowered.diagnostics().has_errors(),
+            valid,
+            "{caller}: {:?}",
+            lowered.diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                lowered.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn composition_requires_the_exact_parent_token_continuation_and_origin() {
+    for (parent, token, state, origin, valid) in [
+        ("parent", "token", "state", "origin", true),
+        ("other", "token", "state", "origin", false),
+        ("parent", "other_token", "state", "origin", false),
+        ("parent", "token", "other_state", "origin", false),
+        ("parent", "token", "state", "other_origin", false),
+    ] {
+        let caller = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+            trusted func production_probe(
+                pos parent: RawPointer<bray.runtime.bootstrap.activation.Header>,
+                pos other: RawPointer<bray.runtime.bootstrap.activation.Header>,
+                pos token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+                pos other_token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+                pos state: u32, pos other_state: u32, pos origin: u64, pos other_origin: u64,
+            ) -> usize
+                requires(
+                    trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
+                    trusted bray.runtime.bootstrap.pool.protocol_access(),
+                    trusted bray.runtime.bootstrap.activation.composition.authorized(
+                        parent = {parent}, token = {token}, state = {state}, origin = {origin}
+                    ),
+                )
+            {{
+                return trusted bray.runtime.bootstrap.activation.composition.compose(parent, token, state, origin);
+            }}
+        "#
         );
 
         let compilation = production_host_compilation(&caller);

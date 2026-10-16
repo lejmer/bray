@@ -12,11 +12,11 @@ use bray_runtime_model::{
 use crate::context::{current_task_execution_lane, with_task_frame_execution};
 use crate::frame::{terminalize_frame, terminalize_frame_after_broadcast};
 use crate::{
-    ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, FrameContext, FrameExecutionState,
-    FrameExit, FrameProgress, FrameSuspension, FrameSuspensionKind, ProtectedFrame, RunOutcome,
-    RuntimePanic,
+    FrameContext, FrameExecutionState, FrameExit, FrameProgress, FrameSuspension,
+    FrameSuspensionKind, ProtectedFrame, RunOutcome, RuntimePanic,
 };
 
+use super::activation::{execution_lane, lane_allows};
 use super::frame::{NativeFrame, NativeTerminalState};
 use super::state::{current_native_task, with_runtime};
 
@@ -108,9 +108,8 @@ impl NativeActivation {
         let execution = if state == self.local.state() {
             self.local.clone()
         } else {
-            self.frame
-                .as_ref()
-                .and_then(|frame| frame.execution_state(state))
+            self.terminal
+                .execution_state(state)
                 .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?
         };
 
@@ -213,7 +212,11 @@ impl NativeRun {
             .execution_at(state)
     }
 
-    pub(super) fn compose(&self, frame: NativeInactiveFrame) -> NativeRuntimeStatus {
+    pub(super) fn compose(
+        &self,
+        frame: NativeInactiveFrame,
+        resume_state: ProtectedFrameStateId,
+    ) -> NativeRuntimeStatus {
         {
             let current = self.lock_current();
 
@@ -231,7 +234,7 @@ impl NativeRun {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         };
 
-        let parent_execution = match self.execution() {
+        let parent_execution = match self.execution_at(resume_state) {
             Ok(execution) => execution,
             Err(status) => return status,
         };
@@ -780,45 +783,5 @@ impl ProtectedFrame for Arc<NativeRun> {
         let current = self.lock_current().take();
 
         NativeRun::release_chain(current, &self.terminal);
-    }
-}
-
-fn execution_lane(execution: &FrameExecutionState) -> Result<ExecutionLane, NativeRuntimeStatus> {
-    let task = current_native_task().ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
-
-    with_runtime(|runtime| {
-        runtime.with_started(task, |task| {
-            task.registration
-                .execution_lane(execution)
-                .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)
-        })
-    })
-    .and_then(|result| result)
-    .and_then(|result| result)
-}
-
-fn lane_allows(current: ExecutionLane, required: ExecutionLane) -> bool {
-    if required.workload() != ExecutionWorkload::Cooperative
-        && current.workload() != required.workload()
-    {
-        return false;
-    }
-
-    let required_placement = required.placement();
-
-    match required_placement {
-        ExecutionLanePlacement::Migratable => true,
-        ExecutionLanePlacement::MainThread(required)
-        | ExecutionLanePlacement::OriginThread(required)
-        | ExecutionLanePlacement::PinnedWorker(required) => match current.placement() {
-            ExecutionLanePlacement::MainThread(current)
-            | ExecutionLanePlacement::OriginThread(current)
-            | ExecutionLanePlacement::PinnedWorker(current) => current == required,
-            ExecutionLanePlacement::Migratable => {
-                !matches!(required_placement, ExecutionLanePlacement::MainThread(_))
-                    && crate::bootstrap::current_runtime_thread()
-                        .is_some_and(|thread| thread.id() == required)
-            }
-        },
     }
 }

@@ -484,7 +484,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.invoke_runtime(*runtime, &[storage, state])
             }
-            MirAsyncOperation::ComposeAwaitedFrame { child, frame, .. } => {
+            MirAsyncOperation::ComposeAwaitedFrame {
+                child,
+                resume_state,
+                frame,
+                ..
+            } => {
                 let frame = self.native_inactive_frame(frame)?;
 
                 let runtime = self.operation_runtime_helper(
@@ -492,7 +497,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     MirHelperReference::ComposeAwaitedFrame(*child),
                 )?;
 
-                self.invoke_native_runtime(runtime, &[frame])
+                let state = self
+                    .types
+                    .context()
+                    .i32_type()
+                    .const_int(u64::from(resume_state.raw()), false);
+
+                self.invoke_native_runtime(runtime, &[frame, state.into()])
             }
             MirAsyncOperation::CommitAwaitedCompletion { child } => {
                 let runtime = self.operation_runtime_helper(

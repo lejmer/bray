@@ -490,6 +490,8 @@ pub enum MirAsyncOperation {
         parent: ProtectedAsyncFrameId,
         /// Static or existential child frame representation.
         child: MirFrameReference,
+        /// Parent continuation whose requirements remain live while the child executes.
+        resume_state: MirFrameStateId,
         /// Inactive child frame value.
         frame: MirOperand,
     },

@@ -46,6 +46,8 @@ pub struct NativeActivationDescriptor {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NativeActivationExecution {
+    /// Address of the exact exclusively dispatched activation header.
+    pub address: usize,
     /// Identity of the immutable concrete frame description.
     pub identity: [u8; 32],
     /// Current continuation ordinal.
@@ -62,8 +64,8 @@ mod tests {
 
     #[test]
     fn activation_execution_matches_the_dispatcher_layout() {
-        assert_abi_layout!(NativeActivationExecution, size: 56, align: 8, fields: {
-            identity: 0, state: 32, requirements: 36, origin: 48,
+        assert_abi_layout!(NativeActivationExecution, size: 64, align: 8, fields: {
+            address: 0, identity: 8, state: 40, requirements: 44, origin: 56,
         });
     }
 
