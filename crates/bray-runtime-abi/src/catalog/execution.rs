@@ -905,6 +905,15 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [MoveFrame]
             }
+            ActivationInspection {
+                "Inspect an inactive frame's requirements without consuming its registered lease.", "activation_inspection",
+                native: (ACTIVATION_INSPECTION_SYMBOL = "bray_runtime_activation_inspection", [Pointer, U32, Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Pointer, U32, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("activation.requirements.inspect"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
             ActivationEntry {
                 "Activate authorized resident storage, leaving token consumption to the successful caller.", "activation_entry",
                 native: (ACTIVATION_ENTRY_SYMBOL = "bray_runtime_activation_entry", [Pointer, U64] -> Usize),

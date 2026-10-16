@@ -830,3 +830,44 @@ and format placeholders. Its exact native regression passes, followed by Rustfmt
 mutating style, Bray formatting and the whitespace check. No behavior changes or
 new test infrastructure are introduced. The native-source search also covers the
 standalone fixtures, linker probe and target-probe generator.
+
+## Inactive requirement inspection and Win64 ABI
+
+Inspection uses the same registered lease, descriptor, layout and epoch check as
+activation without changing the resident phase. Its exact-owner contract retains
+both the inactive frame and the independent output slot across the metadata
+callback. The pool lock and header borrow end before that callback. Producer
+identity alone does not grant exclusive ownership. Invalid ordinals, unsupported
+lane bits, invalid affinity and stale or mismatched leases leave the output and
+inactive owner unchanged.
+
+The production body audit and two negative authority regressions pass. The native
+fixture covers external and coallocated descriptors, repeated rejected admission,
+provider reentry, unchanged token bytes, untouched invalid-query destinations and
+allocation denial. Both the C bridge and production native bridge pass the full
+runtime artifact smoke suite.
+
+The invalid-lane case exposed a shared Win64 foreign ABI defect. Small aggregates
+were marked direct without integer-register coercion, so the second u32 field of
+a C result was lost. The owning ABI classifier now uses existing coercion mappings
+for 1, 2, 4 and 8 byte aggregates and the required 16 byte indirect-argument
+temporary alignment. Aggregate recognition and Win64 selection have one shared
+implementation. No runtime compensation or ABI version change is introduced.
+The contract is documented by Microsoft's x64 calling convention:
+https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention
+
+Five ABI classification tests pass. A native C/Bray/function-pointer round trip
+checks distinct values in both fields across arguments and results. Rustfmt,
+mutating style, Bray formatting and the full native smoke suite pass. Logs use
+`bra-561-inspection-` and `bra-561-abi-classification` in the shared target's
+`bra-620-authority` directory. The retained failing smoke artifact demonstrated the
+pre-fix second-field loss. It is diagnostic evidence, not a substitute for the
+passing complete rebuilt smoke suite.
+
+The maintainability audit covers every changed file and searches shared ABI
+classification, aggregate recognition, lease inspection, producer reads and exact
+retained-slot contracts outside the edited functions. Existing storage lookup and
+coercion machinery are reused. The new inspection contract is required by the
+pending production activation callers. Those callers and the iterative Bray run
+driver remain unfinished. Completion consumption, cancellation before consumption
+and frame/provider retirement must be switched together with the Rust owner.

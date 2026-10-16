@@ -7,7 +7,9 @@ mod symbols;
 #[cfg(test)]
 mod tests;
 
-pub(super) use abi::{indirect_abi_value, indirect_parameter_kind};
+pub(super) use abi::{
+    direct_abi_coercion, indirect_abi_value, indirect_parameter_kind, is_aggregate, windows_x64_abi,
+};
 pub(super) use layout::{
     align_to, atomic_representation_for_type, atomic_storage_is_padding_free, atomic_storage_role,
     ensure_target_alignment, packed_alignment, pointer_layout, pointer_mapping, scalar_mapping,

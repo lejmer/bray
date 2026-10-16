@@ -190,13 +190,14 @@ trusted internal func publish_frame(
     return true;
 }
 
-// Consume the registered inactive state before accessing frame bytes. Duplicate
-// native tokens cannot borrow a header concurrently with its dispatcher.
-trusted internal func take_frame_address(
+// Inspection checks the same registered identity as dispatch without consuming it.
+// Dispatch consumes that state before exposing the header to its exclusive owner.
+trusted internal func frame_address(
     pos pool: &mut bray.runtime.bootstrap.ReportPool,
     pos lease: &Lease,
     pos descriptor: &Descriptor,
-    pos identity: usize
+    pos identity: usize,
+    dispatch: bool,
 ) -> usize
 {
     if !trusted matches_shape(pool, lease, descriptor)
@@ -219,7 +220,11 @@ trusted internal func take_frame_address(
         case _ { return 0; }
     }
 
-    entry.state = State.Dispatched;
+    if dispatch
+    {
+        entry.state = State.Dispatched;
+    }
+
     return entry.address;
 }
 

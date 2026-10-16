@@ -1,12 +1,59 @@
 use std::collections::BTreeMap;
+use std::num::NonZeroU16;
 
 use bray_codegen::{
-    CodegenIndirectParameterKind, CodegenTarget, CodegenTypeKind, CodegenTypeMapping,
+    CodegenAbiPiece, CodegenAbiScalar, CodegenAggregateCoercion, CodegenIndirectParameterKind,
+    CodegenTarget, CodegenTypeKind, CodegenTypeMapping,
 };
 use bray_symbols::{CallableAbi, TypeId};
 use bray_target::TargetValueLayout;
 
 use super::layout::pointer_layout;
+
+pub(in crate::compilation::product::realization) fn is_aggregate(kind: &CodegenTypeKind) -> bool {
+    matches!(
+        kind,
+        CodegenTypeKind::Aggregate(_)
+            | CodegenTypeKind::Array { .. }
+            | CodegenTypeKind::Union { .. }
+    )
+}
+
+pub(in crate::compilation::product::realization) fn windows_x64_abi(
+    abi: CallableAbi,
+    target: &CodegenTarget,
+) -> bool {
+    abi != CallableAbi::Bray
+        && matches!(
+            bray_target::NativeTarget::for_profile(target.profile()),
+            Some(bray_target::NativeTarget::X86_64WindowsMsvc)
+        )
+}
+
+// Called after direct classification. Win64 packs the entire aggregate into one
+// integer register, even when its fields are floats or narrower integers.
+pub(in crate::compilation::product::realization) fn direct_abi_coercion(
+    abi: CallableAbi,
+    kind: &CodegenTypeKind,
+    layout: TargetValueLayout,
+    target: &CodegenTarget,
+) -> Option<CodegenAggregateCoercion> {
+    if !windows_x64_abi(abi, target) || !is_aggregate(kind) {
+        return None;
+    }
+
+    assert!(
+        matches!(layout.size(), 1 | 2 | 4 | 8),
+        "direct Win64 aggregate fits one register"
+    );
+
+    let bits = u16::try_from(layout.size() * 8).expect("Win64 aggregate width fits u16");
+
+    Some(CodegenAggregateCoercion::new([CodegenAbiPiece {
+        offset_bytes: 0,
+        scalar: CodegenAbiScalar::Integer(NonZeroU16::new(bits).expect("nonempty aggregate")),
+    }]))
+}
 
 pub(in crate::compilation::product::realization) fn indirect_abi_value(
     abi: CallableAbi,
@@ -15,14 +62,7 @@ pub(in crate::compilation::product::realization) fn indirect_abi_value(
     target: &CodegenTarget,
     mappings: &BTreeMap<TypeId, CodegenTypeMapping>,
 ) -> bool {
-    let is_composite = matches!(
-        kind,
-        CodegenTypeKind::Aggregate(_)
-            | CodegenTypeKind::Array { .. }
-            | CodegenTypeKind::Union { .. }
-    );
-
-    if !is_composite {
+    if !is_aggregate(kind) {
         return false;
     }
 
@@ -38,11 +78,10 @@ pub(in crate::compilation::product::realization) fn indirect_abi_value(
         return false;
     }
 
-    match bray_target::NativeTarget::for_profile(target.profile()) {
-        Some(bray_target::NativeTarget::X86_64WindowsMsvc) => {
-            !matches!(layout.size(), 1 | 2 | 4 | 8)
-        }
-        _ => layout.size() > pointer_layout(target).size().saturating_mul(2),
+    if windows_x64_abi(abi, target) {
+        !matches!(layout.size(), 1 | 2 | 4 | 8)
+    } else {
+        layout.size() > pointer_layout(target).size().saturating_mul(2)
     }
 }
 
@@ -52,10 +91,7 @@ pub(in crate::compilation::product::realization) fn indirect_parameter_kind(
 ) -> CodegenIndirectParameterKind {
     if abi != CallableAbi::Bray
         && (target.profile().machine().architecture() == bray_target::TargetArchitecture::Aarch64
-            || matches!(
-                bray_target::NativeTarget::for_profile(target.profile()),
-                Some(bray_target::NativeTarget::X86_64WindowsMsvc)
-            ))
+            || windows_x64_abi(abi, target))
     {
         return CodegenIndirectParameterKind::Reference;
     }

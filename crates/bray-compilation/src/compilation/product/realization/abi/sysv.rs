@@ -16,15 +16,6 @@ pub(super) fn applies(abi: CallableAbi, target: &CodegenTarget) -> bool {
         && target.machine().object_format() != ObjectFormat::Coff
 }
 
-pub(super) fn is_aggregate(kind: &CodegenTypeKind) -> bool {
-    matches!(
-        kind,
-        CodegenTypeKind::Aggregate(_)
-            | CodegenTypeKind::Array { .. }
-            | CodegenTypeKind::Union { .. }
-    )
-}
-
 #[derive(Clone, Copy, Default)]
 struct Eightbyte {
     integer: bool,

@@ -625,6 +625,32 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
         }
         @layout(c)
         struct Aggregate { first: u64; second: u64; third: u64; }
+        @layout(c)
+        struct Packed
+        {
+            first: u32;
+            second: u32;
+        }
+        @link(name = "native")
+        @symbol(name = "native_packed")
+        @abi(c)
+        extern trusted func native_packed(pos value: Packed) -> Packed uses(foreign_call);
+        @abi(c)
+        func packed(pos value: Packed) -> Packed
+        {
+            return { first = value.second, second = value.first };
+        }
+        callable PackedCallback = @abi(c) func(pos value: Packed) -> Packed;
+        @symbol(name = "packed_round_trip")
+        @abi(c)
+        trusted func packed_round_trip(pos value: Packed) -> Packed
+            uses(foreign_call)
+        {
+            let callback: PackedCallback = packed;
+            let result = callback(value);
+
+            return trusted native_packed(result);
+        }
         @symbol(name = "scalar")
         @abi(c)
         func scalar(pos mode: u32) -> u32 {
@@ -689,6 +715,18 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
         {{
             uint64_t first, second, third;
         }} Aggregate;
+
+        typedef struct
+        {{
+            uint32_t first, second;
+        }} Packed;
+
+        Packed native_packed(Packed value)
+        {{
+            return (Packed){{ value.first ^ 1, value.second ^ 2 }};
+        }}
+
+        extern Packed packed_round_trip(Packed value);
 
         static unsigned cleanups;
 
@@ -810,6 +848,11 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
 
         int main(void)
         {{
+            Packed packed = packed_round_trip((Packed){{ 0x12345678, 0x9abcdef0 }});
+
+            if (packed.first != 0x9abcdef1 || packed.second != 0x1234567a)
+                return 40;
+
             if (scalar(0) != 73 || scalar(1) != 0 || scalar(2) != 0)
                 return 1;
 

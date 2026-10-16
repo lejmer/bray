@@ -48,10 +48,11 @@ internal func valid_layout(pos descriptor: &Descriptor) -> bool
         descriptor.header || descriptor.header + header_bytes <= descriptor.completion;
 }
 
-trusted internal func claim_address(
+trusted internal func resident_address(
     pos pool: &mut bray.runtime.bootstrap.ReportPool,
     pos token: &Inactive,
-    pos descriptor: &Descriptor
+    pos descriptor: &Descriptor,
+    dispatch: bool,
 ) -> usize
     uses(intrinsic)
 {
@@ -67,11 +68,12 @@ trusted internal func claim_address(
         return 0;
     }
 
-    let address: usize = trusted bray.runtime.bootstrap.storage.take_frame_address(
+    let address: usize = trusted bray.runtime.bootstrap.storage.frame_address(
         pool,
         &token.lease,
         &descriptor.storage,
-        trusted core.target.expose_address<Descriptor>(token.descriptor)
+        trusted core.target.expose_address<Descriptor>(token.descriptor),
+        dispatch = dispatch
     );
 
     if address == 0

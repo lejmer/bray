@@ -27,7 +27,7 @@ trusted internal func begin(pos token: &Inactive, pos origin: u64) -> usize
     ) -> usize
         uses(intrinsic, raw_memory, unchecked_alias)
     {
-        let address = trusted claim_address(pool, token, descriptor);
+        let address = trusted resident_address(pool, token, descriptor, dispatch = true);
 
         if address == 0
         {

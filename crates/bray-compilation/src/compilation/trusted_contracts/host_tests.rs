@@ -1549,6 +1549,7 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
         include_str!("../../../../../runtime/bootstrap/src/activation/transition.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/callback.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/execution.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/requirements.bray"),
         include_str!("../../../../../runtime/bootstrap/src/storage/data.bray"),
         include_str!("../../../../../runtime/bootstrap/src/storage/admission.bray"),
         include_str!("../../../../../runtime/bootstrap/src/storage/activation.bray"),
@@ -1734,8 +1735,7 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
         if !source.contains("module bray.runtime.bootstrap.storage;")
             && !source.contains("module bray.runtime.bootstrap.outgoing;")
             && !source.contains("module bray.runtime.bootstrap.activation;")
-            && !source.contains("module bray.runtime.bootstrap.activation.callback;")
-            && !source.contains("module bray.runtime.bootstrap.activation.execution;")
+            && !source.contains("module bray.runtime.bootstrap.activation.")
         {
             continue;
         }
@@ -2258,6 +2258,116 @@ fn activation_retirement_requires_retained_native_destinations() {
                 {requirement}
             {{
                 return trusted bray.runtime.bootstrap.activation.execution.execute(pointer, callback, 5, 0, output, records);
+            }}
+            "#
+        );
+
+        let compilation = production_host_compilation(&caller);
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !lowered.diagnostics().has_errors(),
+            valid,
+            "{caller}: {:?}",
+            lowered.diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                lowered.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn inactive_inspection_requires_retained_exact_owner_and_output() {
+    for (producer, owner, output, valid) in [
+        (false, "pointer", "output", false),
+        (true, "other", "output", false),
+        (true, "pointer", "other_output", false),
+        (true, "pointer", "output", true),
+    ] {
+        let producer = if producer {
+            "requires(trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer))"
+        } else {
+            ""
+        };
+
+        let caller = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+            trusted func production_probe(
+                pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+                pos other: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+                pos output: RawPointer<bray.runtime.bootstrap.activation.requirements.State>,
+                pos other_output: RawPointer<bray.runtime.bootstrap.activation.requirements.State>,
+            ) -> u32
+                {producer}
+                requires(
+                    trusted bray.runtime.bootstrap.activation.requirements.retained(token = {owner}, output = {output}),
+                    trusted bray.runtime.bootstrap.pool.protocol_access(),
+                    trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer, count = 1),
+                    trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+                    trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+                )
+            {{
+                return trusted bray.runtime.bootstrap.activation.requirements.inspect(pointer, 0, output);
+            }}
+            "#
+        );
+
+        let compilation = production_host_compilation(&caller);
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !lowered.diagnostics().has_errors(),
+            valid,
+            "{caller}: {:?}",
+            lowered.diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                lowered.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn metadata_inspection_cannot_infer_exclusive_ownership_from_a_producer() {
+    for (owner, valid) in [("", false), ("token", true), ("other", false)] {
+        let ownership = if owner.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "requires(trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = {owner}))"
+            )
+        };
+
+        let caller = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+            trusted func production_probe(
+                pos token: &bray.runtime.bootstrap.activation.Inactive,
+                pos other: &bray.runtime.bootstrap.activation.Inactive,
+            ) -> bray.runtime.bootstrap.activation.requirements.State?
+                requires(
+                    trusted bray.runtime.bootstrap.activation.producer(token = token),
+                    trusted bray.runtime.bootstrap.pool.protocol_access(),
+                )
+                {ownership}
+            {{
+                return trusted bray.runtime.bootstrap.activation.requirements.read(token, 0);
             }}
             "#
         );

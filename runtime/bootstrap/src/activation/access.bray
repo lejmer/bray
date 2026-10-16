@@ -6,7 +6,8 @@ using std.memory;
 // The native producer retains the immutable descriptor's provider and has
 // initialized the claimed frame. This contract does not certify the supplied
 // lease or grant dispatch ownership. Resident validation and phase transition
-// establish those separately while the pool is locked.
+// establish those separately while the pool is locked. Descriptor callbacks use
+// their declared ABI and context and retain the provider through return.
 trusted internal predicate producer(token: &Inactive);
 
 trusted internal func description(pos token: &Inactive) -> Descriptor
@@ -70,19 +71,20 @@ trusted internal func publication(pos pointer: RawPointer<Inactive>) -> u32
         trusted core.memory.aligned_for<Inactive>(pointer = pointer),
     )
 {
-    let read_producer = trusted lambda(pos source: RawPointer<Inactive>) -> Inactive
-        requires(
-            trusted producer_slot(pointer = source),
-            trusted core.memory.valid_read<Inactive>(pointer = source, count = 1),
-            trusted core.memory.initialized_as<Inactive>(pointer = source),
-            trusted core.memory.aligned_for<Inactive>(pointer = source),
-        )
-        ensures(trusted producer(token = &result))
-    {
-        return trusted std.memory.read<Inactive>(source);
-    };
-
     let token = read_producer(pointer);
 
     return trusted publish(&token);
+}
+
+trusted internal func read_producer(pos source: RawPointer<Inactive>) -> Inactive
+    requires(
+        trusted producer_slot(pointer = source),
+        trusted core.memory.valid_read<Inactive>(pointer = source, count = 1),
+        trusted core.memory.initialized_as<Inactive>(pointer = source),
+        trusted core.memory.aligned_for<Inactive>(pointer = source),
+    )
+    ensures(trusted producer(token = &result))
+    uses(raw_memory)
+{
+    return trusted std.memory.read<Inactive>(source);
 }
