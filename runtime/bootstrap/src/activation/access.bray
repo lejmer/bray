@@ -31,40 +31,6 @@ trusted internal func description(pos token: &Inactive) -> Descriptor
     return trusted std.memory.read<Descriptor>(pointer);
 }
 
-// No callback can run under this borrow. The pool lock serializes the initial
-// phase transition, including competing copies of the same native token.
-trusted internal func resident(pos pool: &mut bray.runtime.bootstrap.ReportPool, pos token: &Inactive) -> (&mut Header)?
-    requires(trusted producer(token = token))
-    uses(intrinsic, raw_memory, unchecked_alias)
-{
-    let descriptor = trusted description(token);
-    let address = trusted claim_address(pool, token, &descriptor);
-
-    if address == 0
-    {
-        return none;
-    }
-
-    let pointer = trusted core.target.from_exposed_address<Header>(address = address);
-
-    let authorize = trusted lambda(pos pointer: RawPointer<Header>)
-        ensures(
-            trusted core.memory.valid_read<Header>(pointer = pointer, count = 1),
-            trusted core.memory.valid_write<Header>(pointer = pointer, count = 1),
-            trusted core.memory.aligned_for<Header>(pointer = pointer),
-            trusted core.memory.initialized_as<Header>(pointer = pointer),
-            trusted core.memory.exclusive_alias_valid<Header>(pointer = pointer),
-            trusted core.memory.epoch_current<Header>(pointer = pointer),
-            trusted core.memory.synchronized_access<Header>(pointer = pointer),
-            trusted core.memory.movement_stable<Header>(pointer = pointer),
-            trusted core.memory.finalization_pending<Header>(pointer = pointer),
-        )
-        executes(pure, total) {};
-
-    authorize(pointer);
-    return trusted std.memory.borrow_mut_from<Header, bray.runtime.bootstrap.ReportPool>(pool, pointer);
-}
-
 // Only the producer can publish initialized backing. The descriptor is retained
 // in the pool before the inactive value is exposed to its consumer.
 trusted internal func publish(pos token: &Inactive) -> u32

@@ -604,3 +604,86 @@ The current native callback bridge contains producer unwind and preserves any
 report published before it. The new driver must carry its remaining admitted
 records back into the same header after every callback, including reentrant child
 attachment. None of this mapping is new completion evidence.
+
+## Native admission proof and alternative (2026-10-16)
+
+The user requested proof against actual callers and every return path before
+continuing. Repo-wide searches find no production caller of ActivationEntry yet.
+Its only current native caller is `check_activation_publication` in
+`xtask/fixtures/runtime-bootstrap-smoke.c`. Generated constructors call
+ActivationPublication, which is a different operation. Production NativeRun still
+consumes the old two-word NativeInactiveFrame through `into_protected` before
+checking all local/composed lane requirements. That path cannot establish the new
+failed-activation-retains-owner contract and must be replaced, not cited as proof.
+
+The immutable address-record proposal is withdrawn. Its anti-forgery test did
+not prove the native lifetime promises, and its preservation mechanism is no
+longer needed. The alternative reads the input slot once before taking the pool
+lock. `begin` checks producer and exact entry authority at its own boundary,
+reads the immutable descriptor, then locks and validates the resident lease.
+It never reads or writes the input slot after mutation. Native callers consume
+their own token only after a nonzero result. No token address is reconstructed,
+no token-slot access witness is reissued, and no new authority record is added.
+The old `resident` borrowed-header export is folded into `begin`, which returns
+only the activated address and keeps the checked pool borrow local.
+
+Current caller proof:
+
+| Obligation | Actual implementation evidence |
+| --- | --- |
+| Token lifetime and exclusivity | The fixture passes a local InactiveActivation by address to a synchronous call. No callback or thread receives that slot. ActivationEntry performs its sole read before locking and never writes it. |
+| Disjointness | Token and descriptor are caller stack objects. Pool metadata and frame bytes occupy separately allocated live RawBuffer storage. Native entry never publishes the token-slot address into that pool. |
+| Provider lifetime | The fixture's const descriptor and its code remain live until activation, dispatch and storage release finish. Generated publication uses a concrete module constant, but production activation integration still needs its own retained-provider proof. |
+| Origin and lane | activate_fixture requires the current live nonzero attachment identity and admits only its fixture's unrestricted state. This proves the fixture case, not general production lane composition. Exact-origin and exact-slot source requirements remain on the public internal entry declaration. |
+| Resident identity | claim_address checks layout, address arithmetic, domain, shape, slot, epoch, backing address and registered descriptor identity before Inactive becomes Dispatched. Numeric token fields alone cannot authorize memory access. |
+| Rejection ownership | Every ordinary zero result precedes the Dispatched transition. The native caller compares the token bytes before and after entry and leaves them unchanged on rejection. |
+| Successful consumption | After the pool transition, begin updates the checked header without calling producer code. The caller clears its own token only for a nonzero result. A copied token cannot dispatch the same resident slot again. |
+| Allocation and reentry | Entry only locks, reads established metadata and changes resident/header state. It allocates no storage and invokes no producer callback while holding the pool lock. Native descriptor state is checked before entry. |
+
+Return-path inventory: the fixture rejects empty tokens, zero/wrong origin and
+unsupported state requirements before entry. Native entry forwards begin's result.
+Layout, arithmetic, resident identity and state rejection return zero without
+consumption. Success has no further fallible operation before returning its
+address. An impossible published-header phase/link state aborts as an internal
+invariant failure, rather than returning a recoverable rejection after consumption.
+This is not a rollback claim for compiler/runtime bugs or process termination.
+
+Native cases cover bad epoch/address/slot, descriptor mismatch, overlapping layout,
+wrong origin, successful transfer, repeated transfer and duplicate tokens. The
+fixture denies allocations through these transitions and retains its descriptor
+through dispatch and release. Production-body and native acceptance results are
+pending. Full production token, lane and provider integration remains BRA-561 work.
+
+
+The alternative passes all four exact-authority/publication/dispatch tests and the
+complete production storage/activation body audit. Header initialization remains
+under the pool lock in a checked local operation rooted in the ReportPool borrow.
+This avoids copying the complete header and does not recreate a guard witness.
+The discarded experiment with raw header read/write after unlocking is removed.
+The proposed token-address record and its test-only fixture are also removed.
+The user's conditional authorization and this replacement supersede the earlier
+pending approval request for that withdrawn design. The actual production callers still require integration.
+
+
+## Admission and callback proof checkpoint
+
+The native smoke suite passes with the replacement admission design. It also
+passes Rustfmt, mutating `cargo xtask style`, and `cargo xtask format`. The full
+bootstrap compiles against the unchanged ABI 1.0. Dispatch accepts a typed raw
+callback address with the existing exact callable-address requirement. Its source
+test rejects absent proof and proof for a different address. No mapper fallback,
+ABI version, language feature or compiler authority relaxation was introduced.
+
+The actual fixture initially lacked a retained thread attachment. Admission
+correctly rejected its zero origin. The caller now acquires attachment before
+storage admission and allocation denial. Every exit after acquisition releases
+any remaining storage while the local descriptor is alive, then leaves the
+attachment. Allocation denial is reset before this common cleanup. Rejected
+attachment has no acquired resource to release. The final return-path cases also
+cover nonzero foreign origin and unsupported state requirements.
+
+This checkpoint proves the current native fixture boundary, not the unconnected
+production entry paths. The next batch must replace their consuming two-word
+transfer with the admitted inactive token and enforce the same rejection contract
+before switching the run driver. The withdrawn immutable-address-record proposal
+and its historical approval request are no longer active work.

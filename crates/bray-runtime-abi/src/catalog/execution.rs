@@ -905,6 +905,24 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [MoveFrame]
             }
+            ActivationEntry {
+                "Activate authorized resident storage, leaving token consumption to the successful caller.", "activation_entry",
+                native: (ACTIVATION_ENTRY_SYMBOL = "bray_runtime_activation_entry", [Pointer, U64] -> Usize),
+                call_hook: (),
+                compiler: C [Pointer, U64] -> Usize,
+                owner: Host, availability: All, bootstrap: ("activation.activate"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: [ActivateCleanupStorage]
+            }
+            ActivationDispatch {
+                "Enter an exclusively dispatched activation without retaining a header borrow.", "activation_dispatch",
+                native: (ACTIVATION_DISPATCH_SYMBOL = "bray_runtime_activation_dispatch", [Pointer, Pointer, U32, Usize, Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Pointer, Pointer, U32, Usize, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("activation.execution.execute"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
             ActivationCallback {
                 "Contain one native producer callback within its Bray activation.", "activation_callback",
                 native: (ACTIVATION_CALLBACK_SYMBOL = "bray_runtime_activation_callback", [Pointer, Usize, U32, Usize, Pointer, Pointer] -> Void),

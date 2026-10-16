@@ -965,6 +965,55 @@ typedef struct {
 typedef struct { CleanupLease lease; const ActivationDescriptor* descriptor; } InactiveActivation;
 typedef struct { CleanupLease lease; const ActivationDescriptor* descriptor; uintptr_t context; } ActivationHeaderPrefix;
 
+typedef struct { uintptr_t head, tail, count; } ActivationRecords;
+typedef struct {
+    CleanupLease lease;
+    const ActivationDescriptor* descriptor;
+    uintptr_t context, parent, child, current, broadcast_next;
+    uint64_t origin, retained_origin;
+    uint32_t state, phase, retained_affinity, retained_lanes, broadcasted;
+    ActivationProgress progress;
+    ActivationRecords incidents, outgoing;
+} ActivationHeader;
+typedef void (*ActivationCallback)(const ActivationDescriptor*, uintptr_t, uint32_t,
+    uintptr_t, ActivationProgress*, ActivationRecords*);
+extern uintptr_t bray_runtime_activation_entry(const InactiveActivation*, uint64_t);
+extern uint32_t bray_runtime_activation_dispatch(ActivationHeader*, ActivationCallback,
+    uint32_t, uintptr_t, ActivationProgress*);
+
+static unsigned activation_calls;
+
+static void activation_callback(const ActivationDescriptor* descriptor, uintptr_t context,
+    uint32_t operation, uintptr_t argument, ActivationProgress* progress, ActivationRecords* records)
+{
+    ActivationHeader* header = (ActivationHeader*)context;
+    ++activation_calls;
+    if (header->descriptor != descriptor || header->outgoing.count != 0 || records->count != 0)
+        abort();
+    (void)argument;
+    header->broadcasted = 1;
+    *progress = (ActivationProgress){ .kind = operation == 3 ? 0 : 1, .state = 7 };
+}
+
+static int check_activation_dispatch(ActivationHeader* header)
+{
+    unsigned attempts = atomic_load(&allocation_attempts);
+    activation_calls = 0;
+    for (uint32_t operation = 0; operation != 4; ++operation) {
+        ActivationProgress progress = { 0 };
+        if (bray_runtime_activation_dispatch(header, activation_callback, operation,
+                41 + operation, &progress) != 0 ||
+            header->broadcasted != 1 || header->outgoing.count != 0 ||
+            progress.kind != (operation == 3 ? 0 : 1) || progress.state != 7)
+            return 85;
+    }
+    ActivationProgress untouched = { .kind = 13 };
+    if (bray_runtime_activation_dispatch(header, activation_callback, 4, 0, &untouched) != 3 ||
+        untouched.kind != 13 || activation_calls != 4 || atomic_load(&allocation_attempts) != attempts)
+        return 86;
+    return 0;
+}
+
 extern uint32_t bray_runtime_activation_publication(const InactiveActivation*);
 
 static ActivationState activation_state(uintptr_t context, uint32_t state)
@@ -974,10 +1023,17 @@ static ActivationState activation_state(uintptr_t context, uint32_t state)
     return (ActivationState){ 0 };
 }
 
+static ActivationState activation_restricted_state(uintptr_t context, uint32_t state)
+{
+    (void)context;
+    (void)state;
+    return (ActivationState){ .lanes = 1 };
+}
+
 static void activation_complete(ActivationProgress* result, uintptr_t context)
 {
     (void)context;
-    *result = (ActivationProgress){ 0 };
+    *result = (ActivationProgress){ .kind = 1 };
 }
 
 static void activation_resolve(ActivationProgress* result, uintptr_t context, uint32_t exit)
@@ -994,23 +1050,44 @@ static void activation_move(uintptr_t context, uintptr_t destination)
 
 static void activation_destroy(uintptr_t context) { (void)context; }
 
+// Fixture descriptors require no lane capability. Keep the token slot and its
+// provider local to this synchronous call, and consume only an accepted token.
+static uintptr_t activate_fixture(InactiveActivation* token, uint64_t origin)
+{
+    if (token->descriptor == NULL || origin == 0 || origin != bray_runtime_current_native_thread_identity())
+        return 0;
+    ActivationState state = token->descriptor->state(token->lease.address, 0);
+    if (state.affinity != 0 || state.lanes != 0)
+        return 0;
+    InactiveActivation original = *token;
+    uintptr_t active = bray_runtime_activation_entry(token, origin);
+    if (memcmp(token, &original, sizeof(original)) != 0)
+        abort();
+    if (active != 0)
+        *token = (InactiveActivation){ 0 };
+    return active;
+}
+
 static int check_activation_publication(void)
 {
     const ActivationDescriptor descriptor = {
-        .storage = { { 11 }, 1024, 4096 }, .completion_align = 1, .states = 1,
+        .storage = { { 11 }, 1024, 4096 }, .completion_align = 1, .states = 8,
         .state = activation_state, .resume = activation_complete, .cancel = activation_complete,
         .broadcast = activation_complete, .resolve = activation_resolve,
         .move_completion = activation_move, .destroy = activation_destroy,
     };
     CleanupLease lease = { 0 };
+    int status = 0;
+    if (bray_runtime_thread_attachment_enter() != 0)
+        return 92;
     if (bray_runtime_cleanup_storage_admission(&descriptor.storage, &lease) != 0)
-        return 80;
+        { status = 80; goto cleanup; }
     InactiveActivation token = { lease, &descriptor };
     if (bray_runtime_activation_publication(&token) != 3)
-        return 81;
+        { status = 81; goto cleanup; }
     unsigned char* bytes = bray_runtime_cleanup_storage_activation(&lease, &descriptor.storage);
     if (bytes == NULL)
-        return 82;
+        { status = 82; goto cleanup; }
     memset(bytes, 0, descriptor.storage.bytes);
     ActivationHeaderPrefix header = { lease, &descriptor, lease.address };
     memcpy(bytes, &header, sizeof(header));
@@ -1018,18 +1095,60 @@ static int check_activation_publication(void)
     atomic_store(&reject_allocations, 1);
     unsigned attempts = atomic_load(&allocation_attempts);
     if (bray_runtime_activation_publication(&token) != 0 ||
-        bray_runtime_activation_publication(&token) != 3 ||
-        bray_runtime_cleanup_storage_release(&lease) != 0 ||
         bray_runtime_activation_publication(&token) != 3)
-        return 83;
+        { status = 83; goto cleanup; }
+    uint64_t origin = bray_runtime_current_native_thread_identity();
+    ActivationDescriptor other_descriptor = descriptor;
+    ActivationDescriptor restricted_descriptor = descriptor;
+    restricted_descriptor.state = activation_restricted_state;
+    ActivationDescriptor overlapping_descriptor = descriptor;
+    overlapping_descriptor.completion_bytes = 1;
+    InactiveActivation rejected[] = {
+        token, token, token,
+        { lease, &other_descriptor }, { lease, &overlapping_descriptor },
+        { lease, &restricted_descriptor },
+    };
+    rejected[0].lease.epoch += 1;
+    rejected[1].lease.address += 1;
+    rejected[2].lease.slot = 0;
+    for (unsigned i = 0; i < sizeof(rejected) / sizeof(rejected[0]); ++i) {
+        InactiveActivation before = rejected[i];
+        if (activate_fixture(&rejected[i], origin) != 0 ||
+            memcmp(&before, &rejected[i], sizeof(before)) != 0)
+            { status = 90; goto cleanup; }
+    }
+    InactiveActivation entering = token;
+    uint64_t wrong_origin = origin == 1 ? 2 : 1;
+    if (activate_fixture(&entering, 0) != 0 || activate_fixture(&entering, wrong_origin) != 0 ||
+        memcmp(&entering, &token, sizeof(token)) != 0)
+        { status = 89; goto cleanup; }
+    uintptr_t active = activate_fixture(&entering, origin);
+    if (active != (uintptr_t)bytes || entering.lease.address != 0 || entering.descriptor != NULL)
+        { status = 87; goto cleanup; }
+    if (activate_fixture(&entering, origin) != 0)
+        { status = 91; goto cleanup; }
+    InactiveActivation duplicate = token;
+    if (activate_fixture(&duplicate, origin) != 0 || memcmp(&duplicate, &token, sizeof(token)) != 0)
+        { status = 88; goto cleanup; }
+    int dispatch_status = check_activation_dispatch((ActivationHeader*)active);
+    if (dispatch_status != 0)
+        { status = dispatch_status; goto cleanup; }
+    if (bray_runtime_cleanup_storage_release(&lease) != 0 ||
+        bray_runtime_activation_publication(&token) != 3)
+        { status = 83; goto cleanup; }
     if (bray_runtime_cleanup_storage_admission(&descriptor.storage, &lease) != 0 ||
         bray_runtime_cleanup_storage_activation(&lease, &descriptor.storage) == NULL ||
         bray_runtime_activation_publication(&token) != 3 ||
         bray_runtime_cleanup_storage_release(&lease) != 0 ||
         atomic_load(&allocation_attempts) != attempts)
-        return 84;
+        { status = 84; goto cleanup; }
+cleanup:
     atomic_store(&reject_allocations, 0);
-    return 0;
+    if (lease.slot != 0 && bray_runtime_cleanup_storage_release(&lease) != 0 && status == 0)
+        status = 94;
+    if (bray_runtime_thread_attachment_leave() != 0 && status == 0)
+        status = 95;
+    return status;
 }
 
 static int check_cleanup_bundle(void)
