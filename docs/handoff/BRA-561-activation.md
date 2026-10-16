@@ -568,3 +568,39 @@ It was temporarily removed to verify this independent batch against the passing
 bootstrap. Restore it before resuming admission work. Its previously recorded
 contract failures and pending approval remain unresolved. Neither this checkpoint
 nor the stash completes BRA-561.
+
+## Restored work and remaining driver transitions
+
+After checkpoint `4855365c`, the six-file admission/dispatch batch was restored
+from stash `25a3d9dd02f308d64dd3b97b0802b25da90f71b1`. The stash is retained as a
+recovery copy. Its native entry is still unverified and the exact admission design
+still awaits the approval requested above. Do not infer completion from either
+its presence in the working tree or the independently passing runtime tests.
+
+The next driver batch must switch these existing transitions together:
+
+| Existing operation | Replacement obligation |
+| --- | --- |
+| NativeRun compose | Validate complete inactive token and combined lane/attachment requirements before consumption. Attach within the run's admitted header chain. |
+| NativeRun step and suspend_activation | Invoke outside locks and without a live mutable header borrow. Commit progress, then enter the child or return the run's actual wait. |
+| NativeRun execution_at | Query the immutable producer state outside locks, combine retained parent requirements, and reuse that result downstream. |
+| begin_pending_cleanup and finish_activation | Keep the parent's pending outcome while draining an attached child. Never overwrite it with the cleanup continuation. |
+| broadcast_pending_frames | Traverse initialized obligations with one admitted iterative queue. Do not resume, resolve or destroy while broadcasting. |
+| cleanup_activation and release_chain | Resume the same cleanup driver after suspension. Preserve all reports before retiring each owner. |
+| resolve_completion | Move once into the admitted caller destination before detaching and releasing the child. Retain only storage with a remaining proven user. |
+
+This mapping also exposes state queries still invoked under NativeRun.current in
+`suspend_activation` and uncached `execution_at`. The initial-state checkpoint
+fixes task admission only. Eliminate these remaining callback-under-lock paths
+when replacing NativeRun. Do not claim that all callback lock obligations are
+already satisfied or add another permanent descriptor owner to repair this soon
+to be removed graph. The generated immutable descriptor and the admitted header
+are the intended owners.
+
+Existing callback operations 0 through 3 return explicit progress while retaining
+the frame. Operations 4 and 5 move results and destroy storage. They need distinct
+ownership commits and must not be routed through the retaining dispatch helper.
+The current native callback bridge contains producer unwind and preserves any
+report published before it. The new driver must carry its remaining admitted
+records back into the same header after every callback, including reentrant child
+attachment. None of this mapping is new completion evidence.
