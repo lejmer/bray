@@ -823,3 +823,10 @@ record, language syntax, compatibility path or validation pass. This batch adds
 91 production lines net and 214 test lines net. The current native caller inventory
 is still the fixture. Production entry, direct-await, root, task and static-finalizer
 integration remains unfinished and must establish the same contracts when switched.
+
+The final repository-wide native-source inventory also found the small cancellation
+caller embedded in the same runtime test module. Expand it with identical C tokens
+and format placeholders. Its exact native regression passes, followed by Rustfmt,
+mutating style, Bray formatting and the whitespace check. No behavior changes or
+new test infrastructure are introduced. The native-source search also covers the
+standalone fixtures, linker probe and target-probe generator.

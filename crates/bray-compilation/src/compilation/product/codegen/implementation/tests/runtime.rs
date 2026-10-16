@@ -338,10 +338,21 @@ fn bootstrap_status_cancellation_returns_native_failure_without_reporting_a_pani
     let caller = format!(
         r#"
         static unsigned reports;
-        unsigned {report}(void* value) {{ (void)value; ++reports; return 0; }}
+
+        unsigned {report}(void* value)
+        {{
+            (void)value;
+            ++reports;
+
+            return 0;
+        }}
+
         extern unsigned {entry}(void* callback);
-        int main(void) {{
+
+        int main(void)
+        {{
             unsigned status = {entry}(0);
+
             return status == {failure} && reports == 0 ? 0 : 1;
         }}
         "#,
