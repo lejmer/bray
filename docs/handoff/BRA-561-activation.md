@@ -2,8 +2,9 @@
 
 ## Current checkpoint (2026-10-17)
 
-BRA-561 remains in progress on PR #611. Continue BRA-505, then BRA-619 after this
-PR's implementation, audit and independent review. No issue is complete merely
+BRA-561 implementation, acceptance, audit and independent review are complete on
+PR #611. Continue BRA-505, then BRA-619 from this head. Keep one stacked PR per
+issue and do not merge without user approval. No issue is complete merely
 because native fixture callbacks pass. The actual generated constructors and
 imported native constructors must satisfy the same admission and retirement
 contract. No new syntax, compatibility path, ABI version or cleanup scheduler.
@@ -50,7 +51,7 @@ final module-placement audit. Inactive-frame construction now sits with the
 existing task/observation constructors, reducing the general effect dispatcher.
 All 15 native ABI tests pass after that move. Logs are
 `target/bra-561-final-layout-audit.log`, `target/bra-561-checkpoint-style.log` and
-`target/bra-561-checkpoint-format.log`. Fresh independent PR review remains.
+`target/bra-561-checkpoint-format.log`. Independent PR review and its completion-ownership repair are recorded below.
 
 ### Completion ownership review repair
 
@@ -86,14 +87,17 @@ pass in development and release. The same regression linked to the retained
 pre-fix runtime exits 1 with `expected RunResult.Completed`, confirming that it
 detects the defect. Formatting and whitespace checks pass. This batch changes no
 Rust source, so the prior Rust formatting/style checks remain applicable.
-Fresh independent re-review is pending.
+The repair is pushed as `cc56586f`. Independent re-review `5554753546` inspected
+the actual generated/native paths and found no new actionable issues. Its GitHub
+artifact was verified, and the original finding is addressed. PR #611 is ready for
+human review. BRA-561 moves to In Review, with no merge or Done transition.
 
 Logs: `target/bra-561-completion-review.log`,
 `target/bra-561-returned-task-acceptance.log`,
 `target/bra-561-returned-task-baseline.log`, and
 `target/bra-561-completion-format.log`. A current reusable runtime is retained at
 `target/bra-620-authority/bra-561-reviewed-runtime/x86_64-pc-windows-msvc/`.
-The production change is 16 net lines, with 113 net fixture lines. The fixture
+The production change is 15 net lines, with 100 net fixture lines. The fixture
 reuses its admitted chain setup for all five additional transitions.
 
 ### Maintainability and acceptance audit
