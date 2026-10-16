@@ -102,6 +102,7 @@ pub(super) fn smoke_test(
 
     audit_synchronous_link_map(&map)?;
     smoke_test_bootstrap(package, target, directory)?;
+    smoke_test_activation_callback(&archives, target, directory, &package.native_links)?;
     super::observation_smoke::smoke_test(package, target, directory)?;
     super::entry_smoke::smoke_test(package, target, directory)?;
 
@@ -205,6 +206,34 @@ fn smoke_test_bootstrap(
     print!("{}", String::from_utf8_lossy(&output.stdout));
 
     audit_bootstrap_link_map(&map)
+}
+
+fn smoke_test_activation_callback(
+    archives: &[&Path],
+    target: NativeTarget,
+    directory: &Path,
+    native_links: &[NativeLinkRequirement],
+) -> Result<(), CommandError> {
+    let source = format!("#define BRAY_ACTIVATION_NATIVE_CALLBACK\n{BOOTSTRAP_SMOKE_SOURCE}");
+    let map = directory.join("runtime-activation-callback-smoke.map");
+
+    let executable = compile_c_smoke(
+        &source,
+        "runtime-activation-callback-smoke",
+        archives,
+        target,
+        directory,
+        &map,
+        native_links,
+    )?;
+
+    let output = command_output(&mut Command::new(executable), "activation callback")?;
+
+    if !output.status.success() {
+        return Err(CommandError::BootstrapSmokeExecutionFailed(output.status));
+    }
+
+    Ok(())
 }
 
 pub(super) fn compile_c_smoke(

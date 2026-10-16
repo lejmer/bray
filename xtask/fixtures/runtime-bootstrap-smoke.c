@@ -981,6 +981,11 @@ extern uintptr_t bray_runtime_activation_entry(const InactiveActivation*, uint64
 extern uint32_t bray_runtime_activation_dispatch(ActivationHeader*, ActivationCallback,
     uint32_t, uintptr_t, ActivationProgress*);
 
+#ifdef BRAY_ACTIVATION_NATIVE_CALLBACK
+extern void bray_runtime_activation_callback(const ActivationDescriptor*, uintptr_t, uint32_t,
+    uintptr_t, ActivationProgress*, ActivationRecords*);
+#endif
+
 static unsigned activation_calls;
 
 static void activation_callback(const ActivationDescriptor* descriptor, uintptr_t context,
@@ -995,20 +1000,20 @@ static void activation_callback(const ActivationDescriptor* descriptor, uintptr_
     *progress = (ActivationProgress){ .kind = operation == 3 ? 0 : 1, .state = 7 };
 }
 
-static int check_activation_dispatch(ActivationHeader* header)
+static int check_activation_dispatch(ActivationHeader* header, ActivationCallback callback)
 {
     unsigned attempts = atomic_load(&allocation_attempts);
     activation_calls = 0;
     for (uint32_t operation = 0; operation != 4; ++operation) {
         ActivationProgress progress = { 0 };
-        if (bray_runtime_activation_dispatch(header, activation_callback, operation,
-                41 + operation, &progress) != 0 ||
+        if (bray_runtime_activation_dispatch(header, callback, operation,
+                3, &progress) != 0 ||
             header->broadcasted != 1 || header->outgoing.count != 0 ||
             progress.kind != (operation == 3 ? 0 : 1) || progress.state != 7)
             return 85;
     }
     ActivationProgress untouched = { .kind = 13 };
-    if (bray_runtime_activation_dispatch(header, activation_callback, 4, 0, &untouched) != 3 ||
+    if (bray_runtime_activation_dispatch(header, callback, 4, 0, &untouched) != 3 ||
         untouched.kind != 13 || activation_calls != 4 || atomic_load(&allocation_attempts) != attempts)
         return 86;
     return 0;
@@ -1032,14 +1037,20 @@ static ActivationState activation_restricted_state(uintptr_t context, uint32_t s
 
 static void activation_complete(ActivationProgress* result, uintptr_t context)
 {
-    (void)context;
-    *result = (ActivationProgress){ .kind = 1 };
+    ActivationHeader* header = (ActivationHeader*)context;
+    if (header->outgoing.count != 0)
+        abort();
+    ++activation_calls;
+    header->broadcasted = 1;
+    *result = (ActivationProgress){ .kind = 1, .state = 7 };
 }
 
 static void activation_resolve(ActivationProgress* result, uintptr_t context, uint32_t exit)
 {
-    (void)exit;
+    if (exit != 3)
+        abort();
     activation_complete(result, context);
+    result->kind = 0;
 }
 
 static void activation_move(uintptr_t context, uintptr_t destination)
@@ -1130,7 +1141,11 @@ static int check_activation_publication(void)
     InactiveActivation duplicate = token;
     if (activate_fixture(&duplicate, origin) != 0 || memcmp(&duplicate, &token, sizeof(token)) != 0)
         { status = 88; goto cleanup; }
-    int dispatch_status = check_activation_dispatch((ActivationHeader*)active);
+    int dispatch_status = check_activation_dispatch((ActivationHeader*)active, activation_callback);
+#ifdef BRAY_ACTIVATION_NATIVE_CALLBACK
+    if (dispatch_status == 0)
+        dispatch_status = check_activation_dispatch((ActivationHeader*)active, bray_runtime_activation_callback);
+#endif
     if (dispatch_status != 0)
         { status = dispatch_status; goto cleanup; }
     if (bray_runtime_cleanup_storage_release(&lease) != 0 ||

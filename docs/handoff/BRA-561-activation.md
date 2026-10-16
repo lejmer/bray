@@ -687,3 +687,20 @@ production entry paths. The next batch must replace their consuming two-word
 transfer with the admitted inactive token and enforce the same rejection contract
 before switching the run driver. The withdrawn immutable-address-record proposal
 and its historical approval request are no longer active work.
+
+
+The production callback bridge also passes the native fixture. The bootstrap-only
+variant retains its existing link-map exclusion of Rust runtime archives. A second
+variant links the existing native archives and passes the actual
+`bray_runtime_activation_callback` address through Bray dispatch. Both use the
+same provider-lifetime, reentry and allocation-denial cases. Resume, cancellation,
+broadcast and suspended resolution reach the selected descriptor callbacks.
+Invalid retaining operation leaves the destination untouched. The complete smoke
+suite, Rustfmt, mutating style and Bray format pass. Logs use the
+`bra-561-production-callback-` prefix in the shared target's `bra-620-authority`.
+
+The admission checkpoint `b2ebfcd1` adds 317 production lines net and 296 test lines
+net, plus 83 handoff lines. Production growth supplies checked native admission
+and retaining callback dispatch. It removes the exposed resident-header helper
+and the rejected address-record experiment. There is still no second permanent
+activation owner. The old Rust graph remains an explicit unfinished replacement.
