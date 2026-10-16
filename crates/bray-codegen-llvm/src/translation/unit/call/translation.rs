@@ -31,7 +31,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             panic!("checked MIR call translation violated an established compiler contract");
         }
 
-        let outgoing = if call.is_cleanup() {
+        // An async cleanup call constructs its already-admitted inactive frame.
+        // Its lifecycle starts when the frame is activated, not at construction.
+        let outgoing = if call.is_cleanup()
+            && matches!(
+                call.result(),
+                bray_bound_tree::BoundCallResult::Immediate(_)
+            ) {
             self.activate_outgoing_call(operation)?
         } else {
             None
@@ -126,6 +132,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let pointer = pointer_value(self.operand(callee)?).expect(
                     "checked MIR call translation requires an established mapping or value",
                 );
+
+                let pointer = if matches!(
+                    call.result(),
+                    bray_bound_tree::BoundCallResult::LazyFuture(_)
+                ) {
+                    crate::mapping::frame::factory_field(
+                        self.types.context(),
+                        &self.builder,
+                        pointer,
+                        0,
+                    )?
+                } else {
+                    pointer
+                };
 
                 let function_type = self.types.function_type(&signature)?;
 

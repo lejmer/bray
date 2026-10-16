@@ -423,6 +423,8 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirStorageKind::BorrowedParameter(ordinal) => (10, Some(*ordinal)),
             MirStorageKind::Local => (1, None),
             MirStorageKind::Temporary => (2, None),
+            MirStorageKind::BroadcastLocal => (11, None),
+            MirStorageKind::FrameCompletion => (12, None),
             MirStorageKind::Return => (3, None),
             MirStorageKind::InactiveFrame => (4, None),
             MirStorageKind::CurrentFrame => (5, None),
@@ -626,8 +628,8 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.ty(query.nullable_type())?;
                 self.ty(query.result_type())?;
             }
-            MirOperationKind::AdmitOutgoing { ty, runtime }
-            | MirOperationKind::DischargeOutgoing { ty, runtime } => {
+            MirOperationKind::AdmitOutgoing { owner, runtime }
+            | MirOperationKind::DischargeOutgoing { owner, runtime } => {
                 self.wire.write_u32(
                     if matches!(operation, MirOperationKind::AdmitOutgoing { .. }) {
                         22
@@ -636,7 +638,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                     },
                 );
 
-                self.ty(*ty)?;
+                self.outgoing_owner(owner)?;
                 self.runtime_reference(*runtime);
             }
             MirOperationKind::Host(operation)
@@ -856,6 +858,30 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.operand(operand)?;
             }
             None => self.wire.write_u32(0),
+        }
+
+        Ok(())
+    }
+
+    fn outgoing_owner(
+        &mut self,
+        owner: &bray_ir::MirOutgoingOwner,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        match owner {
+            bray_ir::MirOutgoingOwner::FrameFactory(callee) => {
+                self.wire.write_u32(2);
+                self.operand(callee)?;
+            }
+            bray_ir::MirOutgoingOwner::Value(ty) => {
+                self.wire.write_u32(0);
+                self.ty(*ty)?;
+            }
+            bray_ir::MirOutgoingOwner::Invocation { callable, result } => {
+                self.wire.write_u32(1);
+                self.callable_instance(callable.instance())?;
+                self.callable_abi(callable.abi());
+                self.call_result(*result)?;
+            }
         }
 
         Ok(())
@@ -1329,18 +1355,33 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         }
 
         self.ty(frame.result_type())?;
+
+        match frame.completion_state() {
+            Some(state) => {
+                self.wire.write_u32(1);
+                self.wire.write_u32(state.raw());
+            }
+            None => self.wire.write_u32(0),
+        }
+
         write_count(&mut self.wire, frame.states().len());
 
         for state in frame.states() {
             self.wire.write_u32(state.state().raw());
             self.wire.write_u32(state.entry().slot());
+            self.wire.write_u32(state.broadcast().slot());
 
             self.wire.write_u32(state.affinity().code());
 
-            write_count(&mut self.wire, state.lane_requirements().len());
+            self.wire
+                .write_u32(u32::from(state.is_completion_cleanup()));
 
-            for requirement in state.lane_requirements() {
-                self.execution_lane(*requirement);
+            for requirements in state.operation_requirements() {
+                write_count(&mut self.wire, requirements.len());
+
+                for requirement in requirements.iter() {
+                    self.execution_lane(*requirement);
+                }
             }
 
             write_count(&mut self.wire, state.initialized_storages().len());
@@ -2284,16 +2325,21 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             Operation::ComposeAwaitedFrame {
                 parent,
                 child,
+                resume_state,
                 frame,
+                completion,
             } => {
                 self.wire.write_u32(3);
                 self.wire.write_bytes(&parent.digest());
                 self.frame_reference(*child);
+                self.wire.write_u32(resume_state.raw());
                 self.operand(frame)?;
+                self.wire.write_u32(completion.slot());
             }
-            Operation::CommitAwaitedCompletion { child } => {
+            Operation::CommitAwaitedCompletion { child, completion } => {
                 self.wire.write_u32(4);
                 self.frame_reference(*child);
+                self.wire.write_u32(completion.slot());
             }
             Operation::StartTask {
                 frame,
@@ -2312,6 +2358,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.operand(task)?;
                 self.runtime_reference(*runtime);
             }
+            Operation::ObserveFrameCancellation => self.wire.write_u32(14),
             Operation::ObserveCurrentRunCancellation { runtime } => {
                 self.wire.write_u32(7);
                 self.runtime_reference(*runtime);

@@ -1,4 +1,5 @@
 mod control;
+mod frame;
 mod ordinary;
 mod outcomes;
 

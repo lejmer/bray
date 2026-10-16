@@ -45,7 +45,10 @@ struct PreparedCall {
     candidates: Vec<CallableCandidate>,
     generic_candidates: Vec<CallableCandidateTemplate>,
     values: Vec<CallableValueCandidateTemplate>,
-    anonymous_target: Option<bray_symbols::AnonymousCallableSymbolId>,
+    anonymous_target: Option<(
+        bray_symbols::AnonymousCallableSymbolId,
+        bray_bound_tree::BoundUnitKey,
+    )>,
 }
 
 pub(super) struct PreparedExpressions {
@@ -105,6 +108,7 @@ pub(super) fn prepare_calls<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
 {
+    let immutable_initializers = crate::pattern::immutable_initializers(request.unit());
     let mut calls = Vec::new();
     let mut built_in_operators = Vec::new();
     let mut deferred = BTreeSet::new();
@@ -211,6 +215,7 @@ where
                             request,
                             *expression,
                             nested_callables,
+                            &immutable_initializers,
                         )?,
                     });
                 }
@@ -512,7 +517,14 @@ fn nested_callable_target<C>(
     request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
     nested_callables: &[NestedCallableEvidence],
-) -> Result<Option<bray_symbols::AnonymousCallableSymbolId>, CheckerQueryError<C::UpstreamError>>
+    initializers: &BTreeMap<bray_symbols::LocalBindingSymbolId, BoundExpressionId>,
+) -> Result<
+    Option<(
+        bray_symbols::AnonymousCallableSymbolId,
+        bray_bound_tree::BoundUnitKey,
+    )>,
+    CheckerQueryError<C::UpstreamError>,
+>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -522,16 +534,30 @@ where
         );
     };
 
-    if !matches!(
-        request.view().expression(call.callee()),
-        Some(BoundExpression::AnonymousCallable(_))
-    ) {
-        return Ok(None);
+    let mut callee = call.callee();
+
+    while let Some(BoundExpression::Name(name)) = request.view().expression(callee) {
+        let BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(binding)) =
+            name.target()
+        else {
+            return Ok(None);
+        };
+
+        let Some(initializer) = initializers.get(&binding) else {
+            return Ok(None);
+        };
+
+        callee = *initializer;
     }
+
+    let Some(BoundExpression::AnonymousCallable(anonymous)) = request.view().expression(callee)
+    else {
+        return Ok(None);
+    };
 
     let mut matching = nested_callables
         .iter()
-        .filter(|evidence| evidence.expression() == call.callee());
+        .filter(|evidence| evidence.expression() == callee);
 
     let Some(evidence) = matching.next() else {
         panic!(
@@ -545,7 +571,7 @@ where
         );
     }
 
-    Ok(Some(evidence.callable()))
+    Ok(Some((evidence.callable(), anonymous.unit().clone())))
 }
 
 fn defer_expression_tree<C>(
@@ -975,8 +1001,8 @@ where
 
     let result = call_result(request, callable, callable.result());
 
-    let target = match prepared.anonymous_target {
-        Some(anonymous) => BoundCallableTarget::Anonymous(anonymous),
+    let target = match &prepared.anonymous_target {
+        Some((anonymous, _)) => BoundCallableTarget::Anonymous(*anonymous),
         None => member
             .and_then(bray_bound_tree::MemberTarget::callable_instance)
             .map(BoundCallableTarget::Declaration)
@@ -989,6 +1015,10 @@ where
         .map(|witness| witness.witness());
 
     let mut resolution = BoundResolvedCall::new(target, witnesses, result);
+
+    if let Some((_, unit)) = &prepared.anonymous_target {
+        resolution = resolution.with_anonymous_body(unit.clone(), callee_type.ty());
+    }
 
     if let Some(dispatch) = member.and_then(bray_bound_tree::MemberTarget::trait_dispatch) {
         resolution = resolution.with_trait_dispatch(dispatch);

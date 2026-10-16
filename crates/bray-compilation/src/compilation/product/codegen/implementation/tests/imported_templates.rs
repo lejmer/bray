@@ -315,7 +315,7 @@ fn imported_generic_template_families_merge_protected_frame_requirements() {
         panic!("generic callable must import one family runtime requirement");
     };
 
-    assert_eq!(runtime.frames().len(), 2);
+    assert_eq!(runtime.frames().len(), 3);
     assert!(runtime.requirements().frame_abi().is_some());
 
     let target = compilation
@@ -358,6 +358,101 @@ fn imported_generic_template_families_merge_protected_frame_requirements() {
         .collect::<BTreeSet<_>>();
 
     assert_eq!(frames.iter().copied().collect::<Vec<_>>(), runtime.frames());
+}
+
+#[test]
+fn imported_completed_results_retain_concrete_cleanup_lanes() {
+    let compilation = generic_consumer_for_target_with_source(
+        generic_async_dependency(),
+        SelectedTarget::baseline(),
+        r#"
+        module application;
+
+        using example.dependency.templates.identity;
+
+        struct Guard
+        {
+            destruct()
+                requires(blocking_execution())
+            {
+            }
+        }
+
+        async func main()
+            requires(blocking_execution())
+        {
+            let value = await example.dependency.templates.identity<(Guard, i32)>((Guard {}, 7));
+        }
+        "#,
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+
+    let target = compilation
+        .selected_target()
+        .target()
+        .codegen_target()
+        .unwrap();
+
+    let semantic = compilation.product_semantics().unwrap();
+    let cancellation = &compilation.state.cancellation;
+
+    let roots = compilation
+        .product_root_instances(semantic.value(), None, &target, cancellation)
+        .unwrap();
+
+    let reachability = compilation
+        .codegen_reachability(
+            roots,
+            None,
+            &target,
+            CodegenOptions::default(),
+            false,
+            cancellation,
+        )
+        .unwrap();
+
+    let mut checked = 0;
+
+    for instance in reachability.graph().instances() {
+        if !matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_)) {
+            continue;
+        }
+
+        let Some(frame) = instance.mir().frame_descriptor() else {
+            continue;
+        };
+
+        let completion = frame
+            .completion_state()
+            .expect("imported owned result retains disposal");
+
+        let state = frame
+            .states()
+            .iter()
+            .find(|state| state.state() == completion)
+            .unwrap();
+
+        assert!(state.is_completion_cleanup());
+
+        assert_eq!(
+            state.lane_requirements(),
+            [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
+        );
+
+        checked += 1;
+    }
+
+    assert_eq!(
+        checked, 3,
+        "all imported generic async bodies must retain the concrete result contract"
+    );
+
+    realize_codegen_mappings(&compilation, &target, &reachability, cancellation);
 }
 
 #[test]
@@ -569,26 +664,30 @@ const GENERIC_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixture {
 };
 
 const ASYNC_GENERIC_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixture {
-    source: concat!(
-        "module templates;\n",
-        "\n",
-        "func helper<T>(pos value: T) -> T\n",
-        "{\n",
-        "    return value;\n",
-        "}\n",
-        "\n",
-        "public async func identity<T>(pos value: T) -> T\n",
-        "{\n",
-        "    let invoke = async lambda(pos item: T) -> T\n",
-        "    {\n",
-        "        return helper<T>(item);\n",
-        "    };\n",
-        "\n",
-        "    return await invoke(value);\n",
-        "}\n",
-    ),
-    runtime_frames: Some(2),
-    executable_templates: 3,
+    source: r#"
+module templates;
+
+func helper<T>(pos value: T) -> T
+{
+    return value;
+}
+
+public async func identity<T>(pos value: T) -> T
+{
+    let worker = async lambda(pos item: T) -> T
+    {
+        return helper<T>(item);
+    };
+    let invoke = async lambda(pos operation: async func(pos item: T) -> T, pos value: T) -> T
+    {
+        return await operation(value);
+    };
+
+    return await invoke(worker, value);
+}
+"#,
+    runtime_frames: Some(3),
+    executable_templates: 4,
     platform_service: None,
 };
 

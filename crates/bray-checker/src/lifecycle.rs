@@ -229,6 +229,62 @@ fn member_types<'a, C: LifecycleSelectionContext + ?Sized>(
         .collect()
 }
 
+/// Returns requirements of invoking a checked lifecycle callable. Async body
+/// requirements belong to its child frame, while invocation requirements remain local.
+pub fn invocation_execution_requirements(
+    values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
+    callable_type: TypeId,
+) -> std::collections::BTreeSet<bray_symbols::CallableExecutionRequirement> {
+    let data = values.type_data(callable_type);
+
+    let TypeData::Callable(callable) = data.as_ref() else {
+        panic!("selected cleanup has a checked callable type");
+    };
+
+    let mut requirements = std::collections::BTreeSet::new();
+
+    requirements.extend(
+        callable
+            .phase_behaviors()
+            .invocation()
+            .execution_requirements()
+            .iter()
+            .copied(),
+    );
+
+    // Declared source requirements are available before body-effect inference.
+    // Imported callable signatures already include their phase requirements.
+    if callable.execution() == bray_symbols::CallableExecution::Synchronous {
+        for condition in callable
+            .phase_behaviors()
+            .invocation()
+            .predicate_requirements()
+            .iter()
+            .filter_map(|predicate| predicate.condition())
+        {
+            let term = values.constant_term_data(condition);
+
+            let bray_symbols::ConstantTermData::PredicateCall { predicate, .. } = term.as_ref()
+            else {
+                continue;
+            };
+
+            let declaration = predicate.definition().into_any();
+
+            if known
+                .symbol_implementation(declaration)
+                .is_some_and(|hook| hook.is_execution_requirement())
+            {
+                requirements.insert(bray_symbols::CallableExecutionRequirement::new(declaration));
+            }
+        }
+    }
+
+    // Deferred lifecycle execution is dispatched in its own described child frame.
+    requirements
+}
+
 #[cfg(test)]
 mod tests {
     use super::{LifecycleSelectionContext, LifecycleSelectionError, select_lifecycle_action};

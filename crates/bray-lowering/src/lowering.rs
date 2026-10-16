@@ -15,5 +15,6 @@ mod replacement;
 mod representation;
 mod scoped;
 
+pub use asynchronous::lower_execution_requirements;
 pub use error::LoweringError;
 pub use lowerer::lower_unit;

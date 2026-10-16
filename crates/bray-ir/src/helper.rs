@@ -47,8 +47,6 @@ pub enum MirHelperReference {
     },
     /// Create one inactive protected frame.
     CreateFrame(MirFrameReference),
-    /// Move one inactive protected frame before its first resume.
-    MoveInactiveFrame(MirFrameReference),
     /// Compose one directly awaited child frame.
     ComposeAwaitedFrame(MirFrameReference),
     /// Move one awaited completion result.
@@ -76,7 +74,6 @@ impl MirHelperReference {
             | Self::Destroy(_)
             | Self::Cleanup { .. }
             | Self::CreateFrame(_)
-            | Self::MoveInactiveFrame(_)
             | Self::ComposeAwaitedFrame(_)
             | Self::CommitAwaitedCompletion(_)
             | Self::DestroyTerminalTask => CallableAbi::Bray,
@@ -101,7 +98,6 @@ impl MirHelperReference {
             | Self::PanicReport
             | Self::StandardLibrary(_)
             | Self::CreateFrame(_)
-            | Self::MoveInactiveFrame(_)
             | Self::ComposeAwaitedFrame(_)
             | Self::CommitAwaitedCompletion(_)
             | Self::DestroyTerminalTask => None,
@@ -115,13 +111,8 @@ impl MirHelperReference {
             Self::PushGenerator => Some(RuntimeAbiRole::GeneratorPush),
             Self::FinishGenerator => Some(RuntimeAbiRole::GeneratorFinish),
             Self::PanicReport => Some(RuntimeAbiRole::PanicReportConstruction),
-            Self::MoveInactiveFrame(MirFrameReference::Erased) => {
-                Some(RuntimeAbiRole::InactiveFrameMove)
-            }
             Self::ComposeAwaitedFrame(_) => Some(RuntimeAbiRole::AwaitedFrameComposition),
-            Self::CommitAwaitedCompletion(MirFrameReference::Erased) => {
-                Some(RuntimeAbiRole::FrameCompletionMove)
-            }
+            Self::CommitAwaitedCompletion(_) => Some(RuntimeAbiRole::FrameCompletionMove),
             Self::DestroyTerminalTask => Some(RuntimeAbiRole::TaskDestruction),
             Self::AnonymousCallable(_)
             | Self::DeclaredCallable(_)
@@ -133,9 +124,7 @@ impl MirHelperReference {
             | Self::StaticFinalize(_)
             | Self::Destroy(_)
             | Self::Cleanup { .. }
-            | Self::CreateFrame(_)
-            | Self::MoveInactiveFrame(MirFrameReference::Known(_))
-            | Self::CommitAwaitedCompletion(MirFrameReference::Known(_)) => None,
+            | Self::CreateFrame(_) => None,
         }
     }
 }
@@ -196,30 +185,25 @@ impl MirOperationKind {
                 ty: place.ty(),
             }),
             Self::Async(MirAsyncOperation::CreateFrame { frame, initializer }) => {
-                match initializer {
-                    MirFrameInitializer::Callable(_) => {}
-                    MirFrameInitializer::TaskObservation { result, .. } => {
-                        for phase in [
-                            MirCleanupPhase::TaskCancellation,
-                            MirCleanupPhase::LifecycleResolution,
-                        ] {
-                            helpers.push(MirHelperReference::Cleanup {
-                                phase,
-                                ty: result.completion_type(),
-                            });
-                        }
+                if let MirFrameInitializer::TaskObservation { result, .. } = initializer {
+                    for phase in [
+                        MirCleanupPhase::TaskCancellation,
+                        MirCleanupPhase::LifecycleResolution,
+                    ] {
+                        helpers.push(MirHelperReference::Cleanup {
+                            phase,
+                            ty: result.completion_type(),
+                        });
                     }
-                }
 
-                helpers.push(MirHelperReference::CreateFrame(*frame));
+                    helpers.push(MirHelperReference::CreateFrame(*frame));
+                }
             }
-            Self::Async(MirAsyncOperation::MoveInactiveFrame { frame, .. }) => {
-                helpers.push(MirHelperReference::MoveInactiveFrame(*frame));
-            }
+            Self::Async(MirAsyncOperation::MoveInactiveFrame { .. }) => {}
             Self::Async(MirAsyncOperation::ComposeAwaitedFrame { child, .. }) => {
                 helpers.push(MirHelperReference::ComposeAwaitedFrame(*child));
             }
-            Self::Async(MirAsyncOperation::CommitAwaitedCompletion { child }) => {
+            Self::Async(MirAsyncOperation::CommitAwaitedCompletion { child, .. }) => {
                 helpers.push(MirHelperReference::CommitAwaitedCompletion(*child));
             }
             Self::Async(MirAsyncOperation::DestroyTerminalTask { .. }) => {

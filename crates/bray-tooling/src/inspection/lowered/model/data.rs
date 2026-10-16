@@ -161,6 +161,8 @@ impl InspectionMirUnit {
                     .map(|state| InspectionMirFrameState {
                         id: state.state().raw(),
                         entry: state.entry().slot(),
+                        broadcast: state.broadcast().slot(),
+                        completion_cleanup: state.is_completion_cleanup(),
                         initialized_storages: state
                             .initialized_storages()
                             .iter()
@@ -177,6 +179,7 @@ impl InspectionMirUnit {
                         symbols,
                         frame.result_type(),
                     )?,
+                    completion_state: frame.completion_state().map(|state| state.raw()),
                     states,
                 })
             })
@@ -273,12 +276,15 @@ pub(crate) struct InspectionMirFrame {
     pub(crate) abi: String,
     pub(crate) result_type: InspectionType,
     pub(crate) states: Vec<InspectionMirFrameState>,
+    completion_state: Option<u32>,
 }
 
 #[derive(Serialize)]
 pub(crate) struct InspectionMirFrameState {
     pub(crate) id: u32,
     pub(crate) entry: u32,
+    pub(crate) broadcast: u32,
+    pub(crate) completion_cleanup: bool,
     pub(crate) initialized_storages: Vec<u32>,
 }
 
@@ -766,9 +772,19 @@ fn operation_parts(
 
             "panic_report"
         }
-        MirOperationKind::AdmitOutgoing { ty, runtime }
-        | MirOperationKind::DischargeOutgoing { ty, runtime } => {
-            parts.r#type("owner", *ty, context)?;
+        MirOperationKind::AdmitOutgoing { owner, runtime }
+        | MirOperationKind::DischargeOutgoing { owner, runtime } => {
+            match owner {
+                bray_ir::MirOutgoingOwner::FrameFactory(callee) => {
+                    parts.operand("factory", callee, context)?
+                }
+                bray_ir::MirOutgoingOwner::Value(ty) => parts.r#type("owner", *ty, context)?,
+                bray_ir::MirOutgoingOwner::Invocation { callable, result } => {
+                    callable_reference("callable", *callable, parts, context);
+                    parts.r#type("result", result.ty(), context)?;
+                }
+            }
+
             runtime_reference("runtime", *runtime, parts);
 
             if matches!(operation, MirOperationKind::AdmitOutgoing { .. }) {
@@ -1434,15 +1450,20 @@ fn async_operation(
         MirAsyncOperation::ComposeAwaitedFrame {
             parent,
             child,
+            resume_state,
             frame,
+            completion,
         } => {
+            parts.attribute("completion_storage", completion.slot());
             parts.attribute("parent_frame", digest_text(parent.digest()));
+            parts.attribute("resume_state", resume_state.raw());
             frame_reference("child_frame", *child, parts);
             parts.operand("frame", frame, context)?;
 
             "compose_awaited_frame"
         }
-        MirAsyncOperation::CommitAwaitedCompletion { child } => {
+        MirAsyncOperation::CommitAwaitedCompletion { child, completion } => {
+            parts.attribute("completion_storage", completion.slot());
             frame_reference("child_frame", *child, parts);
 
             "commit_awaited_completion"
@@ -1466,6 +1487,7 @@ fn async_operation(
 
             "request_task_cancellation"
         }
+        MirAsyncOperation::ObserveFrameCancellation => "observe_frame_cancellation",
         MirAsyncOperation::ObserveCurrentRunCancellation { runtime } => {
             runtime_reference("runtime", *runtime, parts);
 
@@ -2571,7 +2593,6 @@ const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'stati
         | MirHelperReference::PanicReport
         | MirHelperReference::StandardLibrary(_)
         | MirHelperReference::CreateFrame(_)
-        | MirHelperReference::MoveInactiveFrame(_)
         | MirHelperReference::ComposeAwaitedFrame(_)
         | MirHelperReference::CommitAwaitedCompletion(_)
         | MirHelperReference::DestroyTerminalTask => None,
@@ -2598,6 +2619,8 @@ fn storage_kind(kind: &MirStorageKind) -> &'static str {
         MirStorageKind::BorrowedParameter(_) => "borrowed_parameter",
         MirStorageKind::Local => "local",
         MirStorageKind::Temporary => "temporary",
+        MirStorageKind::BroadcastLocal => "broadcast_local",
+        MirStorageKind::FrameCompletion => "frame_completion",
         MirStorageKind::Return => "return",
         MirStorageKind::InactiveFrame => "inactive_frame",
         MirStorageKind::CurrentFrame => "current_frame",

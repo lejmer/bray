@@ -1,7 +1,6 @@
 use std::num::NonZeroUsize;
 
 use bray_platform::PlatformError;
-use bray_runtime_model::ProtectedFrameStateId;
 
 use crate::{ExecutionLaneSelectionError, TaskId};
 
@@ -42,8 +41,6 @@ pub enum SchedulerError {
     TaskAlreadyRegistered(TaskId),
     /// The task is no longer registered with this scheduler.
     UnknownTask(TaskId),
-    /// Dispatch selected a state absent from the task's protected-frame descriptor.
-    UnknownFrameState(ProtectedFrameStateId),
     /// Checked requirements could not select a compatible runtime lane.
     LaneSelection(ExecutionLaneSelectionError),
     /// Cancellation-wake identities were exhausted.

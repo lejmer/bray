@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use bray_platform::RuntimeThread;
-use bray_runtime_model::ProtectedFrameStateId;
 
 use crate::context::{with_run_cancellation_context, with_task_execution_context};
 use crate::{
@@ -161,14 +160,12 @@ where
 {
     let root = TaskControlBlock::start_local(admission, frame);
     let source = Arc::new(AtomicU8::new(0));
-    let initial_state = ProtectedFrameStateId::new(0);
 
     let result = (|| {
         let registration = scheduler.register_task(
             root.id(),
-            root.descriptor().clone(),
+            root.execution_state(),
             main_thread.id(),
-            initial_state,
             root.cancellation_context(),
         )?;
 
@@ -179,12 +176,10 @@ where
             ExecutionWorkload::Cooperative,
         );
 
-        for state in root.descriptor().states() {
-            let selected_lane = registration.lane(state.state())?;
+        let selected_lane = registration.lane()?;
 
-            if selected_lane != root_lane {
-                return Err(RootExecutionError::WrongExecutionLane(selected_lane));
-            }
+        if selected_lane != root_lane {
+            return Err(RootExecutionError::WrongExecutionLane(selected_lane));
         }
 
         on_started(RootCancellationHandle {
@@ -219,7 +214,13 @@ where
             let status = with_task_execution_context(context, || root.resume())?;
 
             match status {
-                TaskResumeStatus::Suspended(_, execution) => ready.suspend(execution)?,
+                TaskResumeStatus::Suspended(_, execution) => {
+                    let lane = ready.suspend(execution)?;
+
+                    if lane != root_lane {
+                        return Err(RootExecutionError::WrongExecutionLane(lane));
+                    }
+                }
                 TaskResumeStatus::Terminal(_) => {
                     drop(ready);
                     drop(registration);
@@ -528,7 +529,9 @@ mod tests {
                 let status = with_task_execution_context(context, || child.resume())?;
 
                 match status {
-                    TaskResumeStatus::Suspended(_, execution) => ready.suspend(execution)?,
+                    TaskResumeStatus::Suspended(_, execution) => {
+                        ready.suspend(execution)?;
+                    }
                     TaskResumeStatus::Terminal(_) => drop(ready),
                 }
 

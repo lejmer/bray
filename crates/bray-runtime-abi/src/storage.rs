@@ -16,6 +16,20 @@ impl NativeCleanupStorageShape {
             alignment,
         }
     }
+    /// Returns the immutable semantic identity described by this layout.
+    pub const fn identity(self) -> [u8; 32] {
+        self.identity
+    }
+
+    /// Returns the declared region size in bytes.
+    pub const fn bytes(self) -> usize {
+        self.bytes
+    }
+
+    /// Returns the declared region alignment.
+    pub const fn alignment(self) -> usize {
+        self.alignment
+    }
 }
 
 /// Opaque native lease for one allocation lifetime in the resident cleanup service.

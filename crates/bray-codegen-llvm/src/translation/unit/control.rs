@@ -93,11 +93,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         );
                     }
 
-                    let progress = self.frame_progress.take().expect(
-                        "checked MIR control translation requires an established mapping or value",
-                    );
+                    if self.frame_broadcast {
+                        self.return_broadcast_outcome(
+                            bray_runtime_abi::NativeFrameProgressKind::COMPLETED,
+                            self.types.context().i64_type().const_zero().into(),
+                        )?;
+                    } else {
+                        let progress = self
+                            .frame_progress
+                            .take()
+                            .expect("source frame return retains its terminal progress");
 
-                    self.return_frame_progress(progress)?;
+                        self.return_frame_progress(progress)?;
+                    }
                 } else {
                     self.translate_return(value.as_ref())?;
                 }
@@ -256,17 +264,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         wake: bray_ir::MirRuntimeReference,
     ) -> Result<(), CodegenFailure> {
         if let Some(frame_context) = self.frame_context {
-            let context = self.frame_context_argument();
-
-            let pointer = llvm(
-                self.builder.build_int_to_ptr(
-                    context,
-                    self.types
-                        .context()
-                        .ptr_type(inkwell::AddressSpace::default()),
-                    "frame.context",
-                ),
-            )?;
+            let pointer = self.frame_context_pointer()?;
 
             let state_pointer = llvm(self.builder.build_struct_gep(
                 frame_context,

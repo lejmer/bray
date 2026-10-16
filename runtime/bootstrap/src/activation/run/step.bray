@@ -1,0 +1,262 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation.run;
+
+using std.memory;
+
+// These are dispatcher outcomes, separate from source progress and native status.
+internal const CONTINUE: u32 = 0;
+
+internal const SUSPEND: u32 = 1;
+
+internal const FINISHED: u32 = 2;
+
+internal const DEFERRED: u32 = 3;
+
+trusted internal func step(
+    pos mut cursor: Cursor,
+    pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+    pos ready: bray.runtime.bootstrap.activation.callback.Ready,
+    pos cancellation: bool,
+) -> (
+        bray.runtime.bootstrap.activation.Progress,
+        bray.runtime.bootstrap.ReportRecords,
+        bray.runtime.bootstrap.ReportRecords,
+        u32
+    )
+    requires(
+        trusted selected(cursor = &cursor),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+{
+    let root_state = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor, root = true);
+
+    if cancellation && root_state.phase == bray.runtime.bootstrap.activation.RUNNING && root_state.broadcasted == 0 &&
+        root_state.broadcast_next == 0
+    {
+        trusted begin_broadcast(&mut cursor);
+
+        return (
+            bray.runtime.bootstrap.activation.empty_progress(),
+            bray.runtime.bootstrap.empty_records(),
+            bray.runtime.bootstrap.empty_records(),
+            CONTINUE
+        );
+    }
+
+    trusted current(&mut cursor);
+
+    let header = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);
+
+    if root_state.broadcast_next != 0
+    {
+        return trusted broadcast(&mut cursor, callback, ready);
+    }
+
+    if header.phase == bray.runtime.bootstrap.activation.CLEANUP &&
+        bray.runtime.bootstrap.activation.execution.broadcast_pending(&header)
+    {
+        let traversal = trusted bray.runtime.bootstrap.activation.execution.access(&mut cursor, root = true);
+
+        traversal.broadcast_next = traversal.current;
+
+        return (
+            bray.runtime.bootstrap.activation.empty_progress(),
+            bray.runtime.bootstrap.empty_records(),
+            bray.runtime.bootstrap.empty_records(),
+            CONTINUE
+        );
+    }
+
+    if header.phase == bray.runtime.bootstrap.activation.CLEANUP && header.child != 0
+    {
+        trusted descend(&mut cursor);
+        trusted abandon(&mut cursor);
+
+        let traversal = trusted bray.runtime.bootstrap.activation.execution.access(&mut cursor, root = true);
+
+        traversal.broadcast_next = traversal.current;
+
+        return (
+            bray.runtime.bootstrap.activation.empty_progress(),
+            bray.runtime.bootstrap.empty_records(),
+            bray.runtime.bootstrap.empty_records(),
+            CONTINUE
+        );
+    }
+
+    if header.phase == bray.runtime.bootstrap.activation.TERMINAL
+    {
+        if header.kind == 1 && header.abandoned == 0
+        {
+            let status = trusted transfer(&mut cursor, callback, ready);
+
+            let progress: bray.runtime.bootstrap.activation.Progress =
+            {
+                kind = 5,
+                state = header.state,
+                payload = status as usize,
+                report = bray.runtime.bootstrap.empty_panic_report()
+            };
+
+            return (
+                progress,
+                bray.runtime.bootstrap.empty_records(),
+                bray.runtime.bootstrap.empty_records(),
+                if status == 0
+                {
+                    yield CONTINUE;
+                }
+                else
+                {
+                    yield DEFERRED;
+                }
+            );
+        }
+
+        let updated = trusted bray.runtime.bootstrap.activation.execution.access(&mut cursor);
+
+        updated.phase = bray.runtime.bootstrap.activation.COMMITTED;
+
+        return (
+            bray.runtime.bootstrap.activation.empty_progress(),
+            bray.runtime.bootstrap.empty_records(),
+            bray.runtime.bootstrap.empty_records(),
+            CONTINUE
+        );
+    }
+
+    if header.phase == bray.runtime.bootstrap.activation.COMMITTED
+    {
+        if header.parent != 0
+        {
+            let (incidents, remaining, status) = trusted retire(cursor, callback, ready);
+
+            let progress: bray.runtime.bootstrap.activation.Progress =
+            {
+                kind = 5,
+                state = header.state,
+                payload = status as usize,
+                report = bray.runtime.bootstrap.empty_panic_report()
+            };
+
+            return (
+                progress,
+                remaining,
+                incidents,
+                if status == 0
+                {
+                    yield CONTINUE;
+                }
+                else
+                {
+                    yield DEFERRED;
+                }
+            );
+        }
+
+        let updated = trusted bray.runtime.bootstrap.activation.execution.access(&mut cursor);
+
+        let progress = std.memory.replace_value<bray.runtime.bootstrap.activation.Progress>(
+            &mut updated.progress,
+            bray.runtime.bootstrap.activation.empty_progress()
+        );
+
+        let incidents = std.memory.replace_value<bray.runtime.bootstrap.ReportRecords>(
+            &mut updated.incidents,
+            bray.runtime.bootstrap.empty_records()
+        );
+
+        return (progress, bray.runtime.bootstrap.empty_records(), incidents, FINISHED);
+    }
+
+    let (operation, argument) = trusted entry(&header, cancellation);
+    let (kind, state, payload, status) = trusted advance(&mut cursor, callback, ready, operation, argument);
+
+    if status != 0
+    {
+        let deferred: bray.runtime.bootstrap.activation.Progress =
+        {
+            kind = 5,
+            state = header.state,
+            payload = status as usize,
+            report = bray.runtime.bootstrap.empty_panic_report()
+        };
+
+        return (deferred, bray.runtime.bootstrap.empty_records(), bray.runtime.bootstrap.empty_records(), DEFERRED);
+    }
+
+    let updated = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);
+
+    if bray.runtime.bootstrap.activation.execution.suspended(kind)
+    {
+        if kind == 0 && updated.child != 0
+        {
+            trusted descend(&mut cursor);
+        }
+        else
+        {
+            let progress: bray.runtime.bootstrap.activation.Progress =
+            {
+                kind = kind,
+                state = state,
+                payload = payload,
+                report = bray.runtime.bootstrap.empty_panic_report()
+            };
+
+            return (progress, bray.runtime.bootstrap.empty_records(), bray.runtime.bootstrap.empty_records(), SUSPEND);
+        }
+    }
+
+    return (
+        bray.runtime.bootstrap.activation.empty_progress(),
+        bray.runtime.bootstrap.empty_records(),
+        bray.runtime.bootstrap.empty_records(),
+        CONTINUE
+    );
+}
+
+trusted internal func entry(
+    pos header: &bray.runtime.bootstrap.activation.execution.Snapshot,
+    pos cancellation: bool
+) -> (u32, usize)
+    ensures(result.0 < 4, result.0 != 3 || result.1 < 4)
+    uses(intrinsic)
+{
+    if header.phase == bray.runtime.bootstrap.activation.CLEANUP
+    {
+        if header.abandoned != 0
+        {
+            return (3, 3);
+        }
+
+        if header.kind < 1 || header.kind > 4
+        {
+            trusted core.target.abort();
+        }
+
+        return (3, bray.runtime.bootstrap.activation.execution.cleanup_exit(header.kind));
+    }
+
+    if header.phase == bray.runtime.bootstrap.activation.RESOLVING
+    {
+        return (0, 0);
+    }
+
+    if header.phase != bray.runtime.bootstrap.activation.RUNNING
+    {
+        trusted core.target.abort();
+    }
+
+    return (
+        if cancellation
+        {
+            yield 1;
+        }
+        else
+        {
+            yield 0;
+        },
+        0
+    );
+}

@@ -167,7 +167,7 @@ fn native_type(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
             RuntimeAbiType::U32
         }
         Some("u64" | "NativeRootHandle" | "NativeTaskHandle") => RuntimeAbiType::U64,
-        Some("usize" | "NativeProtectedFrameTransfer") => RuntimeAbiType::Usize,
+        Some("usize" | "NativeInactiveFrameTransfer") => RuntimeAbiType::Usize,
         Some("NativeRuntimeConfiguration") => RuntimeAbiType::Configuration,
         Some("NativeRootStart") => RuntimeAbiType::RootStart,
         Some("NativeRunOutcome") => RuntimeAbiType::RunOutcome,

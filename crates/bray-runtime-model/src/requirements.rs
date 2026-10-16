@@ -12,6 +12,29 @@ pub enum ExecutionLaneRequirement {
 impl ExecutionLaneRequirement {
     /// Every execution-lane requirement in stable order.
     pub const ALL: [Self; 3] = [Self::Blocking, Self::Compute, Self::MainThread];
+
+    /// Returns the sorted, deduplicated requirement set using shared immutable storage.
+    pub fn set(values: impl IntoIterator<Item = Self>) -> &'static [Self] {
+        let bits = values.into_iter().fold(0_u8, |bits, requirement| {
+            bits | match requirement {
+                Self::Blocking => 1,
+                Self::Compute => 2,
+                Self::MainThread => 4,
+            }
+        });
+
+        match bits {
+            0 => &[],
+            1 => &[Self::Blocking],
+            2 => &[Self::Compute],
+            3 => &[Self::Blocking, Self::Compute],
+            4 => &[Self::MainThread],
+            5 => &[Self::Blocking, Self::MainThread],
+            6 => &[Self::Compute, Self::MainThread],
+            7 => &Self::ALL,
+            _ => unreachable!("the closed execution requirements occupy three bits"),
+        }
+    }
 }
 
 /// Runtime facility required by reachable product code.
@@ -67,5 +90,36 @@ impl RuntimeCapability {
         Self::ALL
             .into_iter()
             .find(|capability| capability.as_str() == name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ExecutionLaneRequirement;
+
+    #[test]
+    fn requirement_sets_are_sorted_deduplicated_and_shared() {
+        for mask in 0_u8..8 {
+            let expected: Vec<_> = ExecutionLaneRequirement::ALL
+                .into_iter()
+                .enumerate()
+                .filter_map(|(index, value)| (mask & (1 << index) != 0).then_some(value))
+                .collect();
+
+            let values = expected
+                .iter()
+                .rev()
+                .copied()
+                .chain(expected.iter().copied());
+
+            let actual = ExecutionLaneRequirement::set(values);
+
+            assert_eq!(actual, expected);
+
+            assert!(std::ptr::eq(
+                actual,
+                ExecutionLaneRequirement::set(expected)
+            ));
+        }
     }
 }

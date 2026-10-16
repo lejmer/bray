@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bray_platform::{MonotonicClock, MonotonicDeadline, MonotonicInstant};
-use bray_runtime_model::{ProtectedFrameStateDescriptor, ProtectedFrameStateId};
+use bray_runtime_model::ProtectedFrameStateDescriptor;
 
 use crate::lane::select_execution_lane;
 use crate::{
@@ -13,18 +13,6 @@ use crate::{
 
 use super::contract::SchedulerError;
 use super::engine::{DispatchState, ReadyTask, RegisteredTask, SchedulerData, SchedulerState};
-
-pub(super) fn select_task_lane(
-    scheduler: &SchedulerData,
-    task: &RegisteredTask,
-    state_id: ProtectedFrameStateId,
-) -> Result<ExecutionLane, SchedulerError> {
-    let Some(frame_state) = task.descriptor.state(state_id) else {
-        return Err(SchedulerError::UnknownFrameState(state_id));
-    };
-
-    select_state_lane(scheduler, frame_state, task.origin)
-}
 
 pub(super) fn select_state_lane(
     scheduler: &SchedulerData,

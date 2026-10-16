@@ -1,14 +1,15 @@
 use bray_codegen::{
-    CodegenFailure, CodegenIndirectParameterKind, CodegenInstance, CodegenIntegerExtension,
-    CodegenLinkage, CodegenMappings, CodegenParameterMapping, CodegenResultMapping,
-    CodegenSymbolMapping, CodegenTarget, CodegenValueAttribute,
+    CodegenCallableSignature, CodegenFailure, CodegenIndirectParameterKind, CodegenInstance,
+    CodegenIntegerExtension, CodegenLinkage, CodegenMappings, CodegenParameterMapping,
+    CodegenResultMapping, CodegenSymbolMapping, CodegenTarget, CodegenValueAttribute,
 };
 use bray_ir::MirUnitKey;
 use bray_symbols::SymbolKind;
 use inkwell::GlobalVisibility;
 use inkwell::attributes::AttributeLoc;
+use inkwell::builder::Builder;
 use inkwell::module::{Linkage, Module};
-use inkwell::values::{CallSiteValue, FunctionValue};
+use inkwell::values::{BasicMetadataValueEnum, CallSiteValue, FunctionValue, PointerValue};
 
 use super::LlvmTypeMappings;
 use super::attribute::{enum_attribute, type_attribute, value_attribute_name};
@@ -22,11 +23,18 @@ pub(crate) fn declare_symbols<'context, 'mappings>(
     for mapping in mappings.symbols() {
         let defines_symbol = mapping.defines_in(mappings.unit());
 
-        if matches!(
-            mapping.key(),
-            bray_codegen::CodegenSymbolKey::CleanupStorage(_)
-        ) {
-            super::cleanup::declare(module, types.context(), target, mapping, defines_symbol);
+        let data_type = match mapping.key() {
+            bray_codegen::CodegenSymbolKey::CleanupStorage(_) => {
+                Some(super::cleanup::descriptor_type(types.context(), target))
+            }
+            bray_codegen::CodegenSymbolKey::FrameFactory(_) => {
+                Some(super::frame::factory_type(types.context()))
+            }
+            _ => None,
+        };
+
+        if let Some(data_type) = data_type {
+            declare_constant(module, data_type, target, mapping, defines_symbol);
             continue;
         }
 
@@ -40,6 +48,36 @@ pub(crate) fn declare_symbols<'context, 'mappings>(
     super::static_storage::declare_static_storages(module, mappings, target, types)?;
 
     Ok(())
+}
+
+fn declare_constant<'context>(
+    module: &Module<'context>,
+    ty: inkwell::types::StructType<'context>,
+    target: &CodegenTarget,
+    mapping: &CodegenSymbolMapping,
+    defined: bool,
+) {
+    let global = module.add_global(ty, None, mapping.name().as_str());
+
+    global.set_constant(true);
+    global.set_visibility(GlobalVisibility::Hidden);
+
+    if defined {
+        assert_eq!(
+            mapping.linkage(),
+            CodegenLinkage::LinkOnce,
+            "frame data shares its concrete callable identity"
+        );
+
+        global.set_linkage(Linkage::WeakODR);
+
+        crate::comdat::attach_any(
+            module,
+            global,
+            mapping.name().as_str(),
+            target.machine().object_format(),
+        );
+    }
 }
 
 fn declare_symbol<'context>(
@@ -192,26 +230,6 @@ fn apply_native_attributes(
 
         return Ok(());
     }
-
-    if !matches!(
-        mapping.key(),
-        bray_codegen::CodegenSymbolKey::ProtectedFrame {
-            operation: bray_runtime_interface::ProtectedFrameOperation::MoveBeforeStart,
-            ..
-        }
-    ) {
-        return Ok(());
-    }
-
-    let Some(result) = crate::native::indirect_result_type(types.context(), target, mapping.key())
-    else {
-        return Ok(());
-    };
-
-    function.add_attribute(
-        AttributeLoc::Param(0),
-        crate::native::indirect_result_attribute(types.context(), result)?,
-    );
 
     Ok(())
 }
@@ -566,6 +584,31 @@ pub(crate) fn call_convention(
         "win64" => Ok(79),
         _ => Err(CodegenFailure::UnsupportedTarget),
     }
+}
+
+pub(crate) fn invoke_with_outcome<'context>(
+    builder: &Builder<'context>,
+    function: FunctionValue<'context>,
+    signature: &CodegenCallableSignature,
+    semantic_arguments: &[BasicMetadataValueEnum<'context>],
+    outcome: PointerValue<'context>,
+    name: &str,
+    types: &mut LlvmTypeMappings<'context, '_>,
+) -> Result<CallSiteValue<'context>, CodegenFailure> {
+    let mut arguments = semantic_arguments.to_vec();
+
+    if signature.has_panic_report_context() {
+        arguments.push(outcome.into());
+    }
+
+    let call = builder
+        .build_call(function, &arguments, name)
+        .map_err(CodegenFailure::backend_library)?;
+
+    call.set_call_convention(function.get_call_conventions());
+    apply_signature_call_attributes(call, signature, types)?;
+
+    Ok(call)
 }
 
 #[cfg(test)]
@@ -1278,7 +1321,7 @@ mod tests {
 
         builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
 
-        let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
+        let state = MirFrameState::new(MirFrameStateId::new(0), entry, entry, [], []);
         let version = RuntimeAbiVersion::new(1, 0);
 
         let Ok(descriptor) = MirFrameDescriptor::new(
@@ -1286,6 +1329,7 @@ mod tests {
             version,
             ProtectedFrameAbiVersions::uniform(version),
             bray_testing::test_mir_type(),
+            None,
             [state],
         ) else {
             panic!("test protected-frame descriptor must validate");

@@ -33,11 +33,20 @@ internal struct Lease
     address: usize;
 }
 
+@copy
+internal union State
+{
+    Free(pos next: usize);
+    Reserved;
+    Active;
+    Inactive(pos descriptor: usize);
+    Dispatched;
+}
+
 internal struct Slot
 {
     mut epoch: u64;
-    mut state: u32;
-    mut next: usize;
+    mut state: State;
     address: usize;
 }
 
@@ -57,12 +66,6 @@ internal struct Shape
     mut total: usize;
     mut credits: usize;
 }
-
-internal const FREE: u32 = 0;
-
-internal const RESERVED: u32 = 1;
-
-internal const ACTIVE: u32 = 2;
 
 internal func empty_lease() -> Lease
 {

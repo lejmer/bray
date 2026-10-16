@@ -1,11 +1,60 @@
 module app;
 
+callable Worker = async func(pos value: i32) -> i32;
+
 async func main() -> i32
 {
-    return await child();
+    let first: i32 = await invoke(increment, 20);
+
+    let owner: Cell =
+    {
+        value = first
+    };
+
+    let borrowed = await retain<Cell>(&owner);
+    let second: i32 = await invoke(increment_twice, 19);
+
+    let recursive = await recurse(128);
+
+    if borrowed.value != first || recursive != 42
+    {
+        return 1;
+    }
+
+    return first + second;
 }
 
-async func child() -> i32
+async func invoke(pos worker: Worker, pos value: i32) -> i32
 {
-    return 42;
+    return await worker(value);
+}
+
+async func increment(pos value: i32) -> i32
+{
+    return value + 1;
+}
+
+async func increment_twice(pos value: i32) -> i32
+{
+    return value + 2;
+}
+
+struct Cell
+{
+    value: i32;
+}
+
+async func retain<T>(pos value: &T) -> &T
+{
+    return value;
+}
+
+async func recurse(pos depth: u32) -> i32
+{
+    if depth == 0
+    {
+        return 42;
+    }
+
+    return await recurse(depth - 1);
 }

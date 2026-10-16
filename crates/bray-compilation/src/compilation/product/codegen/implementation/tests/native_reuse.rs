@@ -658,3 +658,118 @@ fn reused_native_c_body_retains_its_distinct_callable_address() {
         &cancellation,
     );
 }
+
+#[test]
+fn imported_async_companions_keep_the_selected_native_constructor_identity() {
+    let dependency = dependency_from_fixture_with_native(
+        true,
+        false,
+        GenericDependencyFixture {
+            source: r#"
+                module templates;
+
+                public async func hot(pos value: i32) -> i32
+                {
+                    return value + 1;
+                }
+            "#,
+            runtime_frames: Some(1),
+            executable_templates: 1,
+            platform_service: None,
+        },
+        Some((CodegenOptions::default(), false, false, None)),
+    );
+
+    let compilation = super::support::dependencies::generic_consumer_for_target_with_source(
+        dependency,
+        crate::SelectedTarget::baseline(),
+        r#"
+            module application;
+            using example.dependency.templates.hot;
+
+            async func main() -> i32
+            {
+                return await example.dependency.templates.hot(41);
+            }
+        "#,
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+
+    let cancellation = CancellationToken::new();
+
+    let target = compilation
+        .selected_target()
+        .target()
+        .codegen_target()
+        .unwrap();
+
+    let semantic = compilation.product_semantics().unwrap();
+
+    let roots = compilation
+        .product_root_instances(semantic.value(), None, &target, &cancellation)
+        .unwrap();
+
+    let reachability = compilation
+        .codegen_reachability(
+            roots,
+            None,
+            &target,
+            CodegenOptions::default(),
+            false,
+            &cancellation,
+        )
+        .unwrap();
+
+    let key = reachability
+        .graph()
+        .external_instances()
+        .iter()
+        .find(|key| matches!(key.template(), MirUnitKey::ImportedExecutable(_)))
+        .unwrap();
+
+    let selected = reachability
+        .selected_native(key)
+        .expect("native async constructor must be reused");
+
+    let constructor =
+        bray_runtime_interface::BinarySymbolName::try_new(selected.symbol.as_str()).unwrap();
+
+    let mappings = super::support::mappings::realize_codegen_mappings(
+        &compilation,
+        &target,
+        &reachability,
+        &cancellation,
+    );
+
+    for (category, symbol) in [
+        (
+            "cleanup_storage",
+            bray_codegen::CodegenSymbolKey::CleanupStorage(key.clone()),
+        ),
+        (
+            "frame_factory",
+            bray_codegen::CodegenSymbolKey::FrameFactory(key.clone()),
+        ),
+    ] {
+        let expected = crate::compilation::product::generated_symbol_name(
+            &target,
+            bray_codegen::CodegenLinkage::LinkOnce,
+            category,
+            &constructor,
+        )
+        .unwrap();
+
+        let imported = mappings
+            .iter()
+            .find_map(|mapping| mapping.symbol(&symbol))
+            .expect("async consumer must retain the producer's companion data");
+
+        assert_eq!(imported.linkage(), bray_codegen::CodegenLinkage::Import);
+        assert_eq!(imported.name(), &expected);
+    }
+}

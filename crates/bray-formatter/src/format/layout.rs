@@ -348,7 +348,8 @@ fn flat_width_until_break(elements: &[LayoutElement]) -> Option<usize> {
             LayoutElement::Text(text) => {
                 width = width.saturating_add(UnicodeWidthStr::width(text.as_ref()));
             }
-            LayoutElement::TrailingComma => {}
+            // A suffix comma can belong to a broken enclosing group.
+            LayoutElement::TrailingComma => width = width.saturating_add(1),
             LayoutElement::Space => width = width.saturating_add(1),
             LayoutElement::Break(_) => return Some(width),
             LayoutElement::Indent(_)

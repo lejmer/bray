@@ -1,0 +1,166 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation.provider;
+
+using std.memory;
+
+// Native providers own the exact live lease, its uninitialized header region,
+// the separately retained callback context and this immutable descriptor. These
+// owners remain distinct and live through initialization and publication. Neither
+// a copied lease nor descriptor fields establish this construction authority.
+trusted internal predicate constructing(token: &bray.runtime.bootstrap.activation.Inactive, context: usize);
+
+@abi(c)
+trusted internal func layout(pos bytes: RawPointer<usize>, pos alignment: RawPointer<usize>)
+    requires(
+        trusted core.memory.valid_write<usize>(pointer = bytes, count = 1),
+        trusted core.memory.aligned_for<usize>(pointer = bytes),
+        trusted core.memory.valid_write<usize>(pointer = alignment, count = 1),
+        trusted core.memory.aligned_for<usize>(pointer = alignment),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    trusted std.memory.write<usize>(bytes, std.memory.size_of<bray.runtime.bootstrap.activation.Header>());
+    trusted std.memory.write<usize>(alignment, std.memory.align_of<bray.runtime.bootstrap.activation.Header>());
+}
+
+trusted internal func initialize_owned(
+    pos token: &bray.runtime.bootstrap.activation.Inactive,
+    pos context: usize,
+    pos outgoing: bray.runtime.bootstrap.ReportRecords,
+)
+    requires(trusted constructing(token = token, context = context))
+    ensures(trusted bray.runtime.bootstrap.activation.producer(token = token))
+    uses(raw_memory, unchecked_init)
+{
+    let locate = trusted lambda(pos token: &bray.runtime.bootstrap.activation.Inactive, pos context: usize) ->
+        RawPointer<bray.runtime.bootstrap.activation.Header>
+        requires(trusted constructing(token = token, context = context))
+        ensures(
+            trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Header>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Header>(pointer = result),
+        )
+        uses(raw_memory)
+    {
+        let describe = trusted lambda(pos token: &bray.runtime.bootstrap.activation.Inactive, pos context: usize)
+            requires(trusted constructing(token = token, context = context))
+            ensures(
+                trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Descriptor>(
+                    pointer = token.descriptor,
+                    count = 1
+                ),
+                trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Descriptor>(
+                    pointer = token.descriptor
+                ),
+                trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Descriptor>(
+                    pointer = token.descriptor
+                ),
+            )
+            executes(pure, total) {};
+
+        trusted describe(token, context);
+
+        let descriptor = trusted std.memory.read<bray.runtime.bootstrap.activation.Descriptor>(token.descriptor);
+
+        return trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(
+            address = token.lease.address + descriptor.header
+        );
+    };
+
+    let pointer = trusted locate(token, context);
+
+    let header: bray.runtime.bootstrap.activation.Header =
+    {
+        lease = token.lease,
+        descriptor = token.descriptor,
+        context = context,
+        parent = 0,
+        child = 0,
+        current = 0,
+        broadcast_next = 0,
+        origin = 0,
+        retained_origin = 0,
+        state = 0,
+        phase = bray.runtime.bootstrap.activation.INACTIVE,
+        retained_affinity = 0,
+        retained_lanes = 0,
+        broadcasted = 0,
+        progress = bray.runtime.bootstrap.activation.empty_progress(),
+        incidents = bray.runtime.bootstrap.empty_records(),
+        outgoing = outgoing,
+        destination = 0,
+        incoming = bray.runtime.bootstrap.activation.empty_progress(),
+        abandoned = 0,
+    };
+
+    trusted std.memory.write<bray.runtime.bootstrap.activation.Header>(pointer, header);
+
+    // Only the initialized region from this exact construction entry is published.
+    let initialized = trusted lambda(pos token: &bray.runtime.bootstrap.activation.Inactive)
+        ensures(trusted bray.runtime.bootstrap.activation.producer(token = token))
+        executes(pure, total) {};
+
+    trusted initialized(token);
+}
+
+// This entry owns the exact token and record slots as well as the provider's
+// uninitialized header. No caller-controlled field supplies that ownership.
+trusted internal predicate construction_entry(
+    token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+    context: usize,
+    records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+);
+
+@abi(c)
+trusted internal func initialize(
+    pos token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+    pos context: usize,
+    pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+)
+    requires(trusted construction_entry(token = token, context = context, records = records))
+    uses(raw_memory, unchecked_init)
+{
+    let read = trusted lambda(
+        pos token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+        pos context: usize,
+        pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+    ) -> (bray.runtime.bootstrap.activation.Inactive, bray.runtime.bootstrap.ReportRecords)
+        requires(trusted construction_entry(token = token, context = context, records = records))
+        ensures(trusted constructing(token = &result.0, context = context))
+        uses(raw_memory)
+    {
+        let permit = trusted lambda(
+            pos token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+            pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>
+        )
+            ensures(
+                trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = token, count = 1),
+                trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = token),
+                trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = token),
+                trusted core.memory.valid_read<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
+                trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = records),
+                trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportRecords>(pointer = records),
+            )
+            executes(pure, total) {};
+
+        trusted permit(token, records);
+
+        return (
+            trusted std.memory.read<bray.runtime.bootstrap.activation.Inactive>(token),
+            trusted std.memory.read<bray.runtime.bootstrap.ReportRecords>(records)
+        );
+    };
+
+    let (value, outgoing) = trusted read(token, context, records);
+
+    trusted initialize_owned(&value, context, outgoing);
+
+    let retained = trusted lambda(pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>)
+        ensures(
+            trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = records),
+        )
+        executes(pure, total) {};
+
+    trusted retained(records);
+    trusted std.memory.write<bray.runtime.bootstrap.ReportRecords>(records, bray.runtime.bootstrap.empty_records());
+}

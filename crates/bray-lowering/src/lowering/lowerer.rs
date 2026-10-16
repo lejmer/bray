@@ -73,6 +73,9 @@ pub(super) struct Lowerer<'unit> {
     pub(super) catch_targets: Vec<CatchTarget>,
     pub(super) input_temporaries: Vec<super::inputs::InputTemporary>,
     pub(super) frame_states: Vec<MirFrameState>,
+    pub(super) completion_cleanup: Option<bray_symbols::TypeId>,
+    pub(super) initial_broadcast: Option<MirBlockId>,
+    pub(super) broadcast_outcome: Option<(crate::cleanup_outcome::CleanupOutcome, MirBlockId)>,
     pub(super) cleanup_outcome: Option<crate::cleanup_outcome::CleanupOutcome>,
     pub(super) cleanup_failure_targets: Option<(MirBlockId, MirBlockId, bray_ir::MirPlace)>,
     pub(super) abnormal_cleanup_machine: Option<super::cleanup::AbnormalCleanupMachine>,
@@ -112,6 +115,9 @@ impl<'unit> Lowerer<'unit> {
             catch_targets: Vec::new(),
             input_temporaries: Vec::new(),
             frame_states: Vec::new(),
+            completion_cleanup: None,
+            initial_broadcast: None,
+            broadcast_outcome: None,
             cleanup_outcome: None,
             cleanup_failure_targets: None,
             abnormal_cleanup_machine: None,
@@ -136,18 +142,6 @@ impl<'unit> Lowerer<'unit> {
                 MirStorageKind::Static(reference),
                 ty,
             )?;
-        }
-
-        if self.input.unit_kind().protected_frame().is_some() {
-            self.frame_states.push(
-                MirFrameState::new(
-                    MirFrameStateId::new(0),
-                    entry,
-                    self.execution_lane_requirements(),
-                    [],
-                )
-                .with_affinity(self.frame_affinity()),
-            );
         }
 
         let completion = match root {
@@ -235,6 +229,18 @@ impl<'unit> Lowerer<'unit> {
             }
         }
 
+        let completion_state = if self.input.unit_kind().protected_frame().is_some() {
+            let result_type = self
+                .input
+                .expression_types()
+                .callable_result_type()
+                .expect("protected frame retains its checked result type");
+
+            self.frame_completion(&source, result_type)?
+        } else {
+            None
+        };
+
         self.finish_abnormal_cleanup_dispatchers(&source)?;
 
         if let Some(frame) = self.input.unit_kind().protected_frame() {
@@ -249,6 +255,25 @@ impl<'unit> Lowerer<'unit> {
                     )
                 });
 
+            let initial_storages = self.storages.iter().filter_map(|(identity, storage)| {
+                self.input
+                    .storage_plan()
+                    .identity(*identity)
+                    .expect("lowered storage retains its checked identity")
+                    .is_initialized_at_entry()
+                    .then_some(*storage)
+            });
+
+            let initial = MirFrameState::new(
+                MirFrameStateId::new(0),
+                entry,
+                self.initial_broadcast
+                    .expect("protected source frame retains its capture broadcast"),
+                self.execution_lane_requirements(),
+                initial_storages,
+            )
+            .with_affinity(self.frame_affinity());
+
             let runtime_abi = self.input.target().runtime_abi();
 
             let descriptor = MirFrameDescriptor::new(
@@ -256,7 +281,8 @@ impl<'unit> Lowerer<'unit> {
                 runtime_abi,
                 ProtectedFrameAbiVersions::uniform(runtime_abi),
                 result_type,
-                self.frame_states,
+                completion_state,
+                std::iter::once(initial).chain(self.frame_states),
             )?;
 
             self.builder.set_frame_descriptor(descriptor);
@@ -628,6 +654,7 @@ mod tests {
 
         lowerer
             .finish_abnormal_cleanup(
+                bray_ir::MirCleanupPhase::TaskCancellation,
                 first,
                 &source,
                 None,
@@ -639,6 +666,7 @@ mod tests {
 
         lowerer
             .finish_abnormal_cleanup(
+                bray_ir::MirCleanupPhase::TaskCancellation,
                 different,
                 &source,
                 None,
@@ -650,6 +678,7 @@ mod tests {
 
         lowerer
             .finish_abnormal_cleanup(
+                bray_ir::MirCleanupPhase::TaskCancellation,
                 second,
                 &source,
                 None,
@@ -661,6 +690,7 @@ mod tests {
 
         lowerer
             .finish_abnormal_cleanup(
+                bray_ir::MirCleanupPhase::TaskCancellation,
                 different_occurrence,
                 &different_source,
                 None,
@@ -672,6 +702,7 @@ mod tests {
 
         lowerer
             .finish_abnormal_cleanup(
+                bray_ir::MirCleanupPhase::TaskCancellation,
                 panicking,
                 &source,
                 Some(bray_ir::MirOperand::Move(report)),

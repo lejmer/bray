@@ -27,10 +27,18 @@ pub(super) fn validate_operation(
     validate_operation_block(block_kind, operation.kind())?;
 
     match operation.kind() {
-        MirOperationKind::AdmitOutgoing { runtime, .. } => {
+        MirOperationKind::AdmitOutgoing { owner, runtime } => {
+            if let crate::MirOutgoingOwner::FrameFactory(callee) = owner {
+                validate_operand(unit, callee, block, Some(id))?;
+            }
+
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::OutgoingAdmission)?
         }
-        MirOperationKind::DischargeOutgoing { runtime, .. } => {
+        MirOperationKind::DischargeOutgoing { owner, runtime } => {
+            if let crate::MirOutgoingOwner::FrameFactory(callee) = owner {
+                validate_operand(unit, callee, block, Some(id))?;
+            }
+
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::OutgoingDischarge)?
         }
         MirOperationKind::AnonymousCallable(key) => {
@@ -153,7 +161,10 @@ fn validate_operation_block(block_kind: MirBlockKind, kind: &MirOperationKind) -
             block_kind != MirBlockKind::LifecycleResolution
         }
         MirOperationKind::Async(
-            MirAsyncOperation::ResolveTask { .. }
+            MirAsyncOperation::CreateFrame { .. }
+            | MirAsyncOperation::ComposeAwaitedFrame { .. }
+            | MirAsyncOperation::CommitAwaitedCompletion { .. }
+            | MirAsyncOperation::ResolveTask { .. }
             | MirAsyncOperation::TransferCleanupIncident { .. }
             | MirAsyncOperation::DestroyTerminalTask { .. },
         ) => block_kind != MirBlockKind::CleanupBroadcast,
@@ -228,6 +239,7 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
                 MirAsyncOperation::CreateFrame { .. }
                     | MirAsyncOperation::CommitAwaitedCompletion { .. }
                     | MirAsyncOperation::StartTask { .. }
+                    | MirAsyncOperation::ObserveFrameCancellation
                     | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
                     | MirAsyncOperation::ResolveTask { .. }
             )
@@ -624,13 +636,7 @@ fn validate_call(
     operation: MirOperationId,
     call: &crate::MirCall,
 ) -> Option<()> {
-    if call.is_cleanup()
-        && (!matches!(call.target(), MirCallTarget::Direct(_))
-            || !matches!(
-                call.result(),
-                bray_bound_tree::BoundCallResult::Immediate(_)
-            ))
-    {
+    if call.is_cleanup() && !matches!(call.target(), MirCallTarget::Direct(_)) {
         return None;
     }
 
@@ -831,10 +837,27 @@ fn validate_async_operation(
             validate_storage_kind(unit, *storage, MirStorageKind::CurrentFrame)?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::FrameResume)?;
         }
-        MirAsyncOperation::ComposeAwaitedFrame { frame, .. } => {
+        MirAsyncOperation::ComposeAwaitedFrame {
+            parent,
+            resume_state,
+            frame,
+            completion,
+            ..
+        } => {
+            validate_storage_kind(unit, *completion, MirStorageKind::Temporary)?;
+            validate_current_frame(unit, *parent)?;
+            validate_frame_state(unit, *resume_state)?;
             validate_operand(unit, frame, block, Some(operation_id))?;
         }
-        MirAsyncOperation::CommitAwaitedCompletion { .. } => {}
+        MirAsyncOperation::CommitAwaitedCompletion { completion, .. } => {
+            validate_storage_kind(unit, *completion, MirStorageKind::Temporary)?;
+
+            let result = unit.operation(operation_id)?.result()?;
+
+            if unit.value(result)?.ty() != unit.storage(*completion)?.ty() {
+                return None;
+            }
+        }
         MirAsyncOperation::StartTask {
             value,
             allocation,
@@ -849,6 +872,9 @@ fn validate_async_operation(
         MirAsyncOperation::RequestTaskCancellation { task, runtime } => {
             validate_operand(unit, task, block, Some(operation_id))?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::TaskCancellationRequest)?;
+        }
+        MirAsyncOperation::ObserveFrameCancellation => {
+            unit.frame_descriptor()?;
         }
         MirAsyncOperation::ObserveCurrentRunCancellation { runtime } => {
             validate_runtime_role(

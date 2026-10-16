@@ -32,6 +32,10 @@ fn finish_codegen_reachability(
     previous: Option<ConcreteCodegenReachability>,
     roots: &[ConcreteCodegenRoot],
     completed: Vec<(ConcreteCodegenInstance, ReachabilityEvaluation)>,
+    execution_requirements: BTreeMap<
+        CodegenInstanceKey,
+        &'static [bray_runtime_interface::ExecutionLaneRequirement],
+    >,
 ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
     let (mut realizations, mut demands, mut selected_native) = match previous {
         Some(previous) => {
@@ -137,6 +141,7 @@ fn finish_codegen_reachability(
         .map_err(NativeProductPlanningError::InvalidReachability)?;
 
     Ok(ConcreteCodegenReachability::new(
+        execution_requirements,
         graph,
         realizations,
         demands.into_iter().collect::<Vec<_>>(),
@@ -288,7 +293,7 @@ impl Compilation {
         }
         .map_err(NativeProductPlanningError::InvalidReachability)?;
 
-        let completed = self
+        let mut completed = self
             .state
             .fact_runtime
             .complete_batch(root_instances, cancellation, |realization| {
@@ -415,7 +420,39 @@ impl Compilation {
             })
             .map_err(native_batch_error)?;
 
-        finish_codegen_reachability(builder, previous, &roots, completed)
+        let current = completed
+            .iter()
+            .filter_map(|(owner, evaluation)| match evaluation {
+                ReachabilityEvaluation::Instance { instance, .. } => Some((instance, owner)),
+                ReachabilityEvaluation::External(_) => None,
+            });
+
+        let retained = previous.iter().flat_map(|previous| {
+            previous.graph().instances().iter().map(|instance| {
+                (
+                    instance,
+                    previous
+                        .instance(instance.key())
+                        .expect("retained instance has its realization"),
+                )
+            })
+        });
+
+        let (requirements, helper_requirements) =
+            self.frame_execution_requirements(current.chain(retained), target, cancellation)?;
+
+        for (_, evaluation) in &mut completed {
+            if let ReachabilityEvaluation::Instance { instance, .. } = evaluation {
+                if let Some(requirements) = requirements.get(instance.key()) {
+                    // The graph publishes the realized immutable descriptor to all downstream consumers.
+                    *instance = instance
+                        .clone()
+                        .with_frame_execution_requirements(requirements);
+                }
+            }
+        }
+
+        finish_codegen_reachability(builder, previous, &roots, completed, helper_requirements)
     }
 
     #[cfg(test)]

@@ -7,7 +7,9 @@ use bray_codegen::{
 };
 use bray_symbols::{BorrowKind, CallableAbi, TypeId};
 
-use super::super::support::{indirect_abi_value, indirect_parameter_kind};
+use super::super::support::{
+    direct_abi_coercion, indirect_abi_value, indirect_parameter_kind, is_aggregate, windows_x64_abi,
+};
 use super::sysv;
 use crate::compilation::{CodegenPreparationError, Compilation};
 use crate::fact::CancellationToken;
@@ -117,12 +119,17 @@ impl Compilation {
             return Ok(CodegenParameterMapping::Ignore);
         }
 
-        if sysv::applies(abi, target) && sysv::is_aggregate(mapping.kind()) {
+        if sysv::applies(abi, target) && is_aggregate(mapping.kind()) {
             if let Some(coercion) = sysv::coercion(ty, mappings)? {
                 return Ok(CodegenParameterMapping::coerced(ty, coercion));
             }
         } else if !indirect_abi_value(abi, mapping.kind(), layout, target, mappings) {
-            return Ok(CodegenParameterMapping::direct(ty, None, []));
+            return Ok(
+                match direct_abi_coercion(abi, mapping.kind(), layout, target) {
+                    Some(coercion) => CodegenParameterMapping::coerced(ty, coercion),
+                    None => CodegenParameterMapping::direct(ty, None, []),
+                },
+            );
         }
 
         self.indirect_codegen_parameter(ty, abi, target, cancellation, mappings, pending)
@@ -145,6 +152,10 @@ impl Compilation {
             layout
                 .alignment()
                 .max(NonZeroU64::new(8).expect("SysV stack alignment"))
+        } else if windows_x64_abi(abi, target) {
+            layout
+                .alignment()
+                .max(NonZeroU64::new(16).expect("Win64 aggregate temporary alignment"))
         } else {
             layout.alignment()
         };
@@ -183,12 +194,17 @@ impl Compilation {
             return Ok(CodegenResultMapping::Void);
         }
 
-        if sysv::applies(abi, target) && sysv::is_aggregate(mapping.kind()) {
+        if sysv::applies(abi, target) && is_aggregate(mapping.kind()) {
             if let Some(coercion) = sysv::coercion(ty, mappings)? {
                 return Ok(CodegenResultMapping::coerced(ty, coercion));
             }
         } else if !indirect_abi_value(abi, mapping.kind(), layout, target, mappings) {
-            return Ok(CodegenResultMapping::direct(ty, None, []));
+            return Ok(
+                match direct_abi_coercion(abi, mapping.kind(), layout, target) {
+                    Some(coercion) => CodegenResultMapping::coerced(ty, coercion),
+                    None => CodegenResultMapping::direct(ty, None, []),
+                },
+            );
         }
 
         let pointer = self.indirection_metadata_pointer(ty, BorrowKind::Mutable)?;
@@ -302,6 +318,102 @@ mod tests {
                 ));
             }
         }
+    }
+
+    #[test]
+    fn windows_aggregates_use_one_integer_register_or_an_aligned_temporary() {
+        let compilation = compilation("module app;");
+        let target = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
+        let values = compilation.semantic_value_store().unwrap();
+
+        let byte = compilation
+            .compiler_known_type(RepresentationRole::ScalarU8)
+            .unwrap();
+
+        for bytes in [1, 2, 3, 4, 5, 8, 16] {
+            let aggregate = intern_type(values, TypeData::tuple(std::iter::repeat_n(byte, bytes)));
+
+            for abi in [CallableAbi::C, CallableAbi::System] {
+                let signature = classify(&compilation, &target, abi, [aggregate], aggregate);
+
+                if matches!(bytes, 1 | 2 | 4 | 8) {
+                    let expected = [(0, integer(u16::try_from(bytes * 8).unwrap()))];
+
+                    let CodegenParameterMapping::Direct {
+                        coercion: Some(parameter),
+                        ..
+                    } = &signature.parameters()[0]
+                    else {
+                        panic!("small aggregate uses a register");
+                    };
+
+                    let CodegenResultMapping::Direct {
+                        coercion: Some(result),
+                        ..
+                    } = signature.result()
+                    else {
+                        panic!("small result uses a register");
+                    };
+
+                    for coercion in [parameter, result] {
+                        assert_eq!(
+                            coercion
+                                .pieces()
+                                .iter()
+                                .map(|piece| (piece.offset_bytes, piece.scalar))
+                                .collect::<Vec<_>>(),
+                            expected
+                        );
+                    }
+                } else {
+                    assert!(
+                        matches!(signature.parameters(), [CodegenParameterMapping::Indirect {
+                        alignment, kind: CodegenIndirectParameterKind::Reference, ..
+                    }] if alignment.get() == 16)
+                    );
+
+                    assert!(matches!(
+                        signature.result(),
+                        CodegenResultMapping::Indirect { .. }
+                    ));
+                }
+            }
+
+            let bray = classify(
+                &compilation,
+                &target,
+                CallableAbi::Bray,
+                [aggregate],
+                aggregate,
+            );
+
+            assert!(matches!(
+                bray.parameters(),
+                [CodegenParameterMapping::Direct { coercion: None, .. }]
+            ));
+
+            assert!(matches!(
+                bray.result(),
+                CodegenResultMapping::Direct { coercion: None, .. }
+            ));
+        }
+
+        let scalar = compilation
+            .compiler_known_type(RepresentationRole::ScalarR32)
+            .unwrap();
+
+        let pair = intern_type(values, TypeData::tuple([scalar, scalar]));
+        let floating = classify(&compilation, &target, CallableAbi::C, [pair], pair);
+
+        let CodegenResultMapping::Direct {
+            coercion: Some(coercion),
+            ..
+        } = floating.result()
+        else {
+            panic!("Win64 floating aggregate also uses an integer register");
+        };
+
+        assert_eq!(coercion.pieces()[0].scalar, integer(64));
     }
 
     #[test]

@@ -201,10 +201,12 @@ impl MirOperationKind {
                 | crate::MirHostOperation::ReportCleanupIncidents { .. }
                 | crate::MirHostOperation::StructuredShutdown { .. } => {}
             },
-            Self::AnonymousCallable(_)
-            | Self::DeclaredCallable(_)
-            | Self::AdmitOutgoing { .. }
-            | Self::DischargeOutgoing { .. } => {}
+            Self::AdmitOutgoing { owner, .. } | Self::DischargeOutgoing { owner, .. } => {
+                if let crate::MirOutgoingOwner::FrameFactory(callee) = owner {
+                    visit_operand(callee, &mut visit);
+                }
+            }
+            Self::AnonymousCallable(_) | Self::DeclaredCallable(_) => {}
         }
     }
 }
@@ -249,6 +251,7 @@ fn visit_async_operands(operation: &MirAsyncOperation, visit: &mut impl FnMut(&M
         }
         MirAsyncOperation::ResumeFrame { .. }
         | MirAsyncOperation::CommitAwaitedCompletion { .. }
+        | MirAsyncOperation::ObserveFrameCancellation
         | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
         | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
         | MirAsyncOperation::ExecuteLifecycleResolution { .. } => {}
@@ -359,6 +362,10 @@ pub(crate) fn for_each_operation_storage(
             visit(destination.storage());
         }
         MirOperationKind::Async(MirAsyncOperation::ResumeFrame { storage, .. }) => visit(*storage),
+        MirOperationKind::Async(
+            MirAsyncOperation::ComposeAwaitedFrame { completion, .. }
+            | MirAsyncOperation::CommitAwaitedCompletion { completion, .. },
+        ) => visit(*completion),
         MirOperationKind::Unary { .. }
         | MirOperationKind::Binary { .. }
         | MirOperationKind::Convert { .. }

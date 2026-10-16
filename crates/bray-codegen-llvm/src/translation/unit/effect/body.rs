@@ -1,12 +1,9 @@
 use super::super::core::UnitTranslator;
 use super::super::support::{
-    extract_value, insert_value, int_value, llvm, next_helper, nonzero_integer, pointer_value,
+    extract_value, insert_value, int_value, llvm, nonzero_integer, pointer_value,
 };
 use bray_codegen::{CodegenFailure, CodegenSymbolKey, CodegenTypeBehavior, CodegenTypeKind};
-use bray_ir::{
-    MirAsyncOperation, MirFrameInitializer, MirHelperReference, MirOperation, MirOperationKind,
-    MirPlace,
-};
+use bray_ir::{MirAsyncOperation, MirHelperReference, MirOperation, MirOperationKind, MirPlace};
 use inkwell::values::BasicValueEnum;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -168,9 +165,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Some(self.translate_declared_callable(id, *callable)?)
             }
             MirOperationKind::Generator(generator) => self.translate_generator(id, generator)?,
-            MirOperationKind::AdmitOutgoing { runtime, .. }
-            | MirOperationKind::DischargeOutgoing { runtime, .. } => {
-                self.translate_outgoing(id, *runtime)?;
+            MirOperationKind::AdmitOutgoing { owner, runtime }
+            | MirOperationKind::DischargeOutgoing { owner, runtime } => {
+                self.translate_outgoing(id, owner, *runtime)?;
 
                 None
             }
@@ -451,27 +448,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.translate_frame_creation(operation_id, *frame, initializer)
             }
             MirAsyncOperation::MoveInactiveFrame {
-                frame,
                 source,
                 destination,
+                ..
             } => {
-                let helpers = self.operation_helpers(operation_id)?;
+                let ty = self.types.map(source.ty())?;
+                let source = self.place(source)?;
+                let destination = self.place(destination)?;
+                let value = llvm(self.builder.build_load(ty, source, "inactive.move"))?;
 
-                let [helper] = helpers.as_slice() else {
-                    panic!(
-                        "checked MIR effect translation violated an established compiler contract"
-                    );
-                };
+                llvm(self.builder.build_store(destination, value))?;
 
-                if helper.reference() != &MirHelperReference::MoveInactiveFrame(*frame) {
-                    panic!(
-                        "checked MIR effect translation violated an established compiler contract"
-                    );
-                }
-
-                let arguments = [self.place(source)?.into(), self.place(destination)?.into()];
-
-                self.invoke_helper(helper, &arguments)
+                Ok(None)
             }
             MirAsyncOperation::ResumeFrame {
                 state,
@@ -484,7 +472,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.invoke_runtime(*runtime, &[storage, state])
             }
-            MirAsyncOperation::ComposeAwaitedFrame { child, frame, .. } => {
+            MirAsyncOperation::ComposeAwaitedFrame {
+                child,
+                resume_state,
+                frame,
+                completion,
+                ..
+            } => {
                 let frame = self.native_inactive_frame(frame)?;
 
                 let runtime = self.operation_runtime_helper(
@@ -492,36 +486,82 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     MirHelperReference::ComposeAwaitedFrame(*child),
                 )?;
 
-                self.invoke_native_runtime(runtime, &[frame])
+                let state = self
+                    .types
+                    .context()
+                    .i32_type()
+                    .const_int(u64::from(resume_state.raw()), false);
+
+                let destination = self.storage(*completion)?;
+
+                let address = llvm(self.builder.build_ptr_to_int(
+                    destination,
+                    self.pointer_integer_type(),
+                    "awaited.destination",
+                ))?;
+
+                self.invoke_native_runtime(runtime, &[frame, state.into(), address.into()])
             }
-            MirAsyncOperation::CommitAwaitedCompletion { child } => {
+            MirAsyncOperation::CommitAwaitedCompletion { child, completion } => {
                 let runtime = self.operation_runtime_helper(
                     operation_id,
                     MirHelperReference::CommitAwaitedCompletion(*child),
                 )?;
 
-                let address = self
-                    .invoke_native_runtime(runtime, &[])?
-                    .and_then(int_value)
-                    .expect(
-                        "checked MIR effect translation requires an established mapping or value",
-                    );
+                let outcome = self.checked_call_panic_report_context()?;
+
+                let frame_type = self
+                    .frame_context
+                    .expect("await belongs to a protected frame");
+
+                let frame = self.frame_context_pointer()?;
+
+                let header =
+                    crate::translation::frame::header_pointer(&self.builder, frame_type, frame)?;
+
+                self.invoke_native_runtime(runtime, &[header.into(), outcome.into()])?;
+
+                self.set_pending_call_context(outcome)?;
+
+                let outcome_type =
+                    crate::native::run_outcome_type(self.types.context(), self.request.target());
+
+                let published = llvm(self.builder.build_load(
+                    outcome_type,
+                    outcome,
+                    "awaited.outcome",
+                ))?;
+
+                let (state, _) =
+                    super::super::support::native_run_outcome(&self.builder, published)?;
+
+                let completed = super::super::support::native_run_state_is(
+                    &self.builder,
+                    state,
+                    bray_runtime_abi::NativeRunState::COMPLETED,
+                    "awaited.completed",
+                )?;
 
                 let result_type = self.types.map(self.operation_result_type(operation))?;
+                let destination = self.storage(*completion)?;
 
-                let pointer = llvm(
-                    self.builder.build_int_to_ptr(
-                        address,
-                        self.types
-                            .context()
-                            .ptr_type(inkwell::AddressSpace::default()),
-                        "awaited.completion",
-                    ),
-                )?;
+                let address = llvm(self.builder.build_ptr_to_int(
+                    destination,
+                    self.pointer_integer_type(),
+                    "awaited.result.address",
+                ))?;
+
+                let address = self.safe_completion_payload(address, completed, result_type)?;
+
+                let selected = llvm(self.builder.build_int_to_ptr(
+                    address,
+                    self.types.context().ptr_type(Default::default()),
+                    "awaited.result.source",
+                ))?;
 
                 llvm(
                     self.builder
-                        .build_load(result_type, pointer, "awaited.result"),
+                        .build_load(result_type, selected, "awaited.result"),
                 )
                 .map(Some)
             }
@@ -545,7 +585,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "checked MIR effect translation requires an established mapping or value",
                 );
 
-                self.require_runtime_success(status, "task.cancellation")?;
+                crate::translation::require_runtime_success(
+                    self.module,
+                    self.types.context(),
+                    &self.builder,
+                    status,
+                    "task.cancellation",
+                )?;
 
                 Ok(None)
             }
@@ -562,6 +608,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.resolve_native_task(*runtime, task, result, *variants)
                     .map(Some)
+            }
+            MirAsyncOperation::ObserveFrameCancellation => {
+                self.observe_frame_cancellation().map(Some)
             }
             MirAsyncOperation::ObserveCurrentRunCancellation { runtime } => {
                 let value = self
@@ -607,117 +656,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         "checked MIR effect translation requires an established mapping or value",
                     );
 
-                self.require_runtime_success(status, "task.destruction")?;
-
-                Ok(None)
-            }
-        }
-    }
-
-    fn native_inactive_frame(
-        &mut self,
-        frame: &bray_ir::MirOperand,
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let frame_type = self.operand_type(frame);
-        let frame = self.operand(frame)?;
-
-        let fields = self
-            .type_mapping(frame_type)
-            .and_then(|mapping| match mapping.kind() {
-                CodegenTypeKind::Aggregate(fields) if fields.len() == 2 => Some(fields.clone()),
-                _ => None,
-            })
-            .expect("checked MIR effect translation requires an established mapping or value");
-
-        let mut native = crate::native::inactive_frame_type(self.types.context())
-            .const_zero()
-            .into();
-
-        for (index, _) in fields.iter().enumerate() {
-            let element = crate::conversion::target_value(
-                self.aggregate_value_element(&fields, index)?,
-                "effect_state_field_index",
-            )?;
-
-            let value = extract_value(&self.builder, frame, element)?;
-
-            if !value.is_pointer_value() {
-                panic!("checked MIR effect translation violated an established compiler contract");
-            }
-
-            native = insert_value(&self.builder, native, value, index)?;
-        }
-
-        Ok(native)
-    }
-
-    pub(super) fn translate_frame_creation(
-        &mut self,
-        operation_id: bray_ir::MirOperationId,
-        frame: bray_ir::MirFrameReference,
-        initializer: &MirFrameInitializer,
-    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
-        let helpers = self.operation_helpers(operation_id)?;
-        let mut helpers = helpers.iter();
-
-        match initializer {
-            MirFrameInitializer::Callable(call) => {
-                let arguments = self.evaluate_call_arguments(call)?;
-                let helper = next_helper(&mut helpers, &MirHelperReference::CreateFrame(frame));
-                let result = self.invoke_helper(helper, &arguments)?;
-
-                if helpers.next().is_some() {
-                    panic!(
-                        "checked MIR effect translation violated an established compiler contract"
-                    );
-                }
-
-                Ok(result)
-            }
-            MirFrameInitializer::TaskObservation {
-                task,
-                result,
-                variants,
-                request_cancellation,
-                ..
-            } => {
-                let cancellation = next_helper(
-                    &mut helpers,
-                    &MirHelperReference::Cleanup {
-                        phase: bray_ir::MirCleanupPhase::TaskCancellation,
-                        ty: result.completion_type(),
-                    },
-                );
-
-                let lifecycle = next_helper(
-                    &mut helpers,
-                    &MirHelperReference::Cleanup {
-                        phase: bray_ir::MirCleanupPhase::LifecycleResolution,
-                        ty: result.completion_type(),
-                    },
-                );
-
-                let creation = next_helper(&mut helpers, &MirHelperReference::CreateFrame(frame));
-
-                let task = self.operand(task)?;
-
-                let result = self.create_task_observation_frame(
-                    creation,
-                    task,
-                    *request_cancellation,
-                    result.completion_type(),
-                    *variants,
-                    cancellation,
-                    lifecycle,
+                crate::translation::require_runtime_success(
+                    self.module,
+                    self.types.context(),
+                    &self.builder,
+                    status,
+                    "task.destruction",
                 )?;
 
-                if helpers.next().is_some() {
-                    panic!(
-                        "checked MIR effect translation violated an established compiler contract"
-                    );
-                }
-
-                Ok(Some(result))
+                Ok(None)
             }
         }
     }

@@ -190,3 +190,46 @@ pub(crate) fn merge_pending_outcomes<'context>(
 
     Ok(())
 }
+
+/// Traps an impossible failure after the compiler has established runtime authority.
+pub(crate) fn require_runtime_success<'context>(
+    module: &Module<'context>,
+    context: &'context Context,
+    builder: &Builder<'context>,
+    status: BasicValueEnum<'context>,
+    name: &str,
+) -> Result<(), CodegenFailure> {
+    let status = status.into_int_value();
+
+    let function = builder
+        .get_insert_block()
+        .and_then(BasicBlock::get_parent)
+        .expect("runtime status check belongs to a generated function");
+
+    let failed = context.append_basic_block(function, &format!("{name}.failed"));
+    let succeeded = context.append_basic_block(function, &format!("{name}.succeeded"));
+
+    let success = builder
+        .build_int_compare(
+            inkwell::IntPredicate::EQ,
+            status,
+            status.get_type().const_zero(),
+            &format!("{name}.success"),
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder
+        .build_conditional_branch(success, succeeded, failed)
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder.position_at_end(failed);
+    crate::native::call_void_intrinsic(module, context, builder, "llvm.trap")?;
+
+    builder
+        .build_unreachable()
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder.position_at_end(succeeded);
+
+    Ok(())
+}

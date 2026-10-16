@@ -41,6 +41,17 @@ pub enum CallableAbi {
     System,
 }
 
+impl CallableAbi {
+    /// Returns whether this ABI represents the callable's execution mode.
+    /// Native code addresses cannot encode Bray's inactive-frame factory contract.
+    pub const fn supports_execution(self, execution: CallableExecution) -> bool {
+        match self {
+            Self::Bray => true,
+            Self::C | Self::System => matches!(execution, CallableExecution::Synchronous),
+        }
+    }
+}
+
 /// Whether a callable can run during constant evaluation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CallableConstness {

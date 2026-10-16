@@ -415,28 +415,31 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut evidence = crate::ExecutionCallEvidence {
             returned: Default::default(),
-            anonymous_target: match self.request.view().expression(expression) {
-                Some(bray_bound_tree::BoundExpression::Call(source))
-                    if matches!(
-                        call.target(),
-                        bray_bound_tree::BoundCallableTarget::Anonymous(_)
-                            | bray_bound_tree::BoundCallableTarget::Indirect(_)
-                    ) =>
-                {
-                    match self.value(state, source.callee()) {
-                        ExecutionCondition::Expression(origin) => {
-                            match self.request.view().expression(origin) {
-                                Some(bray_bound_tree::BoundExpression::AnonymousCallable(
-                                    callable,
-                                )) => Some(callable.unit().clone()),
-                                _ => None,
+            anonymous_target: call
+                .resolution()
+                .anonymous_body()
+                .map(|(key, _)| key.clone())
+                .or_else(|| match self.request.view().expression(expression) {
+                    Some(bray_bound_tree::BoundExpression::Call(source))
+                        if matches!(
+                            call.target(),
+                            bray_bound_tree::BoundCallableTarget::Indirect(_)
+                        ) =>
+                    {
+                        match self.value(state, source.callee()) {
+                            ExecutionCondition::Expression(origin) => {
+                                match self.request.view().expression(origin) {
+                                    Some(bray_bound_tree::BoundExpression::AnonymousCallable(
+                                        callable,
+                                    )) => Some(callable.unit().clone()),
+                                    _ => None,
+                                }
                             }
+                            _ => None,
                         }
-                        _ => None,
                     }
-                }
-                _ => None,
-            },
+                    _ => None,
+                }),
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: matches!(
                 call.resolution().result(),

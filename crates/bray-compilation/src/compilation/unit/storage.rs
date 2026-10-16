@@ -193,6 +193,7 @@ impl Compilation {
                     || matches!(
                         key.kind(),
                         bray_bound_tree::BoundUnitKind::CallableBody
+                            | bray_bound_tree::BoundUnitKind::AnonymousCallable
                             | bray_bound_tree::BoundUnitKind::RuntimeDefault
                     )
                 {
@@ -241,7 +242,7 @@ impl BodyAnalysisInputs {
         cancellation: &CancellationToken,
         templates: Option<
             &std::collections::BTreeMap<
-                bray_symbols::AnySymbolId,
+                bray_checker::ResultDependencyOwner,
                 bray_symbols::DependencyContractTemplateId,
             >,
         >,

@@ -146,6 +146,7 @@ impl BoundCallResult {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundResolvedCall {
     target: BoundCallableTarget,
+    anonymous_body: Option<(crate::BoundUnitKey, TypeId)>,
     implementation_witnesses: Arc<[ImplementationInstanceId]>,
     trait_dispatch: Option<bray_symbols::TraitConstraintDispatch>,
     result: BoundCallResult,
@@ -163,10 +164,28 @@ impl BoundResolvedCall {
     ) -> Self {
         Self {
             target,
+            anonymous_body: None,
             implementation_witnesses: sorted_unique_shared_slice(implementation_witnesses),
             trait_dispatch: None,
             result,
         }
+    }
+
+    /// Retains the exact source body established for an anonymous target.
+    pub fn with_anonymous_body(mut self, unit: crate::BoundUnitKey, ty: TypeId) -> Self {
+        assert!(
+            matches!(self.target, BoundCallableTarget::Anonymous(_)),
+            "only anonymous targets carry an anonymous body"
+        );
+
+        self.anonymous_body = Some((unit, ty));
+
+        self
+    }
+
+    /// Returns the selected anonymous body, including immutable local aliases.
+    pub fn anonymous_body(&self) -> Option<(&crate::BoundUnitKey, TypeId)> {
+        self.anonymous_body.as_ref().map(|(unit, ty)| (unit, *ty))
     }
 
     /// Returns this call with dispatch supplied by one surrounding generic constraint.

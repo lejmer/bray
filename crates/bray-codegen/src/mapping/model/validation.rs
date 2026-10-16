@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::{CodegenSymbolKey, CodegenSymbolMapping, CodegenUnit, FOREIGN_CALLBACK_RUNTIME_ROLES};
 use bray_ir::{
-    MirAsyncOperation, MirCallTarget, MirFrameInitializer, MirGeneratorOperation, MirHostOperation,
+    MirAsyncOperation, MirFrameInitializer, MirGeneratorOperation, MirHostOperation,
     MirOperationKind, MirRuntimeReference, MirSourceAnchor, MirTerminatorKind,
 };
 use bray_runtime_interface::RuntimeAbiRole;
@@ -35,6 +35,17 @@ pub fn demanded_runtime_references_for_mir(
     mir: &bray_ir::MirUnit,
 ) -> BTreeSet<MirRuntimeReference> {
     let runtime_abi = mir.target().runtime_abi();
+    let boundary_panic = boundary_panic_propagation_is_demanded(mir);
+
+    let asynchronous_root = mir.operations().iter().any(|operation| {
+        matches!(
+            operation.kind(),
+            MirOperationKind::Host(MirHostOperation::ExecuteRoot {
+                execution: bray_runtime_interface::RootExecution::Asynchronous { .. },
+                ..
+            })
+        )
+    });
 
     mir.operations()
         .iter()
@@ -63,19 +74,36 @@ pub fn demanded_runtime_references_for_mir(
                 })
                 .map(|role| Some(MirRuntimeReference::new(role, runtime_abi))),
         )
-        .chain(boundary_panic_propagation_is_demanded(mir).then_some(Some(
-            MirRuntimeReference::new(
-                bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
-                runtime_abi,
-            ),
-        )))
+        .chain(boundary_panic.then_some(Some(MirRuntimeReference::new(
+            bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
+            runtime_abi,
+        ))))
         .chain(
-            (checked_call_cancellation_propagation_is_demanded(mir)
-                || boundary_panic_propagation_is_demanded(mir))
-            .then_some(Some(MirRuntimeReference::new(
-                bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
-                runtime_abi,
-            ))),
+            (checked_call_cancellation_propagation_is_demanded(mir) || boundary_panic).then_some(
+                Some(MirRuntimeReference::new(
+                    bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
+                    runtime_abi,
+                )),
+            ),
+        )
+        .chain(
+            [
+                RuntimeAbiRole::OutgoingActivation,
+                RuntimeAbiRole::ActivationPublication,
+                RuntimeAbiRole::CleanupStorageRelease,
+            ]
+            .into_iter()
+            .filter(|_| mir.frame_descriptor().is_some())
+            .map(|role| Some(MirRuntimeReference::new(role, runtime_abi))),
+        )
+        .chain(
+            [
+                RuntimeAbiRole::OutgoingAdmission,
+                RuntimeAbiRole::OutgoingDischarge,
+            ]
+            .into_iter()
+            .filter(|_| asynchronous_root)
+            .map(|role| Some(MirRuntimeReference::new(role, runtime_abi))),
         )
         .flatten()
         .collect()
@@ -114,12 +142,7 @@ fn boundary_panic_propagation_is_demanded(mir: &bray_ir::MirUnit) -> bool {
 /// Returns runtime roles required by an operation's frame initializer mapping.
 pub fn frame_creation_runtime_role(initializer: &MirFrameInitializer) -> Option<RuntimeAbiRole> {
     match initializer {
-        MirFrameInitializer::Callable(call) => match call.target() {
-            MirCallTarget::Indirect { .. } => Some(RuntimeAbiRole::FrameCreation),
-            MirCallTarget::Direct(_)
-            | MirCallTarget::Runtime(_)
-            | MirCallTarget::DefaultValue { .. } => None,
-        },
+        MirFrameInitializer::Callable(_) => None,
         MirFrameInitializer::TaskObservation { .. } => {
             Some(RuntimeAbiRole::TaskObservationCreation)
         }
@@ -303,6 +326,7 @@ fn operation_runtime_references(
             | MirAsyncOperation::MoveInactiveFrame { .. }
             | MirAsyncOperation::ComposeAwaitedFrame { .. }
             | MirAsyncOperation::CommitAwaitedCompletion { .. }
+            | MirAsyncOperation::ObserveFrameCancellation
             | MirAsyncOperation::DestroyTerminalTask { .. },
         ) => [None, None, None],
     }
@@ -346,7 +370,7 @@ mod tests {
     };
 
     #[test]
-    fn indirect_frame_creation_demands_the_mapped_runtime_role() {
+    fn indirect_frame_creation_uses_its_callable_value() {
         let call = bray_ir::MirCall::imported(
             bray_ir::MirCallTarget::Indirect {
                 callee: bray_ir::MirOperand::Value(bray_ir::MirValueId::from_slot(
@@ -366,7 +390,7 @@ mod tests {
 
         assert_eq!(
             super::frame_creation_runtime_role(&bray_ir::MirFrameInitializer::Callable(call)),
-            Some(RuntimeAbiRole::FrameCreation),
+            None,
         );
     }
 

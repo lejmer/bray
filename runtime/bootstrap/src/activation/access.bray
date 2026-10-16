@@ -1,0 +1,90 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation;
+
+using std.memory;
+
+// The native producer retains the immutable descriptor's provider and has
+// initialized the claimed frame. This contract does not certify the supplied
+// lease or grant dispatch ownership. Resident validation and phase transition
+// establish those separately while the pool is locked. Descriptor callbacks use
+// their declared ABI and context and retain the provider through return.
+trusted internal predicate producer(token: &Inactive);
+
+trusted internal func description(pos token: &Inactive) -> Descriptor
+    requires(trusted producer(token = token))
+    ensures(trusted producer(token = token))
+    uses(raw_memory)
+{
+    let authorize = trusted lambda(pos owner: &Inactive) -> RawPointer<Descriptor>
+        requires(trusted producer(token = owner))
+        ensures(
+            trusted core.memory.valid_read<Descriptor>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<Descriptor>(pointer = result),
+            trusted core.memory.initialized_as<Descriptor>(pointer = result),
+        )
+        executes(pure, total)
+    {
+        return owner.descriptor;
+    };
+
+    let pointer = authorize(token);
+
+    return trusted std.memory.read<Descriptor>(pointer);
+}
+
+// Only the producer can publish initialized backing. The descriptor is retained
+// in the pool before the inactive value is exposed to its consumer.
+trusted internal func publish(pos token: &Inactive) -> u32
+    requires(trusted producer(token = token), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted producer(token = token))
+    uses(intrinsic)
+{
+    let descriptor = trusted description(token);
+
+    if !valid_layout(&descriptor)
+    {
+        return 3;
+    }
+
+    let identity: usize = trusted core.target.expose_address<Descriptor>(token.descriptor);
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+
+    if !trusted bray.runtime.bootstrap.storage.publish_frame(guard.get(), &token.lease, &descriptor.storage, identity)
+    {
+        return 3;
+    }
+
+    return bray.runtime.bootstrap.STATUS_SUCCESS;
+}
+
+// A native producer retains this initialized token and its descriptor provider
+// throughout publication. The contract refers to the exact input slot.
+trusted internal predicate producer_slot(pointer: RawPointer<Inactive>);
+
+@abi(c)
+trusted internal func publication(pos pointer: RawPointer<Inactive>) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted producer_slot(pointer = pointer),
+        trusted core.memory.valid_read<Inactive>(pointer = pointer, count = 1),
+        trusted core.memory.initialized_as<Inactive>(pointer = pointer),
+        trusted core.memory.aligned_for<Inactive>(pointer = pointer),
+    )
+{
+    let token = read_producer(pointer);
+
+    return trusted publish(&token);
+}
+
+trusted internal func read_producer(pos source: RawPointer<Inactive>) -> Inactive
+    requires(
+        trusted producer_slot(pointer = source),
+        trusted core.memory.valid_read<Inactive>(pointer = source, count = 1),
+        trusted core.memory.initialized_as<Inactive>(pointer = source),
+        trusted core.memory.aligned_for<Inactive>(pointer = source),
+    )
+    ensures(trusted producer(token = &result))
+    uses(raw_memory)
+{
+    return trusted std.memory.read<Inactive>(source);
+}

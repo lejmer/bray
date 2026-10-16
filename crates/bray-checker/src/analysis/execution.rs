@@ -1,6 +1,5 @@
 use bray_bound_tree::{
-    BoundAwaitExpression, BoundCallExpression, BoundCallResult, BoundExpressionId,
-    SemanticSelection,
+    BoundAwaitExpression, BoundCallExpression, BoundExpressionId, SemanticSelection,
 };
 use bray_compiler_known::ImplementationHook;
 use bray_symbols::CallableInvocation;
@@ -18,6 +17,37 @@ impl<C> ControlFlowGraphBuilder<'_, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    pub(super) fn enter_callable_body(&mut self, current: AnalysisBlockId) -> AnalysisBlockId {
+        let body = match self.request().unit().root() {
+            bray_bound_tree::BoundUnitRoot::CallableBody {
+                body,
+                execution: bray_symbols::CallableExecution::Asynchronous,
+                ..
+            }
+            | bray_bound_tree::BoundUnitRoot::AnonymousCallable {
+                body,
+                execution: bray_symbols::CallableExecution::Asynchronous,
+                ..
+            } => body,
+            _ => return current,
+        };
+
+        let cancellation = self.push_block();
+        let resume = self.push_block();
+
+        self.push_edge(
+            current,
+            cancellation,
+            AnalysisEdgeKind::RunCancellation,
+            None,
+        );
+
+        self.push_exit(cancellation, AnalysisExitKind::Cancellation, body.into());
+        self.push_edge(current, resume, AnalysisEdgeKind::Sequential, None);
+
+        resume
+    }
+
     pub(super) fn push_invocation(
         &mut self,
         expression: BoundExpressionId,
@@ -208,6 +238,8 @@ where
 
         match selections.expression(expression) {
             Some(SemanticSelection::Call(selection)) => {
+                // Inactive frame construction admits backing before captures move.
+                // Its failure is synchronous even though the body executes later.
                 selection.evaluates_defaults()
                     || (selection.phase_behaviors().invocation().may_unwind()
                         && hook_may_panic
@@ -216,11 +248,7 @@ where
                             .invocation()
                             .execution_properties()
                             .contains(&bray_symbols::ExecutionProperty::Total)
-                        && selection.invocation() == CallableInvocation::Bray
-                        && matches!(
-                            selection.resolution().result(),
-                            BoundCallResult::Immediate(_)
-                        ))
+                        && selection.invocation() == CallableInvocation::Bray)
             }
             // Union construction has call syntax and declaration-owned defaults.
             Some(SemanticSelection::Operation(operation)) => {

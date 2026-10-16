@@ -9,15 +9,15 @@ typedef HMODULE native_library;
 #else
 #include <dlfcn.h>
 #include <pthread.h>
-typedef void *native_library;
+typedef void* native_library;
 #endif
 
 typedef uintptr_t (*static_access)(void);
-typedef void (*static_cleanup)(void *outcome);
+typedef void (*static_cleanup)(void* outcome);
 typedef void (*static_transition)(void);
-typedef void (*static_admission)(uint32_t operation, void *outcome);
-typedef uint32_t (*static_finalizer_start)(uintptr_t destination, void *outcome);
-typedef uint32_t (*static_finalizer_resolve)(uintptr_t completion, uintptr_t incident, void *outcome);
+typedef void (*static_admission)(uint32_t operation, void* outcome);
+typedef uint32_t (*static_finalizer_start)(uintptr_t destination, void* outcome);
+typedef uint32_t (*static_finalizer_resolve)(uintptr_t completion, uintptr_t incident, void* outcome);
 
 typedef struct
 {
@@ -70,7 +70,7 @@ typedef struct
     int result;
 } thread_context;
 
-static native_library open_library(const char *path)
+static native_library open_library(const char* path)
 {
 #if defined(_WIN32)
     return LoadLibraryA(path);
@@ -79,10 +79,10 @@ static native_library open_library(const char *path)
 #endif
 }
 
-static void *find_symbol(native_library library, const char *name)
+static void* find_symbol(native_library library, const char* name)
 {
 #if defined(_WIN32)
-    return (void *)GetProcAddress(library, name);
+    return (void*)GetProcAddress(library, name);
 #else
     return dlsym(library, name);
 #endif
@@ -108,7 +108,7 @@ static int identity_is(static_identity left, static_identity right)
 }
 
 static static_access find_thread_access(
-    const product_host_descriptor *descriptor,
+    const product_host_descriptor* descriptor,
     static_identity identity,
     uint32_t finalizer_execution
 )
@@ -136,7 +136,7 @@ static static_access find_thread_access(
 }
 
 static uintptr_t find_product_value_address(
-    const static_host_entry *entries,
+    const static_host_entry* entries,
     size_t count,
     int32_t expected
 )
@@ -146,7 +146,7 @@ static uintptr_t find_product_value_address(
     for (size_t index = 0; index < count; index += 1)
     {
         int32_t value = 0;
-        memcpy(&value, (void *)entries[index].storage, sizeof(value));
+        memcpy(&value, (void*)entries[index].storage, sizeof(value));
 
         if (value != expected)
             continue;
@@ -160,7 +160,7 @@ static uintptr_t find_product_value_address(
     return result;
 }
 
-static int run_thread_check(thread_context *context)
+static int run_thread_check(thread_context* context)
 {
     product_host_observation attached = context->control(PRODUCT_HOST_ATTACH_CURRENT_THREAD);
 
@@ -174,7 +174,7 @@ static int run_thread_check(thread_context *context)
     if (first == 0 || first != second || first == context->other_address || cleanup == 0)
         return 2;
 
-    if (*(int32_t *)first != 42 || *(int32_t *)cleanup != 192837465)
+    if (*(int32_t*)first != 42 || *(int32_t*)cleanup != 192837465)
         return 3;
 
     product_host_observation detached = context->control(PRODUCT_HOST_DETACH_CURRENT_THREAD);
@@ -188,14 +188,14 @@ static int run_thread_check(thread_context *context)
 #if defined(_WIN32)
 static DWORD WINAPI thread_entry(LPVOID value)
 {
-    thread_context *context = (thread_context *)value;
+    thread_context* context = (thread_context*)value;
     context->result = run_thread_check(context);
     return 0;
 }
 #else
-static void *thread_entry(void *value)
+static void* thread_entry(void* value)
 {
-    thread_context *context = (thread_context *)value;
+    thread_context* context = (thread_context*)value;
     context->result = run_thread_check(context);
     return NULL;
 }
@@ -219,13 +219,13 @@ static int check_thread_static(
     if (
         first == 0 ||
         first != second ||
-        *(int32_t *)first != 42 ||
+        *(int32_t*)first != 42 ||
         cleanup == 0 ||
-        *(int32_t *)cleanup != 192837465
+        *(int32_t*)cleanup != 192837465
     )
         return 21;
 
-    *(int32_t *)first = 99;
+    *(int32_t*)first = 99;
 
     thread_context context = {control, access, async_access, first, 0};
 
@@ -246,7 +246,7 @@ static int check_thread_static(
         return 23;
 #endif
 
-    if (context.result != 0 || *(int32_t *)first != 99)
+    if (context.result != 0 || *(int32_t*)first != 99)
         return 24 + context.result;
 
     if (!observation_is(control(PRODUCT_HOST_DETACH_CURRENT_THREAD), 0, 1))
@@ -257,7 +257,7 @@ static int check_thread_static(
 
     uintptr_t reattached = access();
 
-    if (reattached == 0 || *(int32_t *)reattached != 42)
+    if (reattached == 0 || *(int32_t*)reattached != 42)
         return 32;
 
     if (!observation_is(control(PRODUCT_HOST_DETACH_CURRENT_THREAD), 0, 1))
@@ -268,9 +268,9 @@ static int check_thread_static(
 
 static int check_product_scoped_thread_statics(
     product_host_control first_control,
-    const product_host_descriptor *first_descriptor,
+    const product_host_descriptor* first_descriptor,
     product_host_control second_control,
-    const product_host_descriptor *second_descriptor,
+    const product_host_descriptor* second_descriptor,
     static_identity thread_identity
 )
 {
@@ -292,13 +292,13 @@ static int check_product_scoped_thread_statics(
     if (first == 0 || second == 0 || first == second)
         return 36;
 
-    *(int32_t *)first = 71;
-    *(int32_t *)second = 72;
+    *(int32_t*)first = 71;
+    *(int32_t*)second = 72;
 
     if (!observation_is(first_control(PRODUCT_HOST_DETACH_CURRENT_THREAD), 0, 1))
         return 37;
 
-    if (first_access() != 0 || second_access() != second || *(int32_t *)second != 72)
+    if (first_access() != 0 || second_access() != second || *(int32_t*)second != 72)
         return 38;
 
     if (!observation_is(second_control(PRODUCT_HOST_DETACH_CURRENT_THREAD), 0, 1))
@@ -309,9 +309,9 @@ static int check_product_scoped_thread_statics(
 
 static int exercise_host(
     product_host_control control,
-    const product_host_descriptor *descriptor,
-    size_t *product_static_count,
-    uintptr_t *representative_address,
+    const product_host_descriptor* descriptor,
+    size_t* product_static_count,
+    uintptr_t* representative_address,
     static_identity thread_identity,
     static_identity async_thread_identity
 )
@@ -337,7 +337,7 @@ static int exercise_host(
     for (size_t index = 0; index < descriptor->static_count; index += 1)
     {
         static_host_entry entry_value = descriptor->static_entry(index);
-        const static_host_entry *entry = &entry_value;
+        const static_host_entry* entry = &entry_value;
 
         if (entry->abi_version != 1 || entry->order != index)
             return 43;
@@ -374,7 +374,7 @@ static int exercise_host(
             continue;
 
         uintptr_t relocated = 0;
-        memcpy(&relocated, (void *)product_entries[candidate].storage, sizeof(relocated));
+        memcpy(&relocated, (void*)product_entries[candidate].storage, sizeof(relocated));
 
         static_identity dependency = product_entries[candidate].dependency(0);
 
@@ -449,17 +449,17 @@ static int exercise_host(
         return 55;
 
     int32_t cleaned_probe = 0;
-    memcpy(&cleaned_probe, (void *)cleanup_probe, sizeof(cleaned_probe));
+    memcpy(&cleaned_probe, (void*)cleanup_probe, sizeof(cleaned_probe));
 
     if (cleaned_probe != 0)
         return 59;
 
-    memcpy(&cleaned_probe, (void *)async_cleanup_probe, sizeof(cleaned_probe));
+    memcpy(&cleaned_probe, (void*)async_cleanup_probe, sizeof(cleaned_probe));
 
     if (cleaned_probe != 0)
         return 71;
 
-    memcpy(&cleaned_probe, (void *)async_failing_cleanup_probe, sizeof(cleaned_probe));
+    memcpy(&cleaned_probe, (void*)async_failing_cleanup_probe, sizeof(cleaned_probe));
 
     if (cleaned_probe != 0)
         return 74;
@@ -472,17 +472,17 @@ static int exercise_host(
     )
         return 60;
 
-    memcpy(&cleaned_probe, (void *)cleanup_probe, sizeof(cleaned_probe));
+    memcpy(&cleaned_probe, (void*)cleanup_probe, sizeof(cleaned_probe));
 
     if (cleaned_probe != 0)
         return 61;
 
-    memcpy(&cleaned_probe, (void *)async_cleanup_probe, sizeof(cleaned_probe));
+    memcpy(&cleaned_probe, (void*)async_cleanup_probe, sizeof(cleaned_probe));
 
     if (cleaned_probe != 0)
         return 72;
 
-    memcpy(&cleaned_probe, (void *)async_failing_cleanup_probe, sizeof(cleaned_probe));
+    memcpy(&cleaned_probe, (void*)async_failing_cleanup_probe, sizeof(cleaned_probe));
 
     if (cleaned_probe != 0)
         return 75;
@@ -493,7 +493,7 @@ static int exercise_host(
     return 0;
 }
 
-int main(int argument_count, char **arguments)
+int main(int argument_count, char** arguments)
 {
     if (argument_count != 9)
         return 60;
@@ -523,10 +523,10 @@ int main(int argument_count, char **arguments)
         (product_host_control)find_symbol(first_library, arguments[3]);
     product_host_control second_control =
         (product_host_control)find_symbol(second_library, arguments[3]);
-    const product_host_descriptor *first_descriptor =
-        (const product_host_descriptor *)find_symbol(first_library, arguments[4]);
-    const product_host_descriptor *second_descriptor =
-        (const product_host_descriptor *)find_symbol(second_library, arguments[4]);
+    const product_host_descriptor* first_descriptor =
+        (const product_host_descriptor*)find_symbol(first_library, arguments[4]);
+    const product_host_descriptor* second_descriptor =
+        (const product_host_descriptor*)find_symbol(second_library, arguments[4]);
 
     if (
         first_control == NULL ||

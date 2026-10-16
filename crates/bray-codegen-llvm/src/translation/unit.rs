@@ -21,6 +21,7 @@ mod text;
 mod value;
 
 pub(crate) use core::{TranslationError, UnitTranslator, translate_instances};
+pub(super) use support::nonzero_integer;
 pub(crate) use support::pointer_value;
 pub(crate) use support::{integer_constant, real_width, real_words};
 pub(crate) use support::{native_run_outcome, native_run_state_is};

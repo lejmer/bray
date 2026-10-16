@@ -175,13 +175,23 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(in crate::translation::unit::memory) fn translate_catastrophic_abort(
         &mut self,
     ) -> Result<(), CodegenFailure> {
-        self.call_void_intrinsic("llvm.trap")
+        crate::native::call_void_intrinsic(
+            self.module,
+            self.types.context(),
+            &self.builder,
+            "llvm.trap",
+        )
     }
 
     pub(in crate::translation::unit::memory) fn translate_debugger_trap(
         &mut self,
     ) -> Result<(), CodegenFailure> {
-        self.call_void_intrinsic("llvm.debugtrap")
+        crate::native::call_void_intrinsic(
+            self.module,
+            self.types.context(),
+            &self.builder,
+            "llvm.debugtrap",
+        )
     }
 
     pub(in crate::translation::unit::memory) fn translate_spin_loop_hint(

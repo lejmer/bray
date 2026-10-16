@@ -5,8 +5,7 @@ use bray_codegen::{
 use bray_compiler_known::CompilerKnownDeclarationKey;
 use bray_declarations::{ContainerId, DeclarationId};
 use bray_ir::{
-    MirCallTarget, MirGeneratedLifecycleRole, MirHelperReference, MirOperationId, MirOperationKind,
-    MirUnitKey,
+    MirGeneratedLifecycleRole, MirHelperReference, MirOperationId, MirOperationKind, MirUnitKey,
 };
 use bray_package_interface::InterfaceNativeBoundaryKind;
 use bray_runtime_interface::ExecutableEntryResult;
@@ -456,11 +455,6 @@ pub(crate) enum ProductQueryFailure {
         /// The exact incompatible MIR operation.
         operation: MirOperationKind,
     },
-    /// A cleanup operation must call one immediate, directly selected callable.
-    InvalidCleanupCallTarget {
-        context: ProductQueryContext,
-        target: MirCallTarget,
-    },
     /// A generated lifecycle instance and its demanded helper disagree on lifecycle role.
     LifecycleRoleMismatch {
         /// The exact concrete code generation instance.
@@ -615,7 +609,6 @@ impl ProductQueryFailure {
             | Self::UnexpectedSymbolKind { .. }
             | Self::ImplementationSymbolKeyExpected { .. }
             | Self::InvalidHelperOperation { .. }
-            | Self::InvalidCleanupCallTarget { .. }
             | Self::LifecycleRoleMismatch { .. }
             | Self::BuiltInProofMismatch { .. }
             | Self::ImplementationSelectionMismatch { .. } => {

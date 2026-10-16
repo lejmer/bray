@@ -11,10 +11,11 @@ pub(in crate::compilation) use error::{
     symbol_query_contract_binding_error,
 };
 pub(in crate::compilation) use symbol::{
-    BodyAnalysis, CompilationSymbolSemantics, bind_declared_execution_requirements,
-    bind_declared_trusted_capabilities, bind_module_part_directives_for_selection,
-    checked_callable_type_contracts, default_result_dependencies, expression_result_dependencies,
-    generic_parameter_ids, has_visible_generic_parameters, imported_declaration_template,
+    BodyAnalysis, CompilationSymbolSemantics, anonymous_result_dependencies,
+    bind_declared_execution_requirements, bind_declared_trusted_capabilities,
+    bind_module_part_directives_for_selection, checked_callable_type_contracts,
+    default_result_dependencies, expression_result_dependencies, generic_parameter_ids,
+    has_visible_generic_parameters, imported_declaration_template,
     imported_declaration_template_at, imported_implementation, self_type_context,
     source_body_semantics, static_dependencies_from_contract, static_dependency_root,
     static_result_dependencies, type_binder, type_scope, visible_generic_parameters,

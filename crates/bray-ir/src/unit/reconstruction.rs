@@ -143,7 +143,12 @@ fn retained_blocks(
     let mut pending = vec![unit.entry()];
 
     if let Some(descriptor) = unit.frame_descriptor() {
-        pending.extend(descriptor.states().iter().map(crate::MirFrameState::entry));
+        pending.extend(
+            descriptor
+                .states()
+                .iter()
+                .flat_map(|state| [state.entry(), state.broadcast()]),
+        );
     }
 
     while let Some(block) = pending.pop() {
@@ -903,6 +908,9 @@ mod tests {
         let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
         let resume = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
         let external_resume = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+        let broadcast = push_block(&mut builder, source.clone(), MirBlockKind::CleanupBroadcast);
+
+        builder.set_terminator(broadcast, source.clone(), MirTerminatorKind::Return(None));
 
         let cancellation = push_block(&mut builder, source.clone(), MirBlockKind::CleanupBroadcast);
 
@@ -964,17 +972,34 @@ mod tests {
             )),
         );
 
-        builder.set_terminator(lifecycle, source, MirTerminatorKind::Return(None));
+        builder.set_terminator(lifecycle, source.clone(), MirTerminatorKind::Return(None));
+
+        let completion = builder
+            .push_storage(source.clone(), MirStorageKind::FrameCompletion, ty)
+            .unwrap_or_else(|error| panic!("result storage must be valid: {error:?}"));
 
         let descriptor = MirFrameDescriptor::new(
             frame,
             abi,
             ProtectedFrameAbiVersions::uniform(abi),
             ty,
+            Some(MirFrameStateId::new(2)),
             [
-                MirFrameState::new(MirFrameStateId::new(0), entry, [], []),
-                MirFrameState::new(MirFrameStateId::new(1), resume, [], []),
-                MirFrameState::new(MirFrameStateId::new(2), external_resume, [], [storage]),
+                MirFrameState::new(MirFrameStateId::new(0), entry, entry, [], []),
+                MirFrameState::new(MirFrameStateId::new(1), resume, resume, [], []),
+                MirFrameState::new(
+                    MirFrameStateId::new(2),
+                    external_resume,
+                    broadcast,
+                    [],
+                    [storage, completion],
+                )
+                .with_completion_cleanup(true)
+                .with_operation_requirements([
+                    vec![bray_runtime_interface::ExecutionLaneRequirement::Compute],
+                    vec![bray_runtime_interface::ExecutionLaneRequirement::Blocking],
+                    vec![bray_runtime_interface::ExecutionLaneRequirement::MainThread],
+                ]),
             ],
         )
         .unwrap_or_else(|error| panic!("frame descriptor must be valid: {error:?}"));

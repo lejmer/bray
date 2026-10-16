@@ -476,9 +476,8 @@ impl RuntimeConformance for BrayRuntime {
         let error = scheduler
             .register_task(
                 task.id(),
-                task.descriptor().clone(),
+                task.execution_state(),
                 runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
                 task.cancellation_context(),
             )
             .err();
@@ -506,9 +505,8 @@ impl RuntimeConformance for BrayRuntime {
         matches!(
             scheduler.register_task(
                 second.id(),
-                second.descriptor().clone(),
+                second.execution_state(),
                 runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
                 second.cancellation_context(),
             ),
             Err(SchedulerError::TaskCapacityReached)

@@ -534,6 +534,7 @@ where
         data.as_ref(),
         bray_symbols::TypeData::Callable(callable)
             if callable.abi() != bray_symbols::CallableAbi::Bray
+                && callable.abi().supports_execution(callable.execution())
     );
 
     let span = crate::diagnostic::expression_span(request, expression);
@@ -1078,6 +1079,56 @@ mod tests {
                     &diagnostics,
                     DiagnosticKind::CheckingMemoryPointeeTypeUnsupported,
                 );
+            }
+        });
+    }
+
+    #[test]
+    fn native_code_addresses_cannot_construct_async_factories() {
+        with_request(|request| {
+            let dependency = crate::test_support::empty_callable_phase_behaviors()
+                .dependency_contracts()
+                .invocation();
+
+            for abi in [
+                bray_symbols::CallableAbi::C,
+                bray_symbols::CallableAbi::System,
+            ] {
+                let callable = bray_symbols::CallableTypeData::new(
+                    [],
+                    error_type(),
+                    bray_symbols::CallableConstness::Runtime,
+                    bray_symbols::CallableTrust::Safe,
+                    abi,
+                    bray_symbols::CallableDependencyContracts::asynchronous(dependency, dependency),
+                );
+
+                let ty = semantic_values()
+                    .intern_type(TypeData::Callable(callable))
+                    .unwrap();
+
+                for hook in [
+                    ImplementationHook::CallableFromPointer,
+                    ImplementationHook::PointerFromCallable,
+                ] {
+                    let mut diagnostics = DiagnosticBag::new();
+
+                    let operation = classify_operation(
+                        request,
+                        hook,
+                        &[GenericArgument::Type(ty)],
+                        first_expression(request),
+                        &mut BTreeMap::new(),
+                        &mut diagnostics,
+                    );
+
+                    assert_eq!(operation, Ok(None));
+
+                    assert_goal_state_diagnostic_kind(
+                        &diagnostics,
+                        DiagnosticKind::CheckingCallableAddressTypeUnsupported,
+                    );
+                }
             }
         });
     }

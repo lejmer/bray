@@ -2,9 +2,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bray_runtime_abi::{
-    NativeExecutionLaneResult, NativeProtectedFrame, NativeRootHandle, NativeRunOutcome,
+    NativeExecutionLaneResult, NativeInactiveFrame, NativeRootHandle, NativeRunOutcome,
     NativeRunState, NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle,
-    NativeWakeCallback,
 };
 use bray_runtime_model::ProtectedFrameStateId;
 
@@ -14,12 +13,13 @@ use crate::{
     TaskControlBlock, TaskExecutionContext, TaskObservationError, TaskResumeStatus,
 };
 
-use super::super::frame::NativeFrame;
 use super::binding::{
     CleanupWorkloadScope, current_native_task, current_thread_lanes, lane_result, runtime_failure,
     task_outcome,
 };
-use super::core::{NativeRuntime, NativeTaskSlot, StartedTask, SuspendedWait, with_current_task};
+use super::core::{
+    NativeRuntime, NativeTaskSlot, Retirement, StartedTask, SuspendedWait, with_current_task,
+};
 
 struct TaskObservationClaim<'a>(&'a AtomicBool);
 
@@ -89,75 +89,79 @@ impl NativeRuntime {
 
     pub(in crate::native) fn compose_awaited(
         &self,
-        frame: bray_runtime_abi::NativeInactiveFrame,
+        frame: &NativeInactiveFrame,
+        resume_state: u32,
+        destination: usize,
     ) -> NativeRuntimeStatus {
         let Some(parent) = current_native_task() else {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
         };
 
-        self.with_started(parent, |task| task.run.compose(frame))
-            .unwrap_or_else(|status| status)
-    }
-
-    pub(in crate::native) fn resolve_awaited_completion(
-        &self,
-    ) -> Result<usize, NativeRuntimeStatus> {
-        let parent = current_native_task().ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
-
-        self.with_started(parent, |task| task.run.resolve_completion())?
+        self.with_started(parent, |task| {
+            task.run.compose(frame, resume_state, destination)
+        })
+        .unwrap_or_else(|status| status)
     }
 
     pub(in crate::native) fn start(
         &self,
         handle: NativeTaskHandle,
-        frame: NativeProtectedFrame,
+        frame: &NativeInactiveFrame,
     ) -> NativeRuntimeStatus {
-        let mut frame = match NativeFrame::try_new(frame) {
-            Ok(frame) => frame,
+        let origin = self.thread.runtime().id();
+
+        let initial = match super::super::run::NativeRun::inspect(frame, origin.raw()) {
+            Ok(initial) => initial,
             Err(status) => return status,
         };
+
+        let run = super::super::run::NativeRun::new(&initial);
+        let cancellation = crate::CancellationContext::root();
 
         let mut tasks = self
             .tasks
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        if !matches!(tasks.get(&handle), Some(NativeTaskSlot::Allocated(_))) {
+        let Some(NativeTaskSlot::Allocated(admission)) = tasks.get(&handle) else {
             return NativeRuntimeStatus::UNKNOWN_TASK;
-        }
-
-        let Some(NativeTaskSlot::Allocated(mut admission)) = tasks.remove(&handle) else {
-            unreachable!("allocated task was checked under the same lock");
         };
 
-        frame.outgoing = admission.outgoing.take(4);
-
-        let run =
-            super::super::run::NativeRun::new(frame, crate::outgoing::OutgoingRecords::default());
-
-        let terminal = run.terminal_state();
-        let task = TaskControlBlock::start(admission, Arc::clone(&run));
-        let state = ProtectedFrameStateId::new(0);
-
         let Ok(registration) = self.scheduler.register_task(
-            task.id(),
-            task.descriptor().clone(),
-            self.thread.runtime().id(),
-            state,
-            task.cancellation_context(),
+            admission.id,
+            super::super::activation::execution(&initial),
+            origin,
+            &cancellation,
         ) else {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         };
 
-        let cleanup_lane = registration.lane(state);
-
         if self.cleanup_workloads.get()
             && !self.main_thread_lane
-            && cleanup_lane
+            && registration
+                .lane()
                 .is_ok_and(|lane| matches!(lane.placement(), ExecutionLanePlacement::MainThread(_)))
         {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         }
+
+        // Admission and registration precede ownership transfer. Rejection leaves
+        // the caller's exact inactive token and the task admission intact.
+        let status = run.activate(frame, origin.raw());
+
+        if !status.is_success() {
+            return status;
+        }
+
+        let Some(NativeTaskSlot::Allocated(admission)) = tasks.remove(&handle) else {
+            unreachable!("the admitted task remains allocated under this lock");
+        };
+
+        let task = TaskControlBlock::start_frame(
+            admission,
+            crate::erase_sendable_protected_frame(Arc::clone(&run)),
+            cancellation,
+        );
 
         let task = Arc::new(StartedTask {
             task,
@@ -166,7 +170,7 @@ impl NativeRuntime {
             waits: Mutex::new(Vec::new()),
             suspended_wait: Mutex::new(None),
             observation_claimed: AtomicBool::new(false),
-            terminal,
+            retirement: Mutex::new(Retirement::Retained),
         });
 
         let wake = task.registration.wake_handle();
@@ -174,14 +178,8 @@ impl NativeRuntime {
         tasks.insert(handle, NativeTaskSlot::Started(task));
         drop(tasks);
 
-        if wake.wake().is_err() {
-            self.tasks
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .remove(&handle);
-
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
-        }
+        wake.wake()
+            .expect("fresh task registration accepts its initial wake");
 
         NativeRuntimeStatus::SUCCESS
     }
@@ -209,8 +207,10 @@ impl NativeRuntime {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
             .find_map(|(handle, slot)| {
-                let NativeTaskSlot::Started(task) = slot else {
-                    return None;
+                let task = match slot {
+                    NativeTaskSlot::Started(task)
+                    | NativeTaskSlot::Terminal { _task: task, .. } => task,
+                    NativeTaskSlot::Allocated(_) => return None,
                 };
 
                 if task.task.id() != ready.task() {
@@ -226,8 +226,14 @@ impl NativeRuntime {
             });
 
         let Some((handle, started)) = selected else {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
+            // A ready notification can race terminal removal after dispatch was
+            // acquired. It has no frame authority and needs no further work.
+            return NativeRuntimeStatus::SUCCESS;
         };
+
+        if started.run.is_finished() {
+            return self.drive_retirement(ready, handle, &started);
+        }
 
         let task = &started.task;
         let wake = started.registration.wake_handle();
@@ -302,8 +308,84 @@ impl NativeRuntime {
                     }
                 }
             }
-            TaskResumeStatus::Terminal(_) => NativeRuntimeStatus::SUCCESS,
+            TaskResumeStatus::Terminal(_) => {
+                ready
+                    .suspend(started.run.snapshot())
+                    .expect("terminal dispatch retains its admitted retirement lane");
+
+                NativeRuntimeStatus::SUCCESS
+            }
         }
+    }
+
+    fn drive_retirement(
+        &self,
+        ready: crate::ReadyTask,
+        handle: NativeTaskHandle,
+        task: &StartedTask,
+    ) -> NativeRuntimeStatus {
+        let requested = matches!(
+            *task
+                .retirement
+                .lock()
+                .expect("retirement request is available"),
+            Retirement::Requested(_)
+        );
+
+        if !requested {
+            ready
+                .suspend(task.run.snapshot())
+                .expect("terminal task retains its retirement lane");
+
+            return NativeRuntimeStatus::SUCCESS;
+        }
+
+        let _bridge = match super::super::bridge::Scope::enter() {
+            Ok(scope) => scope,
+            Err(status) => return status,
+        };
+
+        let status = with_current_task(handle, || task.run.retire(task, ready.lane()));
+
+        if status == NativeRuntimeStatus::PENDING {
+            ready
+                .suspend(task.run.snapshot())
+                .expect("deferred retirement retains its admitted execution metadata");
+
+            task.registration
+                .wake_handle()
+                .wake()
+                .expect("deferred retirement retains its task registration");
+
+            return NativeRuntimeStatus::SUCCESS;
+        }
+
+        assert!(
+            status.is_success(),
+            "admitted retirement must complete or defer"
+        );
+
+        let previous = std::mem::replace(
+            &mut *task
+                .retirement
+                .lock()
+                .expect("retirement request is available"),
+            Retirement::Released,
+        );
+
+        let Retirement::Requested(waiter) = previous else {
+            panic!("exclusive dispatch completes the requested retirement once");
+        };
+
+        ready
+            .suspend(task.run.snapshot())
+            .expect("retirement retains its admitted execution metadata");
+
+        if let Some(waiter) = waiter {
+            let _ = waiter.wake();
+        }
+
+        NativeRuntimeStatus::SUCCESS
     }
 
     fn suspend_on_task_event(
@@ -447,26 +529,93 @@ impl NativeRuntime {
             return NativeRuntimeStatus::UNKNOWN_TASK;
         };
 
+        let status = self.resolve_task_retirement(task);
+
+        if !status.is_success() {
+            return status;
+        }
+
         self.destroy_task(task)
     }
 
-    pub(in crate::native) fn destroy_task(&self, task: NativeTaskHandle) -> NativeRuntimeStatus {
-        let mut tasks = self
-            .tasks
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    pub(in crate::native) fn resolve_task_retirement(
+        &self,
+        task: NativeTaskHandle,
+    ) -> NativeRuntimeStatus {
+        loop {
+            let status = self.retire_task(task);
 
-        match tasks.get(&task) {
-            Some(NativeTaskSlot::Terminal { .. }) => {
-                tasks.remove(&task);
+            if status != NativeRuntimeStatus::PENDING {
+                return status;
+            }
 
-                NativeRuntimeStatus::SUCCESS
+            let status = self.wait_main_thread();
+
+            if !status.is_success() {
+                return status;
             }
-            Some(NativeTaskSlot::Started(_)) | Some(NativeTaskSlot::Allocated(_)) => {
-                NativeRuntimeStatus::PENDING
-            }
-            None => NativeRuntimeStatus::UNKNOWN_TASK,
         }
+    }
+
+    pub(in crate::native) fn retire_task(&self, task: NativeTaskHandle) -> NativeRuntimeStatus {
+        let retained = {
+            let tasks = self
+                .tasks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+            match tasks.get(&task) {
+                Some(NativeTaskSlot::Terminal { _task, .. }) => Arc::clone(_task),
+                Some(_) => return NativeRuntimeStatus::PENDING,
+                None => return NativeRuntimeStatus::UNKNOWN_TASK,
+            }
+        };
+
+        let waiter = current_native_task().map(|owner| {
+            self.with_started(owner, |task| task.registration.wake_handle())
+                .expect("retirement observer retains its task registration")
+        });
+
+        let mut retirement = retained
+            .retirement
+            .lock()
+            .expect("retirement request is available");
+
+        if matches!(*retirement, Retirement::Released) {
+            return NativeRuntimeStatus::SUCCESS;
+        }
+
+        *retirement = Retirement::Requested(waiter);
+        drop(retirement);
+
+        retained
+            .registration
+            .wake_handle()
+            .wake()
+            .expect("retirement retains its task registration");
+
+        NativeRuntimeStatus::PENDING
+    }
+
+    pub(in crate::native) fn destroy_task(&self, task: NativeTaskHandle) -> NativeRuntimeStatus {
+        let removed = {
+            let mut tasks = self
+                .tasks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+            match tasks.get(&task) {
+                Some(slot) if slot.can_destroy() => {}
+                Some(_) => return NativeRuntimeStatus::PENDING,
+                None => return NativeRuntimeStatus::UNKNOWN_TASK,
+            }
+
+            tasks.remove(&task)
+        };
+
+        drop(removed);
+
+        NativeRuntimeStatus::SUCCESS
     }
 
     pub(in crate::native) fn report_cleanup_incidents(&self) -> NativeRuntimeStatus {
@@ -502,8 +651,7 @@ impl NativeRuntime {
     pub(in crate::native) fn join(
         &self,
         handle: NativeTaskHandle,
-        callback: NativeWakeCallback,
-        context: usize,
+        waiter: Arc<dyn crate::JoinWake>,
     ) -> NativeRunOutcome {
         let outcome = self.observe(handle);
 
@@ -513,10 +661,7 @@ impl NativeRuntime {
 
         let owner = current_native_task().unwrap_or(handle);
 
-        let registration = self.with_started(handle, |task| {
-            task.task
-                .register_join_waiter(Arc::new(move || callback(context)))
-        });
+        let registration = self.with_started(handle, |task| task.task.register_join_waiter(waiter));
 
         let Ok(Ok(registration)) = registration else {
             return runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE);
@@ -573,8 +718,6 @@ impl NativeRuntime {
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .clear();
 
-                self.transfer_cleanup_incidents(&task);
-
                 let outcome = task_outcome(outcome);
 
                 self.tasks
@@ -597,8 +740,6 @@ impl NativeRuntime {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .clear();
-
-                self.transfer_cleanup_incidents(&task);
 
                 let outcome = runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE);
 
@@ -650,20 +791,25 @@ impl NativeRuntime {
         handle: NativeTaskHandle,
         callback: impl FnOnce(&StartedTask) -> T,
     ) -> Result<T, NativeRuntimeStatus> {
-        let task = {
-            let tasks = self
-                .tasks
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.retained_task(handle, false)
+            .map(|task| callback(&task))
+    }
 
-            let Some(NativeTaskSlot::Started(task)) = tasks.get(&handle) else {
-                return Err(NativeRuntimeStatus::UNKNOWN_TASK);
-            };
+    pub(in crate::native) fn retained_task(
+        &self,
+        handle: NativeTaskHandle,
+        terminal: bool,
+    ) -> Result<Arc<StartedTask>, NativeRuntimeStatus> {
+        let tasks = self
+            .tasks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-            Arc::clone(task)
-        };
-
-        Ok(callback(&task))
+        match tasks.get(&handle) {
+            Some(NativeTaskSlot::Started(task)) => Ok(Arc::clone(task)),
+            Some(NativeTaskSlot::Terminal { _task, .. }) if terminal => Ok(Arc::clone(_task)),
+            _ => Err(NativeRuntimeStatus::UNKNOWN_TASK),
+        }
     }
 
     fn wait_main_thread(&self) -> NativeRuntimeStatus {
@@ -685,15 +831,6 @@ impl NativeRuntime {
             Ok(Some(ready)) => self.drive_ready(ready),
             Ok(None) => NativeRuntimeStatus::SUCCESS,
             Err(_) => NativeRuntimeStatus::RUNTIME_FAILURE,
-        }
-    }
-
-    fn transfer_cleanup_incidents(&self, task: &StartedTask) {
-        let origin = task.task.execution_origin();
-
-        for incident in task.terminal.take_cleanup_incidents().into_iter().flatten() {
-            task.task
-                .transfer_cleanup_incident(&self.cleanup_reports, origin, incident);
         }
     }
 

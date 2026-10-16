@@ -18,6 +18,10 @@ pub enum MirStorageKind {
     Local,
     /// Compiler-created temporary storage.
     Temporary,
+    /// Temporary used only within cancellation broadcast, never retained by the frame.
+    BroadcastLocal,
+    /// Completed result retained in a protected frame until transfer or cleanup.
+    FrameCompletion,
     /// Storage for the unit's returned value.
     Return,
     /// Inactive protected-frame storage that may still be moved.

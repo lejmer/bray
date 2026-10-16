@@ -1,0 +1,78 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation.requirements;
+
+@copy
+@layout(c)
+internal struct State
+{
+    affinity: u32;
+    lanes: u32;
+}
+
+// Metadata queries retain the exact context and its provider without changing
+// frame contents, links or ownership. Provider reentry cannot dispatch that frame.
+trusted internal predicate query_context(context: usize, state: u32, operation: u32, argument: usize);
+
+internal callable Query = @abi(c) trusted func(
+    pos context: usize,
+    pos state: u32,
+    pos operation: u32,
+    pos argument: usize
+) -> State
+    requires(trusted query_context(context = context, state = state, operation = operation, argument = argument))
+    ensures(trusted query_context(context = context, state = state, operation = operation, argument = argument));
+
+// Intersect the child's requirements with those retained by its suspended parent.
+// Incompatible origin threads reject admission before any ownership transition.
+internal func combine(pos own: State, pos origin: u64, pos retained: State, pos retained_origin: u64) -> State?
+{
+    if !valid(own) || !valid(retained)
+    {
+        return none;
+    }
+
+    if own.affinity == 1 && retained.affinity == 1 && origin != retained_origin
+    {
+        return none;
+    }
+
+    let affinity: u32 = if own.affinity == 1 || retained.affinity == 1
+    {
+        yield 1;
+    }
+    else if own.affinity == 2 || retained.affinity == 2
+    {
+        yield 2;
+    }
+    else
+    {
+        yield 0;
+    };
+
+    let main_lane: u32 = if own.affinity == 2 || retained.affinity == 2
+    {
+        yield 4;
+    }
+    else
+    {
+        yield 0;
+    };
+
+    let requirements: State =
+    {
+        affinity = affinity,
+        lanes = own.lanes | retained.lanes | main_lane
+    };
+
+    let mut result: State? = none;
+
+    result = requirements;
+    return result;
+}
+
+internal func valid(pos requirements: State) -> bool
+{
+    let known_lanes: u32 = 7;
+
+    return requirements.affinity <= 2 && requirements.lanes & ~known_lanes == 0;
+}

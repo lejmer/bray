@@ -40,3 +40,34 @@ pub(crate) fn binding_subjects(
 
     subjects
 }
+
+/// Only whole immutable declaration bindings preserve their initializer's exact value.
+pub(crate) fn immutable_initializers(
+    unit: &bray_bound_tree::BoundUnit,
+) -> std::collections::BTreeMap<
+    bray_symbols::LocalBindingSymbolId,
+    bray_bound_tree::BoundExpressionId,
+> {
+    binding_subjects(unit)
+        .into_iter()
+        .filter_map(|(id, initializer)| {
+            let pattern = unit
+                .tree()
+                .pattern(id)
+                .expect("bound subject retains its pattern");
+
+            if pattern.mode() != bray_bound_tree::BoundPatternMode::Declaration
+                || pattern.kind() != bray_bound_tree::BoundPatternKind::Binding
+                || pattern.is_mutable()
+            {
+                return None;
+            }
+
+            let [binding] = pattern.bindings() else {
+                return None;
+            };
+
+            Some((*binding, initializer))
+        })
+        .collect()
+}

@@ -46,10 +46,20 @@ impl MirUnit {
 
 fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<TypeId>) {
     match operation {
-        MirOperationKind::AdmitOutgoing { ty, .. }
-        | MirOperationKind::DischargeOutgoing { ty, .. } => {
-            types.insert(*ty);
-        }
+        MirOperationKind::AdmitOutgoing { owner, .. }
+        | MirOperationKind::DischargeOutgoing { owner, .. } => match owner {
+            crate::MirOutgoingOwner::FrameFactory(callee) => collect_operand_types(callee, types),
+            crate::MirOutgoingOwner::Value(ty) => {
+                types.insert(*ty);
+            }
+            crate::MirOutgoingOwner::Invocation { result, .. } => {
+                types.insert(result.ty());
+
+                if let bray_bound_tree::BoundCallResult::LazyFuture(future) = result {
+                    types.insert(future.completion_type());
+                }
+            }
+        },
         MirOperationKind::AnonymousCallable(_) | MirOperationKind::DeclaredCallable(_) => {}
         MirOperationKind::Store {
             destination, value, ..
@@ -372,6 +382,7 @@ fn collect_async_types(operation: &MirAsyncOperation, types: &mut BTreeSet<TypeI
         }
         MirAsyncOperation::ResumeFrame { .. }
         | MirAsyncOperation::CommitAwaitedCompletion { .. }
+        | MirAsyncOperation::ObserveFrameCancellation
         | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
         | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
         | MirAsyncOperation::ExecuteLifecycleResolution { .. } => {}

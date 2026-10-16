@@ -99,9 +99,13 @@ pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl 
             | MirHostOperation::StructuredShutdown { .. },
         )
         | MirOperationKind::AnonymousCallable(_)
-        | MirOperationKind::DeclaredCallable(_)
-        | MirOperationKind::AdmitOutgoing { .. }
-        | MirOperationKind::DischargeOutgoing { .. } => {}
+        | MirOperationKind::DeclaredCallable(_) => {}
+        MirOperationKind::AdmitOutgoing { owner, .. }
+        | MirOperationKind::DischargeOutgoing { owner, .. } => {
+            if let crate::MirOutgoingOwner::FrameFactory(callee) = owner {
+                callee.remap_local_ids(mappings);
+            }
+        }
     }
 }
 
@@ -263,8 +267,14 @@ fn remap_async_operation(operation: &mut MirAsyncOperation, mappings: &impl MirL
             destination.remap_local_ids(mappings);
         }
         MirAsyncOperation::ResumeFrame { storage, .. } => *storage = mappings.storage(*storage),
-        MirAsyncOperation::ComposeAwaitedFrame { frame, .. } => {
+        MirAsyncOperation::ComposeAwaitedFrame {
+            frame, completion, ..
+        } => {
             frame.remap_local_ids(mappings);
+            *completion = mappings.storage(*completion);
+        }
+        MirAsyncOperation::CommitAwaitedCompletion { completion, .. } => {
+            *completion = mappings.storage(*completion);
         }
         MirAsyncOperation::StartTask { value, .. } => value.remap_local_ids(mappings),
         MirAsyncOperation::RequestTaskCancellation { task, .. }
@@ -279,7 +289,7 @@ fn remap_async_operation(operation: &mut MirAsyncOperation, mappings: &impl MirL
         MirAsyncOperation::TransferCleanupIncident { incident, .. } => {
             incident.remap_local_ids(mappings);
         }
-        MirAsyncOperation::CommitAwaitedCompletion { .. }
+        MirAsyncOperation::ObserveFrameCancellation
         | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
         | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
         | MirAsyncOperation::ExecuteLifecycleResolution { .. } => {}

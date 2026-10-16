@@ -3,7 +3,7 @@ trusted module target_control_invalid_dialect;
 trusted func invalid_dialect() -> i32
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
-    return trusted core.target.assembly<(i32, ), (i32, )>(
+    return trusted core.target.assembly<(i32,), (i32,)>(
         template = "",
         constraints = "=reg,reg",
         clobbers = "",

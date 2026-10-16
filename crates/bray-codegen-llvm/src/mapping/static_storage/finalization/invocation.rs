@@ -8,7 +8,7 @@ use inkwell::types::BasicTypeEnum;
 use inkwell::values::{FunctionValue, PointerValue};
 use inkwell::{AddressSpace, IntPredicate};
 
-use super::super::boundary::{branch_on_static_failure, invoke_static_boundary, static_outcome};
+use super::super::boundary::{branch_on_static_failure, static_outcome};
 use super::super::host::StaticFinalizerCallbacks;
 use super::super::storage::declare_static_callback_with_type;
 use crate::mapping::LlvmTypeMappings;
@@ -128,7 +128,7 @@ fn declare_static_finalizer_start<'context>(
             CodegenResultMapping::Indirect { .. } => (vec![destination.into(), storage.into()], ""),
         };
 
-        let call = invoke_static_boundary(
+        let call = crate::mapping::invoke_with_outcome(
             &builder,
             function,
             symbol.signature(),

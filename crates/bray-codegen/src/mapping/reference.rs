@@ -280,6 +280,7 @@ impl CodegenOperationMapping {
 pub struct CodegenHelperMapping {
     reference: MirHelperReference,
     symbol: Option<CodegenSymbolKey>,
+    execution_requirements: Option<&'static [bray_runtime_interface::ExecutionLaneRequirement]>,
 }
 
 impl CodegenHelperMapping {
@@ -288,6 +289,7 @@ impl CodegenHelperMapping {
         Self {
             reference,
             symbol: Some(symbol),
+            execution_requirements: None,
         }
     }
 
@@ -296,7 +298,25 @@ impl CodegenHelperMapping {
         Self {
             reference,
             symbol: None,
+            execution_requirements: Some(&[]),
         }
+    }
+
+    /// Publishes requirements established by the concrete lifecycle analysis.
+    pub const fn with_execution_requirements(
+        mut self,
+        requirements: Option<&'static [bray_runtime_interface::ExecutionLaneRequirement]>,
+    ) -> Self {
+        self.execution_requirements = requirements;
+
+        self
+    }
+
+    /// Returns checked requirements, distinguishing absent analysis from no effects.
+    pub const fn execution_requirements(
+        &self,
+    ) -> Option<&'static [bray_runtime_interface::ExecutionLaneRequirement]> {
+        self.execution_requirements
     }
 
     /// Returns the semantic helper role retained by MIR.

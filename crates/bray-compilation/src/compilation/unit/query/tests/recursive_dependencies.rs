@@ -649,6 +649,11 @@ fn deferred_results_keep_exact_borrow_origins_and_defaults_execute_at_creation()
             let future = forward(value);
             return await future;
         }
+        async func anonymous_wrapper(pos value: &bool) -> &bool {
+            let relay = async lambda(pos value: &bool) -> &bool { return value; };
+            let future = relay(value);
+            return await future;
+        }
         func forever() -> i32 { return forever(); }
         async func work(value: i32 = forever()) {}
         func create() { let future = work(); }
@@ -659,25 +664,27 @@ fn deferred_results_keep_exact_borrow_origins_and_defaults_execute_at_creation()
 
     assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
 
-    let result = crate::compilation::result_dependencies::source_function_dependencies(
-        &application,
-        "wrapper",
-    );
+    for name in ["wrapper", "anonymous_wrapper"] {
+        let result = crate::compilation::result_dependencies::source_function_dependencies(
+            &application,
+            name,
+        );
 
-    let origins = result
-        .borrows()
-        .iter()
-        .filter(|relation| {
-            relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
-        })
-        .collect::<Vec<_>>();
+        let origins = result
+            .borrows()
+            .iter()
+            .filter(|relation| {
+                relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+            })
+            .collect::<Vec<_>>();
 
-    assert_eq!(origins.len(), 1, "{result:#?}");
+        assert_eq!(origins.len(), 1, "{result:#?}");
 
-    assert_eq!(
-        origins[0].entry().subject_root(),
-        bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
-    );
+        assert_eq!(
+            origins[0].entry().subject_root(),
+            bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
+        );
+    }
 
     let creation = crate::compilation::result_dependencies::source_function_dependencies(
         &application,

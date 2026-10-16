@@ -16,7 +16,7 @@ mod synthetic;
 pub use host::{ExecutableHostLoweringInput, ExecutableHostStatic, lower_executable_host};
 pub use identity::executable_unit_kind;
 pub use input::LoweringInput;
-pub use lowering::{LoweringError, lower_unit};
+pub use lowering::{LoweringError, lower_execution_requirements, lower_unit};
 pub use result::{CompileTimeUnit, LoweredUnit};
 pub use synthetic::{
     HeapStorageLoweringInput, HeapStorageMethod, LoweredLifecycle, SyntheticLoweringContext,

@@ -156,7 +156,8 @@ pub(super) const fn list_layout_rule(parent: Option<SyntaxKind>) -> Option<Forma
             | SyntaxKind::AssertionExpression
             | SyntaxKind::TypeFormConstructionExpression
             | SyntaxKind::BooleanFoldExpression
-            | SyntaxKind::TupleExpression,
+            | SyntaxKind::TupleExpression
+            | SyntaxKind::TypeExpression,
         ) => Some(FormatterRule::ParenthesizedListLayout),
         Some(
             SyntaxKind::ArrayExpression

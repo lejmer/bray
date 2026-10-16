@@ -5,6 +5,7 @@
 #[cfg(test)]
 #[macro_use]
 mod layout;
+mod activation;
 mod catalog;
 mod panic;
 mod platform;
@@ -18,6 +19,7 @@ mod storage;
 pub mod symbols;
 mod temporal;
 
+pub use activation::{NativeActivationDescriptor, NativeActivationExecution};
 pub use panic::{
     NativePanicCause, NativePanicMessage, NativePanicMessageCopy, NativePanicMessageRelease,
     NativePanicPrimary, NativePanicReport, NativePanicReportConsumer, NativeSourceAnchor,
@@ -44,15 +46,14 @@ pub use run_result::NativeRunResultLayout;
 pub use runtime::{
     MAX_PERFORMANCE_OBSERVATION_RECORDS, NativeExecutionLane, NativeExecutionLaneResult,
     NativeFrameActionCallback, NativeFrameAffinity, NativeFrameCancellationCallback,
-    NativeFrameCompletionMoveCallback, NativeFrameExit, NativeFrameMoveBeforeStartCallback,
-    NativeFrameProgress, NativeFrameProgressKind, NativeFrameResolveCallback,
-    NativeFrameResumeCallback, NativeFrameState, NativeFrameStateCallback, NativeInactiveFrame,
-    NativeLaneRequirements, NativeProtectedFrame, NativeProtectedFrameTransfer, NativeRootHandle,
-    NativeRootStart, NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration,
-    NativeRuntimeEventCallback, NativeRuntimeStatus, NativeStringView,
+    NativeFrameCompletionMoveCallback, NativeFrameExit, NativeFrameProgress,
+    NativeFrameProgressKind, NativeFrameResolveCallback, NativeFrameResumeCallback,
+    NativeFrameState, NativeFrameStateCallback, NativeInactiveFrame, NativeInactiveFrameTransfer,
+    NativeLaneRequirements, NativeRootHandle, NativeRootStart, NativeRunOutcome, NativeRunState,
+    NativeRuntimeConfiguration, NativeRuntimeEventCallback, NativeRuntimeStatus, NativeStringView,
     NativeSynchronousRootCallback, NativeTaskAllocation, NativeTaskHandle,
-    NativeThreadCancellationCallback, NativeThreadOperationCallback, NativeWakeCallback,
-    PERFORMANCE_OBSERVATION_HEADER, PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
+    NativeThreadCancellationCallback, NativeThreadOperationCallback, NativeValueCleanupCallback,
+    NativeWakeCallback, PERFORMANCE_OBSERVATION_HEADER, PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
 };
 pub use symbols::{
     MEMORY_ALLOCATION_OBSERVATION_SYMBOL, MEMORY_COPY_OBSERVATION_SYMBOL,

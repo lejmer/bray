@@ -1,0 +1,189 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation;
+
+using std.memory;
+
+// Entry authority is established against the run's admitted lanes before this
+// transition. It is not supplied by the descriptor, a copied token or a phase flag.
+trusted internal predicate entry_authorized(token: &Inactive, origin: u64);
+
+trusted internal func begin(pos token: &Inactive, pos origin: u64) -> usize
+    requires(
+        trusted producer(token = token),
+        trusted entry_authorized(token = token, origin = origin),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+    )
+{
+    // The entry witnesses authorize reading the descriptor before locking.
+    let descriptor = trusted description(token);
+
+    // Keep the checked resident mutation within its owning pool borrow. This
+    // local operation cannot escape the authorized entry or expose its header.
+    let initialize = trusted lambda(
+        pos pool: &mut bray.runtime.bootstrap.ReportPool,
+        pos token: &Inactive,
+        pos descriptor: &Descriptor,
+        pos origin: u64,
+    ) -> usize
+        uses(intrinsic, raw_memory, unchecked_alias)
+    {
+        let address = trusted resident_address(pool, token, descriptor, dispatch = true);
+
+        if address == 0
+        {
+            return 0;
+        }
+
+        let pointer = trusted core.target.from_exposed_address<Header>(address = address);
+
+        let authorize = trusted lambda(pos pointer: RawPointer<Header>)
+            ensures(
+                trusted core.memory.valid_read<Header>(pointer = pointer, count = 1),
+                trusted core.memory.valid_write<Header>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<Header>(pointer = pointer),
+                trusted core.memory.initialized_as<Header>(pointer = pointer),
+                trusted core.memory.exclusive_alias_valid<Header>(pointer = pointer),
+                trusted core.memory.epoch_current<Header>(pointer = pointer),
+                trusted core.memory.synchronized_access<Header>(pointer = pointer),
+                trusted core.memory.movement_stable<Header>(pointer = pointer),
+                trusted core.memory.finalization_pending<Header>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
+        let header = trusted std.memory.borrow_mut_from<Header, bray.runtime.bootstrap.ReportPool>(pool, pointer);
+
+        if header.phase != INACTIVE || header.parent != 0 || header.child != 0
+        {
+            trusted core.target.abort();
+        }
+
+        header.origin = origin;
+        header.phase = RUNNING;
+        header.current = address;
+        return address;
+    };
+
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+
+    return trusted initialize(guard.get(), token, &descriptor, origin);
+}
+
+// Both headers are already exclusively owned by the same dispatcher. Addresses
+// identify their positions in the admitted chain and confer no access authority.
+trusted internal func attach(
+    pos parent: &mut Header,
+    pos child: &mut Header,
+    pos parent_address: usize,
+    pos child_address: usize,
+    pos affinity: u32,
+    pos lanes: u32,
+    pos origin: u64,
+)
+    uses(intrinsic)
+{
+    if parent_address == 0 || child_address == 0 || parent_address == child_address || parent.child != 0 ||
+        child.parent != 0 || child.phase != RUNNING || (parent.phase != RUNNING && parent.phase != CLEANUP &&
+        parent.phase != RESOLVING)
+    {
+        trusted core.target.abort();
+    }
+
+    child.parent = parent_address;
+    child.retained_affinity = affinity;
+    child.retained_lanes = lanes;
+    child.retained_origin = origin;
+    parent.child = child_address;
+}
+
+// Completion transfers into caller-owned storage before this transition. A
+// terminal child remains attached while its result or report is still owned.
+trusted internal func detach(
+    pos parent: &mut Header,
+    pos child: &mut Header,
+    pos parent_address: usize,
+    pos child_address: usize,
+)
+    uses(intrinsic)
+{
+    if parent.child != child_address || child.parent != parent_address || child.phase != COMMITTED || child.child != 0
+    {
+        trusted core.target.abort();
+    }
+
+    parent.child = 0;
+    child.parent = 0;
+    child.retained_affinity = 0;
+    child.retained_lanes = 0;
+    child.retained_origin = 0;
+}
+
+// Native admission has checked the run's lane and exact-thread requirements for
+// this token and retains its exclusive slot, backing and descriptor provider through
+// return. The native caller consumes its token only after a nonzero result.
+// This entry reads the slot before locking and never writes through its pointer.
+trusted internal predicate entry_slot_authorized(pointer: RawPointer<Inactive>, origin: u64);
+
+@abi(c)
+trusted internal func activate(pos pointer: RawPointer<Inactive>, pos origin: u64) -> usize
+    requires(
+        trusted producer_slot(pointer = pointer),
+        trusted entry_slot_authorized(pointer = pointer, origin = origin),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted core.memory.valid_read<Inactive>(pointer = pointer, count = 1),
+        trusted core.memory.initialized_as<Inactive>(pointer = pointer),
+        trusted core.memory.aligned_for<Inactive>(pointer = pointer),
+    )
+{
+    let read_entry = trusted lambda(pos pointer: RawPointer<Inactive>, pos origin: u64) -> Inactive
+        requires(
+            trusted producer_slot(pointer = pointer),
+            trusted entry_slot_authorized(pointer = pointer, origin = origin),
+            trusted core.memory.valid_read<Inactive>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<Inactive>(pointer = pointer),
+            trusted core.memory.aligned_for<Inactive>(pointer = pointer),
+        )
+        ensures(trusted producer(token = &result), trusted entry_authorized(token = &result, origin = origin))
+    {
+        return trusted std.memory.read<Inactive>(pointer);
+    };
+
+    let token = trusted read_entry(pointer, origin);
+
+    return trusted begin(&token, origin);
+}
+
+// The caller already holds the exact header borrow. This changes cleanup state,
+// without granting authority from fields or dispatching a callback.
+trusted internal func abandon(pos header: &mut Header) -> usize
+{
+    if header.phase == COMMITTED
+    {
+        return header.child;
+    }
+
+    header.abandoned = 1;
+
+    if header.phase == RUNNING
+    {
+        if header.progress.kind != 3 && header.progress.kind != 4
+        {
+            header.progress =
+            {
+                kind = 2,
+                state = 0,
+                payload = 0,
+                report = bray.runtime.bootstrap.empty_panic_report()
+            };
+        }
+
+        header.phase = CLEANUP;
+    }
+    else if header.phase == TERMINAL && header.progress.kind == 1
+    {
+        header.phase = CLEANUP;
+    }
+
+    return header.child;
+}

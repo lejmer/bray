@@ -265,6 +265,7 @@ impl Lowerer<'_> {
         match entry {
             CleanupEntry::Panic(report) => {
                 return self.finish_abnormal_cleanup(
+                    bray_ir::MirCleanupPhase::TaskCancellation,
                     current,
                     source,
                     Some(report),
@@ -275,6 +276,7 @@ impl Lowerer<'_> {
             }
             CleanupEntry::Cancellation => {
                 return self.finish_abnormal_cleanup(
+                    bray_ir::MirCleanupPhase::TaskCancellation,
                     current,
                     source,
                     None,

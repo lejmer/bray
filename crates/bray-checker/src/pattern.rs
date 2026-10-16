@@ -8,4 +8,4 @@ pub(crate) use check::check_patterns;
 pub use input::{
     GuardConstantEvidence, PatternCheckInput, PatternConstantEvidence, PatternSubjectType,
 };
-pub(crate) use source::binding_subjects;
+pub(crate) use source::{binding_subjects, immutable_initializers};

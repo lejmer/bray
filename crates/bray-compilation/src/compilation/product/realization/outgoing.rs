@@ -4,9 +4,7 @@ use bray_ir::{MirCallTarget, MirCleanupPhase, MirHelperReference, MirOperationKi
 use bray_symbols::{CallableExecution, CallableInstanceData, TypeId};
 
 use super::super::specialization::ConcreteCodegenInstance;
-use crate::compilation::{
-    CodegenPreparationError, Compilation, ProductDataKind, ProductQueryContext, ProductQueryFailure,
-};
+use crate::compilation::{CodegenPreparationError, Compilation};
 use crate::fact::CancellationToken;
 
 impl Compilation {
@@ -18,8 +16,14 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<Option<Vec<CodegenCleanupRequirement>>, CodegenPreparationError> {
         match operation {
-            MirOperationKind::AdmitOutgoing { ty, .. }
-            | MirOperationKind::DischargeOutgoing { ty, .. } => {
+            MirOperationKind::AdmitOutgoing {
+                owner: bray_ir::MirOutgoingOwner::Value(ty),
+                ..
+            }
+            | MirOperationKind::DischargeOutgoing {
+                owner: bray_ir::MirOutgoingOwner::Value(ty),
+                ..
+            } => {
                 let ty = self.concrete_codegen_type(
                     *ty,
                     owner.substitution(),
@@ -29,62 +33,77 @@ impl Compilation {
 
                 self.owner_outgoing_requirements(ty, cancellation).map(Some)
             }
+            MirOperationKind::AdmitOutgoing {
+                owner: bray_ir::MirOutgoingOwner::Invocation { callable, result },
+                ..
+            }
+            | MirOperationKind::DischargeOutgoing {
+                owner: bray_ir::MirOutgoingOwner::Invocation { callable, result },
+                ..
+            } => self
+                .invocation_outgoing_requirements(owner, *callable, *result, target, cancellation)
+                .map(Some),
             MirOperationKind::Call(call) if call.is_cleanup() => {
                 let MirCallTarget::Direct(reference) = call.target() else {
-                    return Err(ProductQueryFailure::InvalidCleanupCallTarget {
-                        context: ProductQueryContext::Instance(owner.key().clone()),
-                        // Retain the rejected target only while constructing its diagnostic.
-                        target: call.target().clone(),
-                    }
-                    .into());
+                    panic!(
+                        "checked cleanup call in {:?} must retain its selected direct target, got {:?}",
+                        owner.key(),
+                        call.target()
+                    );
                 };
 
-                let callee = self.concrete_codegen_callable_data(
+                self.invocation_outgoing_requirements(
                     owner,
-                    &reference.instance(),
+                    *reference,
+                    call.result(),
                     target,
                     cancellation,
-                )?;
-
-                let callable = callee.callable_instance().ok_or_else(|| {
-                    ProductQueryFailure::missing(
-                        ProductQueryContext::Instance(callee.key().clone()),
-                        ProductDataKind::ConcreteInstance,
-                    )
-                })?;
-
-                let (execution, result) = match call.result() {
-                    bray_bound_tree::BoundCallResult::Immediate(ty) => {
-                        (CallableExecution::Synchronous, ty)
-                    }
-                    bray_bound_tree::BoundCallResult::LazyFuture(future) => {
-                        (CallableExecution::Asynchronous, future.completion_type())
-                    }
-                };
-
-                let result = self.concrete_codegen_type(
-                    result,
-                    owner.substitution(),
-                    Some(owner),
-                    cancellation,
-                )?;
-
-                let requirements =
-                    if self.call_requires_outgoing(callable, execution, result, cancellation)? {
-                        vec![CodegenCleanupRequirement::new(
-                            super::names::generated_identity("cleanup_storage", callee.key()),
-                            callee.key().clone(),
-                            result,
-                            execution,
-                        )]
-                    } else {
-                        Vec::new()
-                    };
-
-                Ok(Some(requirements))
+                )
+                .map(Some)
             }
             _ => Ok(None),
         }
+    }
+
+    fn invocation_outgoing_requirements(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        reference: bray_ir::MirCallableReference,
+        result: bray_bound_tree::BoundCallResult,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<CodegenCleanupRequirement>, CodegenPreparationError> {
+        let callee = self.concrete_codegen_callable_data(
+            owner,
+            &reference.instance(),
+            target,
+            cancellation,
+        )?;
+
+        let callable = callee
+            .callable_instance()
+            .expect("selected invocation has a concrete callable instance");
+
+        let (execution, result) = match result {
+            bray_bound_tree::BoundCallResult::Immediate(ty) => (CallableExecution::Synchronous, ty),
+            bray_bound_tree::BoundCallResult::LazyFuture(future) => {
+                (CallableExecution::Asynchronous, future.completion_type())
+            }
+        };
+
+        let result =
+            self.concrete_codegen_type(result, owner.substitution(), Some(owner), cancellation)?;
+
+        if !self.call_requires_outgoing(callable, execution, result, cancellation)? {
+            return Ok(Vec::new());
+        }
+
+        Ok(vec![CodegenCleanupRequirement::new(
+            super::names::generated_identity("cleanup_storage", callee.key()),
+            callee.key().clone(),
+            result,
+            execution,
+        )])
     }
 
     pub(super) fn owner_outgoing_requirements(
@@ -355,7 +374,11 @@ mod tests {
                 for operation in block.operations() {
                     let operation = unit.operation(*operation).unwrap();
 
-                    if let bray_ir::MirOperationKind::AdmitOutgoing { ty, .. } = operation.kind() {
+                    if let bray_ir::MirOperationKind::AdmitOutgoing {
+                        owner: bray_ir::MirOutgoingOwner::Value(ty),
+                        ..
+                    } = operation.kind()
+                    {
                         assert_eq!(
                             compilation
                                 .owner_outgoing_capacity(*ty, &crate::CancellationToken::new())
@@ -401,8 +424,10 @@ mod tests {
 
         for block in unit.blocks() {
             for operation in block.operations() {
-                if let bray_ir::MirOperationKind::AdmitOutgoing { ty, .. } =
-                    unit.operation(*operation).unwrap().kind()
+                if let bray_ir::MirOperationKind::AdmitOutgoing {
+                    owner: bray_ir::MirOutgoingOwner::Value(ty),
+                    ..
+                } = unit.operation(*operation).unwrap().kind()
                 {
                     assert_eq!(
                         compilation
@@ -453,8 +478,10 @@ mod tests {
                         .flat_map(|block| block.operations())
                         .map(|operation| unit.operation(*operation).unwrap())
                     {
-                        if let bray_ir::MirOperationKind::AdmitOutgoing { ty, .. } =
-                            operation.kind()
+                        if let bray_ir::MirOperationKind::AdmitOutgoing {
+                            owner: bray_ir::MirOutgoingOwner::Value(ty),
+                            ..
+                        } = operation.kind()
                         {
                             assert_eq!(
                                 compilation
@@ -551,7 +578,11 @@ mod tests {
                 .flat_map(|block| block.operations())
                 .map(|operation| unit.operation(*operation).unwrap())
             {
-                if let bray_ir::MirOperationKind::AdmitOutgoing { ty, .. } = operation.kind() {
+                if let bray_ir::MirOperationKind::AdmitOutgoing {
+                    owner: bray_ir::MirOutgoingOwner::Value(ty),
+                    ..
+                } = operation.kind()
+                {
                     assert_eq!(
                         compilation
                             .owner_outgoing_capacity(*ty, &crate::CancellationToken::new())

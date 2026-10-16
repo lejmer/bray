@@ -261,6 +261,10 @@ where
 
         self.scopes.push(id);
 
+        if self.scopes.len() == 1 {
+            current = self.enter_callable_body(current);
+        }
+
         for item in block.items() {
             let next = self.build_block_item(item, current)?;
 

@@ -2268,3 +2268,158 @@ fn nullable_yield_context_does_not_adapt_an_incompatible_borrow() {
         bray_diagnostics::DiagnosticKind::CheckingIncompatibleExpressionType,
     );
 }
+
+#[test]
+fn anonymous_results_retain_only_the_inputs_used_by_their_bodies() {
+    for (mutation, valid) in [("ignored = 3;", true), ("kept = 3;", false)] {
+        let source = r#"
+            module app;
+
+            struct Reference
+            {
+                value: &u32;
+            }
+
+            func observe(pos value: &u32) {}
+
+            func caller()
+            {
+                let select = lambda(pos ignored: &mut u32, pos kept: &u32) -> Reference
+                {
+                    return { value = kept };
+                };
+                let mut ignored: u32 = 1;
+                let mut kept: u32 = 2;
+                let alias = select;
+                let result = alias(&mut ignored, &kept);
+                MUTATION
+                observe(result.value);
+            }
+        "#
+        .replace("MUTATION", mutation);
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}\n{diagnostics:#?}"
+        );
+
+        if !valid {
+            assert_goal_state_diagnostic_kind(
+                &diagnostics,
+                DiagnosticKind::CheckingConflictingBorrow,
+            );
+        }
+    }
+}
+
+#[test]
+fn anonymous_returned_borrows_reject_local_storage() {
+    let application = compilation(
+        r#"
+        module app;
+
+        func caller() -> &u32
+        {
+            let identity = lambda(pos value: &u32) -> &u32
+            {
+                return value;
+            };
+            let local: u32 = 1;
+            return identity(&local);
+        }
+    "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert_goal_state_diagnostic_kind(
+        &diagnostics,
+        DiagnosticKind::CheckingEscapingStorageDependency,
+    );
+}
+
+#[test]
+fn anonymous_and_declared_recursive_results_share_the_checked_component() {
+    let application = compilation(
+        r#"
+        module app;
+
+        func select(pos value: &u32, pos stop: bool) -> &u32
+        {
+            let recur = lambda(pos value: &u32, pos stop: bool) -> &u32
+            {
+                if stop { return value; }
+                return select(value, true);
+            };
+            return recur(value, stop);
+        }
+
+        func caller(pos value: &u32) -> &u32
+        {
+            return select(value, false);
+        }
+    "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let summary = crate::compilation::result_dependencies::source_function_dependencies(
+        &application,
+        "caller",
+    );
+
+    assert!(!summary.requirements().is_empty(), "{summary:#?}");
+
+    let before = application
+        .state
+        .result_dependency_discoveries
+        .load(std::sync::atomic::Ordering::Relaxed);
+
+    application
+        .storage_flow(source_function_body_key(&application, "select"))
+        .unwrap();
+
+    assert_eq!(
+        application
+            .state
+            .result_dependency_discoveries
+            .load(std::sync::atomic::Ordering::Relaxed),
+        before
+    );
+}
+
+#[test]
+fn mutable_callable_values_do_not_reuse_the_initial_anonymous_body() {
+    let application = compilation(
+        r#"
+        module app;
+
+        func caller(pos first: &u32) -> &u32
+        {
+            let mut select = lambda(pos first: &u32, pos second: &u32) -> &u32
+            {
+                return first;
+            };
+            select = lambda(pos first: &u32, pos second: &u32) -> &u32
+            {
+                return second;
+            };
+            let second: u32 = 2;
+            return select(first, &second);
+        }
+    "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert_goal_state_diagnostic_kind(
+        &diagnostics,
+        DiagnosticKind::CheckingEscapingStorageDependency,
+    );
+}

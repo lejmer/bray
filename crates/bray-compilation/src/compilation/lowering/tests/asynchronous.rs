@@ -119,6 +119,7 @@ fn async_callables_lower_to_protected_frames_and_explicit_suspension() {
     };
 
     assert_eq!(frame.states().len(), 2);
+    assert!(frame.completion_state().is_none());
     assert!(!frame.states()[1].initialized_storages().is_empty());
 
     assert!(mir.operations().iter().any(|operation| matches!(
@@ -131,6 +132,25 @@ fn async_callables_lower_to_protected_frames_and_explicit_suspension() {
             .iter()
             .any(|block| matches!(block.terminator().kind(), MirTerminatorKind::Suspend { .. }))
     );
+
+    for block in mir.blocks() {
+        let MirTerminatorKind::Suspend { resume_state, .. } = block.terminator().kind() else {
+            continue;
+        };
+
+        for operation in block.operations() {
+            if let MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+                resume_state: admitted,
+                ..
+            }) = mir.operation(*operation).unwrap().kind()
+            {
+                assert_eq!(
+                    admitted, resume_state,
+                    "composition checks the suspended parent's continuation"
+                );
+            }
+        }
+    }
 
     assert!(mir.operations().iter().any(|operation| matches!(
         operation.kind(),
@@ -308,4 +328,220 @@ fn task_operations_retain_normal_completion_before_await() {
             "{observation} must resume and transfer its result: {mir:?}"
         );
     }
+}
+
+#[test]
+fn await_takes_the_child_outcome_before_cancellation_and_cleans_its_result() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Guard
+        {
+            destruct() {}
+        }
+        async func child() -> Guard
+        {
+            return Guard {};
+        }
+        async func caller() -> Guard
+        {
+            return await child();
+        }
+        "#,
+    );
+
+    let lowered = application
+        .lowered_unit(source_function_body_key(&application, "caller"))
+        .unwrap();
+
+    let mir = lowered_mir(&lowered);
+
+    let resumed = mir
+        .block(mir.frame_descriptor().unwrap().states()[1].entry())
+        .unwrap();
+
+    assert!(resumed.operations().iter().any(|id| matches!(
+        mir.operation(*id).unwrap().kind(),
+        MirOperationKind::Async(bray_ir::MirAsyncOperation::CommitAwaitedCompletion { .. })
+    )));
+
+    assert!(!resumed.operations().iter().any(|id| matches!(
+        mir.operation(*id).unwrap().kind(),
+        MirOperationKind::Async(bray_ir::MirAsyncOperation::ObserveFrameCancellation)
+    )));
+
+    let MirTerminatorKind::CheckCallOutcome { completed, .. } = resumed.terminator().kind() else {
+        panic!("child panic and cancellation must transfer before checking a new request");
+    };
+
+    let completed = mir.block(completed.target()).unwrap();
+
+    let result = completed
+        .operations()
+        .iter()
+        .find_map(|id| match mir.operation(*id).unwrap().kind() {
+            MirOperationKind::Store {
+                destination,
+                value: MirOperand::Value(_),
+                ..
+            } => Some(destination.storage()),
+            _ => None,
+        })
+        .expect("the completed result must become an initialized cleanup owner");
+
+    assert!(completed.operations().iter().any(|id| matches!(
+        mir.operation(*id).unwrap().kind(),
+        MirOperationKind::Async(bray_ir::MirAsyncOperation::ObserveFrameCancellation)
+    )));
+
+    let MirTerminatorKind::Branch { then_edge, .. } = completed.terminator().kind() else {
+        panic!("completed await observes cancellation before source continuation");
+    };
+
+    let mut pending = vec![then_edge.target()];
+    let mut seen = std::collections::BTreeSet::new();
+    let mut disposes_result = false;
+
+    while let Some(id) = pending.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+
+        let block = mir.block(id).unwrap();
+
+        disposes_result |= block.operations().iter().any(|id| matches!(
+            mir.operation(*id).unwrap().kind(),
+            MirOperationKind::Cleanup { phase: bray_ir::MirCleanupPhase::LifecycleResolution, place }
+                if place.storage() == result
+        ));
+
+        block
+            .terminator()
+            .kind()
+            .for_each_successor(|target| pending.push(target));
+    }
+
+    assert!(
+        disposes_result,
+        "cancelled await must dispose its transferred result"
+    );
+}
+
+#[test]
+fn completed_frame_result_has_its_own_cleanup_state() {
+    let application = compilation(
+        r#"
+        module app;
+
+        struct Guard
+        {
+            destruct() {}
+        }
+
+        async func produce() -> Guard
+        {
+            return Guard {};
+        }
+        "#,
+    );
+
+    assert!(
+        application.check_diagnostics().is_empty(),
+        "{:?}",
+        application.check_diagnostics()
+    );
+
+    let result = application
+        .lowered_unit(source_function_body_key(&application, "produce"))
+        .expect("owned completion must lower");
+
+    let mir = lowered_mir(&result);
+
+    let frame = mir
+        .frame_descriptor()
+        .expect("producer has a protected frame");
+
+    let state = frame
+        .completion_state()
+        .expect("owned result needs abandonment cleanup");
+
+    let completion = frame
+        .states()
+        .iter()
+        .find(|entry| entry.state() == state)
+        .unwrap();
+
+    let [storage] = completion.initialized_storages() else {
+        panic!("completion owns just its result");
+    };
+
+    assert!(matches!(
+        mir.storage(*storage).unwrap().kind(),
+        bray_ir::MirStorageKind::FrameCompletion
+    ));
+
+    assert!(!frame.states()[0].initialized_storages().contains(storage));
+
+    assert!(
+        matches!(mir.block(completion.entry()).unwrap().terminator().kind(),
+        MirTerminatorKind::ContinueCleanup(edge) if edge.phase() == bray_ir::MirCleanupPhase::LifecycleResolution)
+    );
+
+    assert!(
+        mir.operations()
+            .iter()
+            .any(|operation| matches!(operation.kind(),
+        MirOperationKind::Cleanup { phase: bray_ir::MirCleanupPhase::LifecycleResolution, place }
+            if place.storage() == *storage))
+    );
+}
+
+#[test]
+fn completed_result_cleanup_retains_its_separate_execution_phase() {
+    let application = compilation(
+        r#"
+        module app;
+
+        struct Guard
+        {
+            destruct()
+                requires(blocking_execution())
+            {
+            }
+        }
+
+        async func produce() -> Guard
+        {
+            return Guard {};
+        }
+        "#,
+    );
+
+    assert!(
+        application.check_diagnostics().is_empty(),
+        "{:?}",
+        application.check_diagnostics()
+    );
+
+    let result = application
+        .lowered_unit(source_function_body_key(&application, "produce"))
+        .expect("owned completion must lower");
+
+    let frame = lowered_mir(&result).frame_descriptor().unwrap();
+    let completion = frame.completion_state().unwrap();
+
+    assert!(frame.states()[0].lane_requirements().is_empty());
+
+    let cleanup = frame
+        .states()
+        .iter()
+        .find(|state| state.state() == completion)
+        .unwrap();
+
+    assert!(cleanup.is_completion_cleanup());
+
+    assert!(
+        cleanup.lane_requirements().is_empty(),
+        "concrete lifecycle realization owns this requirement"
+    );
 }

@@ -459,8 +459,10 @@ impl NativeFrameExit {
     pub const RUNTIME_FAILURE: Self = Self(3);
 }
 
-/// Callback returning runtime-visible state for one frame-state ordinal.
-pub type NativeFrameStateCallback = extern "C" fn(context: usize, state: u32) -> NativeFrameState;
+/// Requirements for one continuation and callback operation, using activation's
+/// resume, cancel, broadcast, resolve, completion-move and destruction ordinals.
+pub type NativeFrameStateCallback =
+    extern "C" fn(context: usize, state: u32, operation: u32, argument: usize) -> NativeFrameState;
 
 /// Callback entering or resuming one compiler-generated frame.
 pub type NativeFrameResumeCallback =
@@ -473,12 +475,14 @@ pub type NativeFrameCancellationCallback =
 /// Callback performing one infallible generated frame action.
 pub type NativeFrameActionCallback = extern "C-unwind" fn(context: usize);
 
+/// Callback resolving a value into a caller-initialized successful outcome.
+/// A later native unwind must preserve any report already written to that outcome.
+pub type NativeValueCleanupCallback =
+    extern "C-unwind" fn(payload: *mut u8, outcome: &mut NativeRunOutcome);
+
 /// Callback moving a generated completion value into runtime-owned storage.
 pub type NativeFrameCompletionMoveCallback =
     extern "C-unwind" fn(context: usize, destination: usize);
-
-/// Callback consuming an inactive context into a protected-frame adapter.
-pub type NativeFrameMoveBeforeStartCallback = extern "C" fn(context: usize) -> NativeProtectedFrame;
 
 /// Callback resolving generated frame lifecycle state for one terminal exit.
 pub type NativeFrameResolveCallback = extern "C-unwind" fn(
@@ -487,182 +491,58 @@ pub type NativeFrameResolveCallback = extern "C-unwind" fn(
     exit: NativeFrameExit,
 );
 
-/// Complete ABI-safe adapter for one compiler-generated protected frame.
-#[repr(C)]
-#[derive(Debug)]
-pub struct NativeProtectedFrame {
-    context: usize,
-    identity: [u8; 32],
-    state_count: u32,
-    size: usize,
-    alignment: usize,
-    completion_size: usize,
-    completion_alignment: usize,
-    state: NativeFrameStateCallback,
-    resume: NativeFrameResumeCallback,
-    cancel: NativeFrameCancellationCallback,
-    broadcast_tasks: NativeFrameActionCallback,
-    resolve_lifecycle: NativeFrameResolveCallback,
-    move_completion: NativeFrameCompletionMoveCallback,
-    destroy: NativeFrameActionCallback,
-}
-
-impl NativeProtectedFrame {
-    /// Creates the complete generated-frame ABI adapter.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the frame ABI keeps independent layout and callback state explicit"
-    )]
-    pub const fn new(
-        context: usize,
-        identity: [u8; 32],
-        state_count: u32,
-        size: usize,
-        alignment: usize,
-        completion_size: usize,
-        completion_alignment: usize,
-        state: NativeFrameStateCallback,
-        resume: NativeFrameResumeCallback,
-        cancel: NativeFrameCancellationCallback,
-        broadcast_tasks: NativeFrameActionCallback,
-        resolve_lifecycle: NativeFrameResolveCallback,
-        move_completion: NativeFrameCompletionMoveCallback,
-        destroy: NativeFrameActionCallback,
-    ) -> Self {
-        Self {
-            context,
-            identity,
-            state_count,
-            size,
-            alignment,
-            completion_size,
-            completion_alignment,
-            state,
-            resume,
-            cancel,
-            broadcast_tasks,
-            resolve_lifecycle,
-            move_completion,
-            destroy,
-        }
-    }
-
-    /// Returns the opaque generated-frame context.
-    pub const fn context(&self) -> usize {
-        self.context
-    }
-
-    /// Returns the stable frame representation identity.
-    pub const fn identity(&self) -> [u8; 32] {
-        self.identity
-    }
-
-    /// Returns the number of resumable frame states.
-    pub const fn state_count(&self) -> u32 {
-        self.state_count
-    }
-
-    /// Returns the frame storage size.
-    pub const fn size(&self) -> usize {
-        self.size
-    }
-
-    /// Returns the frame storage alignment.
-    pub const fn alignment(&self) -> usize {
-        self.alignment
-    }
-
-    /// Returns the completion storage size.
-    pub const fn completion_size(&self) -> usize {
-        self.completion_size
-    }
-
-    /// Returns the completion storage alignment.
-    pub const fn completion_alignment(&self) -> usize {
-        self.completion_alignment
-    }
-
-    /// Returns the state-description callback.
-    pub const fn state(&self) -> NativeFrameStateCallback {
-        self.state
-    }
-
-    /// Returns the frame-resume callback.
-    pub const fn resume(&self) -> NativeFrameResumeCallback {
-        self.resume
-    }
-
-    /// Returns the cancellation-entry callback.
-    pub const fn cancel(&self) -> NativeFrameCancellationCallback {
-        self.cancel
-    }
-
-    /// Returns the task-broadcast callback.
-    pub const fn broadcast_tasks(&self) -> NativeFrameActionCallback {
-        self.broadcast_tasks
-    }
-
-    /// Returns the lifecycle-resolution callback.
-    pub const fn resolve_lifecycle(&self) -> NativeFrameResolveCallback {
-        self.resolve_lifecycle
-    }
-
-    /// Returns the completion-move callback.
-    pub const fn move_completion(&self) -> NativeFrameCompletionMoveCallback {
-        self.move_completion
-    }
-
-    /// Returns the frame-destruction callback.
-    pub const fn destroy(&self) -> NativeFrameActionCallback {
-        self.destroy
-    }
-}
-
-/// One-shot address transferring a protected frame into the native runtime.
-///
-/// The caller must keep the referenced descriptor alive until the runtime call
-/// returns and must not use its generated-frame context after the call. The
-/// runtime copies the descriptor immediately and owns destruction from that
-/// point, including when validation or task publication fails.
+/// Address of an inactive token retained by the caller through admission.
+/// Success transfers its owner to the runtime. Failure leaves it with the caller.
 #[repr(transparent)]
 #[derive(Debug)]
-pub struct NativeProtectedFrameTransfer(usize);
+pub struct NativeInactiveFrameTransfer(usize);
 
-impl NativeProtectedFrameTransfer {
-    /// Creates a transfer for a descriptor that remains live during the call.
-    pub fn new(frame: &NativeProtectedFrame) -> Self {
-        Self(frame as *const NativeProtectedFrame as usize)
+impl NativeInactiveFrameTransfer {
+    /// Borrows the exact inactive token for one activation attempt.
+    pub fn new(frame: &NativeInactiveFrame) -> Self {
+        Self(std::ptr::from_ref(frame).addr())
     }
 
-    /// Returns the address of the transferred descriptor.
+    /// Returns the address of the retained token slot.
     pub const fn address(&self) -> usize {
         self.0
     }
 }
 
-/// One inactive compiler-generated frame whose ownership has not entered the runtime.
+/// One inactive frame lease and its immutable producer description.
+/// Copying the native representation does not copy ownership. Resident admission
+/// checks the lease epoch and registered descriptor before activating its storage.
 #[repr(C)]
 #[derive(Debug)]
 pub struct NativeInactiveFrame {
-    context: usize,
-    move_before_start: NativeFrameMoveBeforeStartCallback,
+    lease: crate::NativeCleanupStorageLease,
+    descriptor: usize,
 }
 
 impl NativeInactiveFrame {
-    /// Creates an inactive frame ownership transfer.
-    pub const fn new(
-        context: usize,
-        move_before_start: NativeFrameMoveBeforeStartCallback,
-    ) -> Self {
+    /// Creates an empty native output slot. It grants no activation authority.
+    pub const fn empty() -> Self {
         Self {
-            context,
-            move_before_start,
+            lease: crate::NativeCleanupStorageLease::empty(),
+            descriptor: 0,
         }
     }
 
-    /// Consumes the inactive frame and transfers its context into the adapter.
-    pub fn into_protected(self) -> NativeProtectedFrame {
-        (self.move_before_start)(self.context)
+    /// Transfers the published lease while its producer retains this descriptor
+    /// and all callback code until the frame's consuming destruction returns.
+    pub fn new(
+        lease: crate::NativeCleanupStorageLease,
+        descriptor: &crate::NativeActivationDescriptor,
+    ) -> Self {
+        Self {
+            lease,
+            descriptor: descriptor as *const crate::NativeActivationDescriptor as usize,
+        }
+    }
+
+    /// Returns the lease identity without granting access or dispatch authority.
+    pub const fn lease(&self) -> crate::NativeCleanupStorageLease {
+        self.lease
     }
 }
 
@@ -731,10 +611,9 @@ mod tests {
     use super::{
         NativeExecutionLane, NativeExecutionLaneResult, NativeFrameAffinity, NativeFrameExit,
         NativeFrameProgress, NativeFrameProgressKind, NativeFrameState, NativeInactiveFrame,
-        NativeLaneRequirements, NativeProtectedFrame, NativeProtectedFrameTransfer,
-        NativeRootHandle, NativeRootStart, NativeRunOutcome, NativeRunState,
-        NativeRuntimeConfiguration, NativeRuntimeStatus, NativeStringView, NativeTaskAllocation,
-        NativeTaskHandle,
+        NativeInactiveFrameTransfer, NativeLaneRequirements, NativeRootHandle, NativeRootStart,
+        NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration, NativeRuntimeStatus,
+        NativeStringView, NativeTaskAllocation, NativeTaskHandle,
     };
     use crate::NativePanicCause;
 
@@ -749,7 +628,7 @@ mod tests {
         assert_abi_layout!(NativeLaneRequirements, size: 4, align: 4, fields: {});
         assert_abi_layout!(NativeFrameProgressKind, size: 4, align: 4, fields: {});
         assert_abi_layout!(NativeFrameExit, size: 4, align: 4, fields: {});
-        assert_abi_layout!(NativeProtectedFrameTransfer, size: 8, align: 8, fields: {});
+        assert_abi_layout!(NativeInactiveFrameTransfer, size: 8, align: 8, fields: {});
         assert_abi_layout!(NativeExecutionLane, size: 4, align: 4, fields: {});
     }
 
@@ -793,34 +672,14 @@ mod tests {
             report: 16,
         });
 
-        assert_abi_layout!(NativeInactiveFrame, size: 16, align: 8, fields: {
-            context: 0,
-            move_before_start: 8,
+        assert_abi_layout!(NativeInactiveFrame, size: 48, align: 8, fields: {
+            lease: 0,
+            descriptor: 40,
         });
 
         assert_abi_layout!(NativeExecutionLaneResult, size: 8, align: 4, fields: {
             status: 0,
             lane: 4,
-        });
-    }
-
-    #[test]
-    fn protected_frame_descriptor_has_the_native_abi_layout() {
-        assert_abi_layout!(NativeProtectedFrame, size: 136, align: 8, fields: {
-            context: 0,
-            identity: 8,
-            state_count: 40,
-            size: 48,
-            alignment: 56,
-            completion_size: 64,
-            completion_alignment: 72,
-            state: 80,
-            resume: 88,
-            cancel: 96,
-            broadcast_tasks: 104,
-            resolve_lifecycle: 112,
-            move_completion: 120,
-            destroy: 128,
         });
     }
 }
