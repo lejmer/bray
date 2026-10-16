@@ -987,3 +987,54 @@ The remaining driver switch must address these obligations together:
 These are BRA-561 acceptance obligations, not new issues or completed evidence.
 BRA-505 and BRA-619 remain next in the authorized sequence after this PR's
 implementation, verification and independent review.
+
+
+## Current checkpoint: completed results and pending cleanup
+
+Continue BRA-561, then BRA-505, then BRA-619. Checkpoints do not end the task.
+PR #611 remains a draft. Independent completion review has not begun.
+
+The completion mover now requires the exact frame and disjoint admitted destination.
+Failure leaves the source result owned and retryable. Success commits transfer once.
+The native fixture exercises failure followed by successful retry with allocation
+forbidden, through both callback bridges. The authority regression rejects missing,
+wrong-frame and wrong-destination witnesses against production declarations.
+
+Completed source results with lifecycle obligations have an explicit MIR cleanup
+entry. Its storage aliases the existing result field rather than adding payload
+bytes. It reuses the existing abnormal cleanup machine, with broadcast separate
+from resolution. Successful movement marks the source control state consumed.
+Resolution skips already consumed source state. The executable template preserves
+this state and storage at format version 1. ABI versions remain unchanged.
+
+The checked cleanup description records demanded result-cleanup execution
+requirements. A blocking destructor does not impose its lane on the producer body.
+Source predicates and imported phase requirements both contribute. Only async
+bodies demand this additional analysis. The same terminal-state calculation serves
+resume, failure resolution and movement.
+
+Bray pending-outcome helpers preserve the original source outcome while lifecycle
+resolution suspends. They append admitted cleanup reports through the existing
+report-record implementation. These helpers still need the production driver.
+
+Completed checkpoint evidence: 44 IR, 39 lowering-library and 190 interface
+unit tests pass. All 78 compilation-lowering tests, completed-result LLVM emission,
+the complete production storage/activation body audit and exact destination tests
+pass. Rustfmt uses installed stable because toolchain 1.98.1 lacks that component.
+Mutating style and Bray formatting pass. Logs are in the shared target directory
+`target/bra-620-authority/`, prefixed `bra-561-result-`. The final audit removed
+repeated terminal-state calculations and unnecessary synchronous result analysis.
+Its focused checks, mutating style, Bray formatting and full native artifact smoke pass, including allocation denial and completion-move failure followed by retry through both callback bridges.
+
+Remaining acceptance includes concrete result cleanup requirements after generic
+specialization and imported-template realization. Open type parameters cannot be
+assumed to have no execution requirements. The existing generated lifecycle query
+already retains its selected local calls, which should be reused when realizing
+concrete metadata. Do not introduce another lifecycle traversal or validation pass.
+Also verify native execution of completed-result abandonment, not just LLVM emission.
+
+Then finish the production driver switch listed above: exact per-callback execution
+context, one iterative Bray parent/child chain, destination-based completion,
+inactive Future capture disposal and all native consumers. Remove the superseded
+Rust graph and allocations as consumers switch. No completion claim or PR readiness
+is justified until these obligations and the independent review are complete.

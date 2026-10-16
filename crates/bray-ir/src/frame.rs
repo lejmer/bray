@@ -94,6 +94,7 @@ pub struct MirFrameDescriptor {
     abi_version: RuntimeAbiVersion,
     frame_abi: ProtectedFrameAbiVersions,
     result_type: TypeId,
+    completion_state: Option<MirFrameStateId>,
     states: Arc<[MirFrameState]>,
 }
 
@@ -119,6 +120,7 @@ impl MirFrameDescriptor {
         abi_version: RuntimeAbiVersion,
         frame_abi: ProtectedFrameAbiVersions,
         result_type: TypeId,
+        completion_state: Option<MirFrameStateId>,
         states: impl IntoIterator<Item = MirFrameState>,
     ) -> Result<Self, crate::MirCapacityError> {
         let states: Vec<_> = states.into_iter().collect();
@@ -153,11 +155,17 @@ impl MirFrameDescriptor {
             );
         }
 
+        assert!(
+            completion_state.is_none_or(|completion| state_ids.contains(&completion)),
+            "completed-result cleanup must identify a described frame state"
+        );
+
         Ok(Self {
             frame,
             abi_version,
             frame_abi,
             result_type,
+            completion_state,
             states: shared_slice(states),
         })
     }
@@ -180,6 +188,12 @@ impl MirFrameDescriptor {
     /// Returns the frame's completed result type.
     pub const fn result_type(&self) -> TypeId {
         self.result_type
+    }
+
+    /// Returns the entry that owns cleanup of a completed, unconsumed result.
+    /// Trivial result types need no result-cleanup entry.
+    pub const fn completion_state(&self) -> Option<MirFrameStateId> {
+        self.completion_state
     }
 
     /// Returns resumable states in descriptor order.
@@ -222,7 +236,7 @@ mod tests {
 
         assert!(
             std::panic::catch_unwind(|| {
-                MirFrameDescriptor::new(frame, abi, frame_abi, result_type, [])
+                MirFrameDescriptor::new(frame, abi, frame_abi, result_type, None, [])
             })
             .is_err()
         );
@@ -231,7 +245,14 @@ mod tests {
 
         assert!(
             std::panic::catch_unwind(|| {
-                MirFrameDescriptor::new(frame, abi, frame_abi, result_type, [state.clone(), state])
+                MirFrameDescriptor::new(
+                    frame,
+                    abi,
+                    frame_abi,
+                    result_type,
+                    None,
+                    [state.clone(), state],
+                )
             })
             .is_err()
         );
@@ -240,7 +261,7 @@ mod tests {
 
         assert!(
             std::panic::catch_unwind(|| {
-                MirFrameDescriptor::new(frame, abi, frame_abi, result_type, [non_contiguous])
+                MirFrameDescriptor::new(frame, abi, frame_abi, result_type, None, [non_contiguous])
             })
             .is_err()
         );

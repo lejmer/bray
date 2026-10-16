@@ -2144,6 +2144,13 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 );
 
                 let result_type = self.ty()?;
+
+                let completion_state = match read_u32(&mut self.reader)? {
+                    0 => None,
+                    1 => Some(bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?)),
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                };
+
                 let state_count = self.count()?;
                 let mut states = self.items(state_count)?;
 
@@ -2180,6 +2187,9 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 let mut entries = BTreeSet::new();
 
                 if states.is_empty()
+                    || completion_state.is_some_and(|completion| {
+                        !states.iter().any(|state| state.state() == completion)
+                    })
                     || states.iter().enumerate().any(|(ordinal, state)| {
                         u32::try_from(ordinal).ok() != Some(state.state().raw())
                     })
@@ -2188,9 +2198,16 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     return Err(ExecutableTemplateDecodeError::Malformed);
                 }
 
-                MirFrameDescriptor::new(frame, abi_version, frame_abi, result_type, states)
-                    .map(Some)
-                    .map_err(|_| ExecutableTemplateDecodeError::Malformed)
+                MirFrameDescriptor::new(
+                    frame,
+                    abi_version,
+                    frame_abi,
+                    result_type,
+                    completion_state,
+                    states,
+                )
+                .map(Some)
+                .map_err(|_| ExecutableTemplateDecodeError::Malformed)
             }
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
@@ -2221,6 +2238,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             1 => Ok(MirStorageKind::Local),
             2 => Ok(MirStorageKind::Temporary),
             11 => Ok(MirStorageKind::BroadcastLocal),
+            12 => Ok(MirStorageKind::FrameCompletion),
             3 => Ok(MirStorageKind::Return),
             4 => Ok(MirStorageKind::InactiveFrame),
             5 => Ok(MirStorageKind::CurrentFrame),

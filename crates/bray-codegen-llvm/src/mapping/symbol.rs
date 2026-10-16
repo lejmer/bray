@@ -1349,6 +1349,7 @@ mod tests {
             version,
             ProtectedFrameAbiVersions::uniform(version),
             bray_testing::test_mir_type(),
+            None,
             [state],
         ) else {
             panic!("test protected-frame descriptor must validate");

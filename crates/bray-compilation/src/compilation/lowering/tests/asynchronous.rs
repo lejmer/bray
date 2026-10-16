@@ -119,6 +119,7 @@ fn async_callables_lower_to_protected_frames_and_explicit_suspension() {
     };
 
     assert_eq!(frame.states().len(), 2);
+    assert!(frame.completion_state().is_none());
     assert!(!frame.states()[1].initialized_storages().is_empty());
 
     assert!(mir.operations().iter().any(|operation| matches!(
@@ -423,5 +424,121 @@ fn await_takes_the_child_outcome_before_cancellation_and_cleans_its_result() {
     assert!(
         disposes_result,
         "cancelled await must dispose its transferred result"
+    );
+}
+
+#[test]
+fn completed_frame_result_has_its_own_cleanup_state() {
+    let application = compilation(
+        r#"
+        module app;
+
+        struct Guard
+        {
+            destruct() {}
+        }
+
+        async func produce() -> Guard
+        {
+            return Guard {};
+        }
+        "#,
+    );
+
+    assert!(
+        application.check_diagnostics().is_empty(),
+        "{:?}",
+        application.check_diagnostics()
+    );
+
+    let result = application
+        .lowered_unit(source_function_body_key(&application, "produce"))
+        .expect("owned completion must lower");
+
+    let mir = lowered_mir(&result);
+
+    let frame = mir
+        .frame_descriptor()
+        .expect("producer has a protected frame");
+
+    let state = frame
+        .completion_state()
+        .expect("owned result needs abandonment cleanup");
+
+    let completion = frame
+        .states()
+        .iter()
+        .find(|entry| entry.state() == state)
+        .unwrap();
+
+    let [storage] = completion.initialized_storages() else {
+        panic!("completion owns just its result");
+    };
+
+    assert!(matches!(
+        mir.storage(*storage).unwrap().kind(),
+        bray_ir::MirStorageKind::FrameCompletion
+    ));
+
+    assert!(!frame.states()[0].initialized_storages().contains(storage));
+
+    assert!(
+        matches!(mir.block(completion.entry()).unwrap().terminator().kind(),
+        MirTerminatorKind::ContinueCleanup(edge) if edge.phase() == bray_ir::MirCleanupPhase::LifecycleResolution)
+    );
+
+    assert!(
+        mir.operations()
+            .iter()
+            .any(|operation| matches!(operation.kind(),
+        MirOperationKind::Cleanup { phase: bray_ir::MirCleanupPhase::LifecycleResolution, place }
+            if place.storage() == *storage))
+    );
+}
+
+#[test]
+fn completed_result_cleanup_uses_its_own_execution_lane() {
+    let application = compilation(
+        r#"
+        module app;
+
+        struct Guard
+        {
+            destruct()
+                requires(blocking_execution())
+            {
+            }
+        }
+
+        async func produce() -> Guard
+        {
+            return Guard {};
+        }
+        "#,
+    );
+
+    assert!(
+        application.check_diagnostics().is_empty(),
+        "{:?}",
+        application.check_diagnostics()
+    );
+
+    let result = application
+        .lowered_unit(source_function_body_key(&application, "produce"))
+        .expect("owned completion must lower");
+
+    let frame = lowered_mir(&result).frame_descriptor().unwrap();
+    let completion = frame.completion_state().unwrap();
+
+    assert!(frame.states()[0].lane_requirements().is_empty());
+
+    assert_eq!(
+        frame
+            .states()
+            .iter()
+            .find(|state| state.state() == completion)
+            .unwrap()
+            .lane_requirements(),
+        [ExecutionLaneRequirement::Blocking]
     );
 }

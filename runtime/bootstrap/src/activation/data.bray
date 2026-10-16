@@ -76,3 +76,7 @@ internal const CLEANUP: u32 = 2;
 internal const TERMINAL: u32 = 3;
 
 internal const COMMITTED: u32 = 4;
+
+// Lifecycle resolution has suspended. Resume its checked continuation without
+// replacing the source outcome retained in progress.
+internal const RESOLVING: u32 = 5;

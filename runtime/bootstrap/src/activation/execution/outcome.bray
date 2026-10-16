@@ -1,0 +1,122 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation.execution;
+
+using std.memory;
+
+internal func suspended(pos kind: u32) -> bool
+    executes(pure, total)
+{
+    return kind == 0 || kind == 5 || kind == 6;
+}
+
+internal func cleanup_exit(pos kind: u32) -> usize
+    requires(kind >= 1 && kind <= 4)
+    executes(pure, total)
+{
+    return (kind - 1) as usize;
+}
+
+// The caller has removed this progress from its callback destination. Retain only
+// cleanup incidents here. The original source outcome remains in header.progress.
+trusted internal func retain_incident(
+    pos header: &mut bray.runtime.bootstrap.activation.Header,
+    pos mut progress: bray.runtime.bootstrap.activation.Progress,
+)
+    requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &progress.report),
+    )
+{
+    if progress.kind != 3
+    {
+        return;
+    }
+
+    let report = trusted take_report(&mut progress);
+    let mut incoming = trusted bray.runtime.bootstrap.retain_report(report);
+
+    trusted bray.runtime.bootstrap.report_records_append(
+        std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut header.incidents),
+        std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut incoming)
+    );
+}
+
+// Progress commits only after the callback has returned and the header has been
+// read again. A callback may have attached a child while no header borrow existed.
+trusted internal func accept_progress(
+    pos header: &mut bray.runtime.bootstrap.activation.Header,
+    pos operation: u32,
+    pos progress: bray.runtime.bootstrap.activation.Progress,
+)
+    requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &progress.report),
+    )
+    uses(intrinsic)
+{
+    if progress.kind > 6 || operation > 3
+    {
+        trusted core.target.abort();
+    }
+
+    if operation == 2
+    {
+        if suspended(progress.kind) || progress.kind == 4 || header.broadcasted != 0
+        {
+            trusted core.target.abort();
+        }
+
+        header.broadcasted = 1;
+        trusted retain_incident(header, progress);
+        return;
+    }
+
+    if suspended(progress.kind)
+    {
+        header.state = progress.state;
+
+        if operation == 3
+        {
+            header.phase = bray.runtime.bootstrap.activation.RESOLVING;
+        }
+
+        return;
+    }
+
+    if header.phase == bray.runtime.bootstrap.activation.RUNNING
+    {
+        if progress.kind == 1
+        {
+            header.state = progress.state;
+        }
+
+        header.progress = progress;
+        header.phase = bray.runtime.bootstrap.activation.CLEANUP;
+        return;
+    }
+
+    if progress.kind == 4 || (header.phase != bray.runtime.bootstrap.activation.CLEANUP && header.phase !=
+        bray.runtime.bootstrap.activation.RESOLVING)
+    {
+        trusted core.target.abort();
+    }
+
+    trusted retain_incident(header, progress);
+    header.phase = bray.runtime.bootstrap.activation.TERMINAL;
+}
+
+// Move the report as a complete witness before separating it from its progress.
+trusted internal func take_report(
+    pos progress: &mut bray.runtime.bootstrap.activation.Progress,
+) -> bray.runtime.bootstrap.PanicReportData
+    requires(trusted bray.runtime.bootstrap.native_report_callbacks(report = &progress.report))
+    ensures(
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &progress.report),
+    )
+{
+    return trusted std.memory.replace_value<bray.runtime.bootstrap.PanicReportData>(
+        &mut progress.report,
+        bray.runtime.bootstrap.empty_panic_report()
+    );
+}

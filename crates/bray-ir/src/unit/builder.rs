@@ -1325,6 +1325,7 @@ mod tests {
             abi,
             ProtectedFrameAbiVersions::uniform(abi),
             result_type,
+            None,
             [state],
         ) {
             Ok(descriptor) => descriptor,

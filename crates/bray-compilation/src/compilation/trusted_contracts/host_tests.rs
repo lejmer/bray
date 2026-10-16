@@ -1552,6 +1552,7 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
         include_str!("../../../../../runtime/bootstrap/src/activation/execution.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/execution/access.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/execution/invoke.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/execution/outcome.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/requirements.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/requirements/inactive.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/requirements/active.bray"),
@@ -1748,6 +1749,7 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
             && !source.contains("module bray.runtime.bootstrap.outgoing;")
             && !source.contains("module bray.runtime.bootstrap.activation;")
             && !source.contains("module bray.runtime.bootstrap.activation.")
+            && !source.contains("trusted internal func retain_report(")
         {
             continue;
         }
@@ -2523,6 +2525,66 @@ fn composition_requires_the_exact_parent_token_continuation_and_origin() {
                 )
             {{
                 return trusted bray.runtime.bootstrap.activation.composition.compose(parent, token, state, origin);
+            }}
+        "#
+        );
+
+        let compilation = production_host_compilation(&caller);
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !lowered.diagnostics().has_errors(),
+            valid,
+            "{caller}: {:?}",
+            lowered.diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                lowered.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn activation_completion_requires_the_exact_admitted_destination() {
+    for (requirement, valid) in [
+        ("", false),
+        (
+            "requires(trusted bray.runtime.bootstrap.activation.execution.completion_destination(pointer = other, address = destination))",
+            false,
+        ),
+        (
+            "requires(trusted bray.runtime.bootstrap.activation.execution.completion_destination(pointer = pointer, address = other_destination))",
+            false,
+        ),
+        (
+            "requires(trusted bray.runtime.bootstrap.activation.execution.completion_destination(pointer = pointer, address = destination))",
+            true,
+        ),
+    ] {
+        let caller = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+            trusted func production_probe(
+                pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+                pos other: RawPointer<bray.runtime.bootstrap.activation.Header>,
+                pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+                pos destination: usize,
+                pos other_destination: usize,
+            )
+                requires(
+                    trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
+                    trusted bray.runtime.bootstrap.entry.native_entry(),
+                )
+                {requirement}
+            {{
+                let _ = trusted bray.runtime.bootstrap.activation.execution.invoke(pointer, callback, 4, destination);
             }}
         "#
         );

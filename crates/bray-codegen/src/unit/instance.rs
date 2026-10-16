@@ -530,6 +530,7 @@ mod tests {
             RuntimeAbiVersion::new(1, 0),
             ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)),
             bray_testing::test_mir_type(),
+            None,
             [state],
         ) else {
             panic!("test frame descriptor must validate");

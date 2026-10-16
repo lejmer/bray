@@ -679,3 +679,46 @@ fn failed_frame_resolution_selects_cancellation_before_source_entry() {
         "both parent and child failure entries must be checked"
     );
 }
+
+#[test]
+fn owned_completion_emits_a_resumable_disposal_entry() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+        module app;
+
+        struct Guard
+        {
+            destruct() {}
+        }
+
+        async func child() -> Guard
+        {
+            return Guard {};
+        }
+
+        async func main() -> i32
+        {
+            let value = await child();
+
+            return 0;
+        }
+        "#,
+    );
+
+    let artifacts = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+
+    assert!(!artifacts.is_empty());
+
+    let completions = plan
+        .units()
+        .iter()
+        .flat_map(|unit| unit.instances())
+        .filter_map(|instance| instance.mir().frame_descriptor())
+        .filter(|frame| frame.completion_state().is_some())
+        .count();
+
+    assert_eq!(
+        completions, 1,
+        "only the owned child result requires disposal"
+    );
+}

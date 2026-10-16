@@ -146,7 +146,10 @@ fn frame_context_type<'context>(
 
     for (_, storage) in instance.mir().storages_with_ids() {
         fields.push(
-            if matches!(storage.kind(), MirStorageKind::BroadcastLocal) {
+            if matches!(
+                storage.kind(),
+                MirStorageKind::BroadcastLocal | MirStorageKind::FrameCompletion
+            ) {
                 // Preserve storage indexing without reserving callback scratch bytes in each frame.
                 context.i8_type().array_type(0).into()
             } else {

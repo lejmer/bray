@@ -132,7 +132,15 @@ impl Lowerer<'_> {
 
         let remaining = self.cleanup_plans(0, exit);
 
-        self.finish_abnormal_cleanup(cancelled, source, None, destination, &remaining, pending)?;
+        self.finish_abnormal_cleanup(
+            bray_ir::MirCleanupPhase::TaskCancellation,
+            cancelled,
+            source,
+            None,
+            destination,
+            &remaining,
+            pending,
+        )?;
 
         let mut handlers = BTreeMap::new();
         let mut failures = BTreeMap::new();
@@ -188,6 +196,7 @@ impl Lowerer<'_> {
                 let remaining = self.cleanup_plans(depth, exit);
 
                 self.finish_abnormal_cleanup(
+                    bray_ir::MirCleanupPhase::TaskCancellation,
                     panicked,
                     source,
                     Some(MirOperand::Move(Self::retained_place(&report))),

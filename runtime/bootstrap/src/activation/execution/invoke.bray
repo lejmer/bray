@@ -9,6 +9,15 @@ using std.memory;
 // Callback provider code remains live through every call.
 trusted internal predicate owned(pointer: RawPointer<bray.runtime.bootstrap.activation.Header>);
 
+// The caller owns a distinct admitted result destination with the exact size and
+// alignment described by this frame. Transferred dependencies remain retained by
+// that destination. The mover either transfers once or leaves its input owned by
+// the frame when reporting failure. It never suspends or exposes a partial result.
+trusted internal predicate completion_destination(
+    pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    address: usize,
+);
+
 // Resume, cancellation, broadcast and resolution retain their frame. Retirement
 // consumes an already committed, detached frame and never accesses it afterward.
 trusted internal func invoke(
@@ -20,11 +29,12 @@ trusted internal func invoke(
     requires(
         trusted owned(pointer = pointer),
         trusted bray.runtime.bootstrap.entry.native_entry(),
-        operation < 4 || operation == 5,
+        operation < 6,
+        operation != 4 || trusted completion_destination(pointer = pointer, address = argument),
         operation != 3 || argument < 4,
     )
     ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report))
-    when(operation < 4)
+    when(operation < 5)
     {
         ensures(trusted owned(pointer = pointer))
     }
@@ -55,6 +65,12 @@ trusted internal func invoke(
 
     if operation == 5 && (header.phase != bray.runtime.bootstrap.activation.COMMITTED || header.parent != 0 ||
         header.child != 0 || header.incidents.count != 0)
+    {
+        trusted core.target.abort();
+    }
+
+    if operation == 4 && (header.phase != bray.runtime.bootstrap.activation.TERMINAL || header.progress.kind != 1 ||
+        header.child != 0)
     {
         trusted core.target.abort();
     }
@@ -131,7 +147,7 @@ trusted internal func invoke(
         )
         executes(pure, total) {};
 
-    if operation < 4
+    if operation < 5
     {
         let call = trusted lambda(
             pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
@@ -156,7 +172,7 @@ trusted internal func invoke(
                     progress = progress,
                     records = records,
                 ),
-                operation < 4,
+                operation < 5,
             )
             ensures(
                 trusted owned(pointer = pointer),
@@ -192,6 +208,18 @@ trusted internal func invoke(
         );
 
         let mut updated = trusted read(pointer);
+
+        if operation == 4
+        {
+            if progress.kind == 1
+            {
+                updated.phase = bray.runtime.bootstrap.activation.COMMITTED;
+            }
+            else if progress.kind != 3
+            {
+                trusted core.target.abort();
+            }
+        }
 
         updated.outgoing = remaining;
         trusted restore(pointer, updated);
@@ -244,10 +272,11 @@ trusted internal func execute(
         ),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted destinations(pointer = pointer, output = output, records = records),
+        operation != 4 || trusted completion_destination(pointer = pointer, address = argument),
     )
     uses(layout_reinterpret, raw_memory, unchecked_init)
 {
-    if(operation >= 4 && operation != 5) || (operation == 3 && argument >= 4)
+    if operation >= 6 || (operation == 3 && argument >= 4)
     {
         return 3;
     }
@@ -268,7 +297,8 @@ trusted internal func execute(
             trusted owned(pointer = pointer),
             trusted bray.runtime.bootstrap.entry.native_entry(),
             trusted destinations(pointer = pointer, output = output, records = records),
-            operation < 4 || operation == 5,
+            operation < 6,
+            operation != 4 || trusted completion_destination(pointer = pointer, address = argument),
             operation != 3 || argument < 4,
         )
         ensures(

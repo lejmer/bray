@@ -630,6 +630,21 @@ where
         plans.push(plan);
     }
 
+    if matches!(
+        request.unit().root(),
+        bray_bound_tree::BoundUnitRoot::CallableBody {
+            execution: bray_symbols::CallableExecution::Asynchronous,
+            ..
+        } | bray_bound_tree::BoundUnitRoot::AnonymousCallable {
+            execution: bray_symbols::CallableExecution::Asynchronous,
+            ..
+        }
+    ) && let Some(result) = types.callable_result_type()
+    {
+        cleanup_shapes.include_input(result)?;
+        cleanup_shapes.completion_requirements(result)?;
+    }
+
     Ok((
         requirements.to_vec(),
         // Publication owns a snapshot while preparation remains available to later consumers.

@@ -15,7 +15,7 @@ pub(super) fn translate_action_callbacks<'context>(
     context_type: StructType<'context>,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<(), CodegenFailure> {
-    translate_failure_cleanup(module, request, instance, types)?;
+    translate_failure_cleanup(module, request, instance, context_type, types)?;
 
     translate_completion_move(module, request, instance, context_type, types)?;
     super::storage::translate_destruction(module, request, instance, context_type, types)?;
@@ -27,6 +27,7 @@ fn translate_failure_cleanup<'context>(
     module: &Module<'context>,
     request: CodegenRequest<'_>,
     instance: &CodegenInstance,
+    context_type: StructType<'context>,
     types: &LlvmTypeMappings<'context, '_>,
 ) -> Result<(), CodegenFailure> {
     let builder = types.context().create_builder();
@@ -67,6 +68,38 @@ fn translate_failure_cleanup<'context>(
             exit.get_type().const_int(3, false),
             "frame.runtime.failed",
         )
+        .map_err(CodegenFailure::backend_library)?;
+
+    let context = integer_pointer(&builder, resolve, 1, types)?;
+
+    let state = builder
+        .build_struct_gep(context_type, context, 0, "frame.cleanup.state")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let state = builder
+        .build_load(types.context().i32_type(), state, "frame.cleanup.current")
+        .map_err(CodegenFailure::backend_library)?
+        .into_int_value();
+
+    let terminal = super::support::terminal_state(
+        types.context(),
+        instance
+            .mir()
+            .frame_descriptor()
+            .expect("protected frame has its description"),
+    )?;
+
+    let pending = builder
+        .build_int_compare(
+            inkwell::IntPredicate::NE,
+            state,
+            terminal,
+            "frame.cleanup.pending",
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
+    let failed = builder
+        .build_and(failed, pending, "frame.cleanup.required")
         .map_err(CodegenFailure::backend_library)?;
 
     builder
@@ -175,6 +208,16 @@ fn translate_completion_move<'context>(
 
     builder
         .build_store(destination, completion)
+        .map_err(CodegenFailure::backend_library)?;
+
+    let state = builder
+        .build_struct_gep(context_type, context, 0, "frame.consumed.state")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let terminal = super::support::terminal_state(types.context(), descriptor)?;
+
+    builder
+        .build_store(state, terminal)
         .map_err(CodegenFailure::backend_library)?;
 
     builder

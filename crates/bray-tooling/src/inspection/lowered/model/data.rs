@@ -178,6 +178,7 @@ impl InspectionMirUnit {
                         symbols,
                         frame.result_type(),
                     )?,
+                    completion_state: frame.completion_state().map(|state| state.raw()),
                     states,
                 })
             })
@@ -274,6 +275,7 @@ pub(crate) struct InspectionMirFrame {
     pub(crate) abi: String,
     pub(crate) result_type: InspectionType,
     pub(crate) states: Vec<InspectionMirFrameState>,
+    completion_state: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -2614,6 +2616,7 @@ fn storage_kind(kind: &MirStorageKind) -> &'static str {
         MirStorageKind::Local => "local",
         MirStorageKind::Temporary => "temporary",
         MirStorageKind::BroadcastLocal => "broadcast_local",
+        MirStorageKind::FrameCompletion => "frame_completion",
         MirStorageKind::Return => "return",
         MirStorageKind::InactiveFrame => "inactive_frame",
         MirStorageKind::CurrentFrame => "current_frame",

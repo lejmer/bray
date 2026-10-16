@@ -357,9 +357,17 @@ impl Lowerer<'_> {
     }
 
     pub(super) fn execution_lane_requirements(&self) -> Vec<ExecutionLaneRequirement> {
-        self.input
-            .body_behavior()
-            .execution_requirements()
+        let requirements = match self.completion_cleanup {
+            Some(ty) => self
+                .input
+                .cleanup_type(ty)
+                .expect("completed result retains its cleanup description")
+                .execution_requirements()
+                .expect("async analysis establishes completed-result cleanup requirements"),
+            None => self.input.body_behavior().execution_requirements(),
+        };
+
+        requirements
             .iter()
             .filter_map(|requirement| {
                 match self

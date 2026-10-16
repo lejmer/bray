@@ -424,6 +424,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirStorageKind::Local => (1, None),
             MirStorageKind::Temporary => (2, None),
             MirStorageKind::BroadcastLocal => (11, None),
+            MirStorageKind::FrameCompletion => (12, None),
             MirStorageKind::Return => (3, None),
             MirStorageKind::InactiveFrame => (4, None),
             MirStorageKind::CurrentFrame => (5, None),
@@ -1354,6 +1355,15 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         }
 
         self.ty(frame.result_type())?;
+
+        match frame.completion_state() {
+            Some(state) => {
+                self.wire.write_u32(1);
+                self.wire.write_u32(state.raw());
+            }
+            None => self.wire.write_u32(0),
+        }
+
         write_count(&mut self.wire, frame.states().len());
 
         for state in frame.states() {

@@ -594,20 +594,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(super) fn terminal_frame_state(
         &self,
     ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
-        let count = self
-            .unit
-            .frame_descriptor()
-            .expect("protected frame has its descriptor")
-            .states()
-            .len();
-
-        let terminal: u32 = crate::conversion::resource_limit(count, "frame terminal state")?;
-
-        Ok(self
-            .types
-            .context()
-            .i32_type()
-            .const_int(u64::from(terminal), false))
+        crate::translation::frame::terminal_state(
+            self.types.context(),
+            self.unit
+                .frame_descriptor()
+                .expect("protected frame has its descriptor"),
+        )
     }
 
     pub(super) fn create_block_parameters(&mut self) -> Result<(), CodegenFailure> {
@@ -659,7 +651,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     continue;
                 }
 
-                let storage = if matches!(storage.kind(), MirStorageKind::BroadcastLocal) {
+                let storage = if matches!(storage.kind(), MirStorageKind::FrameCompletion) {
+                    llvm(self.builder.build_struct_gep(
+                        frame_context,
+                        pointer,
+                        1,
+                        "frame.completed.result",
+                    ))?
+                } else if matches!(storage.kind(), MirStorageKind::BroadcastLocal) {
                     llvm(self.builder.build_alloca(
                         self.types.map(storage.ty())?,
                         &format!("storage.{}", id.slot()),

@@ -36,6 +36,9 @@ pub struct NativeActivationDescriptor {
     /// Advances mandatory lifecycle resolution, which may suspend.
     pub resolve: NativeFrameResolveCallback,
     /// Transfers the completed value to the caller's admitted destination.
+    /// Unwinding before transfer must leave the input owned by the frame. Once
+    /// transfer commits, the callback must return normally and cannot suspend.
+    /// Returned dependencies follow the destination's result contract.
     pub move_completion: NativeFrameCompletionMoveCallback,
     /// Releases provider-owned context after its value obligations have ended.
     pub destroy: NativeFrameActionCallback,

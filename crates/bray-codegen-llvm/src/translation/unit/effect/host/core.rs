@@ -556,10 +556,25 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .build_struct_gep(frame_context, pointer, 0, "frame.state.pointer"),
             )?;
 
-        llvm(
-            self.builder
-                .build_store(state_pointer, self.terminal_frame_state()?),
-        )?;
+        let completion_state = if matches!(state, bray_ir::MirTaskTerminalState::Completed(_)) {
+            self.unit
+                .frame_descriptor()
+                .expect("protected frame retains its descriptor")
+                .completion_state()
+        } else {
+            None
+        };
+
+        let terminal = match completion_state {
+            Some(state) => self
+                .types
+                .context()
+                .i32_type()
+                .const_int(u64::from(state.raw()), false),
+            None => self.terminal_frame_state()?,
+        };
+
+        llvm(self.builder.build_store(state_pointer, terminal))?;
 
         let (kind, payload) = match state {
             bray_ir::MirTaskTerminalState::Completed(value) => {
@@ -590,7 +605,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let progress = self.build_frame_progress(
             crate::conversion::resource_limit(kind, "host_effect_progress_kind")?,
-            self.types.context().i32_type().const_zero(),
+            self.types.context().i32_type().const_int(
+                u64::from(completion_state.map_or(0, |state| state.raw())),
+                false,
+            ),
             payload,
         )?;
 

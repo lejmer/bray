@@ -92,41 +92,10 @@ trusted internal func panic_report_suppression(
         trusted core.memory.valid_read<PanicReportData>(pointer = incident, count = 1),
         trusted core.memory.initialized_as<PanicReportData>(pointer = incident)
     )
-    uses(intrinsic)
 {
     let mut report: PanicReportData = trusted take_primary_report(primary, incident);
     let suppressed: PanicReportData = trusted take_report(incident);
-    let handle: usize = suppressed.reserved;
-
-    let mut incident_records: ReportRecords =
-    {
-        head = handle,
-        tail = handle,
-        count = 1
-    };
-
-    let mut later: ReportRecords =
-    {
-        head = suppressed.outgoing_head,
-        tail = suppressed.outgoing_tail,
-        count = suppressed.outgoing_count
-    };
-
-    let mut value: ReportPrimary = report_primary_value(suppressed);
-
-    value = trusted exchange_primary(handle, value);
-
-    let (released, _) = trusted release_primary(&value, trusted primary_release(&value));
-
-    if released != RUN_COMPLETED
-    {
-        trusted core.target.abort();
-    }
-
-    trusted report_records_append(
-        std.memory.address_of_mut<ReportRecords>(&mut incident_records),
-        std.memory.address_of_mut<ReportRecords>(&mut later)
-    );
+    let mut incident_records = trusted retain_report(suppressed);
 
     let mut chain: ReportRecords =
     {
@@ -144,4 +113,45 @@ trusted internal func panic_report_suppression(
     report.outgoing_tail = chain.tail;
     report.outgoing_count = chain.count;
     return report;
+}
+
+// Transfer one owned report into its preadmitted record. Its existing incident
+// chain follows that primary, preserving order without allocating another node.
+trusted internal func retain_report(pos report: PanicReportData) -> ReportRecords
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access(), trusted native_report_callbacks(report = &report))
+    uses(intrinsic)
+{
+    let handle: usize = report.reserved;
+
+    let mut incident_records: ReportRecords =
+    {
+        head = handle,
+        tail = handle,
+        count = 1
+    };
+
+    let mut later: ReportRecords =
+    {
+        head = report.outgoing_head,
+        tail = report.outgoing_tail,
+        count = report.outgoing_count
+    };
+
+    let mut value: ReportPrimary = report_primary_value(report);
+
+    value = trusted exchange_primary(handle, value);
+
+    let (released, _) = trusted release_primary(&value, trusted primary_release(&value));
+
+    if released != RUN_COMPLETED
+    {
+        trusted core.target.abort();
+    }
+
+    trusted report_records_append(
+        std.memory.address_of_mut<ReportRecords>(&mut incident_records),
+        std.memory.address_of_mut<ReportRecords>(&mut later)
+    );
+
+    return incident_records;
 }

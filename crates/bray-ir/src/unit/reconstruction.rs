@@ -972,13 +972,18 @@ mod tests {
             )),
         );
 
-        builder.set_terminator(lifecycle, source, MirTerminatorKind::Return(None));
+        builder.set_terminator(lifecycle, source.clone(), MirTerminatorKind::Return(None));
+
+        let completion = builder
+            .push_storage(source.clone(), MirStorageKind::FrameCompletion, ty)
+            .unwrap_or_else(|error| panic!("result storage must be valid: {error:?}"));
 
         let descriptor = MirFrameDescriptor::new(
             frame,
             abi,
             ProtectedFrameAbiVersions::uniform(abi),
             ty,
+            Some(MirFrameStateId::new(2)),
             [
                 MirFrameState::new(MirFrameStateId::new(0), entry, entry, [], []),
                 MirFrameState::new(MirFrameStateId::new(1), resume, resume, [], []),
@@ -987,7 +992,7 @@ mod tests {
                     external_resume,
                     broadcast,
                     [],
-                    [storage],
+                    [storage, completion],
                 ),
             ],
         )

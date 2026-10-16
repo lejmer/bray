@@ -12,6 +12,106 @@ use crate::lowering::inputs::InputExit;
 use crate::lowering::lowerer::Lowerer;
 
 impl Lowerer<'_> {
+    pub(in crate::lowering) fn frame_completion(
+        &mut self,
+        source: &MirSourceAnchor,
+        result_type: bray_symbols::TypeId,
+    ) -> Result<Option<bray_ir::MirFrameStateId>, LoweringError> {
+        let Some(phases) = self.input_cleanup_phases(result_type) else {
+            return Ok(None);
+        };
+
+        assert!(
+            self.input_temporaries.is_empty(),
+            "completed source frame has no outstanding input temporaries"
+        );
+
+        self.completion_cleanup = Some(result_type);
+
+        let storage = self.builder.push_storage(
+            Self::retained_source(source),
+            bray_ir::MirStorageKind::FrameCompletion,
+            result_type,
+        )?;
+
+        let place = bray_ir::MirPlace::new(storage, [], result_type);
+
+        let entry = self.builder.push_block(
+            Self::retained_source(source),
+            MirBlockKind::CleanupBroadcast,
+        )?;
+
+        let cancelled =
+            self.terminal_state_block(source, super::control::TerminalState::Cancelled)?;
+
+        self.finish_abnormal_cleanup(
+            bray_ir::MirCleanupPhase::LifecycleResolution,
+            entry,
+            source,
+            None,
+            CleanupDestination::Goto(cancelled),
+            &[],
+            Some(&place),
+        )?;
+
+        let broadcast = self.builder.push_block(
+            Self::retained_source(source),
+            MirBlockKind::CleanupBroadcast,
+        )?;
+
+        if phases.includes_cancellation() {
+            let (outcome, finish) = self.frame_broadcast_outcome(source)?;
+
+            outcome.begin(&mut self.builder, broadcast, source)?;
+
+            let previous = self.cleanup_outcome.replace(outcome);
+            let failures = self.cleanup_failure_targets.take();
+
+            let (end, _) = self.push_guarded_cleanup(
+                broadcast,
+                source,
+                MirCleanupPhase::TaskCancellation,
+                place,
+                None,
+                None,
+                false,
+                None,
+            )?;
+
+            self.set_terminator(
+                end,
+                Self::retained_source(source),
+                MirTerminatorKind::Goto(MirEdge::new(finish, [])),
+            )?;
+
+            self.cleanup_outcome = previous;
+            self.cleanup_failure_targets = failures;
+        } else {
+            self.set_terminator(
+                broadcast,
+                Self::retained_source(source),
+                MirTerminatorKind::Return(None),
+            )?;
+        }
+
+        let state = self.next_frame_state()?;
+
+        self.frame_states.push(
+            bray_ir::MirFrameState::new(
+                state,
+                entry,
+                broadcast,
+                self.execution_lane_requirements(),
+                [storage],
+            )
+            .with_affinity(self.frame_affinity()),
+        );
+
+        self.completion_cleanup = None;
+
+        Ok(Some(state))
+    }
+
     pub(in crate::lowering) fn frame_broadcast(
         &mut self,
         source: &MirSourceAnchor,

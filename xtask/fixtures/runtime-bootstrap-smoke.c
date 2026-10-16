@@ -1105,7 +1105,8 @@ static void activation_callback(const ActivationExecution* execution, const Acti
 {
     ActivationHeader* header = (ActivationHeader*)context;
 
-    ++activation_calls;
+    if (operation != 4)
+        ++activation_calls;
 
     if (
         execution->address != (uintptr_t)header ||
@@ -1116,7 +1117,12 @@ static void activation_callback(const ActivationExecution* execution, const Acti
     )
         abort();
 
-    (void)argument;
+    if (operation == 4)
+    {
+        descriptor->move_completion(context, argument);
+        *progress = (ActivationProgress){ .kind = 1 };
+        return;
+    }
 
     if (operation == 5)
     {
@@ -1134,6 +1140,22 @@ static void activation_callback(const ActivationExecution* execution, const Acti
     header->broadcasted = 1;
 
     *progress = (ActivationProgress){ .kind = operation == 3 ? 0 : 1, .state = 7 };
+}
+
+static void activation_move_failure(const ActivationExecution* execution, const ActivationDescriptor* descriptor,
+    uintptr_t context, uint32_t operation, uintptr_t argument, ActivationProgress* progress, ActivationRecords* records)
+{
+    (void)descriptor;
+    (void)records;
+
+    if (operation != 4 || execution->address != context || argument == 0)
+        abort();
+
+    // A failed mover has not consumed or written either side of the transfer.
+    *progress = (ActivationProgress){
+        .kind = 3,
+        .report = { .cause = 1, .consume = bray_runtime_report_consumer },
+    };
 }
 
 static int check_activation_dispatch(ActivationHeader* header, ActivationCallback callback)
@@ -1159,7 +1181,7 @@ static int check_activation_dispatch(ActivationHeader* header, ActivationCallbac
     ActivationRecords untouched_records = { .count = 17 };
 
     if (
-        bray_runtime_activation_dispatch(header, callback, 4, 0, &untouched, &untouched_records) != 3 ||
+        bray_runtime_activation_dispatch(header, callback, 6, 0, &untouched, &untouched_records) != 3 ||
         bray_runtime_activation_dispatch(header, callback, 3, 4, &untouched, &untouched_records) != 3 ||
         untouched_records.count != 17 ||
         untouched.kind != 13 ||
@@ -1168,6 +1190,38 @@ static int check_activation_dispatch(ActivationHeader* header, ActivationCallbac
     )
         return 86;
 
+    // The result remains resident until an exact, separately owned destination
+    // exists. Dispatch commits ownership only after the mover returns normally.
+    uintptr_t* source = (uintptr_t*)(header->lease.address + header->descriptor->completion);
+    uintptr_t destination = 0;
+    ActivationProgress moved = { 0 };
+    ActivationRecords remaining = { 0 };
+    *source = 7919;
+    header->phase = 3;
+    header->progress.kind = 1;
+
+    if (
+        bray_runtime_activation_dispatch(header, activation_move_failure, 4, (uintptr_t)&destination,
+            &moved, &remaining) != 0 ||
+        moved.kind != 3 || header->phase != 3 || header->progress.kind != 1 ||
+        *source != 7919 || destination != 0 || remaining.count != 0
+    )
+        return 118;
+
+    if (bray_runtime_report_consumer(&moved.report, 0) != 0)
+        return 119;
+
+    if (
+        bray_runtime_activation_dispatch(header, callback, 4, (uintptr_t)&destination, &moved, &remaining) != 0 ||
+        moved.kind != 1 || destination != 7919 || *source != 0 ||
+        header->phase != 4 || remaining.count != 0 ||
+        activation_calls != 5 || atomic_load(&allocation_attempts) != attempts
+    )
+        return 117;
+
+    // The fixture reuses its scalar-only frame for the second callback bridge.
+    header->phase = 1;
+    header->progress = (ActivationProgress){ 0 };
     return 0;
 }
 
@@ -1234,8 +1288,12 @@ static void activation_resolve(ActivationProgress* result, uintptr_t context, ui
 
 static void activation_move(uintptr_t context, uintptr_t destination)
 {
-    (void)context;
-    (void)destination;
+    ActivationHeader* header = (ActivationHeader*)context;
+    uintptr_t* source = (uintptr_t*)(header->lease.address + header->descriptor->completion);
+
+    ++activation_calls;
+    *(uintptr_t*)destination = *source;
+    *source = 0;
 }
 
 static void activation_destroy(uintptr_t context)
@@ -1380,7 +1438,9 @@ static int check_activation_composition(ActivationHeader* parent, InactiveActiva
 static int check_activation_publication(int embedded_descriptor, int restricted)
 {
     const ActivationDescriptor descriptor = {
-        .storage = { { 11 }, 1024, 4096 }, .completion_align = 1, .states = 8,
+        .storage = { { 11 }, 1024, 4096 },
+        .completion = sizeof(ActivationHeader), .completion_bytes = sizeof(uintptr_t),
+        .completion_align = _Alignof(uintptr_t), .states = 8,
         .state = restricted ? activation_restricted_state : activation_state,
         .resume = activation_complete, .cancel = activation_complete,
         .broadcast = activation_complete, .resolve = activation_resolve,
