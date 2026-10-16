@@ -3,24 +3,31 @@ trusted internal module bray.runtime.bootstrap.activation.execution;
 
 using std.memory;
 
-// The native dispatcher exclusively owns this exact admitted header for the call.
-// It retains the frame and descriptor provider. Callback reentry may attach a
-// child, but cannot dispatch or retire the executing frame.
+// The native dispatcher exclusively owns this exact admitted header. Retaining
+// callbacks may attach a child but cannot dispatch or retire the executing frame.
+// Retirement transfers the final records out before releasing frame storage.
+// Callback provider code remains live through every call.
 trusted internal predicate owned(pointer: RawPointer<bray.runtime.bootstrap.activation.Header>);
 
-// Resume, cancellation, broadcast and resolution retain their frame. Movement
-// and destruction have separate ownership commits and cannot use this operation.
+// Resume, cancellation, broadcast and resolution retain their frame. Retirement
+// consumes an already committed, detached frame and never accesses it afterward.
 trusted internal func invoke(
     pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
     pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
     pos operation: u32,
     pos argument: usize,
-) -> bray.runtime.bootstrap.activation.Progress
-    requires(trusted owned(pointer = pointer), trusted bray.runtime.bootstrap.entry.native_entry(), operation < 4)
-    ensures(
+) -> (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.ReportRecords)
+    requires(
         trusted owned(pointer = pointer),
-        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        operation < 4 || operation == 5,
     )
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report))
+    when(operation < 4)
+    {
+        ensures(trusted owned(pointer = pointer))
+    }
+    uses(intrinsic, raw_memory)
 {
     let take = trusted lambda(pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>) ->
         bray.runtime.bootstrap.activation.Header
@@ -62,6 +69,13 @@ trusted internal func invoke(
     };
 
     let mut header = trusted take(pointer);
+
+    if operation == 5 && (header.phase != bray.runtime.bootstrap.activation.COMMITTED || header.parent != 0 ||
+        header.child != 0 || header.incidents.count != 0)
+    {
+        trusted core.target.abort();
+    }
+
     let descriptor = header.descriptor;
     let context = header.context;
     let records = header.outgoing;
@@ -69,57 +83,80 @@ trusted internal func invoke(
     header.outgoing = bray.runtime.bootstrap.empty_records();
     trusted restore(pointer, header);
 
-    let call = trusted lambda(
+    let describe = trusted lambda(
         pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
-        pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
         pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
-        pos context: usize,
-        pos operation: u32,
-        pos argument: usize,
-        pos records: bray.runtime.bootstrap.ReportRecords,
-    ) -> (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.ReportRecords)
-        requires(trusted owned(pointer = pointer), trusted bray.runtime.bootstrap.entry.native_entry(), operation < 4)
+    )
+        requires(trusted owned(pointer = pointer))
         ensures(
-            trusted owned(pointer = pointer),
-            trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report),
+            trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Descriptor>(
+                pointer = descriptor,
+                count = 1
+            ),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor),
         )
+        executes(pure, total) {};
+
+    trusted describe(pointer, descriptor);
+
+    if operation < 4
     {
-        let describe = trusted lambda(
+        let call = trusted lambda(
             pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+            pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
             pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
-        )
-            requires(trusted owned(pointer = pointer))
-            ensures(
+            pos context: usize,
+            pos operation: u32,
+            pos argument: usize,
+            pos records: bray.runtime.bootstrap.ReportRecords,
+        ) -> (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.ReportRecords)
+            requires(
+                trusted owned(pointer = pointer),
+                trusted bray.runtime.bootstrap.entry.native_entry(),
                 trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Descriptor>(
                     pointer = descriptor,
                     count = 1
                 ),
                 trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor),
                 trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor),
+                operation < 4,
             )
-            executes(pure, total) {};
+            ensures(
+                trusted owned(pointer = pointer),
+                trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report),
+            )
+        {
+            return trusted bray.runtime.bootstrap.activation.callback.invoke(
+                callback,
+                descriptor,
+                context,
+                operation,
+                argument,
+                records
+            );
+        };
 
-        trusted describe(pointer, descriptor);
+        // Select the retaining contract before entry. The complete header is
+        // resident during reentry, and a fresh read preserves callback changes.
+        let (progress, remaining) = trusted call(pointer, callback, descriptor, context, operation, argument, records);
 
-        return trusted bray.runtime.bootstrap.activation.callback.invoke(
-            callback,
-            descriptor,
-            context,
-            operation,
-            argument,
-            records
-        );
-    };
+        let mut updated = trusted take(pointer);
 
-    // The complete header is resident before reentry. Read it again afterward,
-    // retaining any child links established by the callback.
-    let (progress, remaining) = trusted call(pointer, callback, descriptor, context, operation, argument, records);
+        updated.outgoing = remaining;
+        trusted restore(pointer, updated);
+        return (progress, bray.runtime.bootstrap.empty_records());
+    }
 
-    let mut updated = trusted take(pointer);
+    // A native provider may coallocate its immutable descriptor with the frame.
+    // Retain a stack copy for the callback's full borrow, including after release.
+    let description = trusted std.memory.read<bray.runtime.bootstrap.activation.Descriptor>(descriptor);
 
-    updated.outgoing = remaining;
-    trusted restore(pointer, updated);
-    return progress;
+    let retained = std.memory.address_of<bray.runtime.bootstrap.activation.Descriptor>(&description);
+
+    // Destruction may release the header. Remaining records leave through the
+    // caller's destination, and nothing reads or writes the header after entry.
+    return trusted bray.runtime.bootstrap.activation.callback.invoke(callback, retained, context, 5, argument, records);
 }
 
 @abi(c)
@@ -129,6 +166,7 @@ trusted internal func execute(
     pos operation: u32,
     pos argument: usize,
     pos output: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+    pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
 ) -> u32
     requires(
         trusted owned(pointer = pointer),
@@ -138,10 +176,12 @@ trusted internal func execute(
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Progress>(pointer = output, count = 1),
         trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Progress>(pointer = output),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = records),
     )
     uses(layout_reinterpret, raw_memory, unchecked_init)
 {
-    if operation >= 4
+    if operation >= 4 && operation != 5
     {
         return 3;
     }
@@ -150,19 +190,26 @@ trusted internal func execute(
         callback
     );
 
-    let progress = trusted invoke(pointer, selected, operation, argument);
+    let (progress, remaining) = trusted invoke(pointer, selected, operation, argument);
 
-    let destination = trusted lambda(pos output: RawPointer<bray.runtime.bootstrap.activation.Progress>)
+    let destination = trusted lambda(
+        pos output: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+        pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+    )
         requires(trusted bray.runtime.bootstrap.entry.native_entry())
         ensures(
             trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Progress>(pointer = output, count = 1),
             trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Progress>(pointer = output),
+            trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = records),
         )
         executes(pure, total) {};
 
     // The native entry retains its exclusive output slot while callbacks run.
-    trusted destination(output);
+    trusted destination(output, records);
 
     trusted std.memory.write<bray.runtime.bootstrap.activation.Progress>(output, progress);
+    trusted std.memory.write<bray.runtime.bootstrap.ReportRecords>(records, remaining);
+
     return bray.runtime.bootstrap.STATUS_SUCCESS;
 }

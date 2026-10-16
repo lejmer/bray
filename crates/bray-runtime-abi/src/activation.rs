@@ -6,6 +6,10 @@ use crate::{
 
 /// Immutable concrete frame description retained by its generated or native provider.
 /// The descriptor describes bytes and operations. It does not grant ownership of a lease.
+/// Retaining callbacks keep the frame live, including through reentry. Destruction
+/// follows result, report and child retirement and may release frame storage before
+/// returning. The dispatcher copies the descriptor before that consuming callback,
+/// so providers may store it in their frame. Callback code remains live through return.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct NativeActivationDescriptor {

@@ -89,7 +89,8 @@
 #include <unistd.h>
 #endif
 
-namespace {
+namespace
+{
 
 constexpr char observation_header[] = "BRAYPO01";
 constexpr std::uint8_t controlled_duration_record = 3;
@@ -522,7 +523,10 @@ public:
         }
     };
 
-    explicit OutputTask(std::coroutine_handle<promise_type> handle) : handle_(handle) {}
+    explicit OutputTask(std::coroutine_handle<promise_type> handle)
+        : handle_(handle)
+    {
+    }
 
     OutputTask(OutputTask const&) = delete;
     OutputTask& operator=(OutputTask const&) = delete;
@@ -592,8 +596,14 @@ bool workload()
 {
     bool first_result = false;
     bool second_result = false;
-    std::thread first{[&first_result]() { first_result = write_standard_output_repeatedly(); }};
-    std::thread second{[&second_result]() { second_result = write_standard_output_repeatedly(); }};
+    std::thread first{[&first_result]()
+    {
+        first_result = write_standard_output_repeatedly();
+    }};
+    std::thread second{[&second_result]()
+    {
+        second_result = write_standard_output_repeatedly();
+    }};
 
     first.join();
     second.join();

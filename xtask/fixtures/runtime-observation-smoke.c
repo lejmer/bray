@@ -16,14 +16,14 @@ extern void bray_runtime_performance_interval_end(void);
 
 struct concurrent_observation_state
 {
-    atomic_uint *ready;
-    atomic_bool *start;
+    atomic_uint* ready;
+    atomic_bool* start;
     size_t value;
 };
 
-static int observe_concurrent_allocations(void *context)
+static int observe_concurrent_allocations(void* context)
 {
-    struct concurrent_observation_state *state = context;
+    struct concurrent_observation_state* state = context;
     size_t record = 0;
 
     atomic_fetch_add_explicit(state->ready, 1, memory_order_release);
@@ -43,7 +43,7 @@ static int observe_concurrent_allocations(void *context)
     return 0;
 }
 
-int main(int argc, char **argv)
+int main(int argc, char** argv)
 {
     if (argc != 2)
     {

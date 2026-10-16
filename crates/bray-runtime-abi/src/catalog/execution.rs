@@ -915,10 +915,10 @@ macro_rules! runtime_role_catalog {
                 effects: [ActivateCleanupStorage]
             }
             ActivationDispatch {
-                "Enter an exclusively dispatched activation without retaining a header borrow.", "activation_dispatch",
-                native: (ACTIVATION_DISPATCH_SYMBOL = "bray_runtime_activation_dispatch", [Pointer, Pointer, U32, Usize, Pointer] -> U32),
+                "Dispatch a retaining callback or retire a committed activation without accessing released storage.", "activation_dispatch",
+                native: (ACTIVATION_DISPATCH_SYMBOL = "bray_runtime_activation_dispatch", [Pointer, Pointer, U32, Usize, Pointer, Pointer] -> U32),
                 call_hook: (),
-                compiler: C [Pointer, Pointer, U32, Usize, Pointer] -> U32,
+                compiler: C [Pointer, Pointer, U32, Usize, Pointer, Pointer] -> U32,
                 owner: Host, availability: All, bootstrap: ("activation.execution.execute"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: []

@@ -704,3 +704,43 @@ net, plus 83 handoff lines. Production growth supplies checked native admission
 and retaining callback dispatch. It removes the exposed resident-header helper
 and the rejected address-record experiment. There is still no second permanent
 activation owner. The old Rust graph remains an explicit unfinished replacement.
+
+## Consuming retirement and fixture style checkpoint
+
+Dispatch now distinguishes retaining operations from consuming destruction before
+callback entry. The retaining branch reloads the resident header after reentry.
+Destruction requires committed, detached ownership with no pending child or
+incidents, transfers unused report records to the caller, and never accesses the
+header after the callback. A stack copy keeps a coallocated immutable descriptor
+alive for the callback's entire borrow. Callback code and output slots remain
+caller-retained. ABI 1.0 remains the only supported ABI.
+
+The native fixture executes both the C provider and actual Rust callback bridge,
+with both external and frame-resident descriptors. Destruction poisons and releases
+the frame. Reclaiming that exact backing verifies that dispatch wrote no header
+bytes after release. The C callback also reads its descriptor after destruction.
+Allocation denial remains active throughout these transitions. The source contract
+regression accepts repeated retaining dispatch and rejects dispatch after consuming
+retirement. All six activation contract tests, the production body audit, complete
+native smoke suite, Rustfmt, mutating style and Bray formatting pass. Logs are
+`bra-561-consuming-retirement-*` and `bra-561-retirement-body-audit.log` in the
+shared target's `bra-620-authority` directory.
+
+The guarded postcondition is on the named invoke function. A local lambda instead
+uses an unconditional retaining contract selected before entry. Full semantic
+checking currently rejects guarded execution clauses on local lambdas even though
+the language reference permits them. This existing guarantee-coverage gap belongs
+to open [BRA-482](https://linear.app/bray-lang/issue/BRA-482), not closed BRA-500.
+This implementation does not depend on the unsupported form.
+
+At the user's request, audit all maintained C/C++ fixtures. Preserve their bootstrap
+fixture edits and expand remaining compressed declarations and control blocks.
+Apply the established Allman braces, type-attached pointers and semantic paragraph
+spacing to the other inconsistent fixtures. No C/C++ tokens change in this style
+pass. All five changed C fixtures and all 20 C++ performance workload variants pass
+native syntax checks. The C++ checks use the repository's Windows target flag
+`-D_AMD64_`. The first ad hoc invocation omitted it and failed in Windows SDK
+headers. No source workaround was added. Bray formatting passes afterward.
+
+This remains a checkpoint. Production token consumers, result movement and the
+iterative Bray run driver still need integration and replacement of the Rust owner.
