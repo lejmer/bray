@@ -771,3 +771,12 @@ after that commit. The shared byte-transfer function and cleanup report aggregat
 remain their existing owners. This checkpoint adds 9 production lines and 6 test
 lines net. Full activation/run replacement and surviving dependency acceptance
 remain outstanding.
+
+## Remaining inline fixture style
+
+The fixture audit also covers C/C++ source embedded in Rust tests. Expand the two
+native callback/cleanup caller templates and the Linux C++ exception probe into
+multiline source with the same brace and paragraph style. Preserve all native
+tokens and Rust format placeholders. Both native caller tests pass. The C++ probe
+passes syntax checking on Windows, while its Linux-only linking test remains
+platform-restricted. No production behavior changes in this fixture batch.

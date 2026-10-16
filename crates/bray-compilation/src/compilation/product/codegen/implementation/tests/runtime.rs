@@ -661,76 +661,209 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
         r#"
         #include <stdint.h>
         #include <stdlib.h>
-        typedef struct {{ _Alignas({report_align}) unsigned char data[{report_size}]; }} Report;
-        typedef struct {{ uint32_t state; uintptr_t payload; Report report; }} Outcome;
-        typedef struct {{ uint64_t first, second, third; }} Aggregate;
+
+        typedef struct
+        {{
+            _Alignas({report_align}) unsigned char data[{report_size}];
+        }} Report;
+
+        typedef struct
+        {{
+            uint32_t state;
+            uintptr_t payload;
+            Report report;
+        }} Outcome;
+
+        typedef struct
+        {{
+            uint64_t first, second, third;
+        }} Aggregate;
+
         static unsigned cleanups;
-        void record_cleanup(void) {{ ++cleanups; }}
+
+        void record_cleanup(void)
+        {{
+            ++cleanups;
+        }}
+
         static unsigned shield_depth;
-        void {shield_enter}(void) {{ ++shield_depth; }}
-        void {shield_leave}(void) {{ if (!shield_depth) _Exit(10); --shield_depth; }}
-        void {propagate_panic}(Report report) {{ (void)report; _Exit(11); }}
-        void {propagate_cancellation}(void) {{ _Exit(12); }}
-        Report {suppress}(Report first, Report second) {{ (void)first; (void)second; _Exit(13); }}
+
+        void {shield_enter}(void)
+        {{
+            ++shield_depth;
+        }}
+
+        void {shield_leave}(void)
+        {{
+            if (!shield_depth)
+                _Exit(10);
+
+            --shield_depth;
+        }}
+
+        void {propagate_panic}(Report report)
+        {{
+            (void)report;
+            _Exit(11);
+        }}
+
+        void {propagate_cancellation}(void)
+        {{
+            _Exit(12);
+        }}
+
+        Report {suppress}(Report first, Report second)
+        {{
+            (void)first;
+            (void)second;
+            _Exit(13);
+        }}
+
         static unsigned reports;
         static unsigned cancelled;
         static unsigned terminal_status;
         static unsigned reject_entry;
+
         // The C final image supplies the descriptor consumed by this stubbed control.
         const unsigned char bray_linked_product_host = 0;
-        typedef struct {{ uint32_t status, state; uintptr_t entries, external, threads, initialized, cleaned, incidents; unsigned char identity[32]; }} Observation;
-        void {control}(Observation* result, const void* descriptor, unsigned operation) {{
-            (void)descriptor; *result = (Observation){{0}};
-            if (operation == {acquire} && reject_entry) result->status = {closed};
+
+        typedef struct
+        {{
+            uint32_t status, state;
+            uintptr_t entries, external, threads, initialized, cleaned, incidents;
+            unsigned char identity[32];
+        }} Observation;
+
+        void {control}(Observation* result, const void* descriptor, unsigned operation)
+        {{
+            (void)descriptor;
+            *result = (Observation){{0}};
+
+            if (operation == {acquire} && reject_entry)
+                result->status = {closed};
         }}
-        unsigned {consumer}(Report* value, unsigned reporting) {{
-            (void)value; (void)reporting; return 0;
+
+        unsigned {consumer}(Report* value, unsigned reporting)
+        {{
+            (void)value;
+            (void)reporting;
+
+            return 0;
         }}
-        unsigned {boundary}(void (*callback)(uintptr_t, Outcome*, void*), uintptr_t context, Outcome* outcome) {{
+
+        unsigned {boundary}(
+            void (*callback)(uintptr_t, Outcome*, void*), uintptr_t context, Outcome* outcome)
+        {{
             callback(context, outcome, NULL);
-            if (outcome->state == {cancelled}) ++cancelled;
-            if (terminal_status == {represented}) ++reports;
+
+            if (outcome->state == {cancelled})
+                ++cancelled;
+
+            if (terminal_status == {represented})
+                ++reports;
+
             return terminal_status;
         }}
-        Report {construction}(uint32_t cause, uint32_t present, uint32_t identity,
-            uint32_t start, uint32_t end, uint64_t version, uint64_t n0, uint64_t n1,
-            uint64_t n2, uint64_t n3, const void* message, uintptr_t length) {{
+
+        Report {construction}(uint32_t cause,
+            uint32_t present,
+            uint32_t identity,
+            uint32_t start,
+            uint32_t end,
+            uint64_t version,
+            uint64_t n0,
+            uint64_t n1,
+            uint64_t n2,
+            uint64_t n3,
+            const void* message,
+            uintptr_t length)
+        {{
             Report report = {{0}};
+
             return report;
         }}
-        unsigned {report}(Report value) {{ (void)value; ++reports; return 0; }}
+
+        unsigned {report}(Report value)
+        {{
+            (void)value;
+            ++reports;
+
+            return 0;
+        }}
+
         extern uint32_t scalar(uint32_t mode);
         extern uint32_t nested(uint32_t mode);
         extern uint32_t through_pointer(uint32_t mode);
         extern uint32_t through_lambda(uint32_t mode);
         extern Aggregate aggregate(uint32_t mode);
-        int main(void) {{
-            if (scalar(0) != 73 || scalar(1) != 0 || scalar(2) != 0) return 1;
+
+        int main(void)
+        {{
+            if (scalar(0) != 73 || scalar(1) != 0 || scalar(2) != 0)
+                return 1;
+
             Aggregate normal = aggregate(0), failure = aggregate(1), panic = aggregate(2);
-            if (normal.first != 17 || normal.second != 29 || normal.third != 41) return 2;
-            if (failure.first || failure.second || failure.third) return 3;
-            if (panic.first || panic.second || panic.third) return 4;
-            if (nested(0) != 73 || nested(1) != 0 || nested(2) != 0) return 6;
-            if (through_pointer(0) != 73 || through_pointer(1) != 0 || through_pointer(2) != 0) return 7;
-            if (through_lambda(0) != 73 || through_lambda(1) != 0 || through_lambda(2) != 0) return 8;
-            if (reports != 5) return 31;
-            if (cleanups != 3) return 32;
-            if (shield_depth != 0) return 33;
+
+            if (normal.first != 17 || normal.second != 29 || normal.third != 41)
+                return 2;
+
+            if (failure.first || failure.second || failure.third)
+                return 3;
+
+            if (panic.first || panic.second || panic.third)
+                return 4;
+
+            if (nested(0) != 73 || nested(1) != 0 || nested(2) != 0)
+                return 6;
+
+            if (through_pointer(0) != 73 || through_pointer(1) != 0 || through_pointer(2) != 0)
+                return 7;
+
+            if (through_lambda(0) != 73 || through_lambda(1) != 0 || through_lambda(2) != 0)
+                return 8;
+
+            if (reports != 5)
+                return 31;
+
+            if (cleanups != 3)
+                return 32;
+
+            if (shield_depth != 0)
+                return 33;
+
             // The callback resolves its body outcome before releasing the entry.
-            if (cancelled != 0) return 34;
+            if (cancelled != 0)
+                return 34;
+
             terminal_status = {represented};
-            if (scalar(0) != 73 || reports != 6) return 14;
+
+            if (scalar(0) != 73 || reports != 6)
+                return 14;
+
             terminal_status = {unrepresented};
-            if (scalar(0) != 73 || reports != 7) return 15;
+
+            if (scalar(0) != 73 || reports != 7)
+                return 15;
+
             terminal_status = {represented};
             normal = aggregate(0);
-            if (normal.first != 17 || normal.second != 29 || normal.third != 41 || reports != 8) return 16;
+
+            if (normal.first != 17 || normal.second != 29 || normal.third != 41 || reports != 8)
+                return 16;
+
             reject_entry = 1;
-            if (nested(0) != 0 || cleanups != 3) return 17;
+
+            if (nested(0) != 0 || cleanups != 3)
+                return 17;
+
             failure = aggregate(0);
-            if (failure.first || failure.second || failure.third || reports != 8) return 18;
+
+            if (failure.first || failure.second || failure.third || reports != 8)
+                return 18;
+
             return 0;
         }}
+
     "#,
         shield_enter = RuntimeAbiRole::CleanupShieldEnter.native_symbol().unwrap(),
         shield_leave = RuntimeAbiRole::CleanupShieldLeave.native_symbol().unwrap(),
@@ -897,40 +1030,113 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
         r#"
         #include <stdint.h>
         #include <stdlib.h>
-        typedef struct {{ _Alignas({align}) unsigned char data[{size}]; }} Report;
-        typedef struct {{ uint32_t state; uintptr_t payload; Report report; }} Outcome;
+
+        typedef struct
+        {{
+            _Alignas({align}) unsigned char data[{size}];
+        }} Report;
+
+        typedef struct
+        {{
+            uint32_t state;
+            uintptr_t payload;
+            Report report;
+        }} Outcome;
+
         static unsigned reported, merged, shield_depth;
-        void {shield_enter}(void) {{ ++shield_depth; }}
-        void {shield_leave}(void) {{ if (!shield_depth) _Exit(8); --shield_depth; }}
-        void {propagate_panic}(Report* report) {{ (void)report; _Exit(9); }}
-        void {propagate_cancellation}(void) {{ _Exit(10); }}
-        Report {construct}(uint32_t cause, uint32_t present, uint32_t identity,
-            uint32_t start, uint32_t end, uint64_t version, uint64_t n0,
-            uint64_t n1, uint64_t n2, uint64_t n3, const void* text, uintptr_t length) {{
+
+        void {shield_enter}(void)
+        {{
+            ++shield_depth;
+        }}
+
+        void {shield_leave}(void)
+        {{
+            if (!shield_depth)
+                _Exit(8);
+
+            --shield_depth;
+        }}
+
+        void {propagate_panic}(Report* report)
+        {{
+            (void)report;
+            _Exit(9);
+        }}
+
+        void {propagate_cancellation}(void)
+        {{
+            _Exit(10);
+        }}
+
+        Report {construct}(uint32_t cause,
+            uint32_t present,
+            uint32_t identity,
+            uint32_t start,
+            uint32_t end,
+            uint64_t version,
+            uint64_t n0,
+            uint64_t n1,
+            uint64_t n2,
+            uint64_t n3,
+            const void* text,
+            uintptr_t length)
+        {{
             Report result = {{0}};
             result.data[0] = 22;
+
             return result;
         }}
-        unsigned {report}(Report value) {{ if (value.data[0] != 22) _Exit(1); ++reported; return 0; }}
-        Report {suppress}(Report* first, Report* second) {{
-            if (first->data[0] != 11 || second->data[0] != 22) _Exit(2);
+
+        unsigned {report}(Report value)
+        {{
+            if (value.data[0] != 22)
+                _Exit(1);
+
+            ++reported;
+
+            return 0;
+        }}
+
+        Report {suppress}(Report* first, Report* second)
+        {{
+            if (first->data[0] != 11 || second->data[0] != 22)
+                _Exit(2);
+
             Report result = *first;
-            *first = (Report){{0}}; *second = (Report){{0}};
+            *first = (Report){{0}};
+            *second = (Report){{0}};
             result.data[1] = 22;
             ++merged;
+
             return result;
         }}
+
         extern unsigned {entry}(void*, uintptr_t, unsigned, Outcome*);
-        int main(void) {{
+
+        int main(void)
+        {{
             Outcome completed = {{0, 73, {{0}}}};
-            if ({entry}(0, 0, 0, &completed) != {represented}) return 3;
-            if (completed.state || completed.payload != 73 || reported != 1 || merged) return 4;
+
+            if ({entry}(0, 0, 0, &completed) != {represented})
+                return 3;
+
+            if (completed.state || completed.payload != 73 || reported != 1 || merged)
+                return 4;
+
             Outcome panicked = {{{panicked}, 0, {{0}}}};
             panicked.report.data[0] = 11;
-            if ({entry}(0, 0, 0, &panicked) != {represented}) return 5;
-            if (panicked.state != {panicked} || panicked.report.data[0] != 11 || panicked.report.data[1] != 22) return 6;
+
+            if ({entry}(0, 0, 0, &panicked) != {represented})
+                return 5;
+
+            if (panicked.state != {panicked} || panicked.report.data[0] != 11 ||
+                panicked.report.data[1] != 22)
+                return 6;
+
             return reported == 1 && merged == 1 && shield_depth == 0 ? 0 : 7;
         }}
+
     "#,
         shield_enter = RuntimeAbiRole::CleanupShieldEnter.native_symbol().unwrap(),
         shield_leave = RuntimeAbiRole::CleanupShieldLeave.native_symbol().unwrap(),

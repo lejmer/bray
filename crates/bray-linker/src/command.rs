@@ -838,7 +838,36 @@ mod tests {
     {
         use std::process::Command;
 
-        let source = bray_testing::TemporaryFile::write("probe.cpp", b"#include <stdexcept>\nint cleaned = 0; struct Guard { ~Guard(){++cleaned;} }; int main(){try {Guard guard; throw std::runtime_error(\"probe\");} catch(...) {return cleaned == 1 ? 0 : 1;}}\n");
+        let source = bray_testing::TemporaryFile::write(
+            "probe.cpp",
+            br#"
+                #include <stdexcept>
+
+                int cleaned = 0;
+
+                struct Guard
+                {
+                    ~Guard()
+                    {
+                        ++cleaned;
+                    }
+                };
+
+                int main()
+                {
+                    try
+                    {
+                        Guard guard;
+                        throw std::runtime_error("probe");
+                    }
+                    catch (...)
+                    {
+                        return cleaned == 1 ? 0 : 1;
+                    }
+                }
+            "#,
+        );
+
         let dynamic = crate::test_support::TestOutput::new("probe-dynamic");
 
         assert!(
