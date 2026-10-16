@@ -1144,6 +1144,7 @@ static int check_activation_dispatch(ActivationHeader* header, ActivationCallbac
 
     if (
         bray_runtime_activation_dispatch(header, callback, 4, 0, &untouched, &untouched_records) != 3 ||
+        bray_runtime_activation_dispatch(header, callback, 3, 4, &untouched, &untouched_records) != 3 ||
         untouched_records.count != 17 ||
         untouched.kind != 13 ||
         activation_calls != 4 ||

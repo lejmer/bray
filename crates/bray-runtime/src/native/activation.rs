@@ -40,7 +40,10 @@ enum Operation {
 }
 
 /// Invokes a producer callback with exclusive destinations supplied by the Bray dispatcher.
-/// The caller retains the descriptor provider, frame and admitted unwind records.
+/// The caller supplies the matching provider context and disjoint initialized
+/// output slots, with an empty destination report and exclusively owned records.
+/// Retaining operations keep their frame live. Destruction may release it, while
+/// the descriptor and provider code remain live until the callback returns.
 pub extern "C" fn bray_runtime_activation_callback(
     descriptor: &NativeActivationDescriptor,
     context: usize,

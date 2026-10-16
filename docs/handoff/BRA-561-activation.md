@@ -780,3 +780,46 @@ multiline source with the same brace and paragraph style. Preserve all native
 tokens and Rust format placeholders. Both native caller tests pass. The C++ probe
 passes syntax checking on Windows, while its Linux-only linking test remains
 platform-restricted. No production behavior changes in this fixture batch.
+
+## Exact callback invocation and destination authority
+
+The low-level callback previously required memory-valid arguments without proving
+that descriptor, context and admitted records belonged to the same invocation.
+The native execute entry also reissued destination-write facts after callback
+entry using only native-entry authority. That did not express the caller's duty
+to retain output slots independently of a frame that destruction may release.
+
+Require one exact callback invocation over descriptor, context, operation, argument,
+progress slot and records slot. The only production issuer is a nonescaping local
+lambda in the owned dispatcher. Its two calls use fields read from that exact
+header, records removed from that header, and distinct initialized local slots.
+The retaining branch uses the original descriptor. Consuming retirement uses the
+previously established stack copy. Returned evidence binds both report progress
+and unused records to their exact output slots. A callback consumes its invocation
+authority. No field construction or generic memory-validity claim supplies it.
+
+Require exact retained native destinations at execute entry. Its local dispatch
+operation carries that promise from its precondition to the post-call write facts.
+Remove the former native-entry-only post-call issuer. The actual C callers own
+separate lexical output objects across the entire call, including poison/release
+of the frame and coallocated descriptor. Invalid operation or resolution argument
+returns before callback entry and leaves both output objects unchanged. Retaining
+callbacks reload the header after reentry. Destruction never accesses it afterward.
+The Rust callback documentation now states matching context, initialized empty
+progress, exclusive admitted records and descriptor/code lifetime explicitly.
+
+Eight activation authority tests and the complete production body audit pass.
+Negative cases substitute every callback component, replay a consumed invocation,
+and substitute the frame or either native output slot. Bare writable-memory facts
+do not satisfy the retained-destination contract. An initial body-audit failure
+identified a local name collision, which was corrected without changing contracts.
+The complete native smoke suite passes with both callback bridges and descriptor
+placements, allocation denial and the invalid-resolution-argument case. Rustfmt,
+mutating style, Bray format and diff whitespace checks pass. Logs use
+`bra-561-callback-authority-` in the shared target's `bra-620-authority` directory.
+
+These requirements replace incomplete boundary contracts. They add no runtime
+record, language syntax, compatibility path or validation pass. This batch adds
+91 production lines net and 214 test lines net. The current native caller inventory
+is still the fixture. Production entry, direct-await, root, task and static-finalizer
+integration remains unfinished and must establish the same contracts when switched.

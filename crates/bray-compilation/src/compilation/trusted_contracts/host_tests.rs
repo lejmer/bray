@@ -1993,6 +1993,7 @@ fn native_activation_dispatch_requires_the_exact_callback_address() {
                 requires(
                     trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
                     trusted bray.runtime.bootstrap.entry.native_entry(),
+                    trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = pointer, output = output, records = records),
                     trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Progress>(pointer = output, count = 1),
                     trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Progress>(pointer = output),
                     trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
@@ -2045,6 +2046,218 @@ fn activation_retirement_does_not_preserve_dispatch_ownership() {
                 let _ = trusted bray.runtime.bootstrap.activation.execution.invoke(pointer, callback, {operation}, 0);
                 let (progress, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(pointer, callback, 0, 0);
                 return progress;
+            }}
+            "#
+        );
+
+        let compilation = production_host_compilation(&caller);
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !lowered.diagnostics().has_errors(),
+            valid,
+            "{caller}: {:?}",
+            lowered.diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                lowered.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn activation_callback_requires_one_exact_authorized_invocation() {
+    for (descriptor, context, operation, argument, progress, records, repeat, valid) in [
+        (
+            "descriptor",
+            "context",
+            "0",
+            "0",
+            "progress",
+            "records",
+            false,
+            true,
+        ),
+        (
+            "other_descriptor",
+            "context",
+            "0",
+            "0",
+            "progress",
+            "records",
+            false,
+            false,
+        ),
+        (
+            "descriptor",
+            "other_context",
+            "0",
+            "0",
+            "progress",
+            "records",
+            false,
+            false,
+        ),
+        (
+            "descriptor",
+            "context",
+            "1",
+            "0",
+            "progress",
+            "records",
+            false,
+            false,
+        ),
+        (
+            "descriptor",
+            "context",
+            "0",
+            "1",
+            "progress",
+            "records",
+            false,
+            false,
+        ),
+        (
+            "descriptor",
+            "context",
+            "0",
+            "0",
+            "other_progress",
+            "records",
+            false,
+            false,
+        ),
+        (
+            "descriptor",
+            "context",
+            "0",
+            "0",
+            "progress",
+            "other_records",
+            false,
+            false,
+        ),
+        (
+            "descriptor",
+            "context",
+            "0",
+            "0",
+            "progress",
+            "records",
+            true,
+            false,
+        ),
+    ] {
+        let invocation = "trusted callback(descriptor, context, 0, 0, progress, records);";
+        let repeated = if repeat { invocation } else { "" };
+
+        let caller = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+            trusted func production_probe(
+                pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+                pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
+                pos other_descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
+                pos context: usize,
+                pos other_context: usize,
+                pos progress: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+                pos other_progress: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+                pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+                pos other_records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+            )
+                requires(
+                    trusted bray.runtime.bootstrap.entry.native_entry(),
+                    trusted bray.runtime.bootstrap.activation.callback.authorized(
+                        descriptor = {descriptor},
+                        context = {context},
+                        operation = {operation},
+                        argument = {argument},
+                        progress = {progress},
+                        records = {records},
+                    ),
+                )
+            {{
+                {invocation}
+                {repeated}
+            }}
+            "#
+        );
+
+        let compilation = production_host_compilation(&caller);
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !lowered.diagnostics().has_errors(),
+            valid,
+            "{caller}: {:?}",
+            lowered.diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                lowered.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn activation_retirement_requires_retained_native_destinations() {
+    for (requirement, valid) in [
+        ("", false),
+        (
+            "requires(trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = other, output = output, records = records))",
+            false,
+        ),
+        (
+            "requires(trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = pointer, output = other_output, records = records))",
+            false,
+        ),
+        (
+            "requires(trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = pointer, output = output, records = other_records))",
+            false,
+        ),
+        (
+            "requires(trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = pointer, output = output, records = records))",
+            true,
+        ),
+    ] {
+        let caller = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+            trusted func production_probe(
+                pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+                pos other: RawPointer<bray.runtime.bootstrap.activation.Header>,
+                pos callback: RawPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
+                pos output: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+                pos other_output: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+                pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+                pos other_records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+            ) -> u32
+                requires(
+                    trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
+                    trusted bray.runtime.bootstrap.entry.native_entry(),
+                    trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Invoke>(pointer = callback),
+                    trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Progress>(pointer = output, count = 1),
+                    trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Progress>(pointer = output),
+                    trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
+                    trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = records),
+                )
+                {requirement}
+            {{
+                return trusted bray.runtime.bootstrap.activation.execution.execute(pointer, callback, 5, 0, output, records);
             }}
             "#
         );

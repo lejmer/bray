@@ -5,6 +5,20 @@ using std.memory;
 using internal bray.runtime.bootstrap.activation;
 using internal bray.runtime.bootstrap;
 
+// One invocation owns this exact descriptor/context pairing and both disjoint
+// output slots. The progress slot is initialized with an empty report.
+// The records slot owns the admitted records removed from that
+// activation. Retaining operations keep its frame alive, and consuming retirement
+// retains its descriptor copy and provider code through return.
+trusted internal predicate authorized(
+    descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
+    context: usize,
+    operation: u32,
+    argument: usize,
+    progress: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+    records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+);
+
 // The native bridge contains unwind and retains the selected provider throughout
 // the call. Frame headers are not borrowed while producer code executes.
 internal callable Invoke = @abi(c) trusted func(
@@ -17,15 +31,14 @@ internal callable Invoke = @abi(c) trusted func(
 )
     requires(
         trusted bray.runtime.bootstrap.entry.native_entry(),
-        trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor, count = 1),
-        trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor),
-        trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor),
-        trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Progress>(pointer = progress, count = 1),
-        trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Progress>(pointer = progress),
-        trusted core.memory.valid_read<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
-        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
-        trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportRecords>(pointer = records),
-        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = records),
+        trusted authorized(
+            descriptor = descriptor,
+            context = context,
+            operation = operation,
+            argument = argument,
+            progress = progress,
+            records = records,
+        ),
     )
     ensures(
         trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor, count = 1),
@@ -38,12 +51,15 @@ internal callable Invoke = @abi(c) trusted func(
         trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
         trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportRecords>(pointer = records),
         trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = records),
-        trusted returned(progress = progress),
+        trusted returned(progress = progress, records = records),
     );
 
-// This is the native callback's ownership result, including its report provider.
-// An arbitrary initialized bray.runtime.bootstrap.activation.Progress record cannot manufacture this evidence.
-trusted internal predicate returned(progress: RawPointer<bray.runtime.bootstrap.activation.Progress>);
+// The output owns its report provider and all unused records. Initialized fields
+// alone cannot manufacture this evidence.
+trusted internal predicate returned(
+    progress: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+    records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+);
 
 trusted internal func invoke(
     pos callback: Invoke,
@@ -51,34 +67,31 @@ trusted internal func invoke(
     pos context: usize,
     pos operation: u32,
     pos argument: usize,
-    pos mut records: bray.runtime.bootstrap.ReportRecords,
+    pos progress: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+    pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
 ) -> (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.ReportRecords)
     requires(
         trusted bray.runtime.bootstrap.entry.native_entry(),
-        trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor, count = 1),
-        trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor),
-        trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor),
+        trusted authorized(
+            descriptor = descriptor,
+            context = context,
+            operation = operation,
+            argument = argument,
+            progress = progress,
+            records = records,
+        ),
     )
     ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report))
     uses(raw_memory)
 {
-    let mut progress: bray.runtime.bootstrap.activation.Progress =
-    {
-        kind = 4,
-        state = 0,
-        payload = 0,
-        report = bray.runtime.bootstrap.empty_panic_report(),
-    };
+    trusted callback(descriptor, context, operation, argument, progress, records);
 
-    let output = std.memory.address_of_mut<bray.runtime.bootstrap.activation.Progress>(&mut progress);
-    let available = std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records);
-
-    trusted callback(descriptor, context, operation, argument, output, available);
-
-    let take = trusted lambda(pos source: RawPointer<bray.runtime.bootstrap.activation.Progress>) ->
-        bray.runtime.bootstrap.activation.Progress
+    let take = trusted lambda(
+        pos source: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+        pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+    ) -> bray.runtime.bootstrap.activation.Progress
         requires(
-            trusted returned(progress = source),
+            trusted returned(progress = source, records = records),
             trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Progress>(pointer = source, count = 1),
             trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Progress>(pointer = source),
             trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Progress>(pointer = source),
@@ -88,7 +101,7 @@ trusted internal func invoke(
         return trusted std.memory.read<bray.runtime.bootstrap.activation.Progress>(source);
     };
 
-    let remaining = trusted std.memory.read<bray.runtime.bootstrap.ReportRecords>(available);
+    let remaining = trusted std.memory.read<bray.runtime.bootstrap.ReportRecords>(records);
 
-    return (take(output), remaining);
+    return (take(progress, records), remaining);
 }
