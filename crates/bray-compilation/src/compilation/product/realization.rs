@@ -1,5 +1,6 @@
 mod abi;
 mod aggregate;
+mod completion;
 mod contextual_self;
 mod debug;
 mod defaults;

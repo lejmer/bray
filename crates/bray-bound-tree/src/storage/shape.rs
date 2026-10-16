@@ -16,7 +16,6 @@ pub struct StorageCleanupType {
     components: Option<Arc<[StorageCleanupProjection]>>,
     release: Option<StorageProtocolCall>,
     requires_whole_value: bool,
-    execution_requirements: Option<Arc<[bray_symbols::CallableExecutionRequirement]>>,
 }
 
 impl StorageCleanupType {
@@ -28,7 +27,6 @@ impl StorageCleanupType {
             components: None,
             release: None,
             requires_whole_value: false,
-            execution_requirements: None,
         }
     }
 
@@ -45,21 +43,6 @@ impl StorageCleanupType {
         self.requires_whole_value = requires_whole_value;
 
         self
-    }
-
-    /// Records execution requirements of the selected whole-value cleanup operations.
-    pub fn with_execution_requirements(
-        mut self,
-        requirements: impl IntoIterator<Item = bray_symbols::CallableExecutionRequirement>,
-    ) -> Self {
-        self.execution_requirements = Some(bray_base::sorted_unique_shared_slice(requirements));
-
-        self
-    }
-
-    /// Returns execution requirements established for cleanup, when demanded.
-    pub fn execution_requirements(&self) -> Option<&[bray_symbols::CallableExecutionRequirement]> {
-        self.execution_requirements.as_deref()
     }
 
     /// Returns the substituted semantic type whose storage was checked.

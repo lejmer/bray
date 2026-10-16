@@ -199,7 +199,12 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Option<()> {
 
     match (descriptor.completion_state(), completions.next()) {
         (Some(state), Some((storage, value))) => {
-            if value.ty() != descriptor.result_type()
+            if !descriptor
+                .states()
+                .iter()
+                .find(|entry| entry.state() == state)?
+                .is_completion_cleanup()
+                || value.ty() != descriptor.result_type()
                 || !descriptor
                     .states()
                     .iter()
@@ -219,6 +224,10 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Option<()> {
     }
 
     for state in descriptor.states() {
+        if state.is_completion_cleanup() && descriptor.completion_state().is_none() {
+            return None;
+        }
+
         for entry in [state.entry(), state.broadcast()] {
             if entry.unit() != unit.unit() || unit.block(entry).is_none() {
                 return None;

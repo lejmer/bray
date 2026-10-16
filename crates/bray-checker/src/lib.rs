@@ -71,7 +71,10 @@ pub use execution_guarantees::{
     predicate_conditions_with_inputs, remap_execution_condition_inputs,
 };
 pub use expression::{NestedCallableEvidence, call_result, check_generic_arguments};
-pub use lifecycle::{LifecycleSelectionContext, LifecycleSelectionError, select_lifecycle_action};
+pub use lifecycle::{
+    LifecycleSelectionContext, LifecycleSelectionError, invocation_execution_requirements,
+    select_lifecycle_action,
+};
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use pattern::{
     GuardConstantEvidence, PatternCheckInput, PatternConstantEvidence, PatternSubjectType,

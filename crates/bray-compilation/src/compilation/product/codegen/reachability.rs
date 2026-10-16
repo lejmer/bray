@@ -288,7 +288,7 @@ impl Compilation {
         }
         .map_err(NativeProductPlanningError::InvalidReachability)?;
 
-        let completed = self
+        let mut completed = self
             .state
             .fact_runtime
             .complete_batch(root_instances, cancellation, |realization| {
@@ -414,6 +414,36 @@ impl Compilation {
                 )
             })
             .map_err(native_batch_error)?;
+
+        let current = completed
+            .iter()
+            .filter_map(|(owner, evaluation)| match evaluation {
+                ReachabilityEvaluation::Instance { instance, .. } => Some((instance, owner)),
+                ReachabilityEvaluation::External(_) => None,
+            });
+
+        let retained = previous.iter().flat_map(|previous| {
+            previous.graph().instances().iter().map(|instance| {
+                (
+                    instance,
+                    previous
+                        .instance(instance.key())
+                        .expect("retained instance has its realization"),
+                )
+            })
+        });
+
+        let requirements =
+            self.completion_execution_requirements(current.chain(retained), target, cancellation)?;
+
+        for (_, evaluation) in &mut completed {
+            if let ReachabilityEvaluation::Instance { instance, .. } = evaluation {
+                if let Some(requirements) = requirements.get(instance.key()) {
+                    // The graph publishes the realized immutable descriptor to all downstream consumers.
+                    *instance = instance.clone().with_completion_requirements(requirements);
+                }
+            }
+        }
 
         finish_codegen_reachability(builder, previous, &roots, completed)
     }

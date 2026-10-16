@@ -26,6 +26,7 @@ pub struct MirFrameState {
     entry: MirBlockId,
     broadcast: MirBlockId,
     affinity: ProtectedFrameAffinity,
+    completion_cleanup: bool,
     lane_requirements: Arc<[ExecutionLaneRequirement]>,
     initialized_storages: Arc<[MirStorageId]>,
 }
@@ -44,6 +45,7 @@ impl MirFrameState {
             entry,
             broadcast,
             affinity: ProtectedFrameAffinity::Movable,
+            completion_cleanup: false,
             lane_requirements: sorted_unique_shared_slice(lane_requirements),
             initialized_storages: sorted_unique_shared_slice(initialized_storages),
         }
@@ -69,6 +71,18 @@ impl MirFrameState {
         self.affinity = affinity;
 
         self
+    }
+
+    /// Marks entries belonging to completed-result disposal, including its continuations.
+    pub const fn with_completion_cleanup(mut self, completion_cleanup: bool) -> Self {
+        self.completion_cleanup = completion_cleanup;
+
+        self
+    }
+
+    /// Returns whether this state executes completed-result disposal.
+    pub const fn is_completion_cleanup(&self) -> bool {
+        self.completion_cleanup
     }
 
     /// Returns the checked thread-affinity for this frame state.
@@ -99,6 +113,19 @@ pub struct MirFrameDescriptor {
 }
 
 impl MirFrameDescriptor {
+    pub(crate) fn include_completion_requirements(
+        &mut self,
+        requirements: &[ExecutionLaneRequirement],
+    ) {
+        for state in Arc::make_mut(&mut self.states) {
+            if state.completion_cleanup {
+                state.lane_requirements = sorted_unique_shared_slice(
+                    state.lane_requirements.iter().chain(requirements).copied(),
+                );
+            }
+        }
+    }
+
     pub(crate) fn remap_local_ids(
         &mut self,
         mappings: &impl crate::unit::local_id_remap::MirLocalIdMapping,

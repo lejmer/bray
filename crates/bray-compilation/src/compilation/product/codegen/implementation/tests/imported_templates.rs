@@ -361,6 +361,101 @@ fn imported_generic_template_families_merge_protected_frame_requirements() {
 }
 
 #[test]
+fn imported_completed_results_retain_concrete_cleanup_lanes() {
+    let compilation = generic_consumer_for_target_with_source(
+        generic_async_dependency(),
+        SelectedTarget::baseline(),
+        r#"
+        module application;
+
+        using example.dependency.templates.identity;
+
+        struct Guard
+        {
+            destruct()
+                requires(blocking_execution())
+            {
+            }
+        }
+
+        async func main()
+            requires(blocking_execution())
+        {
+            let value = await example.dependency.templates.identity<(Guard, i32)>((Guard {}, 7));
+        }
+        "#,
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+
+    let target = compilation
+        .selected_target()
+        .target()
+        .codegen_target()
+        .unwrap();
+
+    let semantic = compilation.product_semantics().unwrap();
+    let cancellation = &compilation.state.cancellation;
+
+    let roots = compilation
+        .product_root_instances(semantic.value(), None, &target, cancellation)
+        .unwrap();
+
+    let reachability = compilation
+        .codegen_reachability(
+            roots,
+            None,
+            &target,
+            CodegenOptions::default(),
+            false,
+            cancellation,
+        )
+        .unwrap();
+
+    let mut checked = 0;
+
+    for instance in reachability.graph().instances() {
+        if !matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_)) {
+            continue;
+        }
+
+        let Some(frame) = instance.mir().frame_descriptor() else {
+            continue;
+        };
+
+        let completion = frame
+            .completion_state()
+            .expect("imported owned result retains disposal");
+
+        let state = frame
+            .states()
+            .iter()
+            .find(|state| state.state() == completion)
+            .unwrap();
+
+        assert!(state.is_completion_cleanup());
+
+        assert_eq!(
+            state.lane_requirements(),
+            [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
+        );
+
+        checked += 1;
+    }
+
+    assert_eq!(
+        checked, 3,
+        "all imported generic async bodies must retain the concrete result contract"
+    );
+
+    realize_codegen_mappings(&compilation, &target, &reachability, cancellation);
+}
+
+#[test]
 fn imported_generic_templates_are_shared_by_concurrent_requests() {
     let compilation = generic_consumer(generic_dependency(true));
     let address = imported_nested_template_address(&compilation);

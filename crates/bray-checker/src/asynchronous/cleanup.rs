@@ -642,7 +642,6 @@ where
     ) && let Some(result) = types.callable_result_type()
     {
         cleanup_shapes.include_input(result)?;
-        cleanup_shapes.completion_requirements(result)?;
     }
 
     Ok((

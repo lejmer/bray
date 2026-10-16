@@ -497,7 +497,7 @@ fn completed_frame_result_has_its_own_cleanup_state() {
 }
 
 #[test]
-fn completed_result_cleanup_uses_its_own_execution_lane() {
+fn completed_result_cleanup_retains_its_separate_execution_phase() {
     let application = compilation(
         r#"
         module app;
@@ -532,13 +532,16 @@ fn completed_result_cleanup_uses_its_own_execution_lane() {
 
     assert!(frame.states()[0].lane_requirements().is_empty());
 
-    assert_eq!(
-        frame
-            .states()
-            .iter()
-            .find(|state| state.state() == completion)
-            .unwrap()
-            .lane_requirements(),
-        [ExecutionLaneRequirement::Blocking]
+    let cleanup = frame
+        .states()
+        .iter()
+        .find(|state| state.state() == completion)
+        .unwrap();
+
+    assert!(cleanup.is_completion_cleanup());
+
+    assert!(
+        cleanup.lane_requirements().is_empty(),
+        "concrete lifecycle realization owns this requirement"
     );
 }

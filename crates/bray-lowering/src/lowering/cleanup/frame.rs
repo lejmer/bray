@@ -104,7 +104,8 @@ impl Lowerer<'_> {
                 self.execution_lane_requirements(),
                 [storage],
             )
-            .with_affinity(self.frame_affinity()),
+            .with_affinity(self.frame_affinity())
+            .with_completion_cleanup(true),
         );
 
         self.completion_cleanup = None;

@@ -1026,12 +1026,28 @@ Mutating style and Bray formatting pass. Logs are in the shared target directory
 repeated terminal-state calculations and unnecessary synchronous result analysis.
 Its focused checks, mutating style, Bray formatting and full native artifact smoke pass, including allocation denial and completion-move failure followed by retry through both callback bridges.
 
-Remaining acceptance includes concrete result cleanup requirements after generic
-specialization and imported-template realization. Open type parameters cannot be
-assumed to have no execution requirements. The existing generated lifecycle query
-already retains its selected local calls, which should be reused when realizing
-concrete metadata. Do not introduce another lifecycle traversal or validation pass.
-Also verify native execution of completed-result abandonment, not just LLVM emission.
+Concrete realization now derives completed-result cleanup requirements from the
+existing generated lifecycle dependencies and checked invocation signatures. It
+replaces the partial source-only result analysis. Tagged cleanup continuations
+retain those requirements through imported templates without applying them to the
+producer body. The temporary MIR content-identity cache uses allocation identity,
+so two specialized descriptors cannot reuse a digest through a template-local ID.
+
+Direct and nested generic results, all three imported async frames, completed-result
+LLVM emission, 44 IR, 39 lowering-library and 190 interface tests pass. All 78
+compilation-lowering tests and the concrete partition identity regression pass.
+Rustfmt and mutating style pass. Native artifact smoke passes; its log is
+`target/bra-620-authority/bra-561-concrete-native.log`. Other current logs use the
+`bra-561-concrete-` and `bra-561-generic-` prefixes in that directory.
+
+The previous result-retention checkpoint `c5ffa8d4` received an independent review
+with no findings: https://github.com/lejmer/bray/pull/611#pullrequestreview-5548809104.
+That was an intermediate review, not acceptance of the unfinished issue.
+
+Still verify native execution of completed-result abandonment. During the driver
+switch, account for cancellation-entry execution requirements separately from
+normal source execution: an unconsumed generic capture may require a different
+cleanup lane even when the ordinary body transfers it without destruction.
 
 Then finish the production driver switch listed above: exact per-callback execution
 context, one iterative Bray parent/child chain, destination-based completion,

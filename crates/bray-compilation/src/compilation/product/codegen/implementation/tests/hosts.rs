@@ -722,3 +722,63 @@ fn owned_completion_emits_a_resumable_disposal_entry() {
         "only the owned child result requires disposal"
     );
 }
+#[test]
+fn generic_completed_results_retain_concrete_cleanup_lanes() {
+    for (ty, value) in [("Guard", "Guard {}"), ("(Guard, i32)", "(Guard {}, 7)")] {
+        let (_, plan) = runtime_native_plan(
+            &r#"
+        module app;
+
+        struct Guard
+        {
+            destruct()
+                requires(blocking_execution())
+            {
+            }
+        }
+
+        async func identity<T>(pos value: T) -> T
+        {
+            return value;
+        }
+
+        async func main() -> i32
+            requires(blocking_execution())
+        {
+            let value = await identity<RESULT>(VALUE);
+
+            return 0;
+        }
+        "#
+            .replace("RESULT", ty)
+            .replace("VALUE", value),
+        );
+
+        let completions = plan
+            .units()
+            .iter()
+            .flat_map(|unit| unit.instances())
+            .filter_map(|instance| instance.mir().frame_descriptor())
+            .filter_map(|frame| {
+                frame.completion_state().map(|completion| {
+                    frame
+                        .states()
+                        .iter()
+                        .find(|state| state.state() == completion)
+                        .unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            completions.len(),
+            1,
+            "the concrete owned result must retain its disposal state"
+        );
+
+        assert_eq!(
+            completions[0].lane_requirements(),
+            [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
+        );
+    }
+}

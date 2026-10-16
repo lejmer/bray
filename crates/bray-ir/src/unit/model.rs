@@ -243,6 +243,19 @@ impl MirUnit {
         self.frame_descriptor.as_ref()
     }
 
+    /// Realizes completed-result execution requirements without changing control flow or identity.
+    pub fn with_completion_requirements(
+        mut self,
+        requirements: &[bray_runtime_interface::ExecutionLaneRequirement],
+    ) -> Self {
+        self.frame_descriptor
+            .as_mut()
+            .expect("completed-result requirements belong to a protected frame")
+            .include_completion_requirements(requirements);
+
+        self
+    }
+
     /// Returns the entry block.
     pub const fn entry(&self) -> MirBlockId {
         self.entry

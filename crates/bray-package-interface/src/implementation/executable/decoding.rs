@@ -2164,6 +2164,12 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     )
                     .ok_or(ExecutableTemplateDecodeError::Malformed)?;
 
+                    let completion_cleanup = match read_u32(&mut self.reader)? {
+                        0 => false,
+                        1 => true,
+                        _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                    };
+
                     let lane_count = self.count()?;
                     let mut lanes = self.items(lane_count)?;
 
@@ -2180,7 +2186,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
 
                     states.push(
                         MirFrameState::new(state, entry, broadcast, lanes, storages)
-                            .with_affinity(affinity),
+                            .with_affinity(affinity)
+                            .with_completion_cleanup(completion_cleanup),
                     );
                 }
 

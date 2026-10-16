@@ -274,6 +274,24 @@ impl CodegenInstance {
         &self.mir
     }
 
+    /// Attaches realized result-cleanup requirements while retaining the instance's identity and dependencies.
+    pub fn with_completion_requirements(
+        mut self,
+        requirements: &[bray_runtime_interface::ExecutionLaneRequirement],
+    ) -> Self {
+        if !requirements.is_empty() {
+            // Concrete metadata owns the descriptor while all immutable MIR tables stay shared.
+            self.mir = Arc::new(
+                self.mir
+                    .as_ref()
+                    .clone()
+                    .with_completion_requirements(requirements),
+            );
+        }
+
+        self
+    }
+
     /// Returns exact generated-definition dependencies in canonical order.
     pub fn dependencies(&self) -> &[CodegenInstanceDependency] {
         &self.dependencies

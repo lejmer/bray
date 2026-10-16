@@ -1373,6 +1373,9 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
 
             self.wire.write_u32(state.affinity().code());
 
+            self.wire
+                .write_u32(u32::from(state.is_completion_cleanup()));
+
             write_count(&mut self.wire, state.lane_requirements().len());
 
             for requirement in state.lane_requirements() {

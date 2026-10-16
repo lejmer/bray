@@ -162,6 +162,7 @@ impl InspectionMirUnit {
                         id: state.state().raw(),
                         entry: state.entry().slot(),
                         broadcast: state.broadcast().slot(),
+                        completion_cleanup: state.is_completion_cleanup(),
                         initialized_storages: state
                             .initialized_storages()
                             .iter()
@@ -283,6 +284,7 @@ pub(crate) struct InspectionMirFrameState {
     pub(crate) id: u32,
     pub(crate) entry: u32,
     pub(crate) broadcast: u32,
+    pub(crate) completion_cleanup: bool,
     pub(crate) initialized_storages: Vec<u32>,
 }
 

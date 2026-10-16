@@ -993,7 +993,8 @@ mod tests {
                     broadcast,
                     [],
                     [storage, completion],
-                ),
+                )
+                .with_completion_cleanup(true),
             ],
         )
         .unwrap_or_else(|error| panic!("frame descriptor must be valid: {error:?}"));

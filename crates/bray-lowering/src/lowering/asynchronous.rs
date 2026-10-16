@@ -186,7 +186,8 @@ impl Lowerer<'_> {
                 self.execution_lane_requirements(),
                 initialized_storages,
             )
-            .with_affinity(self.frame_affinity()),
+            .with_affinity(self.frame_affinity())
+            .with_completion_cleanup(self.completion_cleanup.is_some()),
         );
 
         let value = self
@@ -357,37 +358,17 @@ impl Lowerer<'_> {
     }
 
     pub(super) fn execution_lane_requirements(&self) -> Vec<ExecutionLaneRequirement> {
-        let requirements = match self.completion_cleanup {
-            Some(ty) => self
-                .input
-                .cleanup_type(ty)
-                .expect("completed result retains its cleanup description")
-                .execution_requirements()
-                .expect("async analysis establishes completed-result cleanup requirements"),
-            None => self.input.body_behavior().execution_requirements(),
-        };
+        if self.completion_cleanup.is_some() {
+            // Concrete lifecycle realization supplies requirements after substitution.
+            return Vec::new();
+        }
 
-        requirements
-            .iter()
-            .filter_map(|requirement| {
-                match self
-                    .input
-                    .available_compiler_known_symbols()
-                    .symbol_implementation(requirement.declaration())
-                {
-                    Some(ImplementationHook::BlockingExecution) => {
-                        Some(ExecutionLaneRequirement::Blocking)
-                    }
-                    Some(ImplementationHook::ComputeExecution) => {
-                        Some(ExecutionLaneRequirement::Compute)
-                    }
-                    Some(ImplementationHook::MainThreadExecution) => {
-                        Some(ExecutionLaneRequirement::MainThread)
-                    }
-                    _ => None,
-                }
-            })
-            .collect()
+        let requirements = self.input.body_behavior().execution_requirements();
+
+        lower_execution_requirements(
+            self.input.available_compiler_known_symbols(),
+            requirements.iter().copied(),
+        )
     }
 
     pub(super) fn next_frame_state(&self) -> Result<MirFrameStateId, LoweringError> {
@@ -505,6 +486,26 @@ fn call_receiver(call: &MirCall, expression: BoundExpressionId) -> MirOperand {
                 value = expression
             )
         })
+}
+
+/// Lowers established execution predicates to native lane requirements.
+pub fn lower_execution_requirements(
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
+    requirements: impl IntoIterator<Item = bray_symbols::CallableExecutionRequirement>,
+) -> Vec<ExecutionLaneRequirement> {
+    requirements
+        .into_iter()
+        .map(
+            |requirement| match known.symbol_implementation(requirement.declaration()) {
+                Some(ImplementationHook::BlockingExecution) => ExecutionLaneRequirement::Blocking,
+                Some(ImplementationHook::ComputeExecution) => ExecutionLaneRequirement::Compute,
+                Some(ImplementationHook::MainThreadExecution) => {
+                    ExecutionLaneRequirement::MainThread
+                }
+                hook => panic!("checked execution requirement has no lane: {hook:?}"),
+            },
+        )
+        .collect()
 }
 
 #[cfg(test)]
