@@ -44,9 +44,13 @@ resumed against its retained fresh artifacts and passed in 17.04s.
 Additional logs: `target/bra-561-generated-acceptance.log`,
 `target/bra-561-native-abi.log`, `target/bra-561-retained-source-smoke.log`.
 Artifacts: `target/bra-620-authority/bray-runtime-artifact-smoke-V9TVHc/`.
-Rust formatting and the repository style/format commands have been run after
-passing tests. The final style pass is being repeated after Rust formatting.
-Commit/push and fresh independent PR review remain.
+Implementation checkpoint `6d6c2050` is pushed to PR #611. Rust formatting,
+`cargo xtask style`, `cargo xtask format` and whitespace checks all pass after the
+final module-placement audit. Inactive-frame construction now sits with the
+existing task/observation constructors, reducing the general effect dispatcher.
+All 15 native ABI tests pass after that move. Logs are
+`target/bra-561-final-layout-audit.log`, `target/bra-561-checkpoint-style.log` and
+`target/bra-561-checkpoint-format.log`. Fresh independent PR review remains.
 
 ### Maintainability and acceptance audit
 
