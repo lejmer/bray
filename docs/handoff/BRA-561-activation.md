@@ -52,6 +52,50 @@ All 15 native ABI tests pass after that move. Logs are
 `target/bra-561-final-layout-audit.log`, `target/bra-561-checkpoint-style.log` and
 `target/bra-561-checkpoint-format.log`. Fresh independent PR review remains.
 
+### Completion ownership review repair
+
+Independent review of `821f08f1` found that normal completion broadcast into the
+result before transferring it. Review `5554682394`, inline `4300210965` on PR #611.
+The prior C chain expectation incorrectly required this on successful completion.
+
+The driver now broadcasts only into ownership being abandoned or still running.
+A completed result remains owned by its frame and reserved for transfer. A late
+cancellation request cannot cancel it after the root has completed. A committed
+child has already initialized the parent destination, so traversal skips that
+child and the parent consumes the outcome before observing cancellation. Failure
+of the resolver or mover abandons the retained result and broadcasts before its
+abnormal cleanup. Successful source completion resets the broadcast marker because
+the completion state can contain obligations absent from an earlier body-state
+broadcast. The helper in `activation/execution/outcome.bray` supplies the same
+eligibility rule to cleanup entry and traversal. No ABI or authority changes.
+
+The full native artifact smoke command passed against the repaired runtime, with
+five additional one-frame cases for late cancellation, result abandonment,
+resolver failure, mover failure and completion after a previous broadcast. All six
+32/2048-frame cases still pass with no allocation after admission. Normal transfer
+has zero broadcasts. Abandonment after completion visits the result once, including
+a second visit after an earlier body-state broadcast. Callback stack spans remain
+independent of chain depth, 2480 bytes for successful chains and 3504 bytes for
+cancelled/abandoned chains on this Windows build.
+
+The source smoke returns a gated live task both directly and inside an aggregate
+through a started task. Both development and release executions passed. Its join
+assertions were then strengthened to explicitly require `Completed`, so a cancelled
+root cannot pass merely through its process exit status. Both stronger assertions
+pass in development and release. The same regression linked to the retained
+pre-fix runtime exits 1 with `expected RunResult.Completed`, confirming that it
+detects the defect. Formatting and whitespace checks pass. This batch changes no
+Rust source, so the prior Rust formatting/style checks remain applicable.
+Fresh independent re-review is pending.
+
+Logs: `target/bra-561-completion-review.log`,
+`target/bra-561-returned-task-acceptance.log`,
+`target/bra-561-returned-task-baseline.log`, and
+`target/bra-561-completion-format.log`. A current reusable runtime is retained at
+`target/bra-620-authority/bra-561-reviewed-runtime/x86_64-pc-windows-msvc/`.
+The production change is 16 net lines, with 113 net fixture lines. The fixture
+reuses its admitted chain setup for all five additional transitions.
+
 ### Maintainability and acceptance audit
 
 The current batch removes the Rust frame owner, root adapter and dynamic frame

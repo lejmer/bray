@@ -1527,6 +1527,20 @@ typedef struct
     InactiveActivation next;
 } ChainFrame;
 
+enum ChainMode
+{
+    CHAIN_COMPLETE,
+    CHAIN_CANCEL,
+    CHAIN_ABANDON,
+    CHAIN_LATE_CANCEL,
+    CHAIN_ABANDON_RESULT,
+    CHAIN_RESOLVER_FAILURE,
+    CHAIN_MOVER_FAILURE,
+    CHAIN_COMPLETE_AFTER_BROADCAST,
+};
+
+static enum ChainMode chain_mode;
+static unsigned chain_disposals;
 static unsigned chain_resumes;
 static unsigned chain_cancellations;
 static unsigned chain_releases;
@@ -1616,7 +1630,10 @@ static void chain_cancel(ActivationProgress* progress, uintptr_t context)
             abort();
     }
 
-    *progress = (ActivationProgress){ .kind = 2 };
+    *progress = (ActivationProgress){
+        .kind = chain_mode == CHAIN_COMPLETE_AFTER_BROADCAST ? 1 : 2,
+        .state = 1,
+    };
 }
 
 static void chain_broadcast(ActivationProgress* progress, uintptr_t context)
@@ -1661,6 +1678,15 @@ static void chain_resolve(ActivationProgress* progress, uintptr_t context, uint3
             abort();
     }
 
+    if (chain_mode >= CHAIN_ABANDON_RESULT && exit == 3)
+    {
+        // Disposal must follow broadcast, and a failed mover must retain its source.
+        if (chain_broadcasts != (chain_mode == CHAIN_COMPLETE_AFTER_BROADCAST ? 2U : 1U) || frame->value != 1)
+            abort();
+
+        ++chain_disposals;
+    }
+
     *progress = (ActivationProgress){ .kind = 1 };
 }
 
@@ -1703,6 +1729,20 @@ static void chain_callback(
 
     *progress = (ActivationProgress){ .kind = 1 };
 
+    if (
+        (operation == 3 && argument == 0 &&
+            (chain_mode == CHAIN_RESOLVER_FAILURE || chain_mode == CHAIN_COMPLETE_AFTER_BROADCAST)) ||
+        (operation == 4 && chain_mode == CHAIN_MOVER_FAILURE)
+    )
+    {
+        *progress = (ActivationProgress){
+            .kind = 3,
+            .report = { .cause = 1, .consume = bray_runtime_report_consumer },
+        };
+
+        return;
+    }
+
     switch (operation)
     {
         case 0: descriptor->resume(progress, context); break;
@@ -1715,7 +1755,7 @@ static void chain_callback(
     }
 }
 
-static int check_activation_chain(unsigned depth, int mode)
+static int check_activation_chain(unsigned depth, enum ChainMode mode)
 {
     const ActivationDescriptor descriptor = {
         .storage = { { 12 }, sizeof(ChainFrame), 4096 },
@@ -1753,7 +1793,9 @@ static int check_activation_chain(unsigned depth, int mode)
     }
 
     chain_resumes = chain_cancellations = chain_releases = chain_broadcasts = chain_moves = 0;
-    chain_yield = mode == 1;
+    chain_mode = mode;
+    chain_disposals = 0;
+    chain_yield = mode == CHAIN_CANCEL;
     chain_abandoning = 0;
     chain_stack_low = UINTPTR_MAX;
     chain_stack_high = 0;
@@ -1767,7 +1809,7 @@ static int check_activation_chain(unsigned depth, int mode)
     if (root == NULL)
         return 135;
 
-    chain_abandoning = mode == 2;
+    chain_abandoning = mode == CHAIN_ABANDON;
 
     int suspended = 0;
     unsigned status = 0;
@@ -1782,8 +1824,9 @@ static int check_activation_chain(unsigned depth, int mode)
             root,
             chain_callback,
             activation_ready,
-            suspended != 0,
-            mode == 2,
+            suspended != 0 || mode == CHAIN_COMPLETE_AFTER_BROADCAST ||
+                (mode == CHAIN_LATE_CANCEL && root->phase != 1),
+            mode == CHAIN_ABANDON || (mode == CHAIN_ABANDON_RESULT && root->phase == 2),
             &progress,
             &remaining,
             &incidents
@@ -1795,32 +1838,42 @@ static int check_activation_chain(unsigned depth, int mode)
         if (status == 2)
             break;
 
-        if (status == 1 && mode == 1 && !suspended && progress.kind == 5)
+        if (status == 1 && mode == CHAIN_CANCEL && !suspended && progress.kind == 5)
             suspended = 1;
         else if (status != 0)
             return 137;
     }
 
     uintptr_t step_stack_bytes = chain_stack_high - chain_stack_low;
+    unsigned expected_kind = mode >= CHAIN_RESOLVER_FAILURE ? 3U :
+        mode == CHAIN_CANCEL || mode == CHAIN_ABANDON ? 2U : 1U;
+    unsigned moved = mode == CHAIN_COMPLETE || mode == CHAIN_LATE_CANCEL;
+    unsigned broadcasts = moved ? 0U : mode == CHAIN_COMPLETE_AFTER_BROADCAST ? 2U : depth;
+    unsigned resumes = mode == CHAIN_ABANDON || mode == CHAIN_COMPLETE_AFTER_BROADCAST ? 0U :
+        mode == CHAIN_CANCEL ? depth : depth * 2 - 1;
 
     if (
         status != 2 ||
         chain_releases != depth - 1 ||
-        progress.kind != (mode != 0 ? 2U : 1U) ||
-        chain_moves != (mode != 0 ? 0U : depth) ||
-        chain_broadcasts != depth ||
-        chain_resumes != (mode == 2 ? 0U : mode == 1 ? depth : depth * 2 - 1) ||
-        chain_cancellations != (mode == 1 ? depth : 0U) ||
+        progress.kind != expected_kind ||
+        chain_moves != (moved ? depth : 0U) ||
+        chain_broadcasts != broadcasts ||
+        chain_resumes != resumes ||
+        chain_cancellations != (mode == CHAIN_CANCEL || mode == CHAIN_COMPLETE_AFTER_BROADCAST ? depth : 0U) ||
+        chain_disposals != (mode >= CHAIN_ABANDON_RESULT ? 1U : 0U) ||
         step_stack_bytes > 16384 ||
         atomic_load(&allocation_attempts) != attempts
     )
         return 138;
 
     if (
-        mode == 0 && (progress.payload != (uintptr_t)&((ChainFrame*)root)->value ||
+        moved && (progress.payload != (uintptr_t)&((ChainFrame*)root)->value ||
         *(uintptr_t*)progress.payload != depth)
     )
         return 139;
+
+    if (progress.kind == 3 && bray_runtime_report_consumer(&progress.report, 0) != 0)
+        return 142;
 
     // The scalar payload is consumed before the observed root is retired.
     progress = (ActivationProgress){ 0 };
@@ -2321,17 +2374,25 @@ int main(void)
         publication_status = check_activation_publication(1, 1);
     if (publication_status != 0) return publication_status;
 
+    for (enum ChainMode mode = CHAIN_LATE_CANCEL; mode <= CHAIN_COMPLETE_AFTER_BROADCAST; ++mode)
+    {
+        int status = check_activation_chain(1, mode);
+
+        if (status != 0)
+            return status;
+    }
+
     const unsigned depths[] = { 32, 2048 };
 
     for (size_t i = 0; i < sizeof(depths) / sizeof(depths[0]); ++i)
     {
-        int chain_status = check_activation_chain(depths[i], 0);
+        int chain_status = check_activation_chain(depths[i], CHAIN_COMPLETE);
 
         if (chain_status == 0)
-            chain_status = check_activation_chain(depths[i], 1);
+            chain_status = check_activation_chain(depths[i], CHAIN_CANCEL);
 
         if (chain_status == 0)
-            chain_status = check_activation_chain(depths[i], 2);
+            chain_status = check_activation_chain(depths[i], CHAIN_ABANDON);
 
         if (chain_status != 0)
             return chain_status;

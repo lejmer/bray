@@ -31,7 +31,8 @@ trusted internal func step(
 {
     let root_state = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor, root = true);
 
-    if cancellation && root_state.broadcasted == 0 && root_state.broadcast_next == 0
+    if cancellation && root_state.phase == bray.runtime.bootstrap.activation.RUNNING && root_state.broadcasted == 0 &&
+        root_state.broadcast_next == 0
     {
         trusted begin_broadcast(&mut cursor);
 
@@ -52,7 +53,8 @@ trusted internal func step(
         return trusted broadcast(&mut cursor, callback, ready);
     }
 
-    if header.phase == bray.runtime.bootstrap.activation.CLEANUP && header.broadcasted == 0
+    if header.phase == bray.runtime.bootstrap.activation.CLEANUP &&
+        bray.runtime.bootstrap.activation.execution.broadcast_pending(&header)
     {
         let traversal = trusted bray.runtime.bootstrap.activation.execution.access(&mut cursor, root = true);
 

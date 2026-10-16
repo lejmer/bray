@@ -35,7 +35,7 @@ trusted internal func broadcast(
 {
     let header = trusted bray.runtime.bootstrap.activation.execution.read(cursor);
 
-    if header.broadcasted == 0
+    if bray.runtime.bootstrap.activation.execution.broadcast_pending(&header)
     {
         let (_, _, _, status) = trusted advance(cursor, callback, ready, 2, 0);
 

@@ -3,6 +3,15 @@ trusted internal module bray.runtime.bootstrap.activation.execution;
 
 using std.memory;
 
+// Successful results are reserved for transfer unless failed cleanup or movement
+// abandons them. Committed results have already left this frame.
+internal func broadcast_pending(pos header: &Snapshot) -> bool
+    executes(pure, total)
+{
+    return header.broadcasted == 0 && header.phase != bray.runtime.bootstrap.activation.COMMITTED && (header.kind !=
+        1 || header.abandoned != 0);
+}
+
 internal func suspended(pos kind: u32) -> bool
     executes(pure, total)
 {
@@ -136,6 +145,10 @@ trusted internal func accept_progress(
         if progress.kind == 1
         {
             header.state = progress.state;
+
+            // A previous broadcast visited the body state, not this new result.
+            // If transfer later fails, abandonment must visit its obligations.
+            header.broadcasted = 0;
         }
 
         header.progress = progress;
