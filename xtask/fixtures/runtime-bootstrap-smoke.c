@@ -1082,6 +1082,8 @@ typedef struct
     uint64_t origin;
 } ActivationExecution;
 
+typedef uint32_t (*ActivationReady)(const ActivationExecution*);
+
 typedef void (*ActivationCallback)(const ActivationExecution*, const ActivationDescriptor*, uintptr_t, uint32_t,
     uintptr_t, ActivationProgress*, ActivationRecords*);
 
@@ -1089,7 +1091,7 @@ extern uint32_t bray_runtime_activation_snapshot(const ActivationHeader*, uint32
 extern uint32_t bray_runtime_activation_inspection(const InactiveActivation*, uint32_t, ActivationState*);
 extern uintptr_t bray_runtime_activation_entry(const InactiveActivation*, uint64_t);
 extern uintptr_t bray_runtime_activation_composition(ActivationHeader*, const InactiveActivation*, uint32_t, uint64_t);
-extern uint32_t bray_runtime_activation_dispatch(ActivationHeader*, ActivationCallback,
+extern uint32_t bray_runtime_activation_dispatch(ActivationHeader*, ActivationCallback, ActivationReady,
     uint32_t, uintptr_t, ActivationProgress*, ActivationRecords*);
 
 #ifdef BRAY_ACTIVATION_NATIVE_CALLBACK
@@ -1099,6 +1101,15 @@ extern void bray_runtime_activation_callback(const ActivationExecution*, const A
 
 static unsigned activation_calls;
 static unsigned activation_queries;
+
+// This fixture's attached cooperative lane admits no blocking/compute or main
+// work. Origin-affine callbacks must use this exact native thread attachment.
+static uint32_t activation_ready(const ActivationExecution* execution)
+{
+    return execution->address != 0 && execution->requirements.lanes == 0 &&
+        execution->requirements.affinity <= 1 &&
+        execution->origin == bray_runtime_current_native_thread_identity() ? 0 : 6;
+}
 
 static void activation_callback(const ActivationExecution* execution, const ActivationDescriptor* descriptor, uintptr_t context,
     uint32_t operation, uintptr_t argument, ActivationProgress* progress, ActivationRecords* records)
@@ -1158,10 +1169,48 @@ static void activation_move_failure(const ActivationExecution* execution, const 
     };
 }
 
+static int check_activation_deferral(ActivationHeader* header, ActivationCallback callback)
+{
+    ActivationHeader original = *header;
+    unsigned attempts = atomic_load(&allocation_attempts);
+    unsigned calls = activation_calls;
+    uintptr_t destination = 0;
+
+    for (uint32_t operation = 0; operation != 6; ++operation)
+    {
+        header->retained_lanes = 1;
+        header->phase = operation == 5 ? 4 : operation == 4 ? 3 : 1;
+        header->progress.kind = 1;
+        ActivationHeader before = *header;
+        ActivationProgress progress = { .kind = 13 };
+        ActivationRecords remaining = { .count = 17 };
+        unsigned queries = activation_queries;
+        uintptr_t argument = operation == 4 ? (uintptr_t)&destination : 3;
+
+        if (
+            bray_runtime_activation_dispatch(header, callback, activation_ready, operation, argument,
+                &progress, &remaining) != 6 ||
+            memcmp(header, &before, sizeof(before)) != 0 ||
+            progress.kind != 13 || remaining.count != 17 || destination != 0 ||
+            activation_queries != queries + 1 || activation_calls != calls ||
+            atomic_load(&allocation_attempts) != attempts
+        )
+            return 131;
+    }
+
+    *header = original;
+    return 0;
+}
+
 static int check_activation_dispatch(ActivationHeader* header, ActivationCallback callback)
 {
     unsigned attempts = atomic_load(&allocation_attempts);
     activation_calls = 0;
+
+    int deferred = check_activation_deferral(header, callback);
+
+    if (deferred != 0)
+        return deferred;
 
     for (uint32_t operation = 0; operation != 4; ++operation)
     {
@@ -1169,7 +1218,7 @@ static int check_activation_dispatch(ActivationHeader* header, ActivationCallbac
         ActivationRecords remaining = { 0 };
 
         if (
-            bray_runtime_activation_dispatch(header, callback, operation, 3, &progress, &remaining) != 0 ||
+            bray_runtime_activation_dispatch(header, callback, activation_ready, operation, 3, &progress, &remaining) != 0 ||
             remaining.count != 0 ||
             header->broadcasted != 1 || header->outgoing.count != 0 ||
             progress.kind != (operation == 3 ? 0 : 1) || progress.state != 7
@@ -1181,8 +1230,8 @@ static int check_activation_dispatch(ActivationHeader* header, ActivationCallbac
     ActivationRecords untouched_records = { .count = 17 };
 
     if (
-        bray_runtime_activation_dispatch(header, callback, 6, 0, &untouched, &untouched_records) != 3 ||
-        bray_runtime_activation_dispatch(header, callback, 3, 4, &untouched, &untouched_records) != 3 ||
+        bray_runtime_activation_dispatch(header, callback, activation_ready, 6, 0, &untouched, &untouched_records) != 3 ||
+        bray_runtime_activation_dispatch(header, callback, activation_ready, 3, 4, &untouched, &untouched_records) != 3 ||
         untouched_records.count != 17 ||
         untouched.kind != 13 ||
         activation_calls != 4 ||
@@ -1201,7 +1250,7 @@ static int check_activation_dispatch(ActivationHeader* header, ActivationCallbac
     header->progress.kind = 1;
 
     if (
-        bray_runtime_activation_dispatch(header, activation_move_failure, 4, (uintptr_t)&destination,
+        bray_runtime_activation_dispatch(header, activation_move_failure, activation_ready, 4, (uintptr_t)&destination,
             &moved, &remaining) != 0 ||
         moved.kind != 3 || header->phase != 3 || header->progress.kind != 1 ||
         *source != 7919 || destination != 0 || remaining.count != 0
@@ -1212,7 +1261,7 @@ static int check_activation_dispatch(ActivationHeader* header, ActivationCallbac
         return 119;
 
     if (
-        bray_runtime_activation_dispatch(header, callback, 4, (uintptr_t)&destination, &moved, &remaining) != 0 ||
+        bray_runtime_activation_dispatch(header, callback, activation_ready, 4, (uintptr_t)&destination, &moved, &remaining) != 0 ||
         moved.kind != 1 || destination != 7919 || *source != 0 ||
         header->phase != 4 || remaining.count != 0 ||
         activation_calls != 5 || atomic_load(&allocation_attempts) != attempts
@@ -1231,7 +1280,7 @@ static ActivationState activation_state(uintptr_t context, uint32_t state)
 {
     const ActivationHeader* header = (const ActivationHeader*)context;
 
-    if (header->phase > 4 || state >= header->descriptor->states)
+    if (header->phase > 5 || state >= header->descriptor->states)
         abort();
 
     // Inspection must release the pool lock before entering provider code.
@@ -1424,11 +1473,14 @@ static int check_activation_composition(ActivationHeader* parent, InactiveActiva
     // relationship before testing its consuming provider callback.
     parent->child = 0;
     attached->parent = 0;
+    attached->retained_affinity = 0;
+    attached->retained_lanes = 0;
+    attached->retained_origin = 0;
     attached->phase = 4;
     ActivationProgress retired = { 0 };
     ActivationRecords remaining = { 0 };
 
-    if (bray_runtime_activation_dispatch(attached, activation_callback, 5, 0, &retired, &remaining) != 0 ||
+    if (bray_runtime_activation_dispatch(attached, activation_callback, activation_ready, 5, 0, &retired, &remaining) != 0 ||
         retired.kind != 1 || remaining.count != 0 || atomic_load(&allocation_attempts) != attempts)
         return 111;
 
@@ -1647,7 +1699,10 @@ static int check_activation_publication(int embedded_descriptor, int restricted)
     if (status != 0)
         goto cleanup;
 
+    // Exercise a source continuation and a resumed lifecycle continuation.
+    ((ActivationHeader*)active)->phase = embedded_descriptor ? 5 : 1;
     status = check_activation_composition((ActivationHeader*)active, &child);
+    ((ActivationHeader*)active)->phase = 1;
 
     if (status != 0)
         goto cleanup;
@@ -1675,7 +1730,7 @@ static int check_activation_publication(int embedded_descriptor, int restricted)
     ActivationRecords remaining = { 0 };
 
     if (
-        bray_runtime_activation_dispatch((ActivationHeader*)active, retirement, 5, 0, &retired, &remaining) != 0 ||
+        bray_runtime_activation_dispatch((ActivationHeader*)active, retirement, activation_ready, 5, 0, &retired, &remaining) != 0 ||
         retired.kind != 1 ||
         remaining.count != 0
     )

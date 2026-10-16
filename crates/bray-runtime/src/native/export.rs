@@ -659,11 +659,38 @@ mod tests {
 
     #[test]
     fn movable_native_root_runs_on_the_host_cooperative_lane() {
+        extern "C-unwind" fn check_admission(
+            destination: &mut NativeFrameProgress,
+            context: usize,
+        ) {
+            let mut execution = bray_runtime_abi::NativeActivationExecution {
+                address: context,
+                identity: [7; 32],
+                state: 0,
+                requirements: movable_frame_state(context, 0),
+                origin: 0,
+            };
+
+            assert_eq!(
+                super::super::activation::readiness(&execution),
+                NativeRuntimeStatus::SUCCESS.code(),
+            );
+
+            execution.requirements = movable_blocking_frame_state(context, 0);
+
+            assert_eq!(
+                super::super::activation::readiness(&execution),
+                NativeRuntimeStatus::PENDING.code(),
+            );
+
+            resume_frame(destination, context);
+        }
+
         let start = execute_test_root(
             protected_frame_with_state(
                 8,
                 movable_frame_state,
-                resume_frame,
+                check_admission,
                 ignore_completion_move,
                 ignore_action,
             ),

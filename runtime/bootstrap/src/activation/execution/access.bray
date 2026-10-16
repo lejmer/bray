@@ -22,3 +22,23 @@ trusted internal func read(
     trusted authorize(pointer);
     return trusted std.memory.read<bray.runtime.bootstrap.activation.Header>(pointer);
 }
+
+trusted internal func restore(
+    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    pos header: bray.runtime.bootstrap.activation.Header,
+)
+    requires(trusted owned(pointer = pointer))
+    ensures(trusted owned(pointer = pointer))
+    uses(raw_memory, unchecked_init)
+{
+    let authorize = trusted lambda(pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>)
+        requires(trusted owned(pointer = pointer))
+        ensures(
+            trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Header>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Header>(pointer = pointer),
+        )
+        executes(pure, total) {};
+
+    trusted authorize(pointer);
+    trusted std.memory.write<bray.runtime.bootstrap.activation.Header>(pointer, header);
+}

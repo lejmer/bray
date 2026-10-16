@@ -21,6 +21,24 @@ trusted internal predicate authorized(
     records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
 );
 
+// The native caller checks the exact selected lane and attachment against this
+// snapshot. It cannot change activation state or consume an owner during this
+// query. A non-success status leaves the producer and its records untouched.
+internal callable Ready = @abi(c) trusted func(
+    pos execution: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.activation.requirements.Execution>(
+            pointer = execution,
+            count = 1
+        ),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.requirements.Execution>(
+            pointer = execution
+        ),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.requirements.Execution>(pointer = execution),
+    );
+
 // The native bridge contains unwind and retains the selected provider throughout
 // the call. Frame headers are not borrowed while producer code executes.
 internal callable Invoke = @abi(c) trusted func(

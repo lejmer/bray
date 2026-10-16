@@ -1054,3 +1054,45 @@ context, one iterative Bray parent/child chain, destination-based completion,
 inactive Future capture disposal and all native consumers. Remove the superseded
 Rust graph and allocations as consumers switch. No completion claim or PR readiness
 is justified until these obligations and the independent review are complete.
+
+## Dispatch admission checkpoint
+
+The concrete completed-result checkpoint `9f95e358` received an independent
+review with no findings:
+https://github.com/lejmer/bray/pull/611#pullrequestreview-5549142871.
+This remains intermediate evidence, not issue completion.
+
+Every callback dispatch now requires the caller's exact admission callback as well
+as its invocation callback. Query the immutable current execution snapshot once,
+then ask the native caller whether the actually selected lane satisfies it. A
+non-success status precedes every header, report, result and record mutation,
+including consuming retirement. The native bridge preserves the specific status.
+`PENDING` means reschedule on a compatible lane, not failed owner admission.
+
+The shared native-state conversion replaces its previous copy in NativeFrame.
+It uses static lane slices and empty dependency/storage views without allocation.
+The native scheduler's existing registration and selected-lane comparison own the
+admission decision. No copied descriptor, header field or callback address grants
+activation ownership. An unconditional admission callback was rejected and was
+not applied.
+
+The authority matrix includes both exact callable addresses, wrong or absent
+addresses, retaining callbacks, admitted retirement and deferred retirement.
+All ten activation authority tests, the production-body audit, 173 runtime tests
+and 20 ABI tests pass. The native-root regression exercises successful cooperative
+admission and blocking-lane deferral through the actual task registration.
+The C fixture checks all six deferred operations, untouched result destinations,
+header and output slots, one metadata query and no invocation or allocation.
+Composition also covers a parent whose lifecycle cleanup has resumed.
+Rustfmt, mutating structural style, Bray formatting and the full native artifact check pass. The first native check exposed an unnecessary readiness ABI role. It was removed: production callers pass the native callback directly. Current logs use
+`target/bra-620-authority/bra-561-readiness-`.
+
+Continue with the production driver and consumer replacement above. The owning
+Bray chain must retain source progress while child cleanup suspends, release no
+backing before result movement, and preserve exact callback context through
+reentry. Operation-specific requirements remain an acceptance obligation:
+completion movement must not acquire its result destructor's lane, and inactive
+capture cleanup must use the checked cancellation path. Do not solve this with
+blanket unions of initialized types or a second cleanup scheduler.
+
+Audit: the changed behavior categories are dispatch admission, callback-address contracts, status-based ownership retention, checked native-state projection, and cleanup-continuation composition. Repository searches found the existing lane comparison and state conversion, which are reused. All raw dispatch call sites supply admission, and no version or compatibility path was added. This checkpoint adds about 120 net production lines and 130 net test lines. The remaining driver replaces the Rust graph and will consume the new admission callback.

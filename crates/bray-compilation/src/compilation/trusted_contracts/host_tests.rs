@@ -1888,11 +1888,12 @@ fn activation_dispatch_requires_exact_native_ownership() {
                 pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
                 pos other: RawPointer<bray.runtime.bootstrap.activation.Header>,
                 pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+                pos ready: bray.runtime.bootstrap.activation.callback.Ready,
             ) -> bray.runtime.bootstrap.activation.Progress
                 requires(trusted bray.runtime.bootstrap.entry.native_entry())
                 {requirements}
             {{
-                let (progress, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(pointer, callback, 0, 0);
+                let (progress, _, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(pointer, callback, ready, 0, 0);
                 return progress;
             }}
         "#
@@ -1986,7 +1987,7 @@ fn native_activation_requires_producer_and_exact_entry_authority() {
 }
 
 #[test]
-fn native_activation_dispatch_requires_the_exact_callback_address() {
+fn native_activation_dispatch_requires_both_exact_callback_addresses() {
     for (requirement, valid) in [
         ("", false),
         (
@@ -1995,6 +1996,14 @@ fn native_activation_dispatch_requires_the_exact_callback_address() {
         ),
         (
             "requires(trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Invoke>(pointer = callback))",
+            false,
+        ),
+        (
+            "requires(trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Invoke>(pointer = callback), trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = other_ready))",
+            false,
+        ),
+        (
+            "requires(trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Invoke>(pointer = callback), trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready))",
             true,
         ),
     ] {
@@ -2004,6 +2013,8 @@ fn native_activation_dispatch_requires_the_exact_callback_address() {
             trusted func production_probe(
                 pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
                 pos callback: RawPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
+                pos ready: RawPointer<bray.runtime.bootstrap.activation.callback.Ready>,
+                pos other_ready: RawPointer<bray.runtime.bootstrap.activation.callback.Ready>,
                 pos other: RawPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
                 pos output: RawPointer<bray.runtime.bootstrap.activation.Progress>,
                 pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
@@ -2019,7 +2030,7 @@ fn native_activation_dispatch_requires_the_exact_callback_address() {
                 )
                 {requirement}
             {{
-                return trusted bray.runtime.bootstrap.activation.execution.execute(pointer, callback, 0, 0, output, records);
+                return trusted bray.runtime.bootstrap.activation.execution.execute(pointer, callback, ready, 0, 0, output, records);
             }}
             "#
         );
@@ -2055,14 +2066,15 @@ fn activation_retirement_does_not_preserve_dispatch_ownership() {
             trusted func production_probe(
                 pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
                 pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+                pos ready: bray.runtime.bootstrap.activation.callback.Ready,
             ) -> bray.runtime.bootstrap.activation.Progress
                 requires(
                     trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
                     trusted bray.runtime.bootstrap.entry.native_entry(),
                 )
             {{
-                let _ = trusted bray.runtime.bootstrap.activation.execution.invoke(pointer, callback, {operation}, 0);
-                let (progress, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(pointer, callback, 0, 0);
+                let _ = trusted bray.runtime.bootstrap.activation.execution.invoke(pointer, callback, ready, {operation}, 0);
+                let (progress, _, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(pointer, callback, ready, 0, 0);
                 return progress;
             }}
             "#
@@ -2088,6 +2100,44 @@ fn activation_retirement_does_not_preserve_dispatch_ownership() {
             );
         }
     }
+}
+
+#[test]
+fn activation_deferred_retirement_preserves_dispatch_ownership() {
+    let compilation = production_host_compilation(
+        r#"
+        trusted internal module bray.runtime.bootstrap;
+        trusted func production_probe(
+            pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+            pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+            pos ready: bray.runtime.bootstrap.activation.callback.Ready,
+        )
+            requires(
+                trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
+                trusted bray.runtime.bootstrap.entry.native_entry(),
+            )
+        {
+            let (_, _, status) = trusted bray.runtime.bootstrap.activation.execution.invoke(pointer, callback, ready, 5, 0);
+
+            if status == 0
+            {
+                return;
+            }
+
+            let _ = trusted bray.runtime.bootstrap.activation.execution.read(pointer);
+        }
+        "#,
+    );
+
+    let lowered = compilation
+        .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+        .unwrap();
+
+    assert!(
+        !lowered.diagnostics().has_errors(),
+        "{:?}",
+        lowered.diagnostics()
+    );
 }
 
 #[test]
@@ -2283,6 +2333,7 @@ fn activation_retirement_requires_retained_native_destinations() {
                 pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
                 pos other: RawPointer<bray.runtime.bootstrap.activation.Header>,
                 pos callback: RawPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
+                pos ready: RawPointer<bray.runtime.bootstrap.activation.callback.Ready>,
                 pos output: RawPointer<bray.runtime.bootstrap.activation.Progress>,
                 pos other_output: RawPointer<bray.runtime.bootstrap.activation.Progress>,
                 pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
@@ -2292,6 +2343,7 @@ fn activation_retirement_requires_retained_native_destinations() {
                     trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
                     trusted bray.runtime.bootstrap.entry.native_entry(),
                     trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Invoke>(pointer = callback),
+                    trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready),
                     trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Progress>(pointer = output, count = 1),
                     trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Progress>(pointer = output),
                     trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
@@ -2299,7 +2351,7 @@ fn activation_retirement_requires_retained_native_destinations() {
                 )
                 {requirement}
             {{
-                return trusted bray.runtime.bootstrap.activation.execution.execute(pointer, callback, 5, 0, output, records);
+                return trusted bray.runtime.bootstrap.activation.execution.execute(pointer, callback, ready, 5, 0, output, records);
             }}
             "#
         );
@@ -2575,6 +2627,7 @@ fn activation_completion_requires_the_exact_admitted_destination() {
                 pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
                 pos other: RawPointer<bray.runtime.bootstrap.activation.Header>,
                 pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+                pos ready: bray.runtime.bootstrap.activation.callback.Ready,
                 pos destination: usize,
                 pos other_destination: usize,
             )
@@ -2584,7 +2637,7 @@ fn activation_completion_requires_the_exact_admitted_destination() {
                 )
                 {requirement}
             {{
-                let _ = trusted bray.runtime.bootstrap.activation.execution.invoke(pointer, callback, 4, destination);
+                let _ = trusted bray.runtime.bootstrap.activation.execution.invoke(pointer, callback, ready, 4, destination);
             }}
         "#
         );

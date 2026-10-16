@@ -4,12 +4,12 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use bray_runtime_abi::{
-    NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind, NativeLaneRequirements,
-    NativeProtectedFrame, NativeRuntimeStatus,
+    NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind, NativeProtectedFrame,
+    NativeRuntimeStatus,
 };
 use bray_runtime_model::{
-    ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAffinity, ProtectedFrameLayout,
-    ProtectedFrameStateDescriptor, ProtectedFrameStateId,
+    ProtectedAsyncFrameId, ProtectedFrameLayout, ProtectedFrameStateDescriptor,
+    ProtectedFrameStateId,
 };
 
 use crate::{
@@ -284,37 +284,7 @@ fn state(
         return None;
     }
 
-    let native = abi.state()(abi.context(), state.raw());
-    let affinity = ProtectedFrameAffinity::from_code(native.affinity().code())?;
-    let requirements = native.lane_requirements().bits();
-
-    let known = NativeLaneRequirements::BLOCKING.bits()
-        | NativeLaneRequirements::COMPUTE.bits()
-        | NativeLaneRequirements::MAIN_THREAD.bits();
-
-    if requirements & !known != 0 {
-        return None;
-    }
-
-    let lanes = ExecutionLaneRequirement::ALL
-        .into_iter()
-        .filter(|requirement| {
-            let flag = match requirement {
-                ExecutionLaneRequirement::Blocking => NativeLaneRequirements::BLOCKING,
-                ExecutionLaneRequirement::Compute => NativeLaneRequirements::COMPUTE,
-                ExecutionLaneRequirement::MainThread => NativeLaneRequirements::MAIN_THREAD,
-            };
-
-            requirements & flag.bits() != 0
-        });
-
-    Some(ProtectedFrameStateDescriptor::new(
-        state,
-        lanes,
-        [],
-        [],
-        affinity,
-    ))
+    super::activation::frame_state(abi.state()(abi.context(), state.raw()), state)
 }
 
 pub(super) struct NativeFrameTransfer {
@@ -357,12 +327,14 @@ impl Drop for NativeFrameTransfer {
 mod tests {
     use std::cell::Cell;
 
-    use bray_runtime_abi::{NativeFrameAffinity, NativeFrameState, NativeProtectedFrame};
+    use bray_runtime_abi::{
+        NativeFrameAffinity, NativeFrameState, NativeLaneRequirements, NativeProtectedFrame,
+    };
     use bray_runtime_model::ProtectedFrameStateId;
 
     use crate::ProtectedFrame;
 
-    use super::{NativeFrame, NativeFrameExit, NativeFrameProgress, NativeLaneRequirements};
+    use super::{NativeFrame, NativeFrameExit, NativeFrameProgress};
 
     #[test]
     fn activation_queries_only_requested_compiler_states() {

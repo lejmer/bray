@@ -84,7 +84,8 @@ trusted internal func attach(
     uses(intrinsic)
 {
     if parent_address == 0 || child_address == 0 || parent_address == child_address || parent.child != 0 ||
-        child.parent != 0 || child.phase != RUNNING || (parent.phase != RUNNING && parent.phase != CLEANUP)
+        child.parent != 0 || child.phase != RUNNING || (parent.phase != RUNNING && parent.phase != CLEANUP &&
+        parent.phase != RESOLVING)
     {
         trusted core.target.abort();
     }
