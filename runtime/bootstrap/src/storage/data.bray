@@ -64,6 +64,9 @@ internal const RESERVED: u32 = 1;
 
 internal const ACTIVE: u32 = 2;
 
+// An activation dispatcher has consumed the inactive frame token.
+internal const DISPATCHED: u32 = 3;
+
 internal func empty_lease() -> Lease
 {
     return

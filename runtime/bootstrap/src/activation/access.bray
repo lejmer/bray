@@ -1,0 +1,66 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation;
+
+using std.memory;
+
+// The native producer retains the immutable descriptor's provider and has
+// initialized the claimed frame. This contract does not certify the supplied
+// lease or grant dispatch ownership. Resident validation and phase transition
+// establish those separately while the pool is locked.
+trusted internal predicate producer(token: &Inactive);
+
+trusted internal func description(pos token: &Inactive) -> Descriptor
+    requires(trusted producer(token = token))
+    ensures(trusted producer(token = token))
+    uses(raw_memory)
+{
+    let authorize = trusted lambda(pos owner: &Inactive) -> RawPointer<Descriptor>
+        requires(trusted producer(token = owner))
+        ensures(
+            trusted core.memory.valid_read<Descriptor>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<Descriptor>(pointer = result),
+            trusted core.memory.initialized_as<Descriptor>(pointer = result),
+        )
+        executes(pure, total)
+    {
+        return owner.descriptor;
+    };
+
+    let pointer = authorize(token);
+
+    return trusted std.memory.read<Descriptor>(pointer);
+}
+
+// No callback can run under this borrow. The pool lock serializes the initial
+// phase transition, including competing copies of the same native token.
+trusted internal func resident(pos pool: &mut bray.runtime.bootstrap.ReportPool, pos token: &Inactive) -> (&mut Header)?
+    requires(trusted producer(token = token))
+    uses(intrinsic, raw_memory, unchecked_alias)
+{
+    let descriptor = trusted description(token);
+    let address = trusted claim_address(pool, token, &descriptor);
+
+    if address == 0
+    {
+        return none;
+    }
+
+    let pointer = trusted core.target.from_exposed_address<Header>(address = address);
+
+    let authorize = trusted lambda(pos pointer: RawPointer<Header>)
+        ensures(
+            trusted core.memory.valid_read<Header>(pointer = pointer, count = 1),
+            trusted core.memory.valid_write<Header>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Header>(pointer = pointer),
+            trusted core.memory.initialized_as<Header>(pointer = pointer),
+            trusted core.memory.exclusive_alias_valid<Header>(pointer = pointer),
+            trusted core.memory.epoch_current<Header>(pointer = pointer),
+            trusted core.memory.synchronized_access<Header>(pointer = pointer),
+            trusted core.memory.movement_stable<Header>(pointer = pointer),
+            trusted core.memory.finalization_pending<Header>(pointer = pointer),
+        )
+        executes(pure, total) {};
+
+    authorize(pointer);
+    return trusted std.memory.borrow_mut_from<Header, bray.runtime.bootstrap.ReportPool>(pool, pointer);
+}

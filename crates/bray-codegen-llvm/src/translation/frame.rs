@@ -1,5 +1,6 @@
 mod cleanup;
 mod core;
+mod description;
 mod storage;
 mod support;
 

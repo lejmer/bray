@@ -364,9 +364,10 @@ execution readiness passes in 442.0 seconds, including archive export checks,
 source execution and runtime artifact smoke tests. Logs are
 `bra-561-outcome-transfer.log`, `bra-561-outcome-style.log`,
 `bra-561-outcome-format.log` and `bra-561-outcome-native.log` in the shared target's
-`bra-620-authority` directory. The broad compilation binary is still running in
-`bra-561-outcome-compilation.log`. Its known selected-scope role failure remains
-in the approved downstream work, so this checkpoint is not issue completion.
+`bra-620-authority` directory. The broad compilation run finishes with 1,687 passing tests and one known
+selected-scope role failure in `bra-561-outcome-compilation.log`, in 1,122.66
+seconds. That missing `CleanupIncidentTransfer` role remains in the approved
+downstream work, so this checkpoint is not issue completion.
 
 The audit re-read AGENTS.md and reviewed the changed production paths, ABI
 consumers, template encoding/decoding, reconstruction, optimization roots and
@@ -406,3 +407,52 @@ Generated Bray callbacks already transfer admitted report ownership through thei
 outcome ABI. Do not introduce universal per-transition admission or reconstruct
 source cleanup plans in the runtime. Existing task admission, scheduler queues and
 root orchestration remain the bounded unmigrated callers described by BRA-561.
+
+## Activation replacement in progress
+
+The next uncommitted batch adds the immutable activation descriptor, a coallocated
+Bray header and production authority checks. The compiler emits and initializes
+the header after claiming the complete frame region. Its invalid state-description
+branch now traps instead of returning an unrestricted default state.
+
+The resident pool distinguishes initialized inactive storage from dispatched
+storage. Its locked transition checks the complete domain, shape, slot, epoch and
+address before consuming the inactive token. Duplicate tokens cannot borrow a
+header concurrently with its dispatcher. Layout and address-overflow rejection
+precede consumption. The descriptor comes from the exact producer token, with
+provider retention and initialization required by an opaque trusted contract.
+Entry authority is a separate requirement. Neither numeric fields nor field
+visibility establish either contract.
+
+This batch is not the driver replacement. The old Rust activation graph, adapter
+and completion backing still execute. Remaining integration must establish entry
+authority from the existing native lane admission before calling `begin`, replace
+the two-word future with its complete inactive token, implement callback-boundary
+iteration and result commitment, then remove the superseded Rust graph. The new
+Bray attachment and detach transitions are not yet connected. Production contract
+checks and ABI layout tests are being built in `bra-561-activation-build.*`.
+
+The focused batch passes 99 checks: 19 ABI tests, 69 native runtime tests, the
+production storage/activation contract audit, producer/entry authority rejection
+and nine host-emission tests. The first contract run rejected a captured witness
+in the descriptor-reader lambda. The corrected projection takes the exact owner
+as its parameter and passes the production declaration checks. The callback bridge
+preserves explicit suspension and a report published before native unwind without
+new admission. Resume, broadcast and lifecycle callbacks share this containment
+operation. The new scheduler adapter passes `cargo check --features scheduler`.
+
+`cargo xtask style`, `cargo xtask format`, Rustfmt and `git diff --check` pass.
+Logs are `bra-561-activation-tests.log`, `bra-561-activation-style.log`,
+`bra-561-activation-format.log` and `bra-561-activation-adapter.log` in the shared
+target's `bra-620-authority` directory. These checks do not establish the missing
+native token-transfer and driver integration. Native execution readiness remains
+the earlier checkpoint's evidence, not evidence for this batch.
+
+The checkpoint audit re-read AGENTS.md and checked every changed source, thin
+module roots, visibility, ABI signatures and callback outcomes. Repo-wide searches
+covered lease/shape validation, state transitions, header offsets and written
+report/unwind composition. Reuse the existing lease checks and `RuntimePanic::record`
+without adding another report owner. Growth is 840 production lines added and 153
+removed, plus 224 test lines, excluding this document. The new metadata, access
+contracts and callback bridge are prerequisites for deleting the still-present
+Rust activation graph and completion owner, not a second permanent implementation.

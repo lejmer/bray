@@ -1,5 +1,6 @@
 //! Internal implementation surface consumed by link-isolated native adapters.
 
+pub use super::activation::bray_runtime_activation_callback;
 pub use super::callback::bray_runtime_native_thread_execution;
 pub use super::export::{
     bray_runtime_awaited_frame_composition, bray_runtime_cleanup_incident_reporting,

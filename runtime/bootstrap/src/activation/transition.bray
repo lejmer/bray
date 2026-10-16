@@ -1,0 +1,83 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation;
+
+using std.memory;
+
+// Entry authority is established against the run's admitted lanes before this
+// transition. It is not supplied by the descriptor, a copied token or a phase flag.
+trusted internal predicate entry_authorized(token: &Inactive, origin: u64);
+
+trusted internal func begin(
+    pos pool: &mut bray.runtime.bootstrap.ReportPool,
+    pos token: &Inactive,
+    pos origin: u64,
+) -> usize
+    requires(trusted producer(token = token), trusted entry_authorized(token = token, origin = origin))
+    uses(intrinsic)
+{
+    let value = trusted resident(pool, token);
+
+    if let ?header = value
+    {
+        // A valid producer publishes this state only after initializing captures.
+        // A duplicate or stale token was rejected by the pool before this access.
+        if header.phase != INACTIVE || header.parent != 0 || header.child != 0
+        {
+            trusted core.target.abort();
+        }
+
+        header.origin = origin;
+        header.phase = RUNNING;
+        return trusted core.target.expose_address<Header>(std.memory.address_of_mut<Header>(header));
+    }
+
+    return 0;
+}
+
+// Both headers are already exclusively owned by the same dispatcher. Addresses
+// identify their positions in the admitted chain and confer no access authority.
+trusted internal func attach(
+    pos parent: &mut Header,
+    pos child: &mut Header,
+    pos parent_address: usize,
+    pos child_address: usize,
+    pos affinity: u32,
+    pos lanes: u32,
+    pos origin: u64,
+)
+    uses(intrinsic)
+{
+    if parent_address == 0 || child_address == 0 || parent_address == child_address || parent.child != 0 ||
+        child.parent != 0 || child.phase != RUNNING || (parent.phase != RUNNING && parent.phase != CLEANUP)
+    {
+        trusted core.target.abort();
+    }
+
+    child.parent = parent_address;
+    child.retained_affinity = affinity;
+    child.retained_lanes = lanes;
+    child.retained_origin = origin;
+    parent.child = child_address;
+}
+
+// Completion transfers into caller-owned storage before this transition. A
+// terminal child remains attached while its result or report is still owned.
+trusted internal func detach(
+    pos parent: &mut Header,
+    pos child: &mut Header,
+    pos parent_address: usize,
+    pos child_address: usize,
+)
+    uses(intrinsic)
+{
+    if parent.child != child_address || child.parent != parent_address || child.phase != COMMITTED || child.child != 0
+    {
+        trusted core.target.abort();
+    }
+
+    parent.child = 0;
+    child.parent = 0;
+    child.retained_affinity = 0;
+    child.retained_lanes = 0;
+    child.retained_origin = 0;
+}

@@ -1543,6 +1543,10 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
         include_str!("../../../../../standard-library/std/src/io/windows.bray"),
         include_str!("../../../../../standard-library/std/src/io/unix.bray"),
         caller,
+        include_str!("../../../../../runtime/bootstrap/src/activation/data.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/storage.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/access.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/transition.bray"),
         include_str!("../../../../../runtime/bootstrap/src/storage/data.bray"),
         include_str!("../../../../../runtime/bootstrap/src/storage/admission.bray"),
         include_str!("../../../../../runtime/bootstrap/src/storage/activation.bray"),
@@ -1727,6 +1731,7 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
 
         if !source.contains("module bray.runtime.bootstrap.storage;")
             && !source.contains("module bray.runtime.bootstrap.outgoing;")
+            && !source.contains("module bray.runtime.bootstrap.activation;")
         {
             continue;
         }
@@ -1739,4 +1744,53 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
     }
 
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn activation_tokens_require_both_producer_and_entry_authority() {
+    for (requirements, valid) in [
+        ("", false),
+        (
+            "requires(trusted bray.runtime.bootstrap.activation.producer(token = token))",
+            false,
+        ),
+        (
+            "requires(trusted bray.runtime.bootstrap.activation.producer(token = token), trusted bray.runtime.bootstrap.activation.entry_authorized(token = token, origin = origin))",
+            true,
+        ),
+    ] {
+        let caller = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+            trusted func production_probe(
+                pos pool: &mut ReportPool,
+                pos token: &bray.runtime.bootstrap.activation.Inactive,
+                pos origin: u64,
+            ) -> usize
+                {requirements}
+            {{
+                return trusted bray.runtime.bootstrap.activation.begin(pool, token, origin);
+            }}
+        "#
+        );
+
+        let compilation = production_host_compilation(&caller);
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !lowered.diagnostics().has_errors(),
+            valid,
+            "{caller}: {lowered:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                lowered.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
 }

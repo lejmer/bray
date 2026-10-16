@@ -1,5 +1,6 @@
 #[macro_use]
 mod macros;
+mod activation;
 pub(crate) mod bridge;
 mod callback;
 #[cfg(test)]

@@ -1,0 +1,78 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation;
+
+using std.memory;
+
+// All pointers in this record refer to immutable compiler or native-provider data.
+// Their producer retains that provider until the admitted frame is released.
+@copy
+@layout(c)
+internal struct Descriptor
+{
+    storage: bray.runtime.bootstrap.storage.Descriptor;
+    header: usize;
+    completion: usize;
+    completion_bytes: usize;
+    completion_align: usize;
+    states: u32;
+    state: RawPointer<u8>;
+    resume: RawPointer<u8>;
+    cancel: RawPointer<u8>;
+    broadcast: RawPointer<u8>;
+    resolve: RawPointer<u8>;
+    move_completion: RawPointer<u8>;
+    destroy: RawPointer<u8>;
+}
+
+// Crossing the native boundary copies a lease, never its ownership. Activation
+// checks the resident slot and its phase before consuming the inactive token.
+@copy
+@layout(c)
+internal struct Inactive
+{
+    lease: bray.runtime.bootstrap.storage.Lease;
+    descriptor: RawPointer<Descriptor>;
+}
+
+@layout(c)
+internal struct Progress
+{
+    mut kind: u32;
+    mut state: u32;
+    mut payload: usize;
+    mut report: bray.runtime.bootstrap.PanicReportData;
+}
+
+// The exclusive run dispatcher owns these links in the admitted frame itself.
+// No mutable borrow of this header crosses a source callback.
+@layout(c)
+internal struct Header
+{
+    lease: bray.runtime.bootstrap.storage.Lease;
+    descriptor: RawPointer<Descriptor>;
+    context: usize;
+    mut parent: usize;
+    mut child: usize;
+    mut current: usize;
+    mut broadcast_next: usize;
+    mut origin: u64;
+    mut retained_origin: u64;
+    mut state: u32;
+    mut phase: u32;
+    mut retained_affinity: u32;
+    mut retained_lanes: u32;
+    mut broadcasted: u32;
+    mut progress: Progress;
+    mut incidents: bray.runtime.bootstrap.ReportRecords;
+    mut outgoing: bray.runtime.bootstrap.ReportRecords;
+}
+
+internal const INACTIVE: u32 = 0;
+
+internal const RUNNING: u32 = 1;
+
+internal const CLEANUP: u32 = 2;
+
+internal const TERMINAL: u32 = 3;
+
+internal const COMMITTED: u32 = 4;

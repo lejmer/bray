@@ -53,9 +53,20 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
         .set_initializer(&value);
 
     crate::mapping::frame::initialize_factory(context, module, request.mappings(), instance.key());
-    translate_constructor(module, request, instance, context_type, types)?;
+
+    let activation = super::description::declare(module, request, instance, context_type, types)?;
+
+    translate_constructor(
+        module,
+        request,
+        instance,
+        context_type,
+        activation.as_pointer_value(),
+        types,
+    )?;
+
     translate_frame_adapter(module, request, instance, context_type, types)?;
-    translate_state_callback(context, module, request, instance)?;
+    super::description::translate_state_callback(context, module, request, instance)?;
     translate_cancellation_entry(module, request, instance, context_type, types)?;
     translate_action_callbacks(module, request, instance, context_type, types)?;
 
@@ -144,7 +155,7 @@ fn frame_context_type<'context>(
         );
     }
 
-    fields.push(crate::mapping::cleanup::lease_type(context, types.target()).into());
+    fields.push(crate::native::activation::header_type(context, types.target()).into());
 
     Ok(context.struct_type(&fields, false))
 }
@@ -154,6 +165,7 @@ fn translate_constructor<'context>(
     request: CodegenRequest<'_>,
     instance: &CodegenInstance,
     context_type: StructType<'context>,
+    activation: PointerValue<'context>,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<(), CodegenFailure> {
     let symbol = request
@@ -171,7 +183,15 @@ fn translate_constructor<'context>(
 
     builder.position_at_end(block);
 
-    let storage = super::storage::claim(module, request, instance, context_type, &builder, types)?;
+    let storage = super::storage::claim(
+        module,
+        request,
+        instance,
+        context_type,
+        activation,
+        &builder,
+        types,
+    )?;
 
     initialize_parameters(
         &builder,
@@ -457,92 +477,6 @@ fn translate_frame_adapter<'context>(
         ProtectedFrameOperation::MoveBeforeStart,
         frame.into(),
     )?;
-
-    Ok(())
-}
-
-fn translate_state_callback(
-    context: &Context,
-    module: &Module<'_>,
-    request: CodegenRequest<'_>,
-    instance: &CodegenInstance,
-) -> Result<(), CodegenFailure> {
-    let function = frame_operation_function(
-        module,
-        request,
-        instance,
-        ProtectedFrameOperation::StateDescription,
-    );
-
-    let descriptor = instance
-        .mir()
-        .frame_descriptor()
-        .expect("protected-frame translation requires an established mapping or value");
-
-    let state = function
-        .get_nth_param(1)
-        .and_then(|value| match value {
-            BasicValueEnum::IntValue(value) => Some(value),
-            _ => None,
-        })
-        .expect("protected-frame translation requires an established mapping or value");
-
-    let builder = context.create_builder();
-    let dispatch = context.append_basic_block(function, "frame.state");
-    let invalid = context.append_basic_block(function, "frame.state.invalid");
-    let mut cases = Vec::with_capacity(descriptor.states().len());
-
-    for state in descriptor.states() {
-        let block = context.append_basic_block(function, "frame.state.known");
-
-        let lane_requirements =
-            state
-                .lane_requirements()
-                .iter()
-                .fold(0_u64, |requirements, lane| {
-                    requirements
-                        | match lane {
-                            bray_runtime_interface::ExecutionLaneRequirement::Blocking => 1,
-                            bray_runtime_interface::ExecutionLaneRequirement::Compute => 2,
-                            bray_runtime_interface::ExecutionLaneRequirement::MainThread => 4,
-                        }
-                });
-
-        let affinity = if state
-            .lane_requirements()
-            .contains(&bray_runtime_interface::ExecutionLaneRequirement::MainThread)
-        {
-            bray_runtime_interface::ProtectedFrameAffinity::MainThread.code()
-        } else {
-            state.affinity().code()
-        };
-
-        builder.position_at_end(block);
-
-        crate::native::return_frame_state(
-            context,
-            &builder,
-            u64::from(affinity),
-            lane_requirements,
-        )?;
-
-        cases.push((
-            context
-                .i32_type()
-                .const_int(u64::from(state.state().raw()), false),
-            block,
-        ));
-    }
-
-    builder.position_at_end(dispatch);
-
-    builder
-        .build_switch(state, invalid, &cases)
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder.position_at_end(invalid);
-
-    crate::native::return_frame_state(context, &builder, 0, 0)?;
 
     Ok(())
 }

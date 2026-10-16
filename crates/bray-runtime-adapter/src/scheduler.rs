@@ -144,3 +144,18 @@ native_adapter! {
         implementation::bray_runtime_compatible_lane_selection(task, state)
     }
 }
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_activation_callback(
+        descriptor: &bray_runtime_abi::NativeActivationDescriptor,
+        context: usize,
+        operation: u32,
+        argument: usize,
+        destination: &mut NativeFrameProgress,
+        records: &mut bray_runtime_abi::NativeReportRecords,
+    ) {
+        implementation::bray_runtime_activation_callback(
+            descriptor, context, operation, argument, destination, records,
+        )
+    }
+}

@@ -122,6 +122,22 @@ trusted internal func matches_lease(pos pool: &mut bray.runtime.bootstrap.Report
     return entry.state != FREE && entry.epoch == lease.epoch && entry.address == lease.address;
 }
 
+trusted internal func matches_shape(
+    pos pool: &mut bray.runtime.bootstrap.ReportPool,
+    pos lease: &Lease,
+    pos descriptor: &Descriptor
+) -> bool
+{
+    if !trusted matches_lease(pool, lease)
+    {
+        return false;
+    }
+
+    let values = trusted shapes(pool);
+
+    return same_shape(&values[lease.shape - 1].descriptor, descriptor);
+}
+
 trusted internal func activate_value(
     pos pool: &mut bray.runtime.bootstrap.ReportPool,
     pos lease: &Lease,
@@ -129,20 +145,13 @@ trusted internal func activate_value(
 ) -> RawPointer<u8>
     uses(intrinsic)
 {
-    if !trusted matches_lease(pool, lease)
+    if !trusted matches_shape(pool, lease, descriptor)
     {
         return std.memory.null<u8>();
     }
 
     let values = trusted shapes(pool);
-    let shape = &mut values[lease.shape - 1];
-
-    if !same_shape(&shape.descriptor, descriptor)
-    {
-        return std.memory.null<u8>();
-    }
-
-    let entry = trusted slot(shape, lease.slot);
+    let entry = trusted slot(&mut values[lease.shape - 1], lease.slot);
 
     if entry.state != RESERVED
     {
@@ -151,6 +160,31 @@ trusted internal func activate_value(
 
     entry.state = ACTIVE;
     return trusted core.target.from_exposed_address<u8>(address = entry.address);
+}
+
+// Transfer an initialized inactive frame to its exclusive dispatcher. Checking
+// the resident state before accessing frame bytes rejects duplicate native tokens.
+trusted internal func take_active_address(
+    pos pool: &mut bray.runtime.bootstrap.ReportPool,
+    pos lease: &Lease,
+    pos descriptor: &Descriptor
+) -> usize
+{
+    if !trusted matches_shape(pool, lease, descriptor)
+    {
+        return 0;
+    }
+
+    let values = trusted shapes(pool);
+    let entry = trusted slot(&mut values[lease.shape - 1], lease.slot);
+
+    if entry.state != ACTIVE
+    {
+        return 0;
+    }
+
+    entry.state = DISPATCHED;
+    return entry.address;
 }
 
 trusted internal func release_value(pos pool: &mut bray.runtime.bootstrap.ReportPool, pos lease: &Lease) -> bool

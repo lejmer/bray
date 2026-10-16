@@ -11,6 +11,7 @@ pub(super) fn claim<'context>(
     request: CodegenRequest<'_>,
     instance: &CodegenInstance,
     context_type: StructType<'context>,
+    activation: PointerValue<'context>,
     builder: &Builder<'context>,
     types: &LlvmTypeMappings<'context, '_>,
 ) -> Result<PointerValue<'context>, CodegenFailure> {
@@ -60,18 +61,22 @@ pub(super) fn claim<'context>(
         .build_store(storage, context_type.const_zero())
         .map_err(CodegenFailure::backend_library)?;
 
-    let retained = builder
-        .build_struct_gep(
-            context_type,
-            storage,
-            context_type.count_fields() - 1,
-            "frame.backing",
-        )
-        .map_err(CodegenFailure::backend_library)?;
+    let header = header_pointer(builder, context_type, storage)?;
+    let header_type = crate::native::activation::header_type(context, request.target());
 
-    builder
-        .build_store(retained, value)
-        .map_err(CodegenFailure::backend_library)?;
+    for (field, value) in [
+        (0, inkwell::values::BasicValueEnum::from(value)),
+        (1, activation.into()),
+        (2, address.into()),
+    ] {
+        let destination = builder
+            .build_struct_gep(header_type, header, field, "frame.activation.field")
+            .map_err(CodegenFailure::backend_library)?;
+
+        builder
+            .build_store(destination, value)
+            .map_err(CodegenFailure::backend_library)?;
+    }
 
     Ok(storage)
 }
@@ -98,11 +103,13 @@ pub(super) fn translate_destruction<'context>(
 
     let storage = super::core::integer_pointer(&builder, function, 0, types)?;
 
+    let header = header_pointer(&builder, context_type, storage)?;
+
     let retained = builder
         .build_struct_gep(
-            context_type,
-            storage,
-            context_type.count_fields() - 1,
+            crate::native::activation::header_type(context, request.target()),
+            header,
+            0,
             "frame.backing",
         )
         .map_err(CodegenFailure::backend_library)?;
@@ -149,4 +156,19 @@ pub(super) fn translate_destruction<'context>(
         .map_err(CodegenFailure::backend_library)?;
 
     Ok(())
+}
+
+fn header_pointer<'context>(
+    builder: &Builder<'context>,
+    context_type: StructType<'context>,
+    storage: PointerValue<'context>,
+) -> Result<PointerValue<'context>, CodegenFailure> {
+    builder
+        .build_struct_gep(
+            context_type,
+            storage,
+            context_type.count_fields() - 1,
+            "frame.activation",
+        )
+        .map_err(CodegenFailure::backend_library)
 }

@@ -895,6 +895,15 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [MoveFrame]
             }
+            ActivationCallback {
+                "Contain one native producer callback within its Bray activation.", "activation_callback",
+                native: (ACTIVATION_CALLBACK_SYMBOL = "bray_runtime_activation_callback", [Pointer, Usize, U32, Usize, Pointer, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Pointer, Usize, U32, Usize, Pointer, Pointer] -> Void,
+                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
             AwaitedFrameComposition {
                 "Compose one erased directly awaited frame into its parent.", "awaited_frame_composition",
                 native: (AWAITED_FRAME_COMPOSITION_SYMBOL = "bray_runtime_awaited_frame_composition", [InactiveFrame] -> Void),

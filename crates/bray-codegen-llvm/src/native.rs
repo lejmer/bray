@@ -1,4 +1,5 @@
 mod abi;
+pub(crate) mod activation;
 mod core;
 
 pub(crate) use abi::{call_void_intrinsic, runtime_attributes};

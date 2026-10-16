@@ -5,6 +5,7 @@
 #[cfg(test)]
 #[macro_use]
 mod layout;
+mod activation;
 mod catalog;
 mod panic;
 mod platform;
@@ -18,6 +19,7 @@ mod storage;
 pub mod symbols;
 mod temporal;
 
+pub use activation::NativeActivationDescriptor;
 pub use panic::{
     NativePanicCause, NativePanicMessage, NativePanicMessageCopy, NativePanicMessageRelease,
     NativePanicPrimary, NativePanicReport, NativePanicReportConsumer, NativeSourceAnchor,
