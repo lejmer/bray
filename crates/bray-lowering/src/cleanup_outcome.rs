@@ -165,6 +165,7 @@ impl CleanupOutcome {
         block: MirBlockId,
         source: &MirSourceAnchor,
         value: MirOperand,
+        producer: (bray_ir::MirCallableReference, BoundCallResult),
         payloads: Option<([TypeId; 2], bray_symbols::CompilerKnownResultRepresentation)>,
     ) -> Result<(MirBlockId, MirOperand), MirCapacityError> {
         let (completed, value, failed) =
@@ -197,18 +198,7 @@ impl CleanupOutcome {
 
             builder.set_terminator(completed, source.clone(), branch);
 
-            builder.push_operation(
-                error,
-                source.clone(),
-                MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident {
-                    incident,
-                    runtime: MirRuntimeReference::new(
-                        RuntimeAbiRole::CleanupIncidentTransfer,
-                        self.runtime_abi,
-                    ),
-                }),
-                None,
-            )?;
+            let error = self.retain_incident(builder, error, source, incident, producer)?;
 
             for branch in [success, error] {
                 builder.set_terminator(
@@ -232,6 +222,90 @@ impl CleanupOutcome {
         }
 
         Ok((continuation, MirOperand::Value(abandoned)))
+    }
+
+    /// Resolves an error's child work before transferring its still-owned payload.
+    pub(crate) fn retain_incident(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        incident: MirOperand,
+        producer: (bray_ir::MirCallableReference, BoundCallResult),
+    ) -> Result<MirBlockId, MirCapacityError> {
+        let ty = builder.operand_type(&incident);
+        let storage = builder.push_storage(source.clone(), MirStorageKind::Temporary, ty)?;
+        let place = MirPlace::new(storage, [], ty);
+
+        builder.push_operation(
+            block,
+            source.clone(),
+            MirOperationKind::Store {
+                kind: MirStoreKind::Initialize,
+                destination: place.clone(),
+                value: incident,
+            },
+            None,
+        )?;
+
+        let broadcast = builder.push_block(source.clone(), MirBlockKind::CleanupBroadcast)?;
+        let resolution = builder.push_block(source.clone(), MirBlockKind::LifecycleResolution)?;
+
+        builder.set_terminator(
+            block,
+            source.clone(),
+            MirTerminatorKind::BeginCleanup(MirCleanupEdge::new(
+                MirCleanupPhase::TaskCancellation,
+                MirEdge::new(broadcast, []),
+            )),
+        );
+
+        builder.push_operation(
+            broadcast,
+            source.clone(),
+            MirOperationKind::Cleanup {
+                phase: MirCleanupPhase::TaskCancellation,
+                place: place.clone(),
+            },
+            None,
+        )?;
+
+        builder.set_terminator(
+            broadcast,
+            source.clone(),
+            MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
+                MirCleanupPhase::LifecycleResolution,
+                MirEdge::new(resolution, []),
+            )),
+        );
+
+        builder.push_operation(
+            resolution,
+            source.clone(),
+            MirOperationKind::Quiesce(place.clone()),
+            None,
+        )?;
+
+        // Quiescence retains the payload on every outcome. Keep its cleanup panics
+        // with the enclosing outcome before transferring the original typed error.
+        let block = self.check(builder, resolution, source)?;
+
+        builder.push_operation(
+            block,
+            source.clone(),
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident {
+                incident: place,
+                producer: producer.0,
+                invocation: producer.1,
+                runtime: MirRuntimeReference::new(
+                    RuntimeAbiRole::CleanupIncidentTransfer,
+                    self.runtime_abi,
+                ),
+            }),
+            None,
+        )?;
+
+        Ok(block)
     }
 
     /// Adds incident continuations after the block's last fallible cleanup operation.

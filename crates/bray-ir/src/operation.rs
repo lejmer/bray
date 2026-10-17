@@ -587,8 +587,12 @@ pub enum MirAsyncOperation {
     },
     /// Transfer ownership of a cleanup incident.
     TransferCleanupIncident {
-        /// Incident value being transferred.
-        incident: MirOperand,
+        /// Initialized quiescent payload whose ownership transfers to the incident chain.
+        incident: MirPlace,
+        /// Selected finalizer or scope exit whose admission backs this payload.
+        producer: crate::MirCallableReference,
+        /// Exact invocation shape used to admit the producer's cleanup backing.
+        invocation: bray_bound_tree::BoundCallResult,
         /// Selected private transfer ABI role.
         runtime: MirRuntimeReference,
     },

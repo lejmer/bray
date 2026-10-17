@@ -790,54 +790,147 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
     let success = generated.block(matched.target()).unwrap();
     let error = generated.block(unmatched.target()).unwrap();
 
-    let transfers = error
-        .operations()
-        .iter()
-        .filter_map(|id| match generated.operation(*id).unwrap().kind() {
-            MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident {
-                incident,
-                ..
-            }) => Some(incident),
-            _ => None,
+    let (transfer_block, incident, producer) = generated
+        .blocks_with_ids()
+        .find_map(|(id, block)| {
+            block.operations().iter().find_map(|operation| {
+                match generated.operation(*operation).unwrap().kind() {
+                    MirOperationKind::Async(
+                        bray_ir::MirAsyncOperation::TransferCleanupIncident {
+                            incident,
+                            producer,
+                            ..
+                        },
+                    ) => Some((id, incident, producer)),
+                    _ => None,
+                }
+            })
         })
-        .collect::<Vec<_>>();
+        .expect("completed finalizer error retains one transfer");
 
-    assert_eq!(transfers.len(), 1);
+    let payload = incident;
 
-    let bray_ir::MirOperand::Value(payload) = transfers[0] else {
-        panic!("transfer consumes the projected payload");
+    assert!(error.operations().iter().any(|id| matches!(
+        generated.operation(*id).unwrap().kind(),
+        MirOperationKind::Store { kind: bray_ir::MirStoreKind::Initialize, destination, .. } if destination == payload
+    )));
+
+    let MirTerminatorKind::BeginCleanup(broadcast) = error.terminator().kind() else {
+        panic!("the newly returned error broadcasts cancellation before waiting");
     };
 
-    let projection = error
-        .operations()
-        .iter()
-        .find_map(|id| {
-            let operation = generated.operation(*id).unwrap();
+    let broadcast = generated.block(broadcast.edge().target()).unwrap();
 
-            (operation.result() == Some(*payload)).then_some(operation.kind())
-        })
+    assert!(broadcast.operations().iter().any(|id| matches!(
+        generated.operation(*id).unwrap().kind(),
+        MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place } if place == payload
+    )));
+
+    let MirTerminatorKind::ContinueCleanup(resolution) = broadcast.terminator().kind() else {
+        panic!("the complete broadcast precedes error quiescence");
+    };
+
+    let resolution = generated.block(resolution.edge().target()).unwrap();
+
+    assert!(resolution.operations().iter().any(|id| matches!(
+        generated.operation(*id).unwrap().kind(),
+        MirOperationKind::Quiesce(place) if place == payload
+    )));
+
+    assert!(generated.operations().iter().any(|operation| matches!(
+        operation.kind(), MirOperationKind::Call(call) if call.target() == &MirCallTarget::Direct(*producer)
+    )));
+
+    let owner = compilation
+        .concrete_codegen_lifecycle(MirHelperReference::Finalize(ty), &target)
         .unwrap();
 
-    assert!(matches!(
-        projection,
-        MirOperationKind::PatternProjection {
-            operation: bray_bound_tree::PatternOperation::Consume,
-            ..
+    let cancellation = CancellationToken::new();
+    let mut requirements = Vec::new();
+
+    for operation in generated.operations() {
+        if matches!(operation.kind(), MirOperationKind::Call(call) if call.target() == &MirCallTarget::Direct(*producer))
+            || matches!(
+                operation.kind(),
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident { .. })
+            )
+        {
+            requirements.push(
+                compilation
+                    .operation_outgoing_requirements(
+                        &owner,
+                        operation.kind(),
+                        &target,
+                        &cancellation,
+                    )
+                    .unwrap()
+                    .unwrap(),
+            );
         }
-    ));
+    }
+
+    assert_eq!(requirements.len(), 2);
+
+    assert_eq!(
+        requirements[0], requirements[1],
+        "retention reuses the producing invocation's exact admitted descriptor"
+    );
+
+    assert_eq!(requirements[0].len(), 1);
+
+    let reaches_transfer = |start| {
+        let mut pending = vec![start];
+        let mut visited = std::collections::BTreeSet::new();
+
+        while let Some(block) = pending.pop() {
+            if block == transfer_block {
+                return true;
+            }
+
+            if visited.insert(block) {
+                generated
+                    .block(block)
+                    .unwrap()
+                    .terminator()
+                    .kind()
+                    .for_each_successor(|next| pending.push(next));
+            }
+        }
+
+        false
+    };
+
+    let MirTerminatorKind::CheckCallOutcome {
+        completed,
+        panicked: quiescence_panic,
+        cancelled: quiescence_cancel,
+    } = resolution.terminator().kind()
+    else {
+        panic!("quiescence must collect its outcome before incident transfer");
+    };
+
+    for target in [
+        completed.target(),
+        quiescence_panic.target(),
+        quiescence_cancel.target(),
+    ] {
+        assert!(
+            reaches_transfer(target),
+            "quiescence retains the payload on every outcome"
+        );
+    }
+
+    for target in [panicked.target(), cancelled.target(), matched.target()] {
+        assert!(
+            !reaches_transfer(target),
+            "only a returned Error owns an incident payload"
+        );
+    }
 
     assert!(success.operations().iter().all(|id| !matches!(
         generated.operation(*id).unwrap().kind(),
         MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident { .. })
     )));
-
-    assert_ne!(panicked.target(), unmatched.target());
-    assert_ne!(cancelled.target(), unmatched.target());
-
-    assert!(
-        matches!(error.terminator().kind(), MirTerminatorKind::Goto(_)),
-        "incident transfer retains ownership without replacing the pending cleanup outcome"
-    );
 
     assert!(
         generated.operations().iter().all(|operation| !matches!(

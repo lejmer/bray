@@ -265,7 +265,7 @@ fn visit_async_operands(operation: &MirAsyncOperation, visit: &mut impl FnMut(&M
             MirTaskTerminalState::Cancelled => {}
         },
         MirAsyncOperation::TransferCleanupIncident { incident, .. } => {
-            visit_operand(incident, visit)
+            visit_place_operands(incident, visit)
         }
         MirAsyncOperation::ResumeFrame { .. }
         | MirAsyncOperation::CommitAwaitedCompletion { .. }
@@ -390,6 +390,11 @@ pub(crate) fn for_each_operation_storage(
             if let Some(completion) = completion {
                 visit(*completion);
             }
+        }
+        MirOperationKind::Async(MirAsyncOperation::TransferCleanupIncident {
+            incident, ..
+        }) => {
+            visit_place_storage(incident, &mut visit);
         }
         MirOperationKind::Unary { .. }
         | MirOperationKind::Binary { .. }

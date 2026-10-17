@@ -509,42 +509,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 completion,
                 ..
             } => {
-                let frame = self.native_inactive_frame(frame)?;
-
-                let runtime = self.operation_runtime_helper(
-                    operation_id,
-                    MirHelperReference::ComposeAwaitedFrame(*child),
-                )?;
-
-                let state = self
-                    .types
-                    .context()
-                    .i32_type()
-                    .const_int(u64::from(resume_state.raw()), false);
-
-                let address = match completion {
-                    Some(completion) => {
-                        let destination = self.storage(*completion)?;
-
-                        llvm(self.builder.build_ptr_to_int(
-                            destination,
-                            self.pointer_integer_type(),
-                            "awaited.destination",
-                        ))?
-                    }
-                    None => self.pointer_integer_type().const_zero(),
-                };
-
-                let abandoning = self
-                    .types
-                    .context()
-                    .i8_type()
-                    .const_int(u64::from(completion.is_none()), false);
-
-                self.invoke_native_runtime(
-                    runtime,
-                    &[frame, state.into(), address.into(), abandoning.into()],
-                )
+                self.compose_awaited_frame(operation_id, *child, *resume_state, frame, *completion)
             }
             MirAsyncOperation::CommitAwaitedCompletion { child, completion } => {
                 let runtime = self.operation_runtime_helper(
@@ -686,8 +651,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | MirAsyncOperation::ExecuteLifecycleResolution { runtime, .. } => {
                 self.invoke_runtime(*runtime, &[])
             }
-            MirAsyncOperation::TransferCleanupIncident { incident, runtime } => {
-                let incident = self.operand(incident)?;
+            MirAsyncOperation::TransferCleanupIncident {
+                incident, runtime, ..
+            } => {
+                // The temporary move operand shares the immutable path with move bookkeeping.
+                let incident = self.operand(&bray_ir::MirOperand::Move(incident.clone()))?;
 
                 self.invoke_runtime(*runtime, &[incident])
             }
@@ -736,7 +704,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.invoke_helper(helper, arguments)
     }
 
-    fn operation_runtime_helper(
+    pub(super) fn operation_runtime_helper(
         &self,
         operation: bray_ir::MirOperationId,
         expected: MirHelperReference,

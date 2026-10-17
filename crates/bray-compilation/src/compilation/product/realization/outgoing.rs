@@ -43,6 +43,19 @@ impl Compilation {
             } => self
                 .invocation_outgoing_requirements(owner, *callable, *result, target, cancellation)
                 .map(Some),
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident {
+                producer,
+                invocation,
+                ..
+            }) => self
+                .invocation_outgoing_requirements(
+                    owner,
+                    *producer,
+                    *invocation,
+                    target,
+                    cancellation,
+                )
+                .map(Some),
             MirOperationKind::Call(call) if call.is_cleanup() => {
                 let MirCallTarget::Direct(reference) = call.target() else {
                     panic!(

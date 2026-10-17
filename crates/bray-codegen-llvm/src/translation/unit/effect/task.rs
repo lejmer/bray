@@ -5,6 +5,50 @@ use bray_ir::{MirFrameInitializer, MirHelperReference, MirRunResultVariants};
 use inkwell::values::{BasicValueEnum, PointerValue};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
+    pub(super) fn compose_awaited_frame(
+        &mut self,
+        operation: bray_ir::MirOperationId,
+        child: bray_ir::MirFrameReference,
+        resume_state: bray_ir::MirFrameStateId,
+        frame: &bray_ir::MirOperand,
+        completion: Option<bray_ir::MirStorageId>,
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        let frame = self.native_inactive_frame(frame)?;
+
+        let runtime = self
+            .operation_runtime_helper(operation, MirHelperReference::ComposeAwaitedFrame(child))?;
+
+        let state = self
+            .types
+            .context()
+            .i32_type()
+            .const_int(u64::from(resume_state.raw()), false);
+
+        let address = match completion {
+            Some(completion) => {
+                let destination = self.storage(completion)?;
+
+                llvm(self.builder.build_ptr_to_int(
+                    destination,
+                    self.pointer_integer_type(),
+                    "awaited.destination",
+                ))?
+            }
+            None => self.pointer_integer_type().const_zero(),
+        };
+
+        let abandoning = self
+            .types
+            .context()
+            .i8_type()
+            .const_int(u64::from(completion.is_none()), false);
+
+        self.invoke_native_runtime(
+            runtime,
+            &[frame, state.into(), address.into(), abandoning.into()],
+        )
+    }
+
     pub(super) fn allocate_native_task(
         &mut self,
         runtime: bray_ir::MirRuntimeReference,

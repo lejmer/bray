@@ -128,6 +128,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 block,
                 source,
                 bray_ir::MirOperand::Value(value),
+                (
+                    bray_ir::MirCallableReference::new(callable.callable, callable.abi),
+                    bray_bound_tree::BoundCallResult::Immediate(callable.result),
+                ),
                 payloads,
             )
             .map_err(|cause| self.capacity_error(cause))?;

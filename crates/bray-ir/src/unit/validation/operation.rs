@@ -920,8 +920,10 @@ fn validate_async_operation(
             validate_current_frame(unit, *frame)?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::FrameLifecycleResolution)?;
         }
-        MirAsyncOperation::TransferCleanupIncident { incident, runtime } => {
-            validate_operand(unit, incident, block, Some(operation_id))?;
+        MirAsyncOperation::TransferCleanupIncident {
+            incident, runtime, ..
+        } => {
+            validate_place(unit, incident, block, Some(operation_id))?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::CleanupIncidentTransfer)?;
         }
         MirAsyncOperation::DestroyTerminalTask { task } => {

@@ -2414,9 +2414,17 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_bytes(&frame.digest());
                 self.runtime_reference(*runtime);
             }
-            Operation::TransferCleanupIncident { incident, runtime } => {
+            Operation::TransferCleanupIncident {
+                incident,
+                producer,
+                invocation,
+                runtime,
+            } => {
                 self.wire.write_u32(12);
-                self.operand(incident)?;
+                self.place(incident)?;
+                self.callable_instance(producer.instance())?;
+                self.callable_abi(producer.abi());
+                self.call_result(*invocation)?;
                 self.runtime_reference(*runtime);
             }
             Operation::DestroyTerminalTask { task } => {

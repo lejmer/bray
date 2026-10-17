@@ -309,7 +309,7 @@ impl Lowerer<'_> {
                     None,
                     invocation_result,
                     true,
-            None,
+                    None,
                     |operation, ty| {
                         lowerer.push_operation(block, Self::retained_source(source), operation, ty)
                     },
@@ -321,56 +321,101 @@ impl Lowerer<'_> {
 
                 if matches!(invocation_result, BoundCallResult::LazyFuture(_)) {
                     let awaited = lowerer.lower_awaited_frame(
-                        BoundExecutionSite::ScopedExit(expression), completion, Some(result), block,
+                        BoundExecutionSite::ScopedExit(expression),
+                        completion,
+                        Some(result),
+                        block,
                         Self::retained_source(source),
                     )?;
 
-                    block = awaited.block.expect("shielded scope exit resumes to its cleanup dispatcher");
-                    completion = awaited.value.expect("shielded scope exit publishes its completion result");
+                    block = awaited
+                        .block
+                        .expect("shielded scope exit resumes to its cleanup dispatcher");
+
+                    completion = awaited
+                        .value
+                        .expect("shielded scope exit publishes its completion result");
                 }
 
-                (block, completion) = lowerer.check_scoped_exit_call(block, source, ordinary_shield, &mut continuations, completion)?;
+                (block, completion) = lowerer.check_scoped_exit_call(
+                    block,
+                    source,
+                    ordinary_shield,
+                    &mut continuations,
+                    completion,
+                )?;
 
                 if ordinary_shield {
-                    lowerer.cleanup_shield(block, source, bray_runtime_interface::RuntimeAbiRole::CleanupShieldLeave)?;
+                    lowerer.cleanup_shield(
+                        block,
+                        source,
+                        bray_runtime_interface::RuntimeAbiRole::CleanupShieldLeave,
+                    )?;
                 }
 
                 if lowerer.type_representation(result) == Some(RepresentationRole::Result) {
-                    let (success, _, error, failure) = lowerer.branch_result_value(block, source, completion, result)?;
+                    let (success, _, error, failure) =
+                        lowerer.branch_result_value(block, source, completion, result)?;
 
-                    let joined = lowerer.builder.push_block(Self::retained_source(source), lowerer.builder.block_kind(block))?;
+                    let joined = lowerer.builder.push_block(
+                        Self::retained_source(source),
+                        lowerer.builder.block_kind(block),
+                    )?;
 
-                    lowerer.set_terminator(success, Self::retained_source(source), bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(joined, [])))?;
+                    lowerer.set_terminator(
+                        success,
+                        Self::retained_source(source),
+                        bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(joined, [])),
+                    )?;
 
-                    let error = if lowerer.cleanup_outcome.is_none() && lowerer.scoped_exit_completes_result(expression, exit) {
-                        let pending = pending.expect("normal fallible with completion retains its pending result storage");
-                        let previous = lowerer.builder.push_storage(Self::retained_source(source), bray_ir::MirStorageKind::Temporary, pending.ty())?;
-                        let previous = bray_ir::MirPlace::new(previous, [], pending.ty());
+                    let error = if lowerer.cleanup_outcome.is_none()
+                        && lowerer.scoped_exit_completes_result(expression, exit)
+                    {
+                        let pending = pending.expect(
+                            "normal fallible with completion retains its pending result storage",
+                        );
 
-                        lowerer.push_operation(error, Self::retained_source(source), MirOperationKind::Store {
-                            kind: MirStoreKind::Initialize, destination: Self::retained_place(&previous),
-                            value: MirOperand::Move(Self::retained_place(pending)),
-                        }, None)?;
-
-                        let failure = lowerer.construct_result(error, source, pending.ty(), false, failure)?;
-
-                        lowerer.push_operation(error, Self::retained_source(source), MirOperationKind::Store { kind: MirStoreKind::Initialize, destination: Self::retained_place(pending), value: failure }, None)?;
-
-                        // Publish ownership before discarding the former success value. A disposal
-                        // panic then cleans the error through the existing pending-result path.
-                        lowerer.push_guarded_cleanup(error, source, bray_ir::MirCleanupPhase::LifecycleResolution, previous, None, None, false, None)?.0
+                        lowerer.replace_scoped_result(error, source, pending, failure)?
                     } else {
-                        lowerer.push_operation(error, Self::retained_source(source), MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident { incident: failure, runtime: lowerer.runtime_reference(bray_runtime_interface::RuntimeAbiRole::CleanupIncidentTransfer) }), None)?;
+                        let local = lowerer.cleanup_outcome.is_none();
 
-                        error
+                        let outcome = match &lowerer.cleanup_outcome {
+                            // The nested incident shares the enclosing outcome's storage paths.
+                            Some(outcome) => outcome.clone(),
+                            None => lowerer.create_cleanup_outcome(error, source)?,
+                        };
+
+                        let error = outcome.retain_incident(
+                            &mut lowerer.builder,
+                            error,
+                            source,
+                            failure,
+                            (callable, invocation_result),
+                        )?;
+
+                        if local {
+                            lowerer.finish_finalizer_outcome(error, source, &outcome)?
+                        } else {
+                            error
+                        }
                     };
 
-                    lowerer.set_terminator(error, Self::retained_source(source), bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(joined, [])))?;
+                    lowerer.set_terminator(
+                        error,
+                        Self::retained_source(source),
+                        bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(joined, [])),
+                    )?;
+
                     block = joined;
                 }
 
                 for continuation in continuations.into_iter().rev() {
-                    lowerer.set_terminator(block, Self::retained_source(source), bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(continuation, [])))?;
+                    lowerer.set_terminator(
+                        block,
+                        Self::retained_source(source),
+                        bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(continuation, [])),
+                    )?;
+
                     block = continuation;
                 }
 
@@ -378,6 +423,61 @@ impl Lowerer<'_> {
             },
         )
         .map(|(block, _)| block)
+    }
+
+    fn replace_scoped_result(
+        &mut self,
+        error: MirBlockId,
+        source: &MirSourceAnchor,
+        pending: &bray_ir::MirPlace,
+        failure: MirOperand,
+    ) -> Result<MirBlockId, LoweringError> {
+        let previous = self.builder.push_storage(
+            Self::retained_source(source),
+            bray_ir::MirStorageKind::Temporary,
+            pending.ty(),
+        )?;
+
+        let previous = bray_ir::MirPlace::new(previous, [], pending.ty());
+
+        self.push_operation(
+            error,
+            Self::retained_source(source),
+            MirOperationKind::Store {
+                kind: MirStoreKind::Initialize,
+                destination: Self::retained_place(&previous),
+                value: MirOperand::Move(Self::retained_place(pending)),
+            },
+            None,
+        )?;
+
+        let failure = self.construct_result(error, source, pending.ty(), false, failure)?;
+
+        self.push_operation(
+            error,
+            Self::retained_source(source),
+            MirOperationKind::Store {
+                kind: MirStoreKind::Initialize,
+                destination: Self::retained_place(pending),
+                value: failure,
+            },
+            None,
+        )?;
+
+        // Publish ownership before discarding the former success value. A disposal
+        // panic then cleans the error through the existing pending-result path.
+        Ok(self
+            .push_guarded_cleanup(
+                error,
+                source,
+                bray_ir::MirCleanupPhase::LifecycleResolution,
+                previous,
+                None,
+                None,
+                false,
+                None,
+            )?
+            .0)
     }
 
     fn check_scoped_exit_call(

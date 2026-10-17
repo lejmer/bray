@@ -642,3 +642,55 @@ The checkpoint delta is 162 net lines in production files (including inline test
 buys checked inactive-disposal suspension and portable optional result storage; it removes
 the redundant mode representation and does not create a second execution path. Rustfmt,
 mutating style, Bray format and whitespace checks pass.
+
+
+Inactive-disposal checkpoint `faf16081` is pushed. Independent review
+[5560479964](https://github.com/lejmer/bray/pull/612#pullrequestreview-5560479964)
+found no actionable defects. Its commit and posted review were verified.
+
+The next batch makes the incident transfer boundary explicit. One shared lowering
+routine retains the returned error in owned storage, broadcasts cancellation over
+its new child graph, quiesces that graph, collects its cleanup outcomes and then
+transfers the still-owned payload. Generated finalizers, direct async finalizers
+and suppressed scoped-exit errors use that routine. The MIR transfer retains its
+selected producer, needed to select matching admitted backing. Its payload is a
+place rather than an arbitrary operand, and helper demand includes its destructor.
+
+A new error can be returned during outer lifecycle resolution. MIR therefore allows
+an explicit nested BeginCleanup at that point. It still requires a cancellation
+broadcast entry, and ContinueCleanup still requires a broadcast-to-resolution edge.
+The lowering regression covers all quiescence outcomes, excludes original-call
+failure/success paths from error transfer, and verifies broadcast precedes waiting.
+Executable import covers producer identity, owned storage and reconstruction.
+
+This establishes the lowering contract only. Native transfer remains unbound until
+async quiescence and physical retained ownership are connected. The synchronous
+TaskResolution helper and generated async helper assumptions are still outstanding.
+No hidden blocking root, source feature, runtime ownership history or allocation
+has been added by this batch. The 49 source/import/generated lifecycle tests pass,
+as do the 44 IR, 39 lowering and 191 interface tests. Logs are
+`bra-505-incident-boundary-tests.log` and `bra-505-incident-transport-tests.log`.
+
+
+The transfer also carries the producer's checked invocation result. Outgoing
+realization reuses invocation_outgoing_requirements, and the regression compares
+the retained incident descriptor with the original call's descriptor. It does not
+re-infer the signature or select backing from the error type alone. MIR type
+collection shares its invocation-result helper with ordinary outgoing owners.
+
+The final 49-test lifecycle batch and two LLVM emission tests pass after extracting
+awaited composition into the existing task-effect module and scoped result replacement
+into its owning lowering module. Tooling compiles. The final transport suites pass
+44 IR, 39 lowering and 191 interface tests. Review matrix searches cover all
+TransferCleanupIncident producers/consumers, storage and operand traversal, executable
+encoding/decoding, helper demands, descriptor selection, inspection output and
+nested cleanup edges. No second incident-lowering sequence remains. Native execution
+and complete issue acceptance remain pending.
+
+
+Checkpoint audit: 256 net production lines, 230 net dedicated test lines, and this
+temporary record. Part of the production diff expands existing compressed scoped
+lowering during formatting. The added capability is shared typed-error quiescence
+and exact admitted producer identity. Extracted helpers retain their existing domain
+modules. No runtime representation or allocation is added. Rustfmt, mutating style,
+Bray formatting and whitespace checks pass (`bra-505-incident-format.log`).

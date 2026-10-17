@@ -1516,3 +1516,140 @@ fn imported_inactive_futures_retain_capture_cleanup_suspensions() {
         "imported executable templates retain inactive disposal"
     );
 }
+
+#[test]
+fn imported_incident_transfer_retains_its_selected_producer_and_payload() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Value
+        {
+            async finalize() -> Result<unit, u32>
+            {
+                return Error(7);
+            }
+        }
+
+        async func fail(pos value: Value)
+        {
+            panic("cleanup");
+        }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+    let interface = encode_package_interface(bundle).unwrap();
+
+    let implementation = PackageImplementationArtifact::try_from_export_bundle(
+        &interface,
+        bundle,
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    let dependency = super::fixtures::execution_dependency(&provider)
+        .with_implementation_artifact("provider.brayimpl", std::sync::Arc::new(implementation));
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+        using example.package.api;
+        async func root(pos value: example.package.api.Value)
+        {
+            await example.package.api.fail(value);
+        }
+        "#,
+        [dependency],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
+
+    let skeleton = consumer.imported_symbol_skeleton_result().unwrap();
+    let skeleton = skeleton.value().as_deref().unwrap();
+
+    let function = skeleton
+        .functions()
+        .iter()
+        .find(|function| {
+            skeleton
+                .member_name(function.id().into())
+                .is_some_and(|name| name.as_str() == "fail")
+        })
+        .unwrap();
+
+    let symbol = skeleton
+        .imported_semantic_address(function.id().into())
+        .unwrap();
+
+    let template = bundle
+        .executable_templates()
+        .iter()
+        .find(|template| {
+            function
+                .imported_semantic_key()
+                .is_some_and(|key| key.symbol() == template.owner())
+        })
+        .unwrap();
+
+    let address = crate::fact::ImportedExecutableTemplateAddress::new(symbol, template.identity());
+
+    let decoded = consumer
+        .imported_executable_template_with_cancellation(address, &crate::CancellationToken::new())
+        .unwrap();
+
+    assert!(
+        !decoded.diagnostics().has_errors(),
+        "{:?}",
+        decoded.diagnostics()
+    );
+
+    let mir = decoded.value().as_deref().unwrap();
+
+    assert!(mir.is_valid());
+
+    let (mir, _) = bray_ir::reconstruct_reachable(mir).unwrap();
+
+    assert!(mir.is_valid());
+
+    let mut transferred = 0;
+
+    for operation in mir.operations() {
+        let MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident {
+            incident,
+            producer,
+            invocation,
+            ..
+        }) = operation.kind()
+        else {
+            continue;
+        };
+
+        let place = incident;
+
+        assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Quiesce(quiescent) if quiescent == place)));
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                initializer: bray_ir::MirFrameInitializer::Callable(call), ..
+            }) if call.target() == &bray_ir::MirCallTarget::Direct(*producer) && call.result() == *invocation
+        )));
+
+        transferred += 1;
+    }
+
+    assert!(
+        transferred > 0,
+        "the exported cleanup retains its incident producer"
+    );
+}

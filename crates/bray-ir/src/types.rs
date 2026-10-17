@@ -53,11 +53,7 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
                 types.insert(*ty);
             }
             crate::MirOutgoingOwner::Invocation { result, .. } => {
-                types.insert(result.ty());
-
-                if let bray_bound_tree::BoundCallResult::LazyFuture(future) = result {
-                    types.insert(future.completion_type());
-                }
+                collect_call_result_types(*result, types);
             }
         },
         MirOperationKind::AnonymousCallable(_) | MirOperationKind::DeclaredCallable(_) => {}
@@ -416,8 +412,13 @@ fn collect_async_types(operation: &MirAsyncOperation, types: &mut BTreeSet<TypeI
             }
             MirTaskTerminalState::Cancelled => {}
         },
-        MirAsyncOperation::TransferCleanupIncident { incident, .. } => {
-            collect_operand_types(incident, types);
+        MirAsyncOperation::TransferCleanupIncident {
+            incident,
+            invocation,
+            ..
+        } => {
+            collect_place_types(incident, types);
+            collect_call_result_types(*invocation, types);
         }
     }
 }
@@ -441,6 +442,17 @@ fn collect_host_types(operation: &MirHostOperation, types: &mut BTreeSet<TypeId>
         | MirHostOperation::BeginStaticCleanup
         | MirHostOperation::ReportCleanupIncidents { .. }
         | MirHostOperation::StructuredShutdown { .. } => {}
+    }
+}
+
+fn collect_call_result_types(
+    result: bray_bound_tree::BoundCallResult,
+    types: &mut BTreeSet<TypeId>,
+) {
+    types.insert(result.ty());
+
+    if let bray_bound_tree::BoundCallResult::LazyFuture(future) = result {
+        types.insert(future.completion_type());
     }
 }
 

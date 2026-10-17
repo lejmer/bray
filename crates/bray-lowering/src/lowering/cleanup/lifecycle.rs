@@ -256,8 +256,17 @@ impl Lowerer<'_> {
             callable.result,
         );
 
-        let (block, abandoned) =
-            outcome.retain_finalizer_result(&mut self.builder, block, source, value, payloads)?;
+        let (block, abandoned) = outcome.retain_finalizer_result(
+            &mut self.builder,
+            block,
+            source,
+            value,
+            (
+                MirCallableReference::new(callable.callable, callable.abi),
+                invocation,
+            ),
+            payloads,
+        )?;
 
         // Keep the owner broadcastable throughout the awaited mutation. Destruction
         // retires its guard only after every finalizer outcome has reached this point.
@@ -280,7 +289,7 @@ impl Lowerer<'_> {
         }
     }
 
-    fn finish_finalizer_outcome(
+    pub(in crate::lowering) fn finish_finalizer_outcome(
         &mut self,
         block: MirBlockId,
         source: &MirSourceAnchor,

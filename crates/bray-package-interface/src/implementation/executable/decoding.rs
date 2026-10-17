@@ -1909,7 +1909,12 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 runtime: self.runtime_reference()?,
             }),
             12 => Ok(Operation::TransferCleanupIncident {
-                incident: self.operand()?,
+                incident: self.place()?,
+                producer: MirCallableReference::new(
+                    self.callable_instance()?,
+                    self.callable_abi()?,
+                ),
+                invocation: self.call_result()?,
                 runtime: self.runtime_reference()?,
             }),
             13 => Ok(Operation::DestroyTerminalTask {

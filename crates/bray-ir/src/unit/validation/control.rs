@@ -194,10 +194,8 @@ pub(super) fn validate_terminator(
             validate_local_edge(unit, block_id, cancelled)?;
         }
         MirTerminatorKind::BeginCleanup(edge) => {
-            if block.kind() == MirBlockKind::LifecycleResolution {
-                return None;
-            }
-
+            // A finalizer may return a new owned error during outer resolution.
+            // Its own child graph must broadcast before that graph starts waiting.
             validate_cleanup_start(unit, block_id, edge)?;
         }
         MirTerminatorKind::ContinueCleanup(edge) => {

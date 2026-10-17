@@ -345,7 +345,7 @@ fn collect_async_values(operation: &MirAsyncOperation, demands: &mut ConstantDem
             MirTaskTerminalState::Cancelled => {}
         },
         MirAsyncOperation::TransferCleanupIncident { incident, .. } => {
-            collect_operand_value(incident, demands);
+            collect_place_values(incident, demands);
         }
     }
 }

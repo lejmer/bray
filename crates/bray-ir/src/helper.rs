@@ -216,6 +216,9 @@ impl MirOperationKind {
             Self::Async(MirAsyncOperation::CommitAwaitedCompletion { child, .. }) => {
                 helpers.push(MirHelperReference::CommitAwaitedCompletion(*child));
             }
+            Self::Async(MirAsyncOperation::TransferCleanupIncident { incident, .. }) => {
+                helpers.push(MirHelperReference::Destroy(incident.ty()));
+            }
             Self::Async(MirAsyncOperation::DestroyTerminalTask { .. }) => {
                 helpers.push(MirHelperReference::DestroyTerminalTask);
             }
