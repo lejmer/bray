@@ -87,8 +87,9 @@ native_adapter! {
         frame: NativeInactiveFrame,
         resume_state: u32,
         destination: usize,
+        abandoning: u8,
     ) {
-        implementation::bray_runtime_awaited_frame_composition(frame, resume_state, destination)
+        implementation::bray_runtime_awaited_frame_composition(frame, resume_state, destination, abandoning)
     }
 }
 

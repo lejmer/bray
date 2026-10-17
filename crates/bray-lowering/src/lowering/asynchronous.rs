@@ -181,6 +181,7 @@ impl Lowerer<'_> {
                 resume_state: state,
                 frame: frame_value,
                 completion: destination,
+                abandoning: false,
             }),
             None,
         )?;

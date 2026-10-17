@@ -1001,7 +1001,7 @@ macro_rules! runtime_role_catalog {
             }
             AwaitedFrameComposition {
                 "Compose one erased directly awaited frame into its parent.", "awaited_frame_composition",
-                native: (AWAITED_FRAME_COMPOSITION_SYMBOL = "bray_runtime_awaited_frame_composition", [InactiveFrame, U32, Usize] -> Void),
+                native: (AWAITED_FRAME_COMPOSITION_SYMBOL = "bray_runtime_awaited_frame_composition", [InactiveFrame, U32, Usize, U8] -> Void),
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,

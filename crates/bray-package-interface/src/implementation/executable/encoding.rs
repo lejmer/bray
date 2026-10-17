@@ -2332,6 +2332,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 resume_state,
                 frame,
                 completion,
+                abandoning,
             } => {
                 self.wire.write_u32(3);
                 self.wire.write_bytes(&parent.digest());
@@ -2339,6 +2340,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(resume_state.raw());
                 self.operand(frame)?;
                 self.wire.write_u32(completion.slot());
+                write_bool(&mut self.wire, *abandoning);
             }
             Operation::CommitAwaitedCompletion { child, completion } => {
                 self.wire.write_u32(4);

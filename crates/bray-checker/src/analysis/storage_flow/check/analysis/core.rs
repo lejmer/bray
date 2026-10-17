@@ -548,6 +548,7 @@ where
                 .before_operation(self.execution, &execution, kind);
         }
 
+        self.record_replacements(state, kind);
         self.apply_cleanup(state, &mut execution, kind);
 
         let completing = matches!(
@@ -1038,19 +1039,6 @@ where
         }
 
         if matches!(status, StorageOperationStatus::Valid) {
-            if self.publish && purpose == StorageAccessPurpose::Assignment {
-                let incoming = ReplacementState::new(state, plan, self.storage);
-
-                match self.replacements.entry(plan) {
-                    std::collections::btree_map::Entry::Occupied(mut entry) => {
-                        entry.get_mut().merge(incoming);
-                    }
-                    std::collections::btree_map::Entry::Vacant(entry) => {
-                        entry.insert(incoming);
-                    }
-                }
-            }
-
             if let Err(error) = self.apply_valid_operation(state, plan, purpose, borrow) {
                 self.query_failure = Some(error);
 
@@ -1532,22 +1520,60 @@ where
         })
     }
 
+    fn record_replacements(&mut self, state: &StorageFlowState, operation: AnalysisOperationKind) {
+        if !self.publish {
+            return;
+        }
+
+        let node = match operation {
+            AnalysisOperationKind::Bound(node)
+            | AnalysisOperationKind::Call {
+                invocation: bray_bound_tree::BoundExecutionSite::Node(node),
+                phase: AnalysisCallPhase::Completion,
+            } => node,
+            _ => return,
+        };
+
+        // Selection must retain the old value's state before cleanup and assignment
+        // invalidate its discriminants or initialize the replacement.
+        for plan in self
+            .storage
+            .node_plans(node)
+            .filter(|plan| plan.purpose() == StorageAccessPurpose::Assignment)
+        {
+            let incoming = ReplacementState::new(state, plan, self.storage);
+
+            match self.replacements.entry(plan) {
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    entry.get_mut().merge(incoming);
+                }
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(incoming);
+                }
+            }
+        }
+    }
+
     fn replacement_decisions(
         &self,
     ) -> impl Iterator<Item = bray_bound_tree::StorageReplacementDecision> + '_ {
-        self.replacements.iter().map(|(plan, state)| {
-            let initialization = state.state(self.storage.root_identity(plan.access()).is_some());
+        self.replacements
+            .iter()
+            .filter(|(plan, _)| self.statuses.get(plan) == Some(&StorageOperationStatus::Valid))
+            .map(|(plan, state)| {
+                let initialization =
+                    state.state(self.storage.root_identity(plan.access()).is_some());
 
-            bray_bound_tree::StorageReplacementDecision::new(
-                plan.expression(),
-                plan.access(),
-                initialization,
-                state.moved.iter().cloned(),
-                state.definitely_absent.iter().cloned(),
-                state.initialized,
-                state.recovered,
-            )
-        })
+                bray_bound_tree::StorageReplacementDecision::new(
+                    plan.expression(),
+                    plan.access(),
+                    initialization,
+                    state.moved.iter().cloned(),
+                    state.definitely_absent.iter().cloned(),
+                    state.initialized,
+                    state.recovered,
+                )
+            })
     }
 
     fn record_suspension(

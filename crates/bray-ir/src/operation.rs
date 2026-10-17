@@ -496,6 +496,8 @@ pub enum MirAsyncOperation {
         frame: MirOperand,
         /// Admitted parent storage receiving the child result before resumption.
         completion: MirStorageId,
+        /// Enter inactive capture cleanup without executing the child body.
+        abandoning: bool,
     },
     /// Consume the transferred child outcome and its typed result storage.
     CommitAwaitedCompletion {

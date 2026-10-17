@@ -215,35 +215,34 @@ is tracked in [BRA-625](https://linear.app/bray-lang/issue/BRA-625). No closed i
 It must fix each producer, remove superseded transport, and preserve real input and operational
 errors. BRA-505 retains all lifecycle invariants encountered by its implementation.
 
-## Pending abandonment interpretation
+## Abandonment contract
 
-Checkpoint `2f0aeeee` is committed and pushed to PR #612. Its evidence comment is
-https://github.com/lejmer/bray/pull/612#issuecomment-6229593906. The worktree was clean
-before this record update. No build or test process remains active.
+The language specification supplies the contract. The earlier clarification request
+is withdrawn. Do not wait for an answer or introduce a transitive suppression mode.
 
-The user has been asked a required semantic clarification. Do not choose an answer
-because time passes. The two interpretations concern finalization triggered by operations
-inside a retained error's source destructor, rather than its final outer disposal.
+Cancellation defines incident creation as explicit abandonment for the retained
+error payload. Its descriptor performs synchronous destruction after quiescence.
+Destruction permits operations only under their declaration contracts and forbids
+new unresolved finalization obligations after the destructor returns. Replacement
+continues to resolve old contents by ordinary lifecycle rules, including through a
+mutable borrow. These rules apply together.
 
-Concrete trace: error E owns resource R. E's destructor passes a mutable borrow of R
-to an ordinary helper. That helper replaces R with a new resource. Ordinary replacement
-finalizes the old R and resolves the new owner's later obligation. If abandonment is
-transitive through destructor operations, the helper must suppress old R's finalizer
-while preserving cleanup of the new resource. If destructor operations follow ordinary
-rules, the helper invokes the old finalizer. These have different observable behavior.
-A blanket destruction-mode flag cannot distinguish the original owner from new locals
-and replacement owners. A flag only on the destructor's final receiver cleanup cannot
-control replacement in the called helper. No proposed implementation of this distinction
-has been applied.
+Therefore abandonment controls the retained owner's implicit disposal. It does not
+change the checked behavior of ordinary operations invoked by its source destructor.
+For E containing R, a helper replacing R must satisfy its ordinary replacement
+requirements. A synchronous destructor cannot use abandonment to admit a helper
+that requires asynchronous execution or leaves unresolved fallible cleanup. New
+locals and installed replacement owners retain their own obligations. Preserve the
+rule against repeating already resolved lifecycle operations.
 
-Read `docs/language/lifecycle/destruction.md` and
-`docs/language/async-and-concurrency/cancellation.md`, plus the actual receiver move test
-`destructor_receiver_move_admits_before_transfer` in compilation lowering lifecycle tests.
-The spec allows receiver mutation and consuming represented parts, forbids unresolved
-new finalization obligations after destruction, and abandons the retained incident's
-finalization. It does not state whether operations invoked by its destructor re-enter
-ordinary finalization rules or must preserve abandonment transitively. Resolve this
-before connecting the retained incident producer or inventing owner-state propagation.
+Implement the descriptor's abandoned disposal through the shared selected expansion,
+while keeping source destructor calls and their explicit operations under existing
+checked semantics. Do not add an ambient call mode, new language feature, or a
+runtime owner-state propagation mechanism merely to suppress those operations.
+
+Sources: `docs/language/async-and-concurrency/cancellation.md`,
+`docs/language/lifecycle/destruction.md`, `docs/language/lifecycle/finalization.md`,
+and `docs/language/lifecycle/partial-values-and-replacement.md`.
 
 Independent path mapping for the next implementation batch:
 
@@ -256,10 +255,11 @@ Independent path mapping for the next implementation batch:
 - `CleanupPlan` selects suspension occurrences only from declared finalizers. Inactive
   capture cleanup also needs a selected occurrence, retained inputs and outcomes.
   Do not fabricate an empty storage snapshot downstream.
-- Native `activation.composition.compose` already accepts an abandoning argument,
-  but `NativeRun::compose` always supplies zero. The compiler composition operation
-  currently has no abandonment disposition. The existing admission contract requires
-  a destination sized/aligned for the exact child result, even on abandonment.
+- Native `activation.composition.compose` accepts an abandoning argument. The current
+  uncommitted batch carries it through MIR, executable serialization, inspection, LLVM,
+  the adapter and NativeRun. Ordinary source awaits still select false. Source inactive
+  disposal has not yet been connected. Admission still requires a destination sized and
+  aligned for the exact child result, including abandonment.
 - Abandoning an inactive future must never execute its body. A normal cancelled
   terminal outcome of this cleanup must not cancel its parent. Captured cleanup panics
   and incidents must still propagate through the existing cleanup outcome sequence.
@@ -268,7 +268,56 @@ Independent path mapping for the next implementation batch:
   and must retain backing/provider dependencies. Do not reuse consuming abandonment
   and leave a stale token in the retained payload.
 
-No new code for these remaining paths has been written in this checkpoint. The pending
-question concerns the shared destruction contract, so avoid building a second path
-around an assumed interpretation. Resume BRA-505 after the answer, then BRA-619, with
-full acceptance and independent PR review before marking either ready.
+The remaining paths still require implementation and acceptance. Continue BRA-505,
+then BRA-619, with full acceptance and independent PR review before marking either ready.
+
+## Current uncommitted verification batch
+
+The unnecessary interpretation question is withdrawn above. The inactive composition
+connection is accompanied by a native regression for body exclusion, incompatible body
+versus cleanup lane requirements, existing admission, exact capture destruction and
+preservation of a cleanup panic for the continuing parent. Retirement now retains the
+incoming outcome for a continuing parent, instead of replacing an abandoned child's
+panic with cancellation. An already unwinding parent retains the existing incident path.
+Native verification is pending. No retained-payload quiescence acceptance is claimed.
+
+The first native batch exposed `selected cleanup has a published mutation` while building
+the standard library. One concrete publication gap was found: literal string disposal
+could prove no effect and omit its result. That proof is now published as an empty effect,
+and downstream guarantee analysis consumes it instead of repeating the literal proof.
+Missing publication still panics, with the mutation and unit identity. The focused
+regression and 186 adjacent compiler tests pass in `target/bra-505-cleanup-publication.log`.
+The production trace identified a separate owning-phase mismatch in std.process's
+child_input and child_output. Nullable replacement cleanup used the old absent payload,
+but its published replacement decision was captured after assignment invalidated that
+absence. Record replacement state before cleanup and assignment effects, then publish
+only operations with established valid status. The preliminary downstream absent-owner
+guard was redundant with selected cleanup plans and has been removed.
+
+All 40 replacement, nullable/union pattern and completion tests pass in
+`target/bra-505-replacement-contract-verified.log`. This includes moved destination
+reinitialization, RHS moves and existing native-fixture MIR checks. The union regression
+uses an established branch guard and a qualified constructor. Earlier fixture-only failures
+do not count as compiler defects.
+
+Compound assignment reaches replacement through call completion rather than a Bound
+operation. The owning analysis now records and applies replacement cleanup at that
+completion, including its selected suspension. The async operator regression checks
+both the published occurrence and valid MIR. All 307 affected unit-query and completion
+tests pass in `target/bra-505-replacement-suspension.log`.
+
+The native build passes the previous publication failures, then reports ten unresolved
+finalization diagnostics in std resource methods. The I/O and foreign-library specs
+already require borrowed close/wait/force_termination APIs, checked complete/is_complete
+state, and preservation of any resources retained after platform errors. Implement those
+contracts next. Audit each platform close disposition before publishing completion.
+Do not weaken ordinary ownership-end checking to admit the existing consuming methods.
+Native acceptance remains pending; see
+`target/bra-505-native-inactive-cleanup-complete-selection.log`.
+
+Rustfmt, mutating style and explicit Bray format pass in
+`target/bra-505-composition-format.log`. The audit covers replacement timing and operation
+phases, cleanup effect publication, composition disposition transport, and native outcome
+ownership. Existing replacement snapshots, lifecycle expansion, bool serialization,
+admission and report ownership are reused. No independent review is due until the issue's
+full acceptance is satisfied. Temporary tracing has been removed.

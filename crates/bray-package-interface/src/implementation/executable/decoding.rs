@@ -1850,6 +1850,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 resume_state: bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?),
                 frame: self.operand()?,
                 completion: self.storage_id()?,
+                abandoning: read_bool(&mut self.reader)?,
             }),
             4 => Ok(Operation::CommitAwaitedCompletion {
                 child: self.frame_reference()?,

@@ -36,6 +36,12 @@ impl AnalysisOperationKind {
                 preserves_exit_value: true,
                 ..
             } | Self::Bound(AnyBoundNodeId::Expression(_))
+                | Self::Call {
+                    invocation: bray_bound_tree::BoundExecutionSite::Node(
+                        AnyBoundNodeId::Expression(_)
+                    ),
+                    phase: AnalysisCallPhase::Completion,
+                }
         )
     }
 
@@ -387,6 +393,12 @@ impl ControlFlowGraph {
                 } => invocation
                     .expression()
                     .is_some_and(|expression| inputs.contains_key(&expression)),
+                AnalysisOperationKind::Call {
+                    invocation,
+                    phase: AnalysisCallPhase::Completion,
+                } => invocation
+                    .expression()
+                    .is_some_and(|expression| replacements.contains(&expression)),
                 _ => false,
             };
         }

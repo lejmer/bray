@@ -438,9 +438,12 @@ impl StorageFlow {
         &self,
         mutation: crate::StorageMutation,
     ) -> &crate::StorageInvalidation {
-        self.cleanup_mutations
-            .get(&mutation)
-            .expect("selected cleanup has a published mutation")
+        self.cleanup_mutations.get(&mutation).unwrap_or_else(|| {
+            panic!(
+                "selected cleanup {mutation:?} in unit {:?} has no published mutation",
+                self.unit
+            )
+        })
     }
 
     /// Publishes checked reference observations and retained origins at normal completion.

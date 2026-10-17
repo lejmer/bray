@@ -27,6 +27,8 @@ pub(in crate::analysis) struct LifecycleInvocation<'a> {
 }
 
 pub(in crate::analysis) enum CleanupMutation<'a> {
+    /// The owning analysis proved that cleanup leaves input observations unchanged.
+    Unchanged,
     /// Source cleanup ordering was diagnosed and has no valid selected order.
     Recovery,
     Opaque {
@@ -102,7 +104,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     self.expire_trusted_scope(state, block);
                 }
             }
-            AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => {
+            AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression))
+            | AnalysisOperationKind::Call {
+                invocation:
+                    bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)),
+                phase: crate::analysis::model::AnalysisCallPhase::Completion,
+            } => {
                 if let Some((plan, flow)) = self.disposal.selected.and_then(|(cleanup, flow)| {
                     cleanup.replacement(expression).map(|plan| (plan, flow))
                 }) && matches!(
@@ -237,7 +244,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     self.expire_trusted_scope(state, block);
                 }
             }
-            AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => {
+            AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression))
+            | AnalysisOperationKind::Call {
+                invocation:
+                    bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)),
+                phase: crate::analysis::model::AnalysisCallPhase::Completion,
+            } => {
                 for plan in self.storage.node_plans(expression.into()).filter(|plan| {
                     plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment
                 }) {
@@ -318,7 +330,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .get(&access)
             .expect("selected cleanup has prepared transitions");
 
-        let preserves = self.cleanup_preserves_inputs(state, access);
         let root = self.storage.root_identity(access);
 
         let moved = moved
@@ -349,30 +360,30 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 guards,
             } = step
             else {
-                if !preserves {
-                    let mutation = StorageMutation::Cleanup {
-                        occurrence,
-                        access,
-                        part,
+                let mutation = StorageMutation::Cleanup {
+                    occurrence,
+                    access,
+                    part,
+                };
+
+                if let Some(mutate) = mutate {
+                    let Step::Opaque { ty, path } = step else {
+                        unreachable!("lifecycle handled below")
                     };
 
-                    if let Some(mutate) = mutate {
-                        let Step::Opaque { ty, path } = step else {
-                            unreachable!("lifecycle handled below")
-                        };
-
-                        mutate(
-                            state,
-                            mutation,
-                            CleanupMutation::Opaque {
-                                ty: *ty,
-                                access,
-                                path: path.as_ref(),
-                            },
-                        );
+                    let effect = if self.cleanup_preserves_inputs(state, access) {
+                        CleanupMutation::Unchanged
                     } else {
-                        self.apply_published_cleanup(state, mutation);
-                    }
+                        CleanupMutation::Opaque {
+                            ty: *ty,
+                            access,
+                            path: path.as_ref(),
+                        }
+                    };
+
+                    mutate(state, mutation, effect);
+                } else {
+                    self.apply_published_cleanup(state, mutation);
                 }
 
                 continue;
