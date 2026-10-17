@@ -65,6 +65,7 @@ enum AbnormalCleanupStep {
         access: StorageAccessId,
         place: bray_ir::MirPlace,
         completed: bool,
+        exit: AnyBoundNodeId,
     },
     Temporary(InputTemporary),
 }
@@ -466,6 +467,7 @@ impl Lowerer<'_> {
                     access: *access,
                     place: self.place_for_access(*access, false)?,
                     completed: self.input.finalizer_is_complete(plan.exit(), *access),
+                    exit: plan.exit(),
                 });
             }
         }
@@ -548,8 +550,13 @@ impl Lowerer<'_> {
                     access,
                     place,
                     completed,
+                    exit,
                 } => {
-                    self.push_cleanup_place(
+                    let previous = self
+                        .cleanup_occurrence
+                        .replace(bray_bound_tree::BoundExecutionSite::Cleanup(*exit));
+
+                    let result = self.push_cleanup_place(
                         entry,
                         source,
                         phase,
@@ -557,8 +564,11 @@ impl Lowerer<'_> {
                         place.clone(),
                         *completed,
                         None,
-                    )?
-                    .0
+                    )?;
+
+                    self.cleanup_occurrence = previous;
+
+                    result.0
                 }
                 AbnormalCleanupStep::Temporary(temporary) => {
                     self.push_input_cleanup_temporary(entry, phase, temporary)?

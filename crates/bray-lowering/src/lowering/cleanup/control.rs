@@ -330,8 +330,12 @@ impl Lowerer<'_> {
         >,
     ) -> Result<MirBlockId, LoweringError> {
         let mut temporaries = temporaries.iter().rev().peekable();
+        let previous_occurrence = self.cleanup_occurrence;
 
         for plan in plans {
+            self.cleanup_occurrence =
+                Some(bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit()));
+
             self.cleanup_failure_targets = failures.get(&plan.scope()).cloned();
 
             if phase == MirCleanupPhase::LifecycleResolution
@@ -369,6 +373,7 @@ impl Lowerer<'_> {
 
         block = self.push_input_cleanup(block, phase, &mut temporaries, 0)?;
         self.cleanup_failure_targets = None;
+        self.cleanup_occurrence = previous_occurrence;
 
         Ok(block)
     }
@@ -489,15 +494,8 @@ impl Lowerer<'_> {
             |lowerer, block, place, value| {
                 let owner = place.ty();
 
-                lowerer.push_cleanup_action(block, source, phase, place, release, completed)?;
-
-                let block = if let Some(outcome) = &lowerer.cleanup_outcome {
-                    outcome.check(&mut lowerer.builder, block, source)?
-                } else {
-                    lowerer
-                        .check_ordinary_cleanup(block, source, release.map(|_| owner), false, None)?
-                        .0
-                };
+                let block =
+                    lowerer.push_cleanup_action(block, source, phase, place, release, completed)?;
 
                 if release.is_some() {
                     lowerer.discharge_outgoing_owner(block, source, owner)?;
@@ -592,7 +590,18 @@ impl Lowerer<'_> {
         place: bray_ir::MirPlace,
         release: Option<bray_bound_tree::StorageProtocolCall>,
         completed: bool,
-    ) -> Result<(), LoweringError> {
+    ) -> Result<MirBlockId, LoweringError> {
+        let owner = place.ty();
+
+        if release.is_none()
+            && !completed
+            && phase == MirCleanupPhase::LifecycleResolution
+            && let Some(callable) = self.input.cleanup_type(owner).and_then(|ty| ty.finalizer())
+            && callable.execution == bray_symbols::CallableExecution::Asynchronous
+        {
+            return self.push_async_finalizer(block, source, place, callable);
+        }
+
         if let Some(release) = release {
             self.set_storage_initialized(block, source, &place, false)?;
             self.push_storage_protocol_call(block, source, &place, release, true)?;
@@ -609,7 +618,13 @@ impl Lowerer<'_> {
             )?;
         }
 
-        Ok(())
+        if let Some(outcome) = &self.cleanup_outcome {
+            Ok(outcome.check(&mut self.builder, block, source)?)
+        } else {
+            Ok(self
+                .check_ordinary_cleanup(block, source, release.map(|_| owner), false, None)?
+                .0)
+        }
     }
 
     pub(in crate::lowering) fn cleanup_parameter(

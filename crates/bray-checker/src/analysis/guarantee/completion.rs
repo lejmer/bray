@@ -64,9 +64,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                                 })
                                 // Different control-flow exits own independently mutable premises.
                                 .or_insert_with(|| crate::ExecutionCleanup {
-                                    callable: lifecycle.callable,
-                                    result: lifecycle.result,
-                                    synchronous: lifecycle.synchronous,
+                                    callable: lifecycle.call.callable,
+                                    result: lifecycle.call.result,
+                                    synchronous: (lifecycle.call.execution
+                                        == bray_symbols::CallableExecution::Synchronous),
                                     whole,
                                     evidence: evidence.clone(),
                                 });
@@ -75,13 +76,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                         // Whole-value completion can omit an async finalizer without
                         // constructing its future. Invocation certification still distinguishes
                         // synchronous execution from deferred execution.
-                        if !lifecycle.synchronous {
+                        if lifecycle.call.execution != bray_symbols::CallableExecution::Synchronous
+                        {
                             return;
                         }
 
                         candidate
                             .disposal
-                            .entry((node.into(), lifecycle.callable))
+                            .entry((node.into(), lifecycle.call.callable))
                             .and_modify(|previous| {
                                 previous.intersect(evidence);
                             })
@@ -277,7 +279,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     TypeData::Borrow { .. }
                 ),
             ),
-            bray_bound_tree::BoundExecutionSite::Node(_) => return None,
+            bray_bound_tree::BoundExecutionSite::Node(_)
+            | bray_bound_tree::BoundExecutionSite::Cleanup(_) => return None,
         };
 
         let input = ExecutionPlace::from(BoundReferenceTarget::Surface(input));

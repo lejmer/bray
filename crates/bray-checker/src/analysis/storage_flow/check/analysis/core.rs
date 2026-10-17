@@ -525,6 +525,10 @@ where
             return;
         }
 
+        if let Some(occurrence) = operation.cleanup_suspension() {
+            self.record_suspension(state, occurrence);
+        }
+
         let mut refinements = std::mem::take(&mut state.refinements);
         let universe = self.refinements;
 
@@ -897,6 +901,9 @@ where
                     return None;
                 }
                 bray_bound_tree::BoundExecutionSite::Node(_) => {}
+                bray_bound_tree::BoundExecutionSite::Cleanup(_) => {
+                    panic!("cleanup suspension is not a call phase")
+                }
             }
         }
 

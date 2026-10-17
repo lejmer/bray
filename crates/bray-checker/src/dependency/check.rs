@@ -73,6 +73,9 @@ where
             scoped @ (bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
             | bray_bound_tree::BoundExecutionSite::ScopedExit(_)) => scoped,
             bray_bound_tree::BoundExecutionSite::Node(_) => operation.expression().into(),
+            bray_bound_tree::BoundExecutionSite::Cleanup(_) => {
+                panic!("cleanup suspension is not a source access operation")
+            }
         };
 
         expression_requirements

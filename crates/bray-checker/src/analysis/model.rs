@@ -107,6 +107,7 @@ pub(crate) struct AnalysisOperation {
     kind: AnalysisOperationKind,
     before: ProgramPointId,
     after: ProgramPointId,
+    cleanup_suspension: bool,
 }
 
 impl AnalysisOperation {
@@ -121,7 +122,19 @@ impl AnalysisOperation {
             kind,
             before,
             after,
+            cleanup_suspension: false,
         }
+    }
+
+    pub(crate) fn cleanup_suspension(self) -> Option<bray_bound_tree::BoundExecutionSite> {
+        self.cleanup_suspension.then(|| {
+            let node = match self.kind {
+                AnalysisOperationKind::ScopeExit { exit, .. } => exit,
+                _ => self.kind.node(),
+            };
+
+            bray_bound_tree::BoundExecutionSite::Cleanup(node)
+        })
     }
 
     pub(crate) const fn id(self) -> AnalysisOperationId {
@@ -342,6 +355,26 @@ pub(crate) struct ControlFlowGraph {
 }
 
 impl ControlFlowGraph {
+    pub(crate) fn select_cleanup_suspensions(
+        &mut self,
+        scopes: &std::collections::BTreeSet<bray_bound_tree::BoundBlockId>,
+        replacements: &std::collections::BTreeSet<BoundExpressionId>,
+    ) {
+        for operation in &mut self.operations {
+            operation.cleanup_suspension = match operation.kind {
+                AnalysisOperationKind::ScopeExit {
+                    block,
+                    phase: AnalysisScopeExitPhase::LifecycleResolution,
+                    ..
+                } => scopes.contains(&block),
+                AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => {
+                    replacements.contains(&expression)
+                }
+                _ => false,
+            };
+        }
+    }
+
     pub(crate) fn new(
         unit: BoundUnitId,
         entry: AnalysisBlockId,

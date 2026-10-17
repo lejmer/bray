@@ -237,8 +237,6 @@ pub(crate) enum ProductDataKind {
     NativeStaticContract,
     /// A callable's ordered parameter list.
     CallableParameters,
-    /// A callable's receiver parameter.
-    CallableReceiver,
     /// The concrete substitution applied to a static reference.
     StaticSubstitution,
     /// The external semantic address of an imported declaration.

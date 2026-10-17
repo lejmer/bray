@@ -144,7 +144,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return;
         };
 
-        for reference in &self.input.lifecycle_references[&call.lifecycle.callable] {
+        for reference in &self.input.lifecycle_references[&call.lifecycle.call.callable] {
             let relation = reference.relation();
 
             if relation.exit().subject_root() != DependencySubjectRoot::Receiver
@@ -157,7 +157,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let path = self
                     .input
                     .lifecycle_paths
-                    .get(&(call.lifecycle.callable, subject.clone()))?;
+                    .get(&(call.lifecycle.call.callable, subject.clone()))?;
 
                 memory.reference_location(receiver.clone(), path, None)
             };
@@ -205,7 +205,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return;
         };
 
-        let contracts = &self.dependencies.lifecycle_dependencies()[&call.lifecycle.callable];
+        let contracts = &self.dependencies.lifecycle_dependencies()[&call.lifecycle.call.callable];
 
         let Some(receiver) = self.cleanup_receiver(memory, call.access, call.path) else {
             return;
@@ -224,7 +224,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let Some(prepared) = self
                 .input
                 .lifecycle_paths
-                .get(&(call.lifecycle.callable, relation.exit().clone()))
+                .get(&(call.lifecycle.call.callable, relation.exit().clone()))
             else {
                 continue;
             };
@@ -262,7 +262,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         path: Option<&StoragePath>,
         lifecycle: &Lifecycle,
     ) -> Option<Vec<Effect>> {
-        let contracts = &self.dependencies.lifecycle_dependencies()[&lifecycle.callable];
+        let contracts = &self.dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
 
         self.resolve_effects(contracts.effects(), |subject, indirect| {
             if subject.subject_root() != DependencySubjectRoot::Receiver {
@@ -278,7 +278,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let prepared = self
                 .input
                 .lifecycle_paths
-                .get(&(lifecycle.callable, subject.clone()))?;
+                .get(&(lifecycle.call.callable, subject.clone()))?;
 
             let location = memory.reference_location(receiver, prepared, None)?;
 

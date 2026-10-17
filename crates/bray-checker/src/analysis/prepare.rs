@@ -87,7 +87,7 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
 
     let mut cleanup_shapes = CleanupShapeResolver::new(request);
 
-    let graph = match build_storage_control_flow_graph(
+    let mut graph = match build_storage_control_flow_graph(
         &mut cleanup_shapes,
         request,
         storage,
@@ -116,6 +116,11 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
                 return CheckerOutcome::UpstreamFailure(error);
             }
         };
+
+    graph.select_cleanup_suspensions(
+        &cleanup.asynchronous_scopes(storage),
+        &cleanup.asynchronous_replacements(storage),
+    );
 
     let Some(values) =
         super::liveness::ValueRetention::prepare(&graph, request.unit(), storage, &request)

@@ -1,5 +1,6 @@
 mod control;
 mod frame;
+mod lifecycle;
 mod ordinary;
 mod outcomes;
 

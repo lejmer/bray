@@ -17,7 +17,7 @@ use super::super::specialization::ConcreteCodegenInstance;
 use super::contextual_self::{codegen_instance_contextual_self, substitute_contextual_self};
 use super::support::{
     callable_type_signature, codegen_checker_error, invocation_signature, is_void_result,
-    receiver_codegen_type, void_signature,
+    void_signature,
 };
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::{CancellationToken, FactQueryError};
@@ -184,7 +184,10 @@ impl Compilation {
                     cancellation,
                 )?;
 
-                receiver_codegen_type(values, receiver_ty, receiver.mode())
+                receiver
+                    .mode()
+                    .input_type(values, receiver_ty)
+                    .map_err(FactQueryError::SemanticValueStore)
                     .map_err(CodegenPreparationError::from)
             })
             .transpose()?;
@@ -477,7 +480,10 @@ impl Compilation {
                     cancellation,
                 )?;
 
-                receiver_codegen_type(values, ty, receiver.mode())
+                receiver
+                    .mode()
+                    .input_type(values, ty)
+                    .map_err(FactQueryError::SemanticValueStore)
                     .map_err(CodegenPreparationError::from)
             })
             .transpose()?;

@@ -122,8 +122,9 @@ impl Lowerer<'_> {
         )?;
 
         let cancellation = match occurrence {
-            bray_bound_tree::BoundExecutionSite::ScopedExit(_) => {
-                // The exit dispatcher establishes the cleanup shield before driving this child.
+            bray_bound_tree::BoundExecutionSite::ScopedExit(_)
+            | bray_bound_tree::BoundExecutionSite::Cleanup(_) => {
+                // The cleanup dispatcher establishes the shield before driving this child.
                 let unreachable = self.builder.push_block(
                     Self::retained_source(&source),
                     MirBlockKind::CleanupBroadcast,

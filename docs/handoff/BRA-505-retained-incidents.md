@@ -43,13 +43,22 @@ Completed implementation detail and evidence belong in Git and PR history.
   needs and source cleanup phases include element obligations. Preserve count, allocation and elements for
   later destruction. Source and imported declarations exercise the same selection.
 
-- Current result correction: generated finalizers transfer a completed `Result` error
+- `c4337ede` result correction: generated finalizers transfer a completed `Result` error
   through the existing incident operation instead of discarding it. Source and
   generated cleanup share payload branching. Cleanup outcome edges carry the value
   only on successful completion, including scoped exits. Source lowering installs
   the branch through its ownership-aware terminator sink, preserving move guards.
   Incident transfer keeps its existing non-propagating contract. Quiescence and
   retained destruction still belong to the unfinished production consumer below.
+
+- Current implicit-cleanup checkpoint: storage and liveness share selected cleanup
+  suspension occurrences for scope exit and replacement. Publish exact finalizer
+  signatures from the owning analysis, retain evaluated assignment inputs, and
+  reuse existing shielded awaited-frame composition for direct async finalizers.
+  Keep owner guards live until finalization finishes. Source, imported, moved,
+  discarded and replacement owners pass MIR checks, and a native artifact test
+  emits admitted frame composition. Shared receiver conversion and completed
+  Result collection replace duplicate implementations.
 
 ## Remaining implementation and acceptance
 
@@ -75,14 +84,35 @@ currently assume immediate results. Selected scoped exits already use
 lower_lifecycle_call, lower_awaited_frame, cleanup shields and CleanupOutcome.
 Reuse these execution mechanisms without repeating checked receiver proofs.
 
-CheckedAsync currently records explicit awaits, yields and scoped calls. Existing
-storage/liveness transitions retain pending cleanup dependencies. Source cleanup
-owners already have initialization guards, which clear before resolution and
-prevent repeated broadcast. Protected frames retain all ordinary MIR storage.
-Synthetic helpers have no protected-frame continuation yet. No alternative
-continuation implementation has been committed.
+CheckedAsync records explicit awaits, yields, scoped calls and selected implicit
+finalizer suspensions. Storage snapshots precede cleanup transitions. Liveness
+retains pending exits and evaluated assignment inputs. Direct async finalization
+uses the existing enclosing frame and keeps its owner guard live through awaited
+mutation. Protected frames retain all ordinary MIR storage.
+
+Next: complete temporary/pending-value cleanup occurrence propagation, including
+failed later/default inputs and an unconsumed frame completion. The direct finalizer
+path is not proof of these cases. Synthetic helpers still assume immediate ordinary
+lifecycle calls. Reuse their selected expansion for retained-error quiescence and
+abandoned destruction without a second walker. BRA-506 remains the owner of broader
+represented-owner families; do not silently expand that downstream issue here.
+Arbitrary retained error ownership and inactive captures remain required in BRA-505.
 
 ## Verification and review
+
+The implicit-cleanup batch passes all 540 affected bound-tree, checker, lowering,
+source/imported lifecycle, realization and native artifact tests. Evidence:
+`target/bra-505-cleanup-composition.log`. The replacement regression proves the
+old stored owner's loan and incoming evaluated owner's loan both survive cleanup.
+The selected native test emits LLVM artifacts; it does not prove runtime execution.
+The audit reuses receiver conversion, cleanup-type publication, pending-input
+retention, task-operation publication and Result completion handling. It removes
+the replaced helpers and impossible recoverable receiver error. The final 16 async
+analysis tests pass after these refactors. Rustfmt, mutating `cargo xtask style`,
+explicit `cargo xtask format` and whitespace checks pass. This checkpoint adds
+360 net production lines and 556 net test lines. Further temporary/result regression
+tests are being added separately; their acceptance remains unfinished.
+
 
 The result correction passes all 72 focused lowering, lifecycle, propagation and
 realization tests. Its regression requires valid MIR, one consuming error projection,

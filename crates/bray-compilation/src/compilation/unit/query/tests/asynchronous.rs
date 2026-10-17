@@ -363,3 +363,270 @@ fn suspension_retains_unused_cleanup_owners_and_their_dependencies() {
         );
     }
 }
+
+#[test]
+fn implicit_async_cleanup_retains_pending_owners_and_dependencies() {
+    for execution in ["async ", ""] {
+        let application = compilation(&format!(
+            r#"
+                module app;
+
+                extern async func work(pos value: &u32);
+
+                async func main()
+                {{
+                    let value: u32 = 1;
+                    let pending = work(&value).start();
+                    let owner: Owner = {{ value = 1 }};
+                }}
+
+                struct Owner
+                {{
+                    value: u32;
+
+                    {execution}finalize()
+                    {{
+                    }}
+                }}
+            "#
+        ));
+
+        let key = crate::test_support::source_function_body_key(&application, "main");
+        let storage = application.storage_plan(key.clone()).unwrap();
+        let flow = application.storage_flow(key.clone()).unwrap();
+        let analysis = application.async_analysis(key).unwrap();
+
+        assert!(
+            !analysis.diagnostics().has_errors(),
+            "{:?}",
+            analysis.diagnostics()
+        );
+
+        let cleanup = analysis
+            .value()
+            .suspensions()
+            .iter()
+            .filter(|point| point.kind() == bray_bound_tree::AsyncSuspensionKind::Cleanup)
+            .collect::<Vec<_>>();
+
+        if execution.is_empty() {
+            assert!(cleanup.is_empty());
+
+            assert!(flow.value().suspensions().iter().all(|state| !matches!(
+                state.occurrence(),
+                bray_bound_tree::BoundExecutionSite::Cleanup(_)
+            )));
+
+            continue;
+        }
+
+        assert!(!cleanup.is_empty());
+
+        for point in cleanup {
+            assert!(matches!(
+                point.occurrence(),
+                bray_bound_tree::BoundExecutionSite::Cleanup(_)
+            ));
+
+            assert_eq!(point.deferred_calls().len(), 1);
+            assert!(!point.is_recovered());
+
+            let state = flow.value().suspension(point.occurrence()).unwrap();
+
+            assert!(!state.cleanup_retention().is_empty());
+
+            for dependency in state.cleanup_retention() {
+                assert!(point.retained_subjects().contains(dependency));
+                assert!(analysis.value().frame_dependencies().contains(dependency));
+            }
+
+            for access in point.cancellation_broadcast() {
+                assert!(
+                    state
+                        .live()
+                        .contains(&storage.value().root_identity(*access).unwrap())
+                );
+            }
+
+            assert!(!point.cancellation_broadcast().is_empty());
+        }
+    }
+}
+
+#[test]
+fn implicit_cleanup_retains_the_pending_return_dependency() {
+    let application = compilation(
+        r#"
+        module app;
+
+        async func main(pos output: &u32) -> &u32
+        {
+            let owner: Owner = { value = 1 };
+            return output;
+        }
+
+        struct Owner
+        {
+            value: u32;
+
+            async finalize()
+            {
+            }
+        }
+    "#,
+    );
+
+    let key = crate::test_support::source_function_body_key(&application, "main");
+    let liveness = application.liveness(key.clone()).unwrap();
+    let analysis = application.async_analysis(key).unwrap();
+
+    assert!(
+        !analysis.diagnostics().has_errors(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+
+    let point = analysis
+        .value()
+        .suspensions()
+        .iter()
+        .find(|point| point.kind() == bray_bound_tree::AsyncSuspensionKind::Cleanup)
+        .expect("ordinary owner finalization can suspend before returning");
+
+    let retained = liveness
+        .value()
+        .live_across_scopes()
+        .iter()
+        .filter(|entry| entry.exit() == point.occurrence().node())
+        .collect::<Vec<_>>();
+
+    assert!(!retained.is_empty());
+
+    for entry in retained {
+        assert!(
+            point.retained_subjects().contains(&entry.subject()),
+            "{point:?} misses {entry:?}"
+        );
+    }
+}
+
+#[test]
+fn moving_the_finalizer_owner_out_does_not_schedule_cleanup() {
+    let application = compilation(
+        r#"
+        module app;
+
+        async func main() -> Owner
+        {
+            let owner: Owner = { value = 1 };
+            return owner;
+        }
+
+        struct Owner
+        {
+            value: u32;
+
+            async finalize()
+            {
+            }
+        }
+    "#,
+    );
+
+    let key = crate::test_support::source_function_body_key(&application, "main");
+    let analysis = application.async_analysis(key).unwrap();
+
+    assert!(
+        !analysis.diagnostics().has_errors(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+
+    assert!(analysis.value().suspensions().is_empty());
+}
+
+#[test]
+fn replacement_cleanup_retains_the_old_and_incoming_dependencies() {
+    let application = compilation(
+        r#"
+        module app;
+        extern async func pause();
+        async func main()
+        {
+            let first: u32 = 1;
+            let second: u32 = 2;
+            let mut owner = Owner { value = &first };
+            owner = Owner { value = &second };
+        }
+        struct Owner
+        {
+            value: &u32;
+            async finalize()
+            {
+                await pause();
+            }
+        }
+    "#,
+    );
+
+    assert!(
+        !application.check_diagnostics().has_errors(),
+        "{:?}",
+        application.check_diagnostics()
+    );
+
+    let key = crate::test_support::source_function_body_key(&application, "main");
+    let storage = application.storage_plan(key.clone()).unwrap();
+    let flow = application.storage_flow(key.clone()).unwrap();
+    let analysis = application.async_analysis(key).unwrap();
+
+    let replacement = analysis
+        .value()
+        .replacements()
+        .first()
+        .expect("fixture replaces an initialized owner");
+
+    let occurrence = bray_bound_tree::BoundExecutionSite::Cleanup(replacement.expression().into());
+
+    let point = analysis
+        .value()
+        .suspensions()
+        .iter()
+        .find(|point| point.occurrence() == occurrence)
+        .unwrap();
+
+    let state = flow.value().suspension(occurrence).unwrap();
+
+    assert!(
+        state
+            .initialized()
+            .contains(&storage.value().root_identity(replacement.access()).unwrap())
+    );
+
+    // The old value is still in storage. The evaluated incoming value has moved
+    // into the assignment's pending inputs, whose dependencies liveness retains.
+    assert!(state.cleanup_retention().iter().any(|subject| matches!(
+        subject,
+        bray_bound_tree::BoundDependencySubject::BorrowCapability(_)
+    )));
+
+    assert!(
+        point
+            .retained_subjects()
+            .iter()
+            .filter(|subject| matches!(
+                subject,
+                bray_bound_tree::BoundDependencySubject::BorrowCapability(_)
+            ))
+            .count()
+            >= 2,
+        "old and incoming owners both retain their loans during replacement: {point:?}"
+    );
+
+    assert!(
+        state
+            .cleanup_retention()
+            .iter()
+            .all(|subject| point.retained_subjects().contains(subject))
+    );
+}

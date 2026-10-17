@@ -1,7 +1,6 @@
 use bray_bound_tree::LifecycleCallable;
 use bray_symbols::{TypeAssociatedLifecycleSlot, TypeData, TypeId};
 
-use super::super::support::receiver_codegen_type;
 use crate::compilation::CodegenPreparationError;
 use crate::compilation::Compilation;
 use crate::compilation::{
@@ -38,43 +37,16 @@ impl Compilation {
             return Ok(None);
         };
 
-        let receiver = signature.receiver().ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::CallableData(*callable),
-                ProductDataKind::CallableReceiver,
-            )
-        })?;
+        let mut selected = LifecycleCallable::from_signature(values, *callable, signature)
+            .map_err(crate::fact::FactQueryError::SemanticValueStore)?;
 
-        let receiver_ty =
-            self.concrete_codegen_type(receiver.ty(), Some(*substitution), None, cancellation)?;
+        selected.receiver =
+            self.concrete_codegen_type(selected.receiver, Some(*substitution), None, cancellation)?;
 
-        let receiver = receiver_codegen_type(values, receiver_ty, receiver.mode())?;
+        selected.result =
+            self.concrete_codegen_type(selected.result, Some(*substitution), None, cancellation)?;
 
-        let result = self.concrete_codegen_type(
-            signature.result(),
-            Some(*substitution),
-            None,
-            cancellation,
-        )?;
-
-        let callable_type = values.type_data(signature.callable_type());
-
-        let TypeData::Callable(callable_type) = callable_type.as_ref() else {
-            return Err(ProductQueryFailure::UnexpectedSemanticType {
-                ty: signature.callable_type(),
-                expected: ProductValueKind::CallableType,
-                actual: callable_type.as_ref().clone(),
-            }
-            .into());
-        };
-
-        Ok(Some(LifecycleCallable {
-            callable: *callable,
-            abi: callable_type.abi(),
-            receiver,
-            result,
-            execution: callable_type.execution(),
-        }))
+        Ok(Some(selected))
     }
 
     pub(in crate::compilation::product::realization) fn storage_lifecycle_callable(

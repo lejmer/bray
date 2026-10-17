@@ -189,7 +189,7 @@ impl<'unit> LoweringInput<'unit> {
             assert!(
                 suspensions.insert(suspension.occurrence(), index).is_none(),
                 "checked async analysis contains duplicate suspension for {:?}",
-                suspension.expression()
+                suspension.occurrence()
             );
         }
 

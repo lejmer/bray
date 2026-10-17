@@ -1,4 +1,3 @@
-use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirOperationKind, MirPlace, MirSourceAnchor, MirUnitBuilder};
 use bray_symbols::{CallableExecution, TypeData};
 
@@ -38,14 +37,21 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             bray_bound_tree::BoundCallResult::Immediate(callable.result),
         )?;
 
-        let completed = self.collect_lifecycle_completion(
-            builder,
-            block,
-            source,
-            value,
+        let payloads = crate::operand::result_payloads(
+            self.context.semantic_values(),
+            self.context.compiler_known_symbols(),
             callable.result,
-            &outcome,
-        )?;
+        );
+
+        let completed = outcome
+            .retain_finalizer_result(
+                builder,
+                block,
+                source,
+                bray_ir::MirOperand::Value(value),
+                payloads,
+            )
+            .map_err(|cause| self.capacity_error(cause))?;
 
         self.finish_cleanup_outcome(builder, completed, source, &outcome)
     }
@@ -58,32 +64,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         callable: bray_bound_tree::LifecycleCallable,
     ) -> Result<(bray_ir::MirBlockId, bray_ir::MirValueId), C::Error> {
-        let result = match callable.execution {
-            CallableExecution::Synchronous => {
-                bray_bound_tree::BoundCallResult::Immediate(callable.result)
-            }
-            CallableExecution::Asynchronous => {
-                let future = self
-                    .context
-                    .compiler_known_symbols()
-                    .unary_representation_type(
-                        self.context.semantic_values(),
-                        RepresentationRole::Future,
-                        callable.result,
-                    )
-                    .map_err(SyntheticLoweringError::SemanticValue)?
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "callable result {:?} must have a future representation",
-                            callable.result
-                        )
-                    });
-
-                bray_bound_tree::BoundCallResult::LazyFuture(
-                    bray_bound_tree::BoundFutureConstruction::new(callable.result, future),
-                )
-            }
-        };
+        let result = callable
+            .invocation_result(
+                self.context.semantic_values(),
+                self.context.compiler_known_symbols(),
+            )
+            .map_err(SyntheticLoweringError::SemanticValue)?;
 
         let value = self.push_selected_call(builder, block, source, place, callable, result)?;
 

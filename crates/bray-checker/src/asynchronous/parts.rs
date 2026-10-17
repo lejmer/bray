@@ -4,7 +4,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::{DeclaredStorageShape, SymbolOrdinal, TypeData, TypeId};
 
-use super::cleanup::{CleanupShapeResolver, cleanup_requirement};
+use super::cleanup::CleanupShapeResolver;
 use crate::{CheckerQueryError, CheckerRequestContext};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -40,11 +40,7 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
         path: &mut Vec<StorageCleanupProjection>,
         parts: &mut Vec<StorageCleanupPart>,
     ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
-        let cleanup = cleanup_requirement(self.resolve(ty)?);
-
-        self.cleanup_types
-            .entry(ty)
-            .or_insert_with(|| bray_bound_tree::StorageCleanupType::new(ty, cleanup));
+        let cleanup = self.requirement(ty)?;
 
         if expansion == CleanupExpansion::FullDisposal {
             self.expanded_types.insert(ty);

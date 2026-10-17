@@ -119,7 +119,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 ExecutionCondition::ScopedCapability(expression)
             }
             bray_bound_tree::BoundExecutionSite::ScopedExit(_) => ExecutionCondition::Unknown,
-            bray_bound_tree::BoundExecutionSite::Node(node) => {
+            bray_bound_tree::BoundExecutionSite::Cleanup(node)
+            | bray_bound_tree::BoundExecutionSite::Node(node) => {
                 panic!("invocation value requires an expression owner, got {node:?}")
             }
         }

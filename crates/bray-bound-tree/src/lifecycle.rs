@@ -35,6 +35,58 @@ pub struct LifecycleCallable {
     pub execution: CallableExecution,
 }
 
+impl LifecycleCallable {
+    /// Returns the immediate value or inactive future created by this invocation.
+    pub fn invocation_result(
+        self,
+        values: &bray_symbols::SemanticValueStore,
+        symbols: &bray_symbols::AvailableCompilerKnownSymbols,
+    ) -> Result<crate::BoundCallResult, bray_symbols::SemanticValueStoreError> {
+        Ok(match self.execution {
+            CallableExecution::Synchronous => crate::BoundCallResult::Immediate(self.result),
+            CallableExecution::Asynchronous => {
+                let future = symbols
+                    .unary_representation_type(
+                        values,
+                        bray_compiler_known::RepresentationRole::Future,
+                        self.result,
+                    )?
+                    .expect("checked asynchronous lifecycle retains its Future representation");
+
+                crate::BoundCallResult::LazyFuture(crate::BoundFutureConstruction::new(
+                    self.result,
+                    future,
+                ))
+            }
+        })
+    }
+
+    /// Retains a checked lifecycle selection without resolving its signature again.
+    pub fn from_signature(
+        values: &bray_symbols::SemanticValueStore,
+        callable: CallableInstanceData,
+        signature: &bray_symbols::CallableSignature,
+    ) -> Result<Self, bray_symbols::SemanticValueStoreError> {
+        let data = values.type_data(signature.callable_type());
+
+        let bray_symbols::TypeData::Callable(selected) = data.as_ref() else {
+            panic!("checked lifecycle signature retains its callable type");
+        };
+
+        let receiver = signature
+            .receiver()
+            .expect("checked lifecycle signature retains its receiver");
+
+        Ok(Self {
+            callable,
+            abi: selected.abi(),
+            receiver: receiver.mode().input_type(values, receiver.ty())?,
+            result: signature.result(),
+            execution: selected.execution(),
+        })
+    }
+}
+
 /// The selected local action for one type and lifecycle phase.
 /// Child types retain separate ownership identities and are selected on demand.
 #[derive(Clone, Debug, Eq, PartialEq)]

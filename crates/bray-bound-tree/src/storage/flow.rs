@@ -126,13 +126,6 @@ impl StorageSuspensionState {
         }
     }
 
-    /// Returns the direct-await expression.
-    pub const fn expression(&self) -> BoundExpressionId {
-        self.occurrence
-            .expression()
-            .expect("suspension has an expression owner")
-    }
-
     /// Returns the exact suspension phase.
     pub const fn occurrence(&self) -> crate::BoundExecutionSite {
         self.occurrence
@@ -335,7 +328,7 @@ impl StorageFlow {
                     .borrow()
                     .is_some_and(|borrow| borrow.unit() != unit)
         }) || suspensions.iter().any(|suspension| {
-            suspension.expression().unit() != unit
+            suspension.occurrence().node().unit() != unit
                 || suspension
                     .live()
                     .iter()

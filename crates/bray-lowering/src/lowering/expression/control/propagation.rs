@@ -232,17 +232,12 @@ impl Lowerer<'_> {
         value: MirOperand,
         result_type: TypeId,
     ) -> Result<(MirBlockId, MirOperand, MirBlockId, MirOperand), LoweringError> {
-        let arguments = self.named_type_arguments(result_type);
-
-        let [success_type, failure_type] = arguments.as_slice() else {
-            panic!("checked Result {result_type:?} retains its success and error types");
-        };
-
-        let representation = self
-            .input
-            .available_compiler_known_symbols()
-            .result_representation()
-            .expect("checked Result retains its compiler-known representation");
+        let (types, representation) = crate::operand::result_payloads(
+            self.input.semantic_values(),
+            self.input.available_compiler_known_symbols(),
+            result_type,
+        )
+        .expect("checked Result branch retains its payload representation");
 
         let (branch, [(success, success_value), (error, error_value)]) =
             crate::operand::branch_result(
@@ -250,7 +245,7 @@ impl Lowerer<'_> {
                 current,
                 source,
                 value,
-                [*success_type, *failure_type],
+                types,
                 representation,
             )?;
 

@@ -90,3 +90,57 @@ pub(crate) fn branch_result(
 
     Ok((branch, [(success, success_value), (error, error_value)]))
 }
+
+/// Returns the checked payload types and representation of a Result completion.
+pub(crate) fn result_payloads(
+    values: &bray_symbols::SemanticValueStore,
+    symbols: &bray_symbols::AvailableCompilerKnownSymbols,
+    ty: TypeId,
+) -> Option<([TypeId; 2], bray_symbols::CompilerKnownResultRepresentation)> {
+    let data = values.type_data(ty);
+
+    let bray_symbols::TypeData::Named {
+        definition: bray_symbols::NamedTypeSymbolId::Union(definition),
+        substitution,
+    } = data.as_ref()
+    else {
+        return None;
+    };
+
+    if symbols.symbol_representation(*definition)
+        != Some(bray_compiler_known::RepresentationRole::Result)
+    {
+        return None;
+    }
+
+    let substitution = values.generic_substitution_data(*substitution);
+
+    let mut arguments =
+        substitution
+            .bindings()
+            .iter()
+            .filter_map(|binding| match binding.argument() {
+                bray_symbols::GenericArgument::Type(ty) => Some(ty),
+                bray_symbols::GenericArgument::Constant(_) => None,
+            });
+
+    let success = arguments
+        .next()
+        .expect("checked Result retains its success type");
+
+    let error = arguments
+        .next()
+        .expect("checked Result retains its error type");
+
+    assert!(
+        arguments.next().is_none(),
+        "checked Result retains exactly two type arguments"
+    );
+
+    Some((
+        [success, error],
+        symbols
+            .result_representation()
+            .expect("checked Result retains its compiler-known representation"),
+    ))
+}

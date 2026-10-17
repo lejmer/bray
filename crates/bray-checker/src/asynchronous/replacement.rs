@@ -1,9 +1,9 @@
 use bray_bound_tree::{
-    AsyncStorageCleanupRequirement, AsyncStorageExitRecoveryCause, StorageCleanupType, StorageFlow,
-    StoragePlan, StorageReplacementPlan, StorageReplacementState,
+    AsyncStorageCleanupRequirement, AsyncStorageExitRecoveryCause, StorageFlow, StoragePlan,
+    StorageReplacementPlan, StorageReplacementState,
 };
 
-use super::cleanup::{CleanupShapeResolver, cleanup_requirement};
+use super::cleanup::CleanupShapeResolver;
 use super::parts::CleanupExpansion;
 use crate::{CheckerQueryError, CheckerRequestContext};
 
@@ -26,12 +26,7 @@ pub(super) fn replacement_plans<C: CheckerRequestContext + ?Sized>(
         {
             let ty = access.reached_type();
 
-            cleanup = cleanup_requirement(shapes.resolve(ty)?);
-
-            shapes
-                .cleanup_types
-                .entry(ty)
-                .or_insert_with(|| StorageCleanupType::new(ty, cleanup));
+            cleanup = shapes.requirement(ty)?;
 
             if decision.state() == StorageReplacementState::Absent {
                 cleanup = AsyncStorageCleanupRequirement::None;

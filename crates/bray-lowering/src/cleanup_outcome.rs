@@ -158,6 +158,63 @@ impl CleanupOutcome {
         )
     }
 
+    /// Collects a completed finalizer's active error while retaining every failed-call outcome.
+    pub(crate) fn retain_finalizer_result(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        value: MirOperand,
+        payloads: Option<([TypeId; 2], bray_symbols::CompilerKnownResultRepresentation)>,
+    ) -> Result<MirBlockId, MirCapacityError> {
+        let (completed, value, continuation) =
+            self.check_completion(builder, block, source, Some(value))?;
+
+        let value = value.expect("completed finalizer retains its result");
+
+        if let Some((types, representation)) = payloads {
+            let (branch, [(success, _), (error, incident)]) = crate::operand::branch_result(
+                builder,
+                completed,
+                source,
+                value,
+                types,
+                representation,
+            )?;
+
+            builder.set_terminator(completed, source.clone(), branch);
+
+            builder.push_operation(
+                error,
+                source.clone(),
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident {
+                    incident,
+                    runtime: MirRuntimeReference::new(
+                        RuntimeAbiRole::CleanupIncidentTransfer,
+                        self.runtime_abi,
+                    ),
+                }),
+                None,
+            )?;
+
+            for branch in [success, error] {
+                builder.set_terminator(
+                    branch,
+                    source.clone(),
+                    MirTerminatorKind::Goto(MirEdge::new(continuation, [])),
+                );
+            }
+        } else {
+            builder.set_terminator(
+                completed,
+                source.clone(),
+                MirTerminatorKind::Goto(MirEdge::new(continuation, [])),
+            );
+        }
+
+        Ok(continuation)
+    }
+
     /// Adds incident continuations after the block's last fallible cleanup operation.
     pub(crate) fn check(
         &self,

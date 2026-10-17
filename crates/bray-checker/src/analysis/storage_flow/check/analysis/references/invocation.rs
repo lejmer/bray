@@ -260,6 +260,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             BoundExecutionSite::ScopedEnter(expression) => self.storage.identity_entries()
                 .find_map(|(id, identity)| matches!(identity, bray_bound_tree::StorageIdentity::ScopedCapability { expression: owner, .. } if owner == expression).then_some(Place::root(id))),
             BoundExecutionSite::ScopedExit(_) => None,
+            BoundExecutionSite::Cleanup(_) => panic!("cleanup suspension has no invocation result"),
             BoundExecutionSite::Node(_) => self.expression_result_storage(occurrence.expression()?),
         }
     }

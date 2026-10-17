@@ -195,7 +195,13 @@ where
         &mut self,
         ty: TypeId,
     ) -> Result<AsyncStorageCleanupRequirement, CheckerQueryError<C::UpstreamError>> {
-        self.resolve(ty).map(cleanup_requirement)
+        let cleanup = cleanup_requirement(self.resolve(ty)?);
+
+        self.cleanup_types
+            .entry(ty)
+            .or_insert_with(|| StorageCleanupType::new(ty, cleanup));
+
+        Ok(cleanup)
     }
 
     pub(crate) fn storage_requirements(
@@ -216,16 +222,6 @@ where
         self.requirements = Some(std::sync::Arc::clone(&requirements));
 
         Ok(requirements)
-    }
-
-    fn include_input(&mut self, ty: TypeId) -> Result<(), CheckerQueryError<C::UpstreamError>> {
-        let cleanup = cleanup_requirement(self.resolve(ty)?);
-
-        self.cleanup_types
-            .entry(ty)
-            .or_insert_with(|| StorageCleanupType::new(ty, cleanup));
-
-        Ok(())
     }
 
     pub(super) fn resolve(
@@ -471,13 +467,13 @@ where
             bray_bound_tree::SemanticSelection::Operation(
                 bray_bound_tree::SelectedOperation::Construction(construction),
             ) => {
-                cleanup_shapes.include_input(construction.result_type())?;
+                cleanup_shapes.requirement(construction.result_type())?;
 
                 for input in construction.inputs() {
                     let (bray_bound_tree::SelectedConstructionInput::Explicit { ty, .. }
                     | bray_bound_tree::SelectedConstructionInput::Default { ty, .. }) = input;
 
-                    cleanup_shapes.include_input(*ty)?;
+                    cleanup_shapes.requirement(*ty)?;
                 }
             }
             bray_bound_tree::SemanticSelection::Call(call) => {
@@ -489,14 +485,14 @@ where
                         bray_bound_tree::SelectedArgument::Default { ty, .. } => *ty,
                     };
 
-                    cleanup_shapes.include_input(ty)?;
+                    cleanup_shapes.requirement(ty)?;
                 }
 
                 if let Some(receiver) = call.receiver() {
                     let ty = receiver
                         .input_type(request.semantic_values()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in scope_exit_plans: {error:?}"));
 
-                    cleanup_shapes.include_input(ty)?;
+                    cleanup_shapes.requirement(ty)?;
                 }
             }
             _ => {}
@@ -512,7 +508,7 @@ where
                 .expect("checked await retains its completion type")
                 .ty();
 
-            cleanup_shapes.include_input(ty)?;
+            cleanup_shapes.requirement(ty)?;
         }
 
         let bray_bound_tree::BoundExpression::Structured(expression) = expression else {
@@ -530,7 +526,7 @@ where
                     .expression(*operand).unwrap_or_else(|| panic!("scope_exit_plans requires checked expression type or node, operand: {operand:?}"))
                     .ty();
 
-                cleanup_shapes.include_input(ty)?;
+                cleanup_shapes.requirement(ty)?;
             }
         }
     }
@@ -653,7 +649,7 @@ where
         }
     ) && let Some(result) = types.callable_result_type()
     {
-        cleanup_shapes.include_input(result)?;
+        cleanup_shapes.requirement(result)?;
     }
 
     Ok((
@@ -702,7 +698,7 @@ where
             (_, None) => AsyncStorageCleanupRequirement::Recovered(
                 AsyncStorageExitRecoveryCause::UnavailableCleanupShape,
             ),
-            (Some(_), Some(ty)) => cleanup_requirement(cleanup_shapes.resolve(ty)?),
+            (Some(_), Some(ty)) => cleanup_shapes.requirement(ty)?,
         };
 
         let owner = owners.scope(storage.identity(identity));

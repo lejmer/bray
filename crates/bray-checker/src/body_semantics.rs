@@ -174,6 +174,7 @@ where
                 &refinements,
                 &flow,
                 graph,
+                &prepared.cleanup,
             )
         );
 

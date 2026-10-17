@@ -396,9 +396,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 let completes = normal
                     || lifecycle.contract.completes
-                    || (lifecycle.synchronous
+                    || ((lifecycle.call.execution == bray_symbols::CallableExecution::Synchronous)
                         && self.request.target_cannot_unwind(
-                            bray_bound_tree::BoundCallableTarget::Declaration(lifecycle.callable),
+                            bray_bound_tree::BoundCallableTarget::Declaration(
+                                lifecycle.call.callable,
+                            ),
                         ));
 
                 let value = path

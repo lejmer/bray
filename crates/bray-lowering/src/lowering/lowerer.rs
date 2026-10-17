@@ -77,6 +77,7 @@ pub(super) struct Lowerer<'unit> {
     pub(super) initial_broadcast: Option<MirBlockId>,
     pub(super) broadcast_outcome: Option<(crate::cleanup_outcome::CleanupOutcome, MirBlockId)>,
     pub(super) cleanup_outcome: Option<crate::cleanup_outcome::CleanupOutcome>,
+    pub(super) cleanup_occurrence: Option<bray_bound_tree::BoundExecutionSite>,
     pub(super) cleanup_failure_targets: Option<(MirBlockId, MirBlockId, bray_ir::MirPlace)>,
     pub(super) abnormal_cleanup_machine: Option<super::cleanup::AbnormalCleanupMachine>,
     pub(super) terminal_state_blocks:
@@ -119,6 +120,7 @@ impl<'unit> Lowerer<'unit> {
             initial_broadcast: None,
             broadcast_outcome: None,
             cleanup_outcome: None,
+            cleanup_occurrence: None,
             cleanup_failure_targets: None,
             abnormal_cleanup_machine: None,
             terminal_state_blocks: std::collections::HashMap::new(),

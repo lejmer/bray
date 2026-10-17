@@ -1313,3 +1313,65 @@ fn selected_cleanup(
         .value()
         .clone()
 }
+
+#[test]
+fn imported_async_finalizers_compose_in_the_consuming_frame() {
+    let provider = compilation(
+        r#"
+        module api;
+        extern async func pause();
+        struct Value
+        {
+            value: u32;
+            async finalize()
+            {
+                await pause();
+            }
+        }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for body in ["return;", "panic(\"cleanup\");"] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api;
+            async func root(pos value: example.package.api.Value)
+            {{
+                {body}
+            }}
+        "#
+            ),
+        );
+
+        assert!(
+            !consumer.check_diagnostics().has_errors(),
+            "{:?}",
+            consumer.check_diagnostics()
+        );
+
+        let lowered = consumer
+            .lowered_unit(source_function_body_key(&consumer, "root"))
+            .unwrap();
+
+        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+
+        assert!(mir.is_valid());
+
+        assert!(
+            mir.operations().iter().any(|operation| matches!(
+                operation.kind(),
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame { .. })
+            )),
+            "{body}: imported async finalization must retain its execution contract"
+        );
+    }
+}

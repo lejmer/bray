@@ -630,7 +630,6 @@ const fn product_data_kind(kind: ProductDataKind) -> &'static str {
         ProductDataKind::SourceLocation => "source_location",
         ProductDataKind::NativeStaticContract => "native_static_contract",
         ProductDataKind::CallableParameters => "callable_parameters",
-        ProductDataKind::CallableReceiver => "callable_receiver",
         ProductDataKind::StaticSubstitution => "static_substitution",
         ProductDataKind::ImportedSemanticAddress => "imported_semantic_address",
         ProductDataKind::ResolvedType => "resolved_type",
