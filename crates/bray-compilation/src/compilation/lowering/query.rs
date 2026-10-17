@@ -145,7 +145,10 @@ impl Compilation {
                 cancellation,
             )?;
 
+        let completed = self.completed_unit_cleanup(key, cancellation)?;
+
         let diagnostics = DiagnosticBag::merged_all([
+            completed.result().diagnostics(),
             unit.result().diagnostics(),
             control_flow.result().diagnostics(),
             expressions.result().diagnostics(),
@@ -184,9 +187,6 @@ impl Compilation {
 
         let semantic_values = self.semantic_value_store()?;
 
-        let completed =
-            self.completed_unit_cleanup(key, body.result().value().asynchronous(), cancellation)?;
-
         let input = LoweringInput::new(
             unit.result().value(),
             control_flow.result().value(),
@@ -201,7 +201,8 @@ impl Compilation {
             expressions.result().value().selections(),
             self.available_compiler_known_symbols(),
             body.result().value().asynchronous(),
-            completed,
+            // Lowering owns this small selected-site set independently of the cached proof.
+            completed.result().value().clone(),
             behavior.result().value(),
             semantic_values,
             &constant_reference_operands,

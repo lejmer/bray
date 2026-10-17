@@ -597,6 +597,7 @@ impl Compilation {
         let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
         let body_semantics = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
         let behavior = self.body_behavior_with_cancellation(key.clone(), cancellation)?;
+        let cleanup = self.completed_unit_cleanup(&key, cancellation)?;
 
         let target_validity = self.semantic_unit_target_validity(
             bound.result().value(),
@@ -615,6 +616,7 @@ impl Compilation {
             storage.result().diagnostics().clone(),
             memory.result().diagnostics().clone(),
             body_semantics.result().diagnostics().clone(),
+            cleanup.result().diagnostics().clone(),
             behavior.result().diagnostics().clone(),
             target_validity,
         ];
@@ -884,6 +886,42 @@ mod tests {
     use crate::{
         Compilation, CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
     };
+
+    #[test]
+    fn semantic_query_failure_preserves_diagnostic_context() {
+        use crate::compilation::semantic_error::{
+            SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+        };
+
+        let compilation = compilation(
+            r#"
+module app;
+func main() {}
+"#,
+        );
+
+        let key = crate::test_support::source_function_body_key(&compilation, "main");
+
+        let error = SemanticQueryFailure::contract(
+            SemanticQueryContext::Unit(key.clone()),
+            SemanticQueryViolation::Missing(SemanticDataKind::Type),
+        )
+        .into();
+
+        let diagnostics = super::semantic_query_failure_diagnostics(&key, &error);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &diagnostics,
+            DiagnosticKind::CheckingCompilerDefect,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+
+        assert_eq!(
+            diagnostics.iter().next().unwrap().primary_span(),
+            error.source()
+        );
+    }
 
     #[test]
     fn diagnostics_share_body_work_beyond_the_query_cache_working_set() {

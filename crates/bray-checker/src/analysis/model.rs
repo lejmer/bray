@@ -29,6 +29,16 @@ pub(crate) enum AnalysisOperationKind {
 }
 
 impl AnalysisOperationKind {
+    pub(crate) const fn is_normal_cleanup(self) -> bool {
+        matches!(
+            self,
+            Self::ScopeExit {
+                preserves_exit_value: true,
+                ..
+            } | Self::Bound(AnyBoundNodeId::Expression(_))
+        )
+    }
+
     pub(crate) const fn occurrence(self) -> bray_bound_tree::BoundExecutionSite {
         match self {
             Self::Call { invocation, .. } => invocation,

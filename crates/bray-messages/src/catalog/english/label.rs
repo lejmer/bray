@@ -330,6 +330,9 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
             MessageTemplate::new(DUPLICATE_MODULE_CONTRIBUTION)
         }
         DiagnosticLabelKind::MovedStorageUse => MessageTemplate::new(MOVED_STORAGE_USE),
+        DiagnosticLabelKind::UnresolvedFinalization => {
+            MessageTemplate::new(&[MessageTemplatePart::Text("ownership ends here")])
+        }
         DiagnosticLabelKind::IncompleteLifecycleStorage => {
             MessageTemplate::new(&[MessageTemplatePart::Text(
                 "this storage is partial but its lifecycle requires a complete value",

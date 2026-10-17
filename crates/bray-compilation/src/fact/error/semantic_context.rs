@@ -235,6 +235,11 @@ fn push_fact_context(
 
             "execution_candidates"
         }
+        Fact::CleanupCompletion(unit) => {
+            push_bound_unit_key(fields, unit);
+
+            "cleanup_completion"
+        }
         Fact::CertifiedExecution(unit) => {
             push_bound_unit_key(fields, unit);
 

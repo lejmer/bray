@@ -780,7 +780,7 @@ impl DiagnosticKind {
             ),
             Self::CheckingCompilerDefect => Self::quality_source(
                 &[EmissionFailure],
-                note_components!(&[EmissionFailure], DiagnosticNoteKind::ReportCompilerDefect),
+                note_components!(&[EmissionFailure], ReportCompilerDefect),
             ),
             Self::CheckingIncompatiblePattern => {
                 Self::quality_source(&[ActualType], primary_components!(&[ActualType]))
@@ -1158,6 +1158,11 @@ impl DiagnosticKind {
             Self::CheckingUnknownExecutionProperty | Self::CheckingExecutionGuaranteeNotProven => {
                 Self::quality_source(&[ReferencedName], primary_components!(&[ReferencedName]))
             }
+            Self::CheckingUnresolvedFinalization
+            | Self::CheckingAsyncFinalizationOutsideAsyncCallable => Self::quality_source(
+                &[ActualType],
+                note_components!(&[ActualType], DiagnosticNoteKind::ResolveFinalization),
+            ),
             Self::CheckingCallableResultRequired => Self::quality_source(
                 &[DeclarationName, ExpectedType],
                 note_components!(
@@ -1311,14 +1316,8 @@ impl DiagnosticKind {
                 primary_components!(&[ArtifactKind, ArtifactOrdinal]),
             ),
             Self::RetainedGenerationInvalid => Self::quality_artifact(
-                &[
-                    FilePath,
-                    crate::DiagnosticArgName::RetainedGenerationProblem,
-                ],
-                primary_components!(&[
-                    FilePath,
-                    crate::DiagnosticArgName::RetainedGenerationProblem
-                ]),
+                &[FilePath, DiagnosticArgName::RetainedGenerationProblem],
+                primary_components!(&[FilePath, DiagnosticArgName::RetainedGenerationProblem]),
             ),
             Self::RetainedArtifactLengthMismatch => Self::quality_artifact(
                 &[FilePath, ExpectedByteCount, ActualByteCount],
@@ -1337,16 +1336,8 @@ impl DiagnosticKind {
                 primary_components!(&[FilePath, ExpectedRevision, ActualRevision]),
             ),
             Self::BuildStorageIoFailed => Self::quality_artifact(
-                &[
-                    FilePath,
-                    crate::DiagnosticArgName::StorageOperation,
-                    IoErrorKind,
-                ],
-                primary_components!(&[
-                    FilePath,
-                    crate::DiagnosticArgName::StorageOperation,
-                    IoErrorKind
-                ]),
+                &[FilePath, DiagnosticArgName::StorageOperation, IoErrorKind],
+                primary_components!(&[FilePath, DiagnosticArgName::StorageOperation, IoErrorKind]),
             ),
             Self::BuildStorageUnsafePath
             | Self::RetainedBuildStateUnavailable

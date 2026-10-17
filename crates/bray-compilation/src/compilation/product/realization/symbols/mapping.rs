@@ -320,7 +320,8 @@ fn append_frame_data_symbols(
         // must use that same identity rather than the consumer's imported MIR key.
         let constructor = symbols.iter().find(|mapping| {
             matches!(mapping.key(), CodegenSymbolKey::Instance(key) if key == &instance)
-        }).expect("frame companion data requires its mapped constructor");
+        }).unwrap_or_else(|| panic!("frame companion data for {:?} requires its mapped constructor in {:?}",
+            instance.template(), unit.instances().iter().map(|member| member.key().template()).collect::<Vec<_>>()));
 
         let backing = crate::compilation::product::realization::names::generated_symbol_name(
             target,

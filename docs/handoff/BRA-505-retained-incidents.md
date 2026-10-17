@@ -96,7 +96,11 @@ covers source/imported completion, guarded successful results, postcondition-onl
 infallibility, mutation, moves, wrappers, partial and discarded owners, retained
 child finalization, static mappings, diagnostic output and query profiling. After
 the discharge fix, all 18 affected native planning and outgoing-ownership tests
-passed. Formatting, readiness and publication are still pending. Ordinary async
+passed. The existing compiler-defect diagnostic lacked readiness coverage. Its
+producer now has a passing quality/source-context regression, and diagnostic
+readiness passes with the freshly built xtask. Rust formatting, the mutating style
+command and its Bray formatting stage pass. The explicit cargo format/readiness
+sequence is still finishing its redundant release rebuild. Ordinary async
 activation, inactive abandonment and retained incident integration remain
 outstanding in the acceptance map.
 
@@ -172,3 +176,15 @@ activation or immediate disposal as the implementation of ordinary cleanup.
 
 After the production acceptance matrix passes, complete the audit, push, independent
 PR review and any fixes. Update BRA-619's remaining inputs, then delete this record.
+
+## Checkpoint cost and publication
+
+The normal ownership-end batch adds about 374 net production lines and 445 net
+test lines. It adds checked legality and reusable completion proofs, structured
+diagnostics and missing constructor dependencies. It removes the old pure/total
+wrapper and repeated outgoing requirement construction. Documentation deletion
+is recorded separately and is not counted as compiler simplification.
+
+Obsolete handoffs were deleted in `b67ec488`. The six remaining documents are active
+inputs only. Their removal is part of stack completion, as recorded in the execution
+guide. PR descriptions follow the user's imperative summary and issue-link format.

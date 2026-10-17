@@ -45,7 +45,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                 self.domain.operation(
                     &mut state,
                     operation.kind(),
-                    Some(&mut |access, slot, lifecycle, whole, evidence, _| {
+                    Some(&mut |access, part, slot, lifecycle, whole, evidence, _| {
                         let node = match operation.kind() {
                             super::super::model::AnalysisOperationKind::ScopeExit {
                                 exit, ..
@@ -53,16 +53,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                             operation => operation.node(),
                         };
 
-                        if whole && slot == TypeAssociatedLifecycleSlot::Finalizer {
+                        if slot == TypeAssociatedLifecycleSlot::Finalizer {
+                            let normal = operation.kind().is_normal_cleanup();
+
                             candidate
                                 .cleanup
-                                .entry((node, access))
-                                .and_modify(|(_, _, previous)| {
-                                    previous.intersect(evidence);
+                                .entry((node, access, part, normal))
+                                .and_modify(|previous| {
+                                    previous.evidence.intersect(evidence);
                                 })
-                                // Cleanup discharge and execution certification retain independent evidence.
-                                .or_insert_with(|| {
-                                    (lifecycle.callable, lifecycle.result, evidence.clone())
+                                // Different control-flow exits own independently mutable premises.
+                                .or_insert_with(|| crate::ExecutionCleanup {
+                                    callable: lifecycle.callable,
+                                    result: lifecycle.result,
+                                    synchronous: lifecycle.synchronous,
+                                    whole,
+                                    evidence: evidence.clone(),
                                 });
                         }
 

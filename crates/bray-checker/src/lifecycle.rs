@@ -290,6 +290,87 @@ pub fn invocation_execution_requirements(
     requirements
 }
 
+/// The certified disposition of a selected finalizer at an ownership end.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FinalizerCompletion {
+    /// No certified successful completion is available for this invocation.
+    Unresolved,
+    /// Invocation can only return success, but must still execute.
+    Infallible,
+    /// The graceful step is pure, total and successful, so invocation is unnecessary.
+    Completed,
+}
+
+/// Checks implicit finalization against its certified completion and current execution context.
+/// Abnormal exit permits unresolved fallible duties, but cannot create an async execution root.
+pub fn check_implicit_finalization<C: crate::CheckerRequestContext + ?Sized>(
+    request: crate::CheckerUnitView<'_, C>,
+    node: bray_bound_tree::AnyBoundNodeId,
+    ty: TypeId,
+    cleanup: &crate::ExecutionCleanup,
+    normal: bool,
+    completion: FinalizerCompletion,
+    diagnostics: &mut bray_diagnostics::DiagnosticBag,
+) -> Result<(), crate::CheckerQueryError<C::UpstreamError>> {
+    use bray_bound_tree::BoundUnitRoot;
+
+    use bray_diagnostics::{
+        Diagnostic, DiagnosticArg, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+        DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+    };
+
+    use bray_symbols::CallableExecution;
+
+    if completion == FinalizerCompletion::Completed {
+        return Ok(());
+    }
+
+    let asynchronous = matches!(
+        request.unit().root(),
+        BoundUnitRoot::CallableBody {
+            execution: CallableExecution::Asynchronous,
+            ..
+        } | BoundUnitRoot::AnonymousCallable {
+            execution: CallableExecution::Asynchronous,
+            ..
+        }
+    );
+
+    let unit_result = crate::representation::type_representation(request, cleanup.result)
+        == Some(RepresentationRole::Unit);
+
+    let kind = if normal && !unit_result && completion == FinalizerCompletion::Unresolved {
+        DiagnosticKind::CheckingUnresolvedFinalization
+    } else if !cleanup.synchronous && !asynchronous {
+        DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable
+    } else {
+        return Ok(());
+    };
+
+    let origin = crate::diagnostic::bound_node_origin(request, node)
+        .expect("selected cleanup retains its source ownership end");
+
+    let span = request.source(origin.source_anchor()).span();
+    let ty = crate::diagnostic_type(request.context(), ty)?;
+
+    diagnostics.add(
+        Diagnostic::new(
+            crate::diagnostic::diagnostic_id(diagnostics.len()),
+            kind,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::actual_type(ty))
+        .with_primary_span(span)
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::UnresolvedFinalization,
+            span,
+        ))
+        .with_note(DiagnosticNote::new(DiagnosticNoteKind::ResolveFinalization)),
+    );
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{LifecycleSelectionContext, LifecycleSelectionError, select_lifecycle_action};

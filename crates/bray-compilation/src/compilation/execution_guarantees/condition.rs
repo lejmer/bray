@@ -1080,106 +1080,116 @@ impl Compilation {
                 continue;
             };
 
-            let Some(body) = self.callable_body_key(callable.definition())? else {
-                if self
-                    .symbol_graph()?
-                    .declaration_syntax_anchor(callable.definition().symbol())
-                    .is_none()
-                {
-                    let contract =
-                        self.imported_execution_contract(callable, &mut diagnostics, cancellation)?;
+            let contracts = self.callable_completion_contracts(callable, cancellation)?;
 
-                    let mut completion = Vec::new();
+            diagnostics.add_range(contracts.diagnostics().iter().cloned());
 
-                    for domain in &*contract.domains {
-                        let entry = self.imported_execution_conditions(
-                            callable,
-                            domain.entry.iter().copied(),
-                            cancellation,
-                        )?;
-
-                        let mut postconditions = Vec::new();
-
-                        for (ordinal, term) in &*domain.postconditions {
-                            let conditions = self.imported_execution_conditions(
-                                callable,
-                                [*term],
-                                cancellation,
-                            )?;
-
-                            postconditions.extend(conditions.into_iter().map(|condition| {
-                                (
-                                    condition,
-                                    bray_checker::ExecutionClauseId::Imported(*ordinal),
-                                )
-                            }));
-                        }
-
-                        completion.push(bray_checker::ExecutionCompletionContract {
-                            entry,
-                            postconditions,
-                        });
-                    }
-
-                    calls.insert(expression, completion);
-                }
-
-                continue;
-            };
-
-            let declaration = self.execution_declaration(body.source().syntax())?;
-            let mut contracts = Vec::new();
-
-            for domain in declaration
-                .value()
-                .domains()
-                .iter()
-                .filter(|domain| !domain.postconditions.is_empty())
-            {
-                let anchors = declaration
-                    .value()
-                    .requirements()
-                    .iter()
-                    .chain(&domain.guards)
-                    .copied()
-                    .collect::<Vec<_>>();
-
-                let entry = self.instance_execution_condition_inputs(
-                    &body,
-                    callable,
-                    &anchors,
-                    cancellation,
-                )?;
-
-                let posts = self.instance_execution_condition_inputs(
-                    &body,
-                    callable,
-                    &domain.postconditions,
-                    cancellation,
-                )?;
-
-                diagnostics.add_range(entry.diagnostics().iter().cloned());
-                diagnostics.add_range(posts.diagnostics().iter().cloned());
-
-                contracts.push(bray_checker::ExecutionCompletionContract {
-                    entry: entry
-                        .into_parts()
-                        .0
-                        .into_iter()
-                        .map(|(condition, _)| condition)
-                        .collect(),
-                    postconditions: posts
-                        .into_parts()
-                        .0
-                        .into_iter()
-                        .map(|(condition, source)| (condition, source.into()))
-                        .collect(),
-                });
-            }
+            let contracts = contracts.into_parts().0;
 
             calls.insert(expression, contracts);
         }
 
         Ok(DiagnosticResult::new(calls, diagnostics))
+    }
+
+    pub(super) fn callable_completion_contracts(
+        &self,
+        callable: bray_symbols::CallableInstanceData,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<Vec<bray_checker::ExecutionCompletionContract>>, FactQueryError>
+    {
+        let mut diagnostics = DiagnosticBag::new();
+
+        let Some(body) = self.callable_body_key(callable.definition())? else {
+            if self
+                .symbol_graph()?
+                .declaration_syntax_anchor(callable.definition().symbol())
+                .is_some()
+            {
+                return Ok(DiagnosticResult::new(Vec::new(), diagnostics));
+            }
+
+            let contract =
+                self.imported_execution_contract(callable, &mut diagnostics, cancellation)?;
+
+            let mut completion = Vec::new();
+
+            for domain in &*contract.domains {
+                let entry = self.imported_execution_conditions(
+                    callable,
+                    domain.entry.iter().copied(),
+                    cancellation,
+                )?;
+
+                let mut postconditions = Vec::new();
+
+                for (ordinal, term) in &*domain.postconditions {
+                    let conditions =
+                        self.imported_execution_conditions(callable, [*term], cancellation)?;
+
+                    postconditions.extend(conditions.into_iter().map(|condition| {
+                        (
+                            condition,
+                            bray_checker::ExecutionClauseId::Imported(*ordinal),
+                        )
+                    }));
+                }
+
+                completion.push(bray_checker::ExecutionCompletionContract {
+                    entry,
+                    postconditions,
+                });
+            }
+
+            return Ok(DiagnosticResult::new(completion, diagnostics));
+        };
+
+        let declaration = self.execution_declaration(body.source().syntax())?;
+        let mut contracts = Vec::new();
+
+        for domain in declaration
+            .value()
+            .domains()
+            .iter()
+            .filter(|domain| !domain.postconditions.is_empty())
+        {
+            let anchors = declaration
+                .value()
+                .requirements()
+                .iter()
+                .chain(&domain.guards)
+                .copied()
+                .collect::<Vec<_>>();
+
+            let entry =
+                self.instance_execution_condition_inputs(&body, callable, &anchors, cancellation)?;
+
+            let posts = self.instance_execution_condition_inputs(
+                &body,
+                callable,
+                &domain.postconditions,
+                cancellation,
+            )?;
+
+            diagnostics.add_range(entry.diagnostics().iter().cloned());
+            diagnostics.add_range(posts.diagnostics().iter().cloned());
+
+            contracts.push(bray_checker::ExecutionCompletionContract {
+                entry: entry
+                    .into_parts()
+                    .0
+                    .into_iter()
+                    .map(|(condition, _)| condition)
+                    .collect(),
+                postconditions: posts
+                    .into_parts()
+                    .0
+                    .into_iter()
+                    .map(|(condition, source)| (condition, source.into()))
+                    .collect(),
+            });
+        }
+
+        Ok(DiagnosticResult::new(contracts, diagnostics))
     }
 }

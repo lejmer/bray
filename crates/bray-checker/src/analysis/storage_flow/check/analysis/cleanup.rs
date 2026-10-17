@@ -24,6 +24,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let mut observe = |_: _,
                            _: _,
+                           _: _,
                            lifecycle: &Lifecycle,
                            _: bool,
                            _: &crate::ExecutionCallEvidence,

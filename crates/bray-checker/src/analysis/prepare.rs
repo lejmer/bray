@@ -37,6 +37,14 @@ pub struct PreparedBodyAnalysis {
 }
 
 impl PreparedBodyAnalysis {
+    /// Whether the selected cleanup includes any whole-value or represented-part finalizer.
+    pub fn has_finalizers(&self) -> bool {
+        self.cleanup
+            .lifecycles
+            .keys()
+            .any(|(_, slot)| *slot == bray_symbols::TypeAssociatedLifecycleSlot::Finalizer)
+    }
+
     /// Returns selected implicit lifecycle callees required by this body's summary component.
     pub fn lifecycle_callees(&self) -> impl Iterator<Item = bray_symbols::CallableSymbolId> + '_ {
         self.cleanup.callees()

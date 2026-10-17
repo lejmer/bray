@@ -235,7 +235,7 @@ fn imported_finalizers_use_verified_entry_conditions() {
                     r#"
                 module app;
                 using example.package.api;
-                func root(pos mut value: example.package.api.Value<bool>)
+                async func root(pos mut value: example.package.api.Value<bool>)
                     requires({condition})
                 {{
                     {operation}
@@ -291,8 +291,9 @@ fn imported_finalizers_preserve_known_successful_results() {
                 r#"
                 module app;
                 using example.package.api;
-                func root(pos value: example.package.api.Value)
+                async func root(pos value: example.package.api.Value)
                 {
+                    panic("abnormal cleanup");
                 }
             "#,
             );
@@ -306,6 +307,67 @@ fn imported_finalizers_preserve_known_successful_results() {
             let selected = selected_cleanup(&consumer);
 
             assert_eq!(!selected.is_empty(), completed, "{execution}{result}");
+        }
+    }
+}
+
+#[test]
+fn imported_finalizer_postcondition_proves_infallibility_without_total() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Value
+        {
+            ready: bool;
+            finalize() -> Result<unit, bool>
+                when(self.ready) { ensures(result matches Ok(_)) }
+            {
+                if self.ready
+                {
+                    return Ok(unit);
+                }
+                return Error(true);
+            }
+        }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for (condition, valid) in [("value.ready", true), ("!value.ready", false)] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api;
+            func root(pos value: example.package.api.Value) requires({condition})
+            {{
+            }}
+        "#
+            ),
+        );
+
+        if valid {
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{:?}",
+                consumer.check_diagnostics()
+            );
+
+            assert!(
+                selected_cleanup(&consumer).is_empty(),
+                "infallible invocation still executes"
+            );
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                consumer.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingUnresolvedFinalization,
+            );
         }
     }
 }
@@ -353,11 +415,18 @@ fn imported_finalizer_success_requires_its_certified_guarded_domain() {
                 ),
             );
 
-            assert!(
-                !consumer.check_diagnostics().has_errors(),
-                "{:?}",
-                consumer.check_diagnostics()
-            );
+            if completed {
+                assert!(
+                    !consumer.check_diagnostics().has_errors(),
+                    "{:?}",
+                    consumer.check_diagnostics()
+                );
+            } else {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    consumer.check_diagnostics(),
+                    bray_diagnostics::DiagnosticKind::CheckingUnresolvedFinalization,
+                );
+            }
 
             let selected = selected_cleanup(&consumer);
 
@@ -584,9 +653,7 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
         part.projections().iter().any(|projection| matches!(projection.projection(), bray_bound_tree::StorageCleanupProjectionKind::UnionPayloadElement { ordinal, .. } if ordinal.raw() == 1))
     }), "{analysis:?}");
 
-    let lowered = consumer
-                .lowered_unit(source_function_body_key(&consumer, "root"))
-                .unwrap();
+    let lowered = consumer.lowered_unit(key).unwrap();
 
     let mir = lowered.value().as_ref().unwrap().mir().unwrap();
 
@@ -976,7 +1043,7 @@ fn imported_inherent_constructor_self_resolves_with_its_generic_subject() {
         let call = call.replacen("Value", "example.package.api.Value", 1);
         let caller_result = caller_result.replacen("Value", "example.package.api.Value", 1);
 
-        let consumer = super::fixtures::execution_consumer(
+        let consumer = execution_consumer(
             &provider,
             &format!(
                 r#"
@@ -1231,16 +1298,18 @@ fn scoped_capability_annotations_do_not_select_enter_in_source_or_imported_inter
 }
 
 fn selected_cleanup(
-    consumer: &crate::Compilation,
-) -> std::collections::BTreeSet<(bray_bound_tree::AnyBoundNodeId, bray_bound_tree::StorageAccessId)> {
+    consumer: &Compilation,
+) -> std::collections::BTreeSet<(
+    bray_bound_tree::AnyBoundNodeId,
+    bray_bound_tree::StorageAccessId,
+)> {
     let key = source_function_body_key(consumer, "root");
     let cancellation = crate::CancellationToken::new();
 
-    let body = consumer
-        .body_semantics_with_cancellation(key.clone(), &cancellation)
-        .unwrap();
-
     consumer
-        .completed_unit_cleanup(&key, body.result().value().asynchronous(), &cancellation)
+        .completed_unit_cleanup(&key, &cancellation)
         .unwrap()
+        .result()
+        .value()
+        .clone()
 }

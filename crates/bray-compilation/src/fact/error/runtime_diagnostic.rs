@@ -434,6 +434,7 @@ pub(super) fn compilation_fact_kind(value: &CompilationFactKey) -> &'static str 
         Value::UnwindBehavior(_) => "unwind_behavior",
         Value::ExecutionCandidates(_) => "execution_candidates",
         Value::CertifiedExecution(_) => "certified_execution",
+        Value::CleanupCompletion(_) => "cleanup_completion",
         Value::SelectedBodyBehavior(_) => "selected_body_behavior",
         Value::PreparedBodyAnalysis(_) => "prepared_body_analysis",
         Value::ResultDependencyComponent(_) => "result_dependency_component",

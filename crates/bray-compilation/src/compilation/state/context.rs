@@ -184,6 +184,8 @@ pub(in crate::compilation) struct CompilationState {
     pub(in crate::compilation) unwind_behavior: UnitQueryCache<bool>,
     pub(in crate::compilation) execution_candidates:
         UnitQueryCache<bray_checker::ExecutionCandidates>,
+    pub(in crate::compilation) cleanup_completion:
+        UnitQueryCache<crate::compilation::execution_guarantees::CompletedCleanup>,
     pub(in crate::compilation) certified_execution:
         UnitQueryCache<bray_checker::ExecutionCertification>,
     pub(in crate::compilation) selected_body_behavior:

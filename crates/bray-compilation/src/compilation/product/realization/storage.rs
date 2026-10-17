@@ -379,7 +379,7 @@ impl Compilation {
                         runtime_dependencies,
                         requires_host: consumer.requires_host(),
                         requires_main_thread_cleanup: requires_main_thread,
-                        has_cleanup_storage: !consumer.outgoing_requirements.is_empty(),
+                        has_cleanup_storage: !consumer.outgoing_calls.is_empty(),
                         has_cleanup_incident: consumer.finalization.as_ref().is_some_and(
                             |finalization| {
                                 matches!(

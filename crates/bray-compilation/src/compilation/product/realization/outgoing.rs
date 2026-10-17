@@ -98,12 +98,7 @@ impl Compilation {
             return Ok(Vec::new());
         }
 
-        Ok(vec![CodegenCleanupRequirement::new(
-            super::names::generated_identity("cleanup_storage", callee.key()),
-            callee.key().clone(),
-            result,
-            execution,
-        )])
+        Ok(vec![outgoing_requirement((callee, result, execution))])
     }
 
     pub(super) fn owner_outgoing_requirements(
@@ -114,14 +109,7 @@ impl Compilation {
         Ok(self
             .owner_outgoing_calls(ty, cancellation)?
             .into_iter()
-            .map(|(callee, result, execution)| {
-                CodegenCleanupRequirement::new(
-                    super::names::generated_identity("cleanup_storage", callee.key()),
-                    callee.key().clone(),
-                    result,
-                    execution,
-                )
-            })
+            .map(outgoing_requirement)
             .collect())
     }
 
@@ -212,6 +200,17 @@ impl Compilation {
                 .expect("local cleanup requirement count must fit its native descriptor"),
         )
     }
+}
+
+pub(super) fn outgoing_requirement(
+    (callee, result, execution): (ConcreteCodegenInstance, TypeId, CallableExecution),
+) -> CodegenCleanupRequirement {
+    CodegenCleanupRequirement::new(
+        super::names::generated_identity("cleanup_storage", callee.key()),
+        callee.key().clone(),
+        result,
+        execution,
+    )
 }
 
 #[cfg(test)]

@@ -11,6 +11,7 @@ use crate::{CheckerRequestContext, ExecutionCallEvidence, ExecutionPlace};
 
 pub(in crate::analysis) type Observer<'a> = dyn FnMut(
         StorageAccessId,
+        usize,
         TypeAssociatedLifecycleSlot,
         &Lifecycle,
         bool,
@@ -308,14 +309,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         mutate: &mut Option<&mut Mutation<'_>>,
     ) {
         let occurrence = operation.occurrence();
-
-        let normal = matches!(
-            operation,
-            AnalysisOperationKind::ScopeExit {
-                preserves_exit_value: true,
-                ..
-            } | AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(_))
-        );
+        let normal = operation.is_normal_cleanup();
 
         let steps = self
             .disposal
@@ -325,7 +319,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .expect("selected cleanup has prepared transitions");
 
         let preserves = self.cleanup_preserves_inputs(state, access);
-
         let root = self.storage.root_identity(access);
 
         let moved = moved
@@ -429,7 +422,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     && evidence.proves(&lifecycle.contract.preconditions);
 
                 if let Some(observe) = observe {
-                    observe(access, slot, lifecycle, *whole, &evidence, established);
+                    observe(
+                        access,
+                        part,
+                        slot,
+                        lifecycle,
+                        *whole,
+                        &evidence,
+                        established,
+                    );
                 }
 
                 let mutation = StorageMutation::Lifecycle {

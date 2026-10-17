@@ -479,6 +479,10 @@ define_diagnostic_kinds! {
     CheckingUnknownExecutionProperty,
     /// A body or selected dependency cannot establish an execution promise.
     CheckingExecutionGuaranteeNotProven,
+    /// Normal ownership end retains a possibly fallible finalization obligation.
+    CheckingUnresolvedFinalization,
+    /// Remaining implicit finalization requires asynchronous execution.
+    CheckingAsyncFinalizationOutsideAsyncCallable,
     /// A termination proof depends on itself.
     CheckingCircularExecutionGuarantee,
     /// A callable reaches its end without supplying its required result.
@@ -906,6 +910,8 @@ impl DiagnosticKind {
             Self::CheckingExecutionGuaranteeUnsupported => 7117,
             Self::CheckingUnknownExecutionProperty => 7118,
             Self::CheckingExecutionGuaranteeNotProven => 7119,
+            Self::CheckingUnresolvedFinalization => 7125,
+            Self::CheckingAsyncFinalizationOutsideAsyncCallable => 7126,
             Self::CheckingCircularExecutionGuarantee => 7120,
             Self::CheckingCallableResultRequired => 7121,
             Self::CheckingCallableAddressTypeUnsupported => 7105,
@@ -1349,6 +1355,10 @@ impl DiagnosticKind {
             }
             Self::CheckingUnknownExecutionProperty => "checking_unknown_execution_property",
             Self::CheckingExecutionGuaranteeNotProven => "checking_execution_guarantee_not_proven",
+            Self::CheckingUnresolvedFinalization => "checking_unresolved_finalization",
+            Self::CheckingAsyncFinalizationOutsideAsyncCallable => {
+                "checking_async_finalization_outside_async_callable"
+            }
             Self::CheckingCircularExecutionGuarantee => "checking_circular_execution_guarantee",
             Self::CheckingCallableResultRequired => "checking_callable_result_required",
             Self::CheckingExecutionGuaranteeUnsupported => {
