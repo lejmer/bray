@@ -25,13 +25,6 @@ pub(in crate::compilation) fn native_product_preparation_diagnostic(
     product: &ProductIdentity,
     target: &str,
 ) -> Diagnostic {
-    let source = match &failure {
-        DiagnosticNativeProductFailureKind::CodegenMissingCallableImplementation {
-            source, ..
-        } => *source,
-        _ => None,
-    };
-
     let add_recovery_note = matches!(
         &failure,
         DiagnosticNativeProductFailureKind::CodegenMirUnavailable(_)
@@ -46,9 +39,7 @@ pub(in crate::compilation) fn native_product_preparation_diagnostic(
     .with_arg(DiagnosticArg::target_triple(target))
     .with_arg(DiagnosticArg::native_product_failure_kind(failure));
 
-    if let Some(source) = source {
-        crate::compilation::diagnostics::with_compiler_defect_source(diagnostic, source)
-    } else if add_recovery_note {
+    if add_recovery_note {
         diagnostic.with_note(DiagnosticNote::new(
             DiagnosticNoteKind::NativeProductPreparationRecovery,
         ))

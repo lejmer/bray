@@ -131,7 +131,7 @@ runtime execution is claimed by artifact-emission tests. This checkpoint adds
 163 net production lines and 297 net test lines. It removes the second suspension-publication
 traversal and unreachable set. The nested message rules now match the root fail-loud
 contract and no longer instruct agents to render compiler invariants as diagnostics.
-Commit and push this checkpoint before starting the remaining expansion work.
+Checkpoint `3dc0d6c1` is committed and pushed to PR #612.
 
 Regression cases cover failed defaults, direct and block-valued later inputs, retained
 borrowed inputs, pending result cancellation broadcast, unconditional versus conditional,
@@ -193,3 +193,24 @@ It reuses the array loop, moves recognition out of codegen into its shared owner
 and removes the replaced recognition implementation. Invalid recognized generic
 shapes now expose an internal invariant failure instead of a recoverable product
 error. The change adds about 155 net production lines and 171 net test lines.
+
+## Invariant boundary correction
+
+The user requires impossible compiler states to fail loudly, never become user diagnostics.
+The current correction removes the missing-callable recoverable error and its diagnostic,
+rendering and JSON transport. Realization panics with the demanded callable identity.
+Compact MIR identity exhaustion remains an operational capacity diagnostic, without an
+internal-error label. The combined affected tests are in `target/bra-505-invariant-boundary.log`.
+All 223 affected diagnostic, tooling and realization tests pass. The final removal of the
+unused JSON helper also compiles through xtask. Rustfmt, mutating style, explicit Bray format
+and whitespace checks pass (`target/bra-505-invariant-format.log`). The audit traces the
+single callable realization boundary, removes its retired variant and every consumer,
+and retains native import validation. This correction removes 87 net production lines
+and 135 net test lines, replacing the obsolete diagnostic expectations with an owning-boundary
+panic regression. No independent review is claimed for this unfinished issue checkpoint.
+
+The repository-wide search also found a separate cross-cutting compiler-defect diagnostic
+mechanism covering semantic queries, emission, linking and driver failures. That removal
+is tracked in [BRA-625](https://linear.app/bray-lang/issue/BRA-625). No closed issue was reopened.
+It must fix each producer, remove superseded transport, and preserve real input and operational
+errors. BRA-505 retains all lifecycle invariants encountered by its implementation.
