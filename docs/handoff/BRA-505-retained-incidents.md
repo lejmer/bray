@@ -99,8 +99,7 @@ the discharge fix, all 18 affected native planning and outgoing-ownership tests
 passed. The existing compiler-defect diagnostic lacked readiness coverage. Its
 producer now has a passing quality/source-context regression, and diagnostic
 readiness passes with the freshly built xtask. Rust formatting, the mutating style
-command and its Bray formatting stage pass. The explicit cargo format/readiness
-sequence is still finishing its redundant release rebuild. Ordinary async
+command and its Bray formatting stage pass. The explicit `cargo xtask format` and readiness sequence also completed successfully. Ordinary async
 activation, inactive abandonment and retained incident integration remain
 outstanding in the acceptance map.
 
@@ -188,3 +187,33 @@ is recorded separately and is not counted as compiler simplification.
 Obsolete handoffs were deleted in `b67ec488`. The six remaining documents are active
 inputs only. Their removal is part of stack completion, as recorded in the execution
 guide. PR descriptions follow the user's imperative summary and issue-link format.
+
+## Selected action planning checkpoint
+
+Admission and frame execution-lane planning now consume LifecycleAction directly.
+Local invocation order, multiplicity, type-wide completion selection and child-owned
+allowances are unchanged. Removed LoweredLifecycle, its duplicate call list and
+SyntheticLowerer bookkeeping. Generated MIR remains cached for actual emission.
+The role-to-phase mapping moved to its owning MIR identity instead of being copied.
+
+All 294 selected bound-tree, MIR, lowering, lifecycle realization and static tests
+passed in 251.080 seconds. The async admission regression rejects any generated
+lifecycle query during planning. Existing owned-storage coverage compares the
+selected call order with emitted MIR, and array coverage retains constant-size
+lowering. The production authority test accounts for 249.916 seconds of the batch.
+Do not repeat these unchanged tests for formatting or the next checkpoint.
+
+Rust formatting, mutating structural style, explicit Bray formatting and whitespace
+checks pass. The audit searched local-call recording/projection, phase conversion,
+generated-body caching and every wrapper consumer across the repository. No old
+wrapper or bookkeeping remains, no second cache was added, and runtime emission
+still uses the selected action. The change is about one fewer production line and
+55 net test lines, with the structural improvement coming from removing a duplicate
+representation and unnecessary generated-body demand rather than line movement.
+
+Ordinary async cleanup still requires an explicit retained continuation. Source
+cleanup currently emits an opaque Cleanup/Destroy operation and generated calls
+still assume immediate results. Existing checked storage/liveness transitions and
+per-action cleanup observers must supply retention, with the existing same-run
+composition and CleanupOutcome supplying execution and failure collection. Keep
+this unfinished work within BRA-505, including inactive captures and typed incidents.

@@ -27,9 +27,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 )
             });
 
-        let action = self
-            .context
-            .lifecycle_action(place.ty(), super::support::lifecycle_phase(role))?;
+        let action = self.context.lifecycle_action(place.ty(), role.phase())?;
 
         self.expand_lifecycle_action(builder, block, source, role, place, runtime_abi, action)
     }

@@ -141,14 +141,9 @@ impl Compilation {
 
             let instance = self.concrete_codegen_lifecycle(helper.clone(), &target)?;
 
-            let lowered = self.codegen_generated_lifecycle(
-                instance.key(),
-                &helper,
-                bray_ir::MirUnitId::new(0),
-                cancellation,
-            )?;
+            let action = self.codegen_lifecycle_action(&helper, cancellation)?;
 
-            for call in lowered.local_calls() {
+            for call in action.local_calls() {
                 if self.call_requires_outgoing(
                     call.callable,
                     call.execution,
@@ -215,6 +210,60 @@ pub(super) fn outgoing_requirement(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn async_cleanup_admission_does_not_generate_lifecycle_bodies() {
+        use crate::fact::{CompilationFactKey, FactEvaluationTestObserver};
+
+        let compilation = crate::test_support::compilation(
+            r#"
+module app;
+struct Owner {
+    async finalize() { panic("cleanup"); }
+}
+async func abandon(pos owner: Owner) { panic("body"); }
+"#,
+        );
+
+        let lowered = compilation
+            .lowered_unit(crate::test_support::source_function_body_key(
+                &compilation,
+                "abandon",
+            ))
+            .unwrap();
+
+        assert!(!lowered.diagnostics().has_errors(), "{lowered:?}");
+
+        let owner = lowered
+            .value()
+            .as_ref()
+            .unwrap()
+            .mir()
+            .unwrap()
+            .storages()
+            .iter()
+            .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
+            .unwrap()
+            .ty();
+
+        compilation
+            .state
+            .fact_runtime
+            .set_test_observer(FactEvaluationTestObserver::new(|key| {
+                assert!(
+                    !matches!(key, CompilationFactKey::GeneratedLifecycle(..)),
+                    "admission consumes selected actions without generating execution: {key:?}"
+                );
+            }))
+            .unwrap();
+
+        let calls = compilation
+            .owner_outgoing_calls(owner, &crate::CancellationToken::new())
+            .unwrap();
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].2, bray_symbols::CallableExecution::Asynchronous);
+    }
+
     #[test]
     fn lifecycle_total_certification_keeps_requirements_and_guards_distinct() {
         for (guarantee, body, total) in [

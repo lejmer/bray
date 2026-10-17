@@ -401,7 +401,6 @@ fn owned_indirection_uses_storage_policy_teardown() {
         .unwrap();
 
     let calls = expanded
-        .mir()
         .operations()
         .iter()
         .filter_map(|operation| {
@@ -423,9 +422,10 @@ fn owned_indirection_uses_storage_policy_teardown() {
 
     assert_eq!(
         calls,
-        expanded
+        compilation
+            .codegen_lifecycle_action(&reference, &cancellation)
+            .unwrap()
             .local_calls()
-            .iter()
             .map(|call| (call.callable, call.result))
             .collect::<Vec<_>>()
     );
@@ -451,7 +451,7 @@ fn owned_indirection_uses_storage_policy_teardown() {
 
     assert!(
         std::sync::Arc::ptr_eq(&expanded, &reused),
-        "admission and emission must reuse the same expansion"
+        "emission must reuse the same generated body"
     );
 
     assert!(generated.operations().iter().any(|operation| {

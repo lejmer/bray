@@ -19,26 +19,6 @@ pub(super) fn lifecycle_operation_block_kind(
         ),
     }
 }
-pub(super) fn lifecycle_phase(
-    role: bray_ir::MirGeneratedLifecycleRole,
-) -> bray_bound_tree::LifecyclePhase {
-    use bray_bound_tree::LifecyclePhase;
-    use bray_ir::{MirCleanupPhase, MirGeneratedLifecycleRole};
-
-    match role {
-        MirGeneratedLifecycleRole::Finalize | MirGeneratedLifecycleRole::StaticFinalize => {
-            LifecyclePhase::Finalize
-        }
-        MirGeneratedLifecycleRole::Destroy => LifecyclePhase::Destroy,
-        MirGeneratedLifecycleRole::Quiesce => LifecyclePhase::Quiesce,
-        MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
-            LifecyclePhase::Cancel
-        }
-        MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::LifecycleResolution) => {
-            LifecyclePhase::Resolve
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

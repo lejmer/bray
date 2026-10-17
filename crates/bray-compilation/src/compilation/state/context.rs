@@ -213,7 +213,7 @@ pub(in crate::compilation) struct CompilationState {
         FactCellMap<crate::fact::CodegenArtifactQueryKey, Arc<CodegenOutcome>>,
     pub(in crate::compilation) generated_lifecycle: FactCellMap<
         (bray_codegen::CodegenInstanceKey, bray_ir::MirUnitId),
-        Result<Arc<bray_lowering::LoweredLifecycle>, crate::compilation::CodegenPreparationError>,
+        Result<Arc<bray_ir::MirUnit>, crate::compilation::CodegenPreparationError>,
     >,
     pub(in crate::compilation) optimized_mir: FactCellMap<
         crate::fact::OptimizedMirQueryKey,

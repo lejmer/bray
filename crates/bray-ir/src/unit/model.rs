@@ -25,6 +25,25 @@ pub enum MirGeneratedLifecycleRole {
 }
 
 impl MirGeneratedLifecycleRole {
+    /// Returns the semantic operation implemented by this generated role.
+    pub const fn phase(self) -> bray_bound_tree::LifecyclePhase {
+        use bray_bound_tree::LifecyclePhase;
+
+        match self {
+            MirGeneratedLifecycleRole::Finalize | MirGeneratedLifecycleRole::StaticFinalize => {
+                LifecyclePhase::Finalize
+            }
+            MirGeneratedLifecycleRole::Destroy => LifecyclePhase::Destroy,
+            MirGeneratedLifecycleRole::Quiesce => LifecyclePhase::Quiesce,
+            MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
+                LifecyclePhase::Cancel
+            }
+            MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::LifecycleResolution) => {
+                LifecyclePhase::Resolve
+            }
+        }
+    }
+
     /// Returns the stable role represented by an exact lifecycle helper reference.
     pub const fn from_reference(reference: &MirHelperReference) -> Option<Self> {
         match reference {

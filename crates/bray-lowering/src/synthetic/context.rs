@@ -43,5 +43,4 @@ pub trait SyntheticLoweringContext {
 
 pub(crate) struct SyntheticLowerer<'context, C: SyntheticLoweringContext + ?Sized> {
     pub(crate) context: &'context C,
-    pub(crate) local_calls: Vec<bray_bound_tree::LifecycleCallable>,
 }

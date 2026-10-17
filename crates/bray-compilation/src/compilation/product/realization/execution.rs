@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use bray_codegen::{CodegenInstance, CodegenInstanceKey, CodegenTarget};
 use bray_ir::{
     MirAsyncOperation, MirBlockId, MirGeneratedLifecycleRole, MirOperand, MirOperationId,
-    MirOperationKind, MirTerminatorKind, MirUnit, MirUnitId, MirValueOrigin,
+    MirOperationKind, MirTerminatorKind, MirUnit, MirValueOrigin,
 };
 use bray_runtime_interface::ExecutionLaneRequirement;
 
@@ -95,18 +95,16 @@ impl Compilation {
         for (instance, owner) in &helpers {
             cancellation.check()?;
 
-            let lowered = self.codegen_generated_lifecycle(
-                instance.key(),
+            let action = self.codegen_lifecycle_action(
                 owner
                     .generated_lifecycle_reference()
                     .expect("selected lifecycle retains its role"),
-                MirUnitId::new(0),
                 cancellation,
             )?;
 
             let mut requirements = ExecutionLaneRequirement::set([]);
 
-            for call in lowered.local_calls() {
+            for call in action.local_calls() {
                 let selected = match calls.entry(call.callable) {
                     std::collections::btree_map::Entry::Vacant(entry) => {
                         entry.insert(self.lifecycle_invocation_lanes(call.callable, cancellation)?)

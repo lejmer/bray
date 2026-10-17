@@ -80,3 +80,33 @@ pub enum LifecycleAction {
     /// Resolve a task using the operation selected by the requested phase.
     Task,
 }
+
+impl LifecycleAction {
+    /// Returns local invocations in execution order, preserving repeated calls.
+    /// Structural children retain their own selected actions and cleanup allowances.
+    pub fn local_calls(&self) -> impl Iterator<Item = LifecycleCallable> {
+        let calls = match self {
+            Self::Call(callable) => [Some(*callable), None, None],
+            Self::Owned {
+                borrow, teardown, ..
+            } => [
+                Some(*borrow),
+                teardown.map(|calls| calls[0]),
+                teardown.map(|calls| calls[1]),
+            ],
+            Self::None
+            | Self::Resolve
+            | Self::Members(_)
+            | Self::Alternatives(_)
+            | Self::Nullable(_)
+            | Self::Array { .. }
+            | Self::Generator(_)
+            | Self::RawBuffer(_)
+            | Self::ReleaseString
+            | Self::DestroyReport
+            | Self::Task => [None; 3],
+        };
+
+        calls.into_iter().flatten()
+    }
+}

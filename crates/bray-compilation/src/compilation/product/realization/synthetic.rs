@@ -1,5 +1,5 @@
 use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
-use bray_ir::MirStandardLibraryHelper;
+use bray_ir::{MirHelperReference, MirStandardLibraryHelper};
 use bray_lowering::SyntheticLoweringContext;
 use bray_symbols::{
     AvailableCompilerKnownSymbols, CallableInstanceData, ConstantTermId,
@@ -142,5 +142,23 @@ impl bray_checker::LifecycleSelectionContext for CompilationSyntheticLoweringCon
 
     fn representation_role(&self, definition: NamedTypeSymbolId) -> Option<RepresentationRole> {
         crate::compilation::foreign::compiler_known_representation(self.compilation, definition)
+    }
+}
+
+impl Compilation {
+    pub(super) fn codegen_lifecycle_action(
+        &self,
+        reference: &MirHelperReference,
+        cancellation: &CancellationToken,
+    ) -> Result<bray_bound_tree::LifecycleAction, CodegenPreparationError> {
+        let role = bray_ir::MirGeneratedLifecycleRole::from_reference(reference)
+            .expect("selected lifecycle helper retains its generated role");
+
+        let ty = reference
+            .lifecycle_type()
+            .expect("selected lifecycle helper retains its concrete owner type");
+
+        CompilationSyntheticLoweringContext::new(self, cancellation)?
+            .lifecycle_action(ty, role.phase())
     }
 }

@@ -329,7 +329,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<MirUnit, CodegenPreparationError> {
         self.codegen_generated_lifecycle(instance, reference, unit, cancellation)
-            .map(|lowered| lowered.mir().clone())
+            .map(|mir| mir.as_ref().clone())
     }
 
     pub(super) fn codegen_generated_lifecycle(
@@ -338,7 +338,7 @@ impl Compilation {
         reference: &MirHelperReference,
         unit: MirUnitId,
         cancellation: &CancellationToken,
-    ) -> Result<std::sync::Arc<bray_lowering::LoweredLifecycle>, CodegenPreparationError> {
+    ) -> Result<std::sync::Arc<MirUnit>, CodegenPreparationError> {
         let MirUnitKey::GeneratedLifecycle(key) = instance.template() else {
             return Err(ProductQueryFailure::missing(
                 ProductQueryContext::Instance(instance.clone()),
