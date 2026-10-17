@@ -68,8 +68,8 @@ The resource completion and predicate checkpoint is pushed as `93420da3`.
 
 ## Abandonment contract
 
-The language specification already supplies the contract. No interpretation question
-is pending. See `docs/language/async-and-concurrency/cancellation.md`,
+The language specification supplies the required behavior. The implementation design
+for preserving committed ownership transitions across calls remains unresolved. See `docs/language/async-and-concurrency/cancellation.md`,
 `docs/language/lifecycle/destruction.md`, `docs/language/lifecycle/finalization.md`
 and `docs/language/lifecycle/partial-values-and-replacement.md`.
 
@@ -111,6 +111,44 @@ it. Its old and newly installed owners can both be initialized at propagation. C
 the ownership transition that actually committed, which current call effects do not carry.
 Do not treat abandonment as an ordinary completion predicate that mutation invalidates.
 
+The counterexample establishes a lower bound, not a complete implementation design.
+With `n` independently replaceable initialized parts, cleanup may need to distinguish
+`2^n` subsets of newly installed owners. A single whole-owner flag cannot carry that
+information. Existing initialization guards still distinguish absent parts, but cannot
+distinguish inherited abandoned contents from newly installed ordinary contents.
+
+An internal solution must preserve committed ownership transitions through projections,
+reborrows, moves and callable values, including imported bodies and abnormal returns.
+`DependencyStorageEffect` is explicitly a may set, and `CodegenCallableSignature` and
+`NativeRunOutcome` currently carry no such transition result. Bray's default callable
+ABI is compiler-defined, so changing it would not itself require language syntax or an
+ABI version bump. It would still be a substantial implementation decision.
+
+The implementation alternatives have different unresolved costs:
+
+- Per-part guards carried with mutable access can update state at the actual installation.
+  This requires preserving the association through derived references and callable values.
+  Raw pointers and foreign calls need a separately proved boundary rule. An additional
+  pointer per affected reference costs one machine word before optimization, and dynamic
+  represented parts require correspondingly sized state or a proved compressed form.
+- Returning committed transitions from callees avoids changing borrowed value layout, but
+  it must describe dynamic projections and survive abnormal completion. It cannot be an
+  unbounded log allocated after failure. Aliasing and transitions in nested calls still
+  need exact target identity. A finite may-write summary cannot substitute for this result.
+- Specializing a helper for abandonment does not by itself solve either transport problem.
+  It must still identify which particular represented owners are inherited and which are
+  new. Do not assume one boolean call mode is enough, or duplicate whole call graphs to
+  avoid defining the contract.
+
+Foreign ABI declarations are complete caller-visible contracts, but arbitrary foreign
+bodies do not emit compiler-owned transition records. A proposed design must derive how
+existing wrappers and declared outcomes establish the exact transition. It must not
+silently reinterpret `initialized_as` as proof that replacement happened. No global address
+registry, widened borrow representation, new transition ABI or destructor restriction has
+been selected or implemented. The pending design discussion must resolve this before
+publishing abandoned disposal as correct. No performance claim is established by this
+information lower bound.
+
 Inactive abandonment never enters the body. Normal cancellation from abandoning a child
 must not cancel its parent, but cleanup panics and incidents must survive. Consuming
 inactive disposal differs from retained-error quiescence. The latter leaves a terminal
@@ -133,8 +171,8 @@ The subsequent callback audit found that the generated incident destroyer relied
 to initialize both output destinations, contrary to its write-only callback contract. The
 producer now initializes destruction and backing-release outcomes before invoking cleanup.
 The regression covers successful and panicking source destructors and LLVM aggregate stores
-or their equivalent memset. Tests and required formatting pass. Independent PR review
-is pending for this checkpoint.
+or their equivalent memset. Checkpoint `25b0bd5b` is pushed. Tests and required formatting
+pass. Independent PR review `5557720344` is verified with no findings.
 
 ## Remaining implementation and acceptance
 
