@@ -127,18 +127,7 @@ trusted internal func prepare_file_seek(
 @abi(c)
 trusted internal func platform_file_close(pos handle: u64) -> std.platform.PlatformStatus
 {
-    let native_descriptor: i32 = match internal std.platform.checked_descriptor(handle)
-    {
-        case Ok(value) { yield value; }
-        case Error(status) { return status; }
-    };
-
-    if trusted std.os.unix.close(native_descriptor) != 0
-    {
-        return trusted internal std.platform.unix_error_status();
-    }
-
-    return internal std.platform.success_status();
+    return (trusted internal std.platform.resource.close(handle)).0;
 }
 
 trusted internal func prepare_file_open(
@@ -500,9 +489,16 @@ trusted internal func platform_directory_next(
     }
 }
 
-trusted internal func platform_directory_close(pos handle: u64) -> Result<unit, std.io.IoError>
+trusted internal func platform_directory_close(pos directory: &mut Directory) -> Result<unit, std.io.IoError>
+    ensures(result matches Error(_) || Directory.complete(value = &directory))
 {
-    if trusted std.os.unix.close_directory(trusted internal std.platform.handle_pointer(handle)) != 0
+    let closed: i32 = trusted std.os.unix.close_directory(
+        trusted internal std.platform.handle_pointer(directory.handle)
+    );
+
+    directory.is_open = false;
+
+    if closed != 0
     {
         return Error(trusted internal unix_io_error());
     }

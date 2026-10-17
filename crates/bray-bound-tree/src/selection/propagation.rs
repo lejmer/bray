@@ -30,6 +30,8 @@ pub enum SelectedPropagation {
         result_type: TypeId,
         /// The checked conversion from the operand error to the boundary error.
         error_conversion: SelectedConversion,
+        /// The propagated error variant and its retained payload.
+        error: (UnionVariantSymbolId, UnionPayloadFieldSymbolId),
         /// The success variant and its retained payload.
         success: (UnionVariantSymbolId, UnionPayloadFieldSymbolId),
     },

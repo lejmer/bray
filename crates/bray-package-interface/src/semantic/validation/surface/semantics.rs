@@ -143,6 +143,15 @@ impl InterfaceSemantics {
             let validation = (|| {
                 validate_predicate_definition(definition, surface)?;
 
+                if let Some(condition) = definition.condition() {
+                    self.validate_execution_term(
+                        condition,
+                        definition.parameters().len(),
+                        false,
+                        surface,
+                    )?;
+                }
+
                 for (_, _, ty) in definition.parameters() {
                     validate_index(ty.to_index(), self.types.len())?;
                 }

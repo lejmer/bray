@@ -72,8 +72,8 @@ pub(super) fn decode_predicate_definition(
         codec::decode_predicate_definition,
     )?;
 
-    // Parameter types may reach the complete semantic value graph.
-    if !definition.parameters().is_empty() {
+    // Parameter types and checked meanings may reach the complete semantic value graph.
+    if !definition.parameters().is_empty() || definition.condition().is_some() {
         return bundle::decode_semantics_with_context(sections, surface, context.restart());
     }
 

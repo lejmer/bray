@@ -601,7 +601,7 @@ where
             .map(|completion| completion.unwrap_or_else(|| self.push_block()))
     }
 
-    fn push_control_transfer(
+    pub(super) fn push_control_transfer(
         &mut self,
         id: BoundExpressionId,
         block: AnalysisBlockId,
@@ -1443,6 +1443,10 @@ mod tests {
                 SemanticSelection::Propagation(SelectedPropagation::Result {
                     boundary: SelectedPropagationBoundary::Callable,
                     result_type: error_type(),
+                    error: (
+                        crate::test_support::compiler_known_symbol("ResultVariant1Error"),
+                        crate::test_support::compiler_known_symbol("ResultVariant1ErrorError"),
+                    ),
                     success: (
                         crate::test_support::compiler_known_symbol("ResultVariant0Ok"),
                         crate::test_support::compiler_known_symbol("ResultVariant0OkValue"),

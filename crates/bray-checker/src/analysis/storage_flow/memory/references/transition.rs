@@ -91,13 +91,16 @@ impl State {
         references: impl IntoIterator<Item = (Place, TypeId)>,
         inputs: impl IntoIterator<Item = Target>,
     ) {
+        // An inconclusive forwarded reference still has the ordinary call's reachability
+        // bounds. Only a complete relation replaces those bounds with a precise target.
         let references = references
             .into_iter()
             .filter(|(destination, _)| {
                 !self.pending.get(&call).is_some_and(|pending| {
                     pending
                         .values
-                        .contains_key(&Target::storage(destination.clone()))
+                        .get(&Target::storage(destination.clone()))
+                        .is_some_and(|references| !references.unknown)
                 })
             })
             .collect::<Vec<_>>();

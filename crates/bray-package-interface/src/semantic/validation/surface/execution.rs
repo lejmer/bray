@@ -394,6 +394,14 @@ impl InterfaceSemantics {
             match term {
                 InterfaceConstantTerm::Typed { term, .. } => pending.push(*term),
                 InterfaceConstantTerm::Value(_) => {}
+                InterfaceConstantTerm::Parameter(parameter) => {
+                    if validate_symbol_kind(parameter, surface)?
+                        != bray_symbols::SymbolKind::GenericConstParameter
+                    {
+                        return Err(invalid());
+                    }
+                }
+                InterfaceConstantTerm::NullablePresent(value) => pending.push(*value),
                 InterfaceConstantTerm::CallableArgument(ordinal) => {
                     let index = usize::try_from(ordinal.raw()).map_err(|_| invalid())?;
 

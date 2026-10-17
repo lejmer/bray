@@ -39,6 +39,22 @@ impl Default for ExecutionState {
     }
 }
 
+pub(super) fn update_parent_observations(
+    observations: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    place: &crate::ExecutionPlace,
+    value: &ExecutionCondition,
+) {
+    for length in 0..place.projections.len() {
+        let mut parent = place.clone();
+
+        parent.projections = place.projections[..length].into();
+
+        if let Some(snapshot) = observations.get_mut(&parent) {
+            *snapshot = snapshot.with_component(&place.projections[length..], value.clone());
+        }
+    }
+}
+
 impl ExecutionState {
     pub(super) fn restore_returned_evidence(
         &mut self,
@@ -386,15 +402,7 @@ impl ExecutionState {
             self.current.remove(&observed);
         }
 
-        for length in 0..place.projections.len() {
-            let mut parent = place.clone();
-
-            parent.projections = place.projections[..length].into();
-
-            if let Some(snapshot) = self.current.get_mut(&parent) {
-                *snapshot = snapshot.with_component(&place.projections[length..], value.clone());
-            }
-        }
+        update_parent_observations(&mut self.current, &place, &value);
 
         self.current.insert(place, value);
     }

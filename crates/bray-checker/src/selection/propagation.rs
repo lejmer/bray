@@ -186,7 +186,7 @@ where
 
     match representation {
         Some(RepresentationRole::RunResult) => Ok(Some(Ok(SelectedPropagation::CurrentRun {
-            success: success_payload(
+            success: union_payload(
                 request,
                 "RunResultVariant0Completed",
                 "RunResultVariant0CompletedValue",
@@ -206,7 +206,12 @@ where
                         boundary: boundary.target,
                         result_type: boundary.ty,
                         error_conversion: conversion,
-                        success: success_payload(
+                        error: union_payload(
+                            request,
+                            "ResultVariant1Error",
+                            "ResultVariant1ErrorError",
+                        ),
+                        success: union_payload(
                             request,
                             "ResultVariant0Ok",
                             "ResultVariant0OkValue",
@@ -412,7 +417,7 @@ where
     )))
 }
 
-fn success_payload<C: CheckerRequestContext + ?Sized>(
+fn union_payload<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     variant: &str,
     field: &str,

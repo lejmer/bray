@@ -67,9 +67,16 @@ pub(super) fn export_predicate_semantics(
         ));
     }
 
+    let condition = checked
+        .as_ref()
+        .and_then(|definition| definition.semantic().condition())
+        .map(|term| export.constant_term_id(term))
+        .transpose()?;
+
     semantics.predicate_definitions.push(
         InterfacePredicateDefinition::new(export.symbol_reference(symbol)?, state)
-            .with_parameters(parameters),
+            .with_parameters(parameters)
+            .with_condition(condition),
     );
 
     let Some(checked) = checked else {

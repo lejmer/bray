@@ -388,5 +388,10 @@ pub(super) fn decode_predicate_definition(
         parameters.push((parameter, name, InterfaceTypeId::new(read_u32(reader)?)));
     }
 
-    Ok(InterfacePredicateDefinition::new(owner, state).with_parameters(parameters))
+    let condition = crate::semantic::codec::common::read_optional_u32(reader)?
+        .map(crate::InterfaceConstantTermId::new);
+
+    Ok(InterfacePredicateDefinition::new(owner, state)
+        .with_parameters(parameters)
+        .with_condition(condition))
 }

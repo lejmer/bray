@@ -501,6 +501,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .filter(|target| target.storage_path().is_none())
             .collect::<Vec<_>>();
 
+        let unknown_referents_affected = mutations
+            .clone()
+            .any(|target| memory.unknown_reference_may_reach(target));
+
         for (slot, targets, unknown) in memory.observed_references() {
             if crate::ExecutionPlace::storage_path(self.storage, &slot).is_none() {
                 continue;
@@ -509,7 +513,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             unrepresented
                 .retain(|mutation| !targets.iter().any(|target| target.contains(mutation)));
 
-            if unknown {
+            if unknown && unknown_referents_affected {
                 referents.insert(slot.clone());
             }
 

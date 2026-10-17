@@ -248,7 +248,7 @@ pub fn execution_condition_from_term(
     let inputs = inputs
         .iter()
         .copied()
-        .map(super::ExecutionPlace::from)
+        .map(|input| ExecutionCondition::Input(super::ExecutionPlace::from(input)))
         .collect::<Vec<_>>();
 
     decode(values, term, &inputs, &mut {
@@ -264,9 +264,9 @@ pub fn execution_condition_from_type_term(
 ) -> Result<ExecutionCondition, SemanticValueStoreError> {
     let inputs = (0..parameter_count)
         .map(|index| {
-            super::ExecutionPlace::argument(SymbolOrdinal::new(
+            ExecutionCondition::Input(super::ExecutionPlace::argument(SymbolOrdinal::new(
                 u32::try_from(index).expect("checked callable parameter count must fit ordinals"),
-            ))
+            )))
         })
         .collect::<Vec<_>>();
 
@@ -275,10 +275,10 @@ pub fn execution_condition_from_type_term(
     })
 }
 
-fn decode(
+pub(crate) fn decode(
     values: &SemanticValueStore,
     term: ConstantTermId,
-    inputs: &[super::ExecutionPlace],
+    inputs: &[ExecutionCondition],
     budget: &mut usize,
 ) -> Result<ExecutionCondition, SemanticValueStoreError> {
     let Some(remaining) = budget.checked_sub(1) else {
@@ -314,9 +314,8 @@ fn decode(
                 Some(index) if index == inputs.len() => ExecutionCondition::Result,
                 Some(index) => inputs
                     .get(index)
-                    .map_or(ExecutionCondition::Unknown, |input| {
-                        ExecutionCondition::Input(input.clone())
-                    }),
+                    .cloned()
+                    .unwrap_or(ExecutionCondition::Unknown),
                 None => ExecutionCondition::Unknown,
             }
         }

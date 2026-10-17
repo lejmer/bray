@@ -19,6 +19,207 @@ use super::fixtures::{
 };
 
 #[test]
+fn imported_ordinary_predicate_meaning_tracks_completion_and_mutation() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        struct Resource {
+            mut open: bool;
+            predicate complete(value: &Resource) = !value.open;
+        }
+
+        predicate finished(value: &Resource) = Resource.complete(value = value);
+    "#,
+    );
+
+    for (body, valid) in [
+        ("value.open = false;", true),
+        ("value.open = true;", false),
+        ("value.open = false; value.open = true;", false),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            using example.package.api;
+
+            func root(pos value: &mut example.package.api.Resource)
+                executes(total)
+                ensures(example.package.api.finished(value = &value))
+            {{
+                {body}
+            }}
+        "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn imported_predicate_meanings_reject_a_callable_result_as_a_parameter() {
+    let provider = compilation(
+        r#"
+        module api;
+        predicate ready(value: bool) = value;
+
+        func answer(pos value: bool) -> bool
+            ensures(result)
+        {
+            return true;
+        }
+    "#,
+    );
+
+    let original = export(&provider);
+    let source = original.semantics();
+
+    let result = source
+        .constant_terms()
+        .iter()
+        .position(|term| {
+            matches!(term, bray_package_interface::InterfaceConstantTerm::CallableArgument(ordinal)
+            if ordinal.raw() == 1)
+        })
+        .unwrap();
+
+    let result =
+        bray_package_interface::InterfaceConstantTermId::new(u32::try_from(result).unwrap());
+
+    for corrupt in [false, true] {
+        let predicates = source.predicate_definitions().iter().map(|predicate| {
+            if corrupt {
+                predicate.clone().with_condition(Some(result))
+            } else {
+                predicate.clone()
+            }
+        });
+
+        let semantics = source.clone().with_declarations(
+            source.callable_signatures().iter().cloned(),
+            source.generic_declarations().iter().cloned(),
+            source.callable_parameter_defaults().iter().cloned(),
+            predicates,
+        );
+
+        let exported = PackageInterfaceExportBundle::try_new(
+            original.surface().clone(),
+            semantics,
+            original.language_revision(),
+            original.implementation_configuration().clone(),
+        );
+
+        assert_eq!(
+            exported.is_ok(),
+            !corrupt,
+            "corrupt {corrupt}: {exported:?}"
+        );
+    }
+}
+
+#[test]
+fn generic_predicate_meanings_export_const_parameters() {
+    let provider = compilation(
+        r#"
+        module api;
+        predicate enough<const minimum: usize>(value: usize) = value >= minimum;
+    "#,
+    );
+
+    let original = export(&provider);
+
+    assert!(
+        original
+            .semantics()
+            .predicate_definitions()
+            .iter()
+            .any(|predicate| { predicate.condition().is_some() })
+    );
+}
+
+#[test]
+fn conditional_finalizer_completion_exports_with_declared_postconditions() {
+    for explicit_success in ["", "ensures(result matches Ok(_))"] {
+        let source = r#"
+            module api;
+
+            struct Resource
+            {
+                mut open: bool;
+                predicate complete(value: &Resource) = !value.open;
+
+                finalize() -> Result<unit, unit>
+                    ensures(result matches Error(_) || Resource.complete(value = &self))
+                    when(Resource.complete(value = &self))
+                    {
+                        executes(pure, total)
+                        CONDITIONAL_POST
+                    }
+                {
+                    if self.open
+                    {
+                        return Error(unit);
+                    }
+
+                    return Ok(unit);
+                }
+            }
+        "#
+        .replace("CONDITIONAL_POST", explicit_success);
+
+        let provider = compilation(&source);
+
+        assert!(
+            !provider.check_diagnostics().has_errors(),
+            "{explicit_success}: {:?}",
+            provider.check_diagnostics(),
+        );
+
+        let bundle = export(&provider);
+        let artifact = encode_package_interface(bundle).unwrap();
+
+        let validated = ValidatedPackageInterface::try_new(
+            artifact.bytes(),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        )
+        .unwrap();
+
+        let decoded = validated.decode_semantics(bundle.surface()).unwrap();
+
+        assert_eq!(
+            decoded.callable_contracts(),
+            bundle.semantics().callable_contracts()
+        );
+
+        let consumer = execution_consumer(
+            &provider,
+            r#"
+            module app;
+            using example.package.api;
+
+            func root(pos value: example.package.api.Resource)
+                requires(example.package.api.Resource.complete(value = &value))
+            {
+            }
+        "#,
+        );
+
+        assert!(
+            !consumer.check_diagnostics().has_errors(),
+            "{explicit_success}: {:?}",
+            consumer.check_diagnostics(),
+        );
+    }
+}
+
+#[test]
 fn imported_execution_domains_require_live_authority_and_ordinary_conditions() {
     let provider = compilation(
         r#"

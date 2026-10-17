@@ -1,0 +1,14 @@
+@target(target.identity.SYSTEM == "windows")
+trusted internal module std.platform.resource;
+
+/// Closes a file or pipe handle and reports whether it was released.
+trusted internal func close(pos handle: u64) -> (std.platform.PlatformStatus, bool)
+    uses(foreign_call)
+{
+    if trusted std.os.windows.close_handle(trusted internal std.platform.handle_pointer(handle)) == 0
+    {
+        return (trusted internal std.platform.windows_error_status(), false);
+    }
+
+    return (internal std.platform.success_status(), true);
+}

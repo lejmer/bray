@@ -2447,71 +2447,77 @@ fn opaque_payload_borrows_preserve_disjoint_markers_but_raw_exposure_does_not() 
 
 #[test]
 fn returned_borrow_regions_bound_aliases_without_claiming_argument_identity() {
-    let ([first, second, result, copied], origins) = places();
+    for forwarded_unknown in [false, true] {
+        let ([first, second, result, copied], origins) = places();
 
-    let call = origins[0].into();
+        let call = origins[0].into();
 
-    let mut state = State {
-        owned_storage: [first.root, second.root, result.root, copied.root].into(),
-        ..State::default()
-    };
+        let mut state = State {
+            owned_storage: [first.root, second.root, result.root, copied.root].into(),
+            ..State::default()
+        };
 
-    state.begin_transition(call);
+        state.begin_transition(call);
 
-    state.stage_returned_references(
-        call,
-        [(result.clone(), error_type())],
-        [Target::storage(first.clone())],
-    );
+        if forwarded_unknown {
+            state.stage_unknown(call, Target::storage(result.clone()));
+        }
 
-    state.complete_transition(call);
+        state.stage_returned_references(
+            call,
+            [(result.clone(), error_type())],
+            [Target::storage(first.clone())],
+        );
 
-    let returned = state
-        .value_target(&Target::storage(result.clone()), error_type())
-        .expect("returned reference identity");
+        state.complete_transition(call);
 
-    assert_ne!(returned, Target::storage(first.clone()));
+        let returned = state
+            .value_target(&Target::storage(result.clone()), error_type())
+            .expect("returned reference identity");
 
-    assert_eq!(
-        state.target_relationship(&returned, &Target::storage(first.clone())),
-        bray_bound_tree::StorageRelationship::PotentiallyOverlapping
-    );
+        assert_ne!(returned, Target::storage(first.clone()));
 
-    assert_eq!(
-        state.target_relationship(&returned, &Target::storage(second.clone())),
-        bray_bound_tree::StorageRelationship::Disjoint
-    );
+        assert_eq!(
+            state.target_relationship(&returned, &Target::storage(first.clone())),
+            bray_bound_tree::StorageRelationship::PotentiallyOverlapping
+        );
 
-    state.transfer(&result, copied.clone());
-    state.begin_transition(call);
+        assert_eq!(
+            state.target_relationship(&returned, &Target::storage(second.clone())),
+            bray_bound_tree::StorageRelationship::Disjoint
+        );
 
-    state.stage_returned_references(
-        call,
-        [(result.clone(), error_type())],
-        [Target::storage(second.clone())],
-    );
+        state.transfer(&result, copied.clone());
+        state.begin_transition(call);
 
-    state.complete_transition(call);
+        state.stage_returned_references(
+            call,
+            [(result.clone(), error_type())],
+            [Target::storage(second.clone())],
+        );
 
-    let current = state
-        .value_target(&Target::storage(result), error_type())
-        .expect("current returned reference");
+        state.complete_transition(call);
 
-    let previous = state
-        .referenced_regions(&Target::storage(copied))
-        .expect("older reference region")
-        .pop()
-        .unwrap();
+        let current = state
+            .value_target(&Target::storage(result), error_type())
+            .expect("current returned reference");
 
-    assert_eq!(
-        state.target_relationship(&current, &previous),
-        bray_bound_tree::StorageRelationship::PotentiallyOverlapping
-    );
+        let previous = state
+            .referenced_regions(&Target::storage(copied))
+            .expect("older reference region")
+            .pop()
+            .unwrap();
 
-    assert_eq!(
-        state.target_relationship(&current, &Target::storage(first)),
-        bray_bound_tree::StorageRelationship::PotentiallyOverlapping
-    );
+        assert_eq!(
+            state.target_relationship(&current, &previous),
+            bray_bound_tree::StorageRelationship::PotentiallyOverlapping
+        );
+
+        assert_eq!(
+            state.target_relationship(&current, &Target::storage(first)),
+            bray_bound_tree::StorageRelationship::PotentiallyOverlapping
+        );
+    }
 }
 
 #[test]
@@ -2542,4 +2548,21 @@ fn retired_local_reference_slots_do_not_expose_their_former_targets() {
 
     state.address(owner, reference, error_type(), origins[0]);
     assert_eq!(state.unexposed_storage(&candidates, []).count(), 0);
+}
+
+#[test]
+fn unknown_references_cannot_reach_unaddressed_inline_storage() {
+    let ([local, borrowed, _, _], _) = places();
+
+    let state = State {
+        unaddressed_storage: [local.root].into(),
+        ..State::default()
+    };
+
+    assert!(!state.unknown_reference_may_reach(&Target::storage(local.clone())));
+    assert!(state.unknown_reference_may_reach(&Target::storage(borrowed)));
+
+    assert!(state.unknown_reference_may_reach(
+        &Target::storage(local).project(&[bray_bound_tree::StorageProjection::OwnedTarget]),
+    ));
 }

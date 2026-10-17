@@ -688,6 +688,102 @@ fn borrowed_invariants_survive_loops_only_when_every_back_edge_preserves_them() 
 }
 
 #[test]
+fn cursor_witness_survives_observation_and_independent_loop_counters() {
+    let source = r#"
+        trusted module app;
+        struct Cursor
+        {
+            first: RawPointer<u8>;
+            limit: usize;
+            mut current: RawPointer<u8>;
+            mut remaining: usize;
+        }
+        trusted predicate valid(cursor: &Cursor);
+        trusted func observe(pos cursor: &Cursor) -> (RawPointer<u8>, usize)
+            requires(trusted valid(cursor = cursor))
+            ensures(
+                trusted valid(cursor = cursor),
+                core.memory.is_null<u8>(result.0) || trusted core.memory.valid_read<u8>(pointer = result.0, count = result.1 + 1),
+                core.memory.is_null<u8>(result.0) || trusted core.memory.initialized_range_as<u8>(pointer = result.0, count = result.1 + 1),
+            )
+        {
+            return (cursor.current, cursor.remaining);
+        }
+        trusted func advance(pos cursor: &mut Cursor)
+            requires(trusted valid(cursor = &cursor))
+            ensures(trusted valid(cursor = &cursor))
+        {
+            cursor.remaining -= 1;
+        }
+        trusted func caller(pos mut cursor: Cursor) -> usize
+            requires(trusted valid(cursor = &cursor))
+        {
+            let mut total: usize = 0;
+            let mut length: usize = 0;
+
+            loop
+            {
+                let observed: (RawPointer<u8>, usize) = trusted observe(&cursor);
+
+                if core.memory.is_null<u8>(observed.0)
+                {
+                    break;
+                }
+
+                if total > 1000 - observed.1 - 1
+                {
+                    panic("too large");
+                }
+
+                total += observed.1 + 1;
+                length += 1;
+                trusted advance(&mut cursor);
+            }
+
+            return total + length;
+        }
+    "#;
+
+    let mut results = Vec::new();
+
+    for observe in [false, true] {
+        for advance in [false, true] {
+            let mut source = source.to_owned();
+
+            if !observe {
+                source = source
+                    .replace("trusted func observe", "extern trusted func observe")
+                    .replace(
+                        "{\n            return (cursor.current, cursor.remaining);\n        }",
+                        ";",
+                    );
+            }
+
+            if !advance {
+                source = source
+                    .replace("trusted func advance", "extern trusted func advance")
+                    .replace("{\n            cursor.remaining -= 1;\n        }", ";");
+            }
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            results.push((observe, advance, !diagnostics.has_errors()));
+        }
+    }
+
+    assert_eq!(
+        results,
+        vec![
+            (false, false, true),
+            (false, true, true),
+            (true, false, true),
+            (true, true, true)
+        ]
+    );
+}
+
+#[test]
 fn input_guarantees_do_not_make_unrelated_results_authority_witnesses() {
     for preservation in [
         "trusted valid(owner = owner), trusted core.memory.valid_read<u8>(pointer = result, count = 1)",

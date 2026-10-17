@@ -59,6 +59,11 @@ pub(super) fn commit_fragment(
     }
 
     for predicate in Arc::make_mut(&mut fragment.predicate_definitions) {
+        predicate.condition = predicate
+            .condition
+            .map(|term| remap.constant_term(term))
+            .transpose()?;
+
         for (_, _, ty) in Arc::make_mut(&mut predicate.parameters) {
             *ty = remap.ty(*ty)?;
         }

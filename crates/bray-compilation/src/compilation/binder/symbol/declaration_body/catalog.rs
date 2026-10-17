@@ -47,6 +47,10 @@ pub(in crate::compilation::binder::symbol) fn checked_catalog_predicates(
         .execution_constant_inputs(bound, &semantics, context.cancellation, &mut diagnostics)
         .map_err(super::super::binding::binder_error)?;
 
+    let predicate_definitions = compilation
+        .execution_predicate_inputs(&semantics, context.cancellation, &mut diagnostics)
+        .map_err(super::super::binding::binder_error)?;
+
     let normalized = bray_checker::predicate_conditions_with_inputs(
         bound,
         &semantics,
@@ -54,6 +58,7 @@ pub(in crate::compilation::binder::symbol) fn checked_catalog_predicates(
         context.semantic_values(),
         &constants,
         None,
+        Some(&predicate_definitions),
     )
     .map_err(BindingQueryError::SemanticValue)?;
 

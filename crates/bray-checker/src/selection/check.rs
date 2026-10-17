@@ -340,6 +340,9 @@ where
                 diagnostic_construction_input_rejection(request, reason)?,
             )
         }
+        SelectionCandidateRejectionReason::PredicateOutsideContract => {
+            DiagnosticSelectionRejectionReason::PredicateOutsideContract
+        }
         SelectionCandidateRejectionReason::ExpressionForm => {
             DiagnosticSelectionRejectionReason::ExpressionForm
         }

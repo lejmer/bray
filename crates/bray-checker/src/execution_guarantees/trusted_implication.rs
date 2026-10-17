@@ -12,7 +12,7 @@ struct ProofTerm {
     asserted_disjunction: bool,
 }
 
-/// Derive conditional trusted evidence once, following only affected Boolean terms.
+/// Derive Boolean consequences without promoting ordinary occurrences to trusted evidence.
 pub(crate) fn trusted_condition_closure(
     mut known: BTreeSet<(ExecutionCondition, bool)>,
     ordinary: &BTreeSet<(ExecutionCondition, bool)>,
@@ -23,6 +23,11 @@ pub(crate) fn trusted_condition_closure(
 
     let mut pending = trusted
         .iter()
+        .chain(
+            ordinary
+                .iter()
+                .filter(|(condition, _)| !condition.contains_trusted()),
+        )
         .take(ExecutionCondition::WORK_LIMIT)
         .filter_map(|(condition, holds)| {
             (*holds
@@ -80,14 +85,19 @@ pub(crate) fn trusted_condition_closure(
         terms[index].asserted_disjunction = matches!(
             condition,
             ExecutionCondition::Operation(BoundOperator::LogicalOr, _)
-        ) && explicit(trusted) == Some(true);
+        ) && (explicit(trusted) == Some(true)
+            || (!condition.contains_trusted() && explicit(ordinary) == Some(true)));
 
         terms[index].asserted = match condition {
             ExecutionCondition::Unknown => None,
             ExecutionCondition::Boolean(value) => Some(*value),
             ExecutionCondition::Entry { .. } => None,
             ExecutionCondition::Trusted(_) => explicit(trusted),
-            _ if !boolean_children(condition).is_empty() => explicit(trusted),
+            _ if !boolean_children(condition).is_empty() => explicit(trusted).or_else(|| {
+                (!condition.contains_trusted())
+                    .then(|| explicit(ordinary))
+                    .flatten()
+            }),
             _ => condition
                 .prove(trusted, &mut { ExecutionCondition::WORK_LIMIT })
                 .or_else(|| condition.prove(ordinary, &mut { ExecutionCondition::WORK_LIMIT })),
@@ -244,6 +254,43 @@ mod tests {
         assert_eq!(
             input(128).prove_mixed(&known, &ordinary, &mut { ExecutionCondition::WORK_LIMIT }),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn ordinary_disjunction_elimination_preserves_occurrence_authority() {
+        let mut ordinary = BTreeSet::new();
+        let qualified = ExecutionCondition::Trusted(Arc::new(input(1)));
+
+        ExecutionCondition::operation(BoundOperator::LogicalOr, vec![input(0), input(1)])
+            .assume(true, &mut ordinary);
+
+        input(0).assume(false, &mut ordinary);
+
+        let known = trusted_condition_closure(BTreeSet::new(), &ordinary);
+
+        assert_eq!(
+            input(1).prove_mixed(&known, &ordinary, &mut { ExecutionCondition::WORK_LIMIT }),
+            Some(true)
+        );
+
+        assert_eq!(
+            qualified.prove_mixed(&known, &ordinary, &mut { ExecutionCondition::WORK_LIMIT }),
+            None
+        );
+
+        let mut forged = BTreeSet::new();
+
+        ExecutionCondition::operation(BoundOperator::LogicalOr, vec![input(0), qualified.clone()])
+            .assume(true, &mut forged);
+
+        input(0).assume(false, &mut forged);
+
+        let known = trusted_condition_closure(BTreeSet::new(), &forged);
+
+        assert_eq!(
+            qualified.prove_mixed(&known, &forged, &mut { ExecutionCondition::WORK_LIMIT }),
+            None
         );
     }
 

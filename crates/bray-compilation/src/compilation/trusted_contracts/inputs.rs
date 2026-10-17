@@ -19,6 +19,9 @@ impl Compilation {
         let mut inputs = TrustedContractInputs::default();
         let mut diagnostics = DiagnosticBag::new();
 
+        inputs.predicates =
+            self.execution_predicate_inputs(semantics, cancellation, &mut diagnostics)?;
+
         if !matches!(
             key.kind(),
             bray_bound_tree::BoundUnitKind::CallableBody

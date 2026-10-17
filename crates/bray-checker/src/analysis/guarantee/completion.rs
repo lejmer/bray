@@ -572,7 +572,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        let post_state = self.receiver_post_state(state, call, &contracts);
+        let post_state = self.call_post_state(state, call);
 
         for contract in contracts {
             for (postcondition, source) in &contract.postconditions {

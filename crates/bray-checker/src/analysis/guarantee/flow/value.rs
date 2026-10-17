@@ -23,6 +23,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             &state.expressions,
             expression,
             &mut { crate::ExecutionCondition::WORK_LIMIT },
+            self.request
+                .trusted_contracts()
+                .map(|input| &input.predicates),
         );
 
         if value != ExecutionCondition::Unknown {
@@ -49,6 +52,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             &Default::default(),
             expression,
             &mut { ExecutionCondition::WORK_LIMIT },
+            self.request
+                .trusted_contracts()
+                .map(|input| &input.predicates),
         )
     }
 

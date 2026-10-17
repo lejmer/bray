@@ -245,14 +245,19 @@ where
         Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
     };
 
-    let variants =
-        match super::projection::prepare_variants(request, &contracts, storage, value_inputs) {
-            Ok(variants) => variants,
-            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Upstream(error)) => {
-                return CheckerOutcome::UpstreamFailure(error);
-            }
-        };
+    let variants = match super::projection::prepare_variants(
+        request,
+        &contracts,
+        storage,
+        value_inputs,
+        selections,
+    ) {
+        Ok(variants) => variants,
+        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
+    };
 
     CheckerOutcome::Complete(DiagnosticResult::new(
         contracts.with_projection_variants(variants),

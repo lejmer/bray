@@ -193,6 +193,14 @@ impl PreparedBodyAnalysis {
                 yields.push((expression, target));
             }
 
+            if let Some(bray_bound_tree::SemanticSelection::Propagation(selection)) =
+                semantics.selections().expression(expression)
+                && let Some(bray_bound_tree::SelectedPropagationBoundary::YieldRegion(target)) =
+                    selection.boundary()
+            {
+                yields.push((expression, target));
+            }
+
             if let BoundExpression::Assignment(assignment) = node
                 && let Some(target) = assignment.operands().first()
                 && let Some(BoundExpression::Name(name)) = request.view().expression(*target)
