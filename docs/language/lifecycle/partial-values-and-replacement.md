@@ -34,6 +34,10 @@ active payload destruction rules before the new active variant tag and payload b
 Assigning `none` to a nullable access path resolves the old present value according to nullable, ownership,
 finalization, and destruction rules before the access path becomes absent.
 
+Replacement through a destructor's receiver authority must also satisfy the
+[terminal destruction boundary](destruction.md). In particular, replacement cannot install a new owner with graceful
+cleanup obligations into the dying receiver. The abnormal-completion rules below do not authorize such a replacement.
+
 ## Replacement and abnormal completion
 
 Replacement establishes the destination access path once, then evaluates the new value before resolving old contents.

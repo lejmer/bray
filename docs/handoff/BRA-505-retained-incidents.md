@@ -68,91 +68,68 @@ The resource completion and predicate checkpoint is pushed as `93420da3`.
 
 ## Abandonment contract
 
-The language specification supplies the required behavior. The implementation design
-for preserving committed ownership transitions across calls remains unresolved. See `docs/language/async-and-concurrency/cancellation.md`,
-`docs/language/lifecycle/destruction.md`, `docs/language/lifecycle/finalization.md`
-and `docs/language/lifecycle/partial-values-and-replacement.md`.
+The user approved the terminal destructor boundary in
+`docs/language/lifecycle/destruction.md`. Enforce it in owning storage and dependency
+analysis before claiming abandoned disposal is correct. This is an intentional semantic
+restriction, not an existing implementation guarantee.
 
-Incident creation explicitly abandons graceful finalization for the retained error
-payload. Quiescence resolves its child runs. Its descriptor later performs synchronous
-destruction. This controls the retained owner's implicit disposal, while ordinary
-operations invoked by its source destructor retain their checked declaration contracts.
-For E containing R, a helper replacing R must satisfy ordinary replacement requirements.
-A synchronous destructor cannot use abandonment to admit asynchronous execution or
-leave unresolved fallible cleanup. New locals and replacement owners retain their own
-obligations. Do not repeat lifecycle operations already resolved.
+From destructor body entry, receiver destruction authority permits preservation and
+consumption, but not introduction or reactivation of graceful-cleanup obligations in the
+receiver, represented ownership graph, or relevant dependencies. Cover aliases, helpers,
+foreign calls, imported contracts and abnormal outcomes. Installing a currently completed
+finalizable owner is forbidden too: later sibling cleanup can invalidate its completion.
+New ordinary locals retain normal checked cleanup and cannot transfer obligations into
+the dying receiver. Explicit operations retain their ordinary contracts.
 
-Implement abandoned disposal through the shared selected expansion. Do not introduce
-an ambient call mode or runtime owner-state propagation to suppress explicit operations.
+Implement abandoned disposal through the shared selected expansion. Preserve per-owner
+lifecycle ordering and keep receiver initialization guards with its body and tail. Normal
+child finalizers remain ordinary until entry to their own destruction. Do not require total
+destructors, run all child finalizers before destruction, or use an ambient abandonment mode
+to change explicit operations. Incident quiescence resolves child runs while retaining the
+payload, backing and provider dependencies for later synchronous destruction.
 
-Independent semantic review rejected the experimental global represented graceful phase.
-Children can share an external synchronized resource. A later child's finalizer may
-invalidate an earlier child's completion before destruction. The experiment was removed
-without changing committed checkpoints. Preserve each owner's ordered lifecycle traversal.
-The shared awaited-frame emitter and internal-invariant fixes remain, with 87 focused
-compilation/lowering tests already passed before the removed experiment.
+The boundary removes the mixed inherited/new owner case that required runtime provenance.
+Do not add per-part abandonment bits, widened borrows, hidden ordinary-call state cursors,
+transition logs, global address registries, or helper specialization for this distinction.
+Costs must be acceptable before LLVM optimization. Existing may-effect summaries can prove
+that forbidden transitions cannot occur, but cannot identify actual committed transitions.
+`initialized_as` alone does not prove foreign preservation. Missing proof must reject the
+operation in destruction, not assume preservation.
 
-Source destructor checking must distinguish inherited obligations from obligations newly
-created by executed mutations or replacement. No source rule requires manufacturing an
-early represented finalization traversal. Preserve the ordered receiver tail and enforce
-actual completion of newly created obligations at semantic return. The independent review
-supports this normal-return reading. It does not prove abnormal exits: replacement can
-install a new owner before propagating an old cleanup panic, and its cleanup stays ordinary.
-A scalar abandoned mode is insufficient if that new ownership reaches nested receiver tails.
-Do not require total destructors merely from their infallible unit result contract.
+Implementation acceptance must cover direct and aliased replacement, nested represented
+parts, completed replacement, imported helpers, normal and panic outcomes, forbidden
+reactivation through dependencies, admissible ordinary locals, and ordinary child finalizers.
+Reuse established effects downstream and remove superseded interpretations. Batch checks
+after coherent changes, then format, audit, push and independently review. No new syntax.
 
-Keep receiver initialization guards with the body and tail. Moving the tail across an
-ordinary unit-result call loses conditional initialization state. Any remaining disposition
-must likewise follow exact part identity through nested cleanup. No hidden ambient mode may
-suppress explicit operations or new locals. Native acceptance remains blocked by unfinished
-CleanupIncidentTransfer and this ownership proof. Further review ruled out rearming from
-may-write effects: a helper can leave an abandoned part untouched or panic before replacing
-it. Its old and newly installed owners can both be initialized at propagation. Cleanup needs
-the ownership transition that actually committed, which current call effects do not carry.
-Do not treat abandonment as an ordinary completion predicate that mutation invalidates.
+The implementation mapping exposes two distinct checks. Existing resolved may effects and
+physical target relationships can conservatively identify possible owner installation,
+including aliases, `Uninit` payloads and heap storage. Current cleanup completion candidates
+certify particular cleanup sites, not preservation across every destructor transition.
+Neither existing mechanism alone proves the terminal boundary.
 
-The counterexample establishes a lower bound, not a complete implementation design.
-With `n` independently replaceable initialized parts, cleanup may need to distinguish
-`2^n` subsets of newly installed owners. A single whole-owner flag cannot carry that
-information. Existing initialization guards still distinguish absent parts, but cannot
-distinguish inherited abandoned contents from newly installed ordinary contents.
+Independent read-only design review confirmed that completion-proof invalidation is not
+obligation introduction. An inherited abandoned duty stays abandoned when its omission
+certificate is lost. A teardown marker can change without introducing work, while acquiring
+a new descriptor or appending buffered output can introduce work without replacing the
+whole receiver. Do not silently equate these cases or make abandonment mutation-sensitive.
+A checked preservation inference must establish its claim from operations and contracts,
+including abnormal outcomes. An unknown or ordinary may-write effect cannot establish it.
 
-An internal solution must preserve committed ownership transitions through projections,
-reborrows, moves and callable values, including imported bodies and abnormal returns.
-`DependencyStorageEffect` is explicitly a may set, and `CodegenCallableSignature` and
-`NativeRunOutcome` currently carry no such transition result. Bray's default callable
-ABI is compiler-defined, so changing it would not itself require language syntax or an
-ABI version bump. It would still be a substantial implementation decision.
+The existing `destructor_receiver_move_admits_before_transfer` test has only a destructor,
+not a finalizer. This boundary does not justify rejecting it or deleting its admission
+machinery. Nonescaping consuming helpers retain their ordinary checked contracts.
 
-The implementation alternatives have different unresolved costs:
+No source implementation of terminal preservation has been added. The next implementation
+decision is how existing operations and foreign contracts establish absence of new graceful
+work without interpreting author intent, a new language contract, or a blanket mutation ban.
+Keep that proof obligation explicit before connecting abandoned disposal.
 
-- Per-part guards carried with mutable access can update state at the actual installation.
-  This requires preserving the association through derived references and callable values.
-  Raw pointers and foreign calls need a separately proved boundary rule. An additional
-  pointer per affected reference costs one machine word before optimization, and dynamic
-  represented parts require correspondingly sized state or a proved compressed form.
-- Returning committed transitions from callees avoids changing borrowed value layout, but
-  it must describe dynamic projections and survive abnormal completion. It cannot be an
-  unbounded log allocated after failure. Aliasing and transitions in nested calls still
-  need exact target identity. A finite may-write summary cannot substitute for this result.
-- Specializing a helper for abandonment does not by itself solve either transport problem.
-  It must still identify which particular represented owners are inherited and which are
-  new. Do not assume one boolean call mode is enough, or duplicate whole call graphs to
-  avoid defining the contract.
-
-Foreign ABI declarations are complete caller-visible contracts, but arbitrary foreign
-bodies do not emit compiler-owned transition records. A proposed design must derive how
-existing wrappers and declared outcomes establish the exact transition. It must not
-silently reinterpret `initialized_as` as proof that replacement happened. No global address
-registry, widened borrow representation, new transition ABI or destructor restriction has
-been selected or implemented. The pending design discussion must resolve this before
-publishing abandoned disposal as correct. No performance claim is established by this
-information lower bound.
-
-Inactive abandonment never enters the body. Normal cancellation from abandoning a child
-must not cancel its parent, but cleanup panics and incidents must survive. Consuming
-inactive disposal differs from retained-error quiescence. The latter leaves a terminal
-representation and retains backing/provider dependencies for later payload destruction.
+The removed global graceful-phase experiment must stay removed. Existing shared awaited-frame
+emission and internal invariant fixes remain at `74f77b59`, with 87 focused tests passed.
+Native acceptance remains blocked by unfinished CleanupIncidentTransfer and enforcement of
+the terminal boundary. Inactive abandonment never enters the body. A child's ordinary
+cancellation must not cancel its abandoning parent, but cleanup incidents must survive.
 
 ## Report-chain ownership checkpoint
 
