@@ -126,7 +126,15 @@ Source report retirement, retention, reporting, native mirrors and field binding
 representation. Typed pool entries and compiler incident transfer remain unfinished.
 
 Review of `74f77b59` is verified at PR #612 review `5557613058`, with no findings.
-This new report checkpoint has not yet received independent PR review.
+The report-chain checkpoint `2fce6402` is pushed. Independent PR review `5557690835`
+is verified with no findings. Neither review establishes whole-issue acceptance.
+
+The subsequent callback audit found that the generated incident destroyer relied on callers
+to initialize both output destinations, contrary to its write-only callback contract. The
+producer now initializes destruction and backing-release outcomes before invoking cleanup.
+The regression covers successful and panicking source destructors and LLVM aggregate stores
+or their equivalent memset. Tests and required formatting pass. Independent PR review
+is pending for this checkpoint.
 
 ## Remaining implementation and acceptance
 
@@ -201,6 +209,11 @@ All logs below are under the shared target directory
 - `bra-505-report-chain-format.log`: Rustfmt, mutating structural style and explicit Bray
   formatting pass. The audit covers report creation, chain transfer, reservation retirement,
   consumer disposal, native field binding, C/Rust mirrors and exact-release regressions.
+- `bra-505-static-outcome-tests.log`: 13 existing static lifecycle tests pass.
+  `bra-505-static-outcome-regression.log`: the new output-initialization regression passes.
+- `bra-505-static-outcome-format.log`: Rustfmt, mutating structural style and explicit Bray
+  formatting pass. The callback audit covers both output producers, the source write-only
+  contract, invocation behavior and backing-release status handling.
 - Native resource retry tests and inactive composition execution remain pending.
   Source and bundle verification do not establish retained-incident acceptance.
 

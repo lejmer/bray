@@ -182,7 +182,7 @@ pub type NativeCleanupIncidentReportCallback =
     extern "C" fn(usize, &mut crate::NativeRunOutcome) -> NativeRuntimeStatus;
 
 /// Compiler-generated callback destroying and releasing one owned cleanup incident payload.
-/// The destinations retain destruction and backing-release outcomes independently.
+/// Initializes both destinations, preserving destruction and backing-release outcomes independently.
 pub type NativeCleanupIncidentDestroyCallback = extern "C" fn(
     &mut NativeCleanupIncident,
     &mut crate::NativeRunOutcome,
