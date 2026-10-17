@@ -49,15 +49,12 @@ impl SyntheticLoweringContext for CompilationSyntheticLoweringContext<'_> {
 
         if phase == bray_bound_tree::LifecyclePhase::Finalize
             && let bray_bound_tree::LifecycleAction::Call(callable) = action
-            && callable.execution == bray_symbols::CallableExecution::Synchronous
-            && callable.result
-                == self
-                    .compilation
-                    .codegen_representation_type(RepresentationRole::Unit)?
-            && self
-                .compilation
-                .pure_total_execution(callable.callable, None, self.cancellation)?
-                .is_some()
+            && self.compilation.finalizer_is_complete(
+                callable.callable,
+                callable.result,
+                None,
+                self.cancellation,
+            )?
         {
             return Ok(bray_bound_tree::LifecycleAction::None);
         }

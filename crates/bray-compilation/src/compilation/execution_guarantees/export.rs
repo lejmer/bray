@@ -132,11 +132,112 @@ impl Compilation {
                 ));
             }
 
+            self.export_result_conditions(symbol, mapping, contract, &mut evidence, cancellation)?;
             evidence.sort_by_key(|proof| proof.obligation);
             contract.evidence = evidence.into();
         }
 
         Ok(DiagnosticResult::new(prepared, diagnostics))
+    }
+
+    fn export_result_conditions(
+        &self,
+        symbol: AnySymbolId,
+        mapping: &BTreeMap<ExecutionObligation, PortableObligation>,
+        contract: &mut ResolvedCallableExecutionContract,
+        evidence: &mut Vec<
+            CallableExecutionEvidence<
+                CallableExecutionTarget<bray_symbols::CallableInstanceId, bray_symbols::TypeId>,
+            >,
+        >,
+        cancellation: &CancellationToken,
+    ) -> Result<(), FactQueryError> {
+        if !matches!(symbol, AnySymbolId::Finalizer(_))
+            || !evidence.iter().any(|proof| {
+                matches!(
+                    proof.obligation,
+                    PortableObligation::Property(ExecutionProperty::Total, _)
+                )
+            })
+        {
+            return Ok(());
+        }
+
+        let definition = CallableDefinitionId::try_new(symbol)
+            .expect("execution contract belongs to a callable");
+
+        let Some(body) = self.callable_body_key(definition)? else {
+            return Ok(());
+        };
+
+        let candidates = self.execution_candidates_with_cancellation(body, cancellation)?;
+        let inputs = self.execution_callable_inputs(symbol, cancellation)?;
+        let boolean = self.target_property_type(bray_target::TargetPropertyKind::ScalarBool)?;
+        let values = self.semantic_value_store()?;
+
+        let mut next = contract
+            .domains
+            .iter()
+            .map(|domain| domain.postconditions.len())
+            .sum();
+
+        let mut inferred = Vec::new();
+
+        for (source, portable) in mapping {
+            let PortableObligation::Property(ExecutionProperty::Total, Some(ordinal)) = portable
+            else {
+                continue;
+            };
+
+            let Some(proof) = evidence.iter().find(|proof| proof.obligation == *portable) else {
+                continue;
+            };
+
+            let Some(variant) = candidates
+                .result()
+                .value()
+                .get(source)
+                .and_then(bray_checker::ExecutionCandidate::result_variant)
+            else {
+                continue;
+            };
+
+            let condition = bray_checker::ExecutionCondition::VariantTest(
+                variant,
+                std::sync::Arc::new(bray_checker::ExecutionCondition::Result),
+            );
+
+            let term = execution_condition_term(values, &condition, &inputs, boolean)
+                .map_err(FactQueryError::SemanticValueStore)?
+                .expect("a checked result variant is a portable completion condition");
+
+            let post = evidence_ordinal(symbol, next)?;
+
+            next += 1;
+
+            let domain = std::sync::Arc::make_mut(&mut contract.domains)
+                .iter_mut()
+                .find(|domain| domain.ordinal == *ordinal)
+                .expect("portable proof refers to its exported entry domain");
+
+            let mut posts = domain.postconditions.to_vec();
+
+            posts.push((post, term));
+
+            domain.postconditions = posts.into();
+
+            // The same checked flow establishes the result tag and totality. Its
+            // selected dependencies remain necessary in the separately compiled consumer.
+            inferred.push(CallableExecutionEvidence {
+                origin: proof.origin,
+                obligation: PortableObligation::Postcondition(post),
+                dependencies: std::sync::Arc::clone(&proof.dependencies),
+            });
+        }
+
+        evidence.extend(inferred);
+
+        Ok(())
     }
 
     fn collect_execution_proofs(
@@ -153,6 +254,7 @@ impl Compilation {
         FactQueryError,
     > {
         let graph = self.symbol_graph()?;
+
         let mut proofs = BTreeMap::<_, BTreeSet<_>>::new();
         let mut origins = BTreeMap::new();
         let mut source_symbols = BTreeMap::new();

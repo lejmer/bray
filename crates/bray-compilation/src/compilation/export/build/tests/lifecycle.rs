@@ -202,63 +202,222 @@ fn imported_runtime_default_preserves_helper_static_access() {
 
 #[test]
 fn imported_finalizers_use_verified_entry_conditions() {
-    let provider = compilation(
-        r#"
-        module api;
-        struct Value<T>
-        {
-            ready: bool;
-            payload: T;
-
-            finalize()
-                when(self.ready) { executes(pure, total) }
+    for execution in ["", "async "] {
+        let provider_source = r#"
+            module api;
+            struct Value<T>
             {
-                if !self.ready
+                mut ready: bool;
+                payload: T;
+
+                $EXECUTIONfinalize()
+                    when(self.ready) { executes(pure, total) }
                 {
-                    panic("unfinished");
+                    if !self.ready
+                    {
+                        panic("unfinished");
+                    }
                 }
             }
-        }
-    "#,
-    );
+        "#
+        .replace("$EXECUTION", execution);
 
-    for (condition, completed) in [("value.ready", true), ("!value.ready", false)] {
-        let consumer = execution_consumer(
-            &provider,
-            &format!(
+        let provider = compilation(&provider_source);
+
+        for (condition, operation, completed) in [
+            ("value.ready", "", true),
+            ("!value.ready", "", false),
+            ("value.ready", "value.ready = false;", false),
+        ] {
+            let consumer = execution_consumer(
+                &provider,
+                &format!(
+                    r#"
+                module app;
+                using example.package.api;
+                func root(pos mut value: example.package.api.Value<bool>)
+                    requires({condition})
+                {{
+                    {operation}
+                }}
+            "#
+                ),
+            );
+
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{:?}",
+                consumer.check_diagnostics()
+            );
+
+            let selected = selected_cleanup(&consumer);
+
+            assert_eq!(!selected.is_empty(), completed);
+
+            let lowered = consumer
+                .lowered_unit(source_function_body_key(&consumer, "root"))
+                .unwrap();
+
+            assert!(lowered.value().as_ref().unwrap().mir().is_some());
+        }
+    }
+}
+
+#[test]
+fn imported_finalizers_preserve_known_successful_results() {
+    for execution in ["", "async "] {
+        for (result, completed) in [("Ok(unit)", true), ("Error(true)", false)] {
+            let provider = compilation(&format!(
                 r#"
-            module app;
-            using example.package.api;
-            func root(pos value: example.package.api.Value<bool>)
-                requires({condition})
+                module api;
+                struct Value
+                {{
+                    {execution}finalize() -> Result<unit, bool> executes(pure, total)
+                    {{
+                        return {result};
+                    }}
+                }}
+            "#
+            ));
+
+            assert!(
+                !provider.check_diagnostics().has_errors(),
+                "{:?}",
+                provider.check_diagnostics()
+            );
+
+            let consumer = execution_consumer(
+                &provider,
+                r#"
+                module app;
+                using example.package.api;
+                func root(pos value: example.package.api.Value)
+                {
+                }
+            "#,
+            );
+
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{:?}",
+                consumer.check_diagnostics()
+            );
+
+            let selected = selected_cleanup(&consumer);
+
+            assert_eq!(!selected.is_empty(), completed, "{execution}{result}");
+        }
+    }
+}
+
+#[test]
+fn imported_finalizer_success_requires_its_certified_guarded_domain() {
+    for execution in ["", "async "] {
+        let provider = compilation(&format!(
+            r#"
+            module api;
+            struct Value
             {{
+                ready: bool;
+                {execution}finalize() -> Result<unit, bool>
+                    executes(pure, total)
+                    when(self.ready) {{ executes(pure, total) }}
+                {{
+                    if self.ready
+                    {{
+                        return Ok(unit);
+                    }}
+                    return Error(true);
+                }}
             }}
         "#
-            ),
+        ));
+
+        assert!(
+            !provider.check_diagnostics().has_errors(),
+            "{:?}",
+            provider.check_diagnostics()
+        );
+
+        for (condition, completed) in [("value.ready", true), ("!value.ready", false)] {
+            let consumer = execution_consumer(
+                &provider,
+                &format!(
+                    r#"
+                module app;
+                using example.package.api;
+                func root(pos value: example.package.api.Value) requires({condition})
+                {{
+                }}
+            "#
+                ),
+            );
+
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{:?}",
+                consumer.check_diagnostics()
+            );
+
+            let selected = selected_cleanup(&consumer);
+
+            assert_eq!(!selected.is_empty(), completed, "{execution}{condition}");
+        }
+
+        let original = export(&provider);
+        let mut removed = 0;
+
+        let contracts = original
+            .semantics()
+            .callable_contracts()
+            .iter()
+            .map(|contract| {
+                let mut execution = contract.execution_contract().clone();
+
+                let evidence = execution
+                    .evidence
+                    .iter()
+                    .filter(|proof| {
+                        if matches!(
+                            proof.obligation,
+                            bray_symbols::CallableExecutionObligation::Postcondition(_)
+                        ) {
+                            removed += 1;
+
+                            false
+                        } else {
+                            true
+                        }
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+
+                execution.evidence = evidence.into();
+
+                contract.clone().with_execution_contract(execution)
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            removed > 0,
+            "provider must publish its checked result proof"
+        );
+
+        let semantics = original.semantics().clone().with_contracts(
+            original.semantics().constraints().iter().cloned(),
+            contracts,
         );
 
         assert!(
-            !consumer.check_diagnostics().has_errors(),
-            "{:?}",
-            consumer.check_diagnostics()
+            PackageInterfaceExportBundle::try_new(
+                original.surface().clone(),
+                semantics,
+                original.language_revision(),
+                original.implementation_configuration().clone()
+            )
+            .is_err(),
+            "a result condition without its checked evidence must not be accepted"
         );
-
-        let key = source_function_body_key(&consumer, "root");
-        let cancellation = crate::CancellationToken::new();
-
-        let body = consumer
-            .body_semantics_with_cancellation(key.clone(), &cancellation)
-            .unwrap();
-
-        let selected = consumer
-            .completed_unit_cleanup(&key, body.result().value().asynchronous(), &cancellation)
-            .unwrap();
-
-        assert_eq!(!selected.is_empty(), completed);
-
-        let lowered = consumer.lowered_unit(key).unwrap();
-
-        assert!(lowered.value().as_ref().unwrap().mir().is_some());
     }
 }
 
@@ -425,7 +584,10 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
         part.projections().iter().any(|projection| matches!(projection.projection(), bray_bound_tree::StorageCleanupProjectionKind::UnionPayloadElement { ordinal, .. } if ordinal.raw() == 1))
     }), "{analysis:?}");
 
-    let lowered = consumer.lowered_unit(key).unwrap();
+    let lowered = consumer
+                .lowered_unit(source_function_body_key(&consumer, "root"))
+                .unwrap();
+
     let mir = lowered.value().as_ref().unwrap().mir().unwrap();
 
     assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Cleanup { place, .. } if place.projections().iter().any(|projection| matches!(projection.kind(), MirProjectionKind::ActiveUnionPayloadElement { ordinal, .. } if ordinal.raw() == 1)))), "{mir:?}");
@@ -1066,4 +1228,19 @@ fn scoped_capability_annotations_do_not_select_enter_in_source_or_imported_inter
             }
         }
     }
+}
+
+fn selected_cleanup(
+    consumer: &crate::Compilation,
+) -> std::collections::BTreeSet<(bray_bound_tree::AnyBoundNodeId, bray_bound_tree::StorageAccessId)> {
+    let key = source_function_body_key(consumer, "root");
+    let cancellation = crate::CancellationToken::new();
+
+    let body = consumer
+        .body_semantics_with_cancellation(key.clone(), &cancellation)
+        .unwrap();
+
+    consumer
+        .completed_unit_cleanup(&key, body.result().value().asynchronous(), &cancellation)
+        .unwrap()
 }

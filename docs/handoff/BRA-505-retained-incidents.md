@@ -1,15 +1,61 @@
 # BRA-505 retained incident prerequisite
 
-## Agreement and baseline
+## Active agreement and baseline
 
-Implement the shared prerequisite for BRA-619, then finish BRA-619 in a stacked PR.
-Start at `5f1141e4`, the shared sequencing document above develop `055f1d4f`.
-BRA-619 admission and rollback are preserved and pushed at `6bbcb4a3` on
-`feature/bra-619-complete-selected-scope-native-cleanup`.
+Complete BRA-505, then BRA-619, with one reviewed stacked PR per issue. BRA-561
+is implemented and independently reviewed in PR #611 at `7a254388`. The current
+branch is `feature/bra-505-admitted-ordinary-finalization`, based on that head.
+Only the BRA-505 checkpoint `b3022d87` was transplanted, as `eb91736c`. The old
+branches remain recovery history. BRA-619 admission and rollback are preserved
+at `6bbcb4a3` on `feature/bra-619-complete-selected-scope-native-cleanup`.
+
+The active contract includes ordinary async and fallible finalization, completed
+whole-value omission, synchronous-scope legality, inactive Future cleanup, retained
+error quiescence and disposal, admitted backing transfer and run-owned incidents.
+The old prerequisite slice below is not the full issue.
 
 No new language features, syntax, parallel cleanup walker, post-failure allocation,
-or downstream authority proof. The broader BRA-505 activation migration still
-requires BRA-561. This slice alone cannot close BRA-505.
+or downstream authority proof. Reuse selected lifecycle expansion, existing
+cleanup outcomes and BRA-561 same-run activation. Remove replaced paths when
+switching consumers. A helper's organizational role does not justify a separate
+reservation. Measure production and test growth separately. Reconsider a design
+that duplicates structural traversal or introduces hidden blocking execution.
+
+## Current acceptance map
+
+| Obligation | Owning mechanism | Evidence or work remaining |
+| --- | --- | --- |
+| Completed whole finalizer | Execution candidate receiver evidence and verified pure/total result proof | Implemented shared source/imported completion for sync and async finalizers, including guarded Ok(unit). Mutation invalidation and missing imported evidence are covered. |
+| Normal ownership end | Checked cleanup transitions | Reject unresolved possibly fallible finalizers and async obligations in synchronous scopes. Preserve represented children after whole-value completion. |
+| Async ordinary cleanup | Shared lifecycle expansion, source continuations, protected frames | Replace immediate-call assumption with admitted same-run completion under the cleanup shield. |
+| Retained error ownership | Quiescence expansion, concrete outgoing backing, report chain | Connect production transfer only after child quiescence and abandoned destruction are complete. |
+| Inactive captures and partial owners | Existing frame state and initialized-part cleanup | Never execute an inactive body, never lose accepted captures or initialized prefixes. |
+| Composition and cost | Source/imported MIR and generated native products | Cover normal/abnormal exits, ordered incidents, large/aligned errors, denied allocation, exact release and link maps. |
+
+BRA-561 driver tests establish activation behavior, not these unconnected consumers.
+The original BRA-619 native transfer regression remains enabled and is required
+when completing its consumer PR. Run tests in coherent batches, then rustfmt,
+`cargo xtask style`, `cargo xtask format`, audit and independent PR review.
+
+## Completion proof checkpoint
+
+The async body proof now distinguishes pre-entry cancellation from cancellation
+inside the body. Only the former is excluded from execution guarantees. Ownership
+and unwind analysis retain both. Empty pure/total async finalizers can therefore
+be discharged without creating a Future. Await and panic still invalidate the
+corresponding body guarantees.
+
+Source and generated lifecycle selection share one completion predicate. It
+checks the exact applicable entry domain, including a guarded Ok(unit) proof that
+refines an unconditional total guarantee. Export carries inferred result tags as
+existing certified postconditions. Imports require that evidence and retain its
+dependencies. There is no new language syntax, interface field or ABI version.
+
+The focused execution, export and lifecycle realization batch passed 153 tests.
+This proves completion selection, not ordinary async cleanup execution or retained
+incident transfer. Those remain outstanding below. The next change will publish
+normal-exit legality with the same checked receiver evidence and make lowering
+consume that result.
 
 ## Ownership contract
 
@@ -55,7 +101,7 @@ helper. Neither proves retained incident quiescence. Future type-wide lifecycle
 needs currently report no work despite frame-owned captures, so that existing
 interpretation must not suppress quiescence of an erased future.
 
-## Dependency closure correction
+## Historical dependency closure correction
 
 The shared slice cannot yet be completed independently of BRA-561. In
 `native/run.rs::NativeRun::compose`, composition admits six records, calls
@@ -66,8 +112,8 @@ post-admission allocation denial. The generated finalizer helper in
 rather than driving an asynchronous finalizer. The static path has a separate
 activation bridge, not the missing ordinary admitted activation.
 
-The requested scope decision is therefore BRA-561, then BRA-505, then BRA-619.
-That extension is pending user response. No BRA-561 implementation has started.
+The user approved BRA-561, then BRA-505, then BRA-619. BRA-561 is now complete
+through independent review, as recorded in the active baseline above.
 
 ## Initial implementation checkpoint
 

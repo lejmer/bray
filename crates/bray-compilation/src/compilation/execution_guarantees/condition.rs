@@ -974,10 +974,14 @@ impl Compilation {
         body: &BoundUnitKey,
         callable: bray_symbols::CallableInstanceData,
         declaration: &bray_checker::ExecutionDeclaration,
-        property: bray_checker::ExecutionProperty,
+        required: bray_checker::ExecutionObligation,
         evidence: Option<&bray_checker::ExecutionCallEvidence>,
         cancellation: &CancellationToken,
     ) -> Result<Option<Option<SourceSpan>>, FactQueryError> {
+        let bray_checker::ExecutionObligation::Property(property, selected) = required else {
+            panic!("execution-domain selection requires a property obligation");
+        };
+
         let requirements = self.instance_execution_condition_inputs(
             body,
             callable,
@@ -1004,6 +1008,12 @@ impl Compilation {
             else {
                 continue;
             };
+
+            let clause = (!domain.guards.is_empty()).then_some(obligation.source.into());
+
+            if selected.is_some() && selected != clause {
+                continue;
+            }
 
             let guards = self.instance_execution_condition_inputs(
                 body,

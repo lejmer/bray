@@ -107,15 +107,78 @@ impl Compilation {
         }
 
         for (node, access, callable, result, evidence) in candidate.cleanup_candidates() {
-            if let Some(total) =
-                self.pure_total_execution(callable, Some(evidence), cancellation)?
-                && self.cleanup_result_is_success(callable, result, total, cancellation)?
-            {
+            if self.finalizer_is_complete(callable, result, Some(evidence), cancellation)? {
                 completed.insert((node, access));
             }
         }
 
         Ok(completed)
+    }
+
+    pub(in crate::compilation) fn finalizer_is_complete(
+        &self,
+        callable: CallableInstanceData,
+        result: bray_symbols::TypeId,
+        evidence: Option<&ExecutionCallEvidence>,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, FactQueryError> {
+        let Some(total) = self.pure_total_execution(callable, evidence, cancellation)? else {
+            return Ok(false);
+        };
+
+        if self.cleanup_result_is_success(callable, result, total, cancellation)? {
+            return Ok(true);
+        }
+
+        // A general total promise can return either Result case, while a more
+        // specific applicable domain proves Ok. Every applicable guarantee holds.
+        let alternatives = if let Some(body) = self.callable_body_key(callable.definition())? {
+            let candidates = self.execution_candidates_with_cancellation(body, cancellation)?;
+
+            candidates
+                .result()
+                .value()
+                .keys()
+                .copied()
+                .collect::<Vec<_>>()
+        } else {
+            let mut diagnostics = DiagnosticBag::new();
+
+            let contract =
+                self.imported_execution_contract(callable, &mut diagnostics, cancellation)?;
+
+            contract
+                .domains
+                .iter()
+                .filter(|domain| domain.properties.contains(&ExecutionProperty::Total))
+                .map(|domain| {
+                    ExecutionObligation::Property(
+                        ExecutionProperty::Total,
+                        Some(bray_checker::ExecutionClauseId::Imported(domain.ordinal)),
+                    )
+                })
+                .collect()
+        };
+
+        for required in alternatives {
+            if required == total
+                || !matches!(
+                    required,
+                    ExecutionObligation::Property(ExecutionProperty::Total, Some(_))
+                )
+            {
+                continue;
+            }
+
+            if let Some(selected) =
+                self.verified_execution_obligation(callable, required, evidence, cancellation)?
+                && self.cleanup_result_is_success(callable, result, selected, cancellation)?
+            {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
     }
 
     fn cleanup_result_is_success(
@@ -169,7 +232,7 @@ impl Compilation {
         }
 
         let Some(body) = self.callable_body_key(callable.definition())? else {
-            return Ok(false);
+            return self.imported_cleanup_result_is_success(callable, total, cancellation);
         };
 
         let candidates = self.execution_candidates_with_cancellation(body, cancellation)?;
@@ -185,6 +248,64 @@ impl Compilation {
                 .result_representation()
                 .is_some_and(|representation| representation.success_variant() == variant)
         }))
+    }
+
+    fn imported_cleanup_result_is_success(
+        &self,
+        callable: CallableInstanceData,
+        total: ExecutionObligation,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, FactQueryError> {
+        let ExecutionObligation::Property(
+            ExecutionProperty::Total,
+            Some(bray_checker::ExecutionClauseId::Imported(ordinal)),
+        ) = total
+        else {
+            panic!("imported finalizer completion retains its certified total entry domain");
+        };
+
+        let mut diagnostics = DiagnosticBag::new();
+
+        let contract =
+            self.imported_execution_contract(callable, &mut diagnostics, cancellation)?;
+
+        let domain = contract
+            .domains
+            .iter()
+            .find(|domain| domain.ordinal == ordinal)
+            .expect("certified imported execution domain must exist");
+
+        let success = self
+            .available_compiler_known_symbols()
+            .result_representation()
+            .expect("Result finalizer has the checked Result representation")
+            .success_variant();
+
+        let expected = bray_checker::ExecutionCondition::VariantTest(
+            success,
+            std::sync::Arc::new(bray_checker::ExecutionCondition::Result),
+        );
+
+        for (post, term) in &*domain.postconditions {
+            let conditions = self.imported_execution_conditions(callable, [*term], cancellation)?;
+
+            if conditions.as_slice() == std::slice::from_ref(&expected)
+                && self
+                    .verified_execution_obligation(
+                        callable,
+                        ExecutionObligation::Postcondition(
+                            bray_checker::ExecutionClauseId::Imported(*post),
+                        ),
+                        None,
+                        cancellation,
+                    )?
+                    .is_some()
+            {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
     }
 
     pub(in crate::compilation) fn verified_execution_obligation(
@@ -207,7 +328,7 @@ impl Compilation {
                         &body,
                         callable,
                         declaration.value(),
-                        property,
+                        required,
                         evidence,
                         cancellation,
                     )?
@@ -455,6 +576,101 @@ mod tests {
     }
 
     #[test]
+    fn async_execution_certification_keeps_body_cancellation_and_suspension() {
+        for (body, valid) in [
+            ("", true),
+            ("await child();", false),
+            ("panic(\"failure\");", false),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+                async func child()
+                {{
+                }}
+                async func root() executes(pure, total)
+                {{
+                    {body}
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+
+            let checked = compilation
+                .execution_properties(source_function_body_key(&compilation, "root"))
+                .unwrap();
+
+            assert_eq!(
+                !checked.diagnostics().has_errors(),
+                valid,
+                "{source}: {checked:#?}"
+            );
+
+            if !valid {
+                assert!(
+                    checked
+                        .diagnostics()
+                        .iter()
+                        .any(|diagnostic| {
+                            diagnostic.kind()
+                    == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven
+                        })
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn completed_async_finalizers_do_not_construct_futures() {
+        for (requirement, operation, completed) in [
+            ("value.ready", "", true),
+            ("!value.ready", "", false),
+            ("value.ready", "value.ready = false;", false),
+            ("!value.ready", "value.ready = true;", true),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+                struct Value
+                {{
+                    mut ready: bool;
+                    async finalize()
+                        when(self.ready) {{ executes(pure, total) }}
+                    {{
+                        if !self.ready
+                        {{
+                            panic("unfinished");
+                        }}
+                    }}
+                    destruct()
+                    {{
+                        self.ready = false;
+                    }}
+                }}
+                func root(pos mut value: Value)
+                    requires({requirement})
+                {{
+                    {operation}
+                }}
+            "#
+            );
+
+            let mir = assert_cleanup_selection(&source, completed);
+
+            if completed {
+                assert!(
+                    mir.operations().iter().all(|operation| !matches!(
+                        operation.kind(),
+                        MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
+                    )),
+                    "discharged finalizer must not construct a future: {mir:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn replacement_uses_old_value_after_rhs_evaluation() {
         for (replacement, completed) in [
             ("Value { ready = false }", true),
@@ -497,25 +713,59 @@ mod tests {
 
     #[test]
     fn successful_unit_result_selects_cleanup() {
-        for (result, completed) in [("Ok(unit)", true), ("Error(true)", false)] {
-            let source = format!(
-                r#"
-                module app;
-                struct Value
-                {{
-                    finalize() -> Result<unit, bool>
-                        executes(pure, total)
+        for execution in ["", "async "] {
+            for (result, completed) in [("Ok(unit)", true), ("Error(true)", false)] {
+                let source = format!(
+                    r#"
+                    module app;
+                    struct Value
                     {{
-                        return {result};
+                        {execution}finalize() -> Result<unit, bool>
+                            executes(pure, total)
+                        {{
+                            return {result};
+                        }}
                     }}
-                }}
-                func root(pos value: Value)
-                {{
-                }}
-            "#
-            );
+                    func root(pos value: Value)
+                    {{
+                    }}
+                "#
+                );
 
-            assert_cleanup_selection(&source, completed);
+                assert_cleanup_selection(&source, completed);
+            }
+        }
+    }
+
+    #[test]
+    fn a_guarded_success_proof_refines_general_total_finalization() {
+        for execution in ["", "async "] {
+            for (condition, completed) in [("value.ready", true), ("!value.ready", false)] {
+                let source = format!(
+                    r#"
+                    module app;
+                    struct Value
+                    {{
+                        ready: bool;
+                        {execution}finalize() -> Result<unit, bool>
+                            executes(pure, total)
+                            when(self.ready) {{ executes(pure, total) }}
+                        {{
+                            if self.ready
+                            {{
+                                return Ok(unit);
+                            }}
+                            return Error(true);
+                        }}
+                    }}
+                    func root(pos value: Value) requires({condition})
+                    {{
+                    }}
+                "#
+                );
+
+                assert_cleanup_selection(&source, completed);
+            }
         }
     }
 

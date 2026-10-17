@@ -494,11 +494,33 @@ fn owned_indirection_uses_storage_policy_teardown() {
 
 #[test]
 fn completed_unit_finalizer_omits_only_its_invocation() {
-    for (guarantees, calls) in [
-        ("executes(pure, total)", 0),
-        ("executes(pure)", 1),
-        ("executes(total)", 1),
-        ("", 1),
+    for (execution, result, body, guarantees, calls) in [
+        ("", "", "", "executes(pure, total)", 0),
+        ("", "", "", "executes(pure)", 1),
+        ("", "", "", "executes(total)", 1),
+        ("", "", "", "", 1),
+        ("async ", "", "", "executes(pure, total)", 0),
+        (
+            "",
+            "-> Result<unit, bool>",
+            "return Ok(unit);",
+            "executes(pure, total)",
+            0,
+        ),
+        (
+            "async ",
+            "-> Result<unit, bool>",
+            "return Ok(unit);",
+            "executes(pure, total)",
+            0,
+        ),
+        (
+            "",
+            "-> Result<unit, bool>",
+            "return Error(true);",
+            "executes(pure, total)",
+            1,
+        ),
     ] {
         let compilation = compilation(&format!(
             r#"
@@ -506,9 +528,10 @@ fn completed_unit_finalizer_omits_only_its_invocation() {
 
                 struct Value
                 {{
-                    finalize()
+                    {execution}finalize() {result}
                         {guarantees}
                     {{
+                        {body}
                     }}
 
                     destruct()
@@ -541,6 +564,13 @@ fn completed_unit_finalizer_omits_only_its_invocation() {
 
         assert_eq!(finalized.operations().iter().filter(|operation|
             matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Direct(_)))).count(), calls);
+
+        if calls == 0 {
+            assert!(finalized.operations().iter().all(|operation| !matches!(
+                operation.kind(),
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
+            )));
+        }
 
         let destroyed =
             generated_lifecycle(&compilation, &target, MirHelperReference::Destroy(ty), 191);

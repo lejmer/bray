@@ -155,6 +155,8 @@ pub(crate) enum AnalysisEdgeKind {
     Panic,
     Suspension,
     Resume,
+    /// Cancellation before an asynchronous body begins execution.
+    EntryCancellation,
     RunCancellation,
     ScopeExit,
     Yield,

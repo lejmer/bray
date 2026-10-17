@@ -46,10 +46,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                     &mut state,
                     operation.kind(),
                     Some(&mut |access, slot, lifecycle, whole, evidence, _| {
-                        if !lifecycle.synchronous {
-                            return;
-                        }
-
                         let node = match operation.kind() {
                             super::super::model::AnalysisOperationKind::ScopeExit {
                                 exit, ..
@@ -68,6 +64,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                                 .or_insert_with(|| {
                                     (lifecycle.callable, lifecycle.result, evidence.clone())
                                 });
+                        }
+
+                        // Whole-value completion can omit an async finalizer without
+                        // constructing its future. Invocation certification still distinguishes
+                        // synchronous execution from deferred execution.
+                        if !lifecycle.synchronous {
+                            return;
                         }
 
                         candidate
@@ -142,12 +145,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
             if normal_exit_blocks.contains(&block.id()) {
                 let mut result = &state.result;
 
-                while let crate::ExecutionCondition::Constructed(base, _) = result {
+                while let ExecutionCondition::Constructed(base, _) = result {
                     result = base;
                 }
 
                 results.insert(match result {
-                    crate::ExecutionCondition::Tagged(variant, _) => Some(*variant),
+                    ExecutionCondition::Tagged(variant, _) => Some(*variant),
                     _ => None,
                 });
             }
@@ -271,8 +274,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             bray_bound_tree::BoundExecutionSite::Node(_) => return None,
         };
 
-        let input = crate::ExecutionPlace::from(BoundReferenceTarget::Surface(input));
-        let ordinal = crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
+        let input = ExecutionPlace::from(BoundReferenceTarget::Surface(input));
+        let ordinal = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
 
         let transferred = if consumes {
             BTreeSet::from([input.clone(), ordinal.clone()])
@@ -331,7 +334,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .iter()
                     .map(|(input, expression)| {
                         (
-                            crate::ExecutionPlace::from(*input),
+                            ExecutionPlace::from(*input),
                             self.invocation_value(state, *expression),
                         )
                     })
@@ -366,8 +369,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .checked_add(u32::from(call.receiver().is_some()))
                     .expect("selected call argument ordinal must fit receiver-first order");
 
-                let ordinal =
-                    crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal));
+                let ordinal = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal));
 
                 if !matches!(
                     self.request
@@ -389,11 +391,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if let Some(receiver) = call.receiver() {
-            let reference = crate::ExecutionPlace::from(BoundReferenceTarget::Surface(
-                receiver.parameter().into(),
-            ));
+            let reference =
+                ExecutionPlace::from(BoundReferenceTarget::Surface(receiver.parameter().into()));
 
-            let ordinal = crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
+            let ordinal = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
             let value = self.value(state, receiver.expression());
 
             if matches!(
@@ -522,10 +523,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         expression: BoundExpressionId,
-        observations: &BTreeMap<
-            bray_bound_tree::BoundExpressionId,
-            BTreeSet<bray_bound_tree::StoragePath>,
-        >,
+        observations: &BTreeMap<BoundExpressionId, BTreeSet<bray_bound_tree::StoragePath>>,
     ) {
         let result = self.invocation_value(state, expression.into());
 
@@ -576,7 +574,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             .unwrap_or(ExecutionCondition::Unknown)
                     },
                     &result,
-                    &mut { crate::ExecutionCondition::WORK_LIMIT },
+                    &mut { ExecutionCondition::WORK_LIMIT },
                 );
 
                 if condition == ExecutionCondition::Unknown {
