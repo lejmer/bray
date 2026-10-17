@@ -1,4 +1,4 @@
-# BRA-505 retained incident prerequisite
+# BRA-505 ordinary finalization and retained incidents
 
 ## Active agreement and baseline
 
@@ -12,7 +12,8 @@ at `6bbcb4a3` on `feature/bra-619-complete-selected-scope-native-cleanup`.
 The active contract includes ordinary async and fallible finalization, completed
 whole-value omission, synchronous-scope legality, inactive Future cleanup, retained
 error quiescence and disposal, admitted backing transfer and run-owned incidents.
-The old prerequisite slice below is not the full issue.
+Remove this temporary record after BRA-505 acceptance and independent review are complete.
+Carry only still-needed inputs into the BRA-619 record. No handoff should survive its stack.
 
 No new language features, syntax, parallel cleanup walker, post-failure allocation,
 or downstream authority proof. Reuse selected lifecycle expansion, existing
@@ -20,6 +21,13 @@ cleanup outcomes and BRA-561 same-run activation. Remove replaced paths when
 switching consumers. A helper's organizational role does not justify a separate
 reservation. Measure production and test growth separately. Reconsider a design
 that duplicates structural traversal or introduces hidden blocking execution.
+
+## Pull request description contract
+
+Use a lower-case Conventional Commits title without a parenthesized scope.
+Descriptions contain `## Change Summary` with imperative summary items and
+`## Related Issues` with links displayed as issue IDs only. Keep verification,
+test steps and agent workflow details in comments or this tracked record.
 
 ## Current acceptance map
 
@@ -56,6 +64,52 @@ This proves completion selection, not ordinary async cleanup execution or retain
 incident transfer. Those remain outstanding below. The next change will publish
 normal-exit legality with the same checked receiver evidence and make lowering
 consume that result.
+
+## Normal ownership-end checkpoint
+
+The checker now records represented finalizers and distinguishes normal from
+abnormal cleanup paths. One immutable cleanup publication certifies completion
+and reports unresolved normal finalization or asynchronous cleanup in synchronous
+scopes. Diagnostics and lowering consume that publication. Lowering does not
+repeat the proof. Omission still requires pure, total, successful execution.
+Successful verified postconditions also establish infallibility without total,
+while retaining invocation. Explicit calls and implicit finalizers share the
+existing normalized completion-contract producer.
+
+The pre-repair broad compilation run completed 1,734 tests in 1,007.562 seconds:
+1,732 passed, two failed. The last caught-input storage stress case accounted for
+727.067 seconds and passed. Do not repeat this unchanged broad run for every
+checkpoint. The separate diagnostic JSON regression passed.
+
+- `scoped_selected_calls_emit_native_artifacts` still reaches the planned missing
+  `CleanupIncidentTransfer` integration. Keep it enabled through BRA-619 acceptance.
+- `library_preserves_main_thread_cleanup_without_selecting_a_runtime` exposed a
+  missing direct dependency on an admitted static finalizer's frame constructor.
+  The current repair preserves concrete outgoing callees until static dependency
+  collection, then maps them to existing codegen requirements. The audit also
+  found discharge operations using those frame descriptors without declaring
+  their constructor dependencies. Admission and discharge now retain the same
+  required definitions. The existing native planning regression passes.
+
+The combined batch passed 339 of 340 tests before the final discharge fix. It
+covers source/imported completion, guarded successful results, postcondition-only
+infallibility, mutation, moves, wrappers, partial and discarded owners, retained
+child finalization, static mappings, diagnostic output and query profiling. After
+the discharge fix, all 18 affected native planning and outgoing-ownership tests
+passed. Formatting, readiness and publication are still pending. Ordinary async
+activation, inactive abandonment and retained incident integration remain
+outstanding in the acceptance map.
+
+The maintainability audit searched the changed behavior categories across the
+repository: normal cleanup classification, finalizer proof and postconditions,
+query publication and snapshot reuse, structured diagnostics, concrete outgoing
+requirements and native frame dependencies. Normal classification and requirement
+construction each have one shared implementation. Explicit calls and implicit
+finalizers share normalized completion contracts. The old pure/total wrapper was
+removed after its logic moved into the three-way finalizer disposition. Static
+requirements retain existing concrete callees until dependency collection rather
+than reconstructing them from a key. No language syntax, ABI version, cleanup
+engine or runtime allocation was added.
 
 ## Ownership contract
 
@@ -101,75 +155,20 @@ helper. Neither proves retained incident quiescence. Future type-wide lifecycle
 needs currently report no work despite frame-owned captures, so that existing
 interpretation must not suppress quiescence of an erased future.
 
-## Historical dependency closure correction
+## Remaining implementation
 
-The shared slice cannot yet be completed independently of BRA-561. In
-`native/run.rs::NativeRun::compose`, composition admits six records, calls
-`NativeFrame::try_new`, and allocates a boxed activation. `NativeFrame::try_new`
-also allocates completion backing. Reusing that path after failure would violate
-post-admission allocation denial. The generated finalizer helper in
-`synthetic/lifecycle/calls.rs::push_lifecycle_call` uses an immediate call result
-rather than driving an asynchronous finalizer. The static path has a separate
-activation bridge, not the missing ordinary admitted activation.
+Ordinary generated finalizer calls still assume synchronous results. Connect their
+asynchronous completion to the admitted same-run activation, retaining the cleanup
+shield and all source continuations. Planning must use selected cleanup semantics
+rather than generate MIR solely to discover admission needs.
 
-The user approved BRA-561, then BRA-505, then BRA-619. BRA-561 is now complete
-through independent review, as recorded in the active baseline above.
+Quiescence exists in checked selection, MIR, serialization, realization and LLVM
+dispatch, but no production incident producer uses it yet. Erased futures,
+generators and raw-buffer initialized prefixes need complete retained-child
+resolution. Source destructor field cleanup must not replay abandoned graceful
+finalizers. Connect concrete backing transfer and the existing report chain only
+after those obligations are handled. Do not use the older static bridge's separate
+activation or immediate disposal as the implementation of ordinary cleanup.
 
-## Initial implementation checkpoint
-
-Added an internal quiescence operation through checked local action selection,
-MIR, helper realization, serialization, inspection and LLVM dispatch. It uses
-existing structural expansion and task resolution, retaining terminal handles and
-owner credits. It is not connected to a production incident producer yet.
-
-Quiescence needs propagate independently of destruction and cancellation needs.
-Erased futures must not be classified as trivial. Their still-missing admitted
-capture-cleanup activation fails explicitly at lifecycle selection. Generator
-quiescence also remains unimplemented and fails at the existing exhaustive-role
-boundary. This checkpoint is not completion evidence for retained incidents.
-
-Remaining work is admitted inactive-capture resolution, abandoned synchronous
-destruction, concrete backing transfer, run-owned report retention and consumer
-integration. Native and composition acceptance, formatting, audit and review must
-precede any issue-completion claim.
-
-## Checkpoint audit
-
-Re-read AGENTS.md and checked every changed production file. Searched lifecycle
-selection, helper identity/substitution, MIR operand and storage walkers, validation,
-codegen demand/dispatch, executable encoding/decoding and tooling inspection for
-all finalization/destruction siblings. Quiescence uses those existing paths rather
-than a second visitor or generated-body cache. The executable operation tag is 25,
-which is distinct from the host-content tag 24. Production changes add one internal
-operation and phase, not source syntax or a new runtime owner.
-
-The represented-owner audit also leaves explicit acceptance work: raw buffers carry
-an initialized element prefix that declared-field traversal alone cannot visit.
-Their quiescence need and initialized-prefix operation must be connected before a
-producer can retain arbitrary errors. Generator and erased-frame work likewise
-remain prerequisites, not test exclusions that establish completion. Existing
-source-destructor field cleanup can still invoke graceful child finalizers, so
-ordinary `Destroy` is not yet an abandoned-incident disposal operation.
-
-No incident producer has been switched to this unfinished path. No PR is ready for
-review or merge, and no issue is complete. Independent PR review remains required
-after the implementation and acceptance are complete.
-
-## Verification at the checkpoint
-
-The focused lifecycle realization suite passed 47 tests. The full checker, MIR,
-lowering and package-interface suites passed 321, 44, 39 and 190 tests respectively.
-Their doc tests passed. `cargo +stable fmt --all`, `cargo xtask style`,
-`cargo xtask format` and `git diff --check` completed successfully. Structural
-style reported existing module-size warnings. No native retained-incident test
-has passed because the production transfer remains unconnected.
-
-Rust changes total 270 added and 26 removed lines. Of those, 172 added and 4
-removed lines are tests. The remaining 98 added and 22 removed production lines
-extend existing lifecycle paths. No new helper framework, runtime allocation or
-second structural traversal was added. The new internal operation is necessary
-to distinguish retaining a quiescent error from finalizing or destroying it.
-
-Builds reused the shared `C:/Users/anton/source/repos/bray/target` and its existing
-LLVM toolchain. No task-owned target or toolchain was created. The checkpoint's
-build and test processes have exited.
+After the production acceptance matrix passes, complete the audit, push, independent
+PR review and any fixes. Update BRA-619's remaining inputs, then delete this record.

@@ -1,121 +1,51 @@
 # Runtime stack execution from Linear
 
-## Agreed semantics and active implementation, 2026-10-13
+## Current work
 
-The user accepted the closed observation dependencies and explicit trusted establishment/preservation boundary in the
-[semantic proof](runtime-stack-semantic-proof.md), then authorized completing steps 1 and 2. The normative contract is
-in [contract reasoning](../language/contracts-and-trust/contract-reasoning.md),
-[trusted callers](../language/contracts-and-trust/trusted-caller-obligations.md) and
-[witnesses](../language/contracts-and-trust/trusted-witness-values.md).
+The authority and cleanup foundation landed in [#607](https://github.com/lejmer/bray/pull/607).
+Physical backing, entry authority and incident consumption landed in
+[#608](https://github.com/lejmer/bray/pull/608), [#609](https://github.com/lejmer/bray/pull/609)
+and [#610](https://github.com/lejmer/bray/pull/610).
+BRA-561 is implemented and independently reviewed in [#611](https://github.com/lejmer/bray/pull/611).
+Continue BRA-505 in [#612](https://github.com/lejmer/bray/pull/612), then BRA-619,
+with one reviewed stacked PR per issue. Do not merge without user approval.
 
-The Steps 1-4 integration used `feature/trusted-storage-integration`, baseline `e3f56424` and proof checkpoint `7f300ef2`. Its squash merge is the base of the current per-issue stack below.
-Steps 1 and 2 are complete. Shared authority analysis and its required removals passed published review at
-`5144e732`. Step 3 production migration is complete at `a3de1083` with clean published review.
-Step 4 dependency retirement and cleanup composition is complete at `246c4db3` with [clean published review](https://github.com/lejmer/bray/pull/607#pullrequestreview-5526458884).
-The [Step 4 record](BRA-620-step4.md) contains its mapping, findings and acceptance evidence.
-Dated progress entries below are historical evidence. The current verification checkpoint supersedes their status.
+Use [the active BRA-505 record](BRA-505-retained-incidents.md) for the branch,
+requirements, evidence and next work. [BRA-619 acceptance](BRA-619-remaining-work.md)
+remains required after the shared incident prerequisite. Its earlier selected-scope
+implementation is already included. Do not replay the old stack.
 
-Updated 2026-10-12. The user accepted the architectural groundwork and requested executable Linear issues.
-This checkpoint prepares that work. No new compiler, runtime or test behavior was implemented during issue preparation.
-Start with [BRA-620](https://linear.app/bray-lang/issue/BRA-620). Follow actual blocking relations and each issue's
-current implementation contract. No chat transcript is needed.
+## Contracts and issue ownership
 
-## Current implementation checkpoint
+- [Rule coverage and replacement plan](runtime-stack-rule-coverage.md) defines the architectural work.
+- [Semantic proof](runtime-stack-semantic-proof.md) derives the agreed rules from the language.
+- [Closed inventory](runtime-stack-coverage-inventory.md) maps operations to the rule owners.
 
-Steps 1-4 landed through [PR #607](https://github.com/lejmer/bray/pull/607), squash commit
-`f188b2b6226b0457211e16f092369c8e2570003a`. The five original branches remain historical.
+The language specification and design documents remain authoritative. Linear issue descriptions
+contain each owner's work and acceptance. Follow their current blocking relations. No new syntax,
+field privacy assumption, library-name authority, runtime witness registry or downstream semantic
+revalidation is authorized. Discuss a language gap before adding a feature.
 
-Step 5 is complete in the following stack, reviewed against each direct predecessor:
+## Handoff lifetime
 
-| Issue | PR | Status and evidence |
-| --- | --- | --- |
-| BRA-502 | [#608](https://github.com/lejmer/bray/pull/608) | Ready, In Review. See [physical backing record](BRA-502-implementation.md). |
-| BRA-554 | [#609](https://github.com/lejmer/bray/pull/609) | Ready, In Review at `5b4831a0`, [clean review](https://github.com/lejmer/bray/pull/609#pullrequestreview-5534605036). |
-| BRA-558 | [#610](https://github.com/lejmer/bray/pull/610) | Ready, In Review at `08234a71`, [clean re-review](https://github.com/lejmer/bray/pull/610#pullrequestreview-5536988875). [Incident record](BRA-558-implementation.md) retains acceptance and the resolved capture finding. |
+Keep only documents used by unfinished work. Completed issue records and superseded proposals
+are removed. Their evidence remains in Git and PR history. Delete the BRA-505 record after its
+acceptance and review are complete, carrying only BRA-619's remaining inputs into its active record.
+Delete the BRA-619 record when that issue's implementation, review and fixes are pushed.
+Before finishing the stack, remove its remaining handoffs. Preserve any still-needed architectural
+contract in its owning design documentation and any broader initiative work in its open Linear
+issues, then remove this temporary execution guide, proof, coverage plan and inventory.
 
-Continue from the head of BRA-558, not an old BRA-619 branch. Step 6 completes BRA-619's retained
-selected-scope implementation and native transfer acceptance. Then follow the Step 7 order below.
-Do not replay prerequisite commits or wait for their merges. Retarget dependent PRs as predecessors land.
+## Later initiative work
 
-## Delivery decision, 2026-10-15
-
-The user authorized readying and squash-merging #607 into develop at the completed Steps 1-4 boundary.
-BRA-619's earlier implementation is included, but its native `CleanupIncidentTransfer` gap remains open and its
-regression stays enabled. The merge does not complete that issue or the broader runtime initiative.
-
-Continue with one PR per issue: BRA-502, BRA-554, BRA-558, then
-BRA-619's remaining native acceptance. Continue Step 7 in the existing dependency order, also one PR per issue.
-Stack dependent PRs on their prerequisite branches without waiting for merges, as authorized on 2026-10-15.
-BRA-502 starts from squash commit `f188b2b6` on develop. Retarget descendants as prerequisites merge.
-Keep the old branches and review history. Do not replay the squashed integration commits. Every issue retains its
-own acceptance and independent review cycle. BRA-619's pending-outcome, typed-payload and provider-lifetime contracts
-continue to constrain prerequisite design. This decision supersedes earlier instructions to keep #607 draft or finish
-Steps 5-6 inside it.
-
-## Original recovery checkpoint, retained as history
-
-Repository: https://github.com/lejmer/bray
-Original repair branch: `feature/bra-620-repair-synchronization-authority`.
-Implementation recovery commit: `c744f48bc0cb5afee30351d2b91bdfafdcea0583`. This preserves the inherited incomplete repair.
-The documentation commit that first adds this guide is its direct successor and is the preferred starting checkpoint.
-
-For recovery of that historical checkpoint, fetch the original repair branch and inspect it. Reuse the existing repair worktree if it is
-available and matches the published checkpoint. Otherwise create a clean checkout from the checkpoint, preserving any
-other local work. Never reset an occupied worktree to follow this guide.
-
-The original `feature/bra-620-complete-standard-library-trusted-storage-and-foreign` branch is historical stack ancestry.
-It is not the restart branch. Its head `22473ff6384db081ad3e131e0726e16e7ff9c682` is already included.
-The combined parent is `cca4bd4429d0648cae0493db72045b7d4a7a3e73`. All five live heads below were verified ancestors
-before the checkpoint. Do not replay them or backmerge this combined descendant into the old BRA-620 PR.
-
-| Issue | Existing PR | Included head |
-| --- | --- | --- |
-| BRA-609 | [#601](https://github.com/lejmer/bray/pull/601) | `f244c10c2dda07ca6fc9bb69a5483215e5feb724` |
-| BRA-619 | [#602](https://github.com/lejmer/bray/pull/602) | `e3dbc6c5baca462ba185d902649534cb86a8cc4f` |
-| BRA-620 | [#604](https://github.com/lejmer/bray/pull/604) | `22473ff6384db081ad3e131e0726e16e7ff9c682` |
-| BRA-621 | [#605](https://github.com/lejmer/bray/pull/605) | `fb69346e31b225c39105d095e9f900c9cebad97c` |
-| BRA-553 | [#606](https://github.com/lejmer/bray/pull/606) | `cca4bd4429d0648cae0493db72045b7d4a7a3e73` |
-
-The recovery commit is deliberately incomplete and has no new acceptance claim. Earlier focused origin, authority,
-style and native results apply only to their recorded checkpoints. Known remaining areas include the complete guard
-carrier and mutation rules, Once protocol authority, RwLock overflow, report-pool construction, removal of repeated
-analysis, and full source/import/native acceptance. Keep useful implementations and regressions. The removal ledger
-identifies the superseded mechanisms. Do not treat all inherited code as either finished or disposable.
-
-## Documents and authority
-
-- [Rule coverage and replacement plan](runtime-stack-rule-coverage.md) is the current architectural implementation contract.
-- [Closed inventory](runtime-stack-coverage-inventory.md) maps 461 entries to its 32 rules.
-- [Architectural assessment](stack-architecture-assessment.md) retains source findings and growth attribution.
-- [Earlier proposal](runtime-stack-implementation-plan.md) is historical and superseded.
-- [BRA-620 evidence](BRA-620-remaining-work.md) and [stack evidence](stack-completion.md) retain dated results.
-
-The plan, inventory and assessment are also tracked as documents attached to BRA-620 in Linear.
-Repository documents remain the versioned source. Linear issue descriptions contain the actual work, removals and
-acceptance needed for each owner, with immutable links to this checkpoint. Update the repository plan and affected
-issues together when a material design decision changes. Do not create a competing plan in comments.
-
-Language/specification and design ownership remain authoritative. No new syntax, protected initialized-storage type,
-field privacy assumption, library-name authority, runtime witness registry or downstream semantic revalidation is part
-of this plan. If the model cannot express a required rule, discuss that specific rule and costs before adding a mechanism.
-
-## Execution and publication
-
-1. Land the reviewed Steps 1-4 integration through the user-authorized squash merge of #607 into develop.
-2. Keep BRA-619 open and retain its failing native regression. Its included partial implementation is the starting point.
-3. Deliver BRA-502 physical backing, BRA-554 entry and BRA-558 incident consumption in dependency order, one PR per issue.
-4. Finish BRA-619 in its own PR using those shared contracts, including sync/async native scope outcomes.
-5. Stack the remaining protocol issues on their actual prerequisites, one issue and one PR at a time. Each consumer migration
-   switches real callers and removes replaced Rust policy in that issue.
-6. Complete packaging, native conformance and numerical cost gates through their existing issue owners.
-
-The later sequence is synchronous teardown/TLS BRA-556/557 -> synchronous checkpoint BRA-608 -> providers BRA-555.
-Activation BRA-561 can proceed after its own BRA-502/553 prerequisites. Continue BRA-505 -> BRA-506 -> BRA-508 and
-BRA-484. Task/wait/lane/event/deadline work is BRA-560 -> BRA-562 -> BRA-563 -> BRA-564 -> BRA-565.
-Workers BRA-566 require providers, TLS and events, then BRA-567 root and BRA-507 fallback. BRA-559 child test host
-requires deadlines, fallback and incidents. BRA-568 packages the completed consumers. BRA-552 catalog completeness
-can proceed early. BRA-192 and BRA-540/541/542 provide final native and cost acceptance. Existing parent and optimization
-issues roll up their actual remaining requirements. See real Linear relations for independent branches and cross-dependencies.
+Beyond the current BRA-505/BRA-619 stack, follow the existing issue dependencies, one PR per issue.
+The later sequence includes synchronous teardown/TLS BRA-556/557, synchronous checkpoint BRA-608,
+providers BRA-555, represented owners BRA-506/508/484, task/wait/lane/event/deadline work
+BRA-560/562/563/564/565, workers BRA-566, roots BRA-567, fallback BRA-507 and child test hosts BRA-559.
+BRA-568 packages completed consumers. BRA-552 owns catalog completeness. BRA-192 and
+BRA-540/541/542 own final native and cost acceptance. These are not additional work silently added
+to the current stack. Consult current Linear status rather than treating the original inventory
+below as a list of open issues.
 
 ## Issue ownership
 

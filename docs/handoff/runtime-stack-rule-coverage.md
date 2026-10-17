@@ -8,18 +8,15 @@ in [contract reasoning](../language/contracts-and-trust/contract-reasoning.md),
 [trusted callers](../language/contracts-and-trust/trusted-caller-obligations.md) and
 [witnesses](../language/contracts-and-trust/trusted-witness-values.md).
 
-Continue on the existing repair branch. The implementation baseline is `e3f56424`, with proof checkpoint `7f300ef2`.
-Steps 1 and 2 are complete. Step 3 production migration is authorized and tracked in
-[BRA-620 Step 3](BRA-620-step3.md). The user also authorized a bounded dependency-retirement and cleanup-composition
-step after Step 3's acceptance, push and review. The later backing/runtime work remains in sequence.
-Historical test results below remain evidence, not current acceptance.
+Steps 1-4 are complete in [PR #607](https://github.com/lejmer/bray/pull/607).
+The backing, entry and incident prerequisites are merged. BRA-561 is reviewed.
+The active sequence is BRA-505, then BRA-619. The rule map below remains the
+implementation contract for unfinished consumers. Earlier baseline findings are
+not current status or new authorization.
 
-Prepared on 2026-10-12. The user accepted the groundwork and requested actionable Linear issues.
 See the [Linear execution guide](runtime-stack-linear-execution.md) for the recoverable starting state and publication order.
-This update prepares the issues and preserves existing code. It does not start implementation.
 
-This replaces the design choices and implementation sequence in the [earlier proposal](runtime-stack-implementation-plan.md).
-The [assessment](stack-architecture-assessment.md) retains the measured growth and earlier source findings.
+This is the retained implementation plan. Superseded proposals and assessments have been removed.
 This document is an implementation contract for the affected ownership, authority and runtime domains. It is not a
 claim that the current compiler implements them, a formal verification of Bray, or fresh performance evidence.
 
@@ -542,7 +539,7 @@ protected types, per-lock identity checks or standalone token factories.
 
 ### 4. Establish dependency retirement and cleanup composition
 
-Under BRA-620, follow [the bounded Step 4 map and acceptance record](BRA-620-step4.md). Establish retirement
+Completed under BRA-620 in [PR #607](https://github.com/lejmer/bray/pull/607). The acceptance contract covers retirement
 including pending cleanup and surviving owners, consistent guarded cleanup operations and outcomes, explicit missing
 internal handling, and composition across construction, moves, mutation, branches, cancellation, destruction,
 temporary/discarded owners and imported contracts. Map evidence before edits. Repair only concrete gaps in their
