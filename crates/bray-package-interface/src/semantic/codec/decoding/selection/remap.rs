@@ -289,8 +289,16 @@ fn remap_dependency_contract(
     for effect in Arc::make_mut(&mut contract.effects) {
         use bray_symbols::DependencyStorageEffect;
 
+        if let DependencyStorageEffect::Direct { kind, .. }
+        | DependencyStorageEffect::Indirect { kind, .. } = effect
+        {
+            *kind = kind.try_map_type(|ty| maps.type_id(ty))?;
+        }
+
         match effect {
-            DependencyStorageEffect::Atomic | DependencyStorageEffect::Unknown => {}
+            DependencyStorageEffect::Atomic
+            | DependencyStorageEffect::Unknown
+            | DependencyStorageEffect::Escape => {}
             DependencyStorageEffect::Cleanup(ty) => {
                 *ty = maps.type_id(*ty)?;
             }

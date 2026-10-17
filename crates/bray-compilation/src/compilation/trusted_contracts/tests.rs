@@ -185,7 +185,7 @@ fn native_pointer_types_do_not_bound_unknown_effects() {
     for body in [
         "trusted touch_word(core.memory.address_of<u32>(&owner.value));",
         "trusted touch_marker(core.memory.address_of<Marker>(&owner.marker));",
-        "let address = core.memory.address_of<Marker>(&owner.marker); trusted opaque();",
+        "let address = core.memory.address_of<Marker>(&owner.marker); trusted touch_marker(address); trusted opaque();",
     ] {
         let source = format!(
             r#"
@@ -3433,7 +3433,7 @@ fn opaque_effects_preserve_unexposed_pointer_identity_without_preserving_authori
         ("", true, true),
         ("", false, false),
         (
-            "let escaped = core.memory.address_of_mut<RawPointer<u8>>(&mut pointer);",
+            "let escaped = core.memory.address_of_mut<RawPointer<u8>>(&mut pointer); publish(escaped);",
             true,
             false,
         ),
@@ -3448,6 +3448,7 @@ fn opaque_effects_preserve_unexposed_pointer_identity_without_preserving_authori
             r#"
             trusted module app;
             trusted extern func renew(pos value: RawPointer<u8>) {postcondition};
+            extern func publish(pos pointer: RawPointer<RawPointer<u8>>);
             trusted func run(pos input: RawPointer<u8>) uses(raw_memory, unchecked_init)
             {{
                 let mut pointer = input;
@@ -3518,7 +3519,7 @@ fn opaque_calls_preserve_whole_unexposed_values_only_without_indirect_storage() 
         ("u64", "", "pos owner: &mut Owner", "&mut owner", false),
         (
             "u64",
-            "let escaped = core.memory.address_of_mut<Owner>(&mut owner);",
+            "let escaped = core.memory.address_of_mut<Owner>(&mut owner); publish(escaped);",
             "",
             "",
             false,
@@ -3528,12 +3529,6 @@ fn opaque_calls_preserve_whole_unexposed_values_only_without_indirect_storage() 
         ("core.memory.Uninit<u64>", "", "", "", false),
         ("core.atomic.Atomic<u64>", "", "", "", false),
     ] {
-        let capabilities = if exposure.is_empty() {
-            ""
-        } else {
-            "uses(raw_memory)"
-        };
-
         let source = format!(
             r#"
             trusted module app;
@@ -3541,8 +3536,9 @@ fn opaque_calls_preserve_whole_unexposed_values_only_without_indirect_storage() 
             trusted predicate acquired(owner: &Owner);
             trusted extern func acquire() -> Owner ensures(trusted acquired(&result));
             extern func opaque({parameter});
+            extern func publish(pos pointer: RawPointer<Owner>);
             func inspect(pos owner: &Owner) requires(trusted acquired(owner)) executes(pure, total) {{}}
-            trusted func run() {capabilities} {{
+            trusted func run() {{
                 let mut owner = trusted acquire();
                 {exposure}
                 opaque({argument});

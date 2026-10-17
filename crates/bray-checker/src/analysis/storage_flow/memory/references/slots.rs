@@ -65,18 +65,20 @@ impl State {
         })
     }
 
-    pub(super) fn reachable_targets(
+    pub(in crate::analysis::storage_flow) fn reachable_targets(
         &self,
         roots: impl IntoIterator<Item = Target>,
     ) -> BTreeSet<Target> {
-        // Raw addresses can escape. Ordinary borrowed values are reachable only
-        // through the current invocation or another externally reachable value.
-        let mut pending = roots
+        // Escaped addresses remain reachable after the local pointer's last use.
+        let pending = roots
             .into_iter()
             .chain(
                 self.contents
                     .iter()
-                    .filter(|(_, contents)| contents.exposed)
+                    .filter(|(target, contents)| {
+                        contents.escaped
+                            || !target.previous && matches!(target.origin, Origin::Entry { .. })
+                    })
                     .map(|(target, _)| {
                         // Native address arithmetic can reach other fields of the allocation.
                         target.storage_path().map_or_else(
@@ -103,7 +105,34 @@ impl State {
             )
             .collect::<Vec<_>>();
 
+        self.transitive_regions(pending, |_| true).0
+    }
+
+    pub(in crate::analysis::storage_flow) fn escape_targets(
+        &mut self,
+        roots: impl IntoIterator<Item = Target>,
+    ) {
+        let (targets, _) = self.transitive_regions(roots, |_| true);
+
+        for target in targets {
+            // A native recipient can use address arithmetic within the allocation.
+            let target = target.storage_path().map_or_else(
+                || target.clone(),
+                |path| Target::storage(Place::root(path.root)),
+            );
+
+            self.contents.entry(target).or_default().escaped = true;
+        }
+    }
+
+    pub(in crate::analysis::storage_flow) fn transitive_regions(
+        &self,
+        roots: impl IntoIterator<Item = Target>,
+        follow: impl Fn(&Target) -> bool,
+    ) -> (BTreeSet<Target>, bool) {
+        let mut pending = roots.into_iter().collect::<Vec<_>>();
         let mut reached = BTreeSet::new();
+        let mut unknown = false;
 
         while let Some(target) = pending.pop() {
             if !reached.insert(target.clone()) {
@@ -111,15 +140,17 @@ impl State {
             }
 
             for (slot, references) in &self.values {
-                if self.target_relationship(&target, slot)
-                    != bray_bound_tree::StorageRelationship::Disjoint
+                if follow(slot)
+                    && self.target_relationship(&target, slot)
+                        != bray_bound_tree::StorageRelationship::Disjoint
                 {
                     pending.extend(references.targets.iter().cloned());
+                    unknown |= references.unknown || references.displaced;
                 }
             }
         }
 
-        reached
+        (reached, unknown)
     }
 
     #[cfg(test)]

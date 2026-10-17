@@ -131,7 +131,7 @@ fn standard_memory_compilation(source: &str) -> Compilation {
     let package = PackageIdentity::try_new("std")
         .unwrap_or_else(|| panic!("standard library identity must be valid"));
 
-    let request = CompilationRequest::new(
+    let request = CompilationRequest::with_options(
         package,
         vec![
             source_input(
@@ -144,6 +144,15 @@ fn standard_memory_compilation(source: &str) -> Compilation {
             ),
             source_input(source, 2),
         ],
+        crate::CompilationOptions::new(
+            crate::WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
+            crate::SelectedTarget::baseline(),
+        )
+        .with_native_link_inputs([bray_symbols::NativeLinkRequirement::new(
+            bray_base::NonEmptySharedStr::try_new("native").expect("fixture link name"),
+            bray_symbols::NativeLinkKind::Dynamic,
+        )]),
     )
     .with_standard_library_source_authority();
 
@@ -161,5 +170,165 @@ fn standard_spin_lock_guard_has_verified_non_reporting_cleanup() {
         !compilation.check_diagnostics().has_errors(),
         "{:?}",
         compilation.check_diagnostics()
+    );
+}
+
+#[test]
+fn terminal_destructor_rejects_protected_payload_initialization() {
+    let compilation = standard_memory_compilation(
+        r#"
+        trusted module std.test;
+
+        struct Child
+        {
+            finalize() {}
+        }
+
+        struct Owner
+        {
+            mut slot: Uninit<Child>;
+
+            trusted destruct()
+            {
+                let _: &mut Child = std.memory.uninit_write<Child>(
+                    &mut self.slot,
+                    Child
+                    {
+                    }
+                );
+
+                let _: Child = trusted std.memory.move_initialized<Child>(&mut self.slot);
+            }
+        }
+        "#,
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &compilation.check_diagnostics(),
+        DiagnosticKind::CheckingDestructorOwnershipIntroduction,
+    );
+}
+
+#[test]
+fn terminal_destructor_rejects_unknown_foreign_writes_through_receiver() {
+    let compilation = standard_memory_compilation(
+        r#"
+        trusted module std.test;
+
+        @abi(c)
+        @symbol(name = "change")
+        @link(name = "native")
+        extern trusted func change(pos target: RawPointer<i32>)
+            uses(foreign_call);
+
+        struct Owner
+        {
+            mut value: i32;
+
+            finalize() {}
+
+            trusted destruct()
+            {
+                trusted change(std.memory.address_of_mut<i32>(&mut self.value));
+            }
+        }
+        "#,
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &compilation.check_diagnostics(),
+        DiagnosticKind::CheckingUnprovedDestructorEffects,
+    );
+}
+
+#[test]
+fn terminal_destructor_distinguishes_local_address_formation_from_escape() {
+    for (operation, accepted) in [
+        ("trusted opaque();", true),
+        ("increment(&mut self.value); trusted opaque();", true),
+        ("trusted publish(pointer); trusted opaque();", false),
+    ] {
+        let compilation = standard_memory_compilation(&format!(
+            r#"
+            trusted module std.test;
+
+            @abi(c)
+            @symbol(name = "opaque")
+            @link(name = "native")
+            extern trusted func opaque() uses(foreign_call);
+
+            @abi(c)
+            @symbol(name = "publish")
+            @link(name = "native")
+            extern trusted func publish(pos pointer: RawPointer<i32>) uses(foreign_call);
+
+            func increment(pos value: &mut i32)
+            {{
+                value += 1;
+            }}
+
+            struct Owner
+            {{
+                mut value: i32;
+
+                finalize() {{}}
+
+                trusted destruct()
+                    uses(foreign_call)
+                {{
+                    let pointer = std.memory.address_of_mut<i32>(&mut self.value);
+                    {operation}
+                }}
+            }}
+            "#
+        ));
+
+        let diagnostics = compilation.check_diagnostics();
+
+        if accepted {
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                &diagnostics,
+                DiagnosticKind::CheckingUnprovedDestructorEffects,
+            );
+        }
+    }
+}
+
+#[test]
+fn terminal_destructor_checks_unnamed_retained_dependency() {
+    let compilation = standard_memory_compilation(
+        r#"
+        trusted module std.test;
+
+        @abi(c)
+        @symbol(name = "opaque")
+        @link(name = "native")
+        extern trusted func opaque()
+            uses(foreign_call);
+
+        struct Child
+        {
+            finalize() {}
+        }
+
+        struct Owner
+        {
+            child: &mut Child;
+
+            finalize() {}
+
+            trusted destruct()
+            {
+                trusted opaque();
+            }
+        }
+        "#,
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &compilation.check_diagnostics(),
+        DiagnosticKind::CheckingUnprovedDestructorEffects,
     );
 }

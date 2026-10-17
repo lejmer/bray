@@ -52,7 +52,8 @@ internal struct WaitRegistration<T>
     {
         if self.active
         {
-            trusted internal withdraw_waiter<T>(&mut self);
+            self.active = false;
+            trusted internal withdraw_waiter<T>(self.shared, self.ticket, self.kind);
         }
     }
 
@@ -136,21 +137,16 @@ trusted internal func register_waiter<T>(pos shared: &ChannelCore<T>, pos kind: 
     };
 }
 
-trusted internal func withdraw_waiter<T>(pos registration: &mut WaitRegistration<T>)
+trusted internal func withdraw_waiter<T>(pos shared: &ChannelCore<T>, pos ticket: usize, pos kind: WaiterKind)
     requires(
-        trusted std.channel.owner.valid(&registration.instance),
-        trusted std.sync.spin_lock.valid(&registration.shared.state.instance),
-        trusted std.channel.owner.valid(&registration.shared.instance)
+        trusted std.sync.spin_lock.valid(&shared.state.instance),
+        trusted std.channel.owner.valid(&shared.instance)
     )
-    ensures(
-        trusted std.channel.owner.valid(&registration.instance),
-        trusted std.sync.spin_lock.valid(&registration.shared.state.instance),
-        trusted std.channel.owner.valid(&registration.shared.instance)
-    )
+    ensures(trusted std.sync.spin_lock.valid(&shared.state.instance), trusted std.channel.owner.valid(&shared.instance))
 {
     let discarded: T? =
     {
-        let mut state = registration.shared.state.lock();
+        let mut state = shared.state.lock();
         let channel: &mut ChannelState<T> = state.get();
 
         let authorize_state = trusted lambda(pos marker: &std.channel.owner.Marker)
@@ -159,20 +155,20 @@ trusted internal func withdraw_waiter<T>(pos registration: &mut WaitRegistration
 
         authorize_state(&channel.instance);
 
-        yield match registration.kind
+        yield match kind
         {
             case WaiterKind.Sender
             {
-                yield if channel.rendezvous_belongs_to(registration.ticket)
+                yield if channel.rendezvous_belongs_to(ticket)
                 {
                     let mut result: T? = none;
 
-                    result = trusted channel.take_committed_rendezvous(registration.ticket);
+                    result = trusted channel.take_committed_rendezvous(ticket);
                     yield result;
                 }
                 else
                 {
-                    let _: bool = channel.send_waiters.remove(registration.ticket);
+                    let _: bool = channel.send_waiters.remove(ticket);
                     let result: T? = none;
 
                     yield result;
@@ -180,7 +176,7 @@ trusted internal func withdraw_waiter<T>(pos registration: &mut WaitRegistration
             }
             case WaiterKind.Receiver
             {
-                let _: bool = channel.receive_waiters.remove(registration.ticket);
+                let _: bool = channel.receive_waiters.remove(ticket);
                 let result: T? = none;
 
                 yield result;
@@ -188,8 +184,7 @@ trusted internal func withdraw_waiter<T>(pos registration: &mut WaitRegistration
         };
     };
 
-    registration.active = false;
-    trusted internal notify_channel<T>(registration.shared);
+    trusted internal notify_channel<T>(shared);
 }
 
 trusted internal async func wait_for_channel_change<T>(pos owner: std.channel.owner.Owner<T>, pos generation: u32)

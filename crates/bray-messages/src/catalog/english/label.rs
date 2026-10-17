@@ -333,6 +333,11 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
         DiagnosticLabelKind::UnresolvedFinalization => {
             MessageTemplate::new(&[MessageTemplatePart::Text("ownership ends here")])
         }
+        DiagnosticLabelKind::DestructorOwnershipOperation => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "this operation must preserve or consume the dying owner's graceful obligations",
+            )])
+        }
         DiagnosticLabelKind::IncompleteLifecycleStorage => {
             MessageTemplate::new(&[MessageTemplatePart::Text(
                 "this storage is partial but its lifecycle requires a complete value",

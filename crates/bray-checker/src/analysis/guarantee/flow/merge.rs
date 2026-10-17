@@ -138,6 +138,8 @@ fn join_observations<'a>(
     let mut places = Vec::new();
     let mut joins = false;
     let mut joined_facts = Vec::new();
+    let mut stable_values = std::collections::BTreeSet::new();
+    let mut stable_identities = std::collections::BTreeSet::new();
 
     let observed = target
         .current
@@ -154,7 +156,15 @@ fn join_observations<'a>(
             .value_in(&incoming.current)
             .unwrap_or(ExecutionCondition::Unknown);
 
+        if value.owner_identity() == other.owner_identity() {
+            stable_identities.insert(value.owner_identity().clone());
+        }
+
         let joined = if value == other {
+            stable_values.insert(value.clone());
+            stable_values.insert(value.clone().borrowed());
+            stable_identities.insert(value.clone());
+
             value.clone()
         } else if value == ExecutionCondition::Unknown || other == ExecutionCondition::Unknown {
             ExecutionCondition::Unknown
@@ -220,7 +230,11 @@ fn join_observations<'a>(
                 && value.owner_identity().observation_path().is_some()
                 && joined.owner_identity().observation_path().is_some()
             {
-                insert_replacement(map, &value.clone().borrowed(), &joined.clone().borrowed());
+                let borrowed = value.clone().borrowed();
+
+                if !stable_values.contains(&borrowed) {
+                    insert_replacement(map, &borrowed, &joined.clone().borrowed());
+                }
             }
 
             // Literal payloads are shared by unrelated places and contract constants.
@@ -238,10 +252,14 @@ fn join_observations<'a>(
             }
 
             // Contents and containing identity have different substitution domains.
-            insert_replacement(map, value, joined);
+            // A branch-local alias can disappear while another place still holds
+            // the same value on both paths. Rename the changed place, not that value.
+            if !stable_values.contains(value) {
+                insert_replacement(map, value, joined);
+            }
 
             for identity in [value, value.owner_identity()] {
-                if identity != joined.owner_identity() {
+                if identity != joined.owner_identity() && !stable_identities.contains(identity) {
                     insert_replacement(identities, identity, joined.owner_identity());
                 }
             }
@@ -424,5 +442,39 @@ mod tests {
                 .component(component),
             ExecutionCondition::Unknown
         );
+    }
+
+    #[test]
+    fn disappearing_alias_does_not_rename_a_surviving_observation() {
+        use crate::analysis::guarantee::state::ExecutionState;
+        use crate::analysis::id::AnalysisBlockId;
+
+        let original = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let alias = ExecutionPlace::argument(SymbolOrdinal::new(1));
+        let value = ExecutionCondition::Input(original.clone());
+        let mut left = ExecutionState::default();
+
+        left.current.insert(original.clone(), value.clone());
+        left.current.insert(alias.clone(), value.clone());
+        left.assumptions.insert((value.clone(), true));
+
+        let mut right = ExecutionState::default();
+
+        right.current.insert(original.clone(), value.clone());
+        right.assumptions.insert((value.clone(), true));
+
+        let mut merged = Some(left);
+
+        super::merge(
+            &mut merged,
+            &Some(right),
+            Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 0)),
+        );
+
+        let merged = merged.expect("both predecessors are reachable");
+
+        assert_eq!(merged.current[&original], value);
+        assert_eq!(merged.current[&alias], ExecutionCondition::Unknown);
+        assert!(merged.assumptions.contains(&(value, true)));
     }
 }

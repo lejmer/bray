@@ -173,6 +173,18 @@ impl State {
         references.targets.extend(captures);
     }
 
+    pub(in crate::analysis::storage_flow) fn stage_null(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        destination: Target,
+    ) {
+        let pending = self.pending.entry(call).or_default();
+
+        take_subtree(&mut pending.values, &destination).for_each(drop);
+        take_subtree(&mut pending.payloads, &destination).for_each(drop);
+        pending.values.insert(destination, References::default());
+    }
+
     pub(in crate::analysis::storage_flow) fn stage_unknown(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
@@ -256,13 +268,19 @@ impl State {
         let references = References::one(target.clone());
 
         for affected in self.affected_targets(&references) {
-            self.values.remove(&affected);
+            // Atomic effects change protected payload observations, not ordinary
+            // reference slots that merely may alias the atomic's address.
+            if kind != bray_symbols::DependencyMutationKind::Atomic {
+                self.values.remove(&affected);
+            }
 
             if let Some(contents) = self.contents.get_mut(&affected) {
                 contents.initialized.retain(|ty| {
                     matches!(
                         kind,
                         bray_symbols::DependencyMutationKind::Write
+                            | bray_symbols::DependencyMutationKind::Clear
+                            | bray_symbols::DependencyMutationKind::Replace(_)
                             | bray_symbols::DependencyMutationKind::Atomic
                     ) && contents.storage_type == Some(*ty)
                 });
@@ -324,6 +342,8 @@ impl State {
                     matches!(
                         kind,
                         bray_symbols::DependencyMutationKind::Write
+                            | bray_symbols::DependencyMutationKind::Clear
+                            | bray_symbols::DependencyMutationKind::Replace(_)
                             | bray_symbols::DependencyMutationKind::Atomic
                     ) && contents.storage_type == Some(*ty)
                 });

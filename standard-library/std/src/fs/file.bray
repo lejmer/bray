@@ -2,13 +2,13 @@ trusted module std.fs;
 
 struct File
 {
-    internal handle: u64;
+    internal mut handle: u64;
     internal mut is_open: bool;
 
     construct open(pos path: &std.path.Path, options: OpenOptions) -> Result<Self, std.io.IoError>
         requires(blocking_execution())
     {
-        return trusted open_file(path, options = options);
+        return trusted acquire(path, options = options);
     }
 
     /// Whether this owner has no unresolved resource obligation.
@@ -132,22 +132,7 @@ struct File
     }
 }
 
-trusted internal func open_file(pos path: &std.path.Path, options: OpenOptions) -> Result<File, std.io.IoError>
-    requires(blocking_execution())
-{
-    let handle: u64 = try open_file_handle(path, options = options);
-
-    let file: File =
-    {
-        handle = handle,
-        is_open = true,
-    };
-
-    return Ok(file);
-}
-
-/// Opens one file as a scalar handle owned until `close_file_handle` or process termination.
-trusted func open_file_handle(pos path: &std.path.Path, options: OpenOptions) -> Result<u64, std.io.IoError>
+trusted internal func acquire(pos path: &std.path.Path, options: OpenOptions) -> Result<File, std.io.IoError>
     requires(blocking_execution())
 {
     let platform_path_value: PlatformPath = platform_path(path);
@@ -162,13 +147,23 @@ trusted func open_file_handle(pos path: &std.path.Path, options: OpenOptions) ->
     let mut handle: u64 = 0;
     let handle_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut handle);
 
-    let status: std.platform.PlatformStatus = trusted platform_file_open(
-        platform_path_value,
-        options = platform_options,
-        opened = handle_pointer,
-    );
+    let prepared = trusted prepare_file_open(platform_path_value, platform_options, handle_pointer);
 
-    try checked_platform_status(status);
+    match consume prepared
+    {
+        case Ok(owner) { return Ok(owner); }
+        case Error(status) { return Error(internal std.io.platform_status_error(status)); }
+    }
+}
+
+/// Opens one file as a scalar handle owned until `close_file_handle` or process termination.
+trusted func open_file_handle(pos path: &std.path.Path, options: OpenOptions) -> Result<u64, std.io.IoError>
+    requires(blocking_execution())
+{
+    let mut owner: File = try acquire(path, options = options);
+    let handle: u64 = owner.handle;
+
+    owner.is_open = false;
 
     return Ok(handle);
 }

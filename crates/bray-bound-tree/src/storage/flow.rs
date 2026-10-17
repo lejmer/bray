@@ -832,7 +832,10 @@ mod tests {
 
         assert_eq!(
             flow.dependencies().effects(),
-            &[DependencyStorageEffect::Unknown]
+            &[
+                DependencyStorageEffect::Unknown,
+                DependencyStorageEffect::Escape
+            ]
         );
     }
 

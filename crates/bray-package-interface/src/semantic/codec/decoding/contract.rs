@@ -125,16 +125,17 @@ pub(super) fn decode_dependency_contract(
 
         effects.push(match raw {
             0 => DependencyStorageEffect::Unknown,
+            5 => DependencyStorageEffect::Escape,
             4 => DependencyStorageEffect::Atomic,
             3 => DependencyStorageEffect::Cleanup(crate::InterfaceTypeId::new(read_u32(reader)?)),
             1 => DependencyStorageEffect::Direct {
                 subject: decode_dependency_subject(reader, limits, context)?,
-                kind: decode_tag(read_u32(reader)?)?,
+                kind: decode_mutation(reader)?,
             },
             2 => DependencyStorageEffect::Indirect {
                 reference: decode_dependency_subject(reader, limits, context)?,
                 projections: decode_dependency_projections(reader, limits, context)?.into(),
-                kind: decode_tag(read_u32(reader)?)?,
+                kind: decode_mutation(reader)?,
             },
             _ => {
                 return Err(crate::semantic::codec::invalid_discriminant(
@@ -640,8 +641,8 @@ mod tests {
             1, 0, // Receiver input with no projection.
             1, 1, 2, 5, 0, 7, // Values carried by parameter five.
             1, 1, 8, 0, 1, // Evaluation-owned storage.
-            0, 0, 0, 1,
-            0, // No reference relations, returned input or carriers. Unknown effects.
+            0, 0, 0, 2, 0,
+            5, // No reference relations, returned input or carriers. Unknown effects and escapes.
         ];
 
         let decoded = decode_words(&words, InterfaceValidationLimits::default()).unwrap();
@@ -711,7 +712,7 @@ mod tests {
     }
     #[test]
     fn dependency_equations_decode_with_bounded_nesting() {
-        let words = [1, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 1, 0];
+        let words = [1, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 2, 0, 5];
         let variable = InterfaceDependencyRequirement::variable(0, SymbolOrdinal::new(0));
 
         let expected =
@@ -756,4 +757,27 @@ fn decode_predicate_summary(
         super::common::decode_bool(reader, crate::InterfaceValidationField::Reference)?;
 
     Ok(InterfacePredicateSummary::new(dependency).with_condition(condition, is_trusted))
+}
+
+fn decode_mutation(
+    reader: &mut WireReader<'_>,
+) -> Result<bray_symbols::DependencyMutationKind<crate::InterfaceTypeId>, InterfaceValidationError>
+{
+    use bray_symbols::DependencyMutationKind;
+
+    Ok(match read_u32(reader)? {
+        1 => DependencyMutationKind::Write,
+        2 => DependencyMutationKind::Consume,
+        3 => DependencyMutationKind::Retire,
+        4 => DependencyMutationKind::Atomic,
+        5 => DependencyMutationKind::Replace(crate::InterfaceTypeId::new(read_u32(reader)?)),
+        6 => DependencyMutationKind::Clear,
+        7 => DependencyMutationKind::Escape,
+        raw => {
+            return Err(crate::semantic::codec::invalid_discriminant(
+                crate::InterfaceValidationField::Dependency,
+                raw,
+            ));
+        }
+    })
 }

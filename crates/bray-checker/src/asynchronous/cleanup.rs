@@ -134,24 +134,28 @@ where
 pub(crate) struct CleanupShape {
     pub(super) cancellation: bool,
     pub(super) lifecycle: bool,
+    pub(crate) graceful: bool,
     recovered: bool,
 }
 impl CleanupShape {
     const BOTH: Self = Self {
         cancellation: true,
         lifecycle: true,
+        graceful: true,
         recovered: false,
     };
 
     const LIFECYCLE: Self = Self {
         cancellation: false,
         lifecycle: true,
+        graceful: false,
         recovered: false,
     };
 
     fn merge(&mut self, other: Self) {
         self.cancellation |= other.cancellation;
         self.lifecycle |= other.lifecycle;
+        self.graceful |= other.graceful;
         self.recovered |= other.recovered;
     }
 }
@@ -224,7 +228,7 @@ where
         Ok(requirements)
     }
 
-    pub(super) fn resolve(
+    pub(crate) fn resolve(
         &mut self,
         ty: TypeId,
     ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
@@ -320,6 +324,25 @@ where
                     }
                 }))
             }
+            Some(RepresentationRole::Uninit) => {
+                let substitution = self
+                    .request
+                    .semantic_values()
+                    .generic_substitution_data(substitution);
+
+                let payload =
+                    self.aggregate(substitution.bindings().iter().filter_map(|binding| {
+                        match binding.argument() {
+                            GenericArgument::Type(ty) => Some(ty),
+                            GenericArgument::Constant(_) => None,
+                        }
+                    }))?;
+
+                Ok(CleanupShape {
+                    graceful: payload.graceful,
+                    ..CleanupShape::default()
+                })
+            }
             Some(_) => Ok(CleanupShape::default()),
             None => self.declared_shape(definition, substitution),
         }
@@ -343,10 +366,11 @@ where
         }
 
         let representation = self.request.declared_type_representation(definition)?;
-        let lifecycle = self.request.declared_type_has_lifecycle(definition)?;
+        let lifecycle = self.request.declared_type_lifecycle(definition)?;
 
         let mut shape = CleanupShape {
-            lifecycle: *lifecycle.value(),
+            lifecycle: *lifecycle.value() != bray_symbols::TypeLifecycle::None,
+            graceful: *lifecycle.value() == bray_symbols::TypeLifecycle::Graceful,
             recovered: representation.value().is_recovered()
                 || lifecycle.diagnostics().has_errors(),
             ..CleanupShape::default()
@@ -744,6 +768,7 @@ where
                         .iter()
                         .any(|part| part.phases().includes_cancellation()),
                     lifecycle: parts.iter().any(|part| part.phases().includes_lifecycle()),
+                    graceful: false,
                     recovered: false,
                 }),
                 None => AsyncStorageCleanupRequirement::Recovered(

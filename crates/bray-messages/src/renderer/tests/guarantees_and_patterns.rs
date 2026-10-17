@@ -113,3 +113,41 @@ fn pattern_conditions_binding_diagnostic_explains_the_available_forms() {
         "replace the binding with `_`, or use `if let` or `while let` to use the matched value"
     );
 }
+
+#[test]
+fn destructor_ownership_rejections_identify_the_operation_and_obligation() {
+    let span = SourceSpan::new(SourceId::new(0), TextRange::empty(TextSize::ZERO));
+
+    let owner = bray_diagnostics::DiagnosticType::Named(
+        bray_diagnostics::DiagnosticNamedType::new([String::from("Owner")], []),
+    );
+
+    for (kind, expected) in [
+        (
+            DiagnosticKind::CheckingDestructorOwnershipIntroduction,
+            "this operation may install a value of type Owner through the destructor receiver, introducing graceful cleanup after destruction has begun",
+        ),
+        (
+            DiagnosticKind::CheckingUnprovedDestructorEffects,
+            "this operation may change the destructor receiver or its dependencies without preserving terminal ownership on every outcome",
+        ),
+    ] {
+        let diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::DestructorOwnershipOperation,
+                span,
+            ))
+            .with_arg(DiagnosticArg::actual_type(owner.clone()));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(rendered.message(), expected);
+        assert_eq!(rendered.primary_span(), Some(span));
+
+        assert_eq!(
+            rendered.labels()[0].message(),
+            "this operation must preserve or consume the dying owner's graceful obligations"
+        );
+    }
+}

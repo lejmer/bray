@@ -423,6 +423,10 @@ define_diagnostic_kinds! {
     CheckingUseOfMovedStorage,
     /// A partially moved value still requires its whole-value lifecycle at an ownership exit.
     CheckingIncompleteLifecycleStorage,
+    /// An operation may introduce graceful ownership through a destructor receiver.
+    CheckingDestructorOwnershipIntroduction,
+    /// A destructor operation has no proof of preservation on every outcome.
+    CheckingUnprovedDestructorEffects,
     /// An operation conflicts with an active overlapping borrow.
     CheckingConflictingBorrow,
     /// An operation requires mutation authority that is not available.
@@ -883,6 +887,8 @@ impl DiagnosticKind {
             Self::CheckingRefinementCapacityExceeded => 7033,
             Self::CheckingUseOfMovedStorage => 7035,
             Self::CheckingIncompleteLifecycleStorage => 7116,
+            Self::CheckingDestructorOwnershipIntroduction => 7127,
+            Self::CheckingUnprovedDestructorEffects => 7128,
             Self::CheckingConflictingBorrow => 7036,
             Self::CheckingMissingMutationAuthority => 7037,
             Self::CheckingMissingStorageOwnership => 7039,
@@ -1301,6 +1307,10 @@ impl DiagnosticKind {
             Self::CheckingRefinementCapacityExceeded => "checking_refinement_capacity_exceeded",
             Self::CheckingUseOfMovedStorage => "checking_use_of_moved_storage",
             Self::CheckingIncompleteLifecycleStorage => "checking_incomplete_lifecycle_storage",
+            Self::CheckingDestructorOwnershipIntroduction => {
+                "checking_destructor_ownership_introduction"
+            }
+            Self::CheckingUnprovedDestructorEffects => "checking_unproved_destructor_effects",
             Self::CheckingConflictingBorrow => "checking_conflicting_borrow",
             Self::CheckingMissingMutationAuthority => "checking_missing_mutation_authority",
             Self::CheckingMissingStorageOwnership => "checking_missing_storage_ownership",

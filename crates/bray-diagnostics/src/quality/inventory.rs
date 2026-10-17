@@ -1073,6 +1073,12 @@ impl DiagnosticKind {
                 &[StorageAccess],
                 related_components!(&[StorageAccess], DiagnosticRelatedLocationKind::MoveOrigin),
             ),
+            Self::CheckingDestructorOwnershipIntroduction => {
+                Self::quality_source(&[ActualType], primary_components!(&[ActualType]))
+            }
+            Self::CheckingUnprovedDestructorEffects => {
+                Self::quality_source(&[], primary_components!(&[]))
+            }
             Self::CheckingIncompleteLifecycleStorage => {
                 Self::quality_source(&[ActualType], primary_components!(&[ActualType]))
             }

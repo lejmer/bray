@@ -106,7 +106,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &ExecutionState,
         expression: BoundExpressionId,
-    ) -> (ExecutionCondition, Option<bool>) {
+    ) -> (ExecutionCondition, ExecutionCondition, Option<bool>) {
         let condition = state
             .expressions
             .get(&expression)
@@ -116,17 +116,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Branches inspect Boolean truth, not ownership identity. Use checked
         // equalities to observe a call result through its immutable input snapshot.
         let equalities = ExecutionCondition::equalities(&state.assumptions, Some(expression));
-        let condition = condition.with_equalities(&equalities);
+        let observed = condition.with_equalities(&equalities);
 
         let value = self
             .checked_body
             .map(bray_bound_tree::CheckedBodySemantics::storage_flow)
             .and_then(|flow| flow.condition_value(expression))
             .or_else(|| {
-                condition.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                observed.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
             });
 
-        (condition, value)
+        // Preserve the evaluated condition across joins. Substitution can differ
+        // between the first loop iteration and subsequent visits to the same branch.
+        (condition, observed, value)
     }
 
     pub(in crate::analysis) fn refine_edge(
@@ -161,7 +163,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if let Some(AnalysisRefinement::Condition { expression, value }) = edge.refinement() {
-            let (condition, known) = self.condition_evidence(state, expression);
+            let (condition, observed, known) = self.condition_evidence(state, expression);
 
             if known.is_some_and(|known| known != value) {
                 return false;
@@ -202,6 +204,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .assume(true, &mut state.assumptions);
             }
 
+            // Keep both the stable evaluated branch and its checked Boolean meaning.
+            // The latter exposes conjunctions carried by completion observations.
+            observed.assume(value, &mut state.assumptions);
             condition.assume(value, &mut state.assumptions);
         }
 

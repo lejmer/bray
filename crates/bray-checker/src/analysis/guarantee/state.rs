@@ -462,7 +462,7 @@ impl ExecutionState {
         for (carrier, dependencies) in self
             .witness_dependencies
             .iter()
-            .filter(|_| kind != bray_symbols::DependencyMutationKind::Write)
+            .filter(|_| !kind.is_write())
         {
             for dependency in dependencies
                 .iter()
@@ -506,7 +506,7 @@ impl ExecutionState {
         while let Some(value) = pending.pop() {
             // A write changes a storage observation, never the meaning of a constant
             // also held by an unrelated slot. Borrowed scalars retain their place identity.
-            if kind == bray_symbols::DependencyMutationKind::Write
+            if kind.is_write()
                 && matches!(
                     value,
                     ExecutionCondition::Literal(_)
@@ -615,7 +615,7 @@ impl ExecutionState {
         // A content write may revoke all old facts on an intermediate address.
         // Keep its lifetime edge so newly established facts still expire with the owner.
         self.witness_dependencies.retain(|carrier, _| {
-            kind == bray_symbols::DependencyMutationKind::Write
+            kind.is_write()
                 || !invalidated_observations.contains(carrier)
                 || retained_observations.contains(carrier)
                 || self.witness_carriers.contains_key(carrier)

@@ -77,6 +77,8 @@ struct Directory
 
     trusted destruct()
     {
+        let state = self.state;
+
         if self.is_open
         {
             trusted platform_directory_discard(handle = self.handle);

@@ -2394,6 +2394,18 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingUseOfMovedStorage => {
             MessageTemplate::new(CHECKING_USE_OF_MOVED_STORAGE)
         }
+        DiagnosticKind::CheckingDestructorOwnershipIntroduction => MessageTemplate::new(&[
+            MessageTemplatePart::Text("this operation may install a value of type "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+            MessageTemplatePart::Text(
+                " through the destructor receiver, introducing graceful cleanup after destruction has begun",
+            ),
+        ]),
+        DiagnosticKind::CheckingUnprovedDestructorEffects => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "this operation may change the destructor receiver or its dependencies without preserving terminal ownership on every outcome",
+            )])
+        }
         DiagnosticKind::CheckingIncompleteLifecycleStorage => {
             MessageTemplate::new(CHECKING_INCOMPLETE_LIFECYCLE_STORAGE)
         }

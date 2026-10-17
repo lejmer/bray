@@ -348,6 +348,7 @@ where
     replacements: BTreeMap<StorageAccessPlan, ReplacementState>,
     assignments: BTreeMap<BoundExpressionId, Option<crate::analysis::storage_flow::memory::Place>>,
     pub(super) effects: BTreeSet<bray_symbols::DependencyStorageEffect>,
+    pub(super) terminal_diagnostics: BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(super) on_normal_path: bool,
     pub(super) has_normal_effects: bool,
     pub(super) references: Option<crate::analysis::storage_flow::memory::ReferenceExit>,
@@ -399,7 +400,7 @@ where
                 expression, ..
             }) = edge.refinement()
             {
-                let (_, value) = self.execution.condition_evidence(
+                let (_, _, value) = self.execution.condition_evidence(
                     state
                         .execution
                         .as_ref()
@@ -461,6 +462,7 @@ where
             cleanup_mutations: BTreeMap::new(),
             completions: BTreeMap::new(),
             effects: BTreeSet::new(),
+            terminal_diagnostics: BTreeSet::new(),
             on_normal_path: false,
             has_normal_effects: false,
             references: None,
@@ -579,7 +581,54 @@ where
             }
         }
 
+        let assignment_mutation = (!completing)
+            .then(|| self.assignment_mutation(kind, &execution))
+            .flatten();
+
+        // Both checks reuse the resolved target and transition without another expression walk.
+        let assignment_effect =
+            assignment
+                .as_ref()
+                .zip(assignment_mutation)
+                .map(|(target, kind)| {
+                    crate::analysis::storage_flow::memory::Effect::Mutation(target.clone(), kind)
+                });
+
+        let invocation_roots = if completing {
+            None
+        } else if assignment_mutation.is_some() {
+            // Assignment stores only its right-hand value. The destination address
+            // is an access path, not a value published by the write.
+            Some(self.assignment_roots(state, kind))
+        } else {
+            self.call_attempt(kind)
+                .map(|_| self.invocation_roots(state, kind.occurrence()))
+        };
+
         let call_effects = self.begin_transition(state, kind, assignment.as_ref(), &execution);
+
+        if let Some(roots) = &invocation_roots {
+            self.record_address_escapes(
+                state,
+                kind,
+                assignment_effect
+                    .as_ref()
+                    .map(std::slice::from_ref)
+                    .or(call_effects.as_deref()),
+                roots,
+            );
+        }
+
+        if !completing {
+            self.check_terminal_operation(
+                state,
+                kind,
+                assignment.as_ref(),
+                assignment_mutation,
+                call_effects.as_deref(),
+                invocation_roots.as_deref().unwrap_or(&[]),
+            );
+        }
 
         let assignment_path = assignment
             .as_ref()
@@ -589,9 +638,14 @@ where
         let mut invalidation = if completing {
             None
         } else {
-            let call_effects = call_effects
-                .as_ref()
-                .map(|effects| self.call_observations(state, kind.occurrence(), effects));
+            let call_effects = call_effects.as_ref().map(|effects| {
+                self.call_observations(
+                    state,
+                    kind.occurrence(),
+                    effects,
+                    invocation_roots.as_deref().unwrap_or(&[]),
+                )
+            });
 
             call_effects
                 .or_else(|| {
@@ -627,7 +681,12 @@ where
         }
 
         if !completing {
-            self.record_operation_effects(kind, call_effects.as_deref(), assignment.as_ref());
+            self.record_operation_effects(
+                kind,
+                call_effects.as_deref(),
+                assignment.as_ref(),
+                assignment_mutation,
+            );
 
             if self.publish {
                 if let AnyBoundNodeId::Expression(expression) = kind.node()
@@ -686,6 +745,26 @@ where
             invalidation.as_ref(),
         );
 
+        self.complete_operation(state, kind, memory_status);
+
+        crate::analysis::refinement::transfer_operation(
+            &mut refinements,
+            operation,
+            universe,
+            self.storage,
+            invalidation.as_ref(),
+            &self.input.discriminants,
+        );
+
+        state.refinements = refinements;
+    }
+
+    fn complete_operation(
+        &mut self,
+        state: &mut StorageFlowState,
+        kind: AnalysisOperationKind,
+        memory_status: Option<MemoryOperationStatus>,
+    ) {
         let observations = if !matches!(
             kind,
             AnalysisOperationKind::Call {
@@ -726,17 +805,6 @@ where
             self.end_last_use_borrows(state, kind.occurrence());
             self.end_last_use_storage(state, kind.occurrence());
         }
-
-        crate::analysis::refinement::transfer_operation(
-            &mut refinements,
-            operation,
-            universe,
-            self.storage,
-            invalidation.as_ref(),
-            &self.input.discriminants,
-        );
-
-        state.refinements = refinements;
     }
 
     fn transfer_result_dependencies(

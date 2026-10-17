@@ -159,13 +159,16 @@ trusted internal func platform_file_open(
     )
     uses(raw_memory, unchecked_init)
 {
-    let prepared: Result<u64, std.platform.PlatformStatus> = trusted internal prepare_file_open(path, options, opened);
+    let prepared: Result<File, std.platform.PlatformStatus> = trusted internal prepare_file_open(path, options, opened);
 
     match consume prepared
     {
-        case Ok(descriptor)
+        case Ok(created)
         {
-            trusted std.memory.write<u64>(opened, value = descriptor);
+            let mut owner: File = created;
+
+            trusted std.memory.write<u64>(opened, value = owner.handle);
+            owner.is_open = false;
 
             return internal std.platform.success_status();
         }

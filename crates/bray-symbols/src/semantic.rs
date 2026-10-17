@@ -128,5 +128,5 @@ pub use type_expression::{
 pub use type_surface::{
     TypeAssociatedImplementation, TypeAssociatedLifecycleMember, TypeAssociatedLifecycleSlot,
     TypeAssociatedMember, TypeAssociatedMemberOrigin, TypeAssociatedSurface,
-    TypeAssociatedSurfaceBuildError,
+    TypeAssociatedSurfaceBuildError, TypeLifecycle,
 };

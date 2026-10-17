@@ -129,7 +129,7 @@ trusted internal func prepare_file_open(
     pos path: PlatformPath,
     pos options: PlatformFileOptions,
     pos opened: RawPointer<u64>,
-) -> Result<u64, std.platform.PlatformStatus>
+) -> Result<File, std.platform.PlatformStatus>
     requires(
         trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
         trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
@@ -189,6 +189,12 @@ trusted internal func prepare_file_open(
     {
         case Ok(terminated_path)
         {
+            let mut owner: File =
+            {
+                handle = 0,
+                is_open = false,
+            };
+
             let native_handle: RawPointer<u8> = trusted std.os.windows.create_file_w(
                 trusted std.memory.reinterpret<u16, u8>(terminated_path.pointer),
                 access = access,
@@ -207,7 +213,10 @@ trusted internal func prepare_file_open(
                 return Error(trusted internal std.platform.windows_error_status());
             }
 
-            return Ok(native_value);
+            owner.handle = native_value;
+            owner.is_open = true;
+
+            return Ok(owner);
         }
         case Error(status) { return Error(status); }
     }

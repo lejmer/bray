@@ -5,7 +5,7 @@ using std.memory;
 
 internal struct ChildInputState
 {
-    handle: u64;
+    mut handle: u64;
     mut is_open: bool;
 }
 
@@ -60,7 +60,7 @@ struct ChildInput
 
 internal struct ChildOutputState
 {
-    handle: u64;
+    mut handle: u64;
     mut is_open: bool;
 }
 
@@ -137,21 +137,25 @@ impl ChildOutputReader = ChildOutput(std.io.Reader)
     }
 }
 
-internal func child_input(handle: u64) -> ChildInput?
+trusted internal func child_input(handle: &mut u64) -> ChildInput?
+    uses(raw_memory)
 {
-    if handle == 0
+    if trusted std.memory.read<u64>(std.memory.address_of_mut<u64>(handle)) == 0
     {
         return none;
     }
 
-    let input: ChildInput = ChildInput
+    let mut input: ChildInput =
     {
         state =
         {
-            handle = handle,
-            is_open = true,
+            handle = 0,
+            is_open = false,
         }
     };
+
+    input.state.handle = trusted std.memory.replace_value<u64>(handle, 0);
+    input.state.is_open = true;
 
     let mut value: ChildInput? = none;
 
@@ -160,21 +164,25 @@ internal func child_input(handle: u64) -> ChildInput?
     return value;
 }
 
-internal func child_output(handle: u64) -> ChildOutput?
+trusted internal func child_output(handle: &mut u64) -> ChildOutput?
+    uses(raw_memory)
 {
-    if handle == 0
+    if trusted std.memory.read<u64>(std.memory.address_of_mut<u64>(handle)) == 0
     {
         return none;
     }
 
-    let output: ChildOutput = ChildOutput
+    let mut output: ChildOutput =
     {
         state =
         {
-            handle = handle,
-            is_open = true,
+            handle = 0,
+            is_open = false,
         }
     };
+
+    output.state.handle = trusted std.memory.replace_value<u64>(handle, 0);
+    output.state.is_open = true;
 
     let mut value: ChildOutput? = none;
 

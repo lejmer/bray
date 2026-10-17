@@ -281,7 +281,10 @@ impl InterfaceDependencyContract {
             returned_input: None,
             carriers: Arc::new([]),
             borrows: Arc::new([]),
-            effects: Arc::new([bray_symbols::DependencyStorageEffect::Unknown]),
+            effects: Arc::new([
+                bray_symbols::DependencyStorageEffect::Unknown,
+                bray_symbols::DependencyStorageEffect::Escape,
+            ]),
         }
     }
 

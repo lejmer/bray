@@ -132,7 +132,27 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
                 definition,
                 substitution,
             } => {
-                let lifecycle = self.request.declared_type_has_lifecycle(*definition)?;
+                if expansion == CleanupExpansion::FullDisposal
+                    && self
+                        .request
+                        .context()
+                        .raw_buffer_element(*definition, *substitution)?
+                        .is_some()
+                {
+                    let phases = match cleanup {
+                        AsyncStorageCleanupRequirement::Cleanup(phases) => phases,
+                        AsyncStorageCleanupRequirement::Recovered(_) => return Ok(false),
+                        AsyncStorageCleanupRequirement::None => unreachable!(
+                            "compiler-owned buffer disposal retains its cleanup requirement"
+                        ),
+                    };
+
+                    parts.push(StorageCleanupPart::new(path.iter().copied(), phases));
+
+                    return Ok(true);
+                }
+
+                let lifecycle = self.request.declared_type_lifecycle(*definition)?;
 
                 self.diagnostics.add_range(lifecycle.diagnostics().clone());
 
@@ -140,13 +160,15 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
                     return Ok(false);
                 }
 
-                if expansion == CleanupExpansion::MovedPaths && *lifecycle.value() {
+                if expansion == CleanupExpansion::MovedPaths
+                    && (*lifecycle.value() != bray_symbols::TypeLifecycle::None)
+                {
                     self.report_incomplete_lifecycle(ty, source)?;
 
                     return Ok(false);
                 }
 
-                requires_whole_value = *lifecycle.value();
+                requires_whole_value = *lifecycle.value() != bray_symbols::TypeLifecycle::None;
 
                 if expansion == CleanupExpansion::FullDisposal && requires_whole_value {
                     let destructor = self.request.context().lifecycle_callable(

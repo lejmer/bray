@@ -1353,6 +1353,49 @@ fn absent_payload_is_ignored_but_unknown_or_moved_payload_blocks_exact_identity(
 }
 
 #[test]
+fn pending_payload_absence_survives_source_retirement_without_proving_unknown_origins() {
+    let ([source, payload, _, _], origins) = places();
+
+    let call = origins[0].into();
+    let empty = Default::default();
+
+    for absent in [false, true] {
+        for present_first in [false, true] {
+            let mut present = State::default();
+
+            present.entry_reference(source.clone());
+            present.stage_slot(call, &source, payload.clone());
+            present.forget(source.root);
+
+            let mut other = State::default();
+
+            if absent {
+                other.stage_null(call, Target::storage(payload.clone()));
+            } else {
+                other.stage_unknown(call, Target::storage(payload.clone()));
+            }
+
+            let mut joined = if present_first {
+                present.merge(&other, &empty, &empty);
+
+                present
+            } else {
+                other.merge(&present, &empty, &empty);
+
+                other
+            };
+
+            joined.complete_transition(call);
+
+            assert_eq!(
+                joined.exact_references(&payload).count(),
+                usize::from(absent)
+            );
+        }
+    }
+}
+
+#[test]
 fn exposed_entry_reference_keeps_its_origin_without_claiming_a_physical_place() {
     let ([source, pointer, _, _], origins) = places();
 
@@ -2308,6 +2351,7 @@ fn opaque_effects_preserve_unexposed_reference_slots_but_revoke_contents() {
 
         if exposed {
             state.address(component.clone(), address, error_type(), origins[1]);
+            state.escape_targets([Target::storage(component.clone())]);
         }
 
         let storage =
@@ -2389,6 +2433,14 @@ fn opaque_reachability_distinguishes_safe_borrows_raw_escape_and_nested_argument
     assert!(unexposed.contains(&sibling));
 
     state.expose_address(&reference, error_type(), origins[0]);
+
+    assert!(
+        state
+            .unexposed_storage(&candidates, [])
+            .any(|path| path.root == owner.root)
+    );
+
+    state.escape_targets([Target::storage(owner.clone())]);
     state.clear(&reference);
 
     assert!(
@@ -2442,6 +2494,8 @@ fn opaque_payload_borrows_preserve_disjoint_markers_but_raw_exposure_does_not() 
     );
 
     state.expose_address(&reference, error_type(), origins[0]);
+    assert_eq!(state.unexposed_storage(&candidates, []).count(), 3);
+    state.escape_targets([Target::storage(payload)]);
     assert_eq!(state.unexposed_storage(&candidates, []).count(), 0);
 }
 
@@ -2546,7 +2600,9 @@ fn retired_local_reference_slots_do_not_expose_their_former_targets() {
     state.end_storage(|identity| identity == reference.root);
     assert_eq!(state.unexposed_storage(&candidates, []).count(), 1);
 
-    state.address(owner, reference, error_type(), origins[0]);
+    state.address(owner.clone(), reference, error_type(), origins[0]);
+    assert_eq!(state.unexposed_storage(&candidates, []).count(), 1);
+    state.escape_targets([Target::storage(owner)]);
     assert_eq!(state.unexposed_storage(&candidates, []).count(), 0);
 }
 
@@ -2565,4 +2621,56 @@ fn unknown_references_cannot_reach_unaddressed_inline_storage() {
     assert!(state.unknown_reference_may_reach(
         &Target::storage(local).project(&[bray_bound_tree::StorageProjection::OwnedTarget]),
     ));
+}
+
+#[test]
+fn local_mutation_does_not_publish_an_invocation_address() {
+    let ([local, external, _, _], _) = places();
+
+    let mut state = State {
+        owned_storage: [local.root].into(),
+        ..State::default()
+    };
+
+    let local_write = super::model::Effect::Mutation(
+        Target::storage(local.clone()),
+        bray_symbols::DependencyMutationKind::Replace(error_type()),
+    );
+
+    let external_write = super::model::Effect::Mutation(
+        Target::storage(external),
+        bray_symbols::DependencyMutationKind::Replace(error_type()),
+    );
+
+    let heap_write = super::model::Effect::Mutation(
+        Target::storage(local.clone()).project(&[bray_bound_tree::StorageProjection::OwnedTarget]),
+        bray_symbols::DependencyMutationKind::Write,
+    );
+
+    assert!(!local_write.may_retain_address(&state));
+    assert!(external_write.may_retain_address(&state));
+    assert!(heap_write.may_retain_address(&state));
+
+    state.escape_targets([Target::storage(local)]);
+    assert!(local_write.may_retain_address(&state));
+}
+
+#[test]
+fn targeted_atomic_effects_preserve_reference_slots_under_possible_aliasing() {
+    let ([source, slot, external, _], origins) = places();
+
+    let mut state = State::default();
+
+    state.address(source.clone(), slot.clone(), error_type(), origins[0]);
+
+    let external = Target {
+        origin: super::Origin::entry(external),
+        previous: false,
+    };
+
+    state.invalidate_target(&external, bray_symbols::DependencyMutationKind::Atomic);
+    assert_eq!(state.referent(&slot, error_type()), Some(source));
+
+    state.invalidate_target(&external, bray_symbols::DependencyMutationKind::Write);
+    assert_eq!(state.referent(&slot, error_type()), None);
 }

@@ -361,11 +361,11 @@ pub trait CheckerRequestContext: Sync {
         Self::UpstreamError,
     >;
 
-    /// Returns whether a declared type has whole-value finalization, destruction, or scoped behavior.
-    fn declared_type_has_lifecycle(
+    /// Returns the declared whole-value cleanup category before represented-part expansion.
+    fn declared_type_lifecycle(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> CheckerQueryResult<DiagnosticResult<bool>, Self::UpstreamError>;
+    ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::TypeLifecycle>, Self::UpstreamError>;
 
     /// Returns whether the enclosing static context establishes a copy contract for an open type.
     fn statically_establishes_copyability(

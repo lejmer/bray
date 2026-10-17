@@ -78,7 +78,7 @@ consumption, but not introduction or reactivation of graceful-cleanup obligation
 receiver, represented ownership graph, or relevant dependencies. Cover aliases, helpers,
 foreign calls, imported contracts and abnormal outcomes. Installing a currently completed
 finalizable owner is forbidden too: later sibling cleanup can invalidate its completion.
-New ordinary locals retain normal checked cleanup and cannot transfer obligations into
+New ordinary locals retain normal checked cleanup and cannot transfer graceful obligations into
 the dying receiver. Explicit operations retain their ordinary contracts.
 
 Implement abandoned disposal through the shared selected expansion. Preserve per-owner
@@ -144,10 +144,9 @@ and [Apple's close implementation](https://github.com/apple-oss-distributions/xn
 where `close_nocancel` checks close guards and `fp_close_and_unlock` retires the descriptor
 before returning the result of `fg_drop`. This corrects documentation, not compiler effects.
 
-No source implementation of terminal preservation has been added. The next implementation
-decision is how existing operations and foreign contracts establish absence of new graceful
-work without interpreting author intent, a new language contract, or a blanket mutation ban.
-Keep that proof obligation explicit before connecting abandoned disposal.
+Terminal preservation is implemented in the uncommitted owning storage analysis. Focused
+source and imported cases pass. Production effect publication and native resource checks
+remain in progress. Complete that acceptance before connecting abandoned disposal.
 
 The removed global graceful-phase experiment must stay removed. Existing shared awaited-frame
 emission and internal invariant fixes remain at `74f77b59`, with 87 focused tests passed.
@@ -271,3 +270,181 @@ is claimed while the issue's acceptance remains incomplete.
 The separate compiler-defect diagnostic mechanism outside this lifecycle work is tracked
 in [BRA-625](https://linear.app/bray-lang/issue/BRA-625). BRA-505 still owns every lifecycle
 invariant encountered here. Do not turn impossible states into recoverable diagnostics.
+
+## Current native ownership transfer work
+
+The user selected existing-language API restructuring for unproved foreign calls.
+File acquisition admits its existing inactive File owner before the native open and installs
+its handle immediately after success. Pipe transfer admits ChildInput or ChildOutput before
+clearing the process's retained handle. Native FileClose and ProcessPipeClose ABI roles remain
+required. A proposed generic release-only Owner was removed because it duplicated admission
+and forwarding destruction without establishing native resource authority.
+
+The broader scalar-resource authority audit is recorded in the open
+[BRA-508](https://linear.app/bray-lang/issue/BRA-508). Completion flags and field visibility
+are not ownership witnesses. That resource-family work must cover acquisition, transfer,
+operations, release, abnormal outcomes and imports, including forged, copied and mismatched
+handles. BRA-505 still owns the acquisition ordering and terminal-analysis acceptance here.
+
+## Approved ownership implementation and cost bounds
+
+The user approved this design and unattended completion through BRA-619. No new language
+feature or syntax is authorized. Baseline is afa9a815 plus the native-resource preparation
+changes recorded above. BRA-505 owns the shared repair and PR #612. Stack BRA-619 on its
+reviewed head and retain the existing admission/rollback checkpoint.
+
+1. Refine existing ownership/dependency effect production to describe possible introduction
+   or reactivation of graceful ownership. Check relevant targets through the existing storage
+   relationships. Include aliases, initialized protected payloads, dependencies, implicit
+   cleanup and every normal/abnormal outcome. Joins retain possible introductions even when
+   later consumption leaves the final state unchanged. Unknown relevant effects cannot prove
+   preservation. Existing caller and imported-summary consumers reuse the established result.
+2. Keep scalar mutation distinct from ownership introduction. Invalidate affected witness
+   evidence, require complete-carrier provenance for resource operations, and reject forged
+   aggregates, copied fields and mismatched resources where the active contract applies.
+   Retain the acquisition-order repair and the resource-family authority obligations in
+   BRA-508. Do not use field privacy, runtime tags, false pure/total claims or a universal
+   untyped resource owner as authority.
+3. Connect abandoned disposal and incident quiescence through the shared selected cleanup
+   expansion. Resolve child runs without dropping retained payload/backing/provider ownership.
+   Preserve ordinary explicit-operation and child-finalization semantics. Finish ordinary
+   finalization and inactive Future acceptance, then the BRA-619 scoped-transfer acceptance.
+4. Batch meaningful tests after coherent changes, then format, audit every changed behavior
+   and equivalent path, push, and complete independent PR review cycles with all fixes pushed.
+   Remove temporary handoffs when their work is complete. Keep PR descriptions in the required
+   Change Summary / Related Issues format without agent or verification logs.
+
+Performance constraints: proof summaries are compile-time metadata and require no runtime
+registry, history, snapshot, identity counter or per-part abandonment flag. Extend owning
+analysis rather than adding a pass or repeating callee analysis at call sites. Use finite
+demanded subjects and conservative summaries, not enumerated execution histories. Transfer
+existing cleanup allowance with ownership and avoid duplicate admission or forwarding
+destruction. Check emitted operations before LLVM optimization. Transparent layout guarantees
+representation, not zero call or cleanup cost. Record phase costs, backing/frame sizes and
+linked runtime demand alongside native correctness evidence. No competitive performance claim
+is established by source checking alone.
+
+Reconsider any approach requiring new syntax, proof-state runtime storage, duplicate cleanup
+interpretation, redundant reservations, path-history growth or a new general subsystem. Fix
+bounded gaps in their owning analysis. A genuinely independent subsystem must have an active
+Linear owner before proceeding. The existing coverage matrix remains required.
+
+## Terminal analysis checkpoint
+
+The uncommitted repair adds typed replacement effects to the existing dependency summary.
+Types are substituted, exported, selectively loaded, validated and included in specialization
+identity. The owning storage analysis rejects graceful-owner installation in terminal storage.
+Ordinary locals and the inherited receiver tail retain their selected cleanup semantics.
+
+Receiver storage is always protected. A lifetime borrow does not transfer the referent's
+cleanup ownership. Existing cleanup shape decides whether supporting dependency edges matter
+for the receiver's own graceful obligations, including protected Uninit payloads. Definite
+moves remove transferred edges from its current ownership graph. Scalar observations do not
+become pointer edges because a transfer entry is unknown. Positive and negative cases cover
+independently owned referents and dependencies supporting a finalizable receiver.
+
+Address formation is distinct from escape. Writes to externally reachable storage, foreign or unresolved
+calls, deferred captures and integer exposure retain escaped addresses. Checked bodies
+publish address capture separately from unknown memory mutation. Generic cleanup remains
+conditional until instantiation, including its possible capture, rather than publishing an
+unconditional escape from a type parameter. A write confined to an
+invocation-local slot does not publish its address. Existing reference relations track later
+publication. Invocation roots are computed once before mutation and reused by both checks.
+The memory tests and source cases distinguish a local address, a local mutating helper, and
+an address actually passed to native code. Source/imported authority negatives remain required.
+
+The production host loop exposed a separate condition-publication defect. Substitution changed
+the first iteration's recorded `index < count` into `0 < count`, so joins lost the common bound.
+Branch analysis now uses substitution to decide truth while retaining the evaluated condition.
+A merge regression also covers an alias that disappears while its observed value survives.
+Temporary effect tracing was removed after identifying the capture producers. Verify that
+no BRAY_TRACE instrumentation remains before committing.
+
+The full compiler batch completed with 1776 passes and 15 failures in
+`bra-505-terminal-compilation-suite.log`. Subsequent focused checks pass terminal-destructor,
+source/imported authority, production host retirement and two native bootstrap regressions.
+The native bootstrap repair consumes established unreachable-exit semantics before lowering
+cleanup. Production synchronization now passes. The focused terminal and imported-summary batch
+passes, including captured-address revocation. Production channel declarations, surviving-sender
+use, forgery rejection and protocol-access rejection now pass. File and pipe acquisition source
+checks pass on all six targets. Native acquisition and lifetime acceptance remains pending.
+The missing compiler-owned CleanupIncidentTransfer remains an expected unfinished path.
+No retained-incident native acceptance or independent completion review is claimed.
+
+The unused RawBuffer source destructor is removed because compiler-owned lifecycle selection
+already performs its element cleanup and release. A failed synchronization payload-extraction
+trial was restored. Do not weaken complete-carrier rules or revive that trial.
+
+HashTable now moves its buffers to ordinary locals before clearing them. Its pre-existing
+sparse panic-cleanup defect is recorded in the active represented-owner issue
+[BRA-506](https://linear.app/bray-lang/issue/BRA-506). A panicking Item can leave occupied
+Uninit slots unresolved. That family must reuse admitted cleanup without copying every payload
+or adding a second cleanup engine. Positive source checking is not panic-path acceptance.
+
+Complete the production effect and acquisition checks before claiming terminal acceptance.
+Then finish the shared continuation, retained quiescence,
+abandoned destruction and incident-transfer work in the implementation matrix above. Preserve
+performance bounds and do not infer progress from passing unrelated driver tests.
+
+Deque, OrderedTree, Directory and ChildProcess teardown now moves the affected represented
+storage to ordinary locals before user or opaque cleanup. These source adjustments pass all six native-target source checks. The standard-library
+bundle verification also passes. OrderedTree shares the sparse Uninit panic-cleanup
+obligation already tracked by BRA-506 for represented collection owners. Moving the buffer does
+not itself resolve the initialized sparse slots on an abnormal exit.
+
+The conditional-summary batch passes 191 package-interface tests. Its channel failure is
+resolved by the reference-transfer repairs below. Nullable presence
+queries now declare their existing pure/total behavior in the compiler-known catalog, so
+ordinary call analysis consumes that contract. Concrete source cleanup summaries retain
+conditional payload cleanup and separate capture from mutation. Raw stores now consider
+references contained in the stored operand, not the address used as their destination.
+Logs: `bra-505-conditional-interface.log`, `bra-505-conditional-summary.log`,
+`bra-505-library-source-recheck.log`; the retained release-tool digest is recorded in
+`bra-505-library-tool-identity.log`. The last library run reused that tool after two Bray-only
+integration fixes. Later Rust changes are covered by the focused checks below. Repeat native source acceptance
+with the final compiler before completing this issue.
+
+## Reference transfer and checkpoint review matrix
+
+Reference origins are prepared independently of possible memory effects. The existing type-shape
+preparation supplies both mutation observations and finite reference slots. No second type walker
+or runtime metadata is added. Returned aggregate fields keep their bounded origins through
+anonymous factories and selected propagation. Atomic writes preserve ordinary reference slots.
+Resolved effects are deduplicated after physical target resolution to avoid repeating identical
+unknown and atomic invalidations.
+
+Propagation must account for both continuations. The success path transfers the selected payload.
+The failure edge publishes its selected error or absence before cleanup, using the existing
+callable/yield boundary and conversion. Pending yielded values represent inactive payloads as
+empty reference values in the existing transfer map. Joins can then retain a present branch's
+exact origin without mistaking absence for unknown contents. Pending results do not become live
+storage before their join. An attempted early-initialization fix broke the production channel
+witness regression and was removed. Temporary tracing is removed before publication.
+
+| Changed contract | Owning implementation and acceptance |
+| --- | --- |
+| Terminal ownership | storage-flow terminal checks, typed replacement effects, source/imported direct and aliased installation, consumption, ordinary locals, implicit receiver tail and abnormal exits |
+| Capture and mutation | separate escape effects, raw stored-value capture, deferred capture, local-address and foreign-publication negatives, source/imported unknown-call contracts |
+| Reference composition | shared observation/reference preparation, aggregate and anonymous return, selected nullable/Result propagation, callable and yield exits, error payloads and guarded pending joins |
+| Cleanup specialization | selected lifecycle summaries, conditional generic cleanup, nested RawBuffer selection and recursive-wrapper growth regression |
+| Witness preservation | branch truth and disappearing-alias joins, production locks/once/channel, forged and mismatched owner rejection |
+| Contract transport | type substitution, interface encoding/decoding, selective loading, validation, specialization identity and diagnostic rendering |
+| Native source adaptation | preadmitted File/pipe acquisition, moved teardown buffers, host retirement and report-chain local disposal. Native retained-incident transfer remains unfinished |
+
+The final propagation matrix passes for nullable and Result values at callable and yield exits.
+`bra-505-pending-values-final.log` records 47 passing compilation tests, including production
+synchronization and channel acceptance. `bra-505-checker-messages-final.log` records 330 checker
+and 70 message tests. The pending-retirement regression also passes independently in
+`bra-505-pending-retirement.log`. After extracting the existing operation-completion phase to
+meet the function-size rule, 43 focused compilation tests pass in
+`bra-505-checkpoint-audit-tests.log`. Rust formatting, structural style and maintained Bray
+formatting pass in `bra-505-checkpoint-audit-format.log`. All six native-target source checks
+and bundle verification pass with the final compiler in `bra-505-checkpoint-library-final.log`.
+Source checks take 18.0 to 18.8 seconds per target in this run. These timings are coarse evidence,
+not a competitive compiler benchmark. A broader earlier name filter selected a long unrelated
+runtime-role test and was interrupted. It is not counted as a passing batch.
+
+Compilation-cost acceptance remains required. Reference shape discovery is once per body/type,
+with bounded recursive paths and no execution-history enumeration. This checkpoint must not be
+represented as completion of ordinary asynchronous cleanup, retained quiescence, abandoned
+destruction, native incident ownership, or BRA-619.

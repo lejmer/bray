@@ -56,6 +56,7 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
 
                 match effect {
                     DependencyStorageEffect::Unknown => encoder.write_u32(0),
+                    DependencyStorageEffect::Escape => encoder.write_u32(5),
                     DependencyStorageEffect::Atomic => encoder.write_u32(4),
                     DependencyStorageEffect::Cleanup(ty) => {
                         encoder.write_u32(3);
@@ -64,7 +65,7 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                     DependencyStorageEffect::Direct { subject, kind } => {
                         encoder.write_u32(1);
                         encode_dependency_subject(encoder, subject);
-                        encoder.write_u32(kind.to_wire());
+                        encode_mutation(encoder, *kind);
                     }
                     DependencyStorageEffect::Indirect {
                         reference,
@@ -74,7 +75,7 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                         encoder.write_u32(2);
                         encode_dependency_subject(encoder, reference);
                         encode_dependency_projections(encoder, projections);
-                        encoder.write_u32(kind.to_wire());
+                        encode_mutation(encoder, *kind);
                     }
                 }
             }
@@ -394,5 +395,26 @@ pub(super) fn encode_dependency_requirement_kind(
             encoder.write_u32(6);
             encoder.write_u32(kind.to_wire());
         }
+    }
+}
+
+fn encode_mutation(
+    encoder: &mut WireEncoder,
+    kind: bray_symbols::DependencyMutationKind<crate::InterfaceTypeId>,
+) {
+    use bray_symbols::DependencyMutationKind;
+
+    encoder.write_u32(match kind {
+        DependencyMutationKind::Write => 1,
+        DependencyMutationKind::Consume => 2,
+        DependencyMutationKind::Retire => 3,
+        DependencyMutationKind::Atomic => 4,
+        DependencyMutationKind::Replace(_) => 5,
+        DependencyMutationKind::Clear => 6,
+        DependencyMutationKind::Escape => 7,
+    });
+
+    if let DependencyMutationKind::Replace(ty) = kind {
+        encoder.write_u32(ty.raw());
     }
 }

@@ -195,7 +195,7 @@ pub use semantic::{
     TraitRequirementConformance, TraitRequirementResolution, TraitTypeFulfillmentValueQuery,
     TrustedCapabilityRequirement, TypeAssociatedImplementation, TypeAssociatedLifecycleMember,
     TypeAssociatedLifecycleSlot, TypeAssociatedMember, TypeAssociatedMemberOrigin,
-    TypeAssociatedSurface, TypeAssociatedSurfaceBuildError, TypeExpressionTemplate,
+    TypeAssociatedSurface, TypeAssociatedSurfaceBuildError, TypeExpressionTemplate, TypeLifecycle,
     UnevaluatedDefaultTemplate, UnionPayloadDefaultSurface, UnionPayloadDefaultValue,
     UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery,
     UnionPayloadFieldTypeQuery, check_execution_proof_dependencies,

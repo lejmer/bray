@@ -8,6 +8,134 @@ use bray_bound_tree::{BoundExecutionSite, BoundExpressionId, SemanticSelection};
 use bray_symbols::DependencySubjectRoot;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    pub(in crate::analysis::storage_flow::check::analysis) fn record_address_escapes(
+        &mut self,
+        state: &mut StorageFlowState,
+        operation: crate::analysis::model::AnalysisOperationKind,
+        effects: Option<&[crate::analysis::storage_flow::memory::Effect]>,
+        roots: &[Target],
+    ) {
+        let captures = self
+            .dependencies
+            .calls()
+            .get(&operation.occurrence())
+            .is_some_and(|contract| contract.deferred_effects().is_some());
+
+        let memory = operation
+            .occurrence()
+            .expression()
+            .and_then(|expression| self.memory.operation(expression));
+
+        if memory.is_some_and(|operation| {
+            matches!(
+                operation.kind(),
+                bray_bound_tree::CheckedMemoryOperationKind::RawDeallocate
+                    | bray_bound_tree::CheckedMemoryOperationKind::Deallocate
+                    | bray_bound_tree::CheckedMemoryOperationKind::RawBufferSetInitializedCount
+            )
+        }) {
+            // These compiler-owned operations retire backing or update its live
+            // prefix. They neither store an input address nor invoke payload code.
+            return;
+        }
+
+        let exposed_integer = memory.is_some_and(|operation| {
+            matches!(
+                operation.kind(),
+                bray_bound_tree::CheckedMemoryOperationKind::ExposeAddress { .. }
+            )
+        });
+
+        let direct_write = memory.is_some()
+            || self
+                .storage
+                .node_plans(operation.node())
+                .any(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment);
+
+        let may_store = direct_write
+            && effects.is_none_or(|effects| {
+                effects
+                    .iter()
+                    .any(|effect| effect.may_retain_address(&state.memory))
+            });
+
+        if let Some(operation) = memory
+            && matches!(
+                operation.kind(),
+                bray_bound_tree::CheckedMemoryOperationKind::Write { .. }
+                    | bray_bound_tree::CheckedMemoryOperationKind::VolatileWrite { .. }
+                    | bray_bound_tree::CheckedMemoryOperationKind::UninitWrite { .. }
+                    | bray_bound_tree::CheckedMemoryOperationKind::RawBufferPush { .. }
+            )
+        {
+            // Dereferencing the destination does not publish its address. Only
+            // references contained in the stored value can escape through this write.
+            let value = operation.arguments()[1];
+            let mut stored = Vec::new();
+
+            self.append_reference_roots(
+                state,
+                value,
+                self.expression_reference(state, value),
+                &mut stored,
+            );
+
+            self.record_escape_effects(&mut state.memory, Some(&[]), &stored, may_store);
+        } else {
+            self.record_escape_effects(
+                &mut state.memory,
+                effects,
+                roots,
+                captures || exposed_integer || may_store,
+            );
+        }
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn record_escape_effects(
+        &mut self,
+        memory: &mut crate::analysis::storage_flow::memory::State,
+        effects: Option<&[crate::analysis::storage_flow::memory::Effect]>,
+        roots: &[Target],
+        retain_inputs: bool,
+    ) {
+        use crate::analysis::storage_flow::memory::Effect;
+        use bray_symbols::DependencyMutationKind;
+
+        let all_inputs = retain_inputs
+            || effects.is_none_or(|effects| {
+                effects
+                    .iter()
+                    .any(|effect| matches!(effect, Effect::Escape))
+            });
+
+        let targets = effects
+            .into_iter()
+            .flatten()
+            .filter_map(|effect| match effect {
+                Effect::Mutation(target, DependencyMutationKind::Escape) => Some(target),
+                _ => None,
+            })
+            .chain(roots.iter().filter(|_| all_inputs))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for target in &targets {
+            self.record_target_effect(target, DependencyMutationKind::Escape);
+        }
+
+        memory.escape_targets(targets);
+
+        // Generic cleanup retains its conditional effect in the exported summary.
+        // Do not turn it into an unconditional escape before instantiation.
+        if effects.is_some_and(|effects| {
+            effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::Cleanup(_)))
+        }) {
+            memory.escape_targets(roots.iter().cloned());
+        }
+    }
+
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_roots(
         &self,
         state: &StorageFlowState,
@@ -27,15 +155,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             );
 
             for argument in expression.child_expressions().chain(receiver) {
-                if let Some(place) = self.argument_storage(argument) {
-                    roots.extend(
-                        state
-                            .memory
-                            .contained_regions(&Target::storage(place))
-                            .cloned(),
-                    );
-                }
-
                 // An implicit receiver borrow already names its physical target. Its
                 // retained lifetime anchor can be a different object, such as a guard.
                 let source = if receiver == Some(argument) {
@@ -44,35 +163,82 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     self.expression_reference(state, argument)
                 };
 
-                let regions = source.and_then(|source| source.regions(&state.memory));
-
-                if let Some(regions) = regions {
-                    // The physical target is authoritative. Its lifetime anchor need
-                    // not be reachable through the reference, as with a lock guard.
-                    roots.extend(regions);
-                } else {
-                    // Opaque task representations can retain a loan without
-                    // publishing a physical field. Its possible targets bound effects,
-                    // but never establish exact reference equality.
-                    for dependency in self.liveness.retained_by(argument) {
-                        if let bray_bound_tree::BoundDependencySubject::BorrowCapability(
-                            capability,
-                        ) = dependency
-                        {
-                            roots.extend(
-                                state
-                                    .memory
-                                    .borrow_targets(capability)
-                                    .into_iter()
-                                    .flatten(),
-                            );
-                        }
-                    }
-                }
+                self.append_reference_roots(state, argument, source, &mut roots);
             }
         }
 
         roots
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn assignment_roots(
+        &self,
+        state: &StorageFlowState,
+        operation: crate::analysis::model::AnalysisOperationKind,
+    ) -> Vec<Target> {
+        let Some(bray_bound_tree::BoundExpression::Assignment(assignment)) = operation
+            .occurrence()
+            .expression()
+            .and_then(|expression| self.request.view().expression(expression))
+        else {
+            return Vec::new();
+        };
+
+        let [_, value] = assignment.operands() else {
+            unreachable!("checked assignment has a destination and stored value");
+        };
+
+        let mut roots = Vec::new();
+
+        self.append_reference_roots(
+            state,
+            *value,
+            self.expression_reference(state, *value),
+            &mut roots,
+        );
+
+        roots
+    }
+
+    fn append_reference_roots(
+        &self,
+        state: &StorageFlowState,
+        argument: BoundExpressionId,
+        source: Option<Source>,
+        roots: &mut Vec<Target>,
+    ) {
+        if let Some(place) = self.argument_storage(argument) {
+            roots.extend(
+                state
+                    .memory
+                    .contained_regions(&Target::storage(place))
+                    .cloned(),
+            );
+        }
+
+        let regions = source.and_then(|source| source.regions(&state.memory));
+
+        if let Some(regions) = regions {
+            // The physical target is authoritative. Its lifetime anchor need
+            // not be reachable through the reference, as with a lock guard.
+            roots.extend(regions);
+        } else {
+            // Opaque task representations can retain a loan without
+            // publishing a physical field. Its possible targets bound effects,
+            // but never establish exact reference equality.
+            for dependency in self.liveness.retained_by(argument) {
+                if let bray_bound_tree::BoundDependencySubject::BorrowCapability(capability) =
+                    dependency
+                {
+                    roots.extend(
+                        state
+                            .memory
+                            .borrow_targets(capability)
+                            .into_iter()
+                            .flatten(),
+                    );
+                }
+            }
+        }
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_borrow_origins(

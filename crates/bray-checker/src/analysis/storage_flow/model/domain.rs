@@ -75,15 +75,8 @@ where
         }
     }
 
-    fn transfer_block(&self, block: &AnalysisBlock, source: &StorageFlowState) -> StorageFlowState {
-        // Transfer owns an independent task-local successor state.
-        let mut state = source.clone();
-
-        if !state.reachable {
-            return state;
-        }
-
-        let mut collector = StorageFlowCollector::without_publication(
+    fn collector(&self) -> StorageFlowCollector<'_, C> {
+        StorageFlowCollector::without_publication(
             self.request,
             self.storage,
             self.liveness,
@@ -95,7 +88,18 @@ where
             self.dependencies,
             self.values,
             self.patterns,
-        );
+        )
+    }
+
+    fn transfer_block(&self, block: &AnalysisBlock, source: &StorageFlowState) -> StorageFlowState {
+        // Transfer owns an independent task-local successor state.
+        let mut state = source.clone();
+
+        if !state.reachable {
+            return state;
+        }
+
+        let mut collector = self.collector();
 
         for operation in block.operations() {
             let operation = self
@@ -196,6 +200,15 @@ where
                 self.execution
                     .assume_patterns(execution, self.refinements.edge_facts(refinement));
             }
+        }
+
+        if let Some(crate::analysis::model::AnalysisRefinement::PropagationOutcome {
+            expression,
+            succeeded: false,
+        }) = edge.refinement()
+        {
+            self.collector()
+                .propagate_reference_result(&mut incoming, expression);
         }
 
         let ends = self

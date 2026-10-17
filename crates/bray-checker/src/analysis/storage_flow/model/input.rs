@@ -31,6 +31,9 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     pub(in crate::analysis::storage_flow) opaque_candidates: Vec<bray_bound_tree::StoragePath>,
     pub(super) unused_entry_storage: BTreeSet<StorageIdentityId>,
     pub(super) cleanup_free_storage: BTreeSet<StorageIdentityId>,
+    pub(in crate::analysis::storage_flow) terminal_dependencies: bool,
+    pub(in crate::analysis::storage_flow) terminal_receiver: Option<bray_bound_tree::StoragePath>,
+    pub(in crate::analysis::storage_flow) graceful_types: BTreeSet<bray_symbols::TypeId>,
     pub(super) cleanup_dependency_owners:
         BTreeMap<BoundDependencySubject, BTreeSet<StorageIdentityId>>,
     pub(in crate::analysis::storage_flow) lifecycle_paths: BTreeMap<
@@ -131,46 +134,28 @@ impl StorageFlowInput {
             })
             || atomic_operations;
 
-        let effects = dependencies.calls().values().any(|call| {
-            !call.effects().is_empty()
-                || call
-                    .deferred_effects()
-                    .is_some_and(|effects| !effects.is_empty())
-        }) || dependencies
-            .lifecycle_dependencies()
-            .values()
-            .any(|contract| !contract.effects().is_empty());
+        // Returned reference origins are needed even when a body has no memory effects.
+        // Share the same type-shape preparation with mutation observations.
+        let footprint = crate::storage::observation::prepare(request, storage)?;
 
-        let footprint = (atomic || effects || cleanup.has_opaque_effects())
-            .then(|| crate::storage::observation::prepare(request, storage))
-            .transpose()?;
+        let mut demands = BTreeMap::<_, BTreeSet<_>>::new();
 
-        let (
-            atomic_observations,
-            stable_identities,
-            borrowed_identities,
-            discriminants,
-            scalar_values,
-        ) = footprint.map_or_else(
-            || {
-                (
-                    None,
-                    BTreeMap::new(),
-                    BTreeMap::new(),
-                    BTreeMap::new(),
-                    BTreeMap::new(),
-                )
-            },
-            |footprint| {
-                (
-                    atomic.then_some(footprint.atomic),
-                    footprint.identities,
-                    footprint.borrowed_identities,
-                    footprint.discriminants,
-                    footprint.scalars,
-                )
-            },
-        );
+        for (path, ty) in &footprint.references {
+            let owner = storage
+                .storage_type(path.root)
+                .expect("prepared observation retains its storage type");
+
+            demands
+                .entry(request.semantic_values().unborrowed_type(owner))
+                .or_default()
+                .insert((std::sync::Arc::clone(&path.projections), *ty));
+        }
+
+        let atomic_observations = atomic.then_some(footprint.atomic);
+        let stable_identities = footprint.identities;
+        let borrowed_identities = footprint.borrowed_identities;
+        let discriminants = footprint.discriminants;
+        let scalar_values = footprint.scalars;
 
         let reference_descriptors = storage
             .identity_entries()
@@ -245,6 +230,7 @@ impl StorageFlowInput {
         };
 
         input.prepare_locations(storage, cleanup);
+        input.prepare_variant_payloads(footprint.references.iter().map(|(path, _)| path));
 
         input.prepare_reference_constructions(request, storage, values)?;
         input.prepare_reference_paths(request, storage)?;
@@ -252,13 +238,13 @@ impl StorageFlowInput {
         let lifecycle_demands =
             input.prepare_lifecycle_references(request, cleanup, dependencies)?;
 
-        input.prepare_entry_references(
-            request,
-            storage,
-            selections,
-            dependencies,
-            lifecycle_demands,
-        )?;
+        for (ty, paths) in lifecycle_demands {
+            demands.entry(ty).or_default().extend(paths);
+        }
+
+        input.prepare_entry_references(request, storage, selections, dependencies, demands)?;
+
+        input.prepare_terminal_ownership(cleanup_shapes, request, storage, dependencies, memory)?;
 
         input.immutable_field_accesses =
             crate::analysis::storage_flow::authority::immutable_field_accesses(
@@ -309,11 +295,19 @@ impl StorageFlowInput {
             self.definitions.entry(node).or_default().push(storage);
         }
 
-        for path in storage
-            .access_entries()
-            .filter_map(|(access, _)| storage.logical_path(access))
-            .chain(cleanup.represented_paths())
-        {
+        self.prepare_variant_payloads(
+            storage
+                .access_entries()
+                .filter_map(|(access, _)| storage.logical_path(access))
+                .chain(cleanup.represented_paths()),
+        );
+    }
+
+    fn prepare_variant_payloads<'a>(
+        &mut self,
+        paths: impl IntoIterator<Item = &'a bray_bound_tree::StoragePath>,
+    ) {
+        for path in paths {
             for (depth, projection) in path.projections.iter().enumerate() {
                 if matches!(
                     projection,

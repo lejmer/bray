@@ -225,15 +225,6 @@ impl Plan {
         self.input_finalizers = selected;
     }
 
-    pub(in crate::analysis) fn has_opaque_effects(&self) -> bool {
-        self.steps.iter().any(|(access, steps)| {
-            matches!(
-                self.replacements.get(access),
-                Some(bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_))
-            ) && steps.iter().any(|step| matches!(step, Step::Opaque { .. }))
-        })
-    }
-
     pub(in crate::analysis) fn represented_paths(
         &self,
     ) -> impl Iterator<Item = &bray_bound_tree::StoragePath> {
@@ -399,16 +390,22 @@ impl Plan {
                 .map(|(ty, part)| {
                     let path = part.as_ref().and_then(|part| part.storage_path(storage, access));
 
+                    let source_lifecycle = match request.semantic_values().type_data(ty).as_ref() {
+                        TypeData::Named { definition, substitution } => request.context()
+                            .raw_buffer_element(*definition, *substitution)?.is_none(),
+                        _ => false,
+                    };
+
                     if part.as_ref().is_some_and(|part| {
                         part.release().is_some() || !part.phases().includes_lifecycle()
-                    }) || !matches!(request.semantic_values().type_data(ty).as_ref(), TypeData::Named { .. }) {
-                        Step::Opaque { ty, path }
+                    }) || !source_lifecycle {
+                        Ok(Step::Opaque { ty, path })
                     } else {
                         types.insert(ty);
 
                         let place = path.as_ref().and_then(|path| ExecutionPlace::storage_path(storage, path));
 
-                        Step::Lifecycle {
+                        Ok(Step::Lifecycle {
                             ty,
                             guards: cleanup_guards(request.semantic_values(), storage, access, part.as_ref()),
                             path,
@@ -422,10 +419,10 @@ impl Plan {
                             whole: part
                                 .as_ref()
                                 .is_some_and(|part| part.projections().is_empty()),
-                        }
+                        })
                     }
                 })
-                .collect();
+                .collect::<Result<_, CheckerQueryError<C::UpstreamError>>>()?;
 
             if steps.is_empty() {
                 // Opaque native cleanup has no represented lifecycle whose effects we can apply.

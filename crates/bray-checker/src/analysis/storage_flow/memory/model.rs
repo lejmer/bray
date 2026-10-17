@@ -59,18 +59,44 @@ impl Target {
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(in crate::analysis::storage_flow) enum Effect {
+    Unknown,
+    Escape,
     Atomic,
     Mutation(Target, bray_symbols::DependencyMutationKind),
     Cleanup(TypeId),
 }
 
 impl Effect {
+    pub(in crate::analysis::storage_flow) fn may_retain_address(&self, memory: &State) -> bool {
+        match self {
+            // Writes confined to an invocation-local slot do not publish an address.
+            // Stored reference relations still track later publication of that slot.
+            Self::Mutation(target, kind) => {
+                kind.is_write()
+                    && *kind != bray_symbols::DependencyMutationKind::Clear
+                    && target.storage_path().is_none_or(|path| {
+                        memory.owned_storage.binary_search(&path.root).is_err()
+                            || path
+                                .projections
+                                .contains(&bray_bound_tree::StorageProjection::OwnedTarget)
+                            || memory
+                                .contents
+                                .get(&Target::storage(Place::root(path.root)))
+                                .is_some_and(|contents| contents.escaped)
+                    })
+            }
+            Self::Unknown | Self::Escape | Self::Cleanup(_) => true,
+            Self::Atomic => false,
+        }
+    }
+
     pub(in crate::analysis::storage_flow) fn mutation(
         &self,
     ) -> Option<(&Target, bray_symbols::DependencyMutationKind)> {
         match self {
+            Self::Mutation(_, bray_symbols::DependencyMutationKind::Escape) => None,
             Self::Mutation(target, kind) => Some((target, *kind)),
-            Self::Atomic | Self::Cleanup(_) => None,
+            Self::Unknown | Self::Escape | Self::Atomic | Self::Cleanup(_) => None,
         }
     }
 }
@@ -140,6 +166,7 @@ type Origins = BTreeSet<BoundExpressionId>;
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct Contents {
     pub(super) exposed: bool,
+    pub(super) escaped: bool,
     pub(super) storage_type: Option<TypeId>,
     pub(super) initialized: BTreeSet<TypeId>,
     pub(super) pending: BTreeMap<TypeId, Origins>,
@@ -150,8 +177,10 @@ pub(super) struct Contents {
 impl Contents {
     pub(super) fn merge(&mut self, incoming: &Self) -> bool {
         let previous_exposure = self.exposed;
+        let previous_escape = self.escaped;
 
         self.exposed |= incoming.exposed;
+        self.escaped |= incoming.escaped;
 
         let previous_type = self.storage_type;
 
@@ -171,7 +200,8 @@ impl Contents {
 
         let mut changed = self.initialized.len() != count
             || self.storage_type != previous_type
-            || self.exposed != previous_exposure;
+            || self.exposed != previous_exposure
+            || self.escaped != previous_escape;
 
         for (&ty, origins) in &incoming.pending {
             changed |= merge_origins(self.pending.entry(ty).or_default(), origins);
@@ -235,23 +265,22 @@ impl State {
             "evaluated values must be transferred before joining control flow"
         );
 
+        let no_payload = |absence: &BTreeMap<Place, StorageAbsence>, slot: &Target| {
+            slot.storage_path().is_some_and(|slot| {
+                absence.iter().any(|(path, reason)| {
+                    *reason == StorageAbsence::NoPayload && path.contains(slot)
+                })
+            })
+        };
+
+        let left_absent = |slot: &Target| no_payload(absent, slot);
+        let right_absent = |slot: &Target| no_payload(incoming_absent, slot);
+
         let mut changed = merge_references(
             &mut self.values,
             &incoming.values,
-            |slot| {
-                slot.storage_path().is_some_and(|slot| {
-                    absent.iter().any(|(path, reason)| {
-                        *reason == StorageAbsence::NoPayload && path.contains(slot)
-                    })
-                })
-            },
-            |slot| {
-                slot.storage_path().is_some_and(|slot| {
-                    incoming_absent.iter().any(|(path, reason)| {
-                        *reason == StorageAbsence::NoPayload && path.contains(slot)
-                    })
-                })
-            },
+            left_absent,
+            right_absent,
         );
 
         for (reference, roots) in &incoming.returned_roots {
@@ -264,10 +293,10 @@ impl State {
 
         changed |= merge_references(&mut self.borrows, &incoming.borrows, |_| false, |_| false);
 
-        let absent = Transfer::default();
+        let empty = Transfer::default();
 
         for (call, transfer) in &mut self.pending {
-            changed |= transfer.merge(incoming.pending.get(call).unwrap_or(&absent));
+            changed |= transfer.merge(incoming.pending.get(call).unwrap_or(&empty));
         }
 
         for (call, transfer) in &incoming.pending {

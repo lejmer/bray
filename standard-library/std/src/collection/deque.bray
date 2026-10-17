@@ -26,7 +26,22 @@ struct Deque<T>
 
     trusted destruct()
     {
-        trusted self.clear();
+        let mut storage = self.storage;
+        let slot_capacity = std.memory.capacity<(T?)>(&storage);
+        let mut remaining = self.count;
+
+        while remaining > 0
+        {
+            remaining -= 1;
+
+            let index = internal std.collection.ring.index(
+                head = self.head,
+                storage_capacity = slot_capacity,
+                logical_index = remaining,
+            );
+
+            let _: T = trusted take_deque_slot<T>(&mut storage, physical_index = index);
+        }
     }
 
     func length() -> usize
@@ -253,10 +268,10 @@ trusted internal func write_deque_slot<T>(pos deque: &mut Deque<T>, pos value: T
     slots[physical_index] = value;
 }
 
-trusted internal func take_deque_slot<T>(pos deque: &mut Deque<T>, physical_index: usize) -> T
+trusted internal func take_deque_slot<T>(pos storage: &mut std.memory.RawBuffer<(T?)>, physical_index: usize) -> T
     uses(raw_memory)
 {
-    let slots: &mut [(T?)] = trusted std.memory.initialized_slice_mut(&mut deque.storage);
+    let slots: &mut [(T?)] = trusted std.memory.initialized_slice_mut(storage);
     let pending: T? = std.memory.replace_value(&mut slots[physical_index], none);
 
     return match consume pending
@@ -269,7 +284,7 @@ trusted internal func take_deque_slot<T>(pos deque: &mut Deque<T>, physical_inde
 trusted internal func take_deque_front<T>(pos deque: &mut Deque<T>) -> T
 {
     let index: usize = deque.head;
-    let value: T = trusted take_deque_slot<T>(&mut deque, physical_index = index);
+    let value: T = trusted take_deque_slot<T>(&mut deque.storage, physical_index = index);
     let storage_capacity: usize = deque.capacity();
 
     deque.count -= 1;
@@ -296,7 +311,7 @@ trusted internal func take_deque_back<T>(pos deque: &mut Deque<T>) -> T
         logical_index = deque.count - 1,
     );
 
-    let value: T = trusted take_deque_slot<T>(&mut deque, physical_index = index);
+    let value: T = trusted take_deque_slot<T>(&mut deque.storage, physical_index = index);
 
     deque.count -= 1;
 
@@ -368,7 +383,7 @@ trusted internal func reallocate_deque<T>(
             logical_index = moved,
         );
 
-        let value: T = trusted take_deque_slot<T>(&mut deque, physical_index = source_index);
+        let value: T = trusted take_deque_slot<T>(&mut deque.storage, physical_index = source_index);
         let slots: &mut [(T?)] = trusted std.memory.initialized_slice_mut<(T?)>(&mut replacement);
 
         slots[moved] = value;

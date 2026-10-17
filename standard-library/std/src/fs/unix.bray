@@ -134,7 +134,7 @@ trusted internal func prepare_file_open(
     pos path: PlatformPath,
     pos options: PlatformFileOptions,
     pos opened: RawPointer<u64>,
-) -> Result<u64, std.platform.PlatformStatus>
+) -> Result<File, std.platform.PlatformStatus>
     requires(
         trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
         trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
@@ -159,6 +159,12 @@ trusted internal func prepare_file_open(
     {
         case Ok(terminated_path)
         {
+            let mut owner: File =
+            {
+                handle = 0,
+                is_open = false,
+            };
+
             let native_descriptor: i32 = trusted std.os.unix.open_file(
                 terminated_path.pointer,
                 flags = flags,
@@ -170,7 +176,10 @@ trusted internal func prepare_file_open(
                 return Error(trusted internal std.platform.unix_error_status());
             }
 
-            return Ok(std.numeric.truncate_to<u64>(native_descriptor));
+            owner.handle = std.numeric.truncate_to<u64>(native_descriptor);
+            owner.is_open = true;
+
+            return Ok(owner);
         }
         case Error(status) { return Error(status); }
     }

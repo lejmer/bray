@@ -2786,6 +2786,11 @@ fn static_initializers_preserve_only_established_owner_authority() {
         (
             "create()",
             "let address = core.memory.address_of<Owner>(&OWNER); change();",
+            true,
+        ),
+        (
+            "create()",
+            "let address = core.memory.address_of<Owner>(&OWNER); publish(address); change();",
             false,
         ),
     ] {
@@ -2801,6 +2806,7 @@ fn static_initializers_preserve_only_established_owner_authority() {
             static OWNER: Owner = {initializer};
             func observe(pos owner: &Owner) requires(trusted held(&owner.marker)) {{}}
             extern func change();
+            extern func publish(pos pointer: RawPointer<Owner>);
             trusted func caller() uses(raw_memory) {{ {mutation} observe(&OWNER); }}
         "#
         );
@@ -3053,6 +3059,10 @@ fn opaque_execution_preserves_only_unexposed_shared_carrier_references() {
         ),
         (
             "let mut owner = make(); let address = core.memory.address_of_mut<Owner>(&mut owner); opaque(); observe(&owner);",
+            true,
+        ),
+        (
+            "let mut owner = make(); let address = core.memory.address_of_mut<Owner>(&mut owner); publish(address); opaque(); observe(&owner);",
             false,
         ),
         (
@@ -3072,6 +3082,7 @@ fn opaque_execution_preserves_only_unexposed_shared_carrier_references() {
             extern trusted func opaque();
             extern trusted func replace(pos owner: &mut &Owner);
             extern trusted func replace_owner(pos owner: &mut Owner);
+            extern trusted func publish(pos pointer: RawPointer<Owner>);
             struct Holder {{ owner: &mut Owner; }}
             extern trusted func replace_holder(pos holder: Holder);
             trusted func caller() uses(raw_memory) {{ {body} }}
@@ -3379,6 +3390,10 @@ fn opaque_calls_preserve_unexposed_scalar_values_only() {
         ("replace(&mut value);", false),
         (
             "let pointer = core.memory.address_of_mut<u32>(&mut value); opaque();",
+            true,
+        ),
+        (
+            "let pointer = core.memory.address_of_mut<u32>(&mut value); publish(pointer); opaque();",
             false,
         ),
     ] {
@@ -3389,6 +3404,7 @@ fn opaque_calls_preserve_unexposed_scalar_values_only() {
             static WORD: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
             func signal() {{ core.atomic.store<u32, 2>(&WORD, 1); }}
             extern trusted func replace(pos value: &mut u32);
+            extern trusted func publish(pos pointer: RawPointer<u32>);
             trusted func caller(pos initial: u32) -> u32 ensures(result == initial) uses(raw_memory) {{
                 let mut value = initial;
                 {effect}
