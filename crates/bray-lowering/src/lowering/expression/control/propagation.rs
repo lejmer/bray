@@ -207,7 +207,7 @@ impl Lowerer<'_> {
         let source = self.source(expression.origin());
 
         let (success, value, error, error_value) =
-            self.branch_result_value(id, current, &source, operand, operand_type)?;
+            self.branch_result_value(current, &source, operand, operand_type)?;
 
         let (error, error_value) = self.convert_operand(
             id,
@@ -227,60 +227,29 @@ impl Lowerer<'_> {
 
     pub(in crate::lowering) fn branch_result_value(
         &mut self,
-        expression: BoundExpressionId,
         current: MirBlockId,
         source: &MirSourceAnchor,
         value: MirOperand,
         result_type: TypeId,
     ) -> Result<(MirBlockId, MirOperand, MirBlockId, MirOperand), LoweringError> {
-        let arguments = self.named_type_arguments(result_type);
+        let (types, representation) = crate::operand::result_payloads(
+            self.input.semantic_values(),
+            self.input.available_compiler_known_symbols(),
+            result_type,
+        )
+        .expect("checked Result branch retains its payload representation");
 
-        let [success_type, failure_type] = arguments.as_slice() else {
-            panic!("checked Result {result_type:?} retains its success and error types");
-        };
+        let (branch, [(success, success_value), (error, error_value)]) =
+            crate::operand::branch_result(
+                &mut self.builder,
+                current,
+                source,
+                value,
+                types,
+                representation,
+            )?;
 
-        let representation = self.result_representation();
-
-        let (success, success_value) = self.propagation_branch(source, result_type)?;
-
-        let (error, error_value) = self.propagation_branch(source, result_type)?;
-
-        self.set_terminator(
-            current,
-            Self::retained_source(source),
-            bray_ir::MirTerminatorKind::PatternBranch {
-                subject: Self::retained_operand(&value),
-                predicate: bray_ir::MirPatternPredicate::ActiveUnionVariant(
-                    representation.success_variant,
-                ),
-                matched: bray_ir::MirEdge::new(success, [Self::retained_operand(&value)]),
-                unmatched: bray_ir::MirEdge::new(error, [value]),
-            },
-        )?;
-
-        let success_value = self.project_pattern_value(
-            expression,
-            success,
-            source,
-            success_value,
-            bray_bound_tree::PatternProjection::ActiveUnionPayloadField {
-                variant: representation.success_variant,
-                field: representation.success_field,
-            },
-            *success_type,
-        )?;
-
-        let error_value = self.project_pattern_value(
-            expression,
-            error,
-            source,
-            error_value,
-            bray_bound_tree::PatternProjection::ActiveUnionPayloadField {
-                variant: representation.error_variant,
-                field: representation.error_field,
-            },
-            *failure_type,
-        )?;
+        self.set_terminator(current, Self::retained_source(source), branch)?;
 
         Ok((success, success_value, error, error_value))
     }

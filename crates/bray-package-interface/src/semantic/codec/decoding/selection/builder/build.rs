@@ -989,8 +989,22 @@ impl<'bytes> SelectionBuilder<'bytes> {
         for effect in &*contract.effects {
             use bray_symbols::DependencyStorageEffect;
 
+            if let DependencyStorageEffect::Direct {
+                kind: bray_symbols::DependencyMutationKind::Replace(ty),
+                ..
+            }
+            | DependencyStorageEffect::Indirect {
+                kind: bray_symbols::DependencyMutationKind::Replace(ty),
+                ..
+            } = effect
+            {
+                self.enqueue(PendingRecord::Type(ty.raw()));
+            }
+
             match effect {
-                DependencyStorageEffect::Atomic | DependencyStorageEffect::Unknown => {}
+                DependencyStorageEffect::Atomic
+                | DependencyStorageEffect::Unknown
+                | DependencyStorageEffect::Escape => {}
                 DependencyStorageEffect::Cleanup(ty) => self.enqueue(PendingRecord::Type(ty.raw())),
                 DependencyStorageEffect::Direct { subject, .. } => {
                     self.include_dependency_subject(subject)

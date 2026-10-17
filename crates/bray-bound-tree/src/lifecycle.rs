@@ -10,12 +10,28 @@ use bray_symbols::{
 pub enum LifecyclePhase {
     /// Invoke whole-value graceful finalization.
     Finalize,
+    /// Resolve child runs while retaining an error for later incident destruction.
+    Quiesce,
     /// Destroy the remaining represented value.
     Destroy,
     /// Broadcast cancellation before resolving owners.
     Cancel,
     /// Finalize and destroy an owner.
     Resolve,
+}
+
+/// The receiver identity for which pure, total, successful finalization was proved.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CompletedFinalizer {
+    /// Every valid value of this type completes without running its finalizer.
+    Type(TypeId),
+    /// This stored value completes at the specified ownership end.
+    Storage {
+        /// Ownership-end occurrence carrying the proof.
+        exit: crate::AnyBoundNodeId,
+        /// Receiver storage whose current state satisfies the proof.
+        access: crate::StorageAccessId,
+    },
 }
 
 /// One selected lifecycle invocation with its substituted signature.
@@ -31,6 +47,58 @@ pub struct LifecycleCallable {
     pub result: TypeId,
     /// Whether invoking the implementation creates an inactive future.
     pub execution: CallableExecution,
+}
+
+impl LifecycleCallable {
+    /// Returns the immediate value or inactive future created by this invocation.
+    pub fn invocation_result(
+        self,
+        values: &bray_symbols::SemanticValueStore,
+        symbols: &bray_symbols::AvailableCompilerKnownSymbols,
+    ) -> Result<crate::BoundCallResult, bray_symbols::SemanticValueStoreError> {
+        Ok(match self.execution {
+            CallableExecution::Synchronous => crate::BoundCallResult::Immediate(self.result),
+            CallableExecution::Asynchronous => {
+                let future = symbols
+                    .unary_representation_type(
+                        values,
+                        bray_compiler_known::RepresentationRole::Future,
+                        self.result,
+                    )?
+                    .expect("checked asynchronous lifecycle retains its Future representation");
+
+                crate::BoundCallResult::LazyFuture(crate::BoundFutureConstruction::new(
+                    self.result,
+                    future,
+                ))
+            }
+        })
+    }
+
+    /// Retains a checked lifecycle selection without resolving its signature again.
+    pub fn from_signature(
+        values: &bray_symbols::SemanticValueStore,
+        callable: CallableInstanceData,
+        signature: &bray_symbols::CallableSignature,
+    ) -> Result<Self, bray_symbols::SemanticValueStoreError> {
+        let data = values.type_data(signature.callable_type());
+
+        let bray_symbols::TypeData::Callable(selected) = data.as_ref() else {
+            panic!("checked lifecycle signature retains its callable type");
+        };
+
+        let receiver = signature
+            .receiver()
+            .expect("checked lifecycle signature retains its receiver");
+
+        Ok(Self {
+            callable,
+            abi: selected.abi(),
+            receiver: receiver.mode().input_type(values, receiver.ty())?,
+            result: signature.result(),
+            execution: selected.execution(),
+        })
+    }
 }
 
 /// The selected local action for one type and lifecycle phase.
@@ -69,7 +137,7 @@ pub enum LifecycleAction {
     },
     /// Resolve the initialized prefix of a generator.
     Generator(TypeId),
-    /// Release an imported raw buffer through its recognized representation.
+    /// Visit a raw buffer's initialized prefix or release its recognized representation.
     RawBuffer(TypeId),
     /// Release retained string bytes.
     ReleaseString,
@@ -77,4 +145,34 @@ pub enum LifecycleAction {
     DestroyReport,
     /// Resolve a task using the operation selected by the requested phase.
     Task,
+}
+
+impl LifecycleAction {
+    /// Returns local invocations in execution order, preserving repeated calls.
+    /// Structural children retain their own selected actions and cleanup allowances.
+    pub fn local_calls(&self) -> impl Iterator<Item = LifecycleCallable> {
+        let calls = match self {
+            Self::Call(callable) => [Some(*callable), None, None],
+            Self::Owned {
+                borrow, teardown, ..
+            } => [
+                Some(*borrow),
+                teardown.map(|calls| calls[0]),
+                teardown.map(|calls| calls[1]),
+            ],
+            Self::None
+            | Self::Resolve
+            | Self::Members(_)
+            | Self::Alternatives(_)
+            | Self::Nullable(_)
+            | Self::Array { .. }
+            | Self::Generator(_)
+            | Self::RawBuffer(_)
+            | Self::ReleaseString
+            | Self::DestroyReport
+            | Self::Task => [None; 3],
+        };
+
+        calls.into_iter().flatten()
+    }
 }

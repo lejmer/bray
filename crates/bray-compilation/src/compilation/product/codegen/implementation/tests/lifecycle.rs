@@ -161,3 +161,38 @@ fn synchronous_finalizer_can_propagate_run_result_cancellation() {
         assert!(!generated_artifacts(&backend, &plan).is_empty());
     }
 }
+
+#[test]
+fn ordinary_async_finalizers_emit_admitted_frame_composition() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+        module app;
+        static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+        async func record()
+        {
+            let previous = core.atomic.load<usize, 1>(&COUNT);
+            core.atomic.store<usize, 4>(&COUNT, previous + 1);
+        }
+        struct Owner
+        {
+            value: usize;
+            async finalize()
+            {
+                await record();
+            }
+        }
+        func rejected() -> usize { panic("later input"); }
+        async func accept(pos owner: Owner, number: usize = rejected()) {}
+        async func completed() -> Owner { return Owner { value = 3 }; }
+        async func main()
+        {
+            let mut owner = Owner { value = 1 };
+            owner = Owner { value = 2 };
+            let result = await completed();
+            let failure = catch { await accept(Owner { value = 4 }); yield unit; };
+        }
+    "#,
+    );
+
+    assert!(!generated_artifacts(&backend, &plan).is_empty());
+}

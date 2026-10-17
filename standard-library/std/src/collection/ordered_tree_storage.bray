@@ -54,7 +54,7 @@ trusted internal func ordered_tree_reallocate<Item>(
 
             if node.occupied
             {
-                let item: Item = trusted ordered_tree_take_item(tree, index = index);
+                let item: Item = trusted ordered_tree_take_item(&mut tree.nodes, &mut tree.items, index = index);
                 let _: &mut Item = std.memory.uninit_write<Item>(&mut destination_slots[index], item);
 
                 destination_nodes[index] = node;
@@ -263,7 +263,7 @@ trusted internal func ordered_tree_remove_at<Item>(pos tree: &mut OrderedTree<It
         case none {}
     }
 
-    let item: Item = trusted ordered_tree_take_item<Item>(&mut tree, index = removed_index);
+    let item: Item = trusted ordered_tree_take_item<Item>(&mut tree.nodes, &mut tree.items, index = removed_index);
 
     {
         let nodes: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(&mut tree.nodes);
@@ -282,7 +282,7 @@ trusted internal func ordered_tree_remove_at<Item>(pos tree: &mut OrderedTree<It
 
 trusted internal func ordered_tree_take_for_iteration<Item>(pos tree: &mut OrderedTree<Item>, index: usize) -> Item
 {
-    let item: Item = trusted ordered_tree_take_item(tree, index = index);
+    let item: Item = trusted ordered_tree_take_item(&mut tree.nodes, &mut tree.items, index = index);
 
     tree.count -= 1;
 
@@ -290,9 +290,19 @@ trusted internal func ordered_tree_take_for_iteration<Item>(pos tree: &mut Order
 }
 
 trusted internal func ordered_tree_clear<Item>(pos tree: &mut OrderedTree<Item>)
+{
+    tree.free = trusted ordered_tree_clear_storage<Item>(&mut tree.nodes, &mut tree.items);
+    tree.root = none;
+    tree.count = 0;
+}
+
+trusted internal func ordered_tree_clear_storage<Item>(
+    pos nodes: &mut std.memory.RawBuffer<OrderedTreeNode>,
+    pos items: &mut std.memory.RawBuffer<Uninit<Item>>
+) -> usize?
     uses(raw_memory)
 {
-    let slot_capacity: usize = std.memory.capacity<OrderedTreeNode>(&tree.nodes);
+    let slot_capacity: usize = std.memory.capacity<OrderedTreeNode>(&nodes);
     let mut free: usize? = none;
 
     {
@@ -302,22 +312,25 @@ trusted internal func ordered_tree_clear<Item>(pos tree: &mut OrderedTree<Item>)
         {
             index -= 1;
 
-            if ordered_tree_node<Item>(&tree, index = index).occupied
+            let occupied =
             {
-                let _: Item = trusted ordered_tree_take_item(tree, index = index);
+                let entries = trusted std.memory.initialized_slice<OrderedTreeNode>(&nodes);
+
+                yield entries[index].occupied;
+            };
+
+            if occupied
+            {
+                let _: Item = trusted ordered_tree_take_item(nodes, items, index = index);
             }
 
-            let nodes: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(
-                &mut tree.nodes
-            );
+            let entries: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(nodes);
 
-            nodes[index] = ordered_tree_empty_node();
-            nodes[index].next_free = free;
+            entries[index] = ordered_tree_empty_node();
+            entries[index].next_free = free;
             free = index;
         }
     }
 
-    tree.root = none;
-    tree.free = free;
-    tree.count = 0;
+    return free;
 }

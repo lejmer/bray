@@ -180,10 +180,6 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
 
             ("product_query_external_symbol_identity", fields)
         }
-        Failure::InvalidCompilerKnownDeclarationKey { key } => (
-            "product_query_invalid_compiler_known_declaration_key",
-            vec![text_field("declaration_key", key)],
-        ),
         Failure::UnexpectedEntryResult { actual } => (
             "product_query_unexpected_entry_result",
             vec![text_field(
@@ -545,6 +541,7 @@ const fn mir_operation_kind(operation: &bray_ir::MirOperationKind) -> &'static s
         Operation::Text(_) => "text",
         Operation::PanicReport(_) => "panic_report",
         Operation::Finalize(_) => "finalize",
+        Operation::Quiesce(_) => "quiesce",
         Operation::Destroy(_) => "destroy",
         Operation::Cleanup { .. } => "cleanup",
         Operation::Async(_) => "async",
@@ -557,6 +554,7 @@ const fn mir_operation_kind(operation: &bray_ir::MirOperationKind) -> &'static s
 const fn mir_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &'static str {
     match role {
         bray_ir::MirGeneratedLifecycleRole::Finalize => "finalize",
+        bray_ir::MirGeneratedLifecycleRole::Quiesce => "quiesce",
         bray_ir::MirGeneratedLifecycleRole::StaticFinalize => "static_finalize",
         bray_ir::MirGeneratedLifecycleRole::Destroy => "destroy",
         bray_ir::MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::TaskCancellation) => {
@@ -578,7 +576,6 @@ const fn product_value_kind(kind: ProductValueKind) -> &'static str {
         ProductValueKind::GenericTypeArgument => "generic_type_argument",
         ProductValueKind::NamedType => "named_type",
         ProductValueKind::CallableType => "callable_type",
-        ProductValueKind::LifecycleRepresentableType => "lifecycle_representable_type",
     }
 }
 
@@ -607,8 +604,6 @@ const fn product_data_kind(kind: ProductDataKind) -> &'static str {
         ProductDataKind::Intrinsic => "intrinsic",
         ProductDataKind::ConversionPlan => "conversion_plan",
         ProductDataKind::CompilerKnownRepresentation => "compiler_known_representation",
-        ProductDataKind::LifecycleRole => "lifecycle_role",
-        ProductDataKind::LifecycleType => "lifecycle_type",
         ProductDataKind::StaticInitializer => "static_initializer",
         ProductDataKind::ImplementationHeader => "implementation_header",
         ProductDataKind::TestDiscovery => "test_discovery",
@@ -628,7 +623,6 @@ const fn product_data_kind(kind: ProductDataKind) -> &'static str {
         ProductDataKind::SourceLocation => "source_location",
         ProductDataKind::NativeStaticContract => "native_static_contract",
         ProductDataKind::CallableParameters => "callable_parameters",
-        ProductDataKind::CallableReceiver => "callable_receiver",
         ProductDataKind::StaticSubstitution => "static_substitution",
         ProductDataKind::ImportedSemanticAddress => "imported_semantic_address",
         ProductDataKind::ResolvedType => "resolved_type",

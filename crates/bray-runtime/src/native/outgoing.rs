@@ -107,4 +107,31 @@ mod tests {
         assert!(report.consume(false).is_success());
         assert_eq!(RELEASES.with_borrow(Clone::clone), [1, 2]);
     }
+
+    #[test]
+    fn detached_report_chain_round_trips_without_new_admission_and_releases_once() {
+        RELEASES.with_borrow_mut(Vec::clear);
+
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(2).expect("report admission");
+
+        let mut records =
+            crate::RuntimePanic::from_native(outcome(1).take_report()).into_records(&mut admitted);
+
+        let mut later =
+            crate::RuntimePanic::from_native(outcome(2).take_report()).into_records(&mut admitted);
+
+        records.append(&mut later);
+        assert_eq!(admitted.len(), 0);
+
+        let report = crate::RuntimePanic::from_records(records);
+
+        assert_eq!(report.suppressed_count(), 1);
+
+        let records = report.into_records(&mut admitted);
+
+        assert_eq!(records.len(), 2);
+        assert!(RELEASES.with_borrow(Vec::is_empty));
+        drop(records);
+        assert_eq!(RELEASES.with_borrow(Clone::clone), [1, 2]);
+    }
 }

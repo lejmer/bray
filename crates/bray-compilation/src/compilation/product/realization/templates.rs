@@ -16,7 +16,7 @@ impl Compilation {
             return Ok(MirUnitKey::Bound(body));
         }
 
-        if self.compiler_provided_heap_method(definition)?.is_some() {
+        if self.compiler_provided_heap_method(definition).is_some() {
             return Ok(MirUnitKey::CompilerProvidedCallable(definition));
         }
 
@@ -86,24 +86,9 @@ impl Compilation {
             }
         }
 
-        let symbols = self.symbol_graph()?;
-        let imported = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
-
-        let callable = crate::compilation::diagnostics::symbol_diagnostic_identity(
-            &symbols,
-            imported.value().as_deref(),
-            definition.symbol(),
-        )?;
-
-        let source = symbols
-            .declaration_syntax_anchor(definition.symbol())
-            .map(|anchor| bray_source::SourceSpan::new(anchor.source_id(), anchor.full_range()));
-
-        Err(CodegenPreparationError::MissingCallableImplementation {
-            definition,
-            callable: Box::new(callable),
-            source,
-        })
+        panic!(
+            "demanded callable {definition:?} has no executable body, compiler-provided implementation or native import"
+        );
     }
 }
 
@@ -117,32 +102,22 @@ mod tests {
     use bray_symbols::{CallableDefinitionId, NativeLinkKind, NativeLinkRequirement, ProductKind};
 
     #[test]
-    fn missing_source_implementations_retain_declaration_identity_and_source() {
-        let compilation = compilation("module app; func missing() -> i32;");
+    #[should_panic(
+        expected = "has no executable body, compiler-provided implementation or native import"
+    )]
+    fn demanded_callables_require_an_executable_implementation() {
+        let compilation = compilation(
+            r#"
+                module app;
+
+                func missing() -> i32;
+            "#,
+        );
+
         let function = source_function(&compilation, "missing");
         let definition = CallableDefinitionId::try_new(function.into()).unwrap();
 
-        let error = compilation
-            .codegen_callable_template(definition, &CancellationToken::new())
-            .unwrap_err();
-
-        let CodegenPreparationError::MissingCallableImplementation {
-            definition: actual,
-            callable,
-            source,
-        } = error
-        else {
-            panic!("missing implementation must produce its specific compiler failure");
-        };
-
-        assert_eq!(actual, definition);
-        assert!(source.is_some());
-
-        assert!(
-            matches!(*callable, bray_diagnostics::DiagnosticInterfaceSymbolIdentity::Declaration {
-            identity: bray_diagnostics::DiagnosticInterfaceDeclarationIdentity::Name(ref name), ..
-        } if name == "missing")
-        );
+        let _ = compilation.codegen_callable_template(definition, &CancellationToken::new());
     }
 
     #[test]
@@ -215,12 +190,7 @@ extern func invalid_read(pos value: i32) -> i32;
             let definition =
                 CallableDefinitionId::try_new(source_function(&compilation, name).into()).unwrap();
 
-            assert_eq!(
-                compilation
-                    .compiler_provided_heap_method(definition)
-                    .unwrap(),
-                None
-            );
+            assert_eq!(compilation.compiler_provided_heap_method(definition), None);
 
             assert!(matches!(
                 compilation

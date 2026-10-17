@@ -95,6 +95,36 @@ impl ExecutionCondition {
             }
         }
     }
+    pub(crate) fn contains_trusted(&self) -> bool {
+        match self {
+            Self::Trusted(_) => true,
+            Self::Operation(_, operands)
+            | Self::Predicate(_, _, operands)
+            | Self::Call(_, operands) => operands.iter().any(Self::contains_trusted),
+            Self::Tagged(_, value)
+            | Self::VariantTest(_, value)
+            | Self::Present(value)
+            | Self::Projection(_, value)
+            | Self::Borrowed(value)
+            | Self::Entry {
+                condition: value, ..
+            } => value.contains_trusted(),
+            Self::Constructed(base, fields) => {
+                base.contains_trusted() || fields.iter().any(|(_, value)| value.contains_trusted())
+            }
+            Self::Boolean(_)
+            | Self::Variant(_)
+            | Self::Literal(_)
+            | Self::Input(_)
+            | Self::Result
+            | Self::Expression(_)
+            | Self::ScopedCapability(_)
+            | Self::PostState(_, _)
+            | Self::Joined(_, _, _)
+            | Self::Unknown => false,
+        }
+    }
+
     pub(super) fn contains_unknown(&self) -> bool {
         match self {
             Self::Operation(_, operands) => operands.iter().any(Self::contains_unknown),

@@ -26,15 +26,6 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
             ))
         }
         CodegenPreparationError::MissingEntrypoint => Kind::CodegenMissingEntrypoint,
-        CodegenPreparationError::MissingCallableImplementation {
-            callable, source, ..
-        } => {
-            // The diagnostic owns the failure-only declaration identity independently of the error.
-            Kind::CodegenMissingCallableImplementation {
-                callable: callable.clone(),
-                source: *source,
-            }
-        }
         CodegenPreparationError::InvalidInstance(cause) => {
             Kind::CodegenInvalidInstance(failure_detail(codegen_instance_failure(*cause), []))
         }

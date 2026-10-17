@@ -119,7 +119,6 @@ fn transfers(
             match edge.refinement() {
                 Some(
                     AnalysisRefinement::Condition { expression, .. }
-                    | AnalysisRefinement::NullablePresence { expression, .. }
                     | AnalysisRefinement::PropagationOutcome { expression, .. },
                 ) => {
                     transfer.generated.insert(expression);

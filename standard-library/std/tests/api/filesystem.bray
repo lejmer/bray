@@ -24,15 +24,19 @@ func file_transfers_preserve_empty_requests_partial_reads_and_eof() -> Result<un
         creation = std.fs.FileCreation.CreateNew,
     );
 
-    let mut file: std.fs.File = try std.fs.File.open(&path, options = options);
+    let mut file: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(
+        std.fs.File.open(&path, options = options),
+    );
     let source: bytes = b"ABC";
     let mut destination: bytes<5> = [0; 5];
-    let empty_read: usize = try file.read(&mut destination[0..0]);
-    let empty_write: usize = try file.write(&source[0..0]);
-    let written: usize = try file.write(&source[..]);
-    let position: u64 = try file.seek(offset = 0, origin = std.io.SeekOrigin.Start);
-    let read: usize = try file.read(&mut destination[..]);
-    let eof: usize = try file.read(&mut destination[..]);
+    let empty_read: usize = std.testing.assert_ok<usize, std.io.IoError>(file.read(&mut destination[0..0]));
+    let empty_write: usize = std.testing.assert_ok<usize, std.io.IoError>(file.write(&source[0..0]));
+    let written: usize = std.testing.assert_ok<usize, std.io.IoError>(file.write(&source[..]));
+    let position: u64 = std.testing.assert_ok<u64, std.io.IoError>(
+        file.seek(offset = 0, origin = std.io.SeekOrigin.Start),
+    );
+    let read: usize = std.testing.assert_ok<usize, std.io.IoError>(file.read(&mut destination[..]));
+    let eof: usize = std.testing.assert_ok<usize, std.io.IoError>(file.read(&mut destination[..]));
 
     assert(empty_read == 0);
     assert(empty_write == 0);
@@ -42,8 +46,17 @@ func file_transfers_preserve_empty_requests_partial_reads_and_eof() -> Result<un
     assert(eof == 0);
     assert(std.bytes.equals(&destination[0..3], &source[..]));
 
-    try file.close();
-    try std.fs.remove_file(&path);
+    std.testing.assert_ok<unit, std.io.IoError>(file.close());
+    assert(file.is_complete());
+    std.testing.assert_ok<unit, std.io.IoError>(file.close());
+    std.testing.assert_error<std.fs.FileMetadata, std.io.IoError>(file.metadata());
+    std.testing.assert_error<usize, std.io.IoError>(file.read(&mut destination[..]));
+    std.testing.assert_error<usize, std.io.IoError>(file.write(&source[..]));
+    std.testing.assert_error<unit, std.io.IoError>(file.flush());
+    std.testing.assert_error<u64, std.io.IoError>(file.seek(offset = 0, origin = std.io.SeekOrigin.Start));
+    assert(file.is_complete());
+
+    std.testing.assert_ok<unit, std.io.IoError>(std.fs.remove_file(&path));
 
     return Ok(unit);
 }
@@ -59,14 +72,24 @@ func files_and_directories_follow_the_portable_contract() -> Result<unit, std.io
     discard_existing_file(&zeta);
     discard_existing_directory(&directory);
 
-    try std.fs.create_directory(&directory);
-    try write_file(&zeta, value = b"Z"[0]);
-    try write_file(&alpha, value = b"A"[0]);
+    std.testing.assert_ok<unit, std.io.IoError>(std.fs.create_directory(&directory));
+    std.testing.assert_ok<unit, std.io.IoError>(write_file(&zeta, value = b"Z"[0]));
+    std.testing.assert_ok<unit, std.io.IoError>(write_file(&alpha, value = b"A"[0]));
 
-    let mut traversal: std.fs.Directory = try std.fs.Directory.open(&directory);
-    let first: std.fs.DirectoryEntry? = try traversal.next();
-    let second: std.fs.DirectoryEntry? = try traversal.next();
-    let exhausted: std.fs.DirectoryEntry? = try traversal.next();
+    let mut traversal: std.fs.Directory = std.testing.assert_ok<std.fs.Directory, std.io.IoError>(
+        std.fs.Directory.open(&directory),
+    );
+    let first: std.fs.DirectoryEntry? = std.testing.assert_ok<std.fs.DirectoryEntry?, std.io.IoError>(traversal.next());
+    let second: std.fs.DirectoryEntry? = std.testing.assert_ok<
+        std.fs.DirectoryEntry?, std.io.IoError,
+    >(
+        traversal.next(),
+    );
+    let exhausted: std.fs.DirectoryEntry? = std.testing.assert_ok<
+        std.fs.DirectoryEntry?, std.io.IoError,
+    >(
+        traversal.next(),
+    );
 
     assert(
         (entry_name_equals(&first, "alpha") && entry_name_equals(&second, "zeta")) || (entry_name_equals(
@@ -77,11 +100,16 @@ func files_and_directories_follow_the_portable_contract() -> Result<unit, std.io
 
     std.testing.assert_absent<std.fs.DirectoryEntry>(exhausted);
 
-    try traversal.close();
+    std.testing.assert_ok<unit, std.io.IoError>(traversal.close());
+    assert(traversal.is_complete());
+    std.testing.assert_error<std.fs.DirectoryEntry?, std.io.IoError>(traversal.next());
+    std.testing.assert_ok<unit, std.io.IoError>(traversal.close());
+    assert(traversal.is_complete());
 
-    try std.fs.remove_file(&alpha);
-    try std.fs.remove_file(&zeta);
-    try std.fs.remove_directory(&directory);
+
+    std.testing.assert_ok<unit, std.io.IoError>(std.fs.remove_file(&alpha));
+    std.testing.assert_ok<unit, std.io.IoError>(std.fs.remove_file(&zeta));
+    std.testing.assert_ok<unit, std.io.IoError>(std.fs.remove_directory(&directory));
 
     return Ok(unit);
 }
@@ -98,29 +126,47 @@ func buffered_file_io_preserves_order_and_flushes() -> Result<unit, std.io.IoErr
         creation = std.fs.FileCreation.CreateNew,
     );
 
-    let opened: std.fs.File = try std.fs.File.open(&path, options = options);
-    let mut writer: std.io.BufferedWriter<std.fs.File> = try std.io.BufferedWriter<std.fs.File>(opened, capacity = 2);
+    let opened: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(
+        std.fs.File.open(&path, options = options),
+    );
+    let mut writer: std.io.BufferedWriter<std.fs.File> = std.testing.assert_ok<
+        std.io.BufferedWriter<std.fs.File>, std.io.IoError,
+    >(
+        std.io.BufferedWriter<std.fs.File>(opened, capacity = 2),
+    );
 
     let first: bytes = b"AB";
     let second: bytes = b"C";
 
-    let first_written: usize = try writer(std.io.Writer).write(&first[..]);
-    let second_written: usize = try writer(std.io.Writer).write(&second[..]);
+    let first_written: usize = std.testing.assert_ok<usize, std.io.IoError>(writer(std.io.Writer).write(&first[..]));
+    let second_written: usize = std.testing.assert_ok<usize, std.io.IoError>(writer(std.io.Writer).write(&second[..]));
 
     assert(first_written == 2);
     assert(second_written == 1);
 
-    let mut writable: std.fs.File = try writer.into_sink();
-    let position: u64 = try writable.seek(offset = 0, origin = std.io.SeekOrigin.Start);
+    let mut writable: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(writer.into_sink());
+    let position: u64 = std.testing.assert_ok<u64, std.io.IoError>(
+        writable.seek(offset = 0, origin = std.io.SeekOrigin.Start),
+    );
 
     assert(position == 0);
 
-    let mut reader: std.io.BufferedReader<std.fs.File> = try std.io.BufferedReader<std.fs.File>(writable, capacity = 2);
+    let mut reader: std.io.BufferedReader<std.fs.File> = std.testing.assert_ok<
+        std.io.BufferedReader<std.fs.File>, std.io.IoError,
+    >(
+        std.io.BufferedReader<std.fs.File>(writable, capacity = 2),
+    );
     let mut destination: bytes<3> = [0; 3];
 
-    let first_read: usize = try reader(std.io.Reader).read(&mut destination[0..1]);
-    let second_read: usize = try reader(std.io.Reader).read(&mut destination[1..3]);
-    let third_read: usize = try reader(std.io.Reader).read(&mut destination[2..3]);
+    let first_read: usize = std.testing.assert_ok<usize, std.io.IoError>(
+        reader(std.io.Reader).read(&mut destination[0..1]),
+    );
+    let second_read: usize = std.testing.assert_ok<usize, std.io.IoError>(
+        reader(std.io.Reader).read(&mut destination[1..3]),
+    );
+    let third_read: usize = std.testing.assert_ok<usize, std.io.IoError>(
+        reader(std.io.Reader).read(&mut destination[2..3]),
+    );
 
     let mut readable: std.fs.File = reader.into_source();
 
@@ -132,8 +178,9 @@ func buffered_file_io_preserves_order_and_flushes() -> Result<unit, std.io.IoErr
 
     assert(std.bytes.equals(&destination[..], &expected[..]));
 
-    try readable.close();
-    try std.fs.remove_file(&path);
+    std.testing.assert_ok<unit, std.io.IoError>(readable.close());
+    assert(readable.is_complete());
+    std.testing.assert_ok<unit, std.io.IoError>(std.fs.remove_file(&path));
 
     return Ok(unit);
 }
@@ -152,37 +199,46 @@ async func asynchronous_file_operations_preserve_data_and_metadata() -> Result<u
         creation = std.fs.FileCreation.CreateNew,
     );
 
-    let mut file: std.fs.File = try std.fs.File.open(&source, options = options);
+    let mut file: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(
+        std.fs.File.open(&source, options = options),
+    );
     let bytes: bytes = b"XY";
-    let written: usize = try await file.write_async(&bytes[..]);
+    let written: usize = std.testing.assert_ok<usize, std.io.IoError>(await file.write_async(&bytes[..]));
 
     assert(written == 2);
 
-    try await file.flush_async();
+    std.testing.assert_ok<unit, std.io.IoError>(await file.flush_async());
 
-    let position: u64 = try await file.seek_async(offset = 0, origin = std.io.SeekOrigin.Start);
+    let position: u64 = std.testing.assert_ok<u64, std.io.IoError>(
+        await file.seek_async(offset = 0, origin = std.io.SeekOrigin.Start),
+    );
 
     assert(position == 0);
 
     let mut read: bytes<2> = [0; 2];
-    let read_count: usize = try await file.read_async(&mut read[..]);
+    let read_count: usize = std.testing.assert_ok<usize, std.io.IoError>(await file.read_async(&mut read[..]));
 
     assert(read_count == 2);
     assert(read[0] == 88);
     assert(read[1] == 89);
 
-    let metadata: std.fs.FileMetadata = try await file.metadata_async();
+    let metadata: std.fs.FileMetadata = std.testing.assert_ok<std.fs.FileMetadata, std.io.IoError>(
+        await file.metadata_async(),
+    );
 
     assert(metadata.bytes == 2);
 
-    try await file.close_async();
-    try await std.fs.rename_async(&source, &destination);
+    std.testing.assert_ok<unit, std.io.IoError>(await file.close_async());
+    assert(file.is_complete());
+    std.testing.assert_ok<unit, std.io.IoError>(await std.fs.rename_async(&source, &destination));
 
-    let renamed: std.fs.FileMetadata = try await std.fs.metadata_async(&destination);
+    let renamed: std.fs.FileMetadata = std.testing.assert_ok<std.fs.FileMetadata, std.io.IoError>(
+        await std.fs.metadata_async(&destination),
+    );
 
     assert(renamed.bytes == 2);
 
-    try await std.fs.remove_file_async(&destination);
+    std.testing.assert_ok<unit, std.io.IoError>(await std.fs.remove_file_async(&destination));
 
     return Ok(unit);
 }
@@ -205,20 +261,23 @@ func create_or_truncate_replaces_existing_contents() -> Result<unit, std.io.IoEr
     let path: std.path.Path = test_path("bray-create-or-truncate-conformance");
 
     discard_existing_file(&path);
-    try write_file(&path, value = b"A"[0]);
+    std.testing.assert_ok<unit, std.io.IoError>(write_file(&path, value = b"A"[0]));
 
     let options: std.fs.OpenOptions = std.fs.OpenOptions(
         access = std.fs.FileAccess.Write,
         creation = std.fs.FileCreation.CreateOrTruncate,
     );
 
-    let mut file: std.fs.File = try std.fs.File.open(&path, options = options);
-    let metadata: std.fs.FileMetadata = try file.metadata();
+    let mut file: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(
+        std.fs.File.open(&path, options = options),
+    );
+    let metadata: std.fs.FileMetadata = std.testing.assert_ok<std.fs.FileMetadata, std.io.IoError>(file.metadata());
 
     assert(metadata.bytes == 0);
 
-    try file.close();
-    try std.fs.remove_file(&path);
+    std.testing.assert_ok<unit, std.io.IoError>(file.close());
+    assert(file.is_complete());
+    std.testing.assert_ok<unit, std.io.IoError>(std.fs.remove_file(&path));
 
     return Ok(unit);
 }
@@ -235,27 +294,34 @@ func write_file(pos path: &std.path.Path, value: u8) -> Result<unit, std.io.IoEr
         creation = std.fs.FileCreation.CreateNew,
     );
 
-    let mut file: std.fs.File = try std.fs.File.open(path, options = options);
+    let mut file: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(
+        std.fs.File.open(path, options = options),
+    );
     let bytes: bytes<1> = [value];
-    let written: usize = try file.write(&bytes[..]);
+    let written: usize = std.testing.assert_ok<usize, std.io.IoError>(file.write(&bytes[..]));
 
     assert(written == 1);
 
-    let position: u64 = try file.seek(offset = 0, origin = std.io.SeekOrigin.Start);
+    let position: u64 = std.testing.assert_ok<u64, std.io.IoError>(
+        file.seek(offset = 0, origin = std.io.SeekOrigin.Start),
+    );
 
     assert(position == 0);
 
     let mut destination: bytes<1> = [0];
-    let read: usize = try file.read(&mut destination[..]);
+    let read: usize = std.testing.assert_ok<usize, std.io.IoError>(file.read(&mut destination[..]));
 
     assert(read == 1);
     assert(destination[0] == value);
 
-    let metadata: std.fs.FileMetadata = try file.metadata();
+    let metadata: std.fs.FileMetadata = std.testing.assert_ok<std.fs.FileMetadata, std.io.IoError>(file.metadata());
 
     assert(metadata.bytes == 1);
 
-    return file.close();
+    std.testing.assert_ok<unit, std.io.IoError>(file.close());
+    assert(file.is_complete());
+
+    return Ok(unit);
 }
 
 func entry_name_equals(pos candidate: &std.fs.DirectoryEntry?, pos expected: string) -> bool
@@ -292,4 +358,32 @@ func discard_existing_directory(pos path: &std.path.Path)
         case Ok(_) {}
         case Error(_) {}
     }
+}
+
+@target(target.identity.SYSTEM == "windows")
+@test(serial)
+trusted func failed_file_close_retains_the_native_handle_for_retry()
+    uses(foreign_call)
+{
+    let path: std.path.Path = test_path("bray-close-retry-conformance");
+
+    discard_existing_file(&path);
+
+    let options = std.fs.OpenOptions(
+        access = std.fs.FileAccess.ReadWrite,
+        creation = std.fs.FileCreation.CreateNew,
+    );
+
+    let mut file = std.testing.assert_ok<std.fs.File, std.io.IoError>(std.fs.File.open(&path, options = options));
+    let handle = trusted internal std.platform.handle_pointer(file.handle);
+
+    // HANDLE_FLAG_PROTECT_FROM_CLOSE forces CloseHandle to fail while retaining the resource.
+    assert(trusted std.os.windows.set_handle_information(handle, mask = 2, flags = 2) != 0);
+    std.testing.assert_error<unit, std.io.IoError>(file.close());
+    assert(!file.is_complete());
+    assert(trusted std.os.windows.set_handle_information(handle, mask = 2, flags = 0) != 0);
+
+    std.testing.assert_ok<unit, std.io.IoError>(file.close());
+    assert(file.is_complete());
+    std.testing.assert_ok<unit, std.io.IoError>(std.fs.remove_file(&path));
 }

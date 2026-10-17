@@ -37,6 +37,19 @@ pub struct PreparedBodyAnalysis {
 }
 
 impl PreparedBodyAnalysis {
+    /// Returns whole-value and represented-part finalizers selected for this body.
+    pub fn finalizers(
+        &self,
+    ) -> impl Iterator<Item = (TypeId, bray_bound_tree::LifecycleCallable)> + '_ {
+        self.cleanup
+            .lifecycles
+            .iter()
+            .filter_map(|((ty, slot), lifecycle)| {
+                (*slot == bray_symbols::TypeAssociatedLifecycleSlot::Finalizer)
+                    .then_some((*ty, lifecycle.call))
+            })
+    }
+
     /// Returns selected implicit lifecycle callees required by this body's summary component.
     pub fn lifecycle_callees(&self) -> impl Iterator<Item = bray_symbols::CallableSymbolId> + '_ {
         self.cleanup.callees()
@@ -79,7 +92,7 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
 
     let mut cleanup_shapes = CleanupShapeResolver::new(request);
 
-    let graph = match build_storage_control_flow_graph(
+    let mut graph = match build_storage_control_flow_graph(
         &mut cleanup_shapes,
         request,
         storage,
@@ -94,7 +107,7 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
         }
     };
 
-    let cleanup =
+    let mut cleanup =
         match super::guarantee::CleanupPlan::prepare(&mut cleanup_shapes, request, storage) {
             Ok(result) => {
                 let (cleanup, diagnostics) = result.into_parts();
@@ -108,6 +121,14 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
                 return CheckerOutcome::UpstreamFailure(error);
             }
         };
+
+    cleanup.select_input_finalizers(request.unit(), storage, &graph);
+
+    graph.select_cleanup_suspensions(
+        &cleanup.asynchronous_scopes(storage),
+        &cleanup.asynchronous_replacements(storage),
+        &cleanup.input_finalizers,
+    );
 
     let Some(values) =
         super::liveness::ValueRetention::prepare(&graph, request.unit(), storage, &request)
@@ -168,6 +189,14 @@ impl PreparedBodyAnalysis {
                     BoundControlTransferKind::Yield | BoundControlTransferKind::Break
                 )
                 && let Some(target) = transfer.target()
+            {
+                yields.push((expression, target));
+            }
+
+            if let Some(bray_bound_tree::SemanticSelection::Propagation(selection)) =
+                semantics.selections().expression(expression)
+                && let Some(bray_bound_tree::SelectedPropagationBoundary::YieldRegion(target)) =
+                    selection.boundary()
             {
                 yields.push((expression, target));
             }

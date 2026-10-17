@@ -16,9 +16,22 @@ pub struct StorageCleanupType {
     components: Option<Arc<[StorageCleanupProjection]>>,
     release: Option<StorageProtocolCall>,
     requires_whole_value: bool,
+    finalizer: Option<crate::LifecycleCallable>,
 }
 
 impl StorageCleanupType {
+    /// Attaches the exact finalizer selected by the owning body analysis.
+    pub fn with_finalizer(mut self, finalizer: Option<crate::LifecycleCallable>) -> Self {
+        self.finalizer = finalizer;
+
+        self
+    }
+
+    /// Returns the whole-value finalizer, including its substituted receiver and completion types.
+    pub const fn finalizer(&self) -> Option<crate::LifecycleCallable> {
+        self.finalizer
+    }
+
     /// Records the independently checked whole-value cleanup requirement.
     pub const fn new(ty: TypeId, cleanup: AsyncStorageCleanupRequirement) -> Self {
         Self {
@@ -27,6 +40,7 @@ impl StorageCleanupType {
             components: None,
             release: None,
             requires_whole_value: false,
+            finalizer: None,
         }
     }
 

@@ -79,15 +79,48 @@ internal struct HostLease
         {
             executes(pure)
         }
-        uses(raw_memory, unchecked_alias)
+        uses(raw_memory, unchecked_init, unchecked_alias)
     {
         if self.active
         {
             if self.retirement.pending
             {
-                let mut anchor: HostAnchor = trusted host_anchor(&self);
+                let retirement: &AttachmentRetirement = &self.retirement;
 
-                trusted complete_attachment_exit_locked(&self, &mut anchor);
+                let identity: u64 = retirement.identity;
+                let native_thread: u64 = retirement.native_thread;
+                let remaining_active: usize = retirement.remaining_active;
+                let active_pointer: RawPointer<usize> = trusted completed_active_pointer(&self);
+                let pointer: RawPointer<Attachment> = trusted completed_attachment_pointer(&self);
+
+                let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
+                    self.synchronization,
+                    trusted lease_synchronization_pointer(&self)
+                );
+
+                // Selection moved the callback out before cleanup. The closing row now contains
+                // only scalars and None, so replacing it cannot discard a pending callback.
+                trusted std.memory.write<Attachment>(
+                    pointer,
+                    Attachment
+                    {
+                        identity = 0,
+                        native_thread = native_thread,
+                        depth = 0,
+                        closing = true,
+                        context_bridge = none,
+                        report_observer = none,
+                        cleanup = none
+                    }
+                );
+
+                trusted std.memory.write<usize>(active_pointer, remaining_active);
+
+                let _: (u64, bool) = core.atomic.compare_exchange<u64, 3, 1>(
+                    &synchronization.main,
+                    expected = identity,
+                    desired = 0
+                );
             }
 
             let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(

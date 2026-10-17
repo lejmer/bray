@@ -566,6 +566,7 @@ define_profile_query_kinds! {
     PreparedBodyAnalysis = 1084 => "prepared_body_analysis",
     ResultDependencyComponent = 1085 => "result_dependency_component",
     GeneratedLifecycle = 1086 => "generated_lifecycle",
+    CleanupCompletion = 1087 => "cleanup_completion",
 }
 
 impl ProfileQueryKind {
@@ -596,6 +597,7 @@ impl ProfileQueryKind {
             CompilationFactKey::UnwindBehavior(_) => Self::UnwindBehavior,
             CompilationFactKey::ExecutionCandidates(_) => Self::ExecutionCandidates,
             CompilationFactKey::CertifiedExecution(_) => Self::CertifiedExecution,
+            CompilationFactKey::CleanupCompletion(_) => Self::CleanupCompletion,
             CompilationFactKey::SelectedBodyBehavior(_) => Self::SelectedBodyBehavior,
             CompilationFactKey::PreparedBodyAnalysis(_) => Self::PreparedBodyAnalysis,
             CompilationFactKey::ResultDependencyComponent(_) => Self::ResultDependencyComponent,
@@ -709,7 +711,7 @@ mod tests {
                 1_039, 1_040, 1_041, 1_042, 1_043, 1_044, 1_045, 1_046, 1_047, 1_048, 1_049, 1_051,
                 1_052, 1_053, 1_054, 1_055, 1_056, 1_057, 1_058, 1_059, 1_060, 1_061, 1_062, 1_063,
                 1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071, 1_072, 1_073, 1_074, 1_075, 1_076,
-                1_077, 1_078, 1_079, 1_080, 1_081, 1_082, 1_083, 1_084, 1_085, 1_086,
+                1_077, 1_078, 1_079, 1_080, 1_081, 1_082, 1_083, 1_084, 1_085, 1_086, 1_087,
             ]
         );
     }

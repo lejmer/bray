@@ -27,6 +27,25 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .context
             .representation_type(bray_compiler_known::RepresentationRole::ScalarUsize)?;
 
+        let length =
+            crate::operand::integer_constant(self.context.semantic_values(), integer, length)
+                .map_err(SyntheticLoweringError::SemanticValue)?;
+
+        self.push_sequence_lifecycle(builder, block, source, role, place, element, length)
+    }
+
+    pub(super) fn push_sequence_lifecycle(
+        &self,
+        builder: &mut bray_ir::MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &bray_ir::MirSourceAnchor,
+        role: bray_ir::MirGeneratedLifecycleRole,
+        place: MirPlace,
+        element: bray_symbols::TypeId,
+        length: bray_ir::MirOperand,
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
+        let integer = builder.operand_type(&length);
+
         let boolean = self
             .context
             .representation_type(bray_compiler_known::RepresentationRole::ScalarBool)?;
@@ -42,7 +61,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             builder,
             block,
             source,
-            constant(length)?,
+            length,
             boolean,
             [constant(0)?, constant(1)?],
             None,

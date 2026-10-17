@@ -8,9 +8,7 @@ use super::targets::{baseline_codegen_target, codegen_target};
 use super::type_fixtures::realized_types;
 
 use crate::CancellationToken;
-use crate::compilation::product::realization::support::{
-    is_void_result, pointer_layout, receiver_codegen_type,
-};
+use crate::compilation::product::realization::support::{is_void_result, pointer_layout};
 use crate::compilation::substitution::named_type;
 use crate::test_support::{compilation, compilation_with_product};
 
@@ -26,10 +24,12 @@ fn codegen_receiver_types_preserve_receiver_authority() {
         .intern_type(TypeData::tuple([]))
         .expect("receiver type must intern");
 
-    let shared = receiver_codegen_type(values, receiver, ReceiverMode::Shared)
+    let shared = ReceiverMode::Shared
+        .input_type(values, receiver)
         .expect("shared receiver must resolve");
 
-    let mutable = receiver_codegen_type(values, receiver, ReceiverMode::Mutable)
+    let mutable = ReceiverMode::Mutable
+        .input_type(values, receiver)
         .expect("mutable receiver must resolve");
 
     assert_eq!(
@@ -49,12 +49,12 @@ fn codegen_receiver_types_preserve_receiver_authority() {
     );
 
     assert_eq!(
-        receiver_codegen_type(values, receiver, ReceiverMode::Consuming),
+        ReceiverMode::Consuming.input_type(values, receiver),
         Ok(receiver)
     );
 
     assert_eq!(
-        receiver_codegen_type(values, receiver, ReceiverMode::ConsumingMutable),
+        ReceiverMode::ConsumingMutable.input_type(values, receiver),
         Ok(receiver)
     );
 }

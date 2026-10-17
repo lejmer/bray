@@ -311,6 +311,7 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
     contracts: &bray_bound_tree::CheckedDependencyContracts,
     storage: &bray_bound_tree::StoragePlan,
     values: &ValueInputs,
+    selections: &CheckedSemanticSelections,
 ) -> crate::CheckerQueryResult<
     BTreeMap<bray_symbols::UnionPayloadFieldSymbolId, bray_symbols::UnionVariantSymbolId>,
     C::UpstreamError,
@@ -386,7 +387,33 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
         }
     }
 
+    for inputs in values.projected.values().chain(values.borrowed.values()) {
+        for (_, projections) in inputs {
+            retain(projections);
+        }
+    }
+
+    for (_, projection) in values.error_exits.values() {
+        retain(std::slice::from_ref(projection));
+    }
+
     let mut variants = BTreeMap::new();
+
+    for entry in selections.entries() {
+        if let SemanticSelection::Propagation(selection) = entry.selection() {
+            if let Some((variant, field)) = selection.success() {
+                variants.insert(field, variant);
+            }
+
+            if let bray_bound_tree::SelectedPropagation::Result {
+                error: (variant, field),
+                ..
+            } = selection
+            {
+                variants.insert(*field, *variant);
+            }
+        }
+    }
 
     for (access, _) in storage.access_entries() {
         for projection in storage.resolved_projections(access).into_iter().flatten() {

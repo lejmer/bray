@@ -72,12 +72,13 @@ pub struct ExecutionCandidate {
         ExecutionCallEvidence,
     >,
     pub(crate) cleanup: std::collections::BTreeMap<
-        (AnyBoundNodeId, bray_bound_tree::StorageAccessId),
         (
-            bray_symbols::CallableInstanceData,
-            bray_symbols::TypeId,
-            ExecutionCallEvidence,
+            AnyBoundNodeId,
+            bray_bound_tree::StorageAccessId,
+            usize,
+            bool,
         ),
+        ExecutionCleanup,
     >,
     pub(crate) result_variant: Option<bray_symbols::UnionVariantSymbolId>,
     pub(crate) completion_dependencies: Vec<ExecutionCompletionDependency>,
@@ -103,24 +104,23 @@ impl ExecutionCandidate {
         self.call_evidence(occurrence)
     }
 
-    /// Returns finalizers and the value evidence available at their cleanup sites.
-    /// Each candidate still requires execution and completion-dependency certification.
+    /// Returns selected finalizers with their receiver facts. The key retains the
+    /// exit node, owner, selected part and whether this is a normal ownership end.
+    /// Each entry still requires execution and completion-dependency certification.
     pub fn cleanup_candidates(
         &self,
     ) -> impl Iterator<
         Item = (
-            AnyBoundNodeId,
-            bray_bound_tree::StorageAccessId,
-            bray_symbols::CallableInstanceData,
-            bray_symbols::TypeId,
-            &ExecutionCallEvidence,
+            (
+                AnyBoundNodeId,
+                bray_bound_tree::StorageAccessId,
+                usize,
+                bool,
+            ),
+            &ExecutionCleanup,
         ),
     > {
-        self.cleanup
-            .iter()
-            .map(|((node, access), (callable, result, evidence))| {
-                (*node, *access, *callable, *result, evidence)
-            })
+        self.cleanup.iter().map(|(site, cleanup)| (*site, cleanup))
     }
 
     /// Returns the union variant constructed on every reachable normal exit in this domain.
@@ -150,6 +150,21 @@ impl ExecutionCandidate {
     pub fn dependencies(&self) -> &[ExecutionDependency] {
         &self.dependencies
     }
+}
+
+/// Selected finalization and receiver evidence at one implicit cleanup boundary.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ExecutionCleanup {
+    /// The selected, substituted finalizer.
+    pub callable: bray_symbols::CallableInstanceData,
+    /// Its completion result, before asynchronous wrapping.
+    pub result: bray_symbols::TypeId,
+    /// Whether invocation can complete without driving a future.
+    pub synchronous: bool,
+    /// Whether this action finalizes the complete owner rather than a represented part.
+    pub whole: bool,
+    /// Facts available immediately before this invocation.
+    pub evidence: ExecutionCallEvidence,
 }
 
 /// Certified properties and the opaque assertions required by their proofs.

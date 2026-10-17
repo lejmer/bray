@@ -20,8 +20,9 @@ pub use implication::{
 pub(crate) use model::ExecutionValueEvidence;
 pub use model::{
     DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,
-    ExecutionCertification, ExecutionCompletionContract, ExecutionCompletionDependency,
-    ExecutionDeclaration, ExecutionDependency, ExecutionDomain, ExecutionObligation,
+    ExecutionCertification, ExecutionCleanup, ExecutionCompletionContract,
+    ExecutionCompletionDependency, ExecutionDeclaration, ExecutionDependency, ExecutionDomain,
+    ExecutionObligation,
 };
 pub(crate) use normalize::{
     condition_literals, expression_condition, expression_place, pattern_conditions, pattern_value,

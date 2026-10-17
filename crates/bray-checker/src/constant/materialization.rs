@@ -54,11 +54,13 @@ pub(super) fn nonmaterializable_type<C: CheckerRequestContext + ?Sized>(
                 return Ok(None);
             }
 
-            let lifecycle = context.declared_type_has_lifecycle(*definition)?;
+            let lifecycle = context.declared_type_lifecycle(*definition)?;
 
             diagnostics.add_range(lifecycle.diagnostics().iter().cloned());
 
-            Ok((!lifecycle.diagnostics().has_errors() && *lifecycle.value()).then_some(ty))
+            Ok((!lifecycle.diagnostics().has_errors()
+                && (*lifecycle.value() != bray_symbols::TypeLifecycle::None))
+                .then_some(ty))
         }
         TypeData::Borrow { .. }
         | TypeData::OwnedIndirection { .. }

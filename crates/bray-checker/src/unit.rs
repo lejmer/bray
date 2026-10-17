@@ -446,11 +446,14 @@ where
         self.context.plain_storage_atomic_representation(ty)
     }
 
-    pub(crate) fn declared_type_has_lifecycle(
+    pub(crate) fn declared_type_lifecycle(
         self,
         subject: bray_symbols::NamedTypeSymbolId,
-    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bool>, C::UpstreamError> {
-        self.context.declared_type_has_lifecycle(subject)
+    ) -> CheckerQueryResult<
+        bray_diagnostics::DiagnosticResult<bray_symbols::TypeLifecycle>,
+        C::UpstreamError,
+    > {
+        self.context.declared_type_lifecycle(subject)
     }
 
     /// Checks every source constant expression embedded in one type template.

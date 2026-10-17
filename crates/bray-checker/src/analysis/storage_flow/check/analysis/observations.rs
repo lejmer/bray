@@ -233,7 +233,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> StorageInvalidation {
         if effects
             .iter()
-            .any(|effect| matches!(effect, Effect::Cleanup(_)))
+            .any(|effect| matches!(effect, Effect::Unknown | Effect::Cleanup(_)))
         {
             return self.opaque_observations(memory, roots);
         }
@@ -294,20 +294,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &StorageFlowState,
         occurrence: bray_bound_tree::BoundExecutionSite,
         effects: &[Effect],
+        roots: &[Target],
     ) -> StorageInvalidation {
         if effects
             .iter()
-            .any(|effect| matches!(effect, Effect::Cleanup(_)))
+            .any(|effect| matches!(effect, Effect::Unknown | Effect::Cleanup(_)))
         {
-            return self
-                .opaque_observations(&state.memory, self.invocation_roots(state, occurrence));
+            return self.opaque_observations(&state.memory, roots.iter().cloned());
         }
 
-        let mut invalidation = self.resolved_observations(
-            &state.memory,
-            effects,
-            self.invocation_roots(state, occurrence),
-        );
+        let mut invalidation =
+            self.resolved_observations(&state.memory, effects, roots.iter().cloned());
 
         if effects.is_empty() {
             return invalidation;
@@ -501,6 +498,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .filter(|target| target.storage_path().is_none())
             .collect::<Vec<_>>();
 
+        let unknown_referents_affected = mutations
+            .clone()
+            .any(|target| memory.unknown_reference_may_reach(target));
+
         for (slot, targets, unknown) in memory.observed_references() {
             if crate::ExecutionPlace::storage_path(self.storage, &slot).is_none() {
                 continue;
@@ -509,7 +510,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             unrepresented
                 .retain(|mutation| !targets.iter().any(|target| target.contains(mutation)));
 
-            if unknown {
+            if unknown && unknown_referents_affected {
                 referents.insert(slot.clone());
             }
 

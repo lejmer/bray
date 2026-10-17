@@ -140,7 +140,14 @@ trusted internal func deliver(
     // Only the retained parent's empty delivery slot changes, without callbacks.
     if abandoned != 0
     {
-        if parent.phase != bray.runtime.bootstrap.activation.CLEANUP
+        if parent.phase == bray.runtime.bootstrap.activation.CLEANUP
+        {
+            return (progress, incoming);
+        }
+
+        // A discarded completed value never initializes the parent's result slot.
+        // Failures still reach a continuing parent through their owned outcome.
+        if incoming.kind == 1
         {
             parent.incoming =
             {
@@ -149,9 +156,9 @@ trusted internal func deliver(
                 payload = 0,
                 report = bray.runtime.bootstrap.empty_panic_report()
             };
-        }
 
-        return (progress, incoming);
+            return (progress, incoming);
+        }
     }
 
     parent.incoming = incoming;

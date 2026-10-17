@@ -52,7 +52,7 @@ fn imported_call_effects_distinguish_forwarding_from_mutation() {
                 call.effects().iter().any(|effect| matches!(
                     effect,
                     bray_symbols::DependencyStorageEffect::Indirect {
-                        kind: bray_symbols::DependencyMutationKind::Write,
+                        kind: bray_symbols::DependencyMutationKind::Replace(_),
                         ..
                     }
                 )),
@@ -1287,6 +1287,551 @@ fn imported_task_owners_retain_dependencies_through_cleanup_and_consumption() {
                 flow.diagnostics(),
                 bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow,
             );
+        }
+    }
+}
+
+#[test]
+fn terminal_destructor_checks_imported_generic_replacement_types() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        func replace<T>(pos destination: &mut T, pos value: T)
+        {
+            destination = value;
+        }
+        "#,
+    );
+
+    let provider_diagnostics = provider.check_diagnostics();
+
+    assert!(
+        !provider_diagnostics.has_errors(),
+        "{provider_diagnostics:?}"
+    );
+
+    let flow = provider
+        .storage_flow(source_function_body_key(&provider, "replace"))
+        .unwrap();
+
+    assert!(
+        flow.value()
+            .dependencies()
+            .effects()
+            .iter()
+            .any(|effect| matches!(
+                effect,
+                bray_symbols::DependencyStorageEffect::Indirect {
+                    kind: bray_symbols::DependencyMutationKind::Replace(_),
+                    ..
+                }
+            )),
+        "{:?}",
+        flow.value().dependencies().effects()
+    );
+
+    for (declaration, value, rejected) in [
+        ("struct Child { finalize() {} }", "Child {}", true),
+        ("struct Child { destruct() {} }", "Child {}", false),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            using example.package.api.replace;
+
+            {declaration}
+
+            struct Owner
+            {{
+                mut child: Child;
+
+                destruct()
+                {{
+                    example.package.api.replace(&mut self.child, {value});
+                }}
+            }}
+            "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+        let diagnostics = consumer.check_diagnostics();
+
+        if rejected {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                &diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingDestructorOwnershipIntroduction,
+            );
+        } else {
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        }
+    }
+}
+
+#[test]
+fn imported_unknown_call_effects_do_not_claim_only_retirement() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        extern func alter<T>(pos value: &mut T);
+
+        func forward<T>(pos value: &mut T)
+        {
+            alter(value);
+        }
+        "#,
+    );
+
+    let flow = provider
+        .storage_flow(source_function_body_key(&provider, "forward"))
+        .unwrap();
+
+    assert!(
+        flow.value()
+            .dependencies()
+            .effects()
+            .contains(&bray_symbols::DependencyStorageEffect::Unknown)
+    );
+
+    assert!(
+        flow.value()
+            .dependencies()
+            .effects()
+            .iter()
+            .any(|effect| matches!(
+                effect,
+                bray_symbols::DependencyStorageEffect::Indirect {
+                    kind: bray_symbols::DependencyMutationKind::Escape,
+                    ..
+                }
+            ))
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+
+        using example.package.api.forward;
+
+        struct Owner
+        {
+            mut value: i32;
+
+            finalize() {}
+
+            destruct()
+            {
+                example.package.api.forward(&mut self.value);
+            }
+        }
+        "#,
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &consumer.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingUnprovedDestructorEffects,
+    );
+}
+
+#[test]
+fn terminal_destructor_can_clear_an_owner_through_an_imported_generic_helper() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        func clear<T>(pos destination: &mut T?)
+        {
+            destination = none;
+        }
+        "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+
+        using example.package.api.clear;
+
+        struct Child
+        {
+            finalize() {}
+        }
+
+        struct Owner
+        {
+            mut child: Child?;
+
+            destruct()
+            {
+                example.package.api.clear(&mut self.child);
+            }
+        }
+        "#,
+    );
+
+    let diagnostics = consumer.check_diagnostics();
+
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+#[test]
+fn imported_escape_effects_distinguish_retained_arguments_from_opaque_execution() {
+    let provider = compilation(
+        r#"
+        trusted module api;
+
+        struct Marker
+        {
+        }
+
+        struct Owner
+        {
+            marker: Marker;
+            mut value: u32;
+        }
+
+        trusted predicate live(value: &Marker);
+
+        extern trusted func opaque();
+
+        extern trusted func publish(pos pointer: RawPointer<Owner>);
+
+        trusted func make() -> Owner
+            ensures(trusted live(&result.marker))
+        {
+            return
+            {
+                marker = Marker
+                {
+                },
+                value = 0
+            };
+        }
+
+        trusted func inspect(pos owner: &Owner)
+            requires(trusted live(&owner.marker))
+            ensures(trusted live(&owner.marker))
+        {
+            opaque();
+
+            let certify = trusted lambda(pos marker: &Marker)
+                ensures(trusted live(marker))
+                executes(pure, total) {};
+
+            certify(&owner.marker);
+        }
+
+        trusted func mutate(pos owner: &mut Owner)
+            requires(trusted live(&owner.marker))
+            ensures(trusted live(&owner.marker))
+            uses(raw_memory, unchecked_init)
+        {
+            let pointer = core.memory.address_of_mut<u32>(&mut owner.value);
+
+            trusted core.memory.write<u32>(pointer, 1);
+        }
+
+        trusted func expose(pos owner: &Owner)
+            requires(trusted live(&owner.marker))
+            ensures(trusted live(&owner.marker))
+        {
+            publish(core.memory.address_of<Owner>(owner));
+
+            let certify = trusted lambda(pos marker: &Marker)
+                ensures(trusted live(marker))
+                executes(pure, total) {};
+
+            certify(&owner.marker);
+        }
+
+        func observe(pos owner: &Owner)
+            requires(trusted live(&owner.marker))
+            executes(pure, total) {}
+        "#,
+    );
+
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+
+    for (operation, valid) in [("inspect", true), ("mutate", true), ("expose", false)] {
+        let borrow = if operation == "mutate" {
+            "&mut owner"
+        } else {
+            "&owner"
+        };
+
+        let source = format!(
+            r#"
+            trusted module app;
+            using example.package.api.make;
+            using example.package.api.{operation};
+            using example.package.api.opaque;
+            using example.package.api.observe;
+
+            func caller()
+            {{
+                let mut owner = example.package.api.make();
+                example.package.api.{operation}({borrow});
+                example.package.api.opaque();
+                example.package.api.observe(&owner);
+            }}
+            "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{operation}: {diagnostics:?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                &diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn returned_address_fields_keep_their_origin_through_anonymous_factories() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        struct Owner
+        {
+            pointer: RawPointer<u32>;
+        }
+
+        func forward(pos owner: &Owner, pos counter: &core.atomic.Atomic<usize>) -> Owner
+        {
+            let _: usize = core.atomic.fetch_add<usize, 0>(counter, 1);
+
+            let make = lambda(pos pointer: RawPointer<u32>) -> Owner
+            {
+                return
+                {
+                    pointer = pointer
+                };
+            };
+
+            return make(owner.pointer);
+        }
+        "#,
+    );
+
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+
+    let dependencies =
+        crate::compilation::result_dependencies::source_function_dependencies(&provider, "forward");
+
+    let returned = dependencies
+        .borrows()
+        .iter()
+        .filter(|relation| {
+            relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(returned.len(), 1, "{dependencies:#?}");
+
+    assert_eq!(
+        returned[0].kind(),
+        bray_symbols::DependencyReferenceKind::Address
+    );
+}
+
+#[test]
+fn returned_union_payload_addresses_remain_bounded_after_extraction() {
+    let provider = compilation(
+        r#"
+        trusted module api;
+
+        struct Marker
+        {
+        }
+
+        struct Owner
+        {
+            marker: Marker;
+            pointer: RawPointer<u32>;
+        }
+
+        trusted predicate live(marker: &Marker);
+
+        extern func pointer() -> RawPointer<u32>;
+
+        extern func touch(pos pointer: RawPointer<u32>);
+
+        func make() -> Result<Owner, bool>
+            ensures(!(result matches Ok(_)) || trusted live(result_marker(&result)))
+        {
+            let make_owner = trusted lambda(pos pointer: RawPointer<u32>) -> Owner
+                ensures(trusted live(&result.marker))
+            {
+                return Owner
+                {
+                    marker = Marker
+                    {
+                    },
+                    pointer = pointer
+                };
+            };
+
+            return Ok(make_owner(pointer()));
+        }
+
+        const func result_marker(pos value: &Result<Owner, bool>) -> &Marker
+            requires(value matches Ok(_))
+            executes(pure, total)
+        {
+            match value
+            {
+                case Ok(owner) { return &owner.marker; }
+                case Error(_) { panic("absent"); }
+            }
+        }
+
+        func copy_pointer(pos owner: &Owner) -> RawPointer<u32>
+        {
+            return owner.pointer;
+        }
+
+        func observe(pos owner: &Owner)
+            requires(trusted live(&owner.marker))
+            executes(pure, total) {}
+        "#,
+    );
+
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+
+        using example.package.api;
+
+        func caller() -> Result<unit, bool>
+        {
+            let owner = try example.package.api.make();
+
+            example.package.api.touch(example.package.api.copy_pointer(&owner));
+            example.package.api.observe(&owner);
+            return Ok(unit);
+        }
+        "#,
+    );
+
+    let diagnostics = consumer.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+}
+
+#[test]
+fn propagation_preserves_the_selected_payload_reference_relation() {
+    for (ty, input, result, count) in [
+        ("RawPointer<u32>?", "input?", "pointer", 1),
+        (
+            "Result<RawPointer<u32>, bool>",
+            "try input",
+            "Ok(pointer)",
+            1,
+        ),
+        (
+            "Result<RawPointer<u32>, RawPointer<u32>>",
+            "try input",
+            "Ok(pointer)",
+            2,
+        ),
+    ] {
+        for yield_region in [false, true] {
+            let body = if yield_region {
+                let yielded = if ty.ends_with('?') {
+                    format!("yield {result};")
+                } else {
+                    format!("let value: {ty} = {result};\nyield value;")
+                };
+
+                format!(
+                    r#"
+                    let forwarded: {ty} =
+                    {{
+                        let pointer = {input};
+                        {yielded}
+                    }};
+                    return forwarded;
+                "#
+                )
+            } else {
+                format!(
+                    r#"
+                    let pointer = {input};
+                    return {result};
+                "#
+                )
+            };
+
+            let provider = compilation(&format!(
+                r#"
+                module api;
+
+                func forward(pos input: {ty}) -> {ty}
+                {{
+                    {body}
+                }}
+                "#
+            ));
+
+            let diagnostics = provider.check_diagnostics();
+
+            assert!(
+                !diagnostics.has_errors(),
+                "{ty}, yield={yield_region}: {diagnostics:?}"
+            );
+
+            let dependencies =
+                crate::compilation::result_dependencies::source_function_dependencies(
+                    &provider, "forward",
+                );
+
+            let returned = dependencies
+                .borrows()
+                .iter()
+                .filter(|relation| {
+                    relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                returned.len(),
+                count,
+                "{ty}, yield={yield_region}: {dependencies:#?}"
+            );
+
+            for relation in returned {
+                assert_eq!(
+                    relation.kind(),
+                    bray_symbols::DependencyReferenceKind::Address
+                );
+
+                assert_eq!(
+                    relation.entry().projections(),
+                    relation.exit().projections()
+                );
+            }
         }
     }
 }

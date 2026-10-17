@@ -496,6 +496,8 @@ pub enum MirAsyncOperation {
         frame: MirOperand,
         /// Admitted parent storage receiving the child result before resumption.
         completion: MirStorageId,
+        /// Enter inactive capture cleanup without executing the child body.
+        abandoning: bool,
     },
     /// Consume the transferred child outcome and its typed result storage.
     CommitAwaitedCompletion {
@@ -752,6 +754,8 @@ pub enum MirOperationKind {
     },
     /// Run checked finalization for a storage place.
     Finalize(MirPlace),
+    /// Resolve child runs without finalizing or destroying the retained incident payload.
+    Quiesce(MirPlace),
     /// Destroy a storage place after its value is no longer live.
     Destroy(MirPlace),
     /// Perform one checked cleanup phase for a storage place.

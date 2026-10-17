@@ -75,6 +75,7 @@ pub struct ImportedPredicateDefinition {
     pub(super) owner: PredicateDefinitionSymbolId,
     pub(super) state: InterfacePredicateDefinitionState,
     pub(super) signature: bray_symbols::PredicateSignatureTemplate,
+    pub(super) condition: Option<bray_symbols::ConstantTermId>,
 }
 
 impl ImportedPredicateDefinition {
@@ -86,6 +87,11 @@ impl ImportedPredicateDefinition {
     /// Returns the predicate's exported definition state.
     pub const fn state(&self) -> InterfacePredicateDefinitionState {
         self.state
+    }
+
+    /// Returns the checked meaning of the imported ordinary predicate.
+    pub const fn condition(&self) -> Option<bray_symbols::ConstantTermId> {
+        self.condition
     }
 
     /// Returns the imported predicate's parameter signature.

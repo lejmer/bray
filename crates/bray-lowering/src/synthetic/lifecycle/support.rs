@@ -4,7 +4,8 @@ pub(super) fn lifecycle_operation_block_kind(
     role: bray_ir::MirGeneratedLifecycleRole,
 ) -> MirBlockKind {
     match role {
-        bray_ir::MirGeneratedLifecycleRole::Destroy => MirBlockKind::Ordinary,
+        bray_ir::MirGeneratedLifecycleRole::Destroy
+        | bray_ir::MirGeneratedLifecycleRole::Quiesce => MirBlockKind::Ordinary,
         bray_ir::MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::TaskCancellation) => {
             MirBlockKind::CleanupBroadcast
         }
@@ -16,25 +17,6 @@ pub(super) fn lifecycle_operation_block_kind(
             "synthetic lowering contract violation: UnsupportedLifecycleRole {value:?}",
             value = role
         ),
-    }
-}
-pub(super) fn lifecycle_phase(
-    role: bray_ir::MirGeneratedLifecycleRole,
-) -> bray_bound_tree::LifecyclePhase {
-    use bray_bound_tree::LifecyclePhase;
-    use bray_ir::{MirCleanupPhase, MirGeneratedLifecycleRole};
-
-    match role {
-        MirGeneratedLifecycleRole::Finalize | MirGeneratedLifecycleRole::StaticFinalize => {
-            LifecyclePhase::Finalize
-        }
-        MirGeneratedLifecycleRole::Destroy => LifecyclePhase::Destroy,
-        MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
-            LifecyclePhase::Cancel
-        }
-        MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::LifecycleResolution) => {
-            LifecyclePhase::Resolve
-        }
     }
 }
 

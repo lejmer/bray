@@ -51,7 +51,7 @@ impl Compilation {
                 continue;
             }
 
-            let (domains, mapping, domain_diagnostics) =
+            let (domains, mapping, inferred, domain_diagnostics) =
                 self.portable_execution_domains(*symbol, &demanded, cancellation)?;
 
             diagnostics.add_range(domain_diagnostics);
@@ -64,7 +64,7 @@ impl Compilation {
                 },
             );
 
-            mappings.insert(*anchor, mapping);
+            mappings.insert(*anchor, (mapping, inferred));
         }
 
         let values = self.semantic_value_store()?;
@@ -74,9 +74,9 @@ impl Compilation {
                 continue;
             };
 
-            let mapping = mappings
-                .get(&anchor)
-                .ok_or_else(|| missing_evidence(symbol))?;
+            let (mapping, inferred) = mappings.get(&anchor).unwrap_or_else(|| {
+                panic!("exported execution contract {symbol:?} has no obligation mapping")
+            });
 
             let mut evidence = Vec::new();
 
@@ -87,7 +87,7 @@ impl Compilation {
 
                 let portable = mapping
                     .get(obligation)
-                    .ok_or_else(|| missing_evidence(symbol))?;
+                    .unwrap_or_else(|| panic!("checked execution obligation {obligation:?} of {symbol:?} has no portable mapping"));
 
                 let mut targets = Vec::new();
 
@@ -99,14 +99,13 @@ impl Compilation {
 
                             let required = target_anchor
                                 .and_then(|anchor| mappings.get(&anchor))
-                                .and_then(|mapping| mapping.get(required))
+                                .and_then(|(mapping, _)| mapping.get(required))
                                 .copied()
                                 .or_else(|| {
                                     super::imported::portable_imported_obligation(*required)
                                 });
 
-                            let required = required
-                                .ok_or_else(|| missing_evidence(callable.definition().symbol()))?;
+                            let required = required.unwrap_or_else(|| panic!("checked dependency of {symbol:?} on {callable:?} has no portable obligation"));
 
                             let callable = values
                                 .intern_callable_instance(*callable)
@@ -118,7 +117,9 @@ impl Compilation {
                             CallableExecutionTarget::Indirect(*ty),
                             PortableObligation::Property(ExecutionProperty::Pure, None),
                         )),
-                        _ => return Err(missing_evidence(symbol)),
+                        _ => panic!(
+                            "checked execution proof of {symbol:?} contains unsupported target {target:?}"
+                        ),
                     }
                 }
 
@@ -130,6 +131,17 @@ impl Compilation {
                     *portable,
                     targets,
                 ));
+            }
+
+            for (total, post) in inferred {
+                let proof = evidence.iter().find(|proof| proof.obligation == *total)
+                    .unwrap_or_else(|| panic!("inferred completion {post:?} of {symbol:?} lacks its checked total proof {total:?}"));
+
+                evidence.push(CallableExecutionEvidence {
+                    origin: proof.origin,
+                    obligation: *post,
+                    dependencies: std::sync::Arc::clone(&proof.dependencies),
+                });
             }
 
             evidence.sort_by_key(|proof| proof.obligation);
@@ -153,6 +165,7 @@ impl Compilation {
         FactQueryError,
     > {
         let graph = self.symbol_graph()?;
+
         let mut proofs = BTreeMap::<_, BTreeSet<_>>::new();
         let mut origins = BTreeMap::new();
         let mut source_symbols = BTreeMap::new();
@@ -298,12 +311,18 @@ impl Compilation {
         (
             Vec<CallableExecutionDomain<bray_symbols::ConstantTermId>>,
             BTreeMap<ExecutionObligation, PortableObligation>,
+            Vec<(PortableObligation, PortableObligation)>,
             DiagnosticBag,
         ),
         FactQueryError,
     > {
         let Some(owner) = self.execution_contract_owner(symbol)? else {
-            return Ok((Vec::new(), BTreeMap::new(), DiagnosticBag::new()));
+            return Ok((
+                Vec::new(),
+                BTreeMap::new(),
+                Vec::new(),
+                DiagnosticBag::new(),
+            ));
         };
 
         let declaration = self.execution_declaration(owner.source().syntax())?;
@@ -318,6 +337,24 @@ impl Compilation {
 
         diagnostics.add_range(declaration.diagnostics().iter().cloned());
 
+        let candidates = if matches!(symbol, AnySymbolId::Finalizer(_))
+            && demanded.iter().any(|obligation| {
+                matches!(
+                    obligation,
+                    ExecutionObligation::Property(ExecutionProperty::Total, _)
+                )
+            }) {
+            let definition =
+                CallableDefinitionId::try_new(symbol).expect("finalizer is a callable definition");
+
+            self.callable_body_key(definition)?
+                .map(|body| self.execution_candidates_with_cancellation(body, cancellation))
+                .transpose()?
+        } else {
+            None
+        };
+
+        let mut inferred = Vec::new();
         let mut domains = Vec::new();
         let mut mapping = BTreeMap::new();
         let mut post_index = 0usize;
@@ -434,6 +471,36 @@ impl Compilation {
                 );
             }
 
+            let total = PortableObligation::Property(ExecutionProperty::Total, Some(ordinal));
+
+            let variant = candidates.as_ref().and_then(|candidates| {
+                demanded.iter().find_map(|source| {
+                    (mapping.get(source) == Some(&total))
+                        .then(|| candidates.result().value().get(source))
+                        .flatten()
+                        .and_then(bray_checker::ExecutionCandidate::result_variant)
+                })
+            });
+
+            if let Some(variant) = variant {
+                let condition = bray_checker::ExecutionCondition::VariantTest(
+                    variant,
+                    std::sync::Arc::new(bray_checker::ExecutionCondition::Result),
+                );
+
+                let term = execution_condition_term(values, &condition, &inputs, boolean)
+                    .map_err(FactQueryError::SemanticValueStore)?
+                    .expect("a checked result variant is a portable completion condition");
+
+                if !post_terms.iter().any(|(_, existing)| *existing == term) {
+                    let post = evidence_ordinal(symbol, post_index)?;
+
+                    post_index += 1;
+                    post_terms.push((post, term));
+                    inferred.push((total, PortableObligation::Postcondition(post)));
+                }
+            }
+
             domains.push(CallableExecutionDomain {
                 ordinal,
                 entry: entry_terms.into(),
@@ -442,7 +509,7 @@ impl Compilation {
             });
         }
 
-        Ok((domains, mapping, diagnostics))
+        Ok((domains, mapping, inferred, diagnostics))
     }
 
     pub(in crate::compilation) fn execution_callable_inputs(
@@ -450,6 +517,23 @@ impl Compilation {
         symbol: AnySymbolId,
         cancellation: &CancellationToken,
     ) -> Result<Vec<BoundReferenceTarget>, FactQueryError> {
+        if let Some(predicate) = bray_symbols::PredicateDefinitionSymbolId::try_from_any(symbol) {
+            let context = self.binding_context(cancellation)?;
+
+            let signature = context
+                .resolve_symbol_query(SymbolQueryRequest::<
+                    bray_symbols::PredicateSignatureTemplateQuery,
+                >::new(predicate))
+                .map_err(crate::compilation::binder::binding_query_error)?;
+
+            return Ok(signature
+                .value()
+                .parameters()
+                .iter()
+                .map(|parameter| BoundReferenceTarget::Surface(parameter.parameter().into()))
+                .collect());
+        }
+
         let Some(callable) = CallableSymbolId::try_from_any(symbol) else {
             return Ok(Vec::new());
         };
@@ -474,14 +558,6 @@ impl Compilation {
             )
             .collect())
     }
-}
-
-fn missing_evidence(symbol: AnySymbolId) -> FactQueryError {
-    SemanticQueryFailure::contract(
-        SemanticQueryContext::Symbol(symbol),
-        SemanticQueryViolation::Missing(SemanticDataKind::ExecutionEvidence),
-    )
-    .into()
 }
 
 fn evidence_ordinal(symbol: AnySymbolId, index: usize) -> Result<SymbolOrdinal, FactQueryError> {

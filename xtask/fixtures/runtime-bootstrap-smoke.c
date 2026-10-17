@@ -179,6 +179,7 @@ struct PanicReport
 {
     SourceAnchor source;
     uint32_t cause;
+    uint32_t primary_present;
     uintptr_t message;
     uintptr_t message_length;
     uint32_t (*copy_message)(uintptr_t, uintptr_t, uint8_t*, uintptr_t);
@@ -404,6 +405,7 @@ static int stream_without_allocation(void)
         message[index] = (uint8_t)('a' + index % 26);
 
     PanicReport report = {
+        .primary_present = 1,
         .message = (uintptr_t)message,
         .message_length = sizeof(message),
         .copy_message = copy_streamed_message,
@@ -424,7 +426,7 @@ static int stream_without_allocation(void)
 
     memset(origin.frame, 5, sizeof(origin.frame));
 
-    PanicReport cleanup = { .cause = 1, .consume = bray_runtime_report_consumer };
+    PanicReport cleanup = { .cause = 1, .primary_present = 1, .consume = bray_runtime_report_consumer };
 
     uint32_t segment = bray_runtime_report_segment_consumer(&origin, &cleanup);
 
@@ -483,7 +485,11 @@ static int consume_after_allocator_failure(void)
     )
         return 13;
 
-    PanicReport reentrant = {.release_message = reentrant_release, .consume = bray_runtime_report_consumer};
+    PanicReport reentrant = {
+        .primary_present = 1,
+        .release_message = reentrant_release,
+        .consume = bray_runtime_report_consumer,
+    };
 
     reentrant_report = &reentrant;
 
@@ -1163,7 +1169,7 @@ static void activation_move_failure(const ActivationExecution* execution, const 
     // A failed mover has not consumed or written either side of the transfer.
     *progress = (ActivationProgress){
         .kind = 3,
-        .report = { .cause = 1, .consume = bray_runtime_report_consumer },
+        .report = { .cause = 1, .primary_present = 1, .consume = bray_runtime_report_consumer },
     };
 }
 
@@ -1737,7 +1743,7 @@ static void chain_callback(
     {
         *progress = (ActivationProgress){
             .kind = 3,
-            .report = { .cause = 1, .consume = bray_runtime_report_consumer },
+            .report = { .cause = 1, .primary_present = 1, .consume = bray_runtime_report_consumer },
         };
 
         return;

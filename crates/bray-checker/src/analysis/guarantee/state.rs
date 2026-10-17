@@ -39,6 +39,22 @@ impl Default for ExecutionState {
     }
 }
 
+pub(super) fn update_parent_observations(
+    observations: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    place: &crate::ExecutionPlace,
+    value: &ExecutionCondition,
+) {
+    for length in 0..place.projections.len() {
+        let mut parent = place.clone();
+
+        parent.projections = place.projections[..length].into();
+
+        if let Some(snapshot) = observations.get_mut(&parent) {
+            *snapshot = snapshot.with_component(&place.projections[length..], value.clone());
+        }
+    }
+}
+
 impl ExecutionState {
     pub(super) fn restore_returned_evidence(
         &mut self,
@@ -386,15 +402,7 @@ impl ExecutionState {
             self.current.remove(&observed);
         }
 
-        for length in 0..place.projections.len() {
-            let mut parent = place.clone();
-
-            parent.projections = place.projections[..length].into();
-
-            if let Some(snapshot) = self.current.get_mut(&parent) {
-                *snapshot = snapshot.with_component(&place.projections[length..], value.clone());
-            }
-        }
+        update_parent_observations(&mut self.current, &place, &value);
 
         self.current.insert(place, value);
     }
@@ -454,7 +462,7 @@ impl ExecutionState {
         for (carrier, dependencies) in self
             .witness_dependencies
             .iter()
-            .filter(|_| kind != bray_symbols::DependencyMutationKind::Write)
+            .filter(|_| !kind.is_write())
         {
             for dependency in dependencies
                 .iter()
@@ -498,7 +506,7 @@ impl ExecutionState {
         while let Some(value) = pending.pop() {
             // A write changes a storage observation, never the meaning of a constant
             // also held by an unrelated slot. Borrowed scalars retain their place identity.
-            if kind == bray_symbols::DependencyMutationKind::Write
+            if kind.is_write()
                 && matches!(
                     value,
                     ExecutionCondition::Literal(_)
@@ -607,7 +615,7 @@ impl ExecutionState {
         // A content write may revoke all old facts on an intermediate address.
         // Keep its lifetime edge so newly established facts still expire with the owner.
         self.witness_dependencies.retain(|carrier, _| {
-            kind == bray_symbols::DependencyMutationKind::Write
+            kind.is_write()
                 || !invalidated_observations.contains(carrier)
                 || retained_observations.contains(carrier)
                 || self.witness_carriers.contains_key(carrier)

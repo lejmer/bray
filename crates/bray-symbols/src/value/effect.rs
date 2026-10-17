@@ -4,11 +4,17 @@ use super::{DependencyProjection, DependencySubject};
 
 /// The storage transition a callable may perform at an invocation or deferred phase.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DependencyMutationKind {
+pub enum DependencyMutationKind<Type = super::TypeId> {
     /// Mutate protected atomic payload without replacing any containing value.
     Atomic,
+    /// Publish an address or references reachable through the named storage.
+    Escape,
     /// Replace contents while retaining the storage's initialized lifetime.
     Write,
+    /// Install a value of the stated type, including its owned graceful-cleanup obligations.
+    Replace(Type),
+    /// Install an absent payload while retaining initialized containing storage.
+    Clear,
     /// Remove initialized contents without retiring the storage.
     Consume,
     /// End the storage lifetime and revoke dependencies on that lifetime.
@@ -28,12 +34,14 @@ pub enum DependencyStorageEffect<
     Atomic,
     /// No finite target set has been established.
     Unknown,
+    /// Addresses reachable through any invocation input may be retained externally.
+    Escape,
     /// Mutate the value slot named by the formal subject.
     Direct {
         /// Entry value slot.
         subject: Subject,
         /// Possible transition.
-        kind: DependencyMutationKind,
+        kind: DependencyMutationKind<Type>,
     },
     /// Mutate storage reached by the reference value held in an entry slot.
     Indirect {
@@ -42,18 +50,37 @@ pub enum DependencyStorageEffect<
         /// Checked projections after dereferencing the entry reference.
         projections: Arc<[Projection]>,
         /// Possible transition.
-        kind: DependencyMutationKind,
+        kind: DependencyMutationKind<Type>,
     },
 }
 
+impl<Type> DependencyMutationKind<Type> {
+    /// Whether contents change without ending the containing storage lifetime.
+    pub const fn is_write(&self) -> bool {
+        matches!(self, Self::Write | Self::Replace(_) | Self::Clear)
+    }
+
+    /// Translates the installed type while preserving the storage transition.
+    pub fn try_map_type<Other, Error>(
+        self,
+        map: impl FnOnce(Type) -> Result<Other, Error>,
+    ) -> Result<DependencyMutationKind<Other>, Error> {
+        Ok(match self {
+            Self::Atomic => DependencyMutationKind::Atomic,
+            Self::Escape => DependencyMutationKind::Escape,
+            Self::Write => DependencyMutationKind::Write,
+            Self::Clear => DependencyMutationKind::Clear,
+            Self::Replace(ty) => DependencyMutationKind::Replace(map(ty)?),
+            Self::Consume => DependencyMutationKind::Consume,
+            Self::Retire => DependencyMutationKind::Retire,
+        })
+    }
+}
+
 impl<Subject: Ord, Projection: Ord, Type: Ord> DependencyStorageEffect<Subject, Projection, Type> {
-    /// Normalizes the finite may set, with unknown absorbing narrower effects.
+    /// Normalizes possible effects while retaining known transitions beside opaque effects.
     pub fn normalize(effects: impl IntoIterator<Item = Self>) -> Arc<[Self]> {
         let mut effects = effects.into_iter().collect::<Vec<_>>();
-
-        if effects.iter().any(|effect| matches!(effect, Self::Unknown)) {
-            return Arc::new([Self::Unknown]);
-        }
 
         if effects.iter().any(|effect| matches!(effect, Self::Atomic)) {
             effects.retain(|effect| {
@@ -107,7 +134,14 @@ mod tests {
         let missing = super::super::DependencyContractTemplateData::new([]);
         let unchanged = missing.clone().with_effects([]);
 
-        assert_eq!(missing.effects(), &[DependencyStorageEffect::Unknown]);
+        assert_eq!(
+            missing.effects(),
+            &[
+                DependencyStorageEffect::Unknown,
+                DependencyStorageEffect::Escape
+            ]
+        );
+
         assert!(unchanged.effects().is_empty());
 
         let write: DependencyStorageEffect = DependencyStorageEffect::Direct {
@@ -121,8 +155,9 @@ mod tests {
         );
 
         assert_eq!(
-            DependencyStorageEffect::normalize([write, DependencyStorageEffect::Unknown]).as_ref(),
-            &[DependencyStorageEffect::Unknown]
+            DependencyStorageEffect::normalize([write.clone(), DependencyStorageEffect::Unknown])
+                .as_ref(),
+            &[DependencyStorageEffect::Unknown, write]
         );
     }
 }

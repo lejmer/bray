@@ -108,7 +108,7 @@ impl OperationEffects {
         }
 
         effects.retain_owned_call_dependencies(request, storage);
-        effects.retain_invocation_input_dependencies(request.unit());
+        effects.retain_input_dependencies(request.unit());
 
         if let bray_bound_tree::BoundUnitRoot::Expression(root) = request.unit().root() {
             let retained =
@@ -276,20 +276,28 @@ impl OperationEffects {
         effects
     }
 
-    pub(in crate::analysis::liveness) fn retain_invocation_input_dependencies(
-        &mut self,
-        unit: &BoundUnit,
-    ) {
+    pub(in crate::analysis::liveness) fn retain_input_dependencies(&mut self, unit: &BoundUnit) {
         let inputs = unit
             .tree()
             .expressions()
             .filter(|(_, node)| {
-                matches!(node, BoundExpression::Call(_) | BoundExpression::Await(_))
+                matches!(
+                    node,
+                    BoundExpression::Call(_)
+                        | BoundExpression::Await(_)
+                        | BoundExpression::Assignment(_)
+                )
             })
             .map(|(expression, node)| {
                 let subjects = node
                     .child_expressions()
-                    .flat_map(|input| self.subtree_subjects(unit, input))
+                    .flat_map(|input| {
+                        retained_subtree_subjects(
+                            &self.value_inputs,
+                            input,
+                            &self.owner_dependencies,
+                        )
+                    })
                     .collect::<BTreeSet<_>>();
 
                 (expression, subjects)
@@ -312,6 +320,25 @@ impl OperationEffects {
                 dependency_subjects(contracts.invocation().requirements(), storage);
 
             let mut returned = dependency_subjects(contracts.result().requirements(), storage);
+
+            if let Some(SemanticSelection::Call(call)) = occurrence
+                .expression()
+                .and_then(|expression| selections.expression(expression))
+                && let Some(receiver) = call.receiver()
+                && let Some(effect) = self.by_occurrence.get(&receiver.expression().into())
+            {
+                // The implicit receiver loan lasts through invocation, independently
+                // of the dependencies carried by the call's returned value.
+                invocation.extend(
+                    effect
+                        .definitions
+                        .iter()
+                        .filter(|subject| {
+                            matches!(subject, BoundDependencySubject::BorrowCapability(_))
+                        })
+                        .copied(),
+                );
+            }
 
             if occurrence.expression().is_some_and(|expression| {
                 matches!(selections.expression(expression), Some(SemanticSelection::Call(call))
@@ -391,23 +418,23 @@ impl OperationEffects {
         root: BoundExpressionId,
     ) -> BTreeSet<BoundDependencySubject> {
         let mut subjects = BTreeSet::new();
-        let mut pending = vec![root];
 
-        while let Some(expression) = pending.pop() {
-            let node = AnyBoundNodeId::Expression(expression);
-
-            if let Some(effect) = self.by_occurrence.get(&node.into()) {
+        let walked = bray_bound_tree::walk_bound_tree(unit.tree(), root, |event| {
+            if let bray_bound_tree::BoundWalkEvent::Enter(node) = event
+                && let Some(effect) = self.by_occurrence.get(&node.into())
+            {
                 subjects.extend(effect.uses.iter().copied());
                 subjects.extend(effect.definitions.iter().copied());
             }
 
-            let node = unit
-                .tree()
-                .expression(expression)
-                .expect("liveness subtree retains its bound expression");
+            bray_bound_tree::BoundWalkControl::Continue
+        });
 
-            pending.extend(node.child_expressions());
-        }
+        assert_eq!(
+            walked,
+            bray_bound_tree::BoundWalkOutcome::Completed,
+            "liveness retains its complete bound subtree"
+        );
 
         subjects
     }

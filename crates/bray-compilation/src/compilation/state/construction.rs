@@ -266,6 +266,7 @@ impl Compilation {
                 unwind_behavior: UnitQueryCache::new(),
                 execution_candidates: UnitQueryCache::new(),
                 certified_execution: UnitQueryCache::new(),
+                cleanup_completion: UnitQueryCache::new(),
                 selected_body_behavior: UnitQueryCache::new(),
                 prepared_body_analysis: UnitQueryCache::new(),
                 result_dependency_membership: Mutex::new(BTreeMap::new()),

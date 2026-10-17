@@ -20,25 +20,17 @@ internal struct Owner
             executes(total)
         }
     {
-        let finish = trusted lambda(pos owner: &mut Owner) -> u32
-            requires(trusted owned(owner = &owner))
-            ensures(trusted owned(owner = &owner))
-        {
-            let permit = trusted lambda(pos owner: &Owner)
-                requires(trusted owned(owner = owner))
-                ensures(trusted bray.runtime.bootstrap.pool.protocol_access())
-                executes(pure, total) {};
-
-            trusted permit(&owner);
-
-            let records = trusted take(owner);
-
-            return trusted bray.runtime.bootstrap.consume_record_values(records, 0);
-        };
+        let permit = trusted lambda(pos owner: &Owner)
+            requires(trusted owned(owner = owner))
+            ensures(trusted bray.runtime.bootstrap.pool.protocol_access())
+            executes(pure, total) {};
 
         if self.records.count != 0
         {
-            let _: u32 = trusted finish(&mut self);
+            trusted permit(&self);
+
+            let records = trusted take(&mut self);
+            let _: u32 = trusted bray.runtime.bootstrap.consume_record_values(records, 0);
         }
     }
 }

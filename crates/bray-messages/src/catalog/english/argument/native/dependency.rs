@@ -12,7 +12,6 @@ pub(crate) const fn format_english_dependency_subject(
         DiagnosticDependencySubjectKind::ProductStatic => "product-static storage",
         DiagnosticDependencySubjectKind::ExactThreadStatic => "thread-local static storage",
         DiagnosticDependencySubjectKind::LifecycleObligation => "lifecycle obligation",
-        DiagnosticDependencySubjectKind::SuspensionState => "the values and borrows at this point",
     }
 }
 
@@ -43,8 +42,5 @@ pub(crate) const fn format_english_dependency_requirement(
             "retain its cancellation obligation"
         }
         DiagnosticDependencyRequirementKind::JoiningAttached => "retain its joining obligation",
-        DiagnosticDependencyRequirementKind::SuspensionStateAvailable => {
-            "be proven valid across suspension"
-        }
     }
 }

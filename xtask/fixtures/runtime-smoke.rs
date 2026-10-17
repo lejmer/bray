@@ -651,6 +651,7 @@ fn admitted_reports_survive_failed_reservation() {
         report.source = [1, 17, 23, 29];
         report.source_version = 31;
         report.cause = 1;
+        report.primary_present = 1;
         report.message = if index == 0 { 1 } else { 10 };
         report.release_message = Some(release_report);
         report.consume = Some(bray_runtime_report_consumer);

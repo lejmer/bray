@@ -1,6 +1,5 @@
 use bray_diagnostics::DiagnosticFailureField;
 
-use super::mir::push_mir_helper;
 use crate::compilation::ProductQueryContext;
 use crate::fact::diagnostic_context::{
     count_field, identity_field, natural_field, product_kind, push_symbol, text_field,
@@ -113,11 +112,6 @@ pub(super) fn product_query_context(context: &ProductQueryContext) -> Vec<Diagno
             fields.push(identity_field("mir_unit", unit));
 
             "mir_unit"
-        }
-        Context::MirHelper(helper) => {
-            push_mir_helper(&mut fields, helper);
-
-            "mir_helper"
         }
         Context::UnaryRepresentation { role, argument } => {
             fields.extend([

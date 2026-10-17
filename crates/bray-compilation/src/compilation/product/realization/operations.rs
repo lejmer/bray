@@ -237,7 +237,8 @@ impl Compilation {
             MirHelperReference::StandardLibrary(helper) => {
                 self.concrete_standard_library_helper(*helper, target, cancellation)?
             }
-            MirHelperReference::Finalize(_)
+            MirHelperReference::Quiesce(_)
+            | MirHelperReference::Finalize(_)
             | MirHelperReference::StaticFinalize(_)
             | MirHelperReference::Destroy(_)
             | MirHelperReference::Cleanup { .. } => {
@@ -269,6 +270,9 @@ impl Compilation {
         let substitution = owner.substitution();
 
         Ok(match reference {
+            MirHelperReference::Quiesce(ty) => MirHelperReference::Quiesce(
+                self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
+            ),
             MirHelperReference::Finalize(ty) => MirHelperReference::Finalize(
                 self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
             ),
@@ -325,7 +329,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<MirUnit, CodegenPreparationError> {
         self.codegen_generated_lifecycle(instance, reference, unit, cancellation)
-            .map(|lowered| lowered.mir().clone())
+            .map(|mir| mir.as_ref().clone())
     }
 
     pub(super) fn codegen_generated_lifecycle(
@@ -334,7 +338,7 @@ impl Compilation {
         reference: &MirHelperReference,
         unit: MirUnitId,
         cancellation: &CancellationToken,
-    ) -> Result<std::sync::Arc<bray_lowering::LoweredLifecycle>, CodegenPreparationError> {
+    ) -> Result<std::sync::Arc<MirUnit>, CodegenPreparationError> {
         let MirUnitKey::GeneratedLifecycle(key) = instance.template() else {
             return Err(ProductQueryFailure::missing(
                 ProductQueryContext::Instance(instance.clone()),

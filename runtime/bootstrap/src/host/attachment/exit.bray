@@ -35,9 +35,95 @@ internal struct AttachmentExit
     {
         if self.ready
         {
-            trusted run_attachment_cleanup(&mut self);
+            // Validate the closing epoch under the reacquired lease before issuing
+            // retirement authority. This producer is local to the selected owner.
+            let retire = trusted lambda(pos identity: u64, pos native_thread: u64) -> HostLease
+                ensures(
+                    result.active,
+                    result.retirement.pending,
+                    trusted host_access_live(owner = &result.acquisition),
+                    trusted attachment_cleanup_completed(owner = &result),
+                )
+                uses(intrinsic)
+            {
+                let mut lease: HostLease = trusted host_access();
 
-            let completed: HostLease = trusted retire_attachment(&self);
+                if !lease.active
+                {
+                    trusted core.target.abort();
+                }
+
+                let pointers: (RawPointer<Attachment>, RawPointer<usize>, usize) =
+                {
+                    let mut anchor: HostAnchor = trusted host_anchor(&lease);
+                    let host: &mut HostOwner = trusted host_value(&lease, &mut anchor);
+
+                    yield if let ?storage = host.storage
+                    {
+                        let payload: &mut HostStorage = &mut storage;
+
+                        let record: RawPointer<Attachment> =
+                        {
+                            let row = trusted find_attachment(payload, identity, 0);
+
+                            yield match consume row
+                            {
+                                case ?entry
+                                {
+                                    if !entry.closing || entry.native_thread != native_thread
+                                    {
+                                        trusted core.target.abort();
+                                    }
+
+                                    yield std.memory.address_of_mut<Attachment>(entry);
+                                }
+                                case none { yield trusted core.target.abort(); }
+                            };
+                        };
+
+                        if payload.active == 0
+                        {
+                            trusted core.target.abort();
+                        }
+
+                        yield(record, std.memory.address_of_mut<usize>(&mut payload.active), payload.active - 1);
+                    }
+                    else
+                    {
+                        yield trusted core.target.abort();
+                    };
+                };
+
+                let (record, active, remaining_active): (RawPointer<Attachment>, RawPointer<usize>, usize) = pointers;
+
+                lease.retirement = AttachmentRetirement
+                {
+                    pending = true,
+                    identity = identity,
+                    native_thread = native_thread,
+                    record = record,
+                    active = active,
+                    remaining_active = remaining_active
+                };
+
+                return lease;
+            };
+
+            let incidents: u32 = if let ?cleanup = self.cleanup
+            {
+                yield cleanup(self.identity);
+            }
+            else
+            {
+                yield 0;
+            };
+
+            if let ?destination = self.incidents
+            {
+                let _: u32 = trusted std.memory.replace_value<u32>(destination, incidents);
+            }
+
+            let completed: HostLease = trusted retire(self.identity, self.native_thread);
         }
     }
 }
@@ -338,150 +424,6 @@ trusted internal func finish_attachment(pos scope: &bray.runtime.bootstrap.threa
     }
 
     return bray.runtime.bootstrap.STATUS_SUCCESS;
-}
-
-// Completion owns the reacquired lease. Validate the closing record after arbitrary
-// cleanup and before publishing the epoch's checked storage projections.
-trusted internal func run_attachment_cleanup(pos selected: &mut AttachmentExit)
-    requires(selected.ready, trusted attachment_exit_selected(owner = &selected))
-    ensures(selected.ready, trusted attachment_exit_selected(owner = &selected))
-{
-    let incidents: u32 = if let ?cleanup = selected.cleanup
-    {
-        yield cleanup(selected.identity);
-    }
-    else
-    {
-        yield 0;
-    };
-
-    if let ?destination = selected.incidents
-    {
-        let _: u32 = trusted std.memory.replace_value<u32>(destination, incidents);
-    }
-}
-
-trusted internal func retire_attachment(pos selected: &AttachmentExit) -> HostLease
-    requires(selected.ready, trusted attachment_exit_selected(owner = &selected))
-    ensures(
-        result.active,
-        result.retirement.pending,
-        trusted host_access_live(owner = &result.acquisition),
-        trusted attachment_cleanup_completed(owner = &result),
-    )
-    uses(intrinsic)
-{
-    let mut lease: HostLease = trusted host_access();
-
-    if !lease.active
-    {
-        trusted core.target.abort();
-    }
-
-    let pointers: (RawPointer<Attachment>, RawPointer<usize>, usize) =
-    {
-        let mut anchor: HostAnchor = trusted host_anchor(&lease);
-        let host: &mut HostOwner = trusted host_value(&lease, &mut anchor);
-
-        yield if let ?storage = host.storage
-        {
-            let payload: &mut HostStorage = &mut storage;
-
-            let record: RawPointer<Attachment> =
-            {
-                let row = trusted find_attachment(payload, selected.identity, 0);
-
-                yield match consume row
-                {
-                    case ?entry
-                    {
-                        if !entry.closing || entry.native_thread != selected.native_thread
-                        {
-                            trusted core.target.abort();
-                        }
-
-                        yield std.memory.address_of_mut<Attachment>(entry);
-                    }
-                    case none { yield trusted core.target.abort(); }
-                };
-            };
-
-            if payload.active == 0
-            {
-                trusted core.target.abort();
-            }
-
-            yield(record, std.memory.address_of_mut<usize>(&mut payload.active), payload.active - 1);
-        }
-        else
-        {
-            yield trusted core.target.abort();
-        };
-    };
-
-    let (record, active, remaining_active): (RawPointer<Attachment>, RawPointer<usize>, usize) = pointers;
-
-    lease.retirement = AttachmentRetirement
-    {
-        pending = true,
-        identity = selected.identity,
-        native_thread = selected.native_thread,
-        record = record,
-        active = active,
-        remaining_active = remaining_active
-    };
-
-    return lease;
-}
-
-trusted internal func complete_attachment_exit_locked(pos completed: &HostLease, pos anchor: &mut HostAnchor)
-    requires(
-        completed.active,
-        completed.retirement.pending,
-        trusted host_access_live(owner = &completed.acquisition),
-        trusted host_anchor_matches(anchor = &anchor, lease = completed),
-        trusted attachment_cleanup_completed(owner = completed),
-    )
-    ensures(trusted host_access_live(owner = &completed.acquisition))
-    executes(total)
-    uses(raw_memory, unchecked_init, unchecked_alias)
-{
-    let retirement: &AttachmentRetirement = &completed.retirement;
-
-    let identity: u64 = retirement.identity;
-    let native_thread: u64 = retirement.native_thread;
-    let remaining_active: usize = retirement.remaining_active;
-    let active_pointer: RawPointer<usize> = trusted completed_active_pointer(completed);
-    let pointer: RawPointer<Attachment> = trusted completed_attachment_pointer(completed);
-
-    let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-        completed.synchronization,
-        trusted lease_synchronization_pointer(completed)
-    );
-
-    // Selection moved the callback out before cleanup. The closing row now contains
-    // only scalars and None, so replacing it cannot discard a pending callback.
-    trusted std.memory.write<Attachment>(
-        pointer,
-        Attachment
-        {
-            identity = 0,
-            native_thread = native_thread,
-            depth = 0,
-            closing = true,
-            context_bridge = none,
-            report_observer = none,
-            cleanup = none
-        }
-    );
-
-    trusted std.memory.write<usize>(active_pointer, remaining_active);
-
-    let _: (u64, bool) = core.atomic.compare_exchange<u64, 3, 1>(
-        &synchronization.main,
-        expected = identity,
-        desired = 0
-    );
 }
 
 trusted internal func completed_attachment_pointer(pos completed: &HostLease) -> RawPointer<Attachment>

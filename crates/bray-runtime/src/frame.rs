@@ -196,7 +196,9 @@ impl RuntimePanic {
 
     /// Returns the number of later panics retained behind the primary panic.
     pub fn suppressed_count(&self) -> usize {
-        self.report.outgoing_count()
+        self.report
+            .outgoing_count()
+            .saturating_sub(usize::from(!self.report.has_primary()))
     }
 
     pub(crate) fn from_native(report: bray_runtime_abi::NativePanicReport) -> Self {
@@ -208,7 +210,7 @@ impl RuntimePanic {
     }
 
     pub(crate) fn reserve_from(&mut self, admitted: &mut crate::outgoing::OutgoingRecords) {
-        if !self.report.has_reservation() {
+        if self.report.has_primary() && !self.report.has_reservation() {
             let (reserved, _, _) = admitted.take(1).into_parts();
 
             self.report.set_reserved(reserved);
@@ -241,29 +243,37 @@ impl RuntimePanic {
     ) -> crate::outgoing::OutgoingRecords {
         self.reserve_from(admitted);
 
-        let (mut primary, head, tail, count, reserved) = self.report.take_parts();
+        let (primary, head, tail, count, reserved) = self.report.take_parts();
+
+        let mut remaining = crate::outgoing::OutgoingRecords::from_parts(head, tail, count);
+
+        let Some(mut primary) = primary else {
+            assert_eq!(
+                reserved, 0,
+                "a chain-only report needs no primary reservation"
+            );
+
+            return remaining;
+        };
 
         let mut records = crate::outgoing::OutgoingRecords::from_parts(reserved, reserved, 1);
 
         records.exchange(&mut primary);
         drop(primary);
-
-        records.append(&mut crate::outgoing::OutgoingRecords::from_parts(
-            head, tail, count,
-        ));
+        records.append(&mut remaining);
 
         records
     }
 
-    pub(crate) fn from_records(mut records: crate::outgoing::OutgoingRecords) -> Self {
-        let primary = records.pop().expect("a report segment owns its primary");
-        let mut report = native_report(primary);
-
+    pub(crate) fn from_records(records: crate::outgoing::OutgoingRecords) -> Self {
         let (head, tail, count) = records.into_parts();
 
-        report.set_outgoing(head, tail, count);
-
-        Self { report }
+        Self {
+            report: bray_runtime_abi::NativePanicReport::from_records(
+                bray_runtime_abi::NativeReportRecords { head, tail, count },
+                crate::report_provider::bray_runtime_report_consumer,
+            ),
+        }
     }
 
     pub(crate) fn push_suppressed(

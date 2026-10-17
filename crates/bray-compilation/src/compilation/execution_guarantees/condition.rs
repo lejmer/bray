@@ -11,6 +11,59 @@ use crate::compilation::{
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
+    pub(in crate::compilation) fn execution_predicate_inputs(
+        &self,
+        semantics: &bray_bound_tree::CheckedExpressionSemantics,
+        cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<
+        std::collections::BTreeMap<
+            bray_symbols::PredicateInstanceData,
+            bray_symbols::ConstantTermId,
+        >,
+        FactQueryError,
+    > {
+        let selected = semantics
+            .selections()
+            .entries()
+            .iter()
+            .filter_map(|entry| match entry.selection() {
+                bray_bound_tree::SemanticSelection::Call(call) => match call.target() {
+                    bray_bound_tree::BoundCallableTarget::Predicate(predicate) => Some(predicate),
+                    _ => None,
+                },
+                bray_bound_tree::SemanticSelection::Predicate(predicate) => {
+                    Some(bray_symbols::PredicateInstanceData::new(
+                        predicate.predicate(),
+                        predicate.substitution(),
+                    ))
+                }
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+
+        let mut meanings = std::collections::BTreeMap::new();
+
+        for predicate in selected {
+            let definition =
+                self.predicate_definition_with_cancellation(predicate.definition(), cancellation)?;
+
+            diagnostics.add_range(definition.diagnostics().iter().cloned());
+
+            if let bray_symbols::PredicateDefinitionState::Defined(definition) = definition.value()
+                && let Some(condition) = definition.semantic().condition()
+            {
+                let condition = self
+                    .semantic_value_store()?
+                    .substitute_constant_term(condition, predicate.substitution())?;
+
+                meanings.insert(predicate, condition);
+            }
+        }
+
+        Ok(meanings)
+    }
+
     pub(in crate::compilation) fn execution_constant_inputs(
         &self,
         bound: &bray_bound_tree::BoundUnit,
@@ -178,6 +231,12 @@ impl Compilation {
 
             let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
 
+            let predicates = self.execution_predicate_inputs(
+                semantics.result().value(),
+                cancellation,
+                &mut diagnostics,
+            )?;
+
             let normalized = bray_checker::predicate_conditions_with_inputs(
                 bound.result().value(),
                 semantics.result().value(),
@@ -188,6 +247,7 @@ impl Compilation {
                     storage.result().value(),
                     body.result().value().storage_flow(),
                 )),
+                Some(&predicates),
             )?;
 
             if clause_diagnostics.has_errors() {
@@ -213,6 +273,206 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
 
     #[test]
+    fn completion_observation_publishes_its_checked_result_meaning() {
+        for (body, valid) in [
+            (
+                "if value.is_complete() { return; } value.open = false; value.pending = false;",
+                true,
+            ),
+            (
+                "if value.is_complete() { value.open = true; return; } value.open = false; value.pending = false;",
+                false,
+            ),
+            (
+                "if !value.is_complete() { value.open = false; value.pending = false; }",
+                true,
+            ),
+            (
+                "let done = value.is_complete(); value.open = true; if done { return; } value.open = false; value.pending = false;",
+                false,
+            ),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+
+                struct Resource
+                {{
+                    mut open: bool;
+                    mut pending: bool;
+                    predicate complete(value: &Resource) = !value.open && !value.pending;
+
+                    func is_complete() -> bool
+                        executes(pure, total)
+                        ensures(result == Resource.complete(value = &self))
+                    {{
+                        return !self.open && !self.pending;
+                    }}
+                }}
+
+                func close(pos value: &mut Resource)
+                    ensures(Resource.complete(value = &value))
+                    when(Resource.complete(value = &value))
+                    {{
+                        executes(pure, total)
+                    }}
+                {{
+                    {body}
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn completion_after_opaque_execution_requires_a_terminal_state() {
+        for (completion, valid) in [
+            ("value.open = false;", false),
+            ("value = { open = false, pending = false };", true),
+        ] {
+            let source = format!(
+                r#"
+                trusted module app;
+                struct Resource {{ mut open: bool; mut pending: bool; }}
+                extern trusted func opaque();
+                trusted func close(pos value: &mut Resource)
+                    ensures(!value.open && !value.pending)
+                {{
+                    value.pending = false;
+                    opaque();
+                    {completion}
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+
+            let checked = compilation
+                .execution_properties(crate::test_support::source_function_body_key(
+                    &compilation,
+                    "close",
+                ))
+                .unwrap();
+
+            let diagnostics = checked.diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn predicate_calls_require_contract_expression_context() {
+        use bray_diagnostics::{DiagnosticArgValue, DiagnosticSelectionRejectionReason};
+
+        for declaration in [
+            "func root() -> bool { return ready(value = true); }",
+            "func root() { let action = lambda() -> bool { return ready(value = true); }; }",
+            "func root(value: bool = ready(value = true)) {}",
+            "struct Owner { predicate complete(value: bool) = value; } func root() -> bool { return Owner.complete(value = true); }",
+        ] {
+            let source = format!("module app; predicate ready(value: bool) = value; {declaration}");
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert!(diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).any(|argument| {
+                matches!(argument.value(), DiagnosticArgValue::SelectionRejections(rejections)
+                    if rejections.rejections().iter().any(|rejection| matches!(
+                        rejection.reason(), DiagnosticSelectionRejectionReason::PredicateOutsideContract)))
+            }), "{source}: {diagnostics:?}");
+        }
+    }
+
+    #[test]
+    fn ordinary_predicate_meaning_tracks_completion_and_mutation() {
+        for (body, valid) in [
+            ("value.open = false;", true),
+            ("value.open = true;", false),
+            ("value.open = false; value.open = true;", false),
+            ("if value.open { value.open = false; }", true),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+
+                struct Resource {{
+                    mut open: bool;
+                    predicate complete(value: &Resource) = !value.open;
+                }}
+
+                predicate finished(value: &Resource) = Resource.complete(value = value);
+
+                func root(pos value: &mut Resource)
+                    executes(total)
+                    ensures(finished(value = &value))
+                {{
+                    {body}
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_predicate_meaning_proves_guarded_completion() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            struct Resource {
+                mut open: bool;
+                predicate complete(value: &Resource) = !value.open;
+            }
+
+            func close(pos value: &mut Resource)
+                ensures(Resource.complete(value = &value))
+                when(Resource.complete(value = &value)) {
+                    executes(pure, total)
+                }
+            {
+                if !value.open {
+                    return;
+                }
+
+                value.open = false;
+            }
+        "#,
+        );
+
+        let diagnostics = compilation.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+    }
+
+    #[test]
     fn anonymous_total_proof_uses_its_own_field_requirements() {
         for (requirement, valid) in [("value.ready", true), ("!value.ready", false)] {
             let source = format!(
@@ -224,6 +484,154 @@ mod tests {
                     let action = lambda(pos value: &Flags)
                         requires({requirement}) executes(total)
                     {{ observe(value); }};
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_predicate_meaning_proves_result_completion() {
+        for body in [
+            "value.open = false; return Ok(unit);",
+            "if fail { return Error(false); } value.open = false; return Ok(unit);",
+            "try status(fail); value.open = false; return Ok(unit);",
+        ] {
+            let source = format!(
+                r#"
+                module app;
+
+                struct Resource {{
+                    mut open: bool;
+                    predicate complete(value: &Resource) = !value.open;
+                }}
+
+                func status(pos fail: bool) -> Result<unit, bool> executes(total) {{
+                    if fail {{ return Error(false); }}
+                    return Ok(unit);
+                }}
+
+                func close(pos value: &mut Resource, pos fail: bool) -> Result<unit, bool>
+                    ensures(result matches Error(_) || Resource.complete(value = &value))
+                    when(Resource.complete(value = &value)) {{
+                        executes(pure, total)
+                        ensures(result matches Ok(_))
+                    }}
+                {{
+                    if !value.open {{ return Ok(unit); }}
+                    {body}
+                }}
+
+                func wrapper(pos value: &mut Resource, pos fail: bool) -> Result<unit, bool>
+                    ensures(result matches Error(_) || Resource.complete(value = &value))
+                    when(Resource.complete(value = &value)) {{
+                        executes(pure, total)
+                        ensures(result matches Ok(_))
+                    }}
+                {{
+                    return close(&mut value, fail);
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert!(!diagnostics.has_errors(), "{source}: {diagnostics:?}");
+        }
+    }
+
+    #[test]
+    fn successful_propagation_retains_the_borrowed_completion_condition() {
+        for valid in [true, false] {
+            let mutation = if valid { "" } else { "value.open = true;" };
+
+            let source = format!(
+                r#"
+                module app;
+
+                struct Resource
+                {{
+                    mut open: bool;
+                }}
+
+                func close(pos value: &mut Resource, pos fail: bool) -> Result<unit, bool>
+                    executes(total)
+                    ensures(result matches Error(_) || !value.open)
+                {{
+                    if fail {{ return Error(false); }}
+                    value.open = false;
+                    return Ok(unit);
+                }}
+
+                func wrapper(pos value: &mut Resource, pos fail: bool) -> Result<unit, bool>
+                    executes(total)
+                    ensures(result matches Error(_) || !value.open)
+                {{
+                    try close(&mut value, fail);
+                    {mutation}
+                    return Ok(unit);
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn propagation_publishes_only_its_selected_boundary_result() {
+        for (body, valid) in [
+            ("let value: bool? = none; value?; return true;", true),
+            ("let value: bool? = true; value?; return true;", false),
+            (
+                "let value: bool? = none; let nested: bool? = { value?; yield true; }; return true;",
+                false,
+            ),
+            (
+                "let value: bool? = none; let nested: bool? = { value?; yield true; }; return nested;",
+                true,
+            ),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+
+                func root() -> bool?
+                    executes(total)
+                    ensures(result matches none)
+                {{
+                    {body}
                 }}
             "#
             );
@@ -974,10 +1382,14 @@ impl Compilation {
         body: &BoundUnitKey,
         callable: bray_symbols::CallableInstanceData,
         declaration: &bray_checker::ExecutionDeclaration,
-        property: bray_checker::ExecutionProperty,
+        required: bray_checker::ExecutionObligation,
         evidence: Option<&bray_checker::ExecutionCallEvidence>,
         cancellation: &CancellationToken,
     ) -> Result<Option<Option<SourceSpan>>, FactQueryError> {
+        let bray_checker::ExecutionObligation::Property(property, selected) = required else {
+            panic!("execution-domain selection requires a property obligation");
+        };
+
         let requirements = self.instance_execution_condition_inputs(
             body,
             callable,
@@ -1004,6 +1416,12 @@ impl Compilation {
             else {
                 continue;
             };
+
+            let clause = (!domain.guards.is_empty()).then_some(obligation.source.into());
+
+            if selected.is_some() && selected != clause {
+                continue;
+            }
 
             let guards = self.instance_execution_condition_inputs(
                 body,
@@ -1070,106 +1488,116 @@ impl Compilation {
                 continue;
             };
 
-            let Some(body) = self.callable_body_key(callable.definition())? else {
-                if self
-                    .symbol_graph()?
-                    .declaration_syntax_anchor(callable.definition().symbol())
-                    .is_none()
-                {
-                    let contract =
-                        self.imported_execution_contract(callable, &mut diagnostics, cancellation)?;
+            let contracts = self.callable_completion_contracts(callable, cancellation)?;
 
-                    let mut completion = Vec::new();
+            diagnostics.add_range(contracts.diagnostics().iter().cloned());
 
-                    for domain in &*contract.domains {
-                        let entry = self.imported_execution_conditions(
-                            callable,
-                            domain.entry.iter().copied(),
-                            cancellation,
-                        )?;
-
-                        let mut postconditions = Vec::new();
-
-                        for (ordinal, term) in &*domain.postconditions {
-                            let conditions = self.imported_execution_conditions(
-                                callable,
-                                [*term],
-                                cancellation,
-                            )?;
-
-                            postconditions.extend(conditions.into_iter().map(|condition| {
-                                (
-                                    condition,
-                                    bray_checker::ExecutionClauseId::Imported(*ordinal),
-                                )
-                            }));
-                        }
-
-                        completion.push(bray_checker::ExecutionCompletionContract {
-                            entry,
-                            postconditions,
-                        });
-                    }
-
-                    calls.insert(expression, completion);
-                }
-
-                continue;
-            };
-
-            let declaration = self.execution_declaration(body.source().syntax())?;
-            let mut contracts = Vec::new();
-
-            for domain in declaration
-                .value()
-                .domains()
-                .iter()
-                .filter(|domain| !domain.postconditions.is_empty())
-            {
-                let anchors = declaration
-                    .value()
-                    .requirements()
-                    .iter()
-                    .chain(&domain.guards)
-                    .copied()
-                    .collect::<Vec<_>>();
-
-                let entry = self.instance_execution_condition_inputs(
-                    &body,
-                    callable,
-                    &anchors,
-                    cancellation,
-                )?;
-
-                let posts = self.instance_execution_condition_inputs(
-                    &body,
-                    callable,
-                    &domain.postconditions,
-                    cancellation,
-                )?;
-
-                diagnostics.add_range(entry.diagnostics().iter().cloned());
-                diagnostics.add_range(posts.diagnostics().iter().cloned());
-
-                contracts.push(bray_checker::ExecutionCompletionContract {
-                    entry: entry
-                        .into_parts()
-                        .0
-                        .into_iter()
-                        .map(|(condition, _)| condition)
-                        .collect(),
-                    postconditions: posts
-                        .into_parts()
-                        .0
-                        .into_iter()
-                        .map(|(condition, source)| (condition, source.into()))
-                        .collect(),
-                });
-            }
+            let contracts = contracts.into_parts().0;
 
             calls.insert(expression, contracts);
         }
 
         Ok(DiagnosticResult::new(calls, diagnostics))
+    }
+
+    pub(super) fn callable_completion_contracts(
+        &self,
+        callable: bray_symbols::CallableInstanceData,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<Vec<bray_checker::ExecutionCompletionContract>>, FactQueryError>
+    {
+        let mut diagnostics = DiagnosticBag::new();
+
+        let Some(body) = self.callable_body_key(callable.definition())? else {
+            if self
+                .symbol_graph()?
+                .declaration_syntax_anchor(callable.definition().symbol())
+                .is_some()
+            {
+                return Ok(DiagnosticResult::new(Vec::new(), diagnostics));
+            }
+
+            let contract =
+                self.imported_execution_contract(callable, &mut diagnostics, cancellation)?;
+
+            let mut completion = Vec::new();
+
+            for domain in &*contract.domains {
+                let entry = self.imported_execution_conditions(
+                    callable,
+                    domain.entry.iter().copied(),
+                    cancellation,
+                )?;
+
+                let mut postconditions = Vec::new();
+
+                for (ordinal, term) in &*domain.postconditions {
+                    let conditions =
+                        self.imported_execution_conditions(callable, [*term], cancellation)?;
+
+                    postconditions.extend(conditions.into_iter().map(|condition| {
+                        (
+                            condition,
+                            bray_checker::ExecutionClauseId::Imported(*ordinal),
+                        )
+                    }));
+                }
+
+                completion.push(bray_checker::ExecutionCompletionContract {
+                    entry,
+                    postconditions,
+                });
+            }
+
+            return Ok(DiagnosticResult::new(completion, diagnostics));
+        };
+
+        let declaration = self.execution_declaration(body.source().syntax())?;
+        let mut contracts = Vec::new();
+
+        for domain in declaration
+            .value()
+            .domains()
+            .iter()
+            .filter(|domain| !domain.postconditions.is_empty())
+        {
+            let anchors = declaration
+                .value()
+                .requirements()
+                .iter()
+                .chain(&domain.guards)
+                .copied()
+                .collect::<Vec<_>>();
+
+            let entry =
+                self.instance_execution_condition_inputs(&body, callable, &anchors, cancellation)?;
+
+            let posts = self.instance_execution_condition_inputs(
+                &body,
+                callable,
+                &domain.postconditions,
+                cancellation,
+            )?;
+
+            diagnostics.add_range(entry.diagnostics().iter().cloned());
+            diagnostics.add_range(posts.diagnostics().iter().cloned());
+
+            contracts.push(bray_checker::ExecutionCompletionContract {
+                entry: entry
+                    .into_parts()
+                    .0
+                    .into_iter()
+                    .map(|(condition, _)| condition)
+                    .collect(),
+                postconditions: posts
+                    .into_parts()
+                    .0
+                    .into_iter()
+                    .map(|(condition, source)| (condition, source.into()))
+                    .collect(),
+            });
+        }
+
+        Ok(DiagnosticResult::new(contracts, diagnostics))
     }
 }

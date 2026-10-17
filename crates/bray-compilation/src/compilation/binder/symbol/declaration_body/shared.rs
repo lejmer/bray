@@ -133,11 +133,10 @@ pub(in crate::compilation::binder::symbol) fn checked_source_expression(
         .map_err(super::super::binding::binder_error)?;
 
     let BoundUnitRoot::Expression(root) = bound.result().value().root() else {
-        return Err(unexpected_unit_root(
-            key,
-            bray_bound_tree::BoundNodeKind::Expression,
-            bound.result().value().root(),
-        ));
+        panic!(
+            "checked expression unit {key:?} has unexpected root {:?}",
+            bound.result().value().root()
+        );
     };
 
     let semantics = compilation
@@ -186,7 +185,9 @@ pub(in crate::compilation::binder::symbol) fn checked_source_expression(
     let contract = dependencies
         .expression(root)
         .and_then(|contract| dependencies.contract(contract))
-        .ok_or_else(|| missing_dependency_contract(key.clone(), root))?;
+        .unwrap_or_else(|| {
+            panic!("checked expression {root:?} in {key:?} retains its dependency contract")
+        });
 
     let dependency_contract =
         portable_dependency_contract(context, storage.result().value(), contract)?;
@@ -218,12 +219,13 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         .bound_unit_with_cancellation(key.clone(), context.cancellation)
         .map_err(super::super::binding::binder_error)?;
 
-    let BoundUnitRoot::ExpressionSequence(_) = bound.result().value().root() else {
-        return Err(unexpected_unit_root(
-            key,
-            bray_bound_tree::BoundNodeKind::Block,
-            bound.result().value().root(),
-        ));
+    let (BoundUnitRoot::ExpressionSequence(_) | BoundUnitRoot::Expression(_)) =
+        bound.result().value().root()
+    else {
+        panic!(
+            "checked predicate unit {key:?} has unexpected root {:?}",
+            bound.result().value().root()
+        );
     };
 
     let semantics = compilation
@@ -268,6 +270,14 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         .patterns_with_cancellation(key.clone(), context.cancellation)
         .map_err(super::super::binding::binder_error)?;
 
+    let predicate_definitions = compilation
+        .execution_predicate_inputs(
+            semantics.result().value(),
+            context.cancellation,
+            &mut diagnostics,
+        )
+        .map_err(super::super::binding::binder_error)?;
+
     let normalized = bray_checker::predicate_conditions_with_inputs(
         bound.result().value(),
         semantics.result().value(),
@@ -278,6 +288,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
             storage.result().value(),
             body.result().value().storage_flow(),
         )),
+        Some(&predicate_definitions),
     )
     .map_err(|error| BindingQueryError::Binding(bray_binder::BindingError::SemanticValue(error)))?;
 
@@ -290,7 +301,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
             .and_then(|contract| dependencies.contract(contract));
 
         let Some(contract) = contract else {
-            return Err(missing_dependency_contract(key.clone(), expression));
+            panic!("checked predicate {expression:?} in {key:?} retains its dependency contract");
         };
 
         let dependency = portable_dependency_contract(context, storage.result().value(), contract)?;
@@ -326,35 +337,6 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         execution_requirements,
         diagnostics,
     })
-}
-
-fn unexpected_unit_root(
-    key: BoundUnitKey,
-    expected: bray_bound_tree::BoundNodeKind,
-    actual: BoundUnitRoot,
-) -> BindingQueryError<crate::fact::FactQueryError> {
-    binding_contract(
-        crate::compilation::SemanticQueryContext::Unit(key),
-        crate::compilation::SemanticQueryViolation::UnexpectedBoundUnitRoot {
-            expected,
-            actual: actual.into(),
-        },
-    )
-}
-
-fn missing_dependency_contract(
-    key: BoundUnitKey,
-    expression: bray_bound_tree::BoundExpressionId,
-) -> BindingQueryError<crate::fact::FactQueryError> {
-    binding_contract(
-        crate::compilation::SemanticQueryContext::Expression {
-            unit: key,
-            expression,
-        },
-        crate::compilation::SemanticQueryViolation::Missing(
-            crate::compilation::SemanticDataKind::DependencyContract,
-        ),
-    )
 }
 
 fn execution_requirement(

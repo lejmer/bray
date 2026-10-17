@@ -177,6 +177,10 @@ pub enum DiagnosticLabelKind {
     MovedStorageUse,
     /// Storage remains partial when its whole-value lifecycle is required.
     IncompleteLifecycleStorage,
+    /// An operation acts through terminal destructor ownership.
+    DestructorOwnershipOperation,
+    /// The ownership end requiring unresolved finalization.
+    UnresolvedFinalization,
     /// Label for an operation that conflicts with a live borrow.
     ConflictingBorrowOperation,
     /// Label for an operation without mutation authority.
@@ -260,6 +264,8 @@ impl DiagnosticLabelKind {
             Self::DuplicateModuleContribution => "duplicate_module_contribution",
             Self::MovedStorageUse => "moved_storage_use",
             Self::IncompleteLifecycleStorage => "incomplete_lifecycle_storage",
+            Self::DestructorOwnershipOperation => "destructor_ownership_operation",
+            Self::UnresolvedFinalization => "unresolved_finalization",
             Self::ConflictingBorrowOperation => "conflicting_borrow_operation",
             Self::MissingMutationAuthority => "missing_mutation_authority",
             Self::MissingStorageOwnership => "missing_storage_ownership",

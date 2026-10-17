@@ -302,10 +302,6 @@ pub(crate) enum SemanticQueryViolation {
     },
     MissingBoundNode(AnyBoundNodeId),
     MissingCheckedTemplateNode(bray_bound_tree::CheckedTemplateNodeId),
-    UnexpectedBoundUnitRoot {
-        expected: bray_bound_tree::BoundNodeKind,
-        actual: AnyBoundNodeId,
-    },
     UnexpectedWalkOutcome(BoundWalkOutcome),
     TypeMismatch {
         expected: TypeId,
@@ -376,7 +372,6 @@ pub(crate) enum SemanticDataKind {
     ConstantDefinition,
     ConstantTerm,
     DeclarationRecord,
-    DependencyContract,
     ExecutionEvidence,
     GenericConstraint,
     GenericSubstitution,

@@ -148,6 +148,7 @@ impl NativeRun {
         token: &NativeInactiveFrame,
         state: u32,
         destination: usize,
+        abandoning: bool,
     ) -> NativeRuntimeStatus {
         let Some((parent, operation)) = *self.callback.lock().expect("callback scope is available")
         else {
@@ -169,7 +170,7 @@ impl NativeRun {
             state,
             origin,
             destination,
-            0,
+            u8::from(abandoning),
             super::activation::admission,
         );
 

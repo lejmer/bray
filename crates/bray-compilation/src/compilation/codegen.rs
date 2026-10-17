@@ -463,15 +463,6 @@ pub enum CodegenPreparationError {
     CodegenUnavailable,
     /// A plan-named MIR unit is unavailable from this compilation.
     MirUnavailable(MirUnitKey),
-    /// A demanded declaration has neither executable code nor an imported native symbol.
-    MissingCallableImplementation {
-        /// Exact callable whose implementation is required.
-        definition: CallableDefinitionId,
-        /// Stable source-facing declaration identity retrieved on the failure path.
-        callable: Box<bray_diagnostics::DiagnosticInterfaceSymbolIdentity>,
-        /// Source declaration location, when it belongs to the current compilation.
-        source: Option<bray_source::SourceSpan>,
-    },
     /// Executable host construction requires one selected source entrypoint.
     MissingEntrypoint,
     /// A concrete instance could not be reconstructed from its exact lazy MIR result.

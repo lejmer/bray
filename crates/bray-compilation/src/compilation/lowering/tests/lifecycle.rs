@@ -332,6 +332,11 @@ fn asynchronous_scoped_phases_drive_selected_frames_and_shield_exit() {
         let mir = lowered_mir(&result);
 
         assert!(
+            mir.is_valid(),
+            "scoped cleanup must forward its values through MIR edges"
+        );
+
+        assert!(
             mir.blocks().iter().any(|block| matches!(
                 block.terminator().kind(),
                 MirTerminatorKind::Suspend { .. }
@@ -404,7 +409,10 @@ fn fallible_scoped_phases_separate_the_capability_and_body_result_types() {
 
         let result = compilation.lowered_unit(key).unwrap();
 
-        lowered_mir(&result);
+        assert!(
+            lowered_mir(&result).is_valid(),
+            "fallible scoped cleanup retains valid value ownership"
+        );
     }
 }
 
@@ -436,6 +444,11 @@ fn fallible_scoped_exit_preserves_pending_control_outcomes() {
         let key = source_function_body_key(&compilation, "caller");
         let result = compilation.lowered_unit(key).unwrap();
         let mir = lowered_mir(&result);
+
+        assert!(
+            mir.is_valid(),
+            "scoped cleanup must forward its values through MIR edges"
+        );
 
         assert!(
             mir.blocks()
@@ -1127,4 +1140,431 @@ fn frames_without_cancellation_obligations_have_empty_broadcasts() {
             .iter()
             .any(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::BroadcastLocal))
     );
+}
+
+#[test]
+fn ordinary_async_finalizers_suspend_with_live_owner_guards() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        extern async func pause();
+
+        async func caller(pos owner: Owner) -> u32
+        {
+            return 7;
+        }
+
+        struct Owner
+        {
+            pending: Task<unit>;
+
+            async finalize()
+            {
+                await pause();
+            }
+        }
+    "#,
+    );
+
+    assert!(
+        !compilation.check_diagnostics().has_errors(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+
+    let key = source_function_body_key(&compilation, "caller");
+    let checked = compilation.async_analysis(key.clone()).unwrap();
+
+    assert!(
+        checked
+            .value()
+            .suspensions()
+            .iter()
+            .any(|point| point.kind() == bray_bound_tree::AsyncSuspensionKind::Cleanup)
+    );
+
+    assert!(checked.value().cleanup_types().iter().any(|ty| {
+        ty.finalizer()
+            .is_some_and(|call| call.execution == bray_symbols::CallableExecution::Asynchronous)
+    }));
+
+    let lowered = compilation.lowered_unit(key).unwrap();
+    let mir = lowered_mir(&lowered);
+
+    assert!(
+        mir.is_valid(),
+        "ordinary async cleanup must obey MIR ownership and suspension contracts"
+    );
+
+    let awaited = mir
+        .operations()
+        .iter()
+        .filter(|operation| {
+            matches!(
+                operation.kind(),
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame { .. })
+            )
+        })
+        .count();
+
+    assert!(
+        awaited > 0,
+        "async finalization must drive its child in the enclosing frame"
+    );
+
+    assert_eq!(
+        awaited,
+        mir.blocks()
+            .iter()
+            .filter(|block| matches!(block.terminator().kind(), MirTerminatorKind::Suspend { .. }))
+            .count()
+    );
+
+    let mut destruction_guards = BTreeSet::new();
+
+    for block in mir.blocks() {
+        if block.operations().iter().any(|id| {
+            matches!(
+                mir.operation(*id).unwrap().kind(),
+                MirOperationKind::Destroy(_)
+            )
+        }) {
+            for id in block.operations() {
+                if let MirOperationKind::Store {
+                    destination,
+                    value:
+                        bray_ir::MirOperand::Immediate {
+                            value: bray_ir::MirImmediateValue::Boolean(false),
+                            ..
+                        },
+                    ..
+                } = mir.operation(*id).unwrap().kind()
+                {
+                    destruction_guards.insert(destination.storage());
+                }
+            }
+        }
+    }
+
+    assert!(!destruction_guards.is_empty());
+
+    for block in mir.blocks() {
+        let MirTerminatorKind::Suspend {
+            cancellation,
+            resume_state,
+            ..
+        } = block.terminator().kind()
+        else {
+            continue;
+        };
+
+        assert!(matches!(
+            mir.block(cancellation.edge().target())
+                .unwrap()
+                .terminator()
+                .kind(),
+            MirTerminatorKind::Unreachable
+        ));
+
+        assert!(block.operations().iter().all(|id| !matches!(mir.operation(*id).unwrap().kind(),
+            MirOperationKind::Store { destination, value: bray_ir::MirOperand::Immediate { value: bray_ir::MirImmediateValue::Boolean(false), .. }, .. }
+                if destruction_guards.contains(&destination.storage())
+        )));
+
+        let state = mir
+            .frame_descriptor()
+            .unwrap()
+            .states()
+            .iter()
+            .find(|state| state.state() == *resume_state)
+            .unwrap();
+
+        assert!(mir.block(state.broadcast()).is_some());
+    }
+}
+
+#[test]
+fn async_finalization_composes_with_local_owner_transitions() {
+    for body in [
+        "let owner = Owner { value = 1 }; return 7;",
+        "Owner { value = 1 }; return 7;",
+        "let owner = Owner { value = 1 }; if choice { return 7; } return 8;",
+        "let first = Owner { value = 1 }; let second = first; return 7;",
+        "let mut owner = Owner { value = 1 }; owner = Owner { value = 2 }; return 7;",
+    ] {
+        let compilation = compilation(&format!(
+            r#"
+            module app;
+            extern async func pause();
+            async func caller(pos choice: bool) -> u32
+            {{
+                {body}
+            }}
+            struct Owner
+            {{
+                value: u32;
+                async finalize()
+                {{
+                    await pause();
+                }}
+            }}
+        "#
+        ));
+
+        assert!(
+            !compilation.check_diagnostics().has_errors(),
+            "{body}: {:?}",
+            compilation.check_diagnostics()
+        );
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "caller"))
+            .unwrap();
+
+        let mir = lowered_mir(&lowered);
+
+        assert!(
+            mir.is_valid(),
+            "{body}: cleanup composition must retain valid MIR"
+        );
+
+        assert!(
+            mir.operations().iter().any(|operation| matches!(
+                operation.kind(),
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame { .. })
+            )),
+            "{body}: selected async finalizers must compose in the enclosing frame"
+        );
+    }
+}
+
+#[test]
+fn failed_later_inputs_await_initialized_temporary_finalizers() {
+    for invocation in [
+        "await accept(Owner { value = 1 });",
+        "await accept(Owner { value = 1 }, number = rejected());",
+        "await accept(Owner { value = 1 }, number = { let input = rejected(); yield input; });",
+    ] {
+        let source = r#"
+        module app;
+        extern async func pause();
+        func rejected() -> u32 { panic("later input"); }
+        struct Owner
+        {
+            value: u32;
+            async finalize() { await pause(); }
+        }
+        async func accept(pos owner: Owner, number: u32 = rejected()) {}
+        async func caller()
+        {
+            INVOCATION
+        }
+    "#
+        .replace("INVOCATION", invocation);
+
+        let application = compilation(&source);
+
+        assert!(
+            !application.check_diagnostics().has_errors(),
+            "{:?}",
+            application.check_diagnostics()
+        );
+
+        let lowered = application
+            .lowered_unit(source_function_body_key(&application, "caller"))
+            .unwrap();
+
+        let mir = lowered_mir(&lowered);
+
+        assert!(mir.is_valid());
+
+        let failed = mir
+            .blocks()
+            .iter()
+            .find_map(|block| {
+                let operation = block
+                    .operations()
+                    .last()
+                    .and_then(|id| mir.operation(*id))?;
+
+                if !matches!(operation.kind(), MirOperationKind::Call(call)
+            if matches!(call.result(), bray_bound_tree::BoundCallResult::Immediate(_)))
+                {
+                    return None;
+                }
+
+                match block.terminator().kind() {
+                    MirTerminatorKind::CheckCallOutcome { panicked, .. } => Some(panicked.target()),
+                    _ => None,
+                }
+            })
+            .expect("evaluated later input retains its panic edge");
+
+        let mut pending = vec![failed];
+        let mut seen = BTreeSet::new();
+        let mut composed = false;
+
+        while let Some(id) = pending.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+
+            let block = mir.block(id).unwrap();
+
+            composed |= block.operations().iter().any(|id| {
+                matches!(
+                    mir.operation(*id).unwrap().kind(),
+                    MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame { .. })
+                )
+            });
+
+            block
+                .terminator()
+                .kind()
+                .for_each_successor(|target| pending.push(target));
+        }
+
+        assert!(
+            composed,
+            "failed later input must compose the initialized input's async finalizer"
+        );
+    }
+}
+
+#[test]
+fn unconsumed_frame_results_await_their_finalizers() {
+    let application = compilation(
+        r#"
+        module app;
+        extern async func pause();
+        struct Owner
+        {
+            pending: Task<unit>;
+            async finalize() { await pause(); }
+        }
+        async func caller(pos pending: Task<unit>) -> Owner
+        {
+            return Owner { pending = pending };
+        }
+    "#,
+    );
+
+    assert!(
+        !application.check_diagnostics().has_errors(),
+        "{:?}",
+        application.check_diagnostics()
+    );
+
+    let lowered = application
+        .lowered_unit(source_function_body_key(&application, "caller"))
+        .unwrap();
+
+    let mir = lowered_mir(&lowered);
+
+    assert!(mir.is_valid());
+
+    let suspended = mir
+        .blocks()
+        .iter()
+        .filter_map(|block| match block.terminator().kind() {
+            MirTerminatorKind::Suspend { resume_state, .. } => Some(*resume_state),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        !suspended.is_empty(),
+        "unconsumed completion cleanup must drive the result's finalizer"
+    );
+
+    for resume in suspended {
+        let state = mir
+            .frame_descriptor()
+            .unwrap()
+            .states()
+            .iter()
+            .find(|state| state.state() == resume)
+            .unwrap();
+
+        assert!(state.is_completion_cleanup());
+
+        let broadcast = mir.block(state.broadcast()).unwrap();
+
+        assert!(
+            broadcast.operations().iter().any(|id| matches!(
+                mir.operation(*id).unwrap().kind(),
+                MirOperationKind::Cleanup {
+                    phase: bray_ir::MirCleanupPhase::TaskCancellation,
+                    ..
+                }
+            )),
+            "suspended completion cleanup must still broadcast to its owned tasks"
+        );
+    }
+}
+
+#[test]
+fn temporary_and_unconsumed_results_reuse_unconditional_completion() {
+    for (finalizer, completed) in [
+        ("async finalize() executes(pure, total) {}", true),
+        (
+            "async finalize() when(self.ready) { executes(pure, total) } { if !self.ready { panic(\"unfinished\"); } }",
+            false,
+        ),
+        (
+            "async finalize() executes(total) { self.ready = false; }",
+            false,
+        ),
+        (
+            "async finalize() -> Result<unit, bool> executes(pure, total) { return Error(true); }",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            struct Owner
+            {{
+                mut ready: bool;
+                {finalizer}
+            }}
+            func rejected() -> u32 {{ panic("rejected"); }}
+            async func accept(pos owner: Owner, pos number: u32 = rejected()) {{ panic("abnormal exit"); }}
+            async func input() {{ await accept(Owner {{ ready = true }}); }}
+            async func result() -> Owner {{ return Owner {{ ready = true }}; }}
+        "#
+        );
+
+        let application = compilation(&source);
+
+        assert!(
+            !application.check_diagnostics().has_errors(),
+            "{source}: {:?}",
+            application.check_diagnostics()
+        );
+
+        for name in ["input", "result"] {
+            let lowered = application
+                .lowered_unit(source_function_body_key(&application, name))
+                .unwrap();
+
+            let mir = lowered_mir(&lowered);
+
+            assert!(mir.is_valid());
+
+            let creates_finalizer = mir.operations().iter().any(|operation| {
+                let MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                    initializer: bray_ir::MirFrameInitializer::Callable(call), ..
+                }) = operation.kind() else {
+                    return false;
+                };
+
+                matches!(call.target(), bray_ir::MirCallTarget::Direct(callable)
+                    if matches!(callable.instance().definition().symbol(), bray_symbols::AnySymbolId::Finalizer(_)))
+            });
+
+            assert_eq!(creates_finalizer, !completed, "{name}: {source}");
+        }
+    }
 }

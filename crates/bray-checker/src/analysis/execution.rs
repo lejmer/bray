@@ -38,7 +38,7 @@ where
         self.push_edge(
             current,
             cancellation,
-            AnalysisEdgeKind::RunCancellation,
+            AnalysisEdgeKind::EntryCancellation,
             None,
         );
 
@@ -106,11 +106,7 @@ where
             )),
         );
 
-        self.push_call(
-            resume,
-            id.into(),
-            super::model::AnalysisCallPhase::Completion,
-        );
+        self.push_call(resume, id.into(), AnalysisCallPhase::Completion);
 
         self.push_edge(
             suspended,
@@ -263,7 +259,7 @@ where
         expression: BoundExpressionId,
         call: &BoundCallExpression,
     ) -> Option<ImplementationHook> {
-        if let Some(bray_bound_tree::SemanticSelection::Call(selection)) = self
+        if let Some(SemanticSelection::Call(selection)) = self
             .selections()
             .and_then(|analysis| analysis.expression(expression))
             && let Some(hook) = selection.implementation_hook()

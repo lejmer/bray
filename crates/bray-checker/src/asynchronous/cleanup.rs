@@ -134,24 +134,28 @@ where
 pub(crate) struct CleanupShape {
     pub(super) cancellation: bool,
     pub(super) lifecycle: bool,
+    pub(crate) graceful: bool,
     recovered: bool,
 }
 impl CleanupShape {
     const BOTH: Self = Self {
         cancellation: true,
         lifecycle: true,
+        graceful: true,
         recovered: false,
     };
 
     const LIFECYCLE: Self = Self {
         cancellation: false,
         lifecycle: true,
+        graceful: false,
         recovered: false,
     };
 
     fn merge(&mut self, other: Self) {
         self.cancellation |= other.cancellation;
         self.lifecycle |= other.lifecycle;
+        self.graceful |= other.graceful;
         self.recovered |= other.recovered;
     }
 }
@@ -195,7 +199,13 @@ where
         &mut self,
         ty: TypeId,
     ) -> Result<AsyncStorageCleanupRequirement, CheckerQueryError<C::UpstreamError>> {
-        self.resolve(ty).map(cleanup_requirement)
+        let cleanup = cleanup_requirement(self.resolve(ty)?);
+
+        self.cleanup_types
+            .entry(ty)
+            .or_insert_with(|| StorageCleanupType::new(ty, cleanup));
+
+        Ok(cleanup)
     }
 
     pub(crate) fn storage_requirements(
@@ -218,17 +228,7 @@ where
         Ok(requirements)
     }
 
-    fn include_input(&mut self, ty: TypeId) -> Result<(), CheckerQueryError<C::UpstreamError>> {
-        let cleanup = cleanup_requirement(self.resolve(ty)?);
-
-        self.cleanup_types
-            .entry(ty)
-            .or_insert_with(|| StorageCleanupType::new(ty, cleanup));
-
-        Ok(())
-    }
-
-    pub(super) fn resolve(
+    pub(crate) fn resolve(
         &mut self,
         ty: TypeId,
     ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
@@ -324,6 +324,25 @@ where
                     }
                 }))
             }
+            Some(RepresentationRole::Uninit) => {
+                let substitution = self
+                    .request
+                    .semantic_values()
+                    .generic_substitution_data(substitution);
+
+                let payload =
+                    self.aggregate(substitution.bindings().iter().filter_map(|binding| {
+                        match binding.argument() {
+                            GenericArgument::Type(ty) => Some(ty),
+                            GenericArgument::Constant(_) => None,
+                        }
+                    }))?;
+
+                Ok(CleanupShape {
+                    graceful: payload.graceful,
+                    ..CleanupShape::default()
+                })
+            }
             Some(_) => Ok(CleanupShape::default()),
             None => self.declared_shape(definition, substitution),
         }
@@ -334,11 +353,24 @@ where
         definition: bray_symbols::NamedTypeSymbolId,
         substitution: bray_symbols::GenericSubstitutionId,
     ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
+        if let Some(element) = self
+            .request
+            .context()
+            .raw_buffer_element(definition, substitution)?
+        {
+            let mut shape = self.resolve(element)?;
+
+            shape.lifecycle = true;
+
+            return Ok(shape);
+        }
+
         let representation = self.request.declared_type_representation(definition)?;
-        let lifecycle = self.request.declared_type_has_lifecycle(definition)?;
+        let lifecycle = self.request.declared_type_lifecycle(definition)?;
 
         let mut shape = CleanupShape {
-            lifecycle: *lifecycle.value(),
+            lifecycle: *lifecycle.value() != bray_symbols::TypeLifecycle::None,
+            graceful: *lifecycle.value() == bray_symbols::TypeLifecycle::Graceful,
             recovered: representation.value().is_recovered()
                 || lifecycle.diagnostics().has_errors(),
             ..CleanupShape::default()
@@ -459,13 +491,13 @@ where
             bray_bound_tree::SemanticSelection::Operation(
                 bray_bound_tree::SelectedOperation::Construction(construction),
             ) => {
-                cleanup_shapes.include_input(construction.result_type())?;
+                cleanup_shapes.requirement(construction.result_type())?;
 
                 for input in construction.inputs() {
                     let (bray_bound_tree::SelectedConstructionInput::Explicit { ty, .. }
                     | bray_bound_tree::SelectedConstructionInput::Default { ty, .. }) = input;
 
-                    cleanup_shapes.include_input(*ty)?;
+                    cleanup_shapes.requirement(*ty)?;
                 }
             }
             bray_bound_tree::SemanticSelection::Call(call) => {
@@ -477,14 +509,14 @@ where
                         bray_bound_tree::SelectedArgument::Default { ty, .. } => *ty,
                     };
 
-                    cleanup_shapes.include_input(ty)?;
+                    cleanup_shapes.requirement(ty)?;
                 }
 
                 if let Some(receiver) = call.receiver() {
                     let ty = receiver
                         .input_type(request.semantic_values()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in scope_exit_plans: {error:?}"));
 
-                    cleanup_shapes.include_input(ty)?;
+                    cleanup_shapes.requirement(ty)?;
                 }
             }
             _ => {}
@@ -500,7 +532,7 @@ where
                 .expect("checked await retains its completion type")
                 .ty();
 
-            cleanup_shapes.include_input(ty)?;
+            cleanup_shapes.requirement(ty)?;
         }
 
         let bray_bound_tree::BoundExpression::Structured(expression) = expression else {
@@ -518,7 +550,7 @@ where
                     .expression(*operand).unwrap_or_else(|| panic!("scope_exit_plans requires checked expression type or node, operand: {operand:?}"))
                     .ty();
 
-                cleanup_shapes.include_input(ty)?;
+                cleanup_shapes.requirement(ty)?;
             }
         }
     }
@@ -641,7 +673,7 @@ where
         }
     ) && let Some(result) = types.callable_result_type()
     {
-        cleanup_shapes.include_input(result)?;
+        cleanup_shapes.requirement(result)?;
     }
 
     Ok((
@@ -690,7 +722,7 @@ where
             (_, None) => AsyncStorageCleanupRequirement::Recovered(
                 AsyncStorageExitRecoveryCause::UnavailableCleanupShape,
             ),
-            (Some(_), Some(ty)) => cleanup_requirement(cleanup_shapes.resolve(ty)?),
+            (Some(_), Some(ty)) => cleanup_shapes.requirement(ty)?,
         };
 
         let owner = owners.scope(storage.identity(identity));
@@ -736,6 +768,7 @@ where
                         .iter()
                         .any(|part| part.phases().includes_cancellation()),
                     lifecycle: parts.iter().any(|part| part.phases().includes_lifecycle()),
+                    graceful: false,
                     recovered: false,
                 }),
                 None => AsyncStorageCleanupRequirement::Recovered(

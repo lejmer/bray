@@ -793,6 +793,11 @@ fn operation_parts(
                 "outgoing_discharge"
             }
         }
+        MirOperationKind::Quiesce(place) => {
+            parts.place("place", place, context)?;
+
+            "quiesce"
+        }
         MirOperationKind::Finalize(place) => {
             parts.place("place", place, context)?;
 
@@ -1453,7 +1458,9 @@ fn async_operation(
             resume_state,
             frame,
             completion,
+            abandoning,
         } => {
+            parts.attribute("abandoning", *abandoning);
             parts.attribute("completion_storage", completion.slot());
             parts.attribute("parent_frame", digest_text(parent.digest()));
             parts.attribute("resume_state", resume_state.raw());
@@ -2572,6 +2579,7 @@ fn mir_unit_kind(kind: &MirUnitKind) -> &'static str {
 const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'static str> {
     match reference {
         MirHelperReference::Finalize(_) => Some("finalize"),
+        MirHelperReference::Quiesce(_) => Some("quiesce"),
         MirHelperReference::StaticFinalize(_) => Some("static_finalize"),
         MirHelperReference::Destroy(_) => Some("destroy"),
         MirHelperReference::Cleanup {
@@ -2602,6 +2610,7 @@ const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'stati
 const fn generated_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &'static str {
     match role {
         bray_ir::MirGeneratedLifecycleRole::Finalize => "finalize",
+        bray_ir::MirGeneratedLifecycleRole::Quiesce => "quiesce",
         bray_ir::MirGeneratedLifecycleRole::StaticFinalize => "static_finalize",
         bray_ir::MirGeneratedLifecycleRole::Destroy => "destroy",
         bray_ir::MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {

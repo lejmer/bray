@@ -33,5 +33,6 @@ mod storage_flow;
 mod storage_plans;
 mod structural_patterns;
 mod support;
+mod terminal_destructor;
 mod trait_result_dependencies;
 mod trait_selection;

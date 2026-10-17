@@ -193,6 +193,7 @@ trusted internal func typed(pos value: &bray.runtime.bootstrap.report.incident.R
     description.source_namespace_word_2 = value.source.namespace[2];
     description.source_namespace_word_3 = value.source.namespace[3];
     description.cause = 5;
+    description.primary_present = 1;
 
     let observed = trusted bray.runtime.bootstrap.entry.bridge.observe(2, &description, &value.type_identity);
 

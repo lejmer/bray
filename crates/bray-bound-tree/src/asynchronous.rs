@@ -52,6 +52,8 @@ pub enum AsyncSuspensionKind {
     Yield,
     /// Drive the selected asynchronous scoped lifecycle invocation.
     ScopedCall,
+    /// Resolve pending owners under the enclosing frame's cleanup shield.
+    Cleanup,
 }
 
 /// One suspension point and the semantic state it retains.
@@ -123,13 +125,6 @@ impl AsyncSuspensionPoint {
             cancellation_broadcast: sorted_unique_shared_slice(cancellation_broadcast),
             is_recovered,
         }
-    }
-
-    /// Returns the expression that suspends execution.
-    pub const fn expression(&self) -> BoundExpressionId {
-        self.occurrence
-            .expression()
-            .expect("suspension has an expression owner")
     }
 
     /// Returns the exact source or implicit lifecycle phase that suspends.
@@ -490,14 +485,16 @@ impl CheckedAsync {
             .iter()
             .any(|subject| !subject.is_valid_for(unit))
             || suspensions.iter().any(|suspension| {
-                suspension.expression().unit() != unit
+                suspension.occurrence().node().unit() != unit
                     || suspension
                         .cancellation_broadcast()
                         .iter()
                         .any(|access| access.unit() != unit)
                     || match suspension.kind() {
                         AsyncSuspensionKind::Await { operand } => operand.unit() != unit,
-                        AsyncSuspensionKind::Yield | AsyncSuspensionKind::ScopedCall => false,
+                        AsyncSuspensionKind::Yield
+                        | AsyncSuspensionKind::ScopedCall
+                        | AsyncSuspensionKind::Cleanup => false,
                     }
                     || suspension
                         .dependency_contract()

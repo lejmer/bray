@@ -180,6 +180,13 @@ impl InternState {
                 Ok(ImportedPredicateDefinition {
                     owner,
                     state: input.state(),
+                    condition: input
+                        .condition()
+                        .map(|term| {
+                            self.constant_term_id(term)
+                                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)
+                        })
+                        .transpose()?,
                     signature: bray_symbols::PredicateSignatureTemplate::new(
                         owner,
                         input

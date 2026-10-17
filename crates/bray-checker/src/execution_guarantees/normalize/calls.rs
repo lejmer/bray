@@ -22,6 +22,9 @@ pub(super) fn selected_condition(
     evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     expression: BoundExpressionId,
     budget: &mut usize,
+    predicates: Option<
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::ConstantTermId>,
+    >,
 ) -> Option<ExecutionCondition> {
     let bound = unit.view().expression(expression)?;
 
@@ -42,6 +45,7 @@ pub(super) fn selected_condition(
         {
             return Some(expression_condition(
                 unit, semantics, values, literals, patterns, current, evaluated, *pointer, budget,
+                predicates,
             ));
         }
 
@@ -64,6 +68,7 @@ pub(super) fn selected_condition(
         {
             let arguments = call_argument_conditions(
                 call, unit, semantics, values, literals, patterns, current, evaluated, budget,
+                predicates,
             );
 
             let arguments = if matches!(
@@ -95,12 +100,11 @@ pub(super) fn selected_condition(
         if let bray_bound_tree::BoundCallableTarget::Predicate(predicate) = call.target() {
             let arguments = call_argument_conditions(
                 call, unit, semantics, values, literals, patterns, current, evaluated, budget,
+                predicates,
             );
 
-            return Some(ExecutionCondition::predicate(
-                predicate.definition(),
-                predicate.substitution(),
-                arguments,
+            return Some(predicate_condition(
+                values, predicates, predicate, arguments, budget,
             ));
         }
 
@@ -125,6 +129,7 @@ pub(super) fn selected_condition(
                     evaluated,
                     argument.expression(),
                     budget,
+                    predicates,
                 );
 
                 let condition = if matches!(
@@ -142,10 +147,15 @@ pub(super) fn selected_condition(
 
         arguments.sort_by_key(|(parameter, _)| *parameter);
 
-        return Some(ExecutionCondition::predicate(
-            predicate.predicate(),
-            predicate.substitution(),
+        return Some(predicate_condition(
+            values,
+            predicates,
+            bray_symbols::PredicateInstanceData::new(
+                predicate.predicate(),
+                predicate.substitution(),
+            ),
             arguments.into_iter().map(|(_, value)| value).collect(),
+            budget,
         ));
     }
 
@@ -165,6 +175,9 @@ fn call_argument_conditions(
     current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     budget: &mut usize,
+    predicates: Option<
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::ConstantTermId>,
+    >,
 ) -> Vec<ExecutionCondition> {
     let mut arguments = Vec::new();
 
@@ -179,6 +192,7 @@ fn call_argument_conditions(
             evaluated,
             receiver.expression(),
             budget,
+            predicates,
         ));
     }
 
@@ -209,6 +223,7 @@ fn call_argument_conditions(
                     evaluated,
                     *expression,
                     budget,
+                    predicates,
                 );
 
                 let condition =
@@ -243,4 +258,21 @@ fn call_argument_conditions(
     arguments.extend(parameters.into_iter().map(|(_, value)| value));
 
     arguments
+}
+
+fn predicate_condition(
+    values: &SemanticValueStore,
+    predicates: Option<
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::ConstantTermId>,
+    >,
+    predicate: bray_symbols::PredicateInstanceData,
+    arguments: Vec<ExecutionCondition>,
+    budget: &mut usize,
+) -> ExecutionCondition {
+    if let Some(term) = predicates.and_then(|predicates| predicates.get(&predicate)) {
+        return crate::execution_guarantees::portable::decode(values, *term, &arguments, budget)
+            .expect("checked predicate terms belong to this semantic value store");
+    }
+
+    ExecutionCondition::predicate(predicate.definition(), predicate.substitution(), arguments)
 }

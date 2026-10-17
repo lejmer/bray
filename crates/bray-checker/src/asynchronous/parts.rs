@@ -4,7 +4,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::{DeclaredStorageShape, SymbolOrdinal, TypeData, TypeId};
 
-use super::cleanup::{CleanupShapeResolver, cleanup_requirement};
+use super::cleanup::CleanupShapeResolver;
 use crate::{CheckerQueryError, CheckerRequestContext};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -40,11 +40,7 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
         path: &mut Vec<StorageCleanupProjection>,
         parts: &mut Vec<StorageCleanupPart>,
     ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
-        let cleanup = cleanup_requirement(self.resolve(ty)?);
-
-        self.cleanup_types
-            .entry(ty)
-            .or_insert_with(|| bray_bound_tree::StorageCleanupType::new(ty, cleanup));
+        let cleanup = self.requirement(ty)?;
 
         if expansion == CleanupExpansion::FullDisposal {
             self.expanded_types.insert(ty);
@@ -136,7 +132,27 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
                 definition,
                 substitution,
             } => {
-                let lifecycle = self.request.declared_type_has_lifecycle(*definition)?;
+                if expansion == CleanupExpansion::FullDisposal
+                    && self
+                        .request
+                        .context()
+                        .raw_buffer_element(*definition, *substitution)?
+                        .is_some()
+                {
+                    let phases = match cleanup {
+                        AsyncStorageCleanupRequirement::Cleanup(phases) => phases,
+                        AsyncStorageCleanupRequirement::Recovered(_) => return Ok(false),
+                        AsyncStorageCleanupRequirement::None => unreachable!(
+                            "compiler-owned buffer disposal retains its cleanup requirement"
+                        ),
+                    };
+
+                    parts.push(StorageCleanupPart::new(path.iter().copied(), phases));
+
+                    return Ok(true);
+                }
+
+                let lifecycle = self.request.declared_type_lifecycle(*definition)?;
 
                 self.diagnostics.add_range(lifecycle.diagnostics().clone());
 
@@ -144,13 +160,15 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
                     return Ok(false);
                 }
 
-                if expansion == CleanupExpansion::MovedPaths && *lifecycle.value() {
+                if expansion == CleanupExpansion::MovedPaths
+                    && (*lifecycle.value() != bray_symbols::TypeLifecycle::None)
+                {
                     self.report_incomplete_lifecycle(ty, source)?;
 
                     return Ok(false);
                 }
 
-                requires_whole_value = *lifecycle.value();
+                requires_whole_value = *lifecycle.value() != bray_symbols::TypeLifecycle::None;
 
                 if expansion == CleanupExpansion::FullDisposal && requires_whole_value {
                     let destructor = self.request.context().lifecycle_callable(

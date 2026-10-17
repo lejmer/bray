@@ -30,7 +30,10 @@ pub(crate) fn validate_predicate_definition(
         InterfacePredicateDefinitionState::OpaqueTrusted => owner_kind == SymbolKind::Predicate,
     };
 
-    if !is_valid {
+    if !is_valid
+        || (definition.condition().is_some()
+            && definition.state() != InterfacePredicateDefinitionState::Defined)
+    {
         return Err(crate::semantic::codec::invalid_value(
             crate::InterfaceValidationField::Declaration,
         ));

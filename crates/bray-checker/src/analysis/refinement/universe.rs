@@ -145,10 +145,6 @@ impl RefinementUniverse {
                     unreachable!("checked propagation edge retains its selection");
                 };
 
-                let (variant, _) = selection
-                    .success()
-                    .expect("union propagation retains its success case");
-
                 let Some(bray_bound_tree::BoundExpression::Structured(operation)) =
                     view.expression(expression)
                 else {
@@ -159,6 +155,16 @@ impl RefinementUniverse {
                     .operands()
                     .first()
                     .expect("propagation retains its operand");
+
+                let Some((variant, _)) = selection.success() else {
+                    return Ok(vec![Refinement::new(
+                        RefinementKind::NullablePresence {
+                            expression: subject,
+                            is_present: succeeded,
+                        },
+                        expression_dependencies(view, dependencies, subject),
+                    )]);
+                };
 
                 let ty = expressions
                     .types()
@@ -188,18 +194,6 @@ impl RefinementUniverse {
             }
             AnalysisRefinement::Condition { expression, value } => {
                 condition_refinements(view, patterns, storage, dependencies, expression, value)
-            }
-            AnalysisRefinement::NullablePresence {
-                expression,
-                is_present,
-            } => {
-                vec![Refinement::new(
-                    RefinementKind::NullablePresence {
-                        expression,
-                        is_present,
-                    },
-                    expression_dependencies(view, dependencies, expression),
-                )]
             }
             AnalysisRefinement::PatternOutcome {
                 subject,

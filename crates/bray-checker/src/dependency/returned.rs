@@ -186,12 +186,14 @@ fn resolve_cleanup_effects<C: CheckerRequestContext + ?Sized>(
         )?;
 
         if parts.value().is_empty() {
-            return Ok(vec![DependencyStorageEffect::Unknown]);
+            resolved.push(DependencyStorageEffect::Unknown);
+            resolved.push(DependencyStorageEffect::Escape);
+            continue;
         }
 
         for (ty, part) in parts.value() {
             // Retain formal type parameters, not recursively growing instantiated wrappers.
-            // A concrete lifecycle or storage protocol has opaque effects at this boundary.
+            // Concrete lifecycle effects reuse their selected callable summaries.
             if matches!(
                 request.semantic_values().type_data(*ty).as_ref(),
                 TypeData::TypeParameter(_)
@@ -199,12 +201,115 @@ fn resolve_cleanup_effects<C: CheckerRequestContext + ?Sized>(
             {
                 resolved.push(DependencyStorageEffect::Cleanup(*ty));
             } else {
-                return Ok(vec![DependencyStorageEffect::Unknown]);
+                append_cleanup_effects(request, *ty, part.as_ref(), &mut resolved)?;
             }
         }
     }
 
     Ok(resolved)
+}
+
+fn append_cleanup_effects<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    ty: bray_symbols::TypeId,
+    part: Option<&bray_bound_tree::StorageCleanupPart>,
+    effects: &mut Vec<bray_symbols::DependencyStorageEffect>,
+) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+    use bray_symbols::{DependencyStorageEffect, TypeAssociatedLifecycleSlot, TypeData};
+
+    if let TypeData::Named {
+        definition,
+        substitution,
+    } = request.semantic_values().type_data(ty).as_ref()
+        && let Some(element) = request
+            .context()
+            .raw_buffer_element(*definition, *substitution)?
+    {
+        // Buffer disposal releases backing and resolves the initialized elements.
+        // The wrapper address does not escape merely because its backing is freed.
+        effects.push(DependencyStorageEffect::Unknown);
+
+        effects.extend(resolve_cleanup_effects(
+            request,
+            &[DependencyStorageEffect::Cleanup(element)],
+        )?);
+
+        return Ok(());
+    }
+
+    if let Some(release) = part.and_then(|part| part.release()) {
+        return append_cleanup_call_effects(request, release.callable(), effects);
+    }
+
+    if part.is_none_or(|part| !part.phases().includes_lifecycle())
+        || !matches!(
+            request.semantic_values().type_data(ty).as_ref(),
+            TypeData::Named { .. }
+        )
+    {
+        effects.extend([
+            DependencyStorageEffect::Unknown,
+            DependencyStorageEffect::Escape,
+        ]);
+
+        return Ok(());
+    }
+
+    for slot in [
+        TypeAssociatedLifecycleSlot::Finalizer,
+        TypeAssociatedLifecycleSlot::Destructor,
+    ] {
+        let selected = request.context().lifecycle_callable(ty, slot)?;
+
+        if selected.diagnostics().has_errors() {
+            effects.extend([
+                DependencyStorageEffect::Unknown,
+                DependencyStorageEffect::Escape,
+            ]);
+
+            return Ok(());
+        }
+
+        if let Some((callable, _)) = selected.value() {
+            append_cleanup_call_effects(request, *callable, effects)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn append_cleanup_call_effects<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    callable: bray_symbols::CallableInstanceData,
+    effects: &mut Vec<bray_symbols::DependencyStorageEffect>,
+) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+    use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
+
+    let template = request.callable_result_dependencies(callable.definition().callable_symbol())?;
+
+    let template = request
+        .semantic_values()
+        .substitute_dependency_contract(template, callable.substitution())
+        .expect("selected lifecycle substitution retains its checked dependency contract");
+
+    let template = request
+        .semantic_values()
+        .dependency_contract_template_data(template);
+
+    // The cleanup receiver is not an invocation input at this summary boundary.
+    // Keep conditional payload cleanup and capture separate from unknown mutation.
+    effects.extend(template.effects().iter().map(|effect| match effect {
+        DependencyStorageEffect::Direct { kind, .. }
+        | DependencyStorageEffect::Indirect { kind, .. } => match kind {
+            DependencyMutationKind::Escape => DependencyStorageEffect::Escape,
+            DependencyMutationKind::Atomic => DependencyStorageEffect::Atomic,
+            _ => DependencyStorageEffect::Unknown,
+        },
+        // The summary owns its effects and shares immutable subject projections.
+        effect => effect.clone(),
+    }));
+
+    Ok(())
 }
 
 fn input_requirements(call: &SelectedCall) -> impl Iterator<Item = DependencyRequirement> + '_ {

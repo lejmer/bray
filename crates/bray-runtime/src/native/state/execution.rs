@@ -92,13 +92,15 @@ impl NativeRuntime {
         frame: &NativeInactiveFrame,
         resume_state: u32,
         destination: usize,
+        abandoning: bool,
     ) -> NativeRuntimeStatus {
         let Some(parent) = current_native_task() else {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
         };
 
         self.with_started(parent, |task| {
-            task.run.compose(frame, resume_state, destination)
+            task.run
+                .compose(frame, resume_state, destination, abandoning)
         })
         .unwrap_or_else(|status| status)
     }

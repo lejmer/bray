@@ -135,6 +135,7 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
             collect_operand_value(value, demands);
         }
         MirOperationKind::Borrow { place, .. }
+        | MirOperationKind::Quiesce(place)
         | MirOperationKind::Finalize(place)
         | MirOperationKind::Destroy(place)
         | MirOperationKind::Cleanup { place, .. } => collect_place_values(place, demands),

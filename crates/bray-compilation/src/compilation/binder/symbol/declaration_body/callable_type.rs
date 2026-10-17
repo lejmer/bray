@@ -148,6 +148,10 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
             )
         }));
 
+        let predicate_definitions = compilation
+            .execution_predicate_inputs(&semantics, context.cancellation, &mut diagnostics)
+            .map_err(super::super::binding::binder_error)?;
+
         let conditions = bray_checker::predicate_conditions_with_inputs(
             bound,
             &semantics,
@@ -155,6 +159,7 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
             context.semantic_values(),
             &inputs,
             None,
+            Some(&predicate_definitions),
         )
         .map_err(BindingQueryError::SemanticValue)?;
 

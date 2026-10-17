@@ -218,16 +218,43 @@ impl Target {
 impl State {
     pub(in crate::analysis::storage_flow) fn for_storage(
         storage: &bray_bound_tree::StoragePlan,
+        cleanup_free: &std::collections::BTreeSet<bray_bound_tree::StorageIdentityId>,
     ) -> Self {
+        let borrowed = storage
+            .borrow_capabilities()
+            .iter()
+            .flat_map(|borrow| storage.retained_roots(borrow.access()))
+            .collect::<std::collections::BTreeSet<_>>();
+
+        let owned_storage = storage
+            .identity_entries()
+            .filter_map(|(id, identity)| identity.is_invocation_owned(storage.kind()).then_some(id))
+            .collect::<std::sync::Arc<[_]>>();
+
+        let unaddressed_storage = owned_storage
+            .iter()
+            .copied()
+            .filter(|identity| cleanup_free.contains(identity) && !borrowed.contains(identity))
+            .collect();
+
         Self {
-            owned_storage: storage
-                .identity_entries()
-                .filter_map(|(id, identity)| {
-                    identity.is_invocation_owned(storage.kind()).then_some(id)
-                })
-                .collect(),
+            owned_storage,
+            unaddressed_storage,
             ..Self::default()
         }
+    }
+
+    pub(in crate::analysis::storage_flow) fn unknown_reference_may_reach(
+        &self,
+        target: &Target,
+    ) -> bool {
+        // Even an unknown pointer cannot reach invocation-local inline storage whose
+        // address is never formed, including implicit lifecycle receivers. Heap
+        // payloads can have aliases from before entry.
+        target.storage_path().is_none_or(|path| {
+            self.unaddressed_storage.binary_search(&path.root).is_err()
+                || path.projections.contains(&StorageProjection::OwnedTarget)
+        })
     }
 
     pub(in crate::analysis::storage_flow) fn target_relationship(

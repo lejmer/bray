@@ -303,8 +303,22 @@ pub(super) fn validate_dependency_template_data(
     for effect in data.effects() {
         use crate::DependencyStorageEffect;
 
+        if let DependencyStorageEffect::Direct {
+            kind: crate::DependencyMutationKind::Replace(ty),
+            ..
+        }
+        | DependencyStorageEffect::Indirect {
+            kind: crate::DependencyMutationKind::Replace(ty),
+            ..
+        } = effect
+        {
+            tables.types.get(store, *ty);
+        }
+
         match effect {
-            DependencyStorageEffect::Atomic | DependencyStorageEffect::Unknown => {}
+            DependencyStorageEffect::Atomic
+            | DependencyStorageEffect::Unknown
+            | DependencyStorageEffect::Escape => {}
             DependencyStorageEffect::Cleanup(ty) => {
                 tables.types.get(store, *ty);
             }

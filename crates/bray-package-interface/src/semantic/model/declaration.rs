@@ -476,6 +476,7 @@ pub enum InterfacePredicateDefinitionState {
 pub struct InterfacePredicateDefinition {
     pub(crate) owner: InterfaceSymbolReference,
     pub(crate) state: InterfacePredicateDefinitionState,
+    pub(crate) condition: Option<super::InterfaceConstantTermId>,
     pub(crate) parameters: Arc<
         [(
             InterfaceSymbolReference,
@@ -491,6 +492,7 @@ impl InterfacePredicateDefinition {
         Self {
             owner,
             state,
+            condition: None,
             parameters: Arc::from([]),
         }
     }
@@ -509,6 +511,18 @@ impl InterfacePredicateDefinition {
         self.parameters = parameters.into_iter().collect();
 
         self
+    }
+
+    /// Retains the checked meaning of an ordinary predicate when representable.
+    pub fn with_condition(mut self, condition: Option<super::InterfaceConstantTermId>) -> Self {
+        self.condition = condition;
+
+        self
+    }
+
+    /// Returns the checked predicate meaning in terms of its ordered parameters.
+    pub const fn condition(&self) -> Option<super::InterfaceConstantTermId> {
+        self.condition
     }
 
     /// Returns the predicate signature in declaration order.

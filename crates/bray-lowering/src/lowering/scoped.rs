@@ -155,7 +155,7 @@ impl Lowerer<'_> {
 
                 let (current, value) = if result != capability_type {
                     let (success, capability, error, failure) =
-                        lowerer.branch_result_value(expression, current, &source, value, result)?;
+                        lowerer.branch_result_value(current, &source, value, result)?;
 
                     let failure = lowerer.construct_result(
                         error,
@@ -327,14 +327,14 @@ impl Lowerer<'_> {
                     completion = awaited.value.expect("shielded scope exit publishes its completion result");
                 }
 
-                block = lowerer.check_scoped_exit_call(block, source, ordinary_shield, &mut continuations)?;
+                (block, completion) = lowerer.check_scoped_exit_call(block, source, ordinary_shield, &mut continuations, completion)?;
 
                 if ordinary_shield {
                     lowerer.cleanup_shield(block, source, bray_runtime_interface::RuntimeAbiRole::CleanupShieldLeave)?;
                 }
 
                 if lowerer.type_representation(result) == Some(RepresentationRole::Result) {
-                    let (success, _, error, failure) = lowerer.branch_result_value(expression, block, source, completion, result)?;
+                    let (success, _, error, failure) = lowerer.branch_result_value(block, source, completion, result)?;
 
                     let joined = lowerer.builder.push_block(Self::retained_source(source), lowerer.builder.block_kind(block))?;
 
@@ -384,16 +384,26 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         shielded: bool,
         continuations: &mut Vec<MirBlockId>,
-    ) -> Result<MirBlockId, LoweringError> {
+        value: MirOperand,
+    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
         if let Some(outcome) = &self.cleanup_outcome {
-            let (completed, continuation) =
-                outcome.check_completion(&mut self.builder, block, source)?;
+            let (completed, value, continuation) =
+                outcome.check_completion(&mut self.builder, block, source, Some(value))?;
 
             continuations.push(continuation);
 
-            Ok(completed)
+            Ok((
+                completed,
+                value.expect("completed scoped exit retains its result"),
+            ))
         } else {
-            self.check_ordinary_cleanup(block, source, None, shielded)
+            let (completed, value) =
+                self.check_ordinary_cleanup(block, source, None, shielded, Some(value))?;
+
+            Ok((
+                completed,
+                value.expect("completed scoped exit retains its result"),
+            ))
         }
     }
 

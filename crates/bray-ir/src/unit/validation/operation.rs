@@ -62,6 +62,7 @@ pub(super) fn validate_operation(
             }
         }
         MirOperationKind::Borrow { place, .. }
+        | MirOperationKind::Quiesce(place)
         | MirOperationKind::Finalize(place)
         | MirOperationKind::Destroy(place)
         | MirOperationKind::Cleanup { place, .. } => {
@@ -170,9 +171,9 @@ fn validate_operation_block(block_kind: MirBlockKind, kind: &MirOperationKind) -
         ) => block_kind != MirBlockKind::CleanupBroadcast,
         MirOperationKind::Async(_) => block_kind == MirBlockKind::Ordinary,
         MirOperationKind::Host(_) => block_kind == MirBlockKind::Ordinary,
-        MirOperationKind::Finalize(_) | MirOperationKind::Destroy(_) => {
-            block_kind != MirBlockKind::CleanupBroadcast
-        }
+        MirOperationKind::Quiesce(_)
+        | MirOperationKind::Finalize(_)
+        | MirOperationKind::Destroy(_) => block_kind != MirBlockKind::CleanupBroadcast,
         MirOperationKind::Cleanup { phase, .. } => match phase {
             crate::MirCleanupPhase::TaskCancellation => {
                 block_kind == MirBlockKind::CleanupBroadcast
@@ -259,6 +260,7 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
                     | MirGeneratorOperation::CleanupBroadcast { .. }
                     | MirGeneratorOperation::Destroy { .. }
             )
+            | MirOperationKind::Quiesce(_)
             | MirOperationKind::Finalize(_)
             | MirOperationKind::Destroy(_)
             | MirOperationKind::Cleanup { .. }

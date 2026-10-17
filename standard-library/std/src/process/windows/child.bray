@@ -409,6 +409,18 @@ trusted internal func platform_child_terminate(pos child: u64, pos mode: u32) ->
         return internal std.platform.invalid_input_status();
     }
 
+    let mut exit_code: u32 = std.os.windows.STILL_ACTIVE;
+
+    if trusted std.os.windows.get_exit_code_process(process, std.memory.address_of_mut<u32>(&mut exit_code)) == 0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    if exit_code != std.os.windows.STILL_ACTIVE
+    {
+        return internal std.platform.success_status();
+    }
+
     if trusted std.os.windows.terminate_process(process, exit_code = 1) == 0
     {
         return trusted internal std.platform.windows_error_status();

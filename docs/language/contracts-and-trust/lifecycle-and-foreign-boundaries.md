@@ -48,6 +48,11 @@ alignment, initialization state, byte count, element count, lifetime behavior, o
 thread-affinity requirements, synchronization requirements, callback reentrancy behavior, resource acquisition and
 release obligations, ordinary error return conventions, and panic boundary behavior.
 
+A call through a destructor's receiver authority must preserve the
+[terminal destruction boundary](../lifecycle/destruction.md) on every outcome. Foreign memory initialization guarantees
+alone do not establish preservation of an existing owner or its graceful-cleanup obligations. Normal-return
+postconditions do not establish what happens on an abnormal outcome.
+
 ## Navigation
 
 - [Language index](../index.md)

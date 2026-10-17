@@ -790,8 +790,6 @@ fn production_exit_completion_validates_its_producer_and_total_retirement() {
         "take_attachment_exit",
         "select_attachment_slot",
         "finish_attachment",
-        "run_attachment_cleanup",
-        "complete_attachment_exit_locked",
     ] {
         let key = source_function_body_key(&compilation, name);
 
@@ -801,22 +799,6 @@ fn production_exit_completion_validates_its_producer_and_total_retirement() {
 
         assert!(!checked.diagnostics().has_errors(), "{name}: {checked:#?}");
     }
-
-    let checked = compilation
-        .execution_properties(source_function_body_key(
-            &compilation,
-            "complete_attachment_exit_locked",
-        ))
-        .expect("production retirement must retain its execution proof");
-
-    assert!(!checked.diagnostics().has_errors(), "{checked:#?}");
-
-    assert!(
-        checked
-            .value()
-            .properties
-            .contains(&bray_symbols::ExecutionProperty::Total)
-    );
 }
 
 #[test]
@@ -1383,6 +1365,77 @@ fn total_indexing_requires_a_live_bound_on_the_selected_sequence() {
             );
         }
     }
+}
+
+#[test]
+fn total_indexing_preserves_bounds_across_optional_borrow_initialization() {
+    for body in [
+        "return &mut values[index];",
+        "let mut result: (&mut u64)? = none; result = &mut values[index]; return result;",
+    ] {
+        let caller = format!(
+            r#"
+            module app;
+                        func production_probe(pos values: &mut [u64], pos index: usize) -> (&mut u64)?
+                            executes(total)
+                        {{
+                            let count = values.length();
+
+                            if index < count
+                            {{
+                                {body}
+                            }}
+
+                            return none;
+                        }}
+            "#
+        );
+
+        let compilation = production_host_compilation(&caller);
+
+        let checked = compilation
+            .execution_properties(source_function_body_key(&compilation, "production_probe"))
+            .expect("optional borrow initialization retains the selected bounds");
+
+        assert!(!checked.diagnostics().has_errors(), "{body}: {checked:#?}");
+    }
+}
+
+#[test]
+fn total_loop_bounds_keep_the_evaluated_condition_across_iterations() {
+    let compilation = production_host_compilation(
+        r#"
+        module app;
+
+        func production_probe(pos values: &mut [u64], pos wanted: u64) -> (&mut u64)?
+            executes(total)
+        {
+            let count = values.length();
+            let mut index: usize = 0;
+
+            while index < count
+            {
+                if values[index] != 0 && (values[index] == wanted || wanted == 0)
+                {
+                    let mut result: (&mut u64)? = none;
+
+                    result = &mut values[index];
+                    return result;
+                }
+
+                index += 1;
+            }
+
+            return none;
+        }
+        "#,
+    );
+
+    let checked = compilation
+        .execution_properties(source_function_body_key(&compilation, "production_probe"))
+        .expect("loop conditions retain their evaluated identities");
+
+    assert!(!checked.diagnostics().has_errors(), "{checked:#?}");
 }
 
 #[test]

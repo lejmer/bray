@@ -215,17 +215,17 @@ mod tests {
                 ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![condition, input]);
         }
 
-        let mut budget = 129;
+        let mut budget = 65;
 
         assert_eq!(
             condition.prove_mixed(&Default::default(), &ordinary, &mut budget),
             Some(true)
         );
 
-        assert_eq!(budget, 0, "each clause consumes four shared proof steps");
+        assert_eq!(budget, 0, "each clause consumes two shared proof steps");
 
         assert_eq!(
-            condition.prove_mixed(&Default::default(), &ordinary, &mut 128),
+            condition.prove_mixed(&Default::default(), &ordinary, &mut 64),
             None
         );
     }

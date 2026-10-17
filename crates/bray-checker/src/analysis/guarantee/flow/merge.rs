@@ -21,128 +21,10 @@ pub(in crate::analysis) fn merge(
         return true;
     };
 
-    let mut changed = false;
-    let mut incoming_joined = std::borrow::Cow::Borrowed(incoming);
-
-    if let Some(block) = block {
-        let mut left = BTreeMap::new();
-        let mut right = BTreeMap::new();
-        let mut left_identities = BTreeMap::new();
-        let mut right_identities = BTreeMap::new();
-        let mut places = Vec::new();
-        let mut joins = false;
-        let mut joined_facts = Vec::new();
-
-        let observed = target
-            .current
-            .keys()
-            .chain(incoming.current.keys())
-            .collect::<std::collections::BTreeSet<_>>();
-
-        for place in observed {
-            let value = place
-                .value_in(&target.current)
-                .unwrap_or(ExecutionCondition::Unknown);
-
-            let other = place
-                .value_in(&incoming.current)
-                .unwrap_or(ExecutionCondition::Unknown);
-
-            let joined = if value == other {
-                value.clone()
-            } else if value == ExecutionCondition::Unknown || other == ExecutionCondition::Unknown {
-                ExecutionCondition::Unknown
-            } else if value.owner_identity() == other.owner_identity()
-                && value.owner_identity() != &ExecutionCondition::Unknown
-            {
-                join_components(&value, &other)
-            } else {
-                ExecutionCondition::Joined(
-                    block.unit(),
-                    u32::try_from(block.to_index().expect("flow block has an index"))
-                        .expect("flow block index fits"),
-                    place.clone(),
-                )
-            };
-
-            if value != other && joined != ExecutionCondition::Unknown {
-                let left_truth =
-                    value.prove(&target.assumptions, &mut { ExecutionCondition::WORK_LIMIT });
-
-                let right_truth = other.prove(&incoming.assumptions, &mut {
-                    ExecutionCondition::WORK_LIMIT
-                });
-
-                if let (Some(left), Some(right)) = (left_truth, right_truth)
-                    && left == right
-                {
-                    joined_facts.push((joined.clone(), left));
-                }
-            }
-
-            joins |= target.current.get(place) != Some(&joined)
-                || incoming.current.get(place) != Some(&joined);
-
-            places.push((place.clone(), joined.clone()));
-
-            for (map, identities, value) in [
-                (&mut left, &mut left_identities, &value),
-                (&mut right, &mut right_identities, &other),
-            ] {
-                // Rename the complete current observation only for an established owner.
-                // Both predecessors must still establish the predicate after renaming.
-                // Snapshots share immutable components, so borrowed keys need no tree copy.
-                if *value != joined
-                    && value.owner_identity() == joined.owner_identity()
-                    && value.owner_identity().observation_path().is_some()
-                {
-                    insert_replacement(map, &value.clone().borrowed(), &joined.clone().borrowed());
-                }
-
-                // Literal payloads are shared by unrelated places and contract constants.
-                // Joining their slots must not rename the constant itself.
-                if *value == joined
-                    || value == joined.owner_identity()
-                    || matches!(
-                        value,
-                        ExecutionCondition::Literal(_)
-                            | ExecutionCondition::Boolean(_)
-                            | ExecutionCondition::Unknown
-                    )
-                {
-                    continue;
-                }
-
-                // Contents and containing identity have different substitution domains.
-                insert_replacement(map, value, &joined);
-
-                for identity in [value, value.owner_identity()] {
-                    if identity != joined.owner_identity() {
-                        insert_replacement(identities, identity, joined.owner_identity());
-                    }
-                }
-            }
-        }
-
-        if joins {
-            target.join_values(&left, &left_identities);
-
-            let incoming = incoming_joined.to_mut();
-
-            incoming.join_values(&right, &right_identities);
-
-            for (condition, holds) in joined_facts {
-                condition.clone().assume(holds, &mut target.assumptions);
-                condition.assume(holds, &mut incoming.assumptions);
-            }
-
-            for (place, value) in places {
-                changed |= target.current.get(&place) != Some(&value);
-                target.assign(place.clone(), value.clone());
-                incoming.assign(place, value);
-            }
-        }
-    }
+    let (incoming_joined, mut changed) = match block {
+        Some(block) => join_observations(target, incoming, block),
+        None => (std::borrow::Cow::Borrowed(incoming), false),
+    };
 
     let incoming = &incoming_joined;
     let dependencies = target.completion_dependencies.len();
@@ -239,6 +121,171 @@ pub(in crate::analysis) fn merge(
     }
 
     changed
+}
+
+fn join_observations<'a>(
+    target: &mut ExecutionState,
+    incoming: &'a ExecutionState,
+    block: AnalysisBlockId,
+) -> (std::borrow::Cow<'a, ExecutionState>, bool) {
+    let mut changed = false;
+    let mut incoming_joined = std::borrow::Cow::Borrowed(incoming);
+
+    let mut left = BTreeMap::new();
+    let mut right = BTreeMap::new();
+    let mut left_identities = BTreeMap::new();
+    let mut right_identities = BTreeMap::new();
+    let mut places = Vec::new();
+    let mut joins = false;
+    let mut joined_facts = Vec::new();
+    let mut stable_values = std::collections::BTreeSet::new();
+    let mut stable_identities = std::collections::BTreeSet::new();
+
+    let observed = target
+        .current
+        .keys()
+        .chain(incoming.current.keys())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    for place in observed {
+        let value = place
+            .value_in(&target.current)
+            .unwrap_or(ExecutionCondition::Unknown);
+
+        let other = place
+            .value_in(&incoming.current)
+            .unwrap_or(ExecutionCondition::Unknown);
+
+        if value.owner_identity() == other.owner_identity() {
+            stable_identities.insert(value.owner_identity().clone());
+        }
+
+        let joined = if value == other {
+            stable_values.insert(value.clone());
+            stable_values.insert(value.clone().borrowed());
+            stable_identities.insert(value.clone());
+
+            value.clone()
+        } else if value == ExecutionCondition::Unknown || other == ExecutionCondition::Unknown {
+            ExecutionCondition::Unknown
+        } else if value.owner_identity() == other.owner_identity()
+            && value.owner_identity() != &ExecutionCondition::Unknown
+        {
+            join_components(&value, &other)
+        } else {
+            ExecutionCondition::Joined(
+                block.unit(),
+                u32::try_from(block.to_index().expect("flow block has an index"))
+                    .expect("flow block index fits"),
+                place.clone(),
+            )
+        };
+
+        if value != other && joined != ExecutionCondition::Unknown {
+            let left_truth =
+                value.prove(&target.assumptions, &mut { ExecutionCondition::WORK_LIMIT });
+
+            let right_truth = other.prove(&incoming.assumptions, &mut {
+                ExecutionCondition::WORK_LIMIT
+            });
+
+            if let (Some(left), Some(right)) = (left_truth, right_truth)
+                && left == right
+            {
+                joined_facts.push((joined.clone(), left));
+            }
+        }
+
+        joins |= target.current.get(place) != Some(&joined)
+            || incoming.current.get(place) != Some(&joined);
+
+        places.push((place.clone(), joined.clone()));
+    }
+
+    // Assemble the same complete snapshots that field assignment will expose before
+    // renaming predicates. A joined field must not change its parent's meaning later.
+    let mut joined_values = places.iter().cloned().collect::<BTreeMap<_, _>>();
+
+    for (place, value) in &places {
+        super::super::state::update_parent_observations(&mut joined_values, place, value);
+    }
+
+    for (place, joined) in &joined_values {
+        let value = place
+            .value_in(&target.current)
+            .unwrap_or(ExecutionCondition::Unknown);
+
+        let other = place
+            .value_in(&incoming.current)
+            .unwrap_or(ExecutionCondition::Unknown);
+
+        for (map, identities, value) in [
+            (&mut left, &mut left_identities, &value),
+            (&mut right, &mut right_identities, &other),
+        ] {
+            // Rename the complete current observation only for an established owner.
+            // Both predecessors must still establish the predicate after renaming.
+            // Snapshots share immutable components, so borrowed keys need no tree copy.
+            if value != joined
+                && value.owner_identity().observation_path().is_some()
+                && joined.owner_identity().observation_path().is_some()
+            {
+                let borrowed = value.clone().borrowed();
+
+                if !stable_values.contains(&borrowed) {
+                    insert_replacement(map, &borrowed, &joined.clone().borrowed());
+                }
+            }
+
+            // Literal payloads are shared by unrelated places and contract constants.
+            // Joining their slots must not rename the constant itself.
+            if value == joined
+                || value == joined.owner_identity()
+                || matches!(
+                    value,
+                    ExecutionCondition::Literal(_)
+                        | ExecutionCondition::Boolean(_)
+                        | ExecutionCondition::Unknown
+                )
+            {
+                continue;
+            }
+
+            // Contents and containing identity have different substitution domains.
+            // A branch-local alias can disappear while another place still holds
+            // the same value on both paths. Rename the changed place, not that value.
+            if !stable_values.contains(value) {
+                insert_replacement(map, value, joined);
+            }
+
+            for identity in [value, value.owner_identity()] {
+                if identity != joined.owner_identity() && !stable_identities.contains(identity) {
+                    insert_replacement(identities, identity, joined.owner_identity());
+                }
+            }
+        }
+    }
+
+    if joins {
+        target.join_values(&left, &left_identities);
+
+        let incoming = incoming_joined.to_mut();
+
+        incoming.join_values(&right, &right_identities);
+
+        for (condition, holds) in joined_facts {
+            condition.clone().assume(holds, &mut target.assumptions);
+            condition.assume(holds, &mut incoming.assumptions);
+        }
+
+        for (place, value) in joined_values {
+            changed |= target.current.get(&place) != Some(&value);
+            target.current.insert(place.clone(), value.clone());
+            incoming.current.insert(place, value);
+        }
+    }
+
+    (incoming_joined, changed)
 }
 
 fn merge_values<K: Ord + Clone>(
@@ -395,5 +442,39 @@ mod tests {
                 .component(component),
             ExecutionCondition::Unknown
         );
+    }
+
+    #[test]
+    fn disappearing_alias_does_not_rename_a_surviving_observation() {
+        use crate::analysis::guarantee::state::ExecutionState;
+        use crate::analysis::id::AnalysisBlockId;
+
+        let original = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let alias = ExecutionPlace::argument(SymbolOrdinal::new(1));
+        let value = ExecutionCondition::Input(original.clone());
+        let mut left = ExecutionState::default();
+
+        left.current.insert(original.clone(), value.clone());
+        left.current.insert(alias.clone(), value.clone());
+        left.assumptions.insert((value.clone(), true));
+
+        let mut right = ExecutionState::default();
+
+        right.current.insert(original.clone(), value.clone());
+        right.assumptions.insert((value.clone(), true));
+
+        let mut merged = Some(left);
+
+        super::merge(
+            &mut merged,
+            &Some(right),
+            Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 0)),
+        );
+
+        let merged = merged.expect("both predecessors are reachable");
+
+        assert_eq!(merged.current[&original], value);
+        assert_eq!(merged.current[&alias], ExecutionCondition::Unknown);
+        assert!(merged.assumptions.contains(&(value, true)));
     }
 }

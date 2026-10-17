@@ -100,6 +100,8 @@ pub enum SelectionCandidateRejectionReason {
     ConstructionInput(SelectionConstructionInputRejection),
     /// The selected operation does not match the source expression form.
     ExpressionForm,
+    /// A contract-only predicate was called outside predicate-expression context.
+    PredicateOutsideContract,
     /// A required implementation is unavailable for this candidate.
     RequiredImplementation,
     /// A language-defined operation required by this candidate is unavailable.

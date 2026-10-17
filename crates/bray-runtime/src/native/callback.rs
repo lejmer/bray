@@ -240,7 +240,12 @@ mod tests {
         assert_eq!(outcome.state(), NativeRunState::PANICKED);
 
         assert_eq!(
-            outcome.take_report().take_parts().0.cause(),
+            outcome
+                .take_report()
+                .take_parts()
+                .0
+                .expect("callback panic owns a primary")
+                .cause(),
             bray_runtime_abi::NativePanicCause::ALLOCATION_FAILURE
         );
     }

@@ -30,7 +30,15 @@ pub fn predicate_conditions(
     values: &SemanticValueStore,
 ) -> Result<Vec<(BoundExpressionId, ExecutionCondition, bool)>, bray_symbols::SemanticValueStoreError>
 {
-    predicate_conditions_with_inputs(unit, semantics, patterns, values, &BTreeMap::new(), None)
+    predicate_conditions_with_inputs(
+        unit,
+        semantics,
+        patterns,
+        values,
+        &BTreeMap::new(),
+        None,
+        None,
+    )
 }
 
 /// Normalizes contract type clauses using exact declaration-local input placeholders.
@@ -41,6 +49,9 @@ pub fn predicate_conditions_with_inputs(
     values: &SemanticValueStore,
     inputs: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     storage: Option<(&bray_bound_tree::StoragePlan, &bray_bound_tree::StorageFlow)>,
+    predicates: Option<
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::ConstantTermId>,
+    >,
 ) -> Result<Vec<(BoundExpressionId, ExecutionCondition, bool)>, bray_symbols::SemanticValueStoreError>
 {
     let roots = match unit.root() {
@@ -107,6 +118,7 @@ pub fn predicate_conditions_with_inputs(
             &references,
             root,
             &mut { crate::ExecutionCondition::WORK_LIMIT },
+            predicates,
         );
 
         let is_trusted = trusted || contains_trusted_condition(unit, root);

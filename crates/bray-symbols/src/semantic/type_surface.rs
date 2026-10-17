@@ -6,6 +6,18 @@ use crate::{
     MemberLookupIndex, MemberLookupResult, NamedTypeSymbolId, TargetPropertyDependency,
 };
 
+/// Cleanup declared by a named type, before inspecting its represented parts.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TypeLifecycle {
+    /// No declared cleanup or scoped-use behavior.
+    #[default]
+    None,
+    /// Synchronous destruction without graceful finalization or scoped-use duties.
+    Destruction,
+    /// Finalization or scoped-use behavior, possibly with destruction as well.
+    Graceful,
+}
+
 /// Identifies one type-wide lifecycle declaration category.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TypeAssociatedLifecycleSlot {

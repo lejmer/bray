@@ -244,12 +244,6 @@ fn push_contract_violation(
 
             "semantic_query_missing_checked_template_node"
         }
-        Violation::UnexpectedBoundUnitRoot { expected, actual } => {
-            context.push(text_field("expected", expected.as_str()));
-            context.push(identity_field("actual", actual));
-
-            "semantic_query_unexpected_bound_unit_root"
-        }
         Violation::UnexpectedWalkOutcome(actual) => {
             match actual {
                 bray_bound_tree::BoundWalkOutcome::Completed => {
@@ -612,7 +606,6 @@ const fn semantic_data_kind(kind: SemanticDataKind) -> &'static str {
         SemanticDataKind::ConstantDefinition => "constant_definition",
         SemanticDataKind::ConstantTerm => "constant_term",
         SemanticDataKind::DeclarationRecord => "declaration_record",
-        SemanticDataKind::DependencyContract => "dependency_contract",
         SemanticDataKind::ExecutionEvidence => "execution_evidence",
         SemanticDataKind::GenericConstraint => "generic_constraint",
         SemanticDataKind::GenericSubstitution => "generic_substitution",

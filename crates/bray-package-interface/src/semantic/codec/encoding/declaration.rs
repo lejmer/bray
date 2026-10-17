@@ -80,6 +80,11 @@ pub(super) fn encode_declaration_semantics(
                 crate::semantic::codec::common::write_string(encoder, name.as_str());
                 encoder.write_u32(ty.raw());
             }
+
+            crate::semantic::codec::common::write_optional_u32(
+                encoder,
+                definition.condition.map(|term| term.raw()),
+            );
         },
     );
 

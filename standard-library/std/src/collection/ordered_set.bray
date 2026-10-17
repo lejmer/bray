@@ -130,7 +130,8 @@ struct OrderedSet<Value>
             case ?index
             {
                 let item: OrderedSetItem<Value> = trusted ordered_tree_take_item<OrderedSetItem<Value>>(
-                    &mut self.tree,
+                    &mut self.tree.nodes,
+                    &mut self.tree.items,
                     index = index,
                 );
 

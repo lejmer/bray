@@ -629,9 +629,23 @@ mod tests {
 
         let effects = [
             DependencyStorageEffect::Cleanup(crate::InterfaceTypeId::new(0)),
+            DependencyStorageEffect::Escape,
+            DependencyStorageEffect::Direct {
+                subject: subject.clone(),
+                kind: DependencyMutationKind::Escape,
+            },
+            DependencyStorageEffect::Indirect {
+                reference: subject.clone(),
+                projections: [].into(),
+                kind: DependencyMutationKind::Escape,
+            },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Write,
+            },
+            DependencyStorageEffect::Direct {
+                subject: subject.clone(),
+                kind: DependencyMutationKind::Clear,
             },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
@@ -640,6 +654,10 @@ mod tests {
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Atomic,
+            },
+            DependencyStorageEffect::Direct {
+                subject: subject.clone(),
+                kind: DependencyMutationKind::Replace(crate::InterfaceTypeId::new(0)),
             },
             DependencyStorageEffect::Indirect {
                 reference: subject,
@@ -671,7 +689,7 @@ mod tests {
         let imported = decoded.intern(&store, &resolver(&surface)).unwrap();
         let template = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
 
-        assert_eq!(template.effects().len(), 5);
+        assert_eq!(template.effects().len(), 10);
 
         assert_eq!(
             store
@@ -682,14 +700,40 @@ mod tests {
 
         assert!(!template.normal_completion());
 
+        assert!(
+            template
+                .effects()
+                .contains(&DependencyStorageEffect::Escape)
+        );
+
+        assert!(template.effects().iter().any(|effect| matches!(
+            effect,
+            DependencyStorageEffect::Direct {
+                kind: DependencyMutationKind::Escape,
+                ..
+            }
+        )));
+
+        assert!(template.effects().iter().any(|effect| matches!(
+            effect,
+            DependencyStorageEffect::Indirect {
+                kind: DependencyMutationKind::Escape,
+                ..
+            }
+        )));
+
         assert_eq!(
             template.effects()[0],
             DependencyStorageEffect::Cleanup(imported.types()[0])
         );
 
+        assert!(template.effects().iter().any(|effect| matches!(effect,
+            DependencyStorageEffect::Direct { kind: DependencyMutationKind::Replace(ty), .. }
+                if *ty == imported.types()[0])));
+
         assert!(
-            matches!(&template.effects()[4], DependencyStorageEffect::Indirect { projections, kind: DependencyMutationKind::Retire, .. }
-            if projections.as_ref() == [bray_symbols::DependencyProjection::Element(imported.constant_terms()[0])])
+            template.effects().iter().any(|effect| matches!(effect, DependencyStorageEffect::Indirect { projections, kind: DependencyMutationKind::Retire, .. }
+            if projections.as_ref() == [bray_symbols::DependencyProjection::Element(imported.constant_terms()[0])]))
         );
     }
 

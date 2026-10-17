@@ -230,6 +230,7 @@ impl Drop for NativePanicMessage {
 pub struct NativePanicPrimary {
     source: NativeSourceAnchor,
     cause: NativePanicCause,
+    present: u32,
     message: NativePanicMessage,
 }
 
@@ -243,17 +244,19 @@ impl NativePanicPrimary {
         Self {
             cause,
             source,
+            present: 1,
             message,
         }
     }
 
     /// Creates an empty primary for an unpublished destination.
     pub const fn empty() -> Self {
-        Self::new(
-            NativePanicCause::MESSAGE,
-            NativeSourceAnchor::unavailable(),
-            NativePanicMessage::empty(),
-        )
+        Self {
+            cause: NativePanicCause::MESSAGE,
+            source: NativeSourceAnchor::unavailable(),
+            present: 0,
+            message: NativePanicMessage::empty(),
+        }
     }
 
     /// Returns the structured cause.
@@ -288,7 +291,7 @@ impl NativePanicPrimary {
     }
 }
 
-/// Caller-owned report header with one inline primary and a detached record chain.
+/// Caller-owned report header with an optional inline primary and a detached record chain.
 #[repr(C)]
 #[derive(Debug)]
 pub struct NativePanicReport {
@@ -325,6 +328,26 @@ impl NativePanicReport {
         }
     }
 
+    /// Adopts a detached record chain without introducing an inline panic.
+    pub const fn from_records(
+        records: crate::NativeReportRecords,
+        consume: NativePanicReportConsumer,
+    ) -> Self {
+        Self {
+            primary: NativePanicPrimary::empty(),
+            head: records.head,
+            tail: records.tail,
+            count: records.count,
+            reserved: 0,
+            consume: Some(consume),
+        }
+    }
+
+    /// Returns whether this report owns an inline panic primary.
+    pub const fn has_primary(&self) -> bool {
+        self.primary.present != 0
+    }
+
     /// Transfers detached record ownership into this report.
     pub fn set_outgoing(&mut self, head: usize, tail: usize, count: usize) {
         assert_eq!(
@@ -358,11 +381,14 @@ impl NativePanicReport {
     }
 
     /// Transfers the primary and detached record identities to their owning consumer.
-    pub fn take_parts(&mut self) -> (NativePanicPrimary, usize, usize, usize, usize) {
+    pub fn take_parts(&mut self) -> (Option<NativePanicPrimary>, usize, usize, usize, usize) {
         self.consume = None;
 
+        let primary = std::mem::replace(&mut self.primary, NativePanicPrimary::empty());
+        let primary = (primary.present != 0).then_some(primary);
+
         (
-            std::mem::replace(&mut self.primary, NativePanicPrimary::empty()),
+            primary,
             std::mem::take(&mut self.head),
             std::mem::take(&mut self.tail),
             std::mem::take(&mut self.count),
@@ -409,11 +435,77 @@ mod tests {
         });
 
         assert_abi_layout!(NativePanicPrimary, size: 96, align: 8, fields: {
-            source: 0, cause: 56, message: 64,
+            source: 0, cause: 56, present: 60, message: 64,
         });
 
         assert_abi_layout!(NativePanicReport, size: 136, align: 8, fields: {
             primary: 0, head: 96, tail: 104, count: 112, reserved: 120, consume: 128,
         });
+    }
+
+    #[test]
+    fn absent_primary_is_distinct_from_an_empty_panic_message() {
+        extern "C" fn consume(
+            report: &mut NativePanicReport,
+            _: u32,
+        ) -> crate::NativeRuntimeStatus {
+            drop(report.take_parts());
+
+            crate::NativeRuntimeStatus::SUCCESS
+        }
+
+        let mut absent = NativePanicReport::empty();
+
+        let mut panic = NativePanicReport::new(
+            NativePanicPrimary::new(
+                super::NativePanicCause::MESSAGE,
+                NativeSourceAnchor::unavailable(),
+                NativePanicMessage::empty(),
+            ),
+            consume,
+        );
+
+        assert!(!absent.has_primary());
+        assert!(absent.take_parts().0.is_none());
+        assert!(panic.has_primary());
+
+        assert_eq!(
+            panic.take_parts().0.expect("explicit panic").cause(),
+            super::NativePanicCause::MESSAGE
+        );
+
+        assert!(!panic.has_primary());
+    }
+
+    #[test]
+    fn chain_only_report_transfers_all_records_to_its_consumer_once() {
+        extern "C" fn consume(
+            report: &mut NativePanicReport,
+            _: u32,
+        ) -> crate::NativeRuntimeStatus {
+            let (primary, head, tail, count, reserved) = report.take_parts();
+
+            if primary.is_none() && (head, tail, count, reserved) == (11, 13, 3, 0) {
+                crate::NativeRuntimeStatus::PANICKED
+            } else {
+                crate::NativeRuntimeStatus::INVALID_ARGUMENT
+            }
+        }
+
+        let mut report = NativePanicReport::from_records(
+            crate::NativeReportRecords {
+                head: 11,
+                tail: 13,
+                count: 3,
+            },
+            consume,
+        );
+
+        assert!(!report.has_primary());
+        assert!(!report.has_reservation());
+        assert_eq!(report.outgoing_count(), 3);
+        assert_eq!(report.consume(false), crate::NativeRuntimeStatus::PANICKED);
+        assert_eq!(report.consume(false), crate::NativeRuntimeStatus::SUCCESS);
+        assert_eq!(report.outgoing_count(), 0);
     }
 }

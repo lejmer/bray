@@ -4,6 +4,7 @@
 
 mod cleanup_loop;
 mod cleanup_outcome;
+mod continuation;
 mod host;
 mod identity;
 mod input;
@@ -19,6 +20,6 @@ pub use input::LoweringInput;
 pub use lowering::{LoweringError, lower_execution_requirements, lower_unit};
 pub use result::{CompileTimeUnit, LoweredUnit};
 pub use synthetic::{
-    HeapStorageLoweringInput, HeapStorageMethod, LoweredLifecycle, SyntheticLoweringContext,
-    SyntheticLoweringError, lower_heap_storage, lower_lifecycle,
+    HeapStorageLoweringInput, HeapStorageMethod, SyntheticLoweringContext, SyntheticLoweringError,
+    lower_heap_storage, lower_lifecycle,
 };

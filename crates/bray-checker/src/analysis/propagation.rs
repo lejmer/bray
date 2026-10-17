@@ -42,11 +42,7 @@ where
             }),
         );
 
-        self.push_exit(
-            failure,
-            AnalysisExitKind::ResultErrorPropagation,
-            expression.into(),
-        );
+        self.finish_propagation(failure, expression);
 
         self.push_bound(success, expression.into());
 
@@ -56,7 +52,6 @@ where
     pub(super) fn build_nullable_propagation(
         &mut self,
         expression: BoundExpressionId,
-        subject: BoundExpressionId,
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
         let success = self.push_block();
@@ -66,9 +61,9 @@ where
             current,
             success,
             AnalysisEdgeKind::NullablePresent,
-            Some(AnalysisRefinement::NullablePresence {
-                expression: subject,
-                is_present: true,
+            Some(AnalysisRefinement::PropagationOutcome {
+                expression,
+                succeeded: true,
             }),
         );
 
@@ -76,21 +71,44 @@ where
             current,
             failure,
             AnalysisEdgeKind::NullableAbsent,
-            Some(AnalysisRefinement::NullablePresence {
-                expression: subject,
-                is_present: false,
+            Some(AnalysisRefinement::PropagationOutcome {
+                expression,
+                succeeded: false,
             }),
         );
 
         self.push_bound(success, expression.into());
 
-        self.push_exit(
-            failure,
-            AnalysisExitKind::ResultErrorPropagation,
-            expression.into(),
-        );
+        self.finish_propagation(failure, expression);
 
         Some(Some(success))
+    }
+
+    fn finish_propagation(&mut self, failure: AnalysisBlockId, expression: BoundExpressionId) {
+        if let Some(SemanticSelection::Propagation(selection)) = self
+            .selections()
+            .and_then(|selections| selections.expression(expression))
+            && let Some(bray_bound_tree::SelectedPropagationBoundary::YieldRegion(target)) =
+                selection.boundary()
+        {
+            let continuation = self.push_control_transfer(
+                expression,
+                failure,
+                bray_bound_tree::BoundControlTransferKind::Yield,
+                Some(target),
+            );
+
+            assert!(
+                continuation.is_none(),
+                "checked propagation targets a single-yield result region"
+            );
+        } else {
+            self.push_exit(
+                failure,
+                AnalysisExitKind::ResultErrorPropagation,
+                expression.into(),
+            );
+        }
     }
 
     pub(super) fn build_result_or_run_result_propagation(

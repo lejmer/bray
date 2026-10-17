@@ -68,16 +68,7 @@ impl SelectedReceiver {
         &self,
         values: &bray_symbols::SemanticValueStore,
     ) -> Result<bray_symbols::TypeId, bray_symbols::SemanticValueStoreError> {
-        let kind = match self.mode {
-            ReceiverMode::Shared => bray_symbols::BorrowKind::Shared,
-            ReceiverMode::Mutable => bray_symbols::BorrowKind::Mutable,
-            ReceiverMode::Consuming | ReceiverMode::ConsumingMutable => return Ok(self.target_type),
-        };
-
-        values.intern_type(bray_symbols::TypeData::Borrow {
-            kind,
-            target: self.target_type,
-        })
+        self.mode.input_type(values, self.target_type)
     }
 }
 

@@ -152,7 +152,10 @@ impl BoundCallDependencyContracts {
             input_count: 0,
             deferred,
             references: Vec::new(),
-            effects: Arc::new([bray_symbols::DependencyStorageEffect::Unknown]),
+            effects: Arc::new([
+                bray_symbols::DependencyStorageEffect::Unknown,
+                bray_symbols::DependencyStorageEffect::Escape,
+            ]),
             retained_inputs: None,
             reference_paths: BTreeMap::new(),
             normal_completion: true,

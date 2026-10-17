@@ -1,5 +1,5 @@
 use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
-use bray_ir::MirStandardLibraryHelper;
+use bray_ir::{MirHelperReference, MirStandardLibraryHelper};
 use bray_lowering::SyntheticLoweringContext;
 use bray_symbols::{
     AvailableCompilerKnownSymbols, CallableInstanceData, ConstantTermId,
@@ -49,15 +49,12 @@ impl SyntheticLoweringContext for CompilationSyntheticLoweringContext<'_> {
 
         if phase == bray_bound_tree::LifecyclePhase::Finalize
             && let bray_bound_tree::LifecycleAction::Call(callable) = action
-            && callable.execution == bray_symbols::CallableExecution::Synchronous
-            && callable.result
-                == self
-                    .compilation
-                    .codegen_representation_type(RepresentationRole::Unit)?
-            && self
-                .compilation
-                .pure_total_execution(callable.callable, None, self.cancellation)?
-                .is_some()
+            && self.compilation.finalizer_is_complete(
+                callable.callable,
+                callable.result,
+                None,
+                self.cancellation,
+            )?
         {
             return Ok(bray_bound_tree::LifecycleAction::None);
         }
@@ -141,9 +138,28 @@ impl bray_checker::LifecycleSelectionContext for CompilationSyntheticLoweringCon
     ) -> Result<Option<TypeId>, Self::Error> {
         self.compilation
             .raw_buffer_element(definition, substitution, self.cancellation)
+            .map_err(Into::into)
     }
 
     fn representation_role(&self, definition: NamedTypeSymbolId) -> Option<RepresentationRole> {
         crate::compilation::foreign::compiler_known_representation(self.compilation, definition)
+    }
+}
+
+impl Compilation {
+    pub(super) fn codegen_lifecycle_action(
+        &self,
+        reference: &MirHelperReference,
+        cancellation: &CancellationToken,
+    ) -> Result<bray_bound_tree::LifecycleAction, CodegenPreparationError> {
+        let role = bray_ir::MirGeneratedLifecycleRole::from_reference(reference)
+            .expect("selected lifecycle helper retains its generated role");
+
+        let ty = reference
+            .lifecycle_type()
+            .expect("selected lifecycle helper retains its concrete owner type");
+
+        CompilationSyntheticLoweringContext::new(self, cancellation)?
+            .lifecycle_action(ty, role.phase())
     }
 }

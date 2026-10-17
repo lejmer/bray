@@ -660,3 +660,75 @@ fn generic_static_failure_uses_its_selected_overaligned_requirement() {
         );
     }
 }
+
+#[test]
+fn static_incident_destroyer_initializes_both_outcomes_before_calling_cleanup() {
+    for destructor in ["", "panic(\"destruction failed\");"] {
+        let source = r#"
+            module app;
+
+            struct Failure {
+                value: u8;
+                destruct() {
+                    DESTRUCTOR
+                }
+            }
+
+            struct Resource {
+                value: i32;
+                finalize() -> Result<unit, Failure> {
+                    return Error(Failure { value = 7 });
+                }
+                destruct() {}
+            }
+
+            static RESOURCE: Resource = { value = 42 };
+            func main() {}
+        "#
+        .replace("DESTRUCTOR", destructor);
+
+        let (backend, plan) = runtime_native_plan(&source);
+
+        let artifacts = generated_artifacts_of_kind(
+            &backend,
+            &plan,
+            bray_codegen::BackendArtifactKind::BackendIr,
+        );
+
+        let ir = artifacts
+            .iter()
+            .map(|artifact| String::from_utf8_lossy(artifact))
+            .collect::<String>();
+
+        let callback = ir
+            .split("\ndefine ")
+            .find(|body| {
+                body.lines()
+                    .next()
+                    .is_some_and(|header| header.contains(".incident.destroy"))
+            })
+            .expect("fallible static cleanup emits its incident destroyer")
+            .split_once("\n}")
+            .expect("LLVM function has a closing brace")
+            .0;
+
+        let (before_cleanup, _) = callback
+            .split_once("@bray_lifecycle_")
+            .expect("incident destructor invokes the selected cleanup");
+
+        let outcome_size = std::mem::size_of::<bray_runtime_abi::NativeRunOutcome>();
+
+        for destination in ["%1", "%2"] {
+            assert!(
+                before_cleanup.lines().any(|line| {
+                    (line.trim_start().starts_with("store ")
+                        && line.contains("zeroinitializer")
+                        && line.contains(&format!("ptr {destination},")))
+                        || (line.contains("@llvm.memset.")
+                            && line.contains(&format!("{destination}, i8 0, i64 {outcome_size},")))
+                }),
+                "{destructor:?}, {destination}: {callback}"
+            );
+        }
+    }
+}

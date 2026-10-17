@@ -14,6 +14,8 @@ use crate::{
 pub enum MirGeneratedLifecycleRole {
     /// Runs semantic finalization.
     Finalize,
+    /// Resolves child runs without consuming the retained incident.
+    Quiesce,
     /// Runs semantic finalization while preserving its completion.
     StaticFinalize,
     /// Runs semantic destruction.
@@ -23,10 +25,30 @@ pub enum MirGeneratedLifecycleRole {
 }
 
 impl MirGeneratedLifecycleRole {
+    /// Returns the semantic operation implemented by this generated role.
+    pub const fn phase(self) -> bray_bound_tree::LifecyclePhase {
+        use bray_bound_tree::LifecyclePhase;
+
+        match self {
+            MirGeneratedLifecycleRole::Finalize | MirGeneratedLifecycleRole::StaticFinalize => {
+                LifecyclePhase::Finalize
+            }
+            MirGeneratedLifecycleRole::Destroy => LifecyclePhase::Destroy,
+            MirGeneratedLifecycleRole::Quiesce => LifecyclePhase::Quiesce,
+            MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
+                LifecyclePhase::Cancel
+            }
+            MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::LifecycleResolution) => {
+                LifecyclePhase::Resolve
+            }
+        }
+    }
+
     /// Returns the stable role represented by an exact lifecycle helper reference.
     pub const fn from_reference(reference: &MirHelperReference) -> Option<Self> {
         match reference {
             MirHelperReference::Finalize(_) => Some(Self::Finalize),
+            MirHelperReference::Quiesce(_) => Some(Self::Quiesce),
             MirHelperReference::StaticFinalize(_) => Some(Self::StaticFinalize),
             MirHelperReference::Destroy(_) => Some(Self::Destroy),
             MirHelperReference::Cleanup { phase, .. } => Some(Self::Cleanup(*phase)),

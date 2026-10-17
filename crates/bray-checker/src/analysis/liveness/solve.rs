@@ -186,23 +186,29 @@ fn collect_liveness(
                 exit,
                 phase: AnalysisScopeExitPhase::LifecycleResolution,
                 preserves_exit_value,
+                ..
             } = operation.kind()
             {
-                live_across_scopes.extend(
-                    state
-                        .iter()
+                let retained = state.iter().copied().chain(
+                    effects
+                        .retained_at_exit(exit)
                         .copied()
-                        .chain(
-                            effects
-                                .retained_at_exit(exit)
-                                .copied()
-                                .filter(|_| preserves_exit_value),
-                        )
-                        .map(|subject| LiveAcrossScope::new(block, exit, subject)),
+                        .filter(|_| preserves_exit_value),
                 );
+
+                for subject in retained {
+                    live_across_scopes.push(LiveAcrossScope::new(block, exit, subject));
+
+                    if let Some(occurrence) = operation.cleanup_suspension() {
+                        live_across_suspensions
+                            .push(LiveAcrossSuspension::new(occurrence, subject));
+                    }
+                }
             }
 
-            if let AnalysisOperationKind::Suspension { occurrence, .. } = operation.kind() {
+            if !matches!(operation.kind(), AnalysisOperationKind::ScopeExit { .. })
+                && let Some(occurrence) = operation.suspension()
+            {
                 live_across_suspensions.extend(
                     state
                         .iter()
@@ -806,7 +812,7 @@ mod tests {
         let storage = builder.finish();
         let mut effects = OperationEffects::from_storage_plan(&bound_unit, &storage, &memory);
 
-        effects.retain_invocation_input_dependencies(&bound_unit);
+        effects.retain_input_dependencies(&bound_unit);
 
         let Some(effect) = effects.effect(AnyBoundNodeId::Expression(*call)) else {
             panic!("call input retention must produce one operation effect");

@@ -420,6 +420,7 @@ impl DependencyContractTemplateData {
             .chain(self.effects().iter().filter_map(|effect| match effect {
                 DependencyStorageEffect::Atomic
                 | DependencyStorageEffect::Unknown
+                | DependencyStorageEffect::Escape
                 | DependencyStorageEffect::Cleanup(_) => None,
                 DependencyStorageEffect::Direct { subject, .. } => Some(subject),
                 DependencyStorageEffect::Indirect { reference, .. } => Some(reference),
@@ -433,7 +434,10 @@ impl DependencyContractTemplateData {
             borrows: Arc::new([]),
             returned_input: None,
             carriers: Arc::new([]),
-            effects: Arc::new([super::DependencyStorageEffect::Unknown]),
+            effects: Arc::new([
+                super::DependencyStorageEffect::Unknown,
+                super::DependencyStorageEffect::Escape,
+            ]),
             normal_completion: true,
         }
     }

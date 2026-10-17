@@ -171,6 +171,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 None
             }
+            MirOperationKind::Quiesce(place) => {
+                self.translate_lifecycle_helper(
+                    id,
+                    MirHelperReference::Quiesce(place.ty()),
+                    place,
+                )?;
+
+                None
+            }
             MirOperationKind::Finalize(place) => {
                 self.translate_lifecycle_helper(
                     id,
@@ -477,6 +486,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 resume_state,
                 frame,
                 completion,
+                abandoning,
                 ..
             } => {
                 let frame = self.native_inactive_frame(frame)?;
@@ -500,7 +510,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "awaited.destination",
                 ))?;
 
-                self.invoke_native_runtime(runtime, &[frame, state.into(), address.into()])
+                let abandoning = self
+                    .types
+                    .context()
+                    .i8_type()
+                    .const_int(u64::from(*abandoning), false);
+
+                self.invoke_native_runtime(
+                    runtime,
+                    &[frame, state.into(), address.into(), abandoning.into()],
+                )
             }
             MirAsyncOperation::CommitAwaitedCompletion { child, completion } => {
                 let runtime = self.operation_runtime_helper(

@@ -188,8 +188,24 @@ pub(super) fn declare_static_incident_destroyer<'context>(
 
     let destruction_outcome = callback
         .get_nth_param(1)
-        .expect("static-storage realization requires an established mapping or value")
+        .expect("incident destructor receives its destruction outcome")
         .into_pointer_value();
+
+    let release_outcome = callback
+        .get_nth_param(2)
+        .expect("incident destructor receives its backing-release outcome")
+        .into_pointer_value();
+
+    // Both destinations are write-only at this boundary. A successful source call
+    // may leave its failure context untouched, and backing release returns a status.
+    for outcome in [destruction_outcome, release_outcome] {
+        builder
+            .build_store(
+                outcome,
+                crate::native::run_outcome_type(context, types.target()).const_zero(),
+            )
+            .map_err(CodegenFailure::backend_library)?;
+    }
 
     let cleanup = mapping
         .finalization()

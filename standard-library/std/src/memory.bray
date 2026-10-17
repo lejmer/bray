@@ -499,12 +499,6 @@ struct RawBuffer<T>
 
         return Ok(buffer);
     }
-
-    trusted destruct()
-        uses(manual_alloc)
-    {
-        trusted raw_buffer_release<T>(&mut self);
-    }
 }
 
 // Detach the allocation and initialized prefix without running element cleanup.

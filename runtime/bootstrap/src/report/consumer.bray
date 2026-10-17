@@ -61,6 +61,7 @@ trusted internal func report_primary_value(pos report: PanicReportData) -> Repor
         source_namespace_word_2 = report.source_namespace_word_2,
         source_namespace_word_3 = report.source_namespace_word_3,
         cause = report.cause,
+        primary_present = report.primary_present,
         message = report.message,
         message_length = report.message_length,
         copy_message = report.copy_message,
@@ -277,7 +278,7 @@ trusted internal func consume_primary(
 
     loop
     {
-        if reporting != 0
+        if reporting != 0 && primary.primary_present != 0
         {
             let found: u32 = trusted bray.runtime.bootstrap.report.output.primary(&primary, copy);
 

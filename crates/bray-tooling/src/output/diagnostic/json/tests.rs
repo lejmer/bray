@@ -1780,3 +1780,54 @@ fn native_artifact_read_json_preserves_typed_path_and_io_cause() {
             && field["value"]["value"] == "permission_denied")
     );
 }
+
+#[test]
+fn finalization_diagnostics_preserve_owner_and_ownership_end() {
+    let span = SourceSpan::new(
+        bray_source::SourceId::new(0),
+        TextRange::new(TextSize::new(10), TextSize::new(11)),
+    );
+
+    for (kind, code, key) in [
+        (
+            DiagnosticKind::CheckingUnresolvedFinalization,
+            7125,
+            "checking_unresolved_finalization",
+        ),
+        (
+            DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
+            7126,
+            "checking_async_finalization_outside_async_callable",
+        ),
+    ] {
+        let diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
+            .with_primary_span(span)
+            .with_arg(DiagnosticArg::actual_type(DiagnosticType::Named(
+                DiagnosticNamedType::new([String::from("Value")], []),
+            )))
+            .with_label(bray_diagnostics::DiagnosticLabel::primary(
+                bray_diagnostics::DiagnosticLabelKind::UnresolvedFinalization,
+                span,
+            ))
+            .with_note(DiagnosticNote::new(DiagnosticNoteKind::ResolveFinalization));
+
+        let mut output = Vec::new();
+
+        write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output).unwrap();
+
+        let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+        let diagnostic = &json["diagnostics"][0];
+
+        assert_eq!(diagnostic["kind"], key);
+        assert_eq!(diagnostic["code"], code);
+        assert_eq!(diagnostic["args"][0]["name"], "actual_type");
+
+        assert_eq!(
+            diagnostic["args"][0]["value"]["value"]["path"],
+            serde_json::json!(["Value"])
+        );
+
+        assert_eq!(diagnostic["labels"][0]["kind"], "unresolved_finalization");
+        assert_eq!(diagnostic["notes"][0]["kind"], "resolve_finalization");
+    }
+}

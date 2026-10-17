@@ -655,6 +655,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             13 => Ok(MirOperationKind::Text(self.text_operation()?)),
             14 => Ok(MirOperationKind::PanicReport(self.panic_cause()?)),
             15 => Ok(MirOperationKind::Finalize(self.place()?)),
+            25 => Ok(MirOperationKind::Quiesce(self.place()?)),
             16 => Ok(MirOperationKind::Destroy(self.place()?)),
             17 => Ok(MirOperationKind::Cleanup {
                 phase: self.cleanup_phase()?,
@@ -1849,6 +1850,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 resume_state: bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?),
                 frame: self.operand()?,
                 completion: self.storage_id()?,
+                abandoning: read_bool(&mut self.reader)?,
             }),
             4 => Ok(Operation::CommitAwaitedCompletion {
                 child: self.frame_reference()?,

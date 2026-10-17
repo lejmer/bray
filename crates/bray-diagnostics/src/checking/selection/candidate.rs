@@ -312,6 +312,8 @@ pub enum DiagnosticSelectionRejectionReason {
     ConstructionInput(DiagnosticConstructionInputRejection),
     /// The candidate operation does not match the source expression form.
     ExpressionForm,
+    /// A contract-only predicate was called outside predicate-expression context.
+    PredicateOutsideContract,
     /// A required implementation is unavailable for the candidate.
     RequiredImplementation,
     /// A language-defined operation required by the candidate is unavailable.

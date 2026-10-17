@@ -122,10 +122,15 @@ pub(super) fn imported_callable_parameter_default(
     ))
 }
 
-pub(super) fn imported_predicate_definition_state(
+pub(super) fn imported_predicate_definition_summary(
     context: &CompilationBindingContext<'_>,
     address: ImportedSemanticAddress,
-) -> BindingQueryResult<DiagnosticResult<InterfacePredicateDefinitionState>> {
+) -> BindingQueryResult<
+    DiagnosticResult<(
+        InterfacePredicateDefinitionState,
+        Option<bray_symbols::ConstantTermId>,
+    )>,
+> {
     let result = imported_records(
         context,
         address,
@@ -141,7 +146,7 @@ pub(super) fn imported_predicate_definition_state(
     };
 
     Ok(DiagnosticResult::new(
-        definition.state(),
+        (definition.state(), definition.condition()),
         result.diagnostics().clone(),
     ))
 }

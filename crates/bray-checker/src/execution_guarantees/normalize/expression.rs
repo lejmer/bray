@@ -24,6 +24,9 @@ pub(crate) fn expression_condition(
     evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     expression: BoundExpressionId,
     budget: &mut usize,
+    predicates: Option<
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::ConstantTermId>,
+    >,
 ) -> ExecutionCondition {
     let Some(next) = budget.checked_sub(1) else {
         return ExecutionCondition::Unknown;
@@ -49,6 +52,7 @@ pub(crate) fn expression_condition(
 
     if let Some(condition) = selected_condition(
         unit, semantics, values, literals, patterns, current, evaluated, expression, budget,
+        predicates,
     ) {
         return condition;
     }
@@ -57,6 +61,7 @@ pub(crate) fn expression_condition(
         constructed_condition(expression, bound, semantics, values, &mut |source| {
             expression_condition(
                 unit, semantics, values, literals, patterns, current, evaluated, source, budget,
+                predicates,
             )
         })
     {
@@ -72,6 +77,7 @@ pub(crate) fn expression_condition(
         &mut |source| {
             expression_condition(
                 unit, semantics, values, literals, patterns, current, evaluated, source, budget,
+                predicates,
             )
         },
     ) {
@@ -81,6 +87,7 @@ pub(crate) fn expression_condition(
     if let Some(condition) = conversion_condition(expression, bound, semantics, &mut |source| {
         expression_condition(
             unit, semantics, values, literals, patterns, current, evaluated, source, budget,
+            predicates,
         )
     }) {
         return condition;
@@ -111,6 +118,7 @@ pub(crate) fn expression_condition(
                     evaluated,
                     member.receiver(),
                     budget,
+                    predicates,
                 )
                 .project(bray_bound_tree::StorageProjection::TupleElement(
                     bray_symbols::SymbolOrdinal::new(*index),
@@ -146,6 +154,7 @@ pub(crate) fn expression_condition(
                 evaluated,
                 member.receiver(),
                 budget,
+                predicates,
             );
 
             ExecutionCondition::field(target.member(), receiver)
@@ -170,7 +179,7 @@ pub(crate) fn expression_condition(
                 .map(|operand| {
                     expression_condition(
                         unit, semantics, values, literals, patterns, current, evaluated, *operand,
-                        budget,
+                        budget, predicates,
                     )
                 })
                 .collect();
@@ -193,6 +202,7 @@ pub(crate) fn expression_condition(
 
             let index = expression_condition(
                 unit, semantics, values, literals, patterns, current, evaluated, *index, budget,
+                predicates,
             );
 
             let ExecutionCondition::Literal(index) = index else {
@@ -209,6 +219,7 @@ pub(crate) fn expression_condition(
 
             expression_condition(
                 unit, semantics, values, literals, patterns, current, evaluated, *receiver, budget,
+                predicates,
             )
             .project(bray_bound_tree::StorageProjection::ElementFromStart(
                 bray_symbols::SymbolOrdinal::new(index),
@@ -228,6 +239,7 @@ pub(crate) fn expression_condition(
 
             let value = expression_condition(
                 unit, semantics, values, literals, patterns, current, evaluated, *operand, budget,
+                predicates,
             );
 
             match operation.kind() {
@@ -389,6 +401,7 @@ fn name_condition(
     match target {
         BoundReferenceTarget::Surface(
             AnySymbolId::CallableParameter(_)
+            | AnySymbolId::PredicateParameter(_)
             | AnySymbolId::ReceiverParameter(_)
             | AnySymbolId::GenericConstParameter(_),
         )

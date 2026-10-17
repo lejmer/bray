@@ -13,7 +13,7 @@ use bray_symbols::{
 
 use super::Compilation;
 use super::binder::binding_query_error;
-use crate::fact::FactQueryError;
+use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
     /// Returns the runtime default owned by one callable parameter.
@@ -62,7 +62,16 @@ impl Compilation {
         owner: PredicateDefinitionSymbolId,
     ) -> Result<Arc<DiagnosticResult<PredicateDefinitionState<PredicateDefinition>>>, FactQueryError>
     {
-        let binding_context = self.binding_context(&self.state.cancellation)?;
+        self.predicate_definition_with_cancellation(owner, &self.state.cancellation)
+    }
+
+    pub(in crate::compilation) fn predicate_definition_with_cancellation(
+        &self,
+        owner: PredicateDefinitionSymbolId,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<DiagnosticResult<PredicateDefinitionState<PredicateDefinition>>>, FactQueryError>
+    {
+        let binding_context = self.binding_context(cancellation)?;
 
         match owner {
             PredicateDefinitionSymbolId::Predicate(owner) => binding_context

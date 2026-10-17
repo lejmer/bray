@@ -160,7 +160,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 continue;
             }
 
-            let Some(ty) = storage.identity_type(identity) else {
+            let Some(ty) = storage.storage_type(identity) else {
                 continue;
             };
 

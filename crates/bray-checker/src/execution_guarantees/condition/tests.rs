@@ -244,3 +244,31 @@ fn anonymous_aggregate_contents_do_not_establish_an_observation_identity() {
     assert!(anonymous.owner_identity().observation_path().is_none());
     assert!(changed.owner_identity().observation_path().is_none());
 }
+
+#[test]
+fn ordinary_compound_evidence_cannot_supply_a_trusted_occurrence() {
+    let left = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+    let right = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+
+    for qualified in [false, true] {
+        let right = if qualified {
+            ExecutionCondition::Trusted(Arc::new(right.clone()))
+        } else {
+            right.clone()
+        };
+
+        let condition = ExecutionCondition::operation(
+            bray_bound_tree::BoundOperator::LogicalOr,
+            vec![left.clone(), right],
+        );
+
+        let ordinary = BTreeSet::from([(condition.clone(), true)]);
+
+        assert_eq!(
+            condition.prove_mixed(&BTreeSet::new(), &ordinary, &mut {
+                ExecutionCondition::WORK_LIMIT
+            }),
+            (!qualified).then_some(true)
+        );
+    }
+}

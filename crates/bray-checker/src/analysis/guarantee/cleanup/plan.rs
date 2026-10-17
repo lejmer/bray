@@ -17,6 +17,8 @@ pub(crate) struct Cleanup<'a> {
 
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct Plan {
+    pub(crate) input_finalizers:
+        BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<CallableInstanceData>>,
     pub(in crate::analysis) requirements:
         std::sync::Arc<[bray_bound_tree::AsyncStorageRequirement]>,
     pub(super) replacements:
@@ -47,10 +49,8 @@ pub(super) enum Step {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in crate::analysis) struct Lifecycle {
-    pub(in crate::analysis) callable: CallableInstanceData,
-    pub(in crate::analysis::guarantee) result: TypeId,
+    pub(in crate::analysis) call: bray_bound_tree::LifecycleCallable,
     pub(in crate::analysis::guarantee) receiver: BoundReferenceTarget,
-    pub(in crate::analysis::guarantee) synchronous: bool,
     pub(in crate::analysis) contract: TrustedCallContract,
 }
 
@@ -81,13 +81,148 @@ impl<'a> Cleanup<'a> {
 }
 
 impl Plan {
-    pub(in crate::analysis) fn has_opaque_effects(&self) -> bool {
-        self.steps.iter().any(|(access, steps)| {
-            matches!(
-                self.replacements.get(access),
-                Some(bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_))
-            ) && steps.iter().any(|step| matches!(step, Step::Opaque { .. }))
-        })
+    pub(crate) fn finalizer(&self, ty: TypeId) -> Option<bray_bound_tree::LifecycleCallable> {
+        self.lifecycles
+            .get(&(ty, TypeAssociatedLifecycleSlot::Finalizer))
+            .map(|lifecycle| lifecycle.call)
+    }
+
+    pub(crate) fn asynchronous_scopes(
+        &self,
+        storage: &StoragePlan,
+    ) -> BTreeSet<bray_bound_tree::BoundBlockId> {
+        self.requirements
+            .iter()
+            .filter_map(|requirement| {
+                let scope = requirement.owner()?;
+                let access = storage.root_access(requirement.identity())?;
+
+                self.asynchronous_finalizers(access).next().map(|_| scope)
+            })
+            .collect()
+    }
+
+    pub(crate) fn asynchronous_replacements(
+        &self,
+        storage: &StoragePlan,
+    ) -> BTreeSet<bray_bound_tree::BoundExpressionId> {
+        storage
+            .access_plans()
+            .iter()
+            .filter(|plan| {
+                plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment
+                    && self.asynchronous_finalizers(plan.access()).next().is_some()
+            })
+            .map(|plan| plan.expression())
+            .collect()
+    }
+
+    pub(crate) fn asynchronous_finalizers(
+        &self,
+        access: StorageAccessId,
+    ) -> impl Iterator<Item = CallableInstanceData> + '_ {
+        self.steps
+            .get(&access)
+            .into_iter()
+            .flatten()
+            .filter_map(|step| {
+                let Step::Lifecycle { ty, .. } = step else {
+                    return None;
+                };
+
+                let lifecycle = self
+                    .lifecycles
+                    .get(&(*ty, TypeAssociatedLifecycleSlot::Finalizer))?;
+
+                (lifecycle.call.execution != bray_symbols::CallableExecution::Synchronous)
+                    .then_some(lifecycle.call.callable)
+            })
+    }
+
+    pub(in crate::analysis) fn select_input_finalizers(
+        &mut self,
+        unit: &bray_bound_tree::BoundUnit,
+        storage: &StoragePlan,
+        graph: &crate::analysis::ControlFlowGraph,
+    ) {
+        if !self.lifecycles.iter().any(|((_, slot), lifecycle)| {
+            *slot == TypeAssociatedLifecycleSlot::Finalizer
+                && lifecycle.call.execution == bray_symbols::CallableExecution::Asynchronous
+        }) {
+            return;
+        }
+
+        let exits = graph
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                crate::analysis::AnalysisOperationKind::ScopeExit {
+                    exit: bray_bound_tree::AnyBoundNodeId::Expression(expression),
+                    ..
+                } => Some(expression),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+
+        let mut selected = BTreeMap::<_, BTreeSet<_>>::new();
+
+        for (expression, node) in unit.tree().expressions() {
+            if !matches!(
+                node,
+                bray_bound_tree::BoundExpression::Call(_)
+                    | bray_bound_tree::BoundExpression::StructConstruction(_)
+                    | bray_bound_tree::BoundExpression::BoxConstruction(_)
+            ) {
+                continue;
+            }
+
+            let mut pending = BTreeSet::new();
+
+            for input in node.child_expressions() {
+                // Earlier inputs remain owned while later inputs are evaluated.
+                if !pending.is_empty() {
+                    let walked = bray_bound_tree::walk_bound_tree(unit.tree(), input, |event| {
+                        if let bray_bound_tree::BoundWalkEvent::Enter(
+                            bray_bound_tree::AnyBoundNodeId::Expression(input),
+                        ) = event
+                            && exits.contains(&input)
+                        {
+                            selected
+                                .entry(input)
+                                .or_default()
+                                .extend(pending.iter().copied());
+                        }
+
+                        bray_bound_tree::BoundWalkControl::Continue
+                    });
+
+                    assert_eq!(
+                        walked,
+                        bray_bound_tree::BoundWalkOutcome::Completed,
+                        "pending input cleanup retains its complete bound subtree"
+                    );
+                }
+
+                pending.extend(
+                    storage
+                        .expression_plans(input)
+                        .filter(|plan| {
+                            matches!(
+                                storage.effective_purpose(*plan),
+                                bray_bound_tree::StorageAccessPurpose::Move
+                                    | bray_bound_tree::StorageAccessPurpose::ValueTransfer
+                            )
+                        })
+                        .flat_map(|plan| self.asynchronous_finalizers(plan.access())),
+                );
+            }
+
+            if !pending.is_empty() && exits.contains(&expression) {
+                selected.entry(expression).or_default().extend(pending);
+            }
+        }
+
+        self.input_finalizers = selected;
     }
 
     pub(in crate::analysis) fn represented_paths(
@@ -103,7 +238,7 @@ impl Plan {
     ) -> impl Iterator<Item = bray_symbols::CallableSymbolId> + '_ {
         self.lifecycles
             .values()
-            .map(|lifecycle| lifecycle.callable.definition().callable_symbol())
+            .map(|lifecycle| lifecycle.call.callable.definition().callable_symbol())
     }
 
     pub(crate) fn check_dependencies<C: CheckerRequestContext + ?Sized>(
@@ -117,15 +252,15 @@ impl Plan {
 
         for lifecycle in self.lifecycles.values() {
             if let std::collections::btree_map::Entry::Vacant(entry) =
-                references.entry(lifecycle.callable)
+                references.entry(lifecycle.call.callable)
             {
                 let template = request.callable_result_dependencies(
-                    lifecycle.callable.definition().callable_symbol(),
+                    lifecycle.call.callable.definition().callable_symbol(),
                 )?;
 
                 let template = crate::dependency::resolved_result_template(
                     request,
-                    Some(lifecycle.callable),
+                    Some(lifecycle.call.callable),
                     template,
                 )?;
 
@@ -159,7 +294,7 @@ impl Plan {
                 .into_iter()
                 .filter_map(move |slot| self.lifecycles.get(&(*ty, slot)))
                 .flat_map(move |lifecycle| {
-                    references[&lifecycle.callable]
+                    references[&lifecycle.call.callable]
                         .borrows()
                         .iter()
                         .filter_map(move |relation| {
@@ -255,16 +390,22 @@ impl Plan {
                 .map(|(ty, part)| {
                     let path = part.as_ref().and_then(|part| part.storage_path(storage, access));
 
+                    let source_lifecycle = match request.semantic_values().type_data(ty).as_ref() {
+                        TypeData::Named { definition, substitution } => request.context()
+                            .raw_buffer_element(*definition, *substitution)?.is_none(),
+                        _ => false,
+                    };
+
                     if part.as_ref().is_some_and(|part| {
                         part.release().is_some() || !part.phases().includes_lifecycle()
-                    }) || !matches!(request.semantic_values().type_data(ty).as_ref(), TypeData::Named { .. }) {
-                        Step::Opaque { ty, path }
+                    }) || !source_lifecycle {
+                        Ok(Step::Opaque { ty, path })
                     } else {
                         types.insert(ty);
 
                         let place = path.as_ref().and_then(|path| ExecutionPlace::storage_path(storage, path));
 
-                        Step::Lifecycle {
+                        Ok(Step::Lifecycle {
                             ty,
                             guards: cleanup_guards(request.semantic_values(), storage, access, part.as_ref()),
                             path,
@@ -278,10 +419,10 @@ impl Plan {
                             whole: part
                                 .as_ref()
                                 .is_some_and(|part| part.projections().is_empty()),
-                        }
+                        })
                     }
                 })
-                .collect();
+                .collect::<Result<_, CheckerQueryError<C::UpstreamError>>>()?;
 
             if steps.is_empty() {
                 // Opaque native cleanup has no represented lifecycle whose effects we can apply.
@@ -387,8 +528,7 @@ fn lifecycle(
     }
 
     Ok(Lifecycle {
-        callable: target,
-        result: signature.result(),
+        call: bray_bound_tree::LifecycleCallable::from_signature(values, target, signature)?,
         receiver: BoundReferenceTarget::Surface(
             signature
                 .receiver()
@@ -396,7 +536,6 @@ fn lifecycle(
                 .parameter()
                 .into(),
         ),
-        synchronous: callable.execution() == bray_symbols::CallableExecution::Synchronous,
         contract,
     })
 }

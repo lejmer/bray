@@ -137,6 +137,18 @@ trusted internal func retain_report(pos report: PanicReportData) -> ReportRecord
     requires(trusted bray.runtime.bootstrap.pool.protocol_access(), trusted native_report_callbacks(report = &report))
     uses(intrinsic)
 {
+    if report.primary_present == 0
+    {
+        trusted recycle_reservation(report.reserved);
+
+        return
+        {
+            head = report.outgoing_head,
+            tail = report.outgoing_tail,
+            count = report.outgoing_count
+        };
+    }
+
     let handle: usize = report.reserved;
 
     let mut incident_records: ReportRecords =

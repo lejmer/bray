@@ -1,0 +1,20 @@
+@target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
+trusted internal module std.platform.resource;
+
+/// Closes an ordinary file or pipe descriptor and reports whether it was released.
+trusted internal func close(pos handle: u64) -> (std.platform.PlatformStatus, bool)
+{
+    let descriptor: i32 = match internal std.platform.checked_descriptor(handle)
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return (status, false); }
+    };
+
+    // Linux and Darwin remove these unguarded descriptors before reporting close errors.
+    if trusted std.os.unix.close(descriptor) != 0
+    {
+        return (trusted internal std.platform.unix_error_status(), true);
+    }
+
+    return (internal std.platform.success_status(), true);
+}
